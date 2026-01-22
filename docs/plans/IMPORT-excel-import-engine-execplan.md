@@ -191,4 +191,207 @@ Plan update note (2026-01-21 17:00Z): Add support for combined "Recipe/Ingredien
 
 
 
-## SOME IDEAS - less relevant now as this has been built mostly
+## SOME IDEAS - less relevant now as this has been built
+D) Excel sheets
+High level:
+Treat Excel as already structured.
+•	Map columns into candidate fields (title, ingredients, instructions, etc.), but still store the original row as provenance.
+•	If one sheet contains multiple recipes, generate one candidate per row/recipe.
+Built out:
+D) Excel sheets — how I’d actually build the pipeline
+The “treat Excel as structured” idea is right, but Excel in the wild comes in a few distinct layouts. The key is: detect layout → extract recipe records → map/normalize fields → emit RecipeSage JSON-LD (+ provenance) → validate.
+Below is a concrete, buildable pipeline.
+________________________________________
+1) Excel converter as a first-class plugin
+Implement a source_excel converter that returns a list of RecipeCandidate objects (your staging representation), then a serializer that writes RecipeSage JSON-LD.
+Interface
+•	detect(file) -> confidence
+•	inspect(file) -> workbook summary + inferred mappings + layout guess
+•	convert(file, mapping_config) -> [recipesage_jsonld] + report.json
+CLI hooks
+•	cookimport stage <folder> --out staging/ (auto-detect file types)
+•	cookimport inspect <file.xlsx> (prints sheet/layout/mapping guess, writes mapping stub)
+________________________________________
+2) Support the 3 common Excel layouts (don’t assume “one row = one recipe”)
+Layout A — “Wide table” (most common)
+One row per recipe; columns like Title | Ingredients | Instructions | Servings | Tags | Source ...
+Extraction rule
+•	Header row defines columns
+•	Each non-empty row = one recipe
+Layout B — “One recipe per sheet” (template style)
+Cells like:
+•	B2 = Title
+•	B5:B20 = Ingredients
+•	B22:B50 = Steps
+Extraction rule
+•	Use named ranges if present; else cell-address mapping per sheet template
+Layout C — “Tall/relational” (recipes spread across rows)
+Examples:
+•	A “Recipe” column repeated, with Type = ingredient/instruction
+•	Or blocks separated by blank rows / bold “Ingredients” row / “Directions” row
+Extraction rule
+•	Group rows by a key (recipe name/id) or by block boundaries, then assemble ingredients/steps lists
+✅ You can support all three with one converter by doing per-sheet layout detection.
+________________________________________
+3) Per-sheet layout detection (deterministic)
+For each sheet:
+Step 1: find the header row (for table-like sheets)
+Heuristics:
+•	Scan first ~30 rows
+•	Score a row as “header” if:
+	o	Many string cells, low numeric density
+	o	Contains known header aliases (title/ingredients/instructions/etc.)
+	o	Next rows look like data (more varied types)
+If no good header row → try template/block mode.
+Step 2: decide layout
+Use a simple scoring model:
+Wide table signals
+•	Header row found
+•	Columns map cleanly to core fields
+•	Many subsequent rows non-empty
+Tall/relational signals
+•	Header row found, but:
+	o	“Recipe/Name” column repeats frequently
+	o	“Type” column exists (ingredient/instruction)
+	o	Many rows per recipe (same name repeated)
+Template signals
+•	No strong header row
+•	Title cell appears near top
+•	Contains literal labels (“Ingredients”, “Directions”) in first column
+•	Or named ranges exist
+If ambiguous, default to wide table (it’s easiest to correct via mapping config).
+________________________________________
+4) Column mapping: auto + config override (this is where Excel wins)
+A) Canonical field set for staging
+At minimum for RecipeSage JSON-LD you want:
+•	name (title)
+•	recipeIngredient (list)
+•	recipeInstructions (list of steps or HowToStep objects)
+Optional:
+•	description/notes
+•	recipeYield or servings
+•	prepTime, cookTime, totalTime
+•	keywords/tags
+•	source / url
+•	author
+•	category/cuisine
+B) Auto-map headers by alias table
+Normalize header text:
+•	lowercase
+•	strip punctuation
+•	collapse whitespace
+Then match against alias sets like:
+•	name: title, recipe name, name
+•	ingredients: ingredients, ingredient list, ing, components
+•	instructions: directions, method, steps, instructions, preparation
+•	notes: notes, headnote, description, comment
+•	yield: yield, serves, servings, portions, makes
+•	prepTime: prep time, preparation time
+•	cookTime: cook time
+•	totalTime: total time
+•	tags: tags, keywords
+•	source: source, book, page, url, link
+C) Mapping config file (YAML/JSON)
+You’ll want a user-editable config because everyone’s spreadsheets differ. Example shape:
+excel:
+  defaults:
+    empty_row_is_skip: true
+    ingredients_delimiters: ["\n", ";"]
+    instructions_delimiters: ["\n"]
+  sheets:
+    - match: "Recipes"
+      layout: "wide_table"
+      header_row: "auto"
+      columns:
+        name: ["title", "recipe name"]
+        ingredients: ["ingredients", "ingredient list"]
+        instructions: ["instructions", "directions", "method"]
+        yield: ["servings", "yield"]
+        tags: ["tags", "keywords"]
+        source: ["source", "url", "link"]
+    - match: "Template*"
+      layout: "template"
+      cells:
+        name: "B2"
+        ingredients_range: "B5:B30"
+        instructions_range: "B32:B60"
+cookimport inspect file.xlsx should generate this stub automatically with its best guesses.
+________________________________________
+5) Normalization (turn “cells” into lists the rest of your pipeline can trust)
+Ingredients cell → recipeIngredient: [string]
+Common cases to handle deterministically:
+•	Multiline cell: split on \n
+•	Semicolon-delimited: split on ;
+
+•	Bullets: strip leading - • *
+
+•	Section headers (e.g., “For the sauce”):
+	o	Keep as a line, but mark it (optional) as a section header
+	o	Or store in structured extension while keeping a readable line
+Rule of thumb: preserve text faithfully here; do parsing/quantities later in your “final DB transformer”.
+Instructions cell → recipeInstructions: [HowToStep] or [string]
+•	Split on newline
+•	If numbered (“1.”, “2)”) remove prefix but keep order
+•	If a cell contains multiple paragraphs, keep them as separate steps unless it’s clearly one step
+Yield/time fields
+•	If already numeric/time-like: keep as-is
+•	If string: extract common patterns deterministically:
+	o	Serves 4, Makes 2 loaves, Yield: 24 cookies
+	o	Prep: 15 min, Cook: 1 hr, etc.
+(If extraction fails, just store the raw string in notes/metadata and move on.)
+________________________________________
+6) Provenance: keep the original row verbatim
+You called this out and it’s absolutely the right move.
+For every emitted recipe candidate, attach provenance like:
+•	file_path
+•	workbook
+•	sheet
+•	row_index (and maybe Excel row number)
+•	original_headers
+•	original_row (a dict of header → raw cell string)
+•	import_timestamp
+•	converter_version
+Where to store it in JSON-LD:
+•	Best: a dedicated namespaced extension block (so you never collide with RecipeSage fields)
+•	Also useful: add a stable @id derived from (file hash + sheet + row) so re-imports are idempotent.
+This makes later debugging and re-transforming painless.
+________________________________________
+7) Validation + repair loop (fast feedback, no guessing downstream)
+Before writing JSON-LD:
+•	Validate required minimum:
+	o	title present AND (ingredients OR instructions present)
+•	Validate types:
+	o	ingredients is list
+	o	instructions is list
+•	Emit a per-file report:
+	o	number of recipes found
+	o	mapping used
+	o	rows skipped + why
+	o	fields missing counts
+	o	sample of first 3 parsed recipes (for eyeballing)
+If a sheet maps poorly:
+•	mark it in the report with “low confidence mapping”
+•	still emit what you can (with provenance), but flag for user review
+This gives you a reliable “import dashboard” even without a GUI.
+________________________________________
+8) Output strategy (works great with your folder-based tool)
+Suggested staging output layout:
+•	staging/recipesage_jsonld/<workbook_name>/<sheet_name>/r<row>.json
+•	staging/reports/<workbook_name>.excel_import_report.json
+So your phase 2 (“transform all JSON-LD to final DB format”) can just glob staging/recipesage_jsonld/**/*.json.
+________________________________________
+9) Practical implementation notes (so you don’t get burned)
+•	Use openpyxl (or pandas + openpyxl) for .xlsx/.xlsm
+•	Read with data_only=True when you want cached formula results (otherwise you’ll get the formula text)
+•	Treat merged cells carefully:
+	o	openpyxl returns value on top-left only; you may need to forward-fill merged regions for table layouts
+•	Strip weird whitespace (\xa0) and normalize line endings early
+•	For very large sheets:
+	o	use openpyxl read_only=True streaming
+	o	avoid loading everything into memory if you don’t need to
+________________________________________
+10) The “LLM escalation” story for Excel (usually minimal)
+For Excel specifically, I’d only escalate to an LLM in two cases:
+1.	Layout C where blocks are messy and heuristics can’t confidently group rows into a recipe
+2.	Ingredients/instructions are smashed together in one cell and need segmentation
+Even then, constrain output to a strict schema, and always preserve the raw row/block in provenance.

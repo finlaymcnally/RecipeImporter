@@ -12,7 +12,11 @@ This plan must be maintained in accordance with docs/PLANS.md from the repositor
 
 ## Purpose / Big Picture
 
-After this change, a user can point the cookimport CLI at a folder containing RecipeSage export files (JSON with schema.org Recipe format) and have them pass through the staging layer for normalization, provenance tracking, and eventual transformation to the final database format. Since RecipeSage JSON-LD is the target intermediate format, this importer is primarily a validation and enrichment pass. Success is visible by staging/recipesage_jsonld/<export>/<recipe>.json files that are validated, normalized, and enriched with provenance, plus a per-export report.
+After this change, a user can point the cookimport CLI at a folder containing RecipeSage export files (JSON with schema.org Recipe format) and have them "staged" for the final transformation.
+
+**Critical Context:** The project's "intermediate staging format" **IS** RecipeSage JSON-LD. Therefore, this importer is unique: it does not convert *to* the staging format, it **validates and normalizes** existing files *into* the official staging layout. It acts as a "pass-through" or "gatekeeper" to ensure that data coming from RecipeSage backups is compliant with the expectations of Phase 2 (the Transformer).
+
+Success is visible by the presence of `staging/recipesage_jsonld/<export_name>/<recipe_id>.json` files that are validated, normalized, and enriched with provenance, plus a report.
 
 ## Progress
 
@@ -25,19 +29,15 @@ After this change, a user can point the cookimport CLI at a folder containing Re
 ## Decision Log
 
 - Decision: RecipeSage importer validates and normalizes incoming RecipeSage exports rather than blindly copying.
-  Rationale: Exports may vary in field completeness, use different schema conventions, or lack provenance. Validation ensures downstream consistency.
+  Rationale: Exports may vary in field completeness, use different schema conventions, or lack provenance. Validation ensures downstream consistency for the Transformer.
   Date/Author: 2026-01-21 / Initial Plan
 
 - Decision: RecipeSage exports use a wrapper format with a "recipes" array containing schema.org Recipe objects.
-  Rationale: Observed in example files at docs/template/examples/recipesage-*.json. Each file contains {"recipes": [...]}.
+  Rationale: Observed in example files. Each file contains `{"recipes": [...]}`.
   Date/Author: 2026-01-21 / Initial Plan
 
-- Decision: No LLM escalation for RecipeSage imports; the format is already the target schema.
-  Rationale: RecipeSage exports are machine-generated and follow schema.org conventions. Any issues are validation/normalization, not structure recovery.
-  Date/Author: 2026-01-21 / Initial Plan
-
-- Decision: Preserve original RecipeSage fields in provenance and add any missing fields from our standard set.
-  Rationale: RecipeSage exports may evolve. Preserving originals enables re-processing; adding defaults ensures consistency.
+- Decision: No LLM escalation for RecipeSage imports.
+  Rationale: The format is already structured JSON-LD. Any issues are validation/normalization, not structure recovery.
   Date/Author: 2026-01-21 / Initial Plan
 
 ## Outcomes & Retrospective
@@ -46,207 +46,68 @@ After this change, a user can point the cookimport CLI at a folder containing Re
 
 ## Context and Orientation
 
-The cookimport package has importers for Excel, EPUB, PDF, text, and Paprika. This plan adds a RecipeSage importer at cookimport/plugins/recipesage.py. Since RecipeSage JSON-LD is the staging format, this importer is simpler than others: it validates, normalizes, and re-emits with added provenance.
+The cookimport package has importers for Excel, EPUB, PDF, Text, and Paprika. This plan adds a RecipeSage importer at `cookimport/plugins/recipesage.py`.
 
-Key terms used in this plan:
-
-A RecipeSage Export File is a JSON file with structure {"recipes": [...]} where each recipe follows schema.org Recipe type with fields like @context, @type, identifier, name, recipeIngredient, recipeInstructions, prepTime, cookTime, totalTime, recipeYield, recipeCategory, image, etc. HowToStep is the schema.org type for instruction steps, with a text field. Comment is used for author notes in RecipeSage. AggregateRating contains ratingValue and ratingCount.
-
-Example files are available at docs/template/examples/recipesage-1767633332725-b28c4512684ecf.json and docs/template/examples/recipesage-1767631101507-d892343ecccd93.json.
+Key terms:
+*   **RecipeSage Export:** A JSON file `{"recipes": [...]}` where each item is a schema.org `Recipe`.
+*   **Staging Format:** The same schema.org `Recipe` JSON-LD structure, but saved as individual files with standard filenames and added provenance.
 
 ## Plan of Work
 
-Milestone 1 establishes RecipeSage file detection and parsing. Create cookimport/plugins/recipesage.py with the Importer protocol. Implement detect to return high confidence (0.95) for JSON files that contain a "recipes" key with array value containing objects with @type: "Recipe". Implement _parse_export that loads JSON and extracts the recipes array.
+### Phase 1: Ingest & Parse (Milestone 1)
 
-Milestone 2 implements validation and normalization. Create _validate_recipe that checks each recipe for required fields (name, at least one of recipeIngredient or recipeInstructions). Report missing or malformed fields. Create _normalize_recipe that: ensures @context is present and valid, normalizes time fields to ISO 8601 if needed, ensures recipeIngredient is a list of strings, ensures recipeInstructions is a list of HowToStep objects or strings, normalizes recipeCategory and keywords to lists, and fills optional fields with null/empty defaults for consistency.
+**Goal:** Read the export file and extract the list of recipes.
 
-Milestone 3 implements RecipeCandidate conversion and provenance. Create _recipesage_to_candidate that maps validated/normalized recipe to RecipeCandidate model. Use identifier field as source_uid if present, otherwise generate from content hash. Add provenance with source_system: "recipesage", original export fields, and validation notes.
+1.  **Detect:** Return high confidence (0.95) for JSON files containing a `"recipes"` array of objects with `"@type": "Recipe"`.
+2.  **Parse:** Load the JSON and extract the list.
 
-Milestone 4 re-emits to staging JSON-LD with enrichment. Convert RecipeCandidate back to JSON-LD (using existing jsonld.py), ensuring @id follows the urn:recipeimport:recipesage:<uid> pattern. Write to staging/recipesage_jsonld/<export>/<recipe>.json. Generate per-export report with recipe count, validation warnings, and normalization changes applied.
+### Phase 2: Validation & Normalization (Milestone 2)
 
-Milestone 5 handles edge cases and field variations. RecipeSage exports may include custom fields, varying instruction formats (array of strings vs array of HowToStep), and optional comment/rating structures. The normalizer should handle these gracefully, preserving unknown fields in a custom extension block.
+**Goal:** Ensure the incoming data meets the strict expectations of the Phase 2 Transformer.
 
-Milestone 6 adds tests, fixtures, and documentation. Copy example files to tests/fixtures/recipesage/. Add golden outputs and pytest tests verifying parsing, validation, normalization, and output.
+1.  **Validate:**
+    *   Check for required fields: `name`.
+    *   Check for at least one of: `recipeIngredient`, `recipeInstructions`.
+2.  **Normalize:**
+    *   **Context:** Ensure `@context` is valid (e.g., `http://schema.org`).
+    *   **Lists:** Ensure `recipeIngredient` is a list of strings.
+    *   **Instructions:** Ensure `recipeInstructions` is a list of `HowToStep` objects or strings (normalize to `HowToStep` preferred).
+    *   **Times:** Normalize `prepTime`, `cookTime` to ISO 8601 durations (`PT15M`) if they aren't already.
+    *   **Categories:** Ensure `recipeCategory` is a list.
+
+### Phase 3: Provenance & Emission (Milestone 3)
+
+**Goal:** Write the "Staged" files.
+
+1.  **Provenance:** Add a `recipeimport:provenance` block to the JSON-LD object containing:
+    *   `source_system`: "recipesage"
+    *   `export_file`: Original filename.
+    *   `source_uid`: The original `identifier` or a content hash.
+2.  **Stable ID:** Ensure the `@id` field is set to `urn:recipeimport:recipesage:<uid>`.
+3.  **Write:** Save to `staging/recipesage_jsonld/<export_slug>/<recipe_uid>.json`.
+4.  **Report:** Generate `staging/reports/<export_slug>.recipesage_import_report.json` summarizing valid vs. invalid recipes.
 
 ## Concrete Steps
 
-Work from /home/mcnal/projects/recipeimport with the virtual environment activated.
-
-Create the RecipeSage importer:
-
-    touch cookimport/plugins/recipesage.py
-
-Copy example files to test fixtures:
-
-    mkdir -p tests/fixtures/recipesage
-    cp docs/template/examples/recipesage-*.json tests/fixtures/recipesage/
-
-Register in the plugin registry.
-
-Run tests:
-
-    pytest tests/test_recipesage_importer.py
-
-Verify with CLI:
-
-    cookimport inspect tests/fixtures/recipesage/recipesage-1767633332725-b28c4512684ecf.json
-    cookimport stage tests/fixtures/recipesage --out data/output/recipesage_test
+1.  **Create Plugin:** `touch cookimport/plugins/recipesage.py`.
+2.  **Implement `RecipeSageImporter`:**
+    *   `detect`, `inspect`, `convert`.
+    *   `_validate_recipe`: Checks for mandatory fields.
+    *   `_normalize_recipe`: Cleaning and formatting logic.
+    *   `_add_provenance`: Injecting metadata.
+3.  **Testing:**
+    *   Use fixtures in `tests/fixtures/recipesage/`.
+    *   Verify that "bad" data (missing name) is flagged in the report.
+    *   Verify that "good" data is faithfully copied to the staging folder with added provenance.
 
 ## Validation and Acceptance
 
-The change is accepted when: Running cookimport inspect on a RecipeSage export file prints recipe count, validation summary, and any warnings. Running cookimport stage produces JSON-LD files and a report. Output JSON-LD is normalized and includes provenance with source_system: "recipesage". The report lists recipe count, validation status per recipe, and normalization changes. Pytest tests pass and verify parsing, validation, normalization, and round-trip stability.
-
-## Idempotence and Recovery
-
-Stable @id as urn:recipeimport:recipesage:<identifier> where identifier is the RecipeSage identifier field or a content hash. Re-importing the same export produces identical output. No intermediate work files needed since parsing is straightforward.
-
-## Artifacts and Notes
-
-Example RecipeSage export structure (from observed files):
-
-    {
-      "recipes": [
-        {
-          "@context": "http://schema.org",
-          "@type": "Recipe",
-          "identifier": "35b00969-7c88-462a-9aae-89bd277a8a17",
-          "datePublished": "2026-01-05T16:37:20.033Z",
-          "name": "Slow Cooker Red Beans And Rice Recipe",
-          "description": "Description",
-          "image": ["https://..."],
-          "prepTime": "PT15M",
-          "cookTime": null,
-          "totalTime": "PT7H",
-          "recipeYield": "Makes 10",
-          "recipeIngredient": [
-            "1 pound dried red beans",
-            "3/4 pound smoked turkey sausage, thinly sliced",
-            ...
-          ],
-          "recipeInstructions": [
-            {"@type": "HowToStep", "text": "Combine first 8 ingredients..."},
-            {"@type": "HowToStep", "text": "Serve red bean mixture..."}
-          ],
-          "recipeCategory": ["label example", "label"],
-          "creditText": "Source name",
-          "isBasedOn": "https://www.southernliving.com/...",
-          "comment": [
-            {"@type": "Comment", "name": "Author Notes", "text": "notes notes"}
-          ],
-          "aggregateRating": {
-            "@type": "AggregateRating",
-            "ratingValue": "3",
-            "ratingCount": "5"
-          }
-        }
-      ]
-    }
-
-After normalization and provenance addition:
-
-    {
-      "@context": ["https://schema.org", {"recipeimport": "..."}],
-      "@type": "Recipe",
-      "@id": "urn:recipeimport:recipesage:35b00969-7c88-462a-9aae-89bd277a8a17",
-      "identifier": "35b00969-7c88-462a-9aae-89bd277a8a17",
-      "name": "Slow Cooker Red Beans And Rice Recipe",
-      ... (all original fields preserved),
-      "recipeimport:provenance": {
-        "source_system": "recipesage",
-        "source_uid": "35b00969-7c88-462a-9aae-89bd277a8a17",
-        "export_file": "recipesage-1767633332725-b28c4512684ecf.json",
-        "validation_notes": [],
-        "normalization_applied": ["ensured_context_array"]
-      }
-    }
+*   `cookimport stage` on a RecipeSage export file results in a folder of individual JSON files in the staging directory.
+*   The output files are valid JSON-LD.
+*   Provenance metadata is present in every output file.
+*   The report accurately counts successful and failed recipes.
 
 ## Interfaces and Dependencies
 
-Dependencies: json (stdlib), pydantic for validation (already in project).
-
-In cookimport/plugins/recipesage.py:
-
-    from pathlib import Path
-    import json
-    from cookimport.plugins.base import Importer
-    from cookimport.core.models import WorkbookInspection, MappingConfig, ConversionResult, RecipeCandidate
-
-    class RecipeSageImporter:
-        name = "recipesage"
-
-        def detect(self, path: Path) -> float:
-            """Return 0.95 for JSON files with recipes array of @type Recipe objects."""
-            if path.suffix.lower() != '.json':
-                return 0.0
-            try:
-                data = json.loads(path.read_text())
-                if isinstance(data.get('recipes'), list):
-                    if any(r.get('@type') == 'Recipe' for r in data['recipes']):
-                        return 0.95
-            except:
-                pass
-            return 0.0
-
-        def inspect(self, path: Path) -> WorkbookInspection:
-            """Parse and summarize without full emission."""
-            ...
-
-        def convert(self, path: Path, mapping: MappingConfig | None) -> ConversionResult:
-            """Parse, validate, normalize, emit."""
-            ...
-
-        def _parse_export(self, path: Path) -> list[dict]:
-            """Load JSON and return recipes array."""
-            data = json.loads(path.read_text())
-            return data.get('recipes', [])
-
-        def _validate_recipe(self, raw: dict) -> tuple[bool, list[str]]:
-            """Check required fields, return (is_valid, warnings)."""
-            warnings = []
-            if not raw.get('name'):
-                warnings.append('missing_name')
-            if not raw.get('recipeIngredient') and not raw.get('recipeInstructions'):
-                warnings.append('missing_ingredients_and_instructions')
-            return len(warnings) == 0, warnings
-
-        def _normalize_recipe(self, raw: dict) -> tuple[dict, list[str]]:
-            """Normalize fields, return (normalized, changes_applied)."""
-            changes = []
-            normalized = dict(raw)
-
-            # Ensure @context is array format
-            ctx = normalized.get('@context')
-            if isinstance(ctx, str):
-                normalized['@context'] = [ctx, {"recipeimport": "https://recipeimport.local/ns#"}]
-                changes.append('ensured_context_array')
-
-            # Ensure recipeIngredient is list
-            ing = normalized.get('recipeIngredient')
-            if ing is None:
-                normalized['recipeIngredient'] = []
-            elif isinstance(ing, str):
-                normalized['recipeIngredient'] = [ing]
-                changes.append('converted_ingredients_to_list')
-
-            # Ensure recipeInstructions is list
-            inst = normalized.get('recipeInstructions')
-            if inst is None:
-                normalized['recipeInstructions'] = []
-            elif isinstance(inst, str):
-                normalized['recipeInstructions'] = [{"@type": "HowToStep", "text": inst}]
-                changes.append('converted_instructions_to_list')
-
-            return normalized, changes
-
-        def _recipesage_to_candidate(self, raw: dict, export_file: str) -> RecipeCandidate:
-            """Map validated/normalized recipe to RecipeCandidate."""
-            ...
-
-RecipeSage field reference (for validation):
-- Required: name
-- Semi-required: recipeIngredient OR recipeInstructions (at least one)
-- Optional: description, image, prepTime, cookTime, totalTime, recipeYield, recipeCategory, keywords, author, creditText, isBasedOn, comment, aggregateRating, datePublished, identifier
-
-Time format validation: RecipeSage uses ISO 8601 durations (PT15M, PT1H30M). Validate format; warn if malformed.
-
-Instruction format normalization: Accept both string arrays and HowToStep arrays. Normalize to HowToStep format for consistency.
+*   **Libraries:** `json` (stdlib).
+*   **Models:** Re-use `cookimport.core.models` validation logic where applicable.
