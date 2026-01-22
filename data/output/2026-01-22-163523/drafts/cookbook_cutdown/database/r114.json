@@ -1,0 +1,80 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, avocados, bread crumbs, chili",
+    "title": "Crispy Baked Avocado Fries",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.996,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": null,
+          "quantity_kind": "approximate",
+          "raw_ingredient_text": "salt",
+          "raw_text": "salt, pepper and cayenne to taste",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 0.5,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "flour",
+          "raw_text": "1/2 cup flour",
+          "raw_unit_text": "cups"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "lightly beaten",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "egg",
+          "raw_text": "1 egg, lightly beaten",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "Season the avocado slices with salt, pepper and cayenne to taste, dredge them in flour, dip them in egg and then panko breadcrumbs."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place the avocado slices in a single layer on a wire rack on a baking sheet and bake in a preheated 425F/220C oven until golden brown, about 15-20 minutes."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 0.25,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "ranch dressing",
+          "raw_text": "1/4 cup ranch dressing",
+          "raw_unit_text": "cups"
+        }
+      ],
+      "instruction": "Serve with a mixture of ranch and chipotle dressing."
+    }
+  ]
+}

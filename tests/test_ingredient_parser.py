@@ -13,8 +13,8 @@ class TestBasicParsing:
         result = parse_ingredient_line("1 cup flour")
         assert result["quantity_kind"] == "exact"
         assert result["input_qty"] == 1.0
-        assert result["input_unit_id"] == "cup"
-        assert result["input_item"] == "flour"
+        assert result["raw_unit_text"] == "cup"
+        assert result["raw_ingredient_text"] == "flour"
         assert result["raw_text"] == "1 cup flour"
 
     def test_ingredient_with_preparation(self):
@@ -22,7 +22,7 @@ class TestBasicParsing:
         result = parse_ingredient_line("2 cloves garlic, minced")
         assert result["quantity_kind"] == "exact"
         assert result["input_qty"] == 2.0
-        assert result["input_item"] == "garlic"
+        assert result["raw_ingredient_text"] == "garlic"
         assert result["preparation"] == "minced"
 
     def test_ingredient_with_stalks(self):
@@ -30,8 +30,8 @@ class TestBasicParsing:
         result = parse_ingredient_line("3 stalks celery, sliced")
         assert result["quantity_kind"] == "exact"
         assert result["input_qty"] == 3.0
-        assert result["input_unit_id"] == "stalks"
-        assert result["input_item"] == "celery"
+        assert result["raw_unit_text"] == "stalks"
+        assert result["raw_ingredient_text"] == "celery"
         assert result["preparation"] == "sliced"
 
 
@@ -44,22 +44,22 @@ class TestFractions:
         assert result["quantity_kind"] == "exact"
         assert result["input_qty"] is not None
         assert abs(result["input_qty"] - 0.333) < 0.01
-        assert result["input_unit_id"] in ("cup", "cups")
-        assert result["input_item"] == "sugar"
+        assert result["raw_unit_text"] in ("cup", "cups")
+        assert result["raw_ingredient_text"] == "sugar"
 
     def test_mixed_fraction(self):
         """Parse '1 1/2 cups flour' with mixed fraction."""
         result = parse_ingredient_line("1 1/2 cups flour")
         assert result["quantity_kind"] == "exact"
         assert result["input_qty"] == 1.5
-        assert result["input_unit_id"] in ("cup", "cups")
+        assert result["raw_unit_text"] in ("cup", "cups")
 
     def test_quarter_fraction(self):
         """Parse '¼ teaspoon salt'."""
         result = parse_ingredient_line("¼ teaspoon salt")
         assert result["quantity_kind"] == "exact"
         assert result["input_qty"] == 0.25
-        assert result["input_unit_id"] in ("teaspoon", "teaspoons")
+        assert result["raw_unit_text"] in ("teaspoon", "teaspoons")
 
 
 class TestRanges:
@@ -70,7 +70,7 @@ class TestRanges:
         result = parse_ingredient_line("3-4 Tbsp butter")
         assert result["quantity_kind"] == "exact"
         assert result["input_qty"] == 4.0  # ceil((3+4)/2) = ceil(3.5) = 4
-        assert result["input_unit_id"] is not None
+        assert result["raw_unit_text"] is not None
 
     def test_range_even_midpoint(self):
         """Parse '2-4 cups water' - midpoint 3 stays 3."""
@@ -87,7 +87,7 @@ class TestApproximate:
         result = parse_ingredient_line("salt, to taste")
         assert result["quantity_kind"] == "approximate"
         assert result["input_qty"] is None
-        assert result["input_item"] is not None
+        assert result["raw_ingredient_text"] is not None
 
     def test_pepper_to_taste(self):
         """Parse 'Pepper, to taste'."""
@@ -121,20 +121,20 @@ class TestSectionHeaders:
         """Detect 'FILLING' as section header."""
         result = parse_ingredient_line("FILLING")
         assert result["quantity_kind"] == "section_header"
-        assert result["input_item"] == "FILLING"
+        assert result["raw_ingredient_text"] == "FILLING"
         assert result["input_qty"] is None
 
     def test_all_caps_multi_word(self):
         """Detect 'MASHED POTATOES' as section header."""
         result = parse_ingredient_line("MASHED POTATOES")
         assert result["quantity_kind"] == "section_header"
-        assert result["input_item"] == "MASHED POTATOES"
+        assert result["raw_ingredient_text"] == "MASHED POTATOES"
 
     def test_title_case_header(self):
         """Detect 'Marinade' as section header."""
         result = parse_ingredient_line("Marinade")
         assert result["quantity_kind"] == "section_header"
-        assert result["input_item"] == "Marinade"
+        assert result["raw_ingredient_text"] == "Marinade"
 
     def test_garnish_header(self):
         """Detect 'Garnish' as section header."""
@@ -150,22 +150,22 @@ class TestComplexIngredients:
         result = parse_ingredient_line("1 1/2 cups lentils (rinsed and drained)")
         assert result["quantity_kind"] == "exact"
         assert result["input_qty"] == 1.5
-        assert result["input_item"] is not None
+        assert result["raw_ingredient_text"] is not None
 
     def test_compound_unit(self):
         """Parse '1 10-ounce bag frozen peas'."""
         result = parse_ingredient_line("1 10-ounce bag frozen peas")
         assert result["quantity_kind"] == "exact"
         assert result["input_qty"] is not None
-        assert result["input_item"] is not None
+        assert result["raw_ingredient_text"] is not None
 
     def test_chicken_breasts(self):
         """Parse '2 chicken breasts, cubed'."""
         result = parse_ingredient_line("2 chicken breasts, cubed")
         assert result["quantity_kind"] == "exact"
         assert result["input_qty"] == 2.0
-        assert result["input_unit_id"] == "medium"  # Default for count-based
-        assert result["input_item"] == "chicken breasts"
+        assert result["raw_unit_text"] == "medium"  # Default for count-based
+        assert result["raw_ingredient_text"] == "chicken breasts"
         assert result["preparation"] == "cubed"
 
 

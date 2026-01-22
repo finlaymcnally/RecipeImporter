@@ -76,7 +76,7 @@ class Alias:
 
     @property
     def score(self) -> tuple[int, int, int]:
-        return (len(self.tokens), sum(len(token) for token in self.tokens), int(self.source == "input_item"))
+        return (len(self.tokens), sum(len(token) for token in self.tokens), int(self.source == "raw_ingredient_text"))
 
 
 @dataclass(frozen=True)
@@ -189,11 +189,11 @@ def _build_aliases(line: dict[str, Any]) -> list[Alias]:
     aliases: list[Alias] = []
     seen: set[tuple[str, ...]] = set()
 
-    input_item = line.get("input_item") or ""
-    input_tokens = _filter_alias_tokens(_tokenize(input_item), drop_units=False)
+    raw_ingredient_text = line.get("raw_ingredient_text") or ""
+    input_tokens = _filter_alias_tokens(_tokenize(raw_ingredient_text), drop_units=False)
     if input_tokens:
         alias_tokens = tuple(input_tokens)
-        aliases.append(Alias(tokens=alias_tokens, source="input_item"))
+        aliases.append(Alias(tokens=alias_tokens, source="raw_ingredient_text"))
         seen.add(alias_tokens)
 
     raw_text = line.get("raw_text") or ""
@@ -232,7 +232,7 @@ def _build_groups(ingredient_lines: list[dict[str, Any]]) -> list[IngredientGrou
 
     for idx, line in enumerate(ingredient_lines):
         if line.get("quantity_kind") == "section_header":
-            label = line.get("input_item") or line.get("raw_text") or ""
+            label = line.get("raw_ingredient_text") or line.get("raw_text") or ""
             tokens = _normalize_section_tokens(label)
             if tokens:
                 aliases = [tuple(tokens)]

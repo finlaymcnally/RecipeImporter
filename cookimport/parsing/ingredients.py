@@ -41,8 +41,10 @@ def parse_ingredient_line(text: str) -> dict[str, Any]:
         Dict with:
             quantity_kind: "exact", "approximate", "unquantified", or "section_header"
             input_qty: float or None
-            input_unit_id: str or None
-            input_item: str or None (the ingredient name)
+            input_unit_id: str (always blank, for future use)
+            ingredient_id: str (always blank, for future use)
+            raw_unit_text: str or None (the parsed unit text)
+            raw_ingredient_text: str or None (the ingredient name)
             preparation: str or None
             note: str or None
             raw_text: str (original input)
@@ -275,8 +277,10 @@ def _build_result(text: str, parsed: ParsedIngredient) -> dict[str, Any]:
     return {
         "quantity_kind": quantity_kind,
         "input_qty": input_qty,
-        "input_unit_id": input_unit_id,
-        "input_item": input_item,
+        "input_unit_id": "",
+        "ingredient_id": "",
+        "raw_unit_text": input_unit_id,
+        "raw_ingredient_text": input_item,
         "preparation": preparation,
         "note": note,
         "raw_text": text,
@@ -290,8 +294,10 @@ def _empty_result(text: str) -> dict[str, Any]:
     return {
         "quantity_kind": "unquantified",
         "input_qty": None,
-        "input_unit_id": None,
-        "input_item": None,
+        "input_unit_id": "",
+        "ingredient_id": "",
+        "raw_unit_text": None,
+        "raw_ingredient_text": None,
         "preparation": None,
         "note": None,
         "raw_text": text,
@@ -310,8 +316,10 @@ def _fallback_result(text: str) -> dict[str, Any]:
             preparation=None,
         ),
         "input_qty": None,
-        "input_unit_id": None,
-        "input_item": text,  # Use raw text as item name
+        "input_unit_id": "",
+        "ingredient_id": "",
+        "raw_unit_text": None,
+        "raw_ingredient_text": text,  # Use raw text as item name
         "preparation": None,
         "note": None,
         "raw_text": text,
@@ -325,8 +333,10 @@ def _section_header_result(text: str) -> dict[str, Any]:
     return {
         "quantity_kind": "section_header",
         "input_qty": None,
-        "input_unit_id": None,
-        "input_item": text.strip().rstrip(":"),
+        "input_unit_id": "",
+        "ingredient_id": "",
+        "raw_unit_text": None,
+        "raw_ingredient_text": text.strip().rstrip(":"),
         "preparation": None,
         "note": None,
         "raw_text": text,

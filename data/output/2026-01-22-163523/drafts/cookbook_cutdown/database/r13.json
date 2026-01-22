@@ -1,0 +1,248 @@
+{
+  "recipe": {
+    "description": "Chicken thighs are great when you brown them skin side down over medium to med-low heat over a longer time. Get a good deep brown color, fat is rendered out, and skin gets incredibly crispy. By doing it on a lower heat, you also run less of a risk of burning your seasonings. Then, flip the chicken and do the same thing again. Don't worry, you're not going to overcook a chicken thigh. You could put those in a 400\u00b0F oven for 4 hours and they'd still be edible.\n\nSaut\u00e9e your rice for a minute or two in the fat before adding liquid. Would need be a bad idea to drain some of the fat off too. There seems to be a little much in there. Helps develop the flavor and keeps the rice from becoming mushy. Also, don't overcook your rice. Finally, I'd add a bit of cider or wine vinegar to the cooking liquid to help add some depth of flavor and cut through some of the fat. Could also use citrus.",
+    "notes": "Tags: American, Main, Normal, chicken",
+    "title": "Paprika chicken And Rice Bake",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "Preheat oven to 400\u02daF/200\u02daC."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 5.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "chicken thighs",
+          "raw_text": "5 chicken thighs",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "pepper",
+          "raw_text": "1 teaspoon pepper",
+          "raw_unit_text": "teaspoon"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "paprika",
+          "raw_text": "1 teaspoon paprika",
+          "raw_unit_text": "teaspoon"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "dried parsley",
+          "raw_text": "1 teaspoon dried parsley",
+          "raw_unit_text": "teaspoon"
+        }
+      ],
+      "instruction": "In a large bowl, evenly season chicken thighs with salt, pepper, paprika, and parsley."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 5.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "chicken thighs",
+          "raw_text": "5 chicken thighs",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "olive oil",
+          "raw_text": "1 tablespoon olive oil",
+          "raw_unit_text": "tablespoon"
+        }
+      ],
+      "instruction": "On high, heat olive oil in a oven-proof pot and place chicken thighs, skin-side down, in the hot oil. Cook 5-6 minutes or the thighs develop brown crispy skin and flip over. Cook an additional 5-6 minutes to brown the other side and remove from the pot."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "1 tablespoon garlic, minced",
+          "raw_unit_text": "tablespoon"
+        }
+      ],
+      "instruction": "Add the garlic and onions to the pot, and cook until the onions are transparent."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "salt",
+          "raw_text": "1 teaspoon salt",
+          "raw_unit_text": "teaspoon"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "pepper",
+          "raw_text": "1 teaspoon pepper",
+          "raw_unit_text": "teaspoon"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.5,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "chicken broth",
+          "raw_text": "1\u00bd cups chicken broth",
+          "raw_unit_text": "cups"
+        },
+        {
+          "confidence": 0.989,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": null,
+          "quantity_kind": "approximate",
+          "raw_ingredient_text": "Pepper",
+          "raw_text": "Pepper, to taste",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "Pour in the rice and chicken broth to the pot and season with salt and pepper. Stir well, bringing to a boil."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 5.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "chicken thighs",
+          "raw_text": "5 chicken thighs",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "long grain rice",
+          "raw_text": "1 cup long grain rice",
+          "raw_unit_text": "cup"
+        }
+      ],
+      "instruction": "Add the chicken thighs back into the pot, skin-side up, on top of the rice, bring back to a boil and cover with a lid."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "long grain rice",
+          "raw_text": "1 cup long grain rice",
+          "raw_unit_text": "cup"
+        }
+      ],
+      "instruction": "Bake for 35-40 minutes, or until the rice is fully cooked."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 5.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "chicken thighs",
+          "raw_text": "5 chicken thighs",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "Optional: remove chicken thighs and broil for crispy skin."
+    }
+  ]
+}

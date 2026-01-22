@@ -1,0 +1,45 @@
+{
+  "recipe": {
+    "description": "Onions, cream cheese and sour cream are good additions",
+    "notes": "Tags: Main, Normal, chicken thighs, artichoke hearts, sun dried tomatoes",
+    "title": "Crock Pot chicken thighs",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.983,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "HOW TO MAKE THIS CROCK POT CHICKEN THIGHS RECIPE",
+          "raw_text": "HOW TO MAKE THIS CROCK POT CHICKEN THIGHS RECIPE:",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.876,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "I DOUBLE THE RECIPE?",
+          "raw_text": "CAN I DOUBLE THE RECIPE?",
+          "raw_unit_text": "CAN"
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

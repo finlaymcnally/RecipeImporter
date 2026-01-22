@@ -35,7 +35,6 @@ E.	Paprika recipe manager has a secured data file format
 F.	RecipeSage data file format (this is going to the base of my intermediate format, but my branch may evolve depending on information requirements)
 G.	I may build a web scraping tool if RecipeSage/Paprika don’t work how I’d like them to, but we’ll look into that later as I would rather not.
 
-2) Per source conversion into Staging Layer
 2) Per-source conversion into a Staging Layer
 In this stage, every source is converted into a consistent set of recipe candidates. The goal is to preserve whatever structure we can (headings, page/layout cues, lists) while turning messy real-world content into clearly labeled blocks—title/headnotes, ingredient section(s), instruction steps, and basic metadata (yield/servings, times, etc.).
 We start with deterministic cleanup and straightforward segmentation rules, and only escalate to LLM-assisted structure recovery when the source is ambiguous (mixed headnotes + ingredients + steps, multi-column layouts, inconsistent formatting). Any model output must be constrained to a schema and validated so downstream steps can treat everything uniformly.

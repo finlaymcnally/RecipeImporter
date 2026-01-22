@@ -1,0 +1,18 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, sweet potatoes, chickpeas, chicken, coconut milk",
+    "title": "Coconut chicken Curry Recipe",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

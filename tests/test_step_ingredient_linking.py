@@ -7,7 +7,7 @@ from cookimport.parsing.step_ingredients import assign_ingredient_lines_to_steps
 def _ingredient_line(name: str, quantity_kind: str = "unquantified") -> dict[str, str]:
     return {
         "quantity_kind": quantity_kind,
-        "input_item": name,
+        "raw_ingredient_text": name,
         "raw_text": name,
     }
 
@@ -15,13 +15,13 @@ def _ingredient_line(name: str, quantity_kind: str = "unquantified") -> dict[str
 def _section_header(name: str) -> dict[str, str]:
     return {
         "quantity_kind": "section_header",
-        "input_item": name,
+        "raw_ingredient_text": name,
         "raw_text": name,
     }
 
 
 def _names(lines: list[dict[str, str]]) -> list[str]:
-    return [line["input_item"] for line in lines]
+    return [line["raw_ingredient_text"] for line in lines]
 
 
 def test_negative_matches_no_substrings():

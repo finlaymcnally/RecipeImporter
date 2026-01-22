@@ -1,0 +1,252 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Mexican, Main, Instant Pot, pork shoulder, oranges",
+    "title": "Pork Carnitas",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.985,
+          "ingredient_id": "",
+          "input_qty": 3.25,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "(pork butt meat)",
+          "preparation": "cut into 2-2#1$4 inches cubes",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "pork shoulder meat",
+          "raw_text": "3 \u00bc pounds (~1475g) pork shoulder meat (pork butt meat) , cut into 2 \u2013 2 \u00bc inches cubes",
+          "raw_unit_text": "pounds"
+        }
+      ],
+      "instruction": "1 Prepare Pork Shoulder Meat: Remove rind and bone from the pork shoulder meat. Cut pork shoulder meat into cubes (~2 inches). Keep the excess fat."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2 Marinate Pork Shoulder Cubes:"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "crushed",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "4 (13g) garlic cloves , crushed",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.975,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "roughly chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "onion",
+          "raw_text": "1 (200g) medium onion , roughly chopped",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "or 1 cinnamon stick",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cinnamon powder",
+          "raw_text": "1 teaspoon (2g) cinnamon powder or 1 cinnamon stick",
+          "raw_unit_text": "teaspoon"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "bay leaves",
+          "raw_text": "2 bay leaves",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "regular soy sauce",
+          "raw_text": "1 tablespoon (15ml) regular soy sauce",
+          "raw_unit_text": "tablespoon"
+        },
+        {
+          "confidence": 0.732,
+          "ingredient_id": "",
+          "input_qty": 55.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "from 1 fresh orange",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "juice",
+          "raw_text": "55 ml juice from 1 fresh orange",
+          "raw_unit_text": "ml"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "Kosher salt",
+          "raw_text": "Kosher salt",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.92,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "Ground",
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "black pepper",
+          "raw_text": "Ground black pepper",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "Place pork shoulder cubes & fat into the Instant Pot\u2019s inner pot. Season very generously with kosher salt and ground black pepper. Add 4 crushed garlic cloves, chopped onion, 1 tsp (2g) ground cumin, 1 tsp (2g) cinnamon powder, 2 bay leaves, 1 tbsp (15ml) regular soy sauce, and juice (55ml) from 1 orange to the inner pot. Mix well and let the meat marinate for 20 minutes."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 200.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "unsalted chicken stock",
+          "raw_text": "200 ml (~\u2158 cup) unsalted chicken stock",
+          "raw_unit_text": "ml"
+        }
+      ],
+      "instruction": "3 Pressure Cook Pork Shoulder Cubes: Pour ~\u2158 cup (200ml) unsalted chicken stock in the inner pot. Close lid and Pressure Cook at High Pressure for 30 minutes + 15 minutes Natural Release. Release the remaining pressure after 15 minutes and open the lid carefully."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "Kosher salt",
+          "raw_text": "Kosher salt",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "4 Crisp Pork Shoulder Cubes: Transfer the pork shoulder cubes onto a baking tray. Now is a good time to take a bite and see if the pork cubes are salty enough. If the pork cubes are not salty enough, add more kosher salt into the cooking liquid. Taste & adjust accordingly."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.985,
+          "ingredient_id": "",
+          "input_qty": 3.25,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "(pork butt meat)",
+          "preparation": "cut into 2-2#1$4 inches cubes",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "pork shoulder meat",
+          "raw_text": "3 \u00bc pounds (~1475g) pork shoulder meat (pork butt meat) , cut into 2 \u2013 2 \u00bc inches cubes",
+          "raw_unit_text": "pounds"
+        }
+      ],
+      "instruction": "Drizzle some of the cooking liquid on to each piece (The cooking liquid should be mostly fat. If not, mix \u00bc cup (63ml) cooking liquid with 2 tbsp (30ml) of vegetable oil and drizzle over each piece of pork). The fat & oil will protect the meat from drying out and the surface will crisp faster."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place pork shoulder cubes under a broiler or the top rack of a preheated 450\u00b0F toaster oven until the surface is crisped. Roughly 8 \u2013 10 minutes. Flip the pork shoulder cubes, drizzle each piece with more cooking liquid and place in the oven again until the surface is crisped."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 10.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "corn tortillas",
+          "raw_text": "8 - 12 corn tortillas",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "5 (Optional) Heat Corn Tortillas: If you are serving the Carnitas with corned tortillas, you can heat up the corn tortillas when the pork is browning in the oven."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 10.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "corn tortillas",
+          "raw_text": "8 - 12 corn tortillas",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.977,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "(pico de gallo)",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "Salsa",
+          "raw_text": "Salsa (pico de gallo)",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "6 Serve & Enjoy: Place piping hot Carnitas on top of the warmed corn tortillas with a spoonful of salsa (Pico De Gallo). Serve immediately!"
+    }
+  ]
+}

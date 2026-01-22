@@ -1,0 +1,172 @@
+{
+  "recipe": {
+    "description": "Add fish sauce",
+    "notes": "Tags: That, Side, Normal, chicken, broccoli, carrots, mushrooms, coconut milk",
+    "title": "Thai chicken coconut soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "chicken in a large dutch oven, remove"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "over medium heat, cook onions until slightly soft, 4-5 minutess"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 8.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "mushrooms",
+          "raw_text": "8oz mushrooms - sliced",
+          "raw_unit_text": "oz"
+        }
+      ],
+      "instruction": "add mushrooms and continue to cook with onions 3-5 minutes"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "carrots",
+          "raw_text": "2-3 carrots - sliced",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "add carrots to onions and cook another 2-3 minutess"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "remove vetables"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "coconut milk",
+          "raw_text": "1 can coconut milk",
+          "raw_unit_text": "can"
+        }
+      ],
+      "instruction": "scrape fat off top of coconut milk and add to dutch oven"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "curry paste",
+          "raw_text": "1-2 tablespoons curry paste",
+          "raw_unit_text": "tablespoon"
+        },
+        {
+          "confidence": 0.847,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": true,
+          "note": "(optional)",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "fresh ginger",
+          "raw_text": "1-2 tablespoons fresh ginger/garlic paste (optional)",
+          "raw_unit_text": "tablespoon"
+        }
+      ],
+      "instruction": "mix curry paste and garlic/ginger into coconut fat, cook for 2-3 minutes"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "coconut milk",
+          "raw_text": "1 can coconut milk",
+          "raw_unit_text": "can"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "chicken broth",
+          "raw_text": "2 cups chicken broth",
+          "raw_unit_text": "cups"
+        }
+      ],
+      "instruction": "add vegetables back to pot along with coconut milk and broth"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "cook covered for 10 minutes"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 14.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "broccoli",
+          "raw_text": "12-16oz broccoli",
+          "raw_unit_text": "oz"
+        }
+      ],
+      "instruction": "add broccoli and cook covered for 5-8 minutes, until broccoli is just tender"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "add cooked chicken"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "serve with thai basil (or cilantro), fresh lime and sriracha"
+    }
+  ]
+}

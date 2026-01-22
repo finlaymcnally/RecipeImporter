@@ -1,0 +1,70 @@
+{
+  "recipe": {
+    "description": "Great for pasta",
+    "notes": "Tags: Component, Normal, cheese",
+    "title": "Browned Butter sauce",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 0.5,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "butter",
+          "raw_text": "\u00bd cup butter",
+          "raw_unit_text": "cups"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "1 clove garlic, minced",
+          "raw_unit_text": "clove"
+        },
+        {
+          "confidence": 0.82,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "ground black pepper",
+          "raw_text": "Dash ground black pepper",
+          "raw_unit_text": "Dash"
+        }
+      ],
+      "instruction": "In a medium saucepan, combine butter and garlic. Cook and stir over medium heat until butter is melted. Cook for 5 to 8 minutes or until butter is lightly browned, stirring occasionally and skimming foam as necessary. Remove from heat. Stir in herb(s) and pepper."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Drizzle sauce over cooked pasta, as a dipping oil, over popcorn, or other creative uses. Sprinkle with cheese."
+    }
+  ]
+}

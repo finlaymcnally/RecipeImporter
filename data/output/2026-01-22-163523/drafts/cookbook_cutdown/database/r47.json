@@ -1,0 +1,311 @@
+{
+  "recipe": {
+    "description": "Why It Works\nAn intensely flavored buttermilk brine tenderizes the chicken while keeping it moist.\nAdding wet ingredients to the dry flour coating ensures an extra-craggy crust with lots of nooks and crannies.\nStarting in hot fat and finishing in the oven gives you fried chicken with a crisp crust and evenly cooked meat.",
+    "notes": "Tags: American, Main, Normal, whole chicken, buttermilk",
+    "title": "Fried chicken",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "paprika",
+          "raw_text": "2 tablespoons paprika",
+          "raw_unit_text": "tablespoons"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly ground",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "black pepper",
+          "raw_text": "2 tablespoons freshly ground black pepper",
+          "raw_unit_text": "tablespoons"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic powder",
+          "raw_text": "2 teaspoons garlic powder",
+          "raw_unit_text": "teaspoons"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "dried oregano",
+          "raw_text": "2 teaspoons dried oregano",
+          "raw_unit_text": "teaspoons"
+        }
+      ],
+      "instruction": "Combine the paprika, black pepper, garlic powder, oregano, and cayenne in a small bowl and mix thoroughly with a fork."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "buttermilk",
+          "raw_text": "1 cup buttermilk",
+          "raw_unit_text": "cup"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "Kosher salt",
+          "raw_text": "Kosher salt",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.974,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
+          "preparation": "cut into 10 pieces",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "whole chicken",
+          "raw_text": "One whole chicken, about 4 pounds, cut into 10 pieces or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "Whisk the buttermilk, egg, 1 tablespoon salt, and 2 tablespoons of the spice mixture in a large bowl. Add the chicken pieces and toss and turn to coat. Transfer the contents of the bowl to a gallon-sized zipper-lock freezer bag and refrigerate for at least 4 hours, and up to overnight, flipping the bag occasionally to redistribute the contents and coat the chicken evenly."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "buttermilk",
+          "raw_text": "1 cup buttermilk",
+          "raw_unit_text": "cup"
+        },
+        {
+          "confidence": 0.974,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
+          "preparation": "cut into 10 pieces",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "whole chicken",
+          "raw_text": "One whole chicken, about 4 pounds, cut into 10 pieces or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 0.5,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cornstarch",
+          "raw_text": "1\u20442 cup cornstarch",
+          "raw_unit_text": "cups"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "baking powder",
+          "raw_text": "1 teaspoon baking powder",
+          "raw_unit_text": "teaspoon"
+        }
+      ],
+      "instruction": "Whisk together the flour, cornstarch, baking powder, 2 teaspoons salt, and the remaining spice mixture in a large bowl. Add 3 tablespoons of the marinade from the zipper-lock bag and work it into the flour with your fingertips. Remove one piece of chicken from the bag, allowing excess buttermilk to drip off, drop the chicken into the flour mixture, and toss to coat. Continue adding chicken pieces to the flour mixture one at a time until they are all in the bowl. Toss the chicken until every piece is thoroughly coated, pressing with your hands to get the flour to adhere in a thick layer."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "4."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.974,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
+          "preparation": "cut into 10 pieces",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "whole chicken",
+          "raw_text": "One whole chicken, about 4 pounds, cut into 10 pieces or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.975,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "vegetable shortening",
+          "raw_text": "4 cups vegetable shortening or peanut oil",
+          "raw_unit_text": "cups"
+        }
+      ],
+      "instruction": "Adjust an oven rack to the middle position and preheat the oven to 350\u00b0F. Heat the shortening or oil to 425\u00b0F in a 12-inch straight-sided cast-iron chicken fryer or a large wok over medium-high heat. Adjust the heat as necessary to maintain the temperature, being careful not to let the fat get any hotter."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "5."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.974,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
+          "preparation": "cut into 10 pieces",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "whole chicken",
+          "raw_text": "One whole chicken, about 4 pounds, cut into 10 pieces or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.5,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "all-purpose flour",
+          "raw_text": "1 1\u20442 cups all-purpose flour",
+          "raw_unit_text": "cups"
+        }
+      ],
+      "instruction": "One piece at a time, transfer the coated chicken to a fine-mesh strainer and shake to remove excess flour. Transfer to a wire rack set on a rimmed baking sheet. Once all the chicken pieces are coated, place skin side down in the pan. The temperature should drop to 300\u00b0F; adjust the heat to maintain the temperature at 300\u00b0F for the duration of the cooking. Fry the chicken until it\u2019s a deep golden brown on the first side, about 6 minutes; do not move the chicken or start checking for doneness until it has fried for at least 3 minutes, or you may knock off the coating. Care- fully flip the chicken pieces with tongs and cook until the second side is golden brown, about 4 minutes longer."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "6."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "Kosher salt",
+          "raw_text": "Kosher salt",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.974,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
+          "preparation": "cut into 10 pieces",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "whole chicken",
+          "raw_text": "One whole chicken, about 4 pounds, cut into 10 pieces or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "Transfer the chicken to a clean wire rack set on a rimmed baking sheet and place in the oven. Cook until an instant-read thermometer inserted into the thickest part of the breast registers 150\u00b0F and the legs register 165\u00b0F, 5 to 10 minutes; remove the chicken pieces to a second rack or a paper-towel-lined plate as they reach their final temperature. Season with salt and serve\u2014or, for extra-crunchy fried chicken, go to step 7."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "7."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.974,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
+          "preparation": "cut into 10 pieces",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "whole chicken",
+          "raw_text": "One whole chicken, about 4 pounds, cut into 10 pieces or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "Place the plate of cooked chicken in the refrigerator for at least 1 hour, and up to overnight. When ready to serve, reheat the oil to 400\u00b0F. Add the chicken pieces and cook, flipping them once halfway through cooking, until completely crisp, about 5 minutes. Transfer to a wire rack set on a rimmed baking sheet to drain, then serve immediately."
+    }
+  ]
+}

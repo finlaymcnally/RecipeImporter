@@ -1,0 +1,111 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Dessert, Normal, chocolate, icing sugar",
+    "title": "Toblerone Shortbread Cookies",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "butter",
+          "raw_text": "2 cups butter",
+          "raw_unit_text": "cups"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "icing sugar",
+          "raw_text": "2 cups icing sugar",
+          "raw_unit_text": "cups"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "vanilla",
+          "raw_text": "2 teaspoons vanilla",
+          "raw_unit_text": "teaspoons"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 0.25,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "salt",
+          "raw_text": "1\u20444 teaspoon salt",
+          "raw_unit_text": "teaspoons"
+        }
+      ],
+      "instruction": "Cream together butter and icing sugar, beat in vanilla and salt."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "flour",
+          "raw_text": "4 cups flour",
+          "raw_unit_text": "cups"
+        }
+      ],
+      "instruction": "Add flour 1 cup at a time, mixing well after each time."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir in toblerone."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "icing sugar",
+          "raw_text": "2 cups icing sugar",
+          "raw_unit_text": "cups"
+        }
+      ],
+      "instruction": "Roll dough into 1\u201d balls and place 2\u201d apart on cookie sheet. Flatten with a fork dipped in icing sugar. Bake at 350 degrees for 12-15 minutes."
+    }
+  ]
+}

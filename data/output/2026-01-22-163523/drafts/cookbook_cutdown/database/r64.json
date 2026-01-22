@@ -1,0 +1,271 @@
+{
+  "recipe": {
+    "description": "Can pressure cook so to skip braising time\nDue to different saltiness from different miso pastes, I would suggest using 1/2 cup + 1 tbsp (160 grams) of miso paste first. After the soup is reduced, re-season with more if needed. And I should also mention that the stock I used was unsalted.",
+    "notes": "Tags: Main, Normal, ribs, mirin, cheese, bread",
+    "title": "Miso Short-Ribs French-Dip Sandwich",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "Updated on 2014/02/22: Forgot to mention sake in the instruction."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.996,
+          "ingredient_id": "",
+          "input_qty": 35.3,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "boneless beef short-ribs",
+          "raw_text": "35.3 oz (1 kg) boneless beef short-ribs, or beef chuck",
+          "raw_unit_text": "oz"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "canola oil",
+          "raw_text": "2 tbsp canola oil",
+          "raw_unit_text": "tbsps"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "onion",
+          "raw_text": "1 large onion, sliced",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "tomato paste",
+          "raw_text": "3 tbsp tomato paste",
+          "raw_unit_text": "tbsps"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "soy sauce",
+          "raw_text": "3 tbsp soy sauce",
+          "raw_unit_text": "tbsps"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.5,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "mirin",
+          "raw_text": "1 1/2 tbsp mirin",
+          "raw_unit_text": "tbsps"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 0.125,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "curry powder",
+          "raw_text": "1/8 tsp curry powder",
+          "raw_unit_text": "tsps"
+        },
+        {
+          "confidence": 0.941,
+          "ingredient_id": "",
+          "input_qty": 6.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "beef stock",
+          "raw_text": "6 cups (1500 ml/grams) beef stock",
+          "raw_unit_text": "cups"
+        },
+        {
+          "confidence": 0.978,
+          "ingredient_id": "",
+          "input_qty": 0.5,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "preferrably a mixture of red and white (see note)",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "miso paste",
+          "raw_text": "1/2 cup + 2 tbsp (180 grams) miso paste, preferrably a mixture of red and white (see note)",
+          "raw_unit_text": "cups"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 0.3333333333333333,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "Japanese sake wine",
+          "raw_text": "1/3 cup (83 ml) Japanese sake wine",
+          "raw_unit_text": "cups"
+        }
+      ],
+      "instruction": "TO MAKE THE MISO-BRAISED SHORT-RIBS: Cut the beef into 2\" (5 cm) pieces. Heat 2 tbsp of canola oil in a large pot over medium-high heat, then brown the beef until deeply caramelized on every sides, approx 5 min on each side. Remove the beef with a slotted spoon, and leave 2 tbsp of oil in the pot. Cook sliced onion, garlics and gingers until soft, then add the beef back into the pot along with tomato paste, soy sauce, mirin and curry powder. Saute until most liquid has evaporated, then add the beef stock, miso paste and Japanese sake wine. Stir until the paste has completely dissolved."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cover the pot and simmer on low heat or in a preheated 320F/160C oven, for 2~3 hours until the beef is tender, and the liquid has reduced by about 1/3. You should stir more frequently if cooking on stove-top to prevent burning on the bottom."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "soy sauce",
+          "raw_text": "3 tbsp soy sauce",
+          "raw_unit_text": "tbsps"
+        },
+        {
+          "confidence": 0.941,
+          "ingredient_id": "",
+          "input_qty": 6.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "beef stock",
+          "raw_text": "6 cups (1500 ml/grams) beef stock",
+          "raw_unit_text": "cups"
+        }
+      ],
+      "instruction": "Carefully remove all the beef from the stew, then strain the liquid through a very fine sieve (miso pastes are grainy so it must be strained). Press on the solids to extract all liquid, then discard the solids, then return the beef back in the sauce. Taste the soup, and if too salty, add a bit more beef stock. If too bland, simmer to reduce it further. This can be made the day before."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "soy sauce",
+          "raw_text": "3 tbsp soy sauce",
+          "raw_unit_text": "tbsps"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 8.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "rustic country bread",
+          "raw_text": "8 large slices of rustic country bread",
+          "raw_unit_text": "large slices"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 16.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "gouda cheese",
+          "raw_text": "16 slices gouda cheese",
+          "raw_unit_text": "slices"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "Dijon mustard",
+          "raw_text": "Dijon mustard",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "Finely diced",
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "scallions",
+          "raw_text": "Finely diced scallions",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "Freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "black pepper",
+          "raw_text": "Freshly ground black pepper",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "TO PUT TOGETHER THE FRENCH-DIP SANDWICH: Reheat the beef stew if needed. Remove the beef with a slotted spoon and chop them up roughly. Spread Dijon mustard on both sides of the bread, then place 2 slices of gouda cheese on each side. Pile on the chopped beef in the middle, then butter and grill on a skillet over medium-low heat until crusty and browned on both sides, and that the cheese has fully melted. Ladle the sauce into a deep dish, and top with a generous amount of diced scallions and a bit of black pepper. Dig in, or shall I say, dip in. Enjoy."
+    }
+  ]
+}

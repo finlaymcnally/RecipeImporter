@@ -1,0 +1,94 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Mexican, Side, Normal, pinto beans, pork shoulder, bacon, cilantro",
+    "title": "Drunken Mexican beans w/ cilantro and bacon",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.993,
+          "ingredient_id": "",
+          "input_qty": 8.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "Dried pinto beans",
+          "raw_text": "8 Ounces About 1 1/4 Cups Dried pinto beans",
+          "raw_unit_text": "Ounces"
+        },
+        {
+          "confidence": 0.916,
+          "ingredient_id": "",
+          "input_qty": 0.5,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "Cubed pork shoulder",
+          "raw_text": "1/2 Cup About 2 Ounces Cubed pork shoulder or Extra chopsped bacon",
+          "raw_unit_text": "Cups"
+        }
+      ],
+      "instruction": "Rinse the beans thoroughly and scoop into a medium-size Dutch oven. Add 5 cups water, remove any beans that float, then add the pork shoulder (or extra chopped bacon) and bring to a boil. reduce the heat to medium-low, and very gently simmer, partially covered, until the beans are thoroughly tender about 2 hours. You'll need to gently stir the beans regularly and add water as necessary to keep the liquid a generous 1/2 inch above the level of the beans."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.993,
+          "ingredient_id": "",
+          "input_qty": 8.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "Dried pinto beans",
+          "raw_text": "8 Ounces About 1 1/4 Cups Dried pinto beans",
+          "raw_unit_text": "Ounces"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "Salt",
+          "raw_text": "About 2-2 1/2 Teaspoons Salt",
+          "raw_unit_text": "Teaspoon"
+        }
+      ],
+      "instruction": "In a medium-size skillet, fry the bacon (that is, the remaining bacon if you used some for the simmering), stirring regularly, until crisp, about 10 minutes. With a slotted spoon, remove the bacon, leaving behind as much of the drippings as possible. Pour off all but about 2 tablespoons of the drippings and return the pan to medium heat. Add the onion and chiles and fry until deep golden brown, about 10 minutes. Scrape the onion mixture into the beans, then taste and season it all with salt. Continue simmering, stirring occasionally, for 20 to 30 minutes to blend the flavors. If the beans seem quite soupy, boil over medium-high heat, stirring frequently, until the consistency of a nice, brothy bean soup. (An alternative here is to puree 1/4 of the beans in a food processor or blender, returning them to the pot to thicken the broth.)"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.5,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "Tequila",
+          "raw_text": "1 1/2 Tablespoons Tequila",
+          "raw_unit_text": "Tablespoons"
+        }
+      ],
+      "instruction": "Just before serving, stir in the tequila and cilantro, then serve in warm bowls topped with the crumbled bacon."
+    }
+  ]
+}
