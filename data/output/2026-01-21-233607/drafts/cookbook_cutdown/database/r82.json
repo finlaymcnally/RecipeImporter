@@ -1,0 +1,235 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Moroccan, Side, Normal, peppers, carrots, zucchini, lemons, couscous",
+    "title": "Moroccan Couscous with roasted Vegetables Chick peas and Almonds",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "537ddbc9-4607-4584-920e-1a449034ac33",
+          "input_item": "red bell pepper",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "cored and diced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 large red bell pepper, cored and diced"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "98793cce-fe3d-48f9-8d05-200eb9865f27",
+          "input_item": "carrots",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "halved through length and sliced fairly thin",
+          "quantity_kind": "quantified",
+          "raw_text": "2 medium carrots, halved through length and sliced fairly thin"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "1b25b307-6746-4180-adec-bff47a81d40e",
+          "input_item": "zucchini",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "halved through the length and sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 medium zucchini, halved through the length and sliced"
+        }
+      ],
+      "instruction": "Preheat oven to 475 degrees. Spray a 18 by 13-inch rimmed baking sheet with non-stick cooking spray. Place bell pepper, carrots, onions and zucchini on baking sheet."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "a2c38c84-bd75-4d0b-8c21-33b84e8b61b5",
+          "input_item": "olive oil",
+          "input_qty": 4.0,
+          "input_unit_id": "Tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": "divided",
+          "quantity_kind": "quantified",
+          "raw_text": "4 Tbsp olive oil, divided"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "1964a1a2-4c9d-4edb-8a88-14e9b3ad0f08",
+          "input_item": "Salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt"
+        }
+      ],
+      "instruction": "Drizzle with 1 Tbsp olive oil and season with salt and toss to evenly coat. Roast in preheated oven about 15 minutes until tender, tossing once halfway through roasting."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Then if desired move oven rack closer to broiler and broil for about 1 - 2 minutes to add a light char."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "a2c38c84-bd75-4d0b-8c21-33b84e8b61b5",
+          "input_item": "olive oil",
+          "input_qty": 4.0,
+          "input_unit_id": "Tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": "divided",
+          "quantity_kind": "quantified",
+          "raw_text": "4 Tbsp olive oil, divided"
+        },
+        {
+          "confidence": 0.99,
+          "ingredient_id": "1b38c1d8-1b03-4bb4-9153-0d2d6752f357",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 tsp minced garlic (2 cloves)"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "1d4c1ec3-5f5e-40a0-b70d-0a079e21a26a",
+          "input_item": "ground coriander",
+          "input_qty": 1.0,
+          "input_unit_id": "tsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tsp ground coriander"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "2b61724b-7458-4ec2-92de-ab0d47505665",
+          "input_item": "ground cinnamon",
+          "input_qty": 0.5,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 tsp ground cinnamon"
+        }
+      ],
+      "instruction": "While vegetables are roasting, in a small mixing bowl whisk together remaining 3 Tbsp olive oil, lemon juice, garlic, cumin, coriander, cinnamon and season with 1/4 tsp salt, set aside."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "a7537948-413d-4a66-88ef-6c7c0eed99ec",
+          "input_item": "dry couscous",
+          "input_qty": 1.3333333333333333,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 1/3 cups dry couscous"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "ad839c93-9cd8-4f80-9d29-2393e7565683",
+          "input_item": "turmeric",
+          "input_qty": 0.5,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 tsp turmeric"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "ca6ff7b9-e19b-432a-ac73-252890ec7a99",
+          "input_item": "raisins",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup raisins"
+        }
+      ],
+      "instruction": "Bring chicken broth, 1/2 tsp salt and turmeric to a boil. Place couscous and raisins in a large mixing bowl, pour hot chicken broth over couscous and stir, cover bowl with plastic wrap and let rest for 5 minutes."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "a7537948-413d-4a66-88ef-6c7c0eed99ec",
+          "input_item": "dry couscous",
+          "input_qty": 1.3333333333333333,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 1/3 cups dry couscous"
+        },
+        {
+          "confidence": 0.966,
+          "ingredient_id": "e5be7b32-192b-4b3c-b9a1-17062292cffa",
+          "input_item": "chick peas",
+          "input_qty": 1.0,
+          "input_unit_id": "can",
+          "is_optional": false,
+          "note": null,
+          "preparation": "drained and rinsed",
+          "quantity_kind": "quantified",
+          "raw_text": "1 (14 oz) can chick peas, drained and rinsed"
+        },
+        {
+          "confidence": 0.989,
+          "ingredient_id": "db947b58-4b4e-48ec-910e-b2815718e9e2",
+          "input_item": "almonds",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "slivered, toasted",
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup slivered almonds, toasted"
+        },
+        {
+          "confidence": 0.988,
+          "ingredient_id": "7e65f1f9-c548-4700-989d-f3ddaf0ec294",
+          "input_item": "fresh cilantro",
+          "input_qty": 3.0,
+          "input_unit_id": "Tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "3 Tbsp minced fresh cilantro"
+        }
+      ],
+      "instruction": "Add roasted vegetables, chick peas, almonds, cilantro, mint and lemon mixture to couscous and toss to evenly coat (while seasoning with a little more salt to taste as desired). Serve warm."
+    }
+  ]
+}

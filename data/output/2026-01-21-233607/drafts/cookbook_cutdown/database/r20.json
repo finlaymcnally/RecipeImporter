@@ -1,0 +1,209 @@
+{
+  "recipe": {
+    "description": "needs seasoning, rosemary, not sure what to put for biscuits",
+    "notes": "Tags: Main, Normal, chicken, cream, frozen vegetables",
+    "title": "Chicken & Biscuits Bake",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "Preheat oven to 350\u02daF/180\u02daC."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "f5cdf844-f4d6-4a2b-8cc4-473311f7c896",
+          "input_item": "butter",
+          "input_qty": 6.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "6 tablespoons butter"
+        }
+      ],
+      "instruction": "In a large pot over medium-high heat, melt the butter."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "06372ef0-9bba-4edc-8f9c-be4d9f5ecdd5",
+          "input_item": "onion",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 onion, chopped"
+        }
+      ],
+      "instruction": "Add the onion, stir until softened. About 1 minute."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "dd5b7e27-21d7-44fc-a613-2685f0548a34",
+          "input_item": "flour",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd cup flour"
+        }
+      ],
+      "instruction": "Whisk in the flour, stirring constantly to prevent the flour from browning. About 1 minute."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "1766aaaf-fe2b-44da-82b7-c46f5e42d659",
+          "input_item": "chicken broth",
+          "input_qty": 3.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 cups chicken broth"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "9c15e2ce-8fd7-4b79-9bc9-1f370276d642",
+          "input_item": "salt",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon salt"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "f551b72b-09d7-491d-897b-9524c5e5d45b",
+          "input_item": "pepper",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon pepper"
+        }
+      ],
+      "instruction": "Whisk in the chicken broth, salt, and pepper. Continue to whisk until no lumps remain."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "9c15e2ce-8fd7-4b79-9bc9-1f370276d642",
+          "input_item": "salt",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon salt"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "f551b72b-09d7-491d-897b-9524c5e5d45b",
+          "input_item": "pepper",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon pepper"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "178befcc-a8a8-4758-abc7-1eb96c1f034f",
+          "input_item": "heavy cream",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup heavy cream"
+        }
+      ],
+      "instruction": "Whisk in the heavy cream. Bring to a light simmer until the sauce has thickened slightly. Test for additional salt/pepper."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "a4200264-f294-4120-b4c3-b82b2b3a35b5",
+          "input_item": "frozen mixed vegetables",
+          "input_qty": 2.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2\u00bd cups frozen mixed vegetables"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "00ddd34e-646c-4a56-9649-9687100b8723",
+          "input_item": "rotisserie chicken",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "shredded",
+          "quantity_kind": "quantified",
+          "raw_text": "1 rotisserie chicken, shredded"
+        }
+      ],
+      "instruction": "Add the mixed vegetables and shredded chicken, stir until fully incorporated."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Transfer to a 9x13-inch baking dish."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.978,
+          "ingredient_id": "a75fe8ae-26e4-493b-bf76-5bd866d58786",
+          "input_item": "biscuit dough",
+          "input_qty": 2.0,
+          "input_unit_id": "tubes",
+          "is_optional": false,
+          "note": "(8 biscuits each)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tubes biscuit dough (8 biscuits each)"
+        }
+      ],
+      "instruction": "Evenly top with 12 pieces of biscuit dough (you will have extra biscuits, which can be baked off separately)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bake in a preheated oven for 20 minutes, until the biscuits are golden and the gravy mixture is bubbling."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cool slightly before serving."
+    }
+  ]
+}

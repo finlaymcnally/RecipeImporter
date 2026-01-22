@@ -1,0 +1,146 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, cream, pesto, shrimp, pasta",
+    "title": "Creamy pesto shrimp",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "8bf605d5-0b31-44b3-b83d-87bd5eb41a6f",
+          "input_item": "linguine pasta",
+          "input_qty": 1.0,
+          "input_unit_id": "pound",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 pound linguine pasta"
+        }
+      ],
+      "instruction": "Bring a large pot of lightly salted water to a boil. Add linguine pasta, and cook for 8 to 10 minutes, or until al dente; drain."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "276087f5-da6b-49d4-8223-81d6f677ea9c",
+          "input_item": "butter",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd cup butter"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "9786f330-8933-45b0-98dc-25a9bf6abea0",
+          "input_item": "heavy cream",
+          "input_qty": 2.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 cups heavy cream"
+        },
+        {
+          "confidence": 0.81,
+          "ingredient_id": "b6d2f0cd-d2d2-4df2-b760-7772f24b43b5",
+          "input_item": "black pepper",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "ground",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd teaspoon ground black pepper"
+        }
+      ],
+      "instruction": "In a large skillet, melt the butter over medium heat. Stir in cream, and season with pepper. Cook 6 to 8 minutes, stirring constantly."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 3"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "9786f330-8933-45b0-98dc-25a9bf6abea0",
+          "input_item": "heavy cream",
+          "input_qty": 2.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 cups heavy cream"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "c7c5036f-914b-4e23-8850-b46cd686b819",
+          "input_item": "Parmesan cheese",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": "grated",
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup grated Parmesan cheese"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "3fcb0b69-1fc3-45a6-8bfb-d0fcc2542016",
+          "input_item": "pesto",
+          "input_qty": 0.3333333333333333,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u2153 cup pesto"
+        }
+      ],
+      "instruction": "Stir Parmesan cheese into cream sauce, stirring until thoroughly mixed. Blend in the pesto, and cook for 3 to 5 minutes, until thickened."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 4"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "5f0edd99-a905-4190-818e-4d77d1561576",
+          "input_item": "shrimp",
+          "input_qty": 1.0,
+          "input_unit_id": "pound",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and deveined",
+          "quantity_kind": "quantified",
+          "raw_text": "1 pound large shrimp, peeled and deveined"
+        }
+      ],
+      "instruction": "Stir in the shrimp, and cook until they turn pink, about 5 minutes. Serve over the hot linguine."
+    }
+  ]
+}

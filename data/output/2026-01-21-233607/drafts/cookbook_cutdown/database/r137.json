@@ -1,0 +1,18 @@
+{
+  "recipe": {
+    "description": "Halves easily\nWorks best with thicker chips\nAdd salt if using low salt chips",
+    "notes": "Tags: French, Main, Normal, chips",
+    "title": "Potato Chip & Chive Omelet",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

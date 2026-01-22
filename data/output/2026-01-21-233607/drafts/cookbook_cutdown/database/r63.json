@@ -1,0 +1,203 @@
+{
+  "recipe": {
+    "description": "So much spices",
+    "notes": "Tags: Indian, Side, Instant Pot, lentils, tomatoes",
+    "title": "Dal Makhani",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.973,
+          "ingredient_id": "b184ecba-41e0-4aee-acea-2d11997a6d6e",
+          "input_item": "whole and split lentils",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": "(any combination of whole black lentils, whole mung beans, whole masoor beans, red lentils, red kidney beans, etc)",
+          "preparation": "soaked overnight",
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup whole and split lentils (any combination of whole black lentils, whole mung beans, whole masoor beans, red lentils, red kidney beans, etc), soaked overnight"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "3c94beb2-e024-494b-81bf-3c797ad9f303",
+          "input_item": "water",
+          "input_qty": 3.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 cups water"
+        }
+      ],
+      "instruction": "Soak the lentils in cold water overnight. Drain, rinse and set aside."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "59972690-e633-42a2-96da-f295bd61b666",
+          "input_item": "neutral oil",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": "(I like avocado oil)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons neutral oil (I like avocado oil)"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "46019424-3c28-4d89-a643-6903e1254ec9",
+          "input_item": "cumin seeds",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon cumin seeds"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "a630c33d-2efd-4a44-8547-6bec48b0a31c",
+          "input_item": "onion",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 large onion, chopped"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "0be01215-0830-4046-97fd-68ed0a785a6f",
+          "input_item": "bay leaf",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 bay leaf"
+        }
+      ],
+      "instruction": "Press the saut\u00e9 button on the Instant Pot, add the oil and allow it to heat up for a minute. Add the cumin seeds and once they start to brown, add the onion and bay leaf. Stir-fry for 6-7 minutes or until the onion begins to brown."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "e3e501b0-b18f-42a2-854b-3a4c15c36d6f",
+          "input_item": "garlic",
+          "input_qty": 3.0,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "3 teaspoons minced garlic"
+        },
+        {
+          "confidence": 0.989,
+          "ingredient_id": "8344c54f-08ed-4675-b1d9-ae94aac019fb",
+          "input_item": "ginger",
+          "input_qty": 1.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 \u00bd teaspoons minced ginger"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "8246cecb-34b5-4d2d-8e70-15e3350f6cf6",
+          "input_item": "tomatoes",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "2 tomatoes, chopped"
+        }
+      ],
+      "instruction": "Add the garlic, ginger, spices and stir, then add the tomatoes. Cook for 5 minutes, or until the tomatoes break down."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.973,
+          "ingredient_id": "b184ecba-41e0-4aee-acea-2d11997a6d6e",
+          "input_item": "whole and split lentils",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": "(any combination of whole black lentils, whole mung beans, whole masoor beans, red lentils, red kidney beans, etc)",
+          "preparation": "soaked overnight",
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup whole and split lentils (any combination of whole black lentils, whole mung beans, whole masoor beans, red lentils, red kidney beans, etc), soaked overnight"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "3c94beb2-e024-494b-81bf-3c797ad9f303",
+          "input_item": "water",
+          "input_qty": 3.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 cups water"
+        }
+      ],
+      "instruction": "Add the lentils to the pot along with the 3 cups of water and mix well."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Secure the lid, close the pressure valve and cook for 30 minutes at high pressure."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Allow the pressure to release naturally."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.982,
+          "ingredient_id": "e829c6b8-25c9-4eaa-8079-c1523cae6e20",
+          "input_item": "ghee",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": "adjust to taste",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons ghee, adjust to taste"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "1dba1f41-9926-4121-adc3-13865ff9f93c",
+          "input_item": "Cilantro",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cilantro, garnish"
+        }
+      ],
+      "instruction": "Stir in the ghee and garnish with cilantro if desired."
+    }
+  ]
+}

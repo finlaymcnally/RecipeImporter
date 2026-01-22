@@ -1,0 +1,31 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Italian, Main, Instant Pot, meatballs, carrots, pasta",
+    "title": "Italian wedding soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.491,
+          "ingredient_id": "6a14dcdc-120d-45dd-b6a2-126727cdfcd0",
+          "input_item": "Cook for",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "6-8 hours on \u201clow\u201d setting or until carrots are soft.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cook for 6-8 hours on \u201clow\u201d setting or until carrots are soft."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

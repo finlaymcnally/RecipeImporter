@@ -1,0 +1,119 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Instant Pot, cream of chicken soup, tomatoes, milk, chicken",
+    "title": "Chicken & Rice with black beans",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.987,
+          "ingredient_id": "cc349942-7c21-49ba-8b0b-416a5ad49b60",
+          "input_item": "Paprika",
+          "input_qty": 2.0,
+          "input_unit_id": "TBSP",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 TBSP Paprika"
+        },
+        {
+          "confidence": 0.986,
+          "ingredient_id": "bdbe0882-9131-4c18-8909-4d94ab7ec075",
+          "input_item": "Dehydrated Minced Onions",
+          "input_qty": 0.3333333333333333,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/3 cup Dehydrated Minced Onions"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "48d3f6d9-ff85-47de-a6fe-a85073ea6ca4",
+          "input_item": "black beans",
+          "input_qty": 1.0,
+          "input_unit_id": "can",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 can black beans"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "27410e80-74e4-490e-b4c2-958c6fd1e5df",
+          "input_item": "corn",
+          "input_qty": 1.0,
+          "input_unit_id": "can",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 can corn"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "4ee56750-0f09-4b07-b024-6ba6c3aa63b1",
+          "input_item": "cream of chicken soup",
+          "input_qty": 1.0,
+          "input_unit_id": "can",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 can cream of chicken soup"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "4c7ee8fd-17e5-4589-8f14-dfe4d67d5b91",
+          "input_item": "Rotel",
+          "input_qty": 1.0,
+          "input_unit_id": "can",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 can Rotel"
+        },
+        {
+          "confidence": 0.989,
+          "ingredient_id": "c4e2a9ea-1851-45d0-ad91-8dd64d5b5e8b",
+          "input_item": "milk",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup of milk"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "2fdccfd5-c6ac-477d-8384-41f2a7892f1d",
+          "input_item": "chicken Breasts",
+          "input_qty": 5.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4-6 chicken Breasts"
+        }
+      ],
+      "instruction": "Put all ingredients in your labeled freezer bag and place in the freezer."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place into the crockpot (ingredients can be thawed or frozen) and cook on low for 6-8. Shred chicken and add 2 cups of cooked rice."
+    }
+  ]
+}

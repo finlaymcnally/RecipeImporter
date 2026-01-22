@@ -1,0 +1,18 @@
+{
+  "recipe": {
+    "description": "browned butter in chocolate chip cookies\nOR crisco baking lard instead of butter, but then dont freeze\nMexican vanilla",
+    "notes": "Tags: American, Dessert, Normal, chocolate",
+    "title": "Chocolate Chip Cookies",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

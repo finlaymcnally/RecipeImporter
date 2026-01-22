@@ -1,0 +1,161 @@
+{
+  "recipe": {
+    "description": "Work on sauce",
+    "notes": "Tags: Main, Normal, raspberry, pork loin",
+    "title": "Pork chop with Raspberry sauce (3)",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.992,
+          "ingredient_id": "4e74cfd1-bd28-4d81-99b2-1b5dfb728689",
+          "input_item": "dried thyme",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "crushed",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd teaspoon dried thyme, crushed"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "633b0d8a-3ce0-4482-a44f-07a212d122f9",
+          "input_item": "pepper",
+          "input_qty": 0.25,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc teaspoon pepper"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "8495fe68-5f7b-4619-93f4-78cd98ca4aad",
+          "input_item": "boneless pork loin chops",
+          "input_qty": 4.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 (4 ounce) boneless pork loin chops"
+        }
+      ],
+      "instruction": "Preheat oven to 200 degrees F (95 degrees C). In a small bowl, combine crushed thyme, sage, salt, and pepper. Rub evenly over pork chops."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "8495fe68-5f7b-4619-93f4-78cd98ca4aad",
+          "input_item": "boneless pork loin chops",
+          "input_qty": 4.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 (4 ounce) boneless pork loin chops"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "871c9b2a-3993-48a6-a905-26cb8d9423c9",
+          "input_item": "butter",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon butter"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "a593ad0d-8227-4416-be18-10edea8fe9eb",
+          "input_item": "olive oil",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon olive oil"
+        }
+      ],
+      "instruction": "Melt butter and olive oil in a nonstick skillet. Cook pork chops for 4 to 5 minutes on each side, turning once. Remove from skillet and keep warm in preheated oven."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 3"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.992,
+          "ingredient_id": "4e74cfd1-bd28-4d81-99b2-1b5dfb728689",
+          "input_item": "dried thyme",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "crushed",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd teaspoon dried thyme, crushed"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "8495fe68-5f7b-4619-93f4-78cd98ca4aad",
+          "input_item": "boneless pork loin chops",
+          "input_qty": 4.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 (4 ounce) boneless pork loin chops"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "589a2780-a699-4097-af37-e80220d17976",
+          "input_item": "orange juice",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons orange juice"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "ff58fbc3-94d4-4ed5-a02d-b20876e4bc0d",
+          "input_item": "white wine vinegar",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons white wine vinegar"
+        }
+      ],
+      "instruction": "In the skillet, combine raspberry jam, orange juice, and vinegar. Bring to a boil, and cook for 2 to 3 minutes, or until sauce is reduced to desired consistency (sauce will thicken as it cools). Spoon sauce in a pool onto a serving plate, and top with pork chops. Garnish with sprigs of thyme."
+    }
+  ]
+}

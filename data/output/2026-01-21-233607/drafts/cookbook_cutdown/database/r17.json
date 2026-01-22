@@ -1,0 +1,173 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, beef tenderloin, red wine, walnut",
+    "title": "Beef tenderloin with Marinaded Walnut sauce",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.95,
+          "ingredient_id": "8b7d412e-373a-4f84-a05a-3c28bfaca497",
+          "input_item": "Marinated Walnuts",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Marinated Walnuts:"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "7f7f89e3-1b16-45c3-8ae5-6e3e1808c998",
+          "input_item": "lemon rind",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": "grated",
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon grated lemon rind"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "f535b5d0-0755-42b9-99dd-579858f5648e",
+          "input_item": "ground allspice",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon ground allspice"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "b2265e17-cb95-4a3d-9f8b-dc784b688dbb",
+          "input_item": "vanilla",
+          "input_qty": 0.25,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 teaspoon vanilla"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "7e5979ba-3669-4960-847a-22f826b2656b",
+          "input_item": "cinnamon",
+          "input_qty": 1.0,
+          "input_unit_id": "pinch",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 pinch cinnamon"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "ec5e5aa7-b74a-44e0-a7de-af047e60f6ce",
+          "input_item": "bay leaf",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 bay leaf"
+        }
+      ],
+      "instruction": "Marinated Walnuts: In heatproof bowl, combine nuts, cocoa, lemon rind, pepper, allspice, cloves, Szechuan pepper (if using), vanilla, salt and cinnamon. In saucepan, bring vinegar, sugar and bay leaf to boil, stirring. Stir into nut mixture. Let cool; cover and let stand for at least 24 hours or for up to 3 days. Discard bay leaf."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "e78def92-2b88-4831-9bfd-ccbd617c0c60",
+          "input_item": "butter",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons butter"
+        },
+        {
+          "confidence": 0.979,
+          "ingredient_id": "ae6d4e8a-3f2e-4452-8236-16d5eaaf47d6",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 cloves garlic minced"
+        },
+        {
+          "confidence": 0.986,
+          "ingredient_id": "2b36a832-176f-44ca-aa12-f51d03aae440",
+          "input_item": "onion",
+          "input_qty": 0.5,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 onion finely chopped"
+        }
+      ],
+      "instruction": "In saucepan over medium heat, melt butter; cook garlic and onion until golden, about 7 minutes. Stir in flour; cook, stirring, for 1 minute. Stir in wine; cook until reduced by half, about 1 minute. Stir in stock. Drain nuts, reserving liquid; add nuts to sauce along with 1/4 cup (50 mL) of the liquid. Bring to boil; reduce heat and simmer until slightly thickened, about 20 minutes. Set aside. (Make-ahead: Let cool. Cover and refrigerate for up to 1 day.)"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.987,
+          "ingredient_id": "4154c0c5-2239-4ef2-b16e-109f6028d43f",
+          "input_item": "salt",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon each salt and pepper"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "bb02f709-7fe1-4b41-a8d7-f8a6a427b509",
+          "input_item": "pepper",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon pepper"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "51979b2c-47ec-4bd1-903b-5b0b3d0d6120",
+          "input_item": "ground Szechuan pepper",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": true,
+          "note": "(optional)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon ground Szechuan pepper (optional)"
+        }
+      ],
+      "instruction": "Meanwhile, season beef with salt and pepper. Place on greased rack in small roasting pan; roast in 450\u00b0F (230\u00b0C) oven until meat thermometer registers 130\u00b0 to 140\u00b0F (55\u00b0 to 60\u00b0C) for rare, 25 to 35 minutes. Tent with foil; let stand for 10 to 15 minutes. Bring sauce to simmer. Cut beef into 8 slices. Serve with walnut sauce."
+    }
+  ]
+}

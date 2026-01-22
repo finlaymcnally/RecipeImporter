@@ -1,0 +1,252 @@
+{
+  "recipe": {
+    "description": "I kind of merge the two recipes together\n\nless than 1/2 cup vinegar\nhoney is bomb\ncook chicken separately so it gets rid of it's grease\nlearn how to cook/reduce gravy\n\ncinnamon and brown sugar/honey are secret ingredients",
+    "notes": "Tags: Filipino, Main, Normal, chicken thighs, coconut milk, cauliflower",
+    "title": "Chicken Adobo",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "ad500f5e-cf1b-4e4e-a099-ad848dfb7d82",
+          "input_item": "soy sauce",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup (65 ml) soy sauce"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "2a7fda58-bee4-489f-a5e2-31cef9cf7573",
+          "input_item": "white Filipino cane vinegar",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup (125 ml) white Filipino cane vinegar, or distilled white vinegar"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "20d99a04-f3f4-48a3-b276-54b3843ebfc0",
+          "input_item": "garlic",
+          "input_qty": 7.0,
+          "input_unit_id": "clove",
+          "is_optional": false,
+          "note": null,
+          "preparation": "smashed with the side of a knife and peeled",
+          "quantity_kind": "quantified",
+          "raw_text": "6\u20138 cloves garlic, smashed with the side of a knife and peeled"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "49bd8cfe-634c-40d2-9f60-305cdd3b3167",
+          "input_item": "bay leaves",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 bay leaves"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "39d6cb05-f384-4c7a-9a45-b257b4ced4d5",
+          "input_item": "black peppercorns",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons black peppercorns"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "17a81691-da0f-44e6-8453-0ee8a9a0b886",
+          "input_item": "sugarcane vinegar",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": "divided",
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup sugarcane vinegar or distilled white vinegar, divided"
+        }
+      ],
+      "instruction": "Place the soy sauce, vinegar, garlic, black peppercorns, and bay leaves in a large, nonreactive saut\u00e9 pan, and then nestle the chicken thighs, skin side down, into the pan. Bring the liquid to a boil over high heat, and then cover and simmer over low heat for 20 minutes. Turn the chicken over, and then cover and simmer for another 10 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "ad500f5e-cf1b-4e4e-a099-ad848dfb7d82",
+          "input_item": "soy sauce",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup (65 ml) soy sauce"
+        }
+      ],
+      "instruction": "Uncover the pan, and then increase the heat to high and return the sauce to a boil. While occasionally turning and basting the chicken, continue boiling the sauce, uncovered, until it is reduced by half and thickens slightly, 5\u20137 minutes. Serve with steamed white rice."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "ad500f5e-cf1b-4e4e-a099-ad848dfb7d82",
+          "input_item": "soy sauce",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup (65 ml) soy sauce"
+        },
+        {
+          "confidence": 0.961,
+          "ingredient_id": "38f64d52-5563-4c38-ac0a-404361073350",
+          "input_item": "skin-on, bone-in chicken thighs",
+          "input_qty": 6.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "6 skin-on, bone-in chicken thighs"
+        }
+      ],
+      "instruction": "Variations: While the sauce is reducing, transfer the chicken thighs, skin side up, to a foil-lined sheet pan. Brown the chicken thighs underneath the broiler for 3\u20135 minutes."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "06fc1a7e-7f03-4787-bd88-3d3e6410fb95",
+          "input_item": "whole black peppercorns",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon whole black peppercorns"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "39d6cb05-f384-4c7a-9a45-b257b4ced4d5",
+          "input_item": "black peppercorns",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons black peppercorns"
+        },
+        {
+          "confidence": 0.756,
+          "ingredient_id": "2daad6a1-ab09-45be-8547-41e7e3715713",
+          "input_item": "Place bay leaves and peppercorns",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "in center of cheesecloth and tie closed with kitchen twine; set sachet aside. Toast turmeric in a dry small skillet over medium-low heat, just until fragrant (be careful not to let it brown), about 3 minutes. Transfer to a plate.",
+          "preparation": "stirring often",
+          "quantity_kind": "unquantified",
+          "raw_text": "Place bay leaves and peppercorns in center of cheesecloth and tie closed with kitchen twine; set sachet aside. Toast turmeric in a dry small skillet over medium-low heat, stirring often, just until fragrant (be careful not to let it brown), about 3 minutes. Transfer to a plate."
+        }
+      ],
+      "instruction": "Use freshly ground black pepper instead of whole peppercorns."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "ad500f5e-cf1b-4e4e-a099-ad848dfb7d82",
+          "input_item": "soy sauce",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup (65 ml) soy sauce"
+        }
+      ],
+      "instruction": "For a \u201cdrier\u201d chicken adobo, you can reduce the sauce until it is almost completely evaporated. The chicken will then begin to fry in its own fat that is still left in the pan. This is how my grandmother finishes her adobo."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "ad500f5e-cf1b-4e4e-a099-ad848dfb7d82",
+          "input_item": "soy sauce",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup (65 ml) soy sauce"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "2a7fda58-bee4-489f-a5e2-31cef9cf7573",
+          "input_item": "white Filipino cane vinegar",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup (125 ml) white Filipino cane vinegar, or distilled white vinegar"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "17a81691-da0f-44e6-8453-0ee8a9a0b886",
+          "input_item": "sugarcane vinegar",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": "divided",
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup sugarcane vinegar or distilled white vinegar, divided"
+        }
+      ],
+      "instruction": "For a saucier adobo, double the amount of soy sauce and vinegar."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "OTHER ONE"
+    }
+  ]
+}

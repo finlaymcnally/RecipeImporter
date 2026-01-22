@@ -1,0 +1,186 @@
+{
+  "recipe": {
+    "description": "Acid reflux central (cayenne, garlic powder, onions, peppers, high fat dairy and sausages)\ncook the pasta separately to keep the dish from getting too starchy.",
+    "notes": "Tags: American, Meal, Normal, chicken, sausage, milk, peppers, pasta",
+    "title": "Cajun Fettuccine Alfredo",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.993,
+          "ingredient_id": "4a2e97ec-4c06-4f5f-82ab-484085c099f1",
+          "input_item": "Cajun Seasoning",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cajun Seasoning"
+        }
+      ],
+      "instruction": "In a small bowl, combine all spices for the cajun seasoning and mix together. Set aside. Store any extra in an airtight container for future use."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "6edb8921-1766-4099-96b3-d6d8969e1da5",
+          "input_item": "olive oil",
+          "input_qty": 4.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 tablespoons olive oil"
+        }
+      ],
+      "instruction": "In a heavy bottom pot (such as a Dutch oven), heat 2 tablespoons of olive oil over medium heat."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.993,
+          "ingredient_id": "4a2e97ec-4c06-4f5f-82ab-484085c099f1",
+          "input_item": "Cajun Seasoning",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cajun Seasoning"
+        }
+      ],
+      "instruction": "Add the sliced chicken and 2\u00bd tablespoons of the prepared cajun seasoning."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.991,
+          "ingredient_id": "719d88fd-91b5-4617-a5f2-5e047aac5a7c",
+          "input_item": "andouille sausage",
+          "input_qty": 1.0,
+          "input_unit_id": "pound",
+          "is_optional": false,
+          "note": null,
+          "preparation": "cooked",
+          "quantity_kind": "quantified",
+          "raw_text": "1 pound cooked andouille sausage"
+        }
+      ],
+      "instruction": "Add the andouille sausage and cook until the chicken is no longer pink, about 4-5 minutes."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "6edb8921-1766-4099-96b3-d6d8969e1da5",
+          "input_item": "olive oil",
+          "input_qty": 4.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 tablespoons olive oil"
+        }
+      ],
+      "instruction": "Remove the meat from the pot and add the remaining olive oil."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "e2db59d7-5c85-481e-9721-6cda760a1978",
+          "input_item": "bell peppers",
+          "input_qty": 3.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced",
+          "quantity_kind": "quantified",
+          "raw_text": "3 bell peppers, diced"
+        }
+      ],
+      "instruction": "Add the diced peppers and onions and cook until the onions are transparent and softened, about 5 minutes."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.993,
+          "ingredient_id": "4a2e97ec-4c06-4f5f-82ab-484085c099f1",
+          "input_item": "Cajun Seasoning",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cajun Seasoning"
+        },
+        {
+          "confidence": 0.985,
+          "ingredient_id": "ab93464a-7cdb-4b75-948b-5f0612a15163",
+          "input_item": "milk",
+          "input_qty": 6.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": "(whole preferred)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "6 cups milk (whole preferred)"
+        }
+      ],
+      "instruction": "Add the milk and stir so that the seasoning is incorporated into the liquid."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Turn the heat to high and bring to a boil."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the uncooked fettuccine, stirring constantly until the noodles are al dente, about 10 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "On low heat, add the meat back in and stir so that it\u2019s evenly incorporated."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "d85f9a18-b409-4986-84a3-546eb40a9b63",
+          "input_item": "parmesan cheese",
+          "input_qty": 0.75,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": "plus more for serving",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00be cup parmesan cheese, plus more for serving"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "8388e798-fa2c-4ab3-b2ff-a3393a8027f2",
+          "input_item": "parsley",
+          "input_qty": 3.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": "plus more for serving",
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "3 tablespoons chopped parsley, plus more for serving"
+        }
+      ],
+      "instruction": "Add the cheese and parsley, and stir. Remove from the heat."
+    }
+  ]
+}

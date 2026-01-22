@@ -1,0 +1,145 @@
+{
+  "recipe": {
+    "description": "Adding the water just makes the soup more soupy. Totally a preference call.",
+    "notes": "Tags: Main, Instant Pot, chicken, carrots, celery, lemons",
+    "title": "Spring chicken soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "4dba3836-3a14-4c6a-bde5-368bd2943a3a",
+          "input_item": "olive oil",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon olive oil"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "42a28aa1-da30-4767-b3b3-199ff9e5f6e4",
+          "input_item": "boneless, skinless chicken breasts",
+          "input_qty": null,
+          "input_unit_id": "pounds",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1-1.5 pounds boneless, skinless chicken breasts"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "da11fe45-5cbf-4cce-b992-181024bbc73e",
+          "input_item": "carrots",
+          "input_qty": 5.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "5 carrots, peeled and sliced"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "b9809e26-36f5-424c-9f4d-ab31fb875193",
+          "input_item": "dried parsley",
+          "input_qty": 1.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1.5 teaspoons dried parsley"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "c6c5d56b-88f1-48f4-80d6-7704499c6120",
+          "input_item": "white pepper",
+          "input_qty": 0.25,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 teaspoon white pepper*"
+        },
+        {
+          "confidence": 0.963,
+          "ingredient_id": "310711cd-baa4-4d52-8a58-ebb4bed2a8c8",
+          "input_item": "lighter vegetables",
+          "input_qty": 1.0,
+          "input_unit_id": "pound",
+          "is_optional": true,
+          "note": "such as asparagus, zucchini, etc. (optional)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2-1 pound of lighter vegetables such as asparagus, zucchini, etc. (optional)"
+        }
+      ],
+      "instruction": "Place olive oil, chicken breasts, broth, water, WHITE portion of the scallions, garlic, carrots, celery, lemon juice, dill, parsley, and white pepper in the slow cooker. Add lighter vegetables (if using)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cook on \u201clow\u201d setting for 6 hours."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "a6062c6f-0e08-4695-8008-680999652917",
+          "input_item": "orzo",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup orzo"
+        }
+      ],
+      "instruction": "Add GREEN portion of the scallions, orzo*."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cook on \u201clow\u201d for additional 1/2 hour."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "55d57a2c-95b7-4fb8-afcc-63ba0f688ace",
+          "input_item": "chicken broth",
+          "input_qty": 48.0,
+          "input_unit_id": "oz",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "48oz chicken broth (6 cups)"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "a6062c6f-0e08-4695-8008-680999652917",
+          "input_item": "orzo",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup orzo"
+        }
+      ],
+      "instruction": "*although it is convenient to add your pasta directly to your slow cooker, if you are planning on eating this soup in more than one sitting, I recommend making the orzo on the side and then adding it as eaten. I find when pasta sits in soup for a few days it gets mushy and the broth gets starchy."
+    }
+  ]
+}

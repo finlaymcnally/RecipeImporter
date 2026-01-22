@@ -1,0 +1,116 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, yeast, starter",
+    "title": "Sourdough",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "62d6d337-cdd9-469d-b94c-3fc9267df9f5",
+          "input_item": "bread flour",
+          "input_qty": 4.75,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4\u2009\u00be cups bread flour"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "59584fc8-ba47-4a0d-baf3-eae558755223",
+          "input_item": "margarine",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "softened",
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons margarine, softened"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "0e4bc2ee-4d41-49a8-bdc4-10bd41d61281",
+          "input_item": "sourdough starter",
+          "input_qty": 1.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1\u2009\u00bd cups sourdough starter"
+        }
+      ],
+      "instruction": "In a large bowl, combine 1 cup flour, sugar, salt, and dry yeast. Add milk and softened butter or margarine. Stir in starter. Mix in up to 3 3/4 cups flour gradually, you may need more depending on your climate."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Turn dough out onto a floured surface, and knead for 8 to 10 minutes. Place in a greased bowl, turn once to oil surface, and cover. Allow to rise for 1 hour, or until doubled in volume."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 3"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Punch down, and let rest 15 minutes. Shape into loaves. Place on a greased baking pan. Allow to rise for 1 hour, or until doubled."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 4"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.921,
+          "ingredient_id": "be8aa2fc-3cf6-4b0c-b9fd-4aeacd043978",
+          "input_item": "egg",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 extra large egg"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "971d2689-2d5f-4704-b7ba-2cda0947a369",
+          "input_item": "onion",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc cup chopped onion"
+        }
+      ],
+      "instruction": "Brush egg wash over tops of loaves, and sprinkle with chopped onion."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 5"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bake at 375 degrees F (190 degrees C) for 30 minutes, or till done."
+    }
+  ]
+}

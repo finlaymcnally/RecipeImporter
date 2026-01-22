@@ -1,0 +1,18 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, orecchiette, green beans, frozen peas, sausages, pesto, pasta",
+    "title": "Pesto Orecchiette With chicken sausage",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

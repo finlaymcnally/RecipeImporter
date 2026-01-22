@@ -1,0 +1,401 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, pork chop, red onion, peppers",
+    "title": "Pork chop with peppers",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "8232d099-00cd-4d42-b61a-9adb68062001",
+          "input_item": "Olive oil",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Olive oil, for frying"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "c6ceafe9-6a89-49d9-a4b4-e74843f20efa",
+          "input_item": "Olive oil",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Olive oil, for frying"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "fa9d51eb-20e0-4590-a30c-85dcdb1e9302",
+          "input_item": "red onion",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 red onion, peeled and sliced"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "26b54b45-75b2-4619-a2ae-ac546d0638b4",
+          "input_item": "red peppers",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "deseeded and thinly sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 red peppers, deseeded and thinly sliced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "c2f5ddb5-7b0c-4677-b218-b29ffde040b8",
+          "input_item": "caster sugar",
+          "input_qty": 1.0,
+          "input_unit_id": "tbsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tbsp caster sugar"
+        }
+      ],
+      "instruction": "To make the peppers, heat a little olive oil in large frying pan and add the onion and peppers. Season with salt and pepper, add the sugar and saut\u00e9 over a high heat for 4\u20135 minutes until soft and coloured. (Make sure you can hear the vegetables hissing in the pan. If not, the pan isn\u2019t hot enough and you\u2019re in danger of boiling the vegetables instead of frying them.)"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "26b54b45-75b2-4619-a2ae-ac546d0638b4",
+          "input_item": "red peppers",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "deseeded and thinly sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 red peppers, deseeded and thinly sliced"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "4bc9d0c6-7d4a-4364-905e-9951a1ebed12",
+          "input_item": "red wine vinegar",
+          "input_qty": 3.0,
+          "input_unit_id": "tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 tbsp red wine vinegar"
+        }
+      ],
+      "instruction": "Add the vinegar and let it bubble for a minute or two until it has reduced and the peppers are soft."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "8232d099-00cd-4d42-b61a-9adb68062001",
+          "input_item": "Olive oil",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Olive oil, for frying"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "c6ceafe9-6a89-49d9-a4b4-e74843f20efa",
+          "input_item": "Olive oil",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Olive oil, for frying"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "01fd5d56-a065-4aaf-95f7-80480384f0d6",
+          "input_item": "extra virgin olive oil",
+          "input_qty": 1.0,
+          "input_unit_id": "tbsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tbsp extra virgin olive oil"
+        }
+      ],
+      "instruction": "Turn down the heat, add the tablespoon of extra virgin olive oil and cook for a further 2\u20133 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "4."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.994,
+          "ingredient_id": "0725d6fa-9702-4178-bc84-c323813bc7ff",
+          "input_item": "basil",
+          "input_qty": null,
+          "input_unit_id": "Small bunch",
+          "is_optional": false,
+          "note": null,
+          "preparation": "leaves shredded",
+          "quantity_kind": "unquantified",
+          "raw_text": "Small bunch of basil, leaves shredded"
+        }
+      ],
+      "instruction": "Stir in the shredded basil and continue to cook for 30 seconds, then turn off the heat. Transfer to a bowl and set aside to infuse. Wipe the pan clean, ready to cook the pork."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "5."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "490f2ac3-1783-4897-a1a7-7f80396c24b7",
+          "input_item": "pork chops",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 pork chops, about 200g each"
+        }
+      ],
+      "instruction": "Using a sharp knife, make cuts into the fat of the chops, about 5mm deep and at 3\u20134cm intervals, making sure you don\u2019t cut into the meat. (This will stop the meat from curling up during cooking and will make it cook more evenly.)"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "6."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "490f2ac3-1783-4897-a1a7-7f80396c24b7",
+          "input_item": "pork chops",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 pork chops, about 200g each"
+        }
+      ],
+      "instruction": "Season the chops really well on both sides, pushing the seasoning into the meat."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "7."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "490f2ac3-1783-4897-a1a7-7f80396c24b7",
+          "input_item": "pork chops",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 pork chops, about 200g each"
+        },
+        {
+          "confidence": 0.971,
+          "ingredient_id": "3e0410f1-643e-40c8-b711-739c3ae89967",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "skin on, crushed",
+          "quantity_kind": "quantified",
+          "raw_text": "2 garlic cloves, skin on, crushed"
+        },
+        {
+          "confidence": 0.985,
+          "ingredient_id": "9b270b18-fe58-468f-b4e0-f2c97c75c811",
+          "input_item": "thyme",
+          "input_qty": null,
+          "input_unit_id": "Small bunch",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Small bunch of thyme"
+        }
+      ],
+      "instruction": "Place the cleaned-out frying pan over a high heat until hot and add a dash of oil. Add the chops, garlic and thyme and fry for 2\u20133 minutes until coloured. Turn and fry for a further 2\u20133 minutes on the other side, pushing the thyme under the chops and breaking up the garlic a little."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "8."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "490f2ac3-1783-4897-a1a7-7f80396c24b7",
+          "input_item": "pork chops",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 pork chops, about 200g each"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "d8c17c16-6f64-416f-94e7-8cb726242f3f",
+          "input_item": "Butter",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Butter"
+        }
+      ],
+      "instruction": "Towards the end of cooking time, add 3 knobs of butter and baste the chops with it as they are cooking, to speed up the cooking process and keep the chops moist. (Push the fatty edge of the chops towards the back of the pan to help render the fat.)"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "9."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "490f2ac3-1783-4897-a1a7-7f80396c24b7",
+          "input_item": "pork chops",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 pork chops, about 200g each"
+        },
+        {
+          "confidence": 0.971,
+          "ingredient_id": "3e0410f1-643e-40c8-b711-739c3ae89967",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "skin on, crushed",
+          "quantity_kind": "quantified",
+          "raw_text": "2 garlic cloves, skin on, crushed"
+        }
+      ],
+      "instruction": "Squeeze the garlic out of its skin and place with the herbs on top of the chops."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "10."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "490f2ac3-1783-4897-a1a7-7f80396c24b7",
+          "input_item": "pork chops",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 pork chops, about 200g each"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "d8c17c16-6f64-416f-94e7-8cb726242f3f",
+          "input_item": "Butter",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Butter"
+        }
+      ],
+      "instruction": "Transfer the chops to a plate, and rest for 5\u201310 minutes, spooning over the basting butter now and again."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "11."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "490f2ac3-1783-4897-a1a7-7f80396c24b7",
+          "input_item": "pork chops",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 pork chops, about 200g each"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "26b54b45-75b2-4619-a2ae-ac546d0638b4",
+          "input_item": "red peppers",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "deseeded and thinly sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 red peppers, deseeded and thinly sliced"
+        }
+      ],
+      "instruction": "Serve the chops on top of the peppers with the resting juices and a little juice from the peppers."
+    }
+  ]
+}
