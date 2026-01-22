@@ -1,0 +1,55 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r107",
+  "@type": "Recipe",
+  "keywords": "Italian, Side, Normal, sun dried tomatoes, chicken, cream, tomatoes",
+  "name": "Tuscan chicken soup",
+  "recipeIngredient": [
+    "(1) 7 oz jar Sun Dried tomatoes, sliced (drained)",
+    "2 Tbsp Butter",
+    "2 lbs chicken breast",
+    "1 small Onion, diced",
+    "2 tsp Italian Seasoning",
+    "1/4 tsp red Pepper Flakes",
+    "3 cups chicken broth, or 3 chicken broth cubes & 3 cups water",
+    "1 cup half & half",
+    "1 T minced garlic",
+    "1/4 cup Parmesan cheese",
+    "3-5 ounces frozen chopped spinach or kale",
+    "1 15oz can diced tomatoes",
+    "all in a pot lol"
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r107",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:26Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Italian",
+      "Name": "Tuscan chicken soup",
+      "Notes": "",
+      "Recipe/Ingredients": "(1) 7 oz jar Sun Dried tomatoes, sliced (drained)\n2 Tbsp Butter\n2 lbs chicken breast\n1 small Onion, diced\n2 tsp Italian Seasoning\n1/4 tsp red Pepper Flakes\n3 cups chicken broth, or 3 chicken broth cubes & 3 cups water \n1 cup half & half \n1 T minced garlic\n1/4 cup Parmesan cheese\n3-5 ounces frozen chopped spinach or kale \n1 15oz can diced tomatoes \n\nall in a pot lol",
+      "Tags": "sun dried tomatoes, chicken, cream, tomatoes",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 107,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

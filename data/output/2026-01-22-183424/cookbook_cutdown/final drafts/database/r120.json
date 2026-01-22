@@ -1,0 +1,180 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Instant Pot, chicken, cream, lemons",
+    "title": "Creamy Lemon chicken",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.99,
+          "ingredient_id": "",
+          "input_qty": 6.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "divided",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "unsalted butter",
+          "raw_text": "6 tablespoons unsalted butter divided",
+          "raw_unit_text": "tablespoons"
+        }
+      ],
+      "instruction": "In a large cast iron skillet add 1 tablespoon of butter to melt on medium high heat."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 0.5,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "kosher salt",
+          "raw_text": "1/2 teaspoon kosher salt",
+          "raw_unit_text": "teaspoons"
+        },
+        {
+          "confidence": 0.968,
+          "ingredient_id": "",
+          "input_qty": 0.25,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "coarse ground",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "black pepper",
+          "raw_text": "1/4 teaspoon coarse ground black pepper",
+          "raw_unit_text": "teaspoons"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "Italian seasoning",
+          "raw_text": "1 teaspoon Italian seasoning",
+          "raw_unit_text": "teaspoon"
+        }
+      ],
+      "instruction": "Add the kosher salt, black pepper and Italian seasoning to the chicken and add it to the pan."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cook on each side for 4-6 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the chicken to your slow cooker."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.99,
+          "ingredient_id": "",
+          "input_qty": 6.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "divided",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "unsalted butter",
+          "raw_text": "6 tablespoons unsalted butter divided",
+          "raw_unit_text": "tablespoons"
+        },
+        {
+          "confidence": 0.981,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "juiced and zested",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "lemons",
+          "raw_text": "2 lemons juiced and zested",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "2 garlic cloves minced",
+          "raw_unit_text": "cloves"
+        }
+      ],
+      "instruction": "Cover with lemon juice, lemon zest, garlic and the rest of the butter in pieces (I added the lemons in the before picture just for reference. Don't cook the lemons in the slow cooker)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cook on low for 4 hours or on high for 2 hours."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.989,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "half and half",
+          "raw_text": "1 cup half and half",
+          "raw_unit_text": "cup"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cornstarch",
+          "raw_text": "1 tablespoon cornstarch",
+          "raw_unit_text": "tablespoon"
+        },
+        {
+          "confidence": 0.948,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": true,
+          "note": "optional, but delicious!",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "chicken base",
+          "raw_text": "1 tablespoon chicken base optional, but delicious!",
+          "raw_unit_text": "tablespoon"
+        }
+      ],
+      "instruction": "In a large measuring cup add the half and half, cornstarch and chicken base and whisk well."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the liquid, mix, and cook an additional hour on high."
+    }
+  ]
+}

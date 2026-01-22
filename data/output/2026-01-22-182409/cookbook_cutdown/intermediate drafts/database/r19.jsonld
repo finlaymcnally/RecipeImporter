@@ -1,0 +1,70 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r19",
+  "@type": "Recipe",
+  "description": "Its skirt steak btw not flank. if you use flank youre gonna have a bad time.\nFYI on flank steak, you need to tenderize it with a jaccard and you over cooked it. Anything over medium makes it shoe leather.",
+  "keywords": "American, Main, Normal, steak, cilantro",
+  "name": "Carne Asada Fries",
+  "recipeIngredient": [
+    "Oven-Baked French Fries",
+    "2 russet potatoes",
+    "2 tablespoon olive oil",
+    "1 teaspoon salt",
+    "1 teaspoon garlic powder",
+    "1 teaspoon paprika",
+    "Carne Asada",
+    "\u00bd pound flank steak",
+    "1 teaspoon salt",
+    "\u00bd teaspoon pepper",
+    "1 teaspoon chili powder",
+    "\u00bd teaspoon oregano",
+    "2 cloves garlic, minced",
+    "2 tablespoons cilantro, minced",
+    "\u00bd cup fresh orange juice",
+    "\u00bc cup lime juice"
+  ],
+  "recipeInstructions": [
+    "Preheat oven to 450\u00b0F/230\u00b0C.",
+    "Rinse off your potatoes and give them a light scrub to remove any excess dirt. Dry with towel then cut into fries.",
+    "In a large mixing bowl, combine potatoes, olive oil, salt, garlic powder, and paprika until each fry is fully coated in all of the spices.",
+    "Place fries on a baking sheet lined with parchment paper and bake at 450\u00b0F/230\u00b0C for 30-35 minutes or until the fries are crispy and golden brown.",
+    "Marinate flank steak with salt, pepper, chili powder, oregano, garlic, cilantro, lime juice, and orange juice for 20 minutes.",
+    "Heat up a cast-iron skillet with 1 tablespoon of canola oil.",
+    "Place steak in the hot cast-iron skillet and cook for 3 minutes on both sides for a medium cooked steak. Take steak off the heat and let it rest for 10 minutes before dicing.",
+    "In an ovenproof skillet, place baked french fries, pepper jack cheese, and diced carne asada, then broil until the cheese is melted.",
+    "Top with sour cream, guacamole, diced tomatoes, cilantro, and cotija cheese."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r19",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:10Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "American",
+      "Name": "Carne Asada Fries",
+      "Notes": "Its skirt steak btw not flank. if you use flank youre gonna have a bad time.\nFYI on flank steak, you need to tenderize it with a jaccard and you over cooked it. Anything over medium makes it shoe leather.",
+      "Recipe/Ingredients": "Servings: 2-4\n\n \n\nINGREDIENTS\n\nOven-Baked French Fries\n\n2 russet potatoes\n\n2 tablespoon olive oil\n\n1 teaspoon salt\n\n1 teaspoon garlic powder\n\n1 teaspoon paprika\n\nCarne Asada\n\n\u00bd pound flank steak\n\n1 teaspoon salt\n\n\u00bd teaspoon pepper\n\n1 teaspoon chili powder\n\n\u00bd teaspoon oregano\n\n2 cloves garlic, minced\n\n2 tablespoons cilantro, minced\n\n\u00bd cup fresh orange juice\n\n\u00bc cup lime juice\n\n \n\nPREPARATION\n\nPreheat oven to 450\u00b0F/230\u00b0C.\nRinse off your potatoes and give them a light scrub to remove any excess dirt. Dry with towel then cut into fries.\nIn a large mixing bowl, combine potatoes, olive oil, salt, garlic powder, and paprika until each fry is fully coated in all of the spices.\nPlace fries on a baking sheet lined with parchment paper and bake at 450\u00b0F/230\u00b0C for 30-35 minutes or until the fries are crispy and golden brown.\nMarinate flank steak with salt, pepper, chili powder, oregano, garlic, cilantro, lime juice, and orange juice for 20 minutes.\nHeat up a cast-iron skillet with 1 tablespoon of canola oil.\nPlace steak in the hot cast-iron skillet and cook for 3 minutes on both sides for a medium cooked steak. Take steak off the heat and let it rest for 10 minutes before dicing.\nIn an ovenproof skillet, place baked french fries, pepper jack cheese, and diced carne asada, then broil until the cheese is melted.\nTop with sour cream, guacamole, diced tomatoes, cilantro, and cotija cheese.",
+      "Tags": "steak, cilantro",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 19,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

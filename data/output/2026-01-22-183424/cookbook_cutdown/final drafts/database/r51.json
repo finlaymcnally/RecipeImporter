@@ -1,0 +1,232 @@
+{
+  "recipe": {
+    "description": "This is hard, keep the temp low for the garlic at first\n\nYou can make a salad to go along with it. If you'd like to stick with an Italian theme, then just mix some greens, tomatoes, and olives with some oil, lemon juice, salt, and pepper to taste. Crumble some feta over the salad, if you'd like.",
+    "notes": "Tags: Italian, Main, Normal, LOL",
+    "title": "Pasta Aglio e Olio",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "dried spaghetti",
+          "raw_text": "1 pound (450g) dried spaghetti",
+          "raw_unit_text": "pound"
+        }
+      ],
+      "instruction": "In a pot of salted boiling water, cook spaghetti until just shy of al dente (about 1 minute less than the package directs). Reserve pasta cooking water."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 0.5,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "divided",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "extra-virgin olive oil",
+          "raw_text": "1/2 cup (120ml) extra-virgin olive oil, divided",
+          "raw_unit_text": "cups"
+        },
+        {
+          "confidence": 0.988,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "thinly sliced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "4 medium cloves garlic, thinly sliced",
+          "raw_unit_text": "medium cloves"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": true,
+          "note": "to taste (optional)",
+          "preparation": null,
+          "quantity_kind": "approximate",
+          "raw_ingredient_text": "Red pepper flakes",
+          "raw_text": "Red pepper flakes, to taste (optional)",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.976,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "as needed",
+          "preparation": null,
+          "quantity_kind": "approximate",
+          "raw_ingredient_text": "-olive oil",
+          "raw_text": "-olive oil as needed",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "Meanwhile, in a large skillet, combine 6 tablespoons oil and garlic. Add pinch of red pepper flakes, if using. Cook over medium heat until garlic is very lightly golden, about 5 minutes. (Adjust heat as necessary to keep it gently sizzling.)"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": true,
+          "note": "(optional)",
+          "preparation": "Minced",
+          "quantity_kind": "approximate",
+          "raw_ingredient_text": "flat-leaf parsley",
+          "raw_text": "Minced flat-leaf parsley, for serving (optional)",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.976,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "as needed",
+          "preparation": null,
+          "quantity_kind": "approximate",
+          "raw_ingredient_text": "-olive oil",
+          "raw_text": "-olive oil as needed",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "Transfer pasta to skillet along with 1/2 cup pasta water, increase heat to high, and cook, stirring and tossing rapidly, until a creamy, emulsified sauce forms and coats the noodles. Remove from heat, add remaining 2 tablespoons olive oil, and stir well to combine. Mix in parsley, if using, and serve right away."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "MEAT SAUCE"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "Kosher salt",
+          "raw_text": "Kosher salt",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.86,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "ground beef",
+          "raw_text": "-1/4 pound of ground beef",
+          "raw_unit_text": "-#1$4 pound"
+        },
+        {
+          "confidence": 0.895,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "crushed tomatoes",
+          "raw_text": "-3/4 large can of crushed tomatoes",
+          "raw_unit_text": "large cans"
+        },
+        {
+          "confidence": 0.856,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "sugar as needed",
+          "preparation": null,
+          "quantity_kind": "approximate",
+          "raw_ingredient_text": "-salt",
+          "raw_text": "-salt/pepper/sugar as needed",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.975,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "-oregano",
+          "raw_text": "-oregano",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.961,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "-hot pepper flakes",
+          "raw_text": "-hot pepper flakes",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.976,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "as needed",
+          "preparation": null,
+          "quantity_kind": "approximate",
+          "raw_ingredient_text": "-olive oil",
+          "raw_text": "-olive oil as needed",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "Heat up the leftover oil first and get the pan hot. Put ground beef and chopped onions into the pan, season, then cook until browned. Turn down the heat to low and add crushed tomatoes, salt/pepper/sugar, oregano, hot pepper flakes, and olive oil as needed. Stir and taste for any adjustments. I added a touch of balsamic towards the end to spice it up."
+    }
+  ]
+}

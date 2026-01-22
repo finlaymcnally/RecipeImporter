@@ -1,0 +1,57 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r110",
+  "@type": "Recipe",
+  "description": "One secret to making sure that these turn out well is being sure to let them cool the FULL FIVE MINUTES after cooking before removing them from the pan.",
+  "keywords": "Side, Normal, potatoes",
+  "name": "Parmesan Baked Potato Halves",
+  "recipeIngredient": [
+    "6 small potatoes scrubbed and cut in half",
+    "1/4 cup butter",
+    "grated Parmesan cheese",
+    "garlic powder",
+    "other seasonings to personal preference"
+  ],
+  "recipeInstructions": [
+    "Preheat oven to 400 degrees.",
+    "Melt butter and pour into a 9x13 inch pan and spread evenly across the bottom.",
+    "Generously sprinkle Parmesan cheese and lightly sprinkle other seasonings all over the butter.",
+    "Place potato halves face down on the butter and seasonings.",
+    "Place in preheated oven and bake for 40 to 45 minutes.",
+    "Cool for at least a FULL 5 minutes before removing from the pan, otherwise the parmesan crust won't stick to the potato.",
+    "Serve on a plate with a side of sour cream or Ranch dressing for dipping."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r110",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:26Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Parmesan Baked Potato Halves",
+      "Notes": "One secret to making sure that these turn out well is being sure to let them cool the FULL FIVE MINUTES after cooking before removing them from the pan.",
+      "Recipe/Ingredients": "Ingredients\n6 small potatoes scrubbed and cut in half\n1/4 cup butter\ngrated Parmesan cheese\ngarlic powder\nother seasonings to personal preference\n\nInstructions\nPreheat oven to 400 degrees. \nMelt butter and pour into a 9x13 inch pan and spread evenly across the bottom. \nGenerously sprinkle Parmesan cheese and lightly sprinkle other seasonings all over the butter. \nPlace potato halves face down on the butter and seasonings.\nPlace in preheated oven and bake for 40 to 45 minutes.\nCool for at least a FULL 5 minutes before removing from the pan, otherwise the parmesan crust won't stick to the potato.\nServe on a plate with a side of sour cream or Ranch dressing for dipping.",
+      "Tags": "potatoes",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 110,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r85",
+  "@type": "Recipe",
+  "keywords": "Side, Normal, carrots, maple syrup, lemons",
+  "name": "Maple-Glazed carrots",
+  "recipeIngredient": [
+    "12 large carrots, peeled",
+    "8 tbsp. butter",
+    "1\u20444 cup maple syrup",
+    "Fresh lemon juice",
+    "Salt and freshly ground black pepper",
+    "1 tbsp. fresh thyme leaves"
+  ],
+  "recipeInstructions": [
+    "Cut carrots into 2\" lengths, then halve or quarter the pieces lengthwise so that all the carrots are in equal-size strips.",
+    "Melt butter in a large heavy saut\u00e9 pan over medium-low heat. Add carrots, cover, and braise, stirring occasionally, until carrots are fork-tender, 20\u201330 minutes.",
+    "Increase heat to medium, and stir in syrup and a squeeze of lemon juice. Cook for 2 minutes, then season to taste with salt and pepper. Add thyme and mix well."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r85",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:11Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Maple-Glazed carrots",
+      "Notes": "",
+      "Recipe/Ingredients": "Ingredients\n12 large carrots, peeled\n8 tbsp. butter\n1\u20444 cup maple syrup\nFresh lemon juice\nSalt and freshly ground black pepper\n1 tbsp. fresh thyme leaves\n\nInstructions\nCut carrots into 2\" lengths, then halve or quarter the pieces lengthwise so that all the carrots are in equal-size strips.\nMelt butter in a large heavy saut\u00e9 pan over medium-low heat. Add carrots, cover, and braise, stirring occasionally, until carrots are fork-tender, 20\u201330 minutes.\nIncrease heat to medium, and stir in syrup and a squeeze of lemon juice. Cook for 2 minutes, then season to taste with salt and pepper. Add thyme and mix well.",
+      "Tags": "carrots, maple syrup, lemons",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 85,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r16",
+  "@type": "Recipe",
+  "keywords": "Main, Normal, pork chop, red onion, peppers",
+  "name": "Pork chop with peppers",
+  "recipeIngredient": [
+    "2 pork chops, about 200g each",
+    "Olive oil, for frying",
+    "2 garlic cloves, skin on, crushed",
+    "Small bunch of thyme",
+    "Butter",
+    "For the Sweet and Sour Peppers",
+    "Olive oil, for frying",
+    "1 red onion, peeled and sliced",
+    "2 red peppers, deseeded and thinly sliced",
+    "Sea salt and freshly ground black pepper",
+    "1 tbsp caster sugar",
+    "3 tbsp red wine vinegar",
+    "1 tbsp extra virgin olive oil",
+    "Small bunch of basil, leaves shredded"
+  ],
+  "recipeInstructions": [
+    "1.",
+    "To make the peppers, heat a little olive oil in large frying pan and add the onion and peppers. Season with salt and pepper, add the sugar and saut\u00e9 over a high heat for 4\u20135 minutes until soft and coloured. (Make sure you can hear the vegetables hissing in the pan. If not, the pan isn\u2019t hot enough and you\u2019re in danger of boiling the vegetables instead of frying them.)",
+    "2.",
+    "Add the vinegar and let it bubble for a minute or two until it has reduced and the peppers are soft.",
+    "3.",
+    "Turn down the heat, add the tablespoon of extra virgin olive oil and cook for a further 2\u20133 minutes.",
+    "4.",
+    "Stir in the shredded basil and continue to cook for 30 seconds, then turn off the heat. Transfer to a bowl and set aside to infuse. Wipe the pan clean, ready to cook the pork.",
+    "5.",
+    "Using a sharp knife, make cuts into the fat of the chops, about 5mm deep and at 3\u20134cm intervals, making sure you don\u2019t cut into the meat. (This will stop the meat from curling up during cooking and will make it cook more evenly.)",
+    "6.",
+    "Season the chops really well on both sides, pushing the seasoning into the meat.",
+    "7.",
+    "Place the cleaned-out frying pan over a high heat until hot and add a dash of oil. Add the chops, garlic and thyme and fry for 2\u20133 minutes until coloured. Turn and fry for a further 2\u20133 minutes on the other side, pushing the thyme under the chops and breaking up the garlic a little.",
+    "8.",
+    "Towards the end of cooking time, add 3 knobs of butter and baste the chops with it as they are cooking, to speed up the cooking process and keep the chops moist. (Push the fatty edge of the chops towards the back of the pan to help render the fat.)",
+    "9.",
+    "Squeeze the garlic out of its skin and place with the herbs on top of the chops.",
+    "10.",
+    "Transfer the chops to a plate, and rest for 5\u201310 minutes, spooning over the basting butter now and again.",
+    "11.",
+    "Serve the chops on top of the peppers with the resting juices and a little juice from the peppers."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r16",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:10Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Pork chop with peppers",
+      "Notes": "",
+      "Recipe/Ingredients": "Ingredients\n\n2 pork chops, about 200g each\n\nOlive oil, for frying\n\n2 garlic cloves, skin on, crushed\n\nSmall bunch of thyme\n\nButter\n\nFor the Sweet and Sour Peppers\n\nOlive oil, for frying\n\n1 red onion, peeled and sliced\n\n2 red peppers, deseeded and thinly sliced\n\nSea salt and freshly ground black pepper\n\n1 tbsp caster sugar\n\n3 tbsp red wine vinegar\n\n1 tbsp extra virgin olive oil\n\nSmall bunch of basil, leaves shredded\n\nMethod\n1.\nTo make the peppers, heat a little olive oil in large frying pan and add the onion and peppers. Season with salt and pepper, add the sugar and saut\u00e9 over a high heat for 4\u20135 minutes until soft and coloured. (Make sure you can hear the vegetables hissing in the pan. If not, the pan isn\u2019t hot enough and you\u2019re in danger of boiling the vegetables instead of frying them.)\n\n2.\nAdd the vinegar and let it bubble for a minute or two until it has reduced and the peppers are soft.\n\n3.\nTurn down the heat, add the tablespoon of extra virgin olive oil and cook for a further 2\u20133 minutes.\n\n4.\nStir in the shredded basil and continue to cook for 30 seconds, then turn off the heat. Transfer to a bowl and set aside to infuse. Wipe the pan clean, ready to cook the pork.\n\n5.\nUsing a sharp knife, make cuts into the fat of the chops, about 5mm deep and at 3\u20134cm intervals, making sure you don\u2019t cut into the meat. (This will stop the meat from curling up during cooking and will make it cook more evenly.)\n\n6.\nSeason the chops really well on both sides, pushing the seasoning into the meat.\n\n7.\nPlace the cleaned-out frying pan over a high heat until hot and add a dash of oil. Add the chops, garlic and thyme and fry for 2\u20133 minutes until coloured. Turn and fry for a further 2\u20133 minutes on the other side, pushing the thyme under the chops and breaking up the garlic a little.\n\n8.\nTowards the end of cooking time, add 3 knobs of butter and baste the chops with it as they are cooking, to speed up the cooking process and keep the chops moist. (Push the fatty edge of the chops towards the back of the pan to help render the fat.)\n\n9.\nSqueeze the garlic out of its skin and place with the herbs on top of the chops.\n\n10.\nTransfer the chops to a plate, and rest for 5\u201310 minutes, spooning over the basting butter now and again.\n\n11.\nServe the chops on top of the peppers with the resting juices and a little juice from the peppers.",
+      "Tags": "pork chop, red onion, peppers",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 16,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

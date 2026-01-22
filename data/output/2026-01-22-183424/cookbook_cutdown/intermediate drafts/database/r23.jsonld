@@ -1,0 +1,68 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r23",
+  "@type": "Recipe",
+  "description": "chickpeas, carrots, celery in serious eats, in Bittman?\n\nSave the water used to boil the chickpeas and use it to thin the hummus as you're processing everything.\n\nTahini\nstart by putting whole, unpeeled garlic cloves\u2014a whole head's worth of them\u2014in a blender with a good amount of lemon juice and blending it to a pulpy pur\u00e9e. You then press the liquid through a fine-mesh strainer into a bowl. \n\nFinishing the tahini sauce is as simple as adding some ground cumin and store-bought tahini\u2014sesame paste is one of those things that are simply easier and better to get store-bought than to try grinding at home\u2014and thinning it out with water.\n\nTahini behaves in an interesting way when you add liquids to it. Out of the jar, it's pretty soft and flowing. As you add a little water or lemon juice, it'll first seize up and turn thick like cement. Continue adding water, and it'll eventually thin out into a pourable sauce. Whisking thoroughly between small additions of water ensures that the sauce is smooth, light, and lump-free.\n\nCHICKPEAS\nThe bland, tinny flavor of canned chickpeas can't compare to the full flavor of chickpeas that are cooked from dry before blending. But carefully rinsing canned chickpeas to remove excess liquid (it's the liquid that's the biggest culprit in that canned flavor), then simmering them for about an hour in fresh water with some aromatics, can work wonders, so, in a pinch, there are ways to make canned chickpeas better.\n\nPeeling chickpeas (should you desire) Once you've cooked your chickpeas, transfer them to a bowl of cold water and massage them firmly between your hands. The skins should mostly slip off and start to float above the chickpeas, making them relatively easy to scoop out and dump in the compost. OR just cook them a lot lmao\n\nBlending whole garlic cloves in lemon juice prevents harsher garlic flavors from forming, leaving the sauce aromatic instead of pungent.",
+  "keywords": "Middle Eastern, Side, Normal, chickpeas",
+  "name": "Hummus",
+  "recipeIngredient": [
+    "1/2 pound dried chickpeas (1 generous cup; 225g); see note",
+    "2 teaspoons (12g) baking soda, divided",
+    "Kosher salt",
+    "1 small onion, split in half",
+    "1 small stalk celery",
+    "1 small carrot",
+    "2 medium cloves garlic",
+    "2 bay leaves",
+    "1 1/2 cups (350ml) Tahini Sauce With Garlic and Lemon",
+    "Extra-virgin olive oil, for serving",
+    "Za'atar, paprika, warmed whole chickpeas, and/or chopped fresh parsley leaves, for serving"
+  ],
+  "recipeInstructions": [
+    "1.",
+    "Combine beans, 1 teaspoon (6g) baking soda, and 2 tablespoons (24g) kosher salt in a large bowl and cover with 6 cups (1.4L) cold water. Stir to dissolve salt and baking soda. Let stand at room temperature overnight. Drain and rinse beans thoroughly.",
+    "2.",
+    "Place beans in a large Dutch oven or saucepan. Add remaining baking soda, 1 tablespoon (12g) salt, onion, celery, carrot, garlic, and bay leaves. Add 6 cups (1.4L) water and bring to a boil over high heat. Reduce to a simmer, cover with lid slightly cracked, and cook until beans are completely tender, to the point of falling apart, about 2 hours. Check on beans occasionally and top up with more water if necessary; they should be completely submerged at all times.",
+    "3.",
+    "Discard onion, celery, and bay leaves. Transfer chickpeas, carrot, and garlic to a food processor or high-powered blender (such as a Vitamix, BlendTec, or Breville Boss; see note) with enough cooking liquid to barely cover them. Cover blender, taking out the central insert on the blender lid.",
+    "4.",
+    "Place a folded kitchen towel over the hole in the center of the lid to allow steam to escape. Holding the towel down firmly, turn the blender to the lowest possible speed and slowly increase speed to high. If the mixture becomes too thick to blend, add cooking liquid until it has the texture of a very thick milkshake, always starting the blender on low speed before increasing to high. If your blender comes with a push-stick for thick pur\u00e9es, use it. Continue blending until completely smooth, about 2 minutes.",
+    "5.",
+    "Transfer hot chickpea mixture to a large bowl. Whisk in tahini sauce. Whisk in salt to taste. Transfer to a sealed container and allow to cool to room temperature. It should thicken up until it can hold its shape when spooned onto a plate.",
+    "6.",
+    "Serve hummus on a wide, shallow plate, drizzled with olive oil and sprinkled with za'atar, paprika, warmed whole chickpeas, and/or chopped parsley. Leftover hummus can be stored in the refrigerator for up to 1 week. Allow to come to room temperature before serving."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r23",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:25Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Middle Eastern",
+      "Name": "Hummus",
+      "Notes": "chickpeas, carrots, celery in serious eats, in Bittman?\n\nSave the water used to boil the chickpeas and use it to thin the hummus as you're processing everything.\n\nTahini\nstart by putting whole, unpeeled garlic cloves\u2014a whole head's worth of them\u2014in a blender with a good amount of lemon juice and blending it to a pulpy pur\u00e9e. You then press the liquid through a fine-mesh strainer into a bowl. \n\nFinishing the tahini sauce is as simple as adding some ground cumin and store-bought tahini\u2014sesame paste is one of those things that are simply easier and better to get store-bought than to try grinding at home\u2014and thinning it out with water.\n\nTahini behaves in an interesting way when you add liquids to it. Out of the jar, it's pretty soft and flowing. As you add a little water or lemon juice, it'll first seize up and turn thick like cement. Continue adding water, and it'll eventually thin out into a pourable sauce. Whisking thoroughly between small additions of water ensures that the sauce is smooth, light, and lump-free.\n\nCHICKPEAS\nThe bland, tinny flavor of canned chickpeas can't compare to the full flavor of chickpeas that are cooked from dry before blending. But carefully rinsing canned chickpeas to remove excess liquid (it's the liquid that's the biggest culprit in that canned flavor), then simmering them for about an hour in fresh water with some aromatics, can work wonders, so, in a pinch, there are ways to make canned chickpeas better.\n\nPeeling chickpeas (should you desire) Once you've cooked your chickpeas, transfer them to a bowl of cold water and massage them firmly between your hands. The skins should mostly slip off and start to float above the chickpeas, making them relatively easy to scoop out and dump in the compost. OR just cook them a lot lmao\n\nBlending whole garlic cloves in lemon juice prevents harsher garlic flavors from forming, leaving the sauce aromatic instead of pungent.",
+      "Recipe/Ingredients": "Ingredients\n1/2 pound dried chickpeas (1 generous cup; 225g); see note\n2 teaspoons (12g) baking soda, divided\nKosher salt\n1 small onion, split in half\n1 small stalk celery\n1 small carrot\n2 medium cloves garlic\n2 bay leaves\n1 1/2 cups (350ml) Tahini Sauce With Garlic and Lemon\nExtra-virgin olive oil, for serving\nZa'atar, paprika, warmed whole chickpeas, and/or chopped fresh parsley leaves, for serving\n\nDirections\n1.\nCombine beans, 1 teaspoon (6g) baking soda, and 2 tablespoons (24g) kosher salt in a large bowl and cover with 6 cups (1.4L) cold water. Stir to dissolve salt and baking soda. Let stand at room temperature overnight. Drain and rinse beans thoroughly.\n\n2.\nPlace beans in a large Dutch oven or saucepan. Add remaining baking soda, 1 tablespoon (12g) salt, onion, celery, carrot, garlic, and bay leaves. Add 6 cups (1.4L) water and bring to a boil over high heat. Reduce to a simmer, cover with lid slightly cracked, and cook until beans are completely tender, to the point of falling apart, about 2 hours. Check on beans occasionally and top up with more water if necessary; they should be completely submerged at all times.\n\n3.\nDiscard onion, celery, and bay leaves. Transfer chickpeas, carrot, and garlic to a food processor or high-powered blender (such as a Vitamix, BlendTec, or Breville Boss; see note) with enough cooking liquid to barely cover them. Cover blender, taking out the central insert on the blender lid.\n\n4.\nPlace a folded kitchen towel over the hole in the center of the lid to allow steam to escape. Holding the towel down firmly, turn the blender to the lowest possible speed and slowly increase speed to high. If the mixture becomes too thick to blend, add cooking liquid until it has the texture of a very thick milkshake, always starting the blender on low speed before increasing to high. If your blender comes with a push-stick for thick pur\u00e9es, use it. Continue blending until completely smooth, about 2 minutes.\n\n5.\nTransfer hot chickpea mixture to a large bowl. Whisk in tahini sauce. Whisk in salt to taste. Transfer to a sealed container and allow to cool to room temperature. It should thicken up until it can hold its shape when spooned onto a plate.\n\n6.\nServe hummus on a wide, shallow plate, drizzled with olive oil and sprinkled with za'atar, paprika, warmed whole chickpeas, and/or chopped parsley. Leftover hummus can be stored in the refrigerator for up to 1 week. Allow to come to room temperature before serving.",
+      "Tags": "chickpeas",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 23,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

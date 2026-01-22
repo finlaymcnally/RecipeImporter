@@ -117,6 +117,10 @@ function extractMetadata(fullPath: string): {
 console.log('Listing all markdown files in docs folder:');
 const markdownFiles = walkMarkdownFiles(DOCS_DIR);
 for (const relativePath of markdownFiles) {
+  if (relativePath.endsWith('AGENTS.md')) {
+    console.log(`${relativePath} - reminder to always read this`);
+    continue;
+  }
   const fullPath = join(DOCS_DIR, relativePath);
   const { summary, readWhen, error } = extractMetadata(fullPath);
   if (summary) {

@@ -1,0 +1,67 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r12",
+  "@type": "Recipe",
+  "description": "great",
+  "keywords": "American, Meal, Normal, peppers, sausage, tomatoes, pasta",
+  "name": "One-Pot sausage And peppers pasta",
+  "recipeIngredient": [
+    "1 pound any short pasta (we used bow ties)",
+    "1 tablespoon olive oil",
+    "3 hot Italian sausages",
+    "3 sweet Italian sausages",
+    "1 red bell pepper, large diced",
+    "1 green bell pepper, large diced",
+    "1 yellow bell pepper, large diced",
+    "\u00bd white onion, sliced",
+    "2 cloves of garlic, sliced",
+    "28 ounces can diced tomato",
+    "1 teaspoon oregano",
+    "1 teaspoon salt",
+    "1 teaspoon black ground pepper"
+  ],
+  "recipeInstructions": [
+    "Bring a large pot of water to a rolling boil, add a generous amount of salt, and cook pasta 2 minutes less than the package instructions.",
+    "Strain pasta and set aside. Toss with a small amount of oil to prevent sticking",
+    "In the same pot, heat 1 tbsp of olive oil and fry sausages, working in batches as needed, until deeply browned on all sides.",
+    "Remove sausages, slice in \u00be-inch rings, and set aside.",
+    "Saut\u00e9 all of the bell peppers, onion, and garlic for about 2 minutes.",
+    "Add the canned tomatoes, all of the spices, and the sausage slices to the pot.",
+    "Simmer about 10 minutes.",
+    "Add the pasta back to the pot and stir gently until all the ingredients are coated in the sauce. Continue simmering until pasta is al dente.",
+    "Serve with grated parmesan."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r12",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:10Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "American",
+      "Name": "One-Pot sausage And peppers pasta",
+      "Notes": "great",
+      "Recipe/Ingredients": "One-Pot Sausage And Peppers Pasta\n\nServings: 4-5\n\n \n\nINGREDIENTS\n\n1 pound any short pasta (we used bow ties)\n\n1 tablespoon olive oil\n\n3 hot Italian sausages\n\n3 sweet Italian sausages\n\n1 red bell pepper, large diced\n\n1 green bell pepper, large diced\n\n1 yellow bell pepper, large diced\n\n\u00bd white onion, sliced\n\n2 cloves of garlic, sliced\n\n28 ounces can diced tomato\n\n1 teaspoon oregano\n\n1 teaspoon salt\n\n1 teaspoon black ground pepper\n\n \n\nPREPARATION\n\nBring a large pot of water to a rolling boil, add a generous amount of salt, and cook pasta 2 minutes less than the package instructions.\nStrain pasta and set aside. Toss with a small amount of oil to prevent sticking\nIn the same pot, heat 1 tbsp of olive oil and fry sausages, working in batches as needed, until deeply browned on all sides.\nRemove sausages, slice in \u00be-inch rings, and set aside.\nSaut\u00e9 all of the bell peppers, onion, and garlic for about 2 minutes.\nAdd the canned tomatoes, all of the spices, and the sausage slices to the pot.\nSimmer about 10 minutes.\nAdd the pasta back to the pot and stir gently until all the ingredients are coated in the sauce. Continue simmering until pasta is al dente.\nServe with grated parmesan.",
+      "Tags": "peppers, sausage, tomatoes, pasta",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Meal"
+    },
+    "row_index": 12,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

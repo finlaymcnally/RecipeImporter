@@ -1,0 +1,73 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r96",
+  "@type": "Recipe",
+  "description": "Pulsed chickpeas, cilantro, and parsley together then added it to the latke mix (dough?) before frying. Latkafel\nreally good with applesauce, tahini, or that garlicy yoghurt sauce (Toum) they serve at middle eastern restaurants.\n\nMine is a Polish recipe. Floury potatoes grated on large and as much liquid squeezed out as I can. No powdered anything. Finely chopped onion and parsley, eggs, salt and pepper, a little flour and a couple of eggs. I have been known to add finely chopped chili pepper.\n\napplesauce w/ cranberries is good with it",
+  "keywords": "Middle Eastern, Side, Normal, potatoes",
+  "name": "Latkes",
+  "recipeIngredient": [
+    "Yotam Ottolenghi\u2019s Latkes",
+    "5 \u00bd c peeled and grated waxy potatoes",
+    "2 \u00be c peeled and grated parsnips",
+    "2/3 c finely chopped chives (I did not feel like spending $6 on chives so I used \u00bd of an onion)",
+    "4 egg whites",
+    "2 T cornstarch",
+    "5 T unsalted butter",
+    "6 1/2 T sunflower oil (I used canola)",
+    "1 t salt",
+    "Pepper",
+    "Rinse the grated potatoes in cold water. (I used the shredding disc on my food processor.) Drain in a colander and squeeze out any excess water. Then spread the potatoes on a dry kitchen towel to dry completely.",
+    "In a large bowl mix the potato, parsnips, chives or onion, egg whites, cornstarch, salt and plenty of black pepper.",
+    "Heat \u00bd the butter and \u00bd the oil in a large frying pan over medium high heat. Use your hands to pick up portions of about 2 T of the latke mix. Squeeze firmly to remove some of the liquid and shape into patties about 3/8\u201d thick.",
+    "Carefully place as many patties as can fit in the pan. Push them down gently and level them with the back of a spoon. Fry for 3 minutes on each side until they are completely brown on each side. Drain on paper towels and keep warm while you fry the rest using the reserved butter and oil.",
+    "Serve with sour cream, jam, sugar and apple sauce. And remember these do not need to be made just once a year.",
+    "Traditional Latkes",
+    "3 large peeled potatoes About 1 \u00bd pounds (I used a combo of russets and yukons.)",
+    "2 grated onions",
+    "4 T matzo meal or flour",
+    "1 t baking powder",
+    "2 eggs",
+    "1 t salt",
+    "1/4 t black pepper",
+    "Canola oil",
+    "Using the steel blade of your food processor put in the potatoes and grind them to mush. Or you can shred some and mush some which is what I do so they have a bit of texture. Put in a colander and push out as much liquid as you can. At this point I also squeeze my mixture in a big piece of cheese cloth to extract as much moisture as possible.",
+    "Transfer to a bowl and add the shredded or chopped onion, matzoh meal, baking powder, eggs, salt and pepper and mix with hands until well combined. Heat oil at a medium temperature in a large skillet to the depth of about a \u00bd inch. (Mine is",
+    "nonstick, but a cast iron works really well, too.)",
+    "Drop spoonfuls of the batter into the pan. Fry over medium heat for 3-4 minutes on each side until both sides are brown and crisp.",
+    "Drain on paper towels or a paper grocery bag. Keep warm while frying the rest of the mixture. You may have to add more oil as necessary.",
+    "If you want to make these ahead-I put them in a very cold refrigerator or freezer. Then when you are ready to serve place them on a baking sheet into a preheated 450 oven for about 5 minutes. It works!"
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r96",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:11Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Middle Eastern",
+      "Name": "Latkes",
+      "Notes": "Pulsed chickpeas, cilantro, and parsley together then added it to the latke mix (dough?) before frying. Latkafel\nreally good with applesauce, tahini, or that garlicy yoghurt sauce (Toum) they serve at middle eastern restaurants.\n\nMine is a Polish recipe. Floury potatoes grated on large and as much liquid squeezed out as I can. No powdered anything. Finely chopped onion and parsley, eggs, salt and pepper, a little flour and a couple of eggs. I have been known to add finely chopped chili pepper.\n\napplesauce w/ cranberries is good with it",
+      "Recipe/Ingredients": "Yotam Ottolenghi\u2019s Latkes\n\n5 \u00bd c peeled and grated waxy potatoes\n\n2 \u00be c peeled and grated parsnips\n\n2/3 c finely chopped chives (I did not feel like spending $6 on chives so I used \u00bd of an onion)\n\n4 egg whites\n\n2 T cornstarch\n\n5 T unsalted butter\n\n6 1/2 T sunflower oil (I used canola)\n\n1 t salt\n\nPepper\n\nRinse the grated potatoes in cold water. (I used the shredding disc on my food processor.) Drain in a colander and squeeze out any excess water. Then spread the potatoes on a dry kitchen towel to dry completely.\n\nIn a large bowl mix the potato, parsnips, chives or onion, egg whites, cornstarch, salt and plenty of black pepper.\n\nHeat \u00bd the butter and \u00bd the oil in a large frying pan over medium high heat. Use your hands to pick up portions of about 2 T of the latke mix. Squeeze firmly to remove some of the liquid and shape into patties about 3/8\u201d thick.\n\nCarefully place as many patties as can fit in the pan. Push them down gently and level them with the back of a spoon. Fry for 3 minutes on each side until they are completely brown on each side. Drain on paper towels and keep warm while you fry the rest using the reserved butter and oil.\n\nServe with sour cream, jam, sugar and apple sauce. And remember these do not need to be made just once a year.\n\nTraditional Latkes \n\n3 large peeled potatoes About 1 \u00bd pounds (I used a combo of russets and yukons.)\n\n2 grated onions\n\n4 T matzo meal or flour\n\n1 t baking powder\n\n2 eggs\n\n1 t salt\n\n1/4 t black pepper\n\nCanola oil\n\nUsing the steel blade of your food processor put in the potatoes and grind them to mush. Or you can shred some and mush some which is what I do so they have a bit of texture. Put in a colander and push out as much liquid as you can. At this point I also squeeze my mixture in a big piece of cheese cloth to extract as much moisture as possible.\n\nTransfer to a bowl and add the shredded or chopped onion, matzoh meal, baking powder, eggs, salt and pepper and mix with hands until well combined. Heat oil at a medium temperature in a large skillet to the depth of about a \u00bd inch. (Mine is\nnonstick, but a cast iron works really well, too.)\n\nDrop spoonfuls of the batter into the pan. Fry over medium heat for 3-4 minutes on each side until both sides are brown and crisp.\n\nDrain on paper towels or a paper grocery bag. Keep warm while frying the rest of the mixture. You may have to add more oil as necessary.\n\nIf you want to make these ahead-I put them in a very cold refrigerator or freezer. Then when you are ready to serve place them on a baking sheet into a preheated 450 oven for about 5 minutes. It works!",
+      "Tags": "potatoes",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 96,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

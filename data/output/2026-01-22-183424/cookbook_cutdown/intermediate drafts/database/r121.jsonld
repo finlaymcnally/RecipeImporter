@@ -1,0 +1,67 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r121",
+  "@type": "Recipe",
+  "description": "can be pre-prepped",
+  "keywords": "American, Main, Instant Pot, chicken, apple juice",
+  "name": "Bourbon chicken",
+  "recipeIngredient": [
+    "1 \u00bd lbs. boneless skinless chicken",
+    "\u2153 cup brown sugar",
+    "\u00bc cup ketchup",
+    "\u2153 cup soy sauce",
+    "\u00bc cup apple juice",
+    "2 T. apple cider vinegar",
+    "\u00bd cup bourbon (or broth if you don't want to use bourbon)",
+    "2 tsp. cornstarch",
+    "\u00bc tsp. minced garlic",
+    "\u00bc tsp. ginger",
+    "\u00bd tsp. black pepper"
+  ],
+  "recipeInstructions": [
+    "Freezer Prep:",
+    "Label gallon freezer bag with contents, date, and cooking directions.",
+    "Cut chicken into small bite sized pieces.",
+    "In freezer bag whisk together brown sugar, ketchup, soy sauce, cornstarch, apple juice, apple cider, bourbon, garlic, ginger, and black pepper.",
+    "Add chicken, shake bag to coat.",
+    "Press flat, seal bag securely.",
+    "Cooking:",
+    "Thaw bag contents.",
+    "Pour chicken and sauce into a slow cooker that has been coated in nonstick cooking spray or lined with a slow cooker bag for easy clean up.",
+    "Cook on low for 6-7 hours, stirring occasionally.",
+    "Serve over rice, add fresh steamed broccoli or another favorite veggie for a complete meal."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r121",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:27Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "American",
+      "Name": "Bourbon chicken",
+      "Notes": "can be pre-prepped",
+      "Recipe/Ingredients": "Ingredients\n1 \u00bd lbs. boneless skinless chicken\n\u2153 cup brown sugar\n\u00bc cup ketchup\n\u2153 cup soy sauce\n\u00bc cup apple juice\n2 T. apple cider vinegar\n\u00bd cup bourbon (or broth if you don't want to use bourbon)\n2 tsp. cornstarch\n\u00bc tsp. minced garlic\n\u00bc tsp. ginger\n\u00bd tsp. black pepper\n\nInstructions\nFreezer Prep:\nLabel gallon freezer bag with contents, date, and cooking directions.\nCut chicken into small bite sized pieces.\nIn freezer bag whisk together brown sugar, ketchup, soy sauce, cornstarch, apple juice, apple cider, bourbon, garlic, ginger, and black pepper.\nAdd chicken, shake bag to coat.\nPress flat, seal bag securely.\nCooking:\nThaw bag contents.\nPour chicken and sauce into a slow cooker that has been coated in nonstick cooking spray or lined with a slow cooker bag for easy clean up.\nCook on low for 6-7 hours, stirring occasionally.\nServe over rice, add fresh steamed broccoli or another favorite veggie for a complete meal.",
+      "Tags": "chicken, apple juice",
+      "Tool (Instant, Sous, Normal)": "Instant Pot",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 121,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

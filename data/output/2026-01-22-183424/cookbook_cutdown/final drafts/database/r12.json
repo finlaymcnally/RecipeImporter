@@ -1,0 +1,368 @@
+{
+  "recipe": {
+    "description": "great",
+    "notes": "Tags: American, Meal, Normal, peppers, sausage, tomatoes, pasta",
+    "title": "One-Pot sausage And peppers pasta",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.993,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "(we used bow ties)",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "any short pasta",
+          "raw_text": "1 pound any short pasta (we used bow ties)",
+          "raw_unit_text": "pound"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "salt",
+          "raw_text": "1 teaspoon salt",
+          "raw_unit_text": "teaspoon"
+        }
+      ],
+      "instruction": "Bring a large pot of water to a rolling boil, add a generous amount of salt, and cook pasta 2 minutes less than the package instructions."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.993,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "(we used bow ties)",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "any short pasta",
+          "raw_text": "1 pound any short pasta (we used bow ties)",
+          "raw_unit_text": "pound"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "olive oil",
+          "raw_text": "1 tablespoon olive oil",
+          "raw_unit_text": "tablespoon"
+        }
+      ],
+      "instruction": "Strain pasta and set aside. Toss with a small amount of oil to prevent sticking"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "olive oil",
+          "raw_text": "1 tablespoon olive oil",
+          "raw_unit_text": "tablespoon"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "hot Italian sausages",
+          "raw_text": "3 hot Italian sausages",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "sweet Italian sausages",
+          "raw_text": "3 sweet Italian sausages",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "In the same pot, heat 1 tbsp of olive oil and fry sausages, working in batches as needed, until deeply browned on all sides."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.994,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "hot Italian sausages",
+          "raw_text": "3 hot Italian sausages",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "sweet Italian sausages",
+          "raw_text": "3 sweet Italian sausages",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "Remove sausages, slice in \u00be-inch rings, and set aside."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.996,
+          "ingredient_id": "",
+          "input_qty": 0.5,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "white onion",
+          "raw_text": "\u00bd white onion, sliced",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "2 cloves of garlic, sliced",
+          "raw_unit_text": "cloves"
+        }
+      ],
+      "instruction": "Saut\u00e9 all of the bell peppers, onion, and garlic for about 2 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the canned tomatoes, all of the spices, and the sausage slices to the pot."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Simmer about 10 minutes."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.993,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "(we used bow ties)",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "any short pasta",
+          "raw_text": "1 pound any short pasta (we used bow ties)",
+          "raw_unit_text": "pound"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "olive oil",
+          "raw_text": "1 tablespoon olive oil",
+          "raw_unit_text": "tablespoon"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "hot Italian sausages",
+          "raw_text": "3 hot Italian sausages",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "sweet Italian sausages",
+          "raw_text": "3 sweet Italian sausages",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.981,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "large diced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "red bell pepper",
+          "raw_text": "1 red bell pepper, large diced",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.98,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "large diced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "green bell pepper",
+          "raw_text": "1 green bell pepper, large diced",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.981,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "large diced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "yellow bell pepper",
+          "raw_text": "1 yellow bell pepper, large diced",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "",
+          "input_qty": 0.5,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "white onion",
+          "raw_text": "\u00bd white onion, sliced",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "2 cloves of garlic, sliced",
+          "raw_unit_text": "cloves"
+        },
+        {
+          "confidence": 0.991,
+          "ingredient_id": "",
+          "input_qty": 28.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "diced tomato",
+          "raw_text": "28 ounces can diced tomato",
+          "raw_unit_text": "ounces cans"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "oregano",
+          "raw_text": "1 teaspoon oregano",
+          "raw_unit_text": "teaspoon"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "salt",
+          "raw_text": "1 teaspoon salt",
+          "raw_unit_text": "teaspoon"
+        },
+        {
+          "confidence": 0.991,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "black ground pepper",
+          "raw_text": "1 teaspoon black ground pepper",
+          "raw_unit_text": "teaspoon"
+        }
+      ],
+      "instruction": "Add the pasta back to the pot and stir gently until all the ingredients are coated in the sauce. Continue simmering until pasta is al dente."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Serve with grated parmesan."
+    }
+  ]
+}

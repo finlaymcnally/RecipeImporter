@@ -1,3 +1,10 @@
+---
+summary: "Explanation of the final DraftV1 recipe schema used by the application."
+read_when:
+  - When modifying the DraftV1 schema
+  - When investigating how ingredients are linked to steps
+---
+
 this is the final output, this is what the cookbook app uses: 
   
   The schema includes:                                                                       

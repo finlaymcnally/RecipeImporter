@@ -1,0 +1,66 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r20",
+  "@type": "Recipe",
+  "description": "needs seasoning, rosemary, not sure what to put for biscuits",
+  "keywords": "Main, Normal, chicken, cream, frozen vegetables",
+  "name": "Chicken & Biscuits Bake",
+  "recipeIngredient": [
+    "6 tablespoons butter",
+    "1 onion, chopped",
+    "\u00bd cup flour",
+    "3 cups chicken broth",
+    "1 teaspoon salt",
+    "1 teaspoon pepper",
+    "1 cup heavy cream",
+    "2\u00bd cups frozen mixed vegetables",
+    "1 rotisserie chicken, shredded",
+    "2 tubes biscuit dough (8 biscuits each)"
+  ],
+  "recipeInstructions": [
+    "Preheat oven to 350\u02daF/180\u02daC.",
+    "In a large pot over medium-high heat, melt the butter.",
+    "Add the onion, stir until softened. About 1 minute.",
+    "Whisk in the flour, stirring constantly to prevent the flour from browning. About 1 minute.",
+    "Whisk in the chicken broth, salt, and pepper. Continue to whisk until no lumps remain.",
+    "Whisk in the heavy cream. Bring to a light simmer until the sauce has thickened slightly. Test for additional salt/pepper.",
+    "Add the mixed vegetables and shredded chicken, stir until fully incorporated.",
+    "Transfer to a 9x13-inch baking dish.",
+    "Evenly top with 12 pieces of biscuit dough (you will have extra biscuits, which can be baked off separately).",
+    "Bake in a preheated oven for 20 minutes, until the biscuits are golden and the gravy mixture is bubbling.",
+    "Cool slightly before serving."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r20",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:25Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Chicken & Biscuits Bake",
+      "Notes": "needs seasoning, rosemary, not sure what to put for biscuits",
+      "Recipe/Ingredients": "Servings: 6\n\nINGREDIENTS\n\n6 tablespoons butter\n\n1 onion, chopped\n\n\u00bd cup flour\n\n3 cups chicken broth\n\n1 teaspoon salt\n\n1 teaspoon pepper\n\n1 cup heavy cream\n\n2\u00bd cups frozen mixed vegetables\n\n1 rotisserie chicken, shredded\n\n2 tubes biscuit dough (8 biscuits each)\n\n \n\nPREPARATION\n\nPreheat oven to 350\u02daF/180\u02daC.\nIn a large pot over medium-high heat, melt the butter.\nAdd the onion, stir until softened. About 1 minute.\nWhisk in the flour, stirring constantly to prevent the flour from browning. About 1 minute.\nWhisk in the chicken broth, salt, and pepper. Continue to whisk until no lumps remain.\nWhisk in the heavy cream. Bring to a light simmer until the sauce has thickened slightly. Test for additional salt/pepper.\nAdd the mixed vegetables and shredded chicken, stir until fully incorporated.\nTransfer to a 9x13-inch baking dish.\nEvenly top with 12 pieces of biscuit dough (you will have extra biscuits, which can be baked off separately).\nBake in a preheated oven for 20 minutes, until the biscuits are golden and the gravy mixture is bubbling.\nCool slightly before serving.",
+      "Tags": "chicken, cream, frozen vegetables",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 20,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

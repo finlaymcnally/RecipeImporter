@@ -1,0 +1,61 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r24",
+  "@type": "Recipe",
+  "description": "Can add ranch before taking off heat, but before baking",
+  "keywords": "American, Side, Normal, LOL",
+  "name": "Buffalo chicken Dip",
+  "recipeIngredient": [
+    "2 12.5oz cans of chicken breast meat (or 1.5lb chicken breast, boiled and shredded)",
+    "1/2 - 1 cup Frank's Red Hot sauce (not buffalo sauce!)",
+    "1/2 stick unsalted butter",
+    "1 tsp garlic powder",
+    "1 tsp salt",
+    "1/2 tsp black pepper",
+    "Optional: 1 small can or jar of chopped \"heart of artichoke\"",
+    "Optional: 1 medium onion, diced",
+    "2 boxes of low-fat cream cheese (Neufchatel), softened (leave it out for an hour)",
+    "1lb bag of sharp cheddar cheese, shredded",
+    "Optional 4-6oz of crumbled blue cheese",
+    "1/2-3/4 cup of \"fried onions\""
+  ],
+  "recipeInstructions": [
+    "In a large sauce pan or even a dutch oven, heat your butter over medium heat until it's melted and mostly finished bubbling. Add in your artichoke hearts and onions, if using, and cook briefly (2 minutes or so). Then (or immediately, if no artichokes/onions), add the chicken, garlic powder, salt, pepper, and hot sauce. Mix together thoroughly and let the chicken absorb the sauce well.",
+    "If you feel like dirtying an extra dish, pour all this into a big mixing bowl. Otherwise, just turn off the heat and mix right in the pot. Anyway, mix in your softened cream cheese and about 1/3 of the cheddar cheese. Stir to incorporate well, then dump the mixture into a 9x13 baking dish and cover with the remaining cheese and the fried onions.",
+    "Bake @ 375F for about 20 minutes, or until it's all bubbly and delicious. Cover with foil, vent the foil with a fork or skewer to let the steam escape, and bring it on to school :-D",
+    "Serve with chips (yellow corn tortilla chips is my preference)."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r24",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:10Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "American",
+      "Name": "Buffalo chicken Dip",
+      "Notes": "Can add ranch before taking off heat, but before baking",
+      "Recipe/Ingredients": "Ingredients\n\n2 12.5oz cans of chicken breast meat (or 1.5lb chicken breast, boiled and shredded)\n1/2 - 1 cup Frank's Red Hot sauce (not buffalo sauce!)\n1/2 stick unsalted butter\n1 tsp garlic powder\n1 tsp salt\n1/2 tsp black pepper\nOptional: 1 small can or jar of chopped \"heart of artichoke\"\nOptional: 1 medium onion, diced\n2 boxes of low-fat cream cheese (Neufchatel), softened (leave it out for an hour)\n1lb bag of sharp cheddar cheese, shredded\nOptional 4-6oz of crumbled blue cheese\n1/2-3/4 cup of \"fried onions\"\nDirections\n\nIn a large sauce pan or even a dutch oven, heat your butter over medium heat until it's melted and mostly finished bubbling. Add in your artichoke hearts and onions, if using, and cook briefly (2 minutes or so). Then (or immediately, if no artichokes/onions), add the chicken, garlic powder, salt, pepper, and hot sauce. Mix together thoroughly and let the chicken absorb the sauce well.\n\nIf you feel like dirtying an extra dish, pour all this into a big mixing bowl. Otherwise, just turn off the heat and mix right in the pot. Anyway, mix in your softened cream cheese and about 1/3 of the cheddar cheese. Stir to incorporate well, then dump the mixture into a 9x13 baking dish and cover with the remaining cheese and the fried onions.\n\nBake @ 375F for about 20 minutes, or until it's all bubbly and delicious. Cover with foil, vent the foil with a fork or skewer to let the steam escape, and bring it on to school :-D\n\nServe with chips (yellow corn tortilla chips is my preference).",
+      "Tags": "LOL",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 24,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

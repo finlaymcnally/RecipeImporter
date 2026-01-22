@@ -1,0 +1,57 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r100",
+  "@type": "Recipe",
+  "keywords": "Costa Rican, Side, Normal, black beans, peppers",
+  "name": "Costa Rican Gallo pinto",
+  "recipeIngredient": [
+    "Gallo Pinto (beans and rice) Recipe",
+    "1 lb (450 gr.) Black beans. Fresh are best but most likely you\u2019ll find them dried.",
+    "8-10 sprigs cilantro (coriander leaf) fresh or frozen, not dried!",
+    "1 small or medium onion",
+    "\u00bd small red or yellow sweet pepper (optional)",
+    "3 cups (700 ml) chicken broth or water",
+    "2 cups (350 ml) white rice",
+    "\u00bd teaspoon (2.5 ml) salt",
+    "1 Tablespoon (15 ml) vegetable oil",
+    "1-3 Tablespoon oil to fry the Gallo Pinto",
+    "If beans are dried, cover with water and soak overnight, if they are \u201cfresh\u201d (still dried, but only from laying out in the sun like they do in Costa Rica), just rise them off. Drain the beans and add fresh water to an inch (2.5-cm) above the top of the beans and bring to a boil. Cover the pan and reduce heat to very low simmer until beans are soft (~3 hours). Add salt.",
+    "Chop cilantro, onion, and sweet pepper very fine.",
+    "Add 1 Tablespoon oil to a large pan and saut\u00e9 the dry rice for 2 minutes over medium high flame then add half of the chopped onion, sweet pepper and cilantro and saut\u00e9 another 2 minutes. Add water or chicken broth, bring to a boil, cover and reduce heat to simmer until rice is tender (20-35 minutes). This is also the recipe for Tico rice used in other favorites like tamales.",
+    "Once the rice and beans are cooked you can refrigerate or freeze them. Make up small batches of Gallo Pinto when you want it by simply saut\u00e9ing them together.",
+    "Keep a significant amount of the \u201cblack water\u201d with the beans (\u00bd-1 cup 120-240 ml). This is what gives the rice its color and some of its flavor. Saut\u00e9 the rice, beans reserved chopped onion, sweet pepper and cilantro together in vegetable oil for a few minutes. Sprinkle with a little fresh chopped cilantro just before serving."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r100",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:26Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Costa Rican",
+      "Name": "Costa Rican Gallo pinto",
+      "Notes": "",
+      "Recipe/Ingredients": "Gallo Pinto (beans and rice) Recipe\n1 lb (450 gr.) Black beans. Fresh are best but most likely you\u2019ll find them dried.\n8-10 sprigs cilantro (coriander leaf) fresh or frozen, not dried!\n1 small or medium onion\n\u00bd small red or yellow sweet pepper (optional)\n3 cups (700 ml) chicken broth or water\n2 cups (350 ml) white rice\n\u00bd teaspoon (2.5 ml) salt\n1 Tablespoon (15 ml) vegetable oil\n1-3 Tablespoon oil to fry the Gallo Pinto\n\nIf beans are dried, cover with water and soak overnight, if they are \u201cfresh\u201d (still dried, but only from laying out in the sun like they do in Costa Rica), just rise them off. Drain the beans and add fresh water to an inch (2.5-cm) above the top of the beans and bring to a boil. Cover the pan and reduce heat to very low simmer until beans are soft (~3 hours). Add salt.\n\nChop cilantro, onion, and sweet pepper very fine.\n\nAdd 1 Tablespoon oil to a large pan and saut\u00e9 the dry rice for 2 minutes over medium high flame then add half of the chopped onion, sweet pepper and cilantro and saut\u00e9 another 2 minutes. Add water or chicken broth, bring to a boil, cover and reduce heat to simmer until rice is tender (20-35 minutes). This is also the recipe for Tico rice used in other favorites like tamales.\n\nOnce the rice and beans are cooked you can refrigerate or freeze them. Make up small batches of Gallo Pinto when you want it by simply saut\u00e9ing them together.\n\nKeep a significant amount of the \u201cblack water\u201d with the beans (\u00bd-1 cup 120-240 ml). This is what gives the rice its color and some of its flavor. Saut\u00e9 the rice, beans reserved chopped onion, sweet pepper and cilantro together in vegetable oil for a few minutes. Sprinkle with a little fresh chopped cilantro just before serving.",
+      "Tags": "black beans, peppers",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 100,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

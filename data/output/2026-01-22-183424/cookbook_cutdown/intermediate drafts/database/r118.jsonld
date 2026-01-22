@@ -1,0 +1,67 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r118",
+  "@type": "Recipe",
+  "keywords": "Main, Normal, pasta, bacon, chicken, artichoke hearts, sun dried tomatoes, spinach, milk",
+  "name": "Chicken, bacon, and Artichoke pasta with creamy Garlic sauce",
+  "recipeIngredient": [
+    "SERVES 6",
+    "12oz penne pasta, dry",
+    "1/4lb bacon (4 slices,) chopped",
+    "1lb chicken breasts, chopped into bite-sized pieces",
+    "salt and pepper",
+    "1 can quartered artichoke hearts, drained and chopped",
+    "1/4 cup julienned sun dried tomatoes",
+    "5oz baby spinach",
+    "For the creamy Garlic sauce:",
+    "2 Tablespoons extra virgin olive oil",
+    "2 Tablespoons butter",
+    "4 cloves garlic, minced",
+    "1/4 cup flour",
+    "1-1/2 cups milk (I used 2%)",
+    "1-1/2 cups chicken broth",
+    "salt and pepper",
+    "3/4 cup grated parmesan cheese",
+    "2 teaspoons Italian seasoning",
+    "1 teaspoon garlic powder"
+  ],
+  "recipeInstructions": [
+    "Cook pasta in a large pot of salted, boiling water until al dente. Drain then set aside.",
+    "Cook bacon in a large skillet over medium heat until crisp. Remove to a paper towel-lined plate then discard all but 1 teaspoon bacon grease. Add chicken to the skillet then season with salt and pepper and saute until no longer pink. Add artichoke hearts and sun-dried tomatoes then saute until warmed through, 3-4 minutes. Add spinach then flip with tongs until wilted, 1-2 minutes.",
+    "Meanwhile melt butter in extra virgin olive oil in a skillet or saucepan over medium heat. Add garlic then saute for 30 seconds. Sprinkle in flour then whisk until smooth and cook for 1 minute. Slowly stream in milk and chicken broth, whisking to avoid lumps. Season with salt and pepper then switch to a wooden spoon and stir until thick and bubbly, stirring often, about 10 minutes. Remove from heat then stir in parmesan cheese, Italian seasoning, and garlic powder.",
+    "Combine pasta, chicken and artichoke mixture, sauce, and bacon then scoop and serve."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r118",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:27Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Chicken, bacon, and Artichoke pasta with creamy Garlic sauce",
+      "Notes": "",
+      "Recipe/Ingredients": "Ingredients\nSERVES 6\n\n12oz penne pasta, dry\n1/4lb bacon (4 slices,) chopped\n1lb chicken breasts, chopped into bite-sized pieces\nsalt and pepper\n1 can quartered artichoke hearts, drained and chopped\n1/4 cup julienned sun dried tomatoes\n5oz baby spinach\nFor the creamy Garlic sauce:\n2 Tablespoons extra virgin olive oil\n2 Tablespoons butter\n4 cloves garlic, minced\n1/4 cup flour\n1-1/2 cups milk (I used 2%)\n1-1/2 cups chicken broth\nsalt and pepper\n3/4 cup grated parmesan cheese\n2 teaspoons Italian seasoning\n1 teaspoon garlic powder\n\nDirections\nCook pasta in a large pot of salted, boiling water until al dente. Drain then set aside.\nCook bacon in a large skillet over medium heat until crisp. Remove to a paper towel-lined plate then discard all but 1 teaspoon bacon grease. Add chicken to the skillet then season with salt and pepper and saute until no longer pink. Add artichoke hearts and sun-dried tomatoes then saute until warmed through, 3-4 minutes. Add spinach then flip with tongs until wilted, 1-2 minutes.\nMeanwhile melt butter in extra virgin olive oil in a skillet or saucepan over medium heat. Add garlic then saute for 30 seconds. Sprinkle in flour then whisk until smooth and cook for 1 minute. Slowly stream in milk and chicken broth, whisking to avoid lumps. Season with salt and pepper then switch to a wooden spoon and stir until thick and bubbly, stirring often, about 10 minutes. Remove from heat then stir in parmesan cheese, Italian seasoning, and garlic powder.\nCombine pasta, chicken and artichoke mixture, sauce, and bacon then scoop and serve.",
+      "Tags": "pasta, bacon, chicken, artichoke hearts, sun dried tomatoes, spinach, milk",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 118,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

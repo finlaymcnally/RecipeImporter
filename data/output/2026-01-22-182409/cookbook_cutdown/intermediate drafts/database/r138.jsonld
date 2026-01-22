@@ -1,0 +1,54 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r138",
+  "@type": "Recipe",
+  "description": "Try adding ricotta, chili\nIf at all possible, use a feta cheese that has been packed in brine",
+  "keywords": "Greek, Side, Normal, Feta, peppers",
+  "name": "Kopanisti",
+  "recipeIngredient": [
+    "12 oz. feta cheese drained and cubed",
+    "4 oz. roasted red bell peppers drained",
+    "1 cup fresh mint leaves",
+    "1/4 cup olive oil",
+    "3 small cloves garlic",
+    "2 Tbsp. fresh lemon juice",
+    "1/4 tsp. red pepper flakes"
+  ],
+  "recipeInstructions": [
+    "Combine all the ingredients in the bowl of a food processor and pulse until the ingredients are combined. Continue to pulse until the mixture is smooth but still retains some texture.",
+    "Taste and add more lemon juice or pepper if needed."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r138",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:13Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Greek",
+      "Name": "Kopanisti",
+      "Notes": "Try adding ricotta, chili\nIf at all possible, use a feta cheese that has been packed in brine",
+      "Recipe/Ingredients": "Ingredients\n12 oz. feta cheese drained and cubed\n4 oz. roasted red bell peppers drained\n1 cup fresh mint leaves\n1/4 cup olive oil\n3 small cloves garlic\n2 Tbsp. fresh lemon juice\n1/4 tsp. red pepper flakes\n\nInstructions\nCombine all the ingredients in the bowl of a food processor and pulse until the ingredients are combined. Continue to pulse until the mixture is smooth but still retains some texture.\nTaste and add more lemon juice or pepper if needed.",
+      "Tags": "Feta, peppers",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 138,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

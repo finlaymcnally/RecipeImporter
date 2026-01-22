@@ -1,0 +1,58 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r33",
+  "@type": "Recipe",
+  "keywords": "American, Component, Normal, tomatoes",
+  "name": "New York-Style pizza sauce",
+  "recipeIngredient": [
+    "1 (28-ounce) can whole peeled tomatoes",
+    "1 tablespoon extra-virgin olive oil",
+    "1 tablespoon unsalted butter",
+    "2 medium cloves garlic, grated on microplane grater (about 2 teaspoons)",
+    "1 teaspoon dried oregano",
+    "Pinch red pepper flakes",
+    "Kosher salt",
+    "2 (6-inch) sprigs fresh basil with leaves attached",
+    "1 medium yellow onion, peeled and split in half",
+    "1 teaspoon sugar"
+  ],
+  "recipeInstructions": [
+    "1.",
+    "Process tomatoes and their juice through food mill, pulse in food processor until pureed, or puree with hand blender. Puree should not be completely smooth, but should have no chunks larger than 1/16 of an inch. Set tomatoes aside.",
+    "2.",
+    "Combine butter and oil in medium saucepan and heat over medium-low heat until butter is melted. Add garlic, oregano, pepper flakes, and large pinch salt and cook, stirring frequently, until fragrant but not browned, about 3 minutes. Add tomatoes, basil sprigs, onion halves, and sugar. Bring to a simmer, reduce heat to lowest setting (bubbles should barely be breaking the surface), and cook, stirring occasionally, until reduced by 1/2, about 1 hour. Discard onions and basil stems. Season to taste with salt. Allow to cool and store in covered container in the refrigerator for up to 2 weeks."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r33",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:25Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "American",
+      "Name": "New York-Style pizza sauce",
+      "Notes": "",
+      "Recipe/Ingredients": "Ingredients\n1 (28-ounce) can whole peeled tomatoes\n1 tablespoon extra-virgin olive oil\n1 tablespoon unsalted butter\n2 medium cloves garlic, grated on microplane grater (about 2 teaspoons)\n1 teaspoon dried oregano\nPinch red pepper flakes\nKosher salt\n2 (6-inch) sprigs fresh basil with leaves attached\n1 medium yellow onion, peeled and split in half\n1 teaspoon sugar\n\nDirections\n1.\nProcess tomatoes and their juice through food mill, pulse in food processor until pureed, or puree with hand blender. Puree should not be completely smooth, but should have no chunks larger than 1/16 of an inch. Set tomatoes aside.\n\n2.\nCombine butter and oil in medium saucepan and heat over medium-low heat until butter is melted. Add garlic, oregano, pepper flakes, and large pinch salt and cook, stirring frequently, until fragrant but not browned, about 3 minutes. Add tomatoes, basil sprigs, onion halves, and sugar. Bring to a simmer, reduce heat to lowest setting (bubbles should barely be breaking the surface), and cook, stirring occasionally, until reduced by 1/2, about 1 hour. Discard onions and basil stems. Season to taste with salt. Allow to cool and store in covered container in the refrigerator for up to 2 weeks.",
+      "Tags": "tomatoes",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Component"
+    },
+    "row_index": 33,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

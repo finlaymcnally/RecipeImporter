@@ -1,0 +1,56 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r98",
+  "@type": "Recipe",
+  "keywords": "Cuban, Side, Normal, black beans, limes",
+  "name": "Moros Y Cristianos",
+  "recipeIngredient": [
+    "Ingredients",
+    "1 cup of dried black beans",
+    "2 Tablespoons vegetable oil",
+    "4 cloves of fresh garlic, minced",
+    "1/2 small green pepper, minced",
+    "1/2 white onion, minced",
+    "3 cups white rice, long-grain",
+    "1/2 cup fresh squeezed lime juice",
+    "salt and fresh ground pepper, to taste",
+    "Cuban Rice Directions",
+    "If using dry beans, soak in cold water overnight. Drain and place in a stockpot with fresh water covering the beans. Bring to a boil then reduce and simmer, covered for 1 hour or until beans are tender but firm. Drain the beans by pouring the cooking water into a bowl. Save the water, you will use it later for the rice.",
+    "Add the vegetable oil to the stockpot and saut\u00e9 the garlic, pepper, and onion for 2 to 3 minutes until they soften. Stir in the black beans and rice, and add the water you have saved from cooking the beans. Add an additional 2 cups of water.",
+    "Bring the mixture to a boil, then reduce the heat to a simmer and cook until the rice is tender approximately 20 minutes. Stir frequently and check to see if you need additional water to keep the rice from sticking. You can add more water 1/2 cup at a time while it finishes. Just don\u2019t overdo it or your rice will get mushy.",
+    "Once the rice is fully cooked, add the lime juice and salt and pepper to taste. The dish is best served hot. If you like, you can add some chopped bacon at the end. Or serve as a side dish with hearty roasted meat like pork or chicken."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r98",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:11Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Cuban",
+      "Name": "Moros Y Cristianos",
+      "Notes": "",
+      "Recipe/Ingredients": "Ingredients \n\n1 cup of dried black beans\n2 Tablespoons vegetable oil\n4 cloves of fresh garlic, minced\n1/2 small green pepper, minced\n1/2 white onion, minced\n3 cups white rice, long-grain\n1/2 cup fresh squeezed lime juice\nsalt and fresh ground pepper, to taste\n\nCuban Rice Directions\nIf using dry beans, soak in cold water overnight. Drain and place in a stockpot with fresh water covering the beans. Bring to a boil then reduce and simmer, covered for 1 hour or until beans are tender but firm. Drain the beans by pouring the cooking water into a bowl. Save the water, you will use it later for the rice.\n\nAdd the vegetable oil to the stockpot and saut\u00e9 the garlic, pepper, and onion for 2 to 3 minutes until they soften. Stir in the black beans and rice, and add the water you have saved from cooking the beans. Add an additional 2 cups of water.\n\nBring the mixture to a boil, then reduce the heat to a simmer and cook until the rice is tender approximately 20 minutes. Stir frequently and check to see if you need additional water to keep the rice from sticking. You can add more water 1/2 cup at a time while it finishes. Just don\u2019t overdo it or your rice will get mushy.\n\nOnce the rice is fully cooked, add the lime juice and salt and pepper to taste. The dish is best served hot. If you like, you can add some chopped bacon at the end. Or serve as a side dish with hearty roasted meat like pork or chicken.",
+      "Tags": "black beans, limes",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 98,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

@@ -1,0 +1,233 @@
+{
+  "recipe": {
+    "description": "A few tips: We find the salt a little too much and usually adjust it down to 1.5 tsp or less per pound of pork. This dish has a little heat from the red peppers, but if you like spicy add a dash or two of cayenne pepper! And as always, be sure to use the flour to thicken the broth AFTER pressure cooking. Hope y'all enjoy!",
+    "notes": "Tags: Indian, Main, Instant Pot, pork shoulder, tomatoes",
+    "title": "Pork Vindaloo",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "Grind spices in mortar and pestle until smooth"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "oil",
+          "raw_text": "1 tbs oil",
+          "raw_unit_text": "tb"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "oil",
+          "raw_text": "1 tsp oil",
+          "raw_unit_text": "tsp"
+        }
+      ],
+      "instruction": "In a large pan, heat oil over medium-high heat"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "onion",
+          "raw_text": "1 medium onion, diced",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "4 cloves garlic, minced",
+          "raw_unit_text": "cloves"
+        }
+      ],
+      "instruction": "Add onion and garlic and stir often until onions are translucent and garlic is fragrant"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "onion",
+          "raw_text": "1 medium onion, diced",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "4 cloves garlic, minced",
+          "raw_unit_text": "cloves"
+        }
+      ],
+      "instruction": "Scoop onion and garlic in to pressure cooker"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "oil",
+          "raw_text": "1 tbs oil",
+          "raw_unit_text": "tb"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "oil",
+          "raw_text": "1 tsp oil",
+          "raw_unit_text": "tsp"
+        }
+      ],
+      "instruction": "In the same pan, add additional oil if needed"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped in to 1 inch cubes",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "pork shoulder",
+          "raw_text": "1 lb pork shoulder, chopped in to 1 inch cubes",
+          "raw_unit_text": "lb"
+        }
+      ],
+      "instruction": "Sear pork shoulder cubes on all sides until browned"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove from heat and add pork to pressure cooker"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "sugar",
+          "raw_text": "1 tsp sugar",
+          "raw_unit_text": "tsp"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "red wine vinegar",
+          "raw_text": "2 tbsp red wine vinegar",
+          "raw_unit_text": "tbsps"
+        },
+        {
+          "confidence": 0.973,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "diced tomatoes",
+          "raw_text": "1 can of diced tomatoes",
+          "raw_unit_text": "can"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "flour",
+          "raw_text": "2 tbsp flour",
+          "raw_unit_text": "tbsps"
+        }
+      ],
+      "instruction": "Pour in spices, sugar, red wine vinegar, tomatoes, and flour"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Gently mix"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cook on high for 30-40 minutes (adjust according to your pressure cooker)"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Serve hot over rice"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r115",
+  "@type": "Recipe",
+  "keywords": "Mexican, Side, Normal, pinto beans, pork shoulder, bacon, cilantro",
+  "name": "Drunken Mexican beans w/ cilantro and bacon",
+  "recipeIngredient": [
+    "8 Ounces About 1 1/4 Cups Dried pinto beans",
+    "1/2 Cup About 2 Ounces Cubed pork shoulder or Extra chopsped bacon",
+    "4 Thick Slices bacon Cut Into 1/2 Inch Pieces",
+    "1 Small White Onion Diced Into 1/4 Inch Pieces",
+    "1 Jalapeno Pepper Stemmed, Seeded and Finely chopsped",
+    "About 2-2 1/2 Teaspoons Salt",
+    "1 1/2 Tablespoons Tequila",
+    "1/4 Cup cilantro Leaves Roughly chopsped"
+  ],
+  "recipeInstructions": [
+    "Rinse the beans thoroughly and scoop into a medium-size Dutch oven. Add 5 cups water, remove any beans that float, then add the pork shoulder (or extra chopped bacon) and bring to a boil. reduce the heat to medium-low, and very gently simmer, partially covered, until the beans are thoroughly tender about 2 hours. You'll need to gently stir the beans regularly and add water as necessary to keep the liquid a generous 1/2 inch above the level of the beans.",
+    "In a medium-size skillet, fry the bacon (that is, the remaining bacon if you used some for the simmering), stirring regularly, until crisp, about 10 minutes. With a slotted spoon, remove the bacon, leaving behind as much of the drippings as possible. Pour off all but about 2 tablespoons of the drippings and return the pan to medium heat. Add the onion and chiles and fry until deep golden brown, about 10 minutes. Scrape the onion mixture into the beans, then taste and season it all with salt. Continue simmering, stirring occasionally, for 20 to 30 minutes to blend the flavors. If the beans seem quite soupy, boil over medium-high heat, stirring frequently, until the consistency of a nice, brothy bean soup. (An alternative here is to puree 1/4 of the beans in a food processor or blender, returning them to the pot to thicken the broth.)",
+    "Just before serving, stir in the tequila and cilantro, then serve in warm bowls topped with the crumbled bacon."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r115",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:12Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Mexican",
+      "Name": "Drunken Mexican beans w/ cilantro and bacon",
+      "Notes": "",
+      "Recipe/Ingredients": "INGREDIENTS\n8 Ounces About 1 1/4 Cups Dried pinto beans\n1/2 Cup About 2 Ounces Cubed pork shoulder or Extra chopsped bacon\n4 Thick Slices bacon Cut Into 1/2 Inch Pieces\n1 Small White Onion Diced Into 1/4 Inch Pieces\n1 Jalapeno Pepper Stemmed, Seeded and Finely chopsped\nAbout 2-2 1/2 Teaspoons Salt\n1 1/2 Tablespoons Tequila\n1/4 Cup cilantro Leaves Roughly chopsped\n\nINSTRUCTIONS\nRinse the beans thoroughly and scoop into a medium-size Dutch oven. Add 5 cups water, remove any beans that float, then add the pork shoulder (or extra chopped bacon) and bring to a boil. reduce the heat to medium-low, and very gently simmer, partially covered, until the beans are thoroughly tender about 2 hours. You'll need to gently stir the beans regularly and add water as necessary to keep the liquid a generous 1/2 inch above the level of the beans.\nIn a medium-size skillet, fry the bacon (that is, the remaining bacon if you used some for the simmering), stirring regularly, until crisp, about 10 minutes. With a slotted spoon, remove the bacon, leaving behind as much of the drippings as possible. Pour off all but about 2 tablespoons of the drippings and return the pan to medium heat. Add the onion and chiles and fry until deep golden brown, about 10 minutes. Scrape the onion mixture into the beans, then taste and season it all with salt. Continue simmering, stirring occasionally, for 20 to 30 minutes to blend the flavors. If the beans seem quite soupy, boil over medium-high heat, stirring frequently, until the consistency of a nice, brothy bean soup. (An alternative here is to puree 1/4 of the beans in a food processor or blender, returning them to the pot to thicken the broth.)\nJust before serving, stir in the tequila and cilantro, then serve in warm bowls topped with the crumbled bacon.",
+      "Tags": "pinto beans, pork shoulder, bacon, cilantro",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 115,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

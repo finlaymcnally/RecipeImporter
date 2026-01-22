@@ -1,0 +1,52 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r137",
+  "@type": "Recipe",
+  "description": "Halves easily\nWorks best with thicker chips\nAdd salt if using low salt chips",
+  "keywords": "French, Main, Normal, chips",
+  "name": "Potato Chip & Chive Omelet",
+  "recipeIngredient": [
+    "4 large eggs",
+    "About 1 cup somewhat crushed potatoes",
+    "3 tablespoons finely chopped chives",
+    "1 tsp dried garlic flakes",
+    "1 tsp butter or olive oil",
+    "In a medium bowl, beat eggs lightly with a fork",
+    "In a second bowl, combine the chips, chives and garlic flakes, stir half into the eggs",
+    "In a medium skillet, melt the butter over the medium heat. When it foams, add the eggs. Cook the eggs for 2 minutes, then sprinkle the remining chips over the surface. Cook for 1 more minute, or until the omelet is cooked to your taste.",
+    "Fold the omelet in two and slide onto a serving plate."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r137",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:27Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "French",
+      "Name": "Potato Chip & Chive Omelet",
+      "Notes": "Halves easily\nWorks best with thicker chips\nAdd salt if using low salt chips",
+      "Recipe/Ingredients": "4 large eggs\nAbout 1 cup somewhat crushed potatoes\n3 tablespoons finely chopped chives\n1 tsp dried garlic flakes\n1 tsp butter or olive oil\n\nIn a medium bowl, beat eggs lightly with a fork\nIn a second bowl, combine the chips, chives and garlic flakes, stir half into the eggs\nIn a medium skillet, melt the butter over the medium heat. When it foams, add the eggs. Cook the eggs for 2 minutes, then sprinkle the remining chips over the surface. Cook for 1 more minute, or until the omelet is cooked to your taste.\nFold the omelet in two and slide onto a serving plate.",
+      "Tags": "chips",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 137,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

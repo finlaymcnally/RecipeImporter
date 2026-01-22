@@ -1,0 +1,62 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r120",
+  "@type": "Recipe",
+  "keywords": "Main, Instant Pot, chicken, cream, lemons",
+  "name": "Creamy Lemon chicken",
+  "recipeIngredient": [
+    "5 chicken breasts boneless and skinless",
+    "6 tablespoons unsalted butter divided",
+    "1/2 teaspoon kosher salt",
+    "1/4 teaspoon coarse ground black pepper",
+    "1 teaspoon Italian seasoning",
+    "2 lemons juiced and zested",
+    "2 garlic cloves minced",
+    "1 cup half and half",
+    "1 tablespoon cornstarch",
+    "1 tablespoon chicken base optional, but delicious!"
+  ],
+  "recipeInstructions": [
+    "In a large cast iron skillet add 1 tablespoon of butter to melt on medium high heat.",
+    "Add the kosher salt, black pepper and Italian seasoning to the chicken and add it to the pan.",
+    "Cook on each side for 4-6 minutes.",
+    "Add the chicken to your slow cooker.",
+    "Cover with lemon juice, lemon zest, garlic and the rest of the butter in pieces (I added the lemons in the before picture just for reference. Don't cook the lemons in the slow cooker).",
+    "Cook on low for 4 hours or on high for 2 hours.",
+    "In a large measuring cup add the half and half, cornstarch and chicken base and whisk well.",
+    "Add the liquid, mix, and cook an additional hour on high."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r120",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:12Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Creamy Lemon chicken",
+      "Notes": "",
+      "Recipe/Ingredients": "Ingredients:\n5 chicken breasts boneless and skinless\n6 tablespoons unsalted butter divided\n1/2 teaspoon kosher salt\n1/4 teaspoon coarse ground black pepper\n1 teaspoon Italian seasoning\n2 lemons juiced and zested\n2 garlic cloves minced\n1 cup half and half\n1 tablespoon cornstarch\n1 tablespoon chicken base optional, but delicious!\n\nInstructions:\nIn a large cast iron skillet add 1 tablespoon of butter to melt on medium high heat.\nAdd the kosher salt, black pepper and Italian seasoning to the chicken and add it to the pan.\nCook on each side for 4-6 minutes.\n\nAdd the chicken to your slow cooker.\nCover with lemon juice, lemon zest, garlic and the rest of the butter in pieces (I added the lemons in the before picture just for reference. Don't cook the lemons in the slow cooker).\nCook on low for 4 hours or on high for 2 hours.\n\nIn a large measuring cup add the half and half, cornstarch and chicken base and whisk well.\nAdd the liquid, mix, and cook an additional hour on high.",
+      "Tags": "chicken, cream, lemons",
+      "Tool (Instant, Sous, Normal)": "Instant Pot",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 120,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

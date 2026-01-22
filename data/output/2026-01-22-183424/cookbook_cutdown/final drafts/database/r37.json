@@ -1,0 +1,146 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: French, Main, Normal, chicken thighs, carrots, celery, mushrooms, cream",
+    "title": "Chicken Fricassee",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "extra-virgin olive oil",
+          "raw_text": "2 tbsp. extra-virgin olive oil",
+          "raw_unit_text": "tbsps"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "Kosher salt",
+          "raw_text": "Kosher salt",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "Freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "black pepper",
+          "raw_text": "Freshly ground black pepper",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "In a large high-sided skillet over medium heat, heat oil. Season chicken on both sides with salt and pepper then add to skillet and cook until golden, 5 minutes per side. Remove from skillet and set aside on a plate."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "butter",
+          "raw_text": "2 tbsp. butter",
+          "raw_unit_text": "tbsps"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "carrot",
+          "raw_text": "1 large carrot, peeled and chopped",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 8.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "mushrooms",
+          "raw_text": "8 oz. mushrooms, sliced",
+          "raw_unit_text": "oz"
+        }
+      ],
+      "instruction": "In the same skillet add butter and melt then add onion, carrot, celery, and mushrooms and cook until soft, 5 minutes. Add flour and cook 1 minute. Pour in wine and scrape up any bits on the bottom of pan and reduce wine by half, 7 minutes."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "Freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "black pepper",
+          "raw_text": "Freshly ground black pepper",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.946,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "low-sodium chicken broth",
+          "raw_text": "2 c. low-sodium chicken broth",
+          "raw_unit_text": "c"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "parsley",
+          "raw_text": "2 tbsp. freshly chopped parsley",
+          "raw_unit_text": "tbsps"
+        }
+      ],
+      "instruction": "Add broth and cream and season with parsley, thyme, and salt and pepper. Add chicken back to pan and simmer until chicken is cooked through and sauce is thickened, 15 minutes."
+    }
+  ]
+}

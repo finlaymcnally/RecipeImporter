@@ -1,0 +1,69 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r62",
+  "@type": "Recipe",
+  "keywords": "Indian, Main, Instant Pot, chicken, greek yogurt, lemons, tomato sauce, cream",
+  "name": "Tikka Masala - Pressure cooker",
+  "recipeIngredient": [
+    "For marinating the chicken:",
+    "1 pound boneless skinless chicken breasts about 2, chopped into bite-sized pieces",
+    "1 cup plain 2% fat greek yogurt 7 ounces",
+    "1 tablespoon garam masala",
+    "1 tablespoon lemon juice",
+    "1 teaspoon black pepper",
+    "1/4 teaspoon ground ginger",
+    "For the sauce:",
+    "15 ounces canned tomato sauce or puree",
+    "5 cloves garlic minced",
+    "4 teaspoons garam masala",
+    "1/2 teaspoon paprika",
+    "1/2 teaspoon turmeric",
+    "1/2 teaspoon salt",
+    "1/4 teaspoon cayenne",
+    "1 cup heavy whipping cream added last",
+    "For serving:",
+    "basmati rice",
+    "naan",
+    "freshly chopped cilantro"
+  ],
+  "recipeInstructions": [
+    "Marinating the chicken: Combine all marinade ingredients (minus the chicken) in a bowl and mix well. Add chicken chunks and coat with the marinade. Let sit in the refrigerator for at least 1 hour.",
+    "Pressure cooker saute mode: Select the saute mode on the pressure cooker for medium heat. When it has reached temperature, add chicken chunks (along with any marinade sticking to them) to the pressure cooker. Saute until the chicken is cooked on all sides, about 5 minutes, stirring occasionally. Turn off the saute mode.",
+    "Pressure cooker high pressure mode: Add all of the sauce ingredients except the cream to the pressure cooker, over the chicken, and stir. Secure and seal the lid. Select the manual mode to cook for 10 minutes at high pressure. Use the quick steam release handle to release pressure.",
+    "Pressure cooker saute mode: Select the saute mode on the pressure cooker for low heat. When it has reached temperature, add cream to the pot, stirring with the other ingredients. Simmer until the sauce is thickened to your liking, a few minutes.",
+    "Serving: Serve with basmati rice or naan. Garnish with cilantro."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r62",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:26Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Indian",
+      "Name": "Tikka Masala - Pressure cooker",
+      "Notes": "",
+      "Recipe/Ingredients": "TOTAL TIME:\n40 minutes\n\nYield: 4 servings\n\nINGREDIENTS\nFor marinating the chicken:\n1 pound boneless skinless chicken breasts about 2, chopped into bite-sized pieces\n1 cup plain 2% fat greek yogurt 7 ounces\n1 tablespoon garam masala\n1 tablespoon lemon juice\n1 teaspoon black pepper\n1/4 teaspoon ground ginger\nFor the sauce:\n15 ounces canned tomato sauce or puree\n5 cloves garlic minced\n4 teaspoons garam masala\n1/2 teaspoon paprika\n1/2 teaspoon turmeric\n1/2 teaspoon salt\n1/4 teaspoon cayenne\n1 cup heavy whipping cream added last\nFor serving:\nbasmati rice\nnaan\nfreshly chopped cilantro\n\nINSTRUCTIONS\nMarinating the chicken: Combine all marinade ingredients (minus the chicken) in a bowl and mix well. Add chicken chunks and coat with the marinade. Let sit in the refrigerator for at least 1 hour.\nPressure cooker saute mode: Select the saute mode on the pressure cooker for medium heat. When it has reached temperature, add chicken chunks (along with any marinade sticking to them) to the pressure cooker. Saute until the chicken is cooked on all sides, about 5 minutes, stirring occasionally. Turn off the saute mode.\nPressure cooker high pressure mode: Add all of the sauce ingredients except the cream to the pressure cooker, over the chicken, and stir. Secure and seal the lid. Select the manual mode to cook for 10 minutes at high pressure. Use the quick steam release handle to release pressure.\nPressure cooker saute mode: Select the saute mode on the pressure cooker for low heat. When it has reached temperature, add cream to the pot, stirring with the other ingredients. Simmer until the sauce is thickened to your liking, a few minutes.\nServing: Serve with basmati rice or naan. Garnish with cilantro.",
+      "Tags": "chicken, greek yogurt, lemons, tomato sauce, cream",
+      "Tool (Instant, Sous, Normal)": "Instant Pot",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 62,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

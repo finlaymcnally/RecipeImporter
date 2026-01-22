@@ -1,0 +1,54 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r42",
+  "@type": "Recipe",
+  "keywords": "Main, Normal, mushrooms, pork chops",
+  "name": "Mushroom pork chop",
+  "recipeIngredient": [
+    "4 raw chop with refuse, 151 g; (blank) 5.3 ounces pork chops",
+    "\u00bd teaspoon salt and pepper to taste",
+    "1 pinch garlic salt, or to taste",
+    "1 onion, chopped",
+    "\u00bd pound fresh mushrooms, sliced",
+    "1 (10.75 ounce) can condensed cream of mushroom soup"
+  ],
+  "recipeInstructions": [
+    "Step 1",
+    "Season pork chops with salt, pepper, and garlic salt to taste.",
+    "Step 2",
+    "In a large skillet, brown the chops over medium-high heat. Add the onion and mushrooms, and saute for one minute. Pour cream of mushroom soup over chops. Cover skillet, and reduce temperature to medium-low. Simmer 20 to 30 minutes, or until chops are cooked through."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r42",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:10Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Mushroom pork chop",
+      "Notes": "",
+      "Recipe/Ingredients": "Prep:10 mins\nCook:30 mins\nTotal:40 mins\nServings:4\nYield:4 servings\n\nIngredients\n4 raw chop with refuse, 151 g; (blank) 5.3 ounces pork chops\n \n\u00bd teaspoon salt and pepper to taste\n \n1 pinch garlic salt, or to taste\n \n1 onion, chopped\n \n\u00bd pound fresh mushrooms, sliced\n \n1 (10.75 ounce) can condensed cream of mushroom soup\n\nDirections\n Step 1\nSeason pork chops with salt, pepper, and garlic salt to taste.\n\n Step 2\nIn a large skillet, brown the chops over medium-high heat. Add the onion and mushrooms, and saute for one minute. Pour cream of mushroom soup over chops. Cover skillet, and reduce temperature to medium-low. Simmer 20 to 30 minutes, or until chops are cooked through.",
+      "Tags": "mushrooms, pork chops",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 42,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

@@ -1,0 +1,283 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Mexican, Main, Normal, chorizo, chicken, peppers, tomatoes",
+    "title": "Spicy chili with Shredded chicken and Chorizo",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "jalape\u00f1o",
+          "raw_text": "1 jalape\u00f1o",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "poblano peppers",
+          "raw_text": "3 poblano peppers (or green bell peppers)",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "onion",
+          "raw_text": "1 onion",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "(Or 1 14.5 ounce can diced tomatoes)",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "fresh tomatoes",
+          "raw_text": "4 fresh tomatoes (Or 1 14.5-ounce can diced tomatoes)",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cannellini beans",
+          "raw_text": "1 14.5-ounce cannellini beans",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "Prep Ingredients: Dice the onion, jalape\u00f1o, and poblano (or bell) peppers. Set aside. In a food processor, pur\u00e9e the fresh tomatoes if using. Drain and rinse the beans."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.976,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "(About 2 breasts)",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "boneless, skinless chicken breasts",
+          "raw_text": "1 pound boneless, skinless chicken breasts (About 2 breasts)",
+          "raw_unit_text": "pound"
+        },
+        {
+          "confidence": 0.912,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "reserved cooking water from chicken",
+          "raw_text": "3 cups reserved cooking water from chicken",
+          "raw_unit_text": "cups"
+        }
+      ],
+      "instruction": "Bring 4 cups water to a boil in a large pot. Once boiling, add the chicken breasts. reduce heat to a low boil and cook for 30-40 minutes. Once cooked through, remove the chicken breasts and reserve 3 cups of cooking water. Once cool enough to handle, use two forks to shred the chicken and set aside."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "olive oil",
+          "raw_text": "1 tablespoon olive oil",
+          "raw_unit_text": "tablespoon"
+        },
+        {
+          "confidence": 0.978,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "(no casings)",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "fresh chorizo",
+          "raw_text": "1 pound fresh chorizo (no casings)",
+          "raw_unit_text": "pound"
+        }
+      ],
+      "instruction": "Add the olive oil to a 4 quart soup pot or french oven. Once shimmering, add the chorizo and cook for 10 minutes until browned on the bottom and cooked through. Remove from the pot and set aside."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.994,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "poblano peppers",
+          "raw_text": "3 poblano peppers (or green bell peppers)",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.963,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "chicken stock",
+          "raw_text": "1 cup chicken stock (or beer)",
+          "raw_unit_text": "cup"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": null,
+          "quantity_kind": "approximate",
+          "raw_ingredient_text": "Salt",
+          "raw_text": "Salt, pepper, and sugar to taste",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "In the same pot, add the onions and peppers and season with salt and pepper. Cook for 10-15 minutes or until the vegetables are slightly charred around the edges and very soft, stirring frequently. Add the chicken stock and bring to a boil, continue cooking, stirring frequently, until the liquid has reduced by half."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 0.25,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "chili powder",
+          "raw_text": "1/4 cup chili powder",
+          "raw_unit_text": "cups"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "oregano",
+          "raw_text": "1 tablespoon oregano",
+          "raw_unit_text": "tablespoon"
+        },
+        {
+          "confidence": 0.99,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "crushed tomatoes",
+          "raw_text": "1 28-ounce can of crushed tomatoes",
+          "raw_unit_text": "can"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "(Or 1 14.5 ounce can diced tomatoes)",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "fresh tomatoes",
+          "raw_text": "4 fresh tomatoes (Or 1 14.5-ounce can diced tomatoes)",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "Add the chili powder, cumin, and oregano and stir to combine. Add the tomatoes, reserved chicken broth, chorizo, and shredded chicken. Season with salt, pepper, and a bit of sugar to help done down the acidity of the tomatoes. Bring to a boil and then reduce heat to a simmer for 30 minutes to allow the flavors to meld."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cannellini beans",
+          "raw_text": "1 14.5-ounce cannellini beans",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "Add the beans and cook for an additional 10 minutes."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": true,
+          "note": "(Optional)",
+          "preparation": null,
+          "quantity_kind": "approximate",
+          "raw_ingredient_text": "Sour cream",
+          "raw_text": "Sour cream, cheese, and lime wedges for serving (Optional)",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "To serve: Divide soup between bowls and serve with sour cream, shredded cheese, and lime wedges. Enjoy!"
+    }
+  ]
+}

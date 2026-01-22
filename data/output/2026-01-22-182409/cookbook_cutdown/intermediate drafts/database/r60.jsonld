@@ -1,0 +1,61 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r60",
+  "@type": "Recipe",
+  "keywords": "Italian, Side, Instant Pot, celery, carrots, tomatoes, cream",
+  "name": "Creamy tomatoes Basil Parmesan soup",
+  "recipeIngredient": [
+    "3 tablespoons butter",
+    "1 large onion, diced",
+    "2 stalks celery, diced",
+    "1 large carrot, diced",
+    "2 garlic cloves, minced or pressed",
+    "2 14.5 oz. cans chicken broth",
+    "3 pounds tomatoes - cored, peeled, and quartered*Or substitute 2 14.5 ounce cans of diced tomatoes",
+    "1/4 cup fresh basil",
+    "1 tablespoon tomato paste",
+    "1/2 teaspoon salt",
+    "1/2 teaspoon freshly ground black pepper",
+    "1/2 cup shredded Parmesan cheese",
+    "1 cup half and half"
+  ],
+  "recipeInstructions": [
+    "Melt butter in pressure cooker pot. Saute onions, celery, and carrots until tender. Add garlic and cook 1 minute stirring often. Add chicken stock, tomatoes, basil, tomato paste, salt, and pepper.",
+    "Select high pressure and 5 minutes cook time. When beep sounds turn pressure cooker off, wait 5 minutes and then use a Quick Pressure Release to release pressure.",
+    "When valve drops carefully remove lid. Puree mixture until it\u2019s very smooth. (I used my immersion blender and pureed it in the pressure cooker pot.)",
+    "Select Simmer or Saute and stir in Parmesan and half and half."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r60",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:10Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Italian",
+      "Name": "Creamy tomatoes Basil Parmesan soup",
+      "Notes": "",
+      "Recipe/Ingredients": "YIELD: 8 SERVINGS\nINGREDIENTS\n 3 tablespoons butter\n 1 large onion, diced\n 2 stalks celery, diced\n 1 large carrot, diced\n 2 garlic cloves, minced or pressed\n 2 14.5 oz. cans chicken broth\n 3 pounds tomatoes - cored, peeled, and quartered*Or substitute 2 14.5 ounce cans of diced tomatoes\n 1/4 cup fresh basil\n 1 tablespoon tomato paste\n 1/2 teaspoon salt\n 1/2 teaspoon freshly ground black pepper\n 1/2 cup shredded Parmesan cheese\n 1 cup half and half\nINSTRUCTIONS\nMelt butter in pressure cooker pot. Saute onions, celery, and carrots until tender. Add garlic and cook 1 minute stirring often. Add chicken stock, tomatoes, basil, tomato paste, salt, and pepper.\n\nSelect high pressure and 5 minutes cook time. When beep sounds turn pressure cooker off, wait 5 minutes and then use a Quick Pressure Release to release pressure.\n\nWhen valve drops carefully remove lid. Puree mixture until it\u2019s very smooth. (I used my immersion blender and pureed it in the pressure cooker pot.)\n\nSelect Simmer or Saute and stir in Parmesan and half and half.",
+      "Tags": "celery, carrots, tomatoes, cream",
+      "Tool (Instant, Sous, Normal)": "Instant Pot",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 60,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

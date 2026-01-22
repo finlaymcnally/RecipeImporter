@@ -1,0 +1,52 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r91",
+  "@type": "Recipe",
+  "keywords": "Mexican, Component, Normal, tomatoes, red onion",
+  "name": "Ex-Girlfriend's Mom's Salsa Fresca (Pico de Gallo)",
+  "recipeIngredient": [
+    "1 cup finely chopped red onion",
+    "1 jalapeno pepper, seeded and finely chopped - or more to taste",
+    "2 lime (2\" dia)s limes, juiced",
+    "2\u2009\u00bd cups Roma (plum) tomatoes, seeded and chopped",
+    "\u00bd cup chopped fresh cilantro",
+    "1 teaspoon salt"
+  ],
+  "recipeInstructions": [
+    "Step 1",
+    "Mix red onion, jalapeno pepper, and lime juice in a bowl. Allow to stand for 5 minutes. Mix in Roma tomatoes, cilantro, and salt; allow to stand 15 more minutes for flavors to blend."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r91",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:11Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Mexican",
+      "Name": "Ex-Girlfriend's Mom's Salsa Fresca (Pico de Gallo)",
+      "Notes": "",
+      "Recipe/Ingredients": "Ingredients\n1 cup finely chopped red onion\n \n1 jalapeno pepper, seeded and finely chopped - or more to taste\n \n2 lime (2\" dia)s limes, juiced\n \n2\u2009\u00bd cups Roma (plum) tomatoes, seeded and chopped\n \n\u00bd cup chopped fresh cilantro\n \n1 teaspoon salt\n\nDirections\n Step 1\nMix red onion, jalapeno pepper, and lime juice in a bowl. Allow to stand for 5 minutes. Mix in Roma tomatoes, cilantro, and salt; allow to stand 15 more minutes for flavors to blend.",
+      "Tags": "tomatoes, red onion",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Component"
+    },
+    "row_index": 91,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

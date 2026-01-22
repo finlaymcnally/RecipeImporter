@@ -1,0 +1,54 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r114",
+  "@type": "Recipe",
+  "keywords": "Side, Normal, avocados, bread crumbs, chili",
+  "name": "Crispy Baked Avocado Fries",
+  "recipeIngredient": [
+    "2 large avocados, sliced",
+    "salt, pepper and cayenne to taste",
+    "1/2 cup flour",
+    "1 egg, lightly beaten",
+    "1 cup panko bread crumbs",
+    "1/4 cup ranch dressing",
+    "1 chipotle chili in adobo, chopped"
+  ],
+  "recipeInstructions": [
+    "Season the avocado slices with salt, pepper and cayenne to taste, dredge them in flour, dip them in egg and then panko breadcrumbs.",
+    "Place the avocado slices in a single layer on a wire rack on a baking sheet and bake in a preheated 425F/220C oven until golden brown, about 15-20 minutes.",
+    "Serve with a mixture of ranch and chipotle dressing."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r114",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:12Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Crispy Baked Avocado Fries",
+      "Notes": "",
+      "Recipe/Ingredients": "ingredients\n2 large avocados, sliced\nsalt, pepper and cayenne to taste\n1/2 cup flour\n1 egg, lightly beaten\n1 cup panko bread crumbs\n1/4 cup ranch dressing\n1 chipotle chili in adobo, chopped\n\ndirections\nSeason the avocado slices with salt, pepper and cayenne to taste, dredge them in flour, dip them in egg and then panko breadcrumbs.\nPlace the avocado slices in a single layer on a wire rack on a baking sheet and bake in a preheated 425F/220C oven until golden brown, about 15-20 minutes.\nServe with a mixture of ranch and chipotle dressing.",
+      "Tags": "avocados, bread crumbs, chili",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 114,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

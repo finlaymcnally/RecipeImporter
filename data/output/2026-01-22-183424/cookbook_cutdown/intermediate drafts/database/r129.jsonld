@@ -1,0 +1,62 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r129",
+  "@type": "Recipe",
+  "description": "Makes a VERY FULL gallon bag. \nConsider adding an extra can of beans, and waiting until cook day to add the lentils (you could wait until cook day to add the beans too). \nGood with sweet potaotes",
+  "keywords": "Main, Instant Pot, peppers, carrots, tomato sauce, tomatoes, lentils, red beans",
+  "name": "Slow Cooker Lentil chili",
+  "recipeIngredient": [
+    "1 medium onion diced",
+    "3 cloves garlic minced",
+    "1 jalape\u00f1o diced, seeds removed",
+    "1 red pepper chopped",
+    "1 yellow pepper chopped",
+    "1 large carrot peeled and diced",
+    "2 1/2 cups vegetable broth",
+    "2 15 oz cans tomato sauce",
+    "2 15 oz cans diced tomatoes",
+    "1 16 oz bag brown lentils, rinsed",
+    "2 15 oz cans small red beans, rinsed and drained",
+    "2-3 tablespoons chili powder we used 3 tablespoons",
+    "1 tablespoon cumin",
+    "Salt and black pepper to taste"
+  ],
+  "recipeInstructions": [
+    "Place all ingredients in a slow cooker. Stir well to combine.",
+    "Cover and cook on High for 4 hours or low for 6 hours. Serve warm.",
+    "Note-we use a 6 quart slow cooker. This chili freezes well. Top with your favorite chili toppings, if desired. Some people have commented that their lentils didn't cook in the slow cooker, we haven't had this problem, but you might want to cook them before adding them into the slow cooker to be safe."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r129",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:27Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Slow Cooker Lentil chili",
+      "Notes": "Makes a VERY FULL gallon bag. \nConsider adding an extra can of beans, and waiting until cook day to add the lentils (you could wait until cook day to add the beans too). \nGood with sweet potaotes",
+      "Recipe/Ingredients": "Ingredients\n 1 medium onion diced\n 3 cloves garlic minced\n 1 jalape\u00f1o diced, seeds removed\n 1 red pepper chopped\n 1 yellow pepper chopped\n 1 large carrot peeled and diced\n 2 1/2 cups vegetable broth\n 2 15 oz cans tomato sauce\n 2 15 oz cans diced tomatoes\n 1 16 oz bag brown lentils, rinsed\n 2 15 oz cans small red beans, rinsed and drained\n 2-3 tablespoons chili powder we used 3 tablespoons\n 1 tablespoon cumin\n Salt and black pepper to taste\n\nInstructions\n1. Place all ingredients in a slow cooker. Stir well to combine.\n2. Cover and cook on High for 4 hours or low for 6 hours. Serve warm.\nNote-we use a 6 quart slow cooker. This chili freezes well. Top with your favorite chili toppings, if desired. Some people have commented that their lentils didn't cook in the slow cooker, we haven't had this problem, but you might want to cook them before adding them into the slow cooker to be safe.",
+      "Tags": "peppers, carrots, tomato sauce, tomatoes, lentils, red beans",
+      "Tool (Instant, Sous, Normal)": "Instant Pot",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 129,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

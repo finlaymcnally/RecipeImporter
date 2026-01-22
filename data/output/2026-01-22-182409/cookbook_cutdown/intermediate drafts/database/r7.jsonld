@@ -1,0 +1,62 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r7",
+  "@type": "Recipe",
+  "description": "Work on sauce",
+  "keywords": "Main, Normal, raspberry, pork loin",
+  "name": "Pork chop with Raspberry sauce (3)",
+  "recipeIngredient": [
+    "\u00bd teaspoon dried thyme, crushed",
+    "\u00bd teaspoon dried sage, crushed",
+    "\u00bc teaspoon salt",
+    "\u00bc teaspoon pepper",
+    "4 (4 ounce) boneless pork loin chops",
+    "1 tablespoon butter",
+    "1 tablespoon olive oil",
+    "\u00bc cup seedless raspberry jam",
+    "2 tablespoons orange juice",
+    "2 tablespoons white wine vinegar",
+    "4 sprigs fresh thyme"
+  ],
+  "recipeInstructions": [
+    "Step 1",
+    "Preheat oven to 200 degrees F (95 degrees C). In a small bowl, combine crushed thyme, sage, salt, and pepper. Rub evenly over pork chops.",
+    "Step 2",
+    "Melt butter and olive oil in a nonstick skillet. Cook pork chops for 4 to 5 minutes on each side, turning once. Remove from skillet and keep warm in preheated oven.",
+    "Step 3",
+    "In the skillet, combine raspberry jam, orange juice, and vinegar. Bring to a boil, and cook for 2 to 3 minutes, or until sauce is reduced to desired consistency (sauce will thicken as it cools). Spoon sauce in a pool onto a serving plate, and top with pork chops. Garnish with sprigs of thyme."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r7",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:10Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Pork chop with Raspberry sauce (3)",
+      "Notes": "Work on sauce",
+      "Recipe/Ingredients": "Ingredients\n \n\u00bd teaspoon dried thyme, crushed\n \n\u00bd teaspoon dried sage, crushed\n \n\u00bc teaspoon salt\n \n\u00bc teaspoon pepper\n \n4 (4 ounce) boneless pork loin chops\n \n1 tablespoon butter\n \n1 tablespoon olive oil\n \n\u00bc cup seedless raspberry jam\n \n2 tablespoons orange juice\n \n2 tablespoons white wine vinegar\n \n4 sprigs fresh thyme\n\nDirections\n Step 1\nPreheat oven to 200 degrees F (95 degrees C). In a small bowl, combine crushed thyme, sage, salt, and pepper. Rub evenly over pork chops.\n\n Step 2\nMelt butter and olive oil in a nonstick skillet. Cook pork chops for 4 to 5 minutes on each side, turning once. Remove from skillet and keep warm in preheated oven.\n\n Step 3\nIn the skillet, combine raspberry jam, orange juice, and vinegar. Bring to a boil, and cook for 2 to 3 minutes, or until sauce is reduced to desired consistency (sauce will thicken as it cools). Spoon sauce in a pool onto a serving plate, and top with pork chops. Garnish with sprigs of thyme.",
+      "Tags": "raspberry, pork loin",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 7,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

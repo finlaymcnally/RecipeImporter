@@ -1,0 +1,65 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r131",
+  "@type": "Recipe",
+  "keywords": "Italian, Main, Instant Pot, meatballs, carrots, pasta",
+  "name": "Italian wedding soup",
+  "recipeIngredient": [
+    "Ingredients",
+    "12oz bag of frozen mini meatballs (I use these because they are cheap and easy, but you can also substitute cooked homemade meatballs or make a \u201cdeconstructed wedding soup\u201d with 1 pound of ground meatloaf meat, beef/pork/veal.)",
+    "1 small onion, diced (one cup)",
+    "1/2 pound carrots (about 4 large carrots), peeled and thinly sliced",
+    "1 head of escarole, thinly sliced",
+    "1 tablespoon Worcestershire sauce",
+    "1 teaspoon onion powder",
+    "1 teaspoon garlic salt",
+    "1 teaspoon Montreal steak seasoning",
+    "8 teaspoons of chicken bullion granules",
+    "8 cups of water *not needed until day of cooking (If you want to use store-bought or homemade crockpot chicken broth, omit the bullion granules and add it the day-of cooking.)",
+    "1/2 cup uncooked pasta *not needed until day of cooking (I use acini de pepe, ditallini, or small shells)",
+    "Materials",
+    "1 gallon-sized plastic freezer bag",
+    "Prep",
+    "Label your freezer bag with the name of the meal, cooking instructions, and \u201cuse by date\u201d. (For standard fridge/freezer combos, this will be three months from the prep day.)",
+    "Add all ingredients except water and pasta.",
+    "Remove as much air from bag as possible, seal, and lay flat in your freezer.",
+    "Cook",
+    "The night before cooking, move freezer bag to your refrigerator to thaw.",
+    "The morning of cooking, add contents of freezer bag to crockpot with 8 cups of water.",
+    "Cook for 6-8 hours on \u201clow\u201d setting or until carrots are soft.",
+    "Add pasta and cook for an additional 30 minutes."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r131",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:13Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Italian",
+      "Name": "Italian wedding soup",
+      "Notes": "",
+      "Recipe/Ingredients": "Ingredients\n12oz bag of frozen mini meatballs (I use these because they are cheap and easy, but you can also substitute cooked homemade meatballs or make a \u201cdeconstructed wedding soup\u201d with 1 pound of ground meatloaf meat, beef/pork/veal.)\n1 small onion, diced (one cup)\n1/2 pound carrots (about 4 large carrots), peeled and thinly sliced\n1 head of escarole, thinly sliced\n1 tablespoon Worcestershire sauce\n1 teaspoon onion powder\n1 teaspoon garlic salt\n1 teaspoon Montreal steak seasoning\n8 teaspoons of chicken bullion granules\n8 cups of water *not needed until day of cooking (If you want to use store-bought or homemade crockpot chicken broth, omit the bullion granules and add it the day-of cooking.)\n1/2 cup uncooked pasta *not needed until day of cooking (I use acini de pepe, ditallini, or small shells)\n\nMaterials\n1 gallon-sized plastic freezer bag\n\nPrep\nLabel your freezer bag with the name of the meal, cooking instructions, and \u201cuse by date\u201d. (For standard fridge/freezer combos, this will be three months from the prep day.)\nAdd all ingredients except water and pasta.\nRemove as much air from bag as possible, seal, and lay flat in your freezer.\nCook\nThe night before cooking, move freezer bag to your refrigerator to thaw.\nThe morning of cooking, add contents of freezer bag to crockpot with 8 cups of water.\nCook for 6-8 hours on \u201clow\u201d setting or until carrots are soft.\nAdd pasta and cook for an additional 30 minutes.",
+      "Tags": "meatballs, carrots, pasta",
+      "Tool (Instant, Sous, Normal)": "Instant Pot",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 131,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r81",
+  "@type": "Recipe",
+  "description": "tons of spices",
+  "keywords": "Moroccan, Side, Normal, chickpeas",
+  "name": "Moroccan Spiced roast chickpeas",
+  "recipeIngredient": [
+    "Instructions Preheat Oven to 375 degrees. Wash and cut carrots if applicable. In a large bowl place carrots and EVOO. Coat evenly. Transfer carrots to a baking dish. Sprinkle with salt and pepper and thyme leaves. whole sprigs are fine too. roast for 20 mins. While the carrots are roasting, in a small mixing bowl combine balsamic vinegar and honey. Whisk together. Remove carrots from over and transfer back into the large mixing bowl. Pour balsamic and honey mixture over and coat evenly. Transfer back to the baking dish and roast for another 5-10 minutes until carrots are soft. Serve immediately and enjoy!"
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r81",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:11Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Moroccan",
+      "Name": "Moroccan Spiced roast chickpeas",
+      "Notes": "tons of spices",
+      "Recipe/Ingredients": "Instructions Preheat Oven to 375 degrees. Wash and cut carrots if applicable. In a large bowl place carrots and EVOO. Coat evenly. Transfer carrots to a baking dish. Sprinkle with salt and pepper and thyme leaves. whole sprigs are fine too. roast for 20 mins. While the carrots are roasting, in a small mixing bowl combine balsamic vinegar and honey. Whisk together. Remove carrots from over and transfer back into the large mixing bowl. Pour balsamic and honey mixture over and coat evenly. Transfer back to the baking dish and roast for another 5-10 minutes until carrots are soft. Serve immediately and enjoy!",
+      "Tags": "chickpeas",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 81,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

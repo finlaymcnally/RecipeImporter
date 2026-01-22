@@ -1,0 +1,64 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r21",
+  "@type": "Recipe",
+  "keywords": "Mexican, Main, Normal, chicken, taco shell, tomatoes, jalapeno, cilantro, limes",
+  "name": "Chicken tacos + salsa fresca",
+  "recipeIngredient": [
+    "Shredded Chicken for Tacos",
+    "Serves 6 to 8",
+    "2 pounds boneless chicken thighs",
+    "1 large white onion, peeled and quartered",
+    "5 cloves garlic, peeled and lightly crushed",
+    "2 bay leaves",
+    "1 tablespoon ground cumin",
+    "1 ancho or other mild dried chili, optional",
+    "Salt and pepper to taste.",
+    "Combine all ingredients in a saucepan and add water to cover. Turn heat to high, bring to a boil, and skim any foam that comes to the surface. Partially cover and adjust heat so mixture simmers steadily. Cook until meat is very tender, about 30 minutes. Remove from liquid and cool.",
+    "Shred meat with fingers. Taste and adjust seasonings; use within a couple of days.",
+    "Salsa Fresca",
+    "Makes about 2 cups.",
+    "2 large fresh ripe tomatoes, chopped",
+    "1/2 large white onion, peeled and minced",
+    "1/4 teaspoon minced raw garlic, or to taste",
+    "1 habanero or jalape\u00f1o pepper, stemmed, seeded and minced, or to taste",
+    "1/4 cup chopped cilantro leaves",
+    "1 tablespoon fresh lime juice or 1 teaspoon red-wine vinegar",
+    "Salt and freshly ground pepper.",
+    "Combine all ingredients, taste and adjust seasoning as necessary.",
+    "Let the flavors marry for 15 minutes or so before serving, but serve within a couple of hours."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r21",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:10Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Mexican",
+      "Name": "Chicken tacos + salsa fresca",
+      "Notes": "",
+      "Recipe/Ingredients": "Shredded Chicken for Tacos\n\nServes 6 to 8\n\n2 pounds boneless chicken thighs\n1 large white onion, peeled and quartered\n5 cloves garlic, peeled and lightly crushed\n2 bay leaves\n1 tablespoon ground cumin\n1 ancho or other mild dried chili, optional\nSalt and pepper to taste.\n\nCombine all ingredients in a saucepan and add water to cover. Turn heat to high, bring to a boil, and skim any foam that comes to the surface. Partially cover and adjust heat so mixture simmers steadily. Cook until meat is very tender, about 30 minutes. Remove from liquid and cool.\nShred meat with fingers. Taste and adjust seasonings; use within a couple of days.\n\nSalsa Fresca\nMakes about 2 cups.\n\n2 large fresh ripe tomatoes, chopped\n1/2 large white onion, peeled and minced\n1/4 teaspoon minced raw garlic, or to taste\n1 habanero or jalape\u00f1o pepper, stemmed, seeded and minced, or to taste\n1/4 cup chopped cilantro leaves\n1 tablespoon fresh lime juice or 1 teaspoon red-wine vinegar\nSalt and freshly ground pepper.\n\nCombine all ingredients, taste and adjust seasoning as necessary.\nLet the flavors marry for 15 minutes or so before serving, but serve within a couple of hours.",
+      "Tags": "chicken, taco shell, tomatoes, jalapeno, cilantro, limes",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 21,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

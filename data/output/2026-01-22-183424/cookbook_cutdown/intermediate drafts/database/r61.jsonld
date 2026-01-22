@@ -1,0 +1,69 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r61",
+  "@type": "Recipe",
+  "description": "Lots of herbs",
+  "keywords": "French, Side, Instant Pot, gruy\u00e8re",
+  "name": "French Onion soup",
+  "recipeIngredient": [
+    "6 tablespoons unsalted butter, plus more for toasts (3 ounces; about 90g)",
+    "3 pounds yellow or mixed onions, sliced 1/8 inch thick (1.4kg; about 4 to 5 large onions) (see note)",
+    "1/2 teaspoon (2g) baking soda",
+    "Kosher salt and freshly ground black pepper",
+    "1/2 cup (120ml) dry sherry, such as Amontillado",
+    "2 quarts (about 2L) homemade or store-bought low-sodium chicken stock",
+    "2 sprigs thyme",
+    "1 bay leaf",
+    "1 teaspoon (5ml) Asian fish sauce (optional)",
+    "1 teaspoon (5ml) cider vinegar",
+    "8 bowl-size slices rustic bread, toasted until crisp",
+    "1 medium clove garlic",
+    "1 pound (450g) Gruy\u00e8re cheese, grated",
+    "Freshly minced chives, for garnish"
+  ],
+  "recipeInstructions": [
+    "1.",
+    "Melt butter in an electric or stovetop pressure cooker over medium heat. Add onions and baking soda and stir to combine. Season with salt and pepper. Cook, stirring, until onions slightly soften and start to release liquid, about 3 minutes. Seal pressure cooker and heat to high pressure (12.5 to 15 psi). Cook at high pressure for 20 minutes. Release pressure by allowing steam to vent, then remove lid.",
+    "2.",
+    "Continue cooking with lid off, stirring constantly, until liquid inside has completely reduced and the onions are deep brown and sticky, about 5 minutes.",
+    "3.",
+    "Add sherry and bring to a simmer, scraping up any browned bits. Cook until alcohol smell is mostly gone, about 3 minutes. Add stock, thyme, and bay leaf, raise heat to medium-high, and bring to a simmer. Lower heat and simmer for 10 minutes.",
+    "4.",
+    "Add fish sauce, if using, and cider vinegar and season with salt and pepper (if necessary). Discard thyme sprigs and bay leaf.",
+    "5.",
+    "To Serve: Preheat broiler and move oven rack to top position. Butter toasts and rub with garlic clove until fragrant. Spoon a small amount of broth into the bottoms of 4 ovenproof serving bowls, then top with half the toasts. Sprinkle some grated Gruy\u00e8re on top of toasts, then spoon more soup and onions on top, nearly filling the bowls. Set the remaining 4 toasts in each bowl, pushing to nearly submerge them. Top with remaining grated cheese and set bowls on a rimmed baking sheet. Broil until cheese is melted and browned in spots. Garnish with chives and serve."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r61",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:25Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "French",
+      "Name": "French Onion soup",
+      "Notes": "Lots of herbs",
+      "Recipe/Ingredients": "TOTAL TIME:\n40 minutes\n\nIngredients\n6 tablespoons unsalted butter, plus more for toasts (3 ounces; about 90g)\n3 pounds yellow or mixed onions, sliced 1/8 inch thick (1.4kg; about 4 to 5 large onions) (see note)\n1/2 teaspoon (2g) baking soda\nKosher salt and freshly ground black pepper\n1/2 cup (120ml) dry sherry, such as Amontillado\n2 quarts (about 2L) homemade or store-bought low-sodium chicken stock\n2 sprigs thyme\n1 bay leaf\n1 teaspoon (5ml) Asian fish sauce (optional)\n1 teaspoon (5ml) cider vinegar\n8 bowl-size slices rustic bread, toasted until crisp\n1 medium clove garlic\n1 pound (450g) Gruy\u00e8re cheese, grated\nFreshly minced chives, for garnish\n\nDirections\n1.\nMelt butter in an electric or stovetop pressure cooker over medium heat. Add onions and baking soda and stir to combine. Season with salt and pepper. Cook, stirring, until onions slightly soften and start to release liquid, about 3 minutes. Seal pressure cooker and heat to high pressure (12.5 to 15 psi). Cook at high pressure for 20 minutes. Release pressure by allowing steam to vent, then remove lid.\n\n2.\nContinue cooking with lid off, stirring constantly, until liquid inside has completely reduced and the onions are deep brown and sticky, about 5 minutes.\n\n3.\nAdd sherry and bring to a simmer, scraping up any browned bits. Cook until alcohol smell is mostly gone, about 3 minutes. Add stock, thyme, and bay leaf, raise heat to medium-high, and bring to a simmer. Lower heat and simmer for 10 minutes.\n\n4.\nAdd fish sauce, if using, and cider vinegar and season with salt and pepper (if necessary). Discard thyme sprigs and bay leaf.\n\n5.\nTo Serve: Preheat broiler and move oven rack to top position. Butter toasts and rub with garlic clove until fragrant. Spoon a small amount of broth into the bottoms of 4 ovenproof serving bowls, then top with half the toasts. Sprinkle some grated Gruy\u00e8re on top of toasts, then spoon more soup and onions on top, nearly filling the bowls. Set the remaining 4 toasts in each bowl, pushing to nearly submerge them. Top with remaining grated cheese and set bowls on a rimmed baking sheet. Broil until cheese is melted and browned in spots. Garnish with chives and serve.",
+      "Tags": "gruy\u00e8re",
+      "Tool (Instant, Sous, Normal)": "Instant Pot",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 61,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

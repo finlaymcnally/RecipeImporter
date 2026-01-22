@@ -1,0 +1,58 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r116",
+  "@type": "Recipe",
+  "keywords": "Side, Normal, potatoes",
+  "name": "Roasted Smashed potatoes",
+  "recipeIngredient": [
+    "INGREDIENTS",
+    "2 lb. baby red bliss or yukon gold potatoes (you want them to be small \u2013 like, golfball size \u2013 about 18 potatoes)",
+    "6 tbsp olive oil, divided",
+    "1 tsp fresh thyme, chopped (feel free to substitute with rosemary, basil, garlic, parmesan)",
+    "Salt and pepper, to taste",
+    "HOW TO MAKE IT",
+    "Preheat the oven to 500\u00b0F",
+    "Wash and scrub the potatoes and place them on a rimmed baking sheet pan",
+    "Fill the pan with 3/4 cup water and cover the pan tightly with aluminum foil",
+    "Place the potatoes on the bottom rack for 25-30 minutes or until they are tender (check by piercing through the foil with a knife)",
+    "Remove the potatoes from the oven and blot the remaining water with a paper towel",
+    "Allow the potatoes to cool for 10 minutes before coating them with 3 tbsp olive oil",
+    "Once the potatoes are coated in oil, smash each one with a potato masher (you could also use a fork or even the back of another sheet pan); you want them 1/3\u2033 \u2013 1/2\u2033 thick",
+    "Drizzle the smashed potatoes with the remaining 3 tbsp olive oil",
+    "Sprinkle your herbs on the potatoes and season generously with salt and pepper",
+    "Place back in the oven on the top rack for 15 minutes and then lower to the bottom rack for an additional 20-25 minutes or until well browned"
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r116",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:12Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Roasted Smashed potatoes",
+      "Notes": "",
+      "Recipe/Ingredients": "INGREDIENTS\n2 lb. baby red bliss or yukon gold potatoes (you want them to be small \u2013 like, golfball size \u2013 about 18 potatoes)\n6 tbsp olive oil, divided\n1 tsp fresh thyme, chopped (feel free to substitute with rosemary, basil, garlic, parmesan)\nSalt and pepper, to taste\n\nHOW TO MAKE IT\nPreheat the oven to 500\u00b0F\nWash and scrub the potatoes and place them on a rimmed baking sheet pan\nFill the pan with 3/4 cup water and cover the pan tightly with aluminum foil\nPlace the potatoes on the bottom rack for 25-30 minutes or until they are tender (check by piercing through the foil with a knife)\nRemove the potatoes from the oven and blot the remaining water with a paper towel\nAllow the potatoes to cool for 10 minutes before coating them with 3 tbsp olive oil\nOnce the potatoes are coated in oil, smash each one with a potato masher (you could also use a fork or even the back of another sheet pan); you want them 1/3\u2033 \u2013 1/2\u2033 thick\nDrizzle the smashed potatoes with the remaining 3 tbsp olive oil\nSprinkle your herbs on the potatoes and season generously with salt and pepper\nPlace back in the oven on the top rack for 15 minutes and then lower to the bottom rack for an additional 20-25 minutes or until well browned",
+      "Tags": "potatoes",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 116,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r9",
+  "@type": "Recipe",
+  "description": "adding some Litchi or Pineapple to the sauce in place of sugar makes it so much better.",
+  "keywords": "Thai, Meal, Normal, chicken, coconut milk, snow peas",
+  "name": "Red Thai chicken Curry With Rice",
+  "recipeIngredient": [
+    "Ingredients:",
+    "-Red curry Paste -400ml Coconut Milk -1 Tsp Fish Sauce & Caster Sugar -500g Chicken Breast -1 small Red Capsicum -100g Snow Peas -1 Cup Jasmine Rice.",
+    "Add some oil into a pan, add a tbsp of coconut milk and the curry paste.",
+    "Cook this out for 5/6 minutes on a medium heat.",
+    "Add the rest of the coconut milk",
+    "Add chicken and Kafir Lime leaf( if you have them)",
+    "Cook for 15 mins",
+    "Add a pinch of sugar (palm, caster, brown)",
+    "Add 1tbsp fish sauce",
+    "Add chopped Coriander, and Thai basil"
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r9",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:10Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Thai",
+      "Name": "Red Thai chicken Curry With Rice",
+      "Notes": "adding some Litchi or Pineapple to the sauce in place of sugar makes it so much better.",
+      "Recipe/Ingredients": "Ingredients:\n\n-Red curry Paste -400ml Coconut Milk -1 Tsp Fish Sauce & Caster Sugar -500g Chicken Breast -1 small Red Capsicum -100g Snow Peas -1 Cup Jasmine Rice.\n\nAdd some oil into a pan, add a tbsp of coconut milk and the curry paste.\n\nCook this out for 5/6 minutes on a medium heat.\n\nAdd the rest of the coconut milk\n\nAdd chicken and Kafir Lime leaf( if you have them)\n\nCook for 15 mins\n\nAdd a pinch of sugar (palm, caster, brown)\n\nAdd 1tbsp fish sauce\n\nAdd chopped Coriander, and Thai basil",
+      "Tags": "chicken, coconut milk, snow peas",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Meal"
+    },
+    "row_index": 9,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

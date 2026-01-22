@@ -1,0 +1,62 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r80",
+  "@type": "Recipe",
+  "description": "tons of spices\ncan add coconut milk",
+  "keywords": "Indian, Side, Normal, lentils",
+  "name": "Lentil Dhal",
+  "recipeIngredient": [
+    "2 \u00bd cups red or pink lentils",
+    "5\u20136 cups of water (a large pot half full)",
+    "2 tablespoons curry paste",
+    "\u00bd cup coconut milk",
+    "1/3 cup water",
+    "1/2 teaspoons salt",
+    "\u00bc teaspoon black pepper",
+    "\u00bc teaspoon cayenne",
+    "2 teaspoons curry powder",
+    "\u00bd teaspoon turmeric",
+    "1 teaspoon chili powder",
+    "2 tablespoons sugar",
+    "lime juice",
+    "green herbs for garnish (I used malunggay leaves \u2013 you could use cilantro, green onions, etc.)"
+  ],
+  "recipeInstructions": [
+    "1Bring the water to a boil in a large pot.",
+    "2Add lentils and cook uncovered for 10 minutes, stirring every few minutes to prevent burning on the bottom. Remove from heat.",
+    "3Stir in remaining ingredients until completely incorporated. Season with additional salt and herbs for garnish."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r80",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:26Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Indian",
+      "Name": "Lentil Dhal",
+      "Notes": "tons of spices\ncan add coconut milk",
+      "Recipe/Ingredients": "INGREDIENTS\n2 \u00bd cups red or pink lentils\n5\u20136 cups of water (a large pot half full)\n2 tablespoons curry paste\n\u00bd cup coconut milk\n1/3 cup water\n1/2 teaspoons salt\n\u00bc teaspoon black pepper\n\u00bc teaspoon cayenne\n2 teaspoons curry powder\n\u00bd teaspoon turmeric\n1 teaspoon chili powder\n2 tablespoons sugar\nlime juice\ngreen herbs for garnish (I used malunggay leaves \u2013 you could use cilantro, green onions, etc.)\n\nINSTRUCTIONS\n1Bring the water to a boil in a large pot.\n2Add lentils and cook uncovered for 10 minutes, stirring every few minutes to prevent burning on the bottom. Remove from heat.\n3Stir in remaining ingredients until completely incorporated. Season with additional salt and herbs for garnish.",
+      "Tags": "lentils",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 80,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

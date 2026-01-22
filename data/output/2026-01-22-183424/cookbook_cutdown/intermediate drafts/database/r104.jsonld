@@ -1,0 +1,58 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r104",
+  "@type": "Recipe",
+  "keywords": "Main, Normal, white beans, chicken, peppers",
+  "name": "White chicken chili Recipe",
+  "recipeIngredient": [
+    "6 cans white beans",
+    "2 fresh poblano chilies",
+    "4 fresh Anaheim or Hatch chilies",
+    "2 serrano chilies",
+    "1 medium onion, peeled, trimmed, and split in halt from top to bottom",
+    "8 medium cloves garlic",
+    "1 whole pickled jalape\u00f1o pepper, plus 2 tablespoons pickling liquid from the can",
+    "3 tablespoons vegetable or canola oil",
+    "1 quart chicken stock",
+    "1 tablespoon ground cumin",
+    "1 teaspoon ground coriander seed",
+    "2 cans corn",
+    "4 boneless skinless chicken breast halves",
+    "Juice of 2 limes",
+    "0.5 cup roughly chopped fresh cilantro leaves",
+    "Adjust broiler rack to 8 inches below broiler element and preheat broiler to high. Place poblanos, Anaheims, jalape\u00f1os, onion, and garlic on a foil-lined rimmed baking sheet. Toss with one tablespoon oil using your hands to coat. Season with salt. Place under broiler and broil, turning peppers and rearranging vegetables occasionally, until peppers are blackened on all sides and skins are wrinkled all over, 15 to 20 minutes total. Gather up foil and form a sealed pouch. Let chilies rest for 5 minutes. Place chilies and chicken stock in a large bowl. Peel chilies under the chicken stock, leaving skins and seeds behind. Transfer chili flesh to the cup of a hand blender or a standing blender. Add broiled onion, broiled garlic, and the canned jalape\u00f1o (do not add jalape\u00f1o pickling liquid). Blend until a smooth pur\u00e9e is formed. Set aside. Heat remaining oil in a large Dutch oven over medium heat until shimmering. Add cumin and coriander and cook, stirring, until fragrant, about 30 seconds. Add chili pur\u00e9e and cook, stirring, until incorporated. Strain chicken stock into pot, pressing on skins and seeds to extract as much liquid as possible. Discard skins and seeds. Add canned beans and chicken breasts to pot, adding water as necessary until beans and chicken are fully submerged. Bring to a boil, reduce to a bare simmer and cook, stirring occasionally, until chicken breasts register 150\u00b0F on an instant read thermometer, about 15 minutes. Transfer chicken breasts to a bowl and let rest. Continue simmering broth and beans until beans are fully tender, about 30 minutes. Remove 1 1/2 cups of beans and their liquid and transfer to a standing blender or the work cup of an immersion blender. Blend until completely smooth. Stir back into pot. Heat a cast iron skillet over high heat. Add 1 can drained corn to the skillet with 1 tbsp oil. Blacken the corn, turning a few times while cooking. Cook about 5 minutes. Shred chicken into bite-sized pieces and stir back into stew. Stir in jalape\u00f1o pickling liquid, lime juice, and half of cilantro. Season to taste with salt."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r104",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:26Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "White chicken chili Recipe",
+      "Notes": "",
+      "Recipe/Ingredients": "6 cans white beans\n\n2 fresh poblano chilies\n\n4 fresh Anaheim or Hatch chilies\n\n2 serrano chilies\n\n1 medium onion, peeled, trimmed, and split in halt from top to bottom\n\n8 medium cloves garlic\n\n1 whole pickled jalape\u00f1o pepper, plus 2 tablespoons pickling liquid from the can\n\n3 tablespoons vegetable or canola oil\n\n1 quart chicken stock\n\n1 tablespoon ground cumin\n\n1 teaspoon ground coriander seed\n\n2 cans corn\n\n4 boneless skinless chicken breast halves\n\nJuice of 2 limes\n\n0.5 cup roughly chopped fresh cilantro leaves\n\n \n\nAdjust broiler rack to 8 inches below broiler element and preheat broiler to high. Place poblanos, Anaheims, jalape\u00f1os, onion, and garlic on a foil-lined rimmed baking sheet. Toss with one tablespoon oil using your hands to coat. Season with salt. Place under broiler and broil, turning peppers and rearranging vegetables occasionally, until peppers are blackened on all sides and skins are wrinkled all over, 15 to 20 minutes total. Gather up foil and form a sealed pouch. Let chilies rest for 5 minutes. Place chilies and chicken stock in a large bowl. Peel chilies under the chicken stock, leaving skins and seeds behind. Transfer chili flesh to the cup of a hand blender or a standing blender. Add broiled onion, broiled garlic, and the canned jalape\u00f1o (do not add jalape\u00f1o pickling liquid). Blend until a smooth pur\u00e9e is formed. Set aside. Heat remaining oil in a large Dutch oven over medium heat until shimmering. Add cumin and coriander and cook, stirring, until fragrant, about 30 seconds. Add chili pur\u00e9e and cook, stirring, until incorporated. Strain chicken stock into pot, pressing on skins and seeds to extract as much liquid as possible. Discard skins and seeds. Add canned beans and chicken breasts to pot, adding water as necessary until beans and chicken are fully submerged. Bring to a boil, reduce to a bare simmer and cook, stirring occasionally, until chicken breasts register 150\u00b0F on an instant read thermometer, about 15 minutes. Transfer chicken breasts to a bowl and let rest. Continue simmering broth and beans until beans are fully tender, about 30 minutes. Remove 1 1/2 cups of beans and their liquid and transfer to a standing blender or the work cup of an immersion blender. Blend until completely smooth. Stir back into pot. Heat a cast iron skillet over high heat. Add 1 can drained corn to the skillet with 1 tbsp oil. Blacken the corn, turning a few times while cooking. Cook about 5 minutes. Shred chicken into bite-sized pieces and stir back into stew. Stir in jalape\u00f1o pickling liquid, lime juice, and half of cilantro. Season to taste with salt.",
+      "Tags": "white beans, chicken, peppers",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 104,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

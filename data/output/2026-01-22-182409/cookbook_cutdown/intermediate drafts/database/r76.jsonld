@@ -1,0 +1,66 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r76",
+  "@type": "Recipe",
+  "keywords": "American, Side, Normal, corn, black eyed peas, tomatoes, peppers",
+  "name": "Texas Caviar",
+  "recipeIngredient": [
+    "For the dressing:",
+    "1/4 cup red wine vinegar",
+    "1 medium garlic clove, finely chopped",
+    "1 teaspoon kosher salt",
+    "1/2 teaspoon ground cumin",
+    "1/4 teaspoon freshly ground black pepper",
+    "2 tablespoons vegetable oil",
+    "For the dip:",
+    "2 medium cobs white corn (about 1 pound), shucked",
+    "1 (15-ounce) can black-eyed peas, drained and rinsed",
+    "2 Pickled Jalape\u00f1os (see Game Plan note), stems removed and finely chopped",
+    "1 medium Roma tomato, seeded and cut into small dice",
+    "3/4 cup red bell pepper, seeded, white pith removed, and cut into small dice",
+    "1/2 cup small dice white onion",
+    "To serve:",
+    "2 tablespoons finely chopped fresh cilantro",
+    "Tortilla chips",
+    "For the dressing:",
+    "1Combine vinegar, garlic, salt, cumin, and pepper in a large nonreactive bowl. While whisking constantly, slowly add oil in a thin stream until completely incorporated; set aside.",
+    "For the dip:",
+    "1Heat the oven to 450\u00b0F and arrange a rack in the middle. Place corn cobs on the oven rack and roast until knife tender and golden brown in spots, about 25 minutes. Remove to a cutting board until cool enough to handle, about 2 minutes, then slice kernels off the cobs.",
+    "2Add black-eyed peas, jalape\u00f1os, tomato, bell pepper, onion, and corn kernels to the bowl with the dressing and stir until well coated. Cover and refrigerate for at least 4 hours or overnight.",
+    "To serve:",
+    "1Stir in cilantro and serve with tortilla chips."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r76",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:11Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "American",
+      "Name": "Texas Caviar",
+      "Notes": "",
+      "Recipe/Ingredients": "For the dressing:\n1/4 cup red wine vinegar\n1 medium garlic clove, finely chopped\n1 teaspoon kosher salt\n1/2 teaspoon ground cumin\n1/4 teaspoon freshly ground black pepper\n2 tablespoons vegetable oil\n\nFor the dip:\n2 medium cobs white corn (about 1 pound), shucked\n1 (15-ounce) can black-eyed peas, drained and rinsed\n2 Pickled Jalape\u00f1os (see Game Plan note), stems removed and finely chopped\n1 medium Roma tomato, seeded and cut into small dice\n3/4 cup red bell pepper, seeded, white pith removed, and cut into small dice\n1/2 cup small dice white onion\n\nTo serve:\n2 tablespoons finely chopped fresh cilantro\nTortilla chips\n\nFor the dressing:\n1Combine vinegar, garlic, salt, cumin, and pepper in a large nonreactive bowl. While whisking constantly, slowly add oil in a thin stream until completely incorporated; set aside.\n\nFor the dip:\n1Heat the oven to 450\u00b0F and arrange a rack in the middle. Place corn cobs on the oven rack and roast until knife tender and golden brown in spots, about 25 minutes. Remove to a cutting board until cool enough to handle, about 2 minutes, then slice kernels off the cobs.\n2Add black-eyed peas, jalape\u00f1os, tomato, bell pepper, onion, and corn kernels to the bowl with the dressing and stir until well coated. Cover and refrigerate for at least 4 hours or overnight.\n\nTo serve:\n1Stir in cilantro and serve with tortilla chips.",
+      "Tags": "corn, black eyed peas, tomatoes, peppers",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 76,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

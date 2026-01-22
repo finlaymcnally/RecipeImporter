@@ -1,0 +1,56 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r87",
+  "@type": "Recipe",
+  "keywords": "American, Side, Normal, potatoes, cream",
+  "name": "Parmesan Crusted Scalloped potatoes",
+  "recipeIngredient": [
+    "1 1/2 cups heavy cream",
+    "2 cloves garlic, pressed",
+    "1 sprig fresh thyme",
+    "Pinch of nutmeg",
+    "2 pounds russet potatoes, peeled and cut into 1/8-inch thick slices",
+    "Kosher salt and freshly ground black pepper, to taste",
+    "9 tablespoons frehsly grated Parmesan, divided"
+  ],
+  "recipeInstructions": [
+    "Preheat oven to 375 degrees F. Lightly oil a 9-inch pie plate or coat with nonstick spray.",
+    "In a medium saucepan, combine heavy cream, garlic, thyme and nutmeg over medium heat until heated through, about 1-2 minutes.",
+    "Add a layer of potatoes to the prepared baking dish in an overlapping pattern; season with salt and pepper, to taste. Pour 1/3 cup cream mixture over potatoes; sprinkle with 3 tablespoons Parmesan. Repeat with remaining potato slices, cream mixture and Parmesan to create 2 more layers.",
+    "Place into oven and bake until cooked through, about 35-40 minutes. Sprinkle with additional Parmesan and broil for 8-10 minutes, or until top becomes golden brown and crusted.",
+    "Serve immediately."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r87",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:11Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "American",
+      "Name": "Parmesan Crusted Scalloped potatoes",
+      "Notes": "",
+      "Recipe/Ingredients": "total time: 1 HOUR, 5 MINUTES\n\nINGREDIENTS:\n1 1/2 cups heavy cream\n2 cloves garlic, pressed\n1 sprig fresh thyme\nPinch of nutmeg\n2 pounds russet potatoes, peeled and cut into 1/8-inch thick slices\nKosher salt and freshly ground black pepper, to taste\n9 tablespoons frehsly grated Parmesan, divided\n\nDIRECTIONS:\nPreheat oven to 375 degrees F. Lightly oil a 9-inch pie plate or coat with nonstick spray.\nIn a medium saucepan, combine heavy cream, garlic, thyme and nutmeg over medium heat until heated through, about 1-2 minutes.\nAdd a layer of potatoes to the prepared baking dish in an overlapping pattern; season with salt and pepper, to taste. Pour 1/3 cup cream mixture over potatoes; sprinkle with 3 tablespoons Parmesan. Repeat with remaining potato slices, cream mixture and Parmesan to create 2 more layers.\nPlace into oven and bake until cooked through, about 35-40 minutes. Sprinkle with additional Parmesan and broil for 8-10 minutes, or until top becomes golden brown and crusted.\nServe immediately.",
+      "Tags": "potatoes, cream",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 87,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

@@ -1,5 +1,5 @@
 ---
-sunmary: "ExecPlan for the EPUB and ebook cookbook import engine."
+summary: "ExecPlan for the EPUB and ebook cookbook import engine."
 read_when:
   - When implementing the EPUB import engine
 ---

@@ -1,0 +1,47 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r122",
+  "@type": "Recipe",
+  "description": "Acorn squash is the worst thing ever to peel and cube, butternut squash is a great substitute. I'm going to try this with unpeeled acorn squash, since you can eat the peel",
+  "keywords": "Main, Instant Pot, pork roast, peppers, celery, acorn squash, mushrooms",
+  "name": "Crock Pot pork & Veggies",
+  "recipeInstructions": [
+    "Add all ingredients to a gallon freezer bag. Freeze.",
+    "To serve",
+    "Thaw overnight. Place contents in slowcooker. Cook on low, 6-8 hours.",
+    "Could serve with bread, salad, baked potato, etc., or over roasted potatoes."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r122",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:12Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Crock Pot pork & Veggies",
+      "Notes": "Acorn squash is the worst thing ever to peel and cube, butternut squash is a great substitute. I'm going to try this with unpeeled acorn squash, since you can eat the peel",
+      "Recipe/Ingredients": "Quantity Unit Ingredient\n1lb pork roast, cut into 1/2 strips\n1 onion, chopped\n1 green bell pepper, chopped\n2 ribs celery, chopped\n1 small acorn squash\n1/2 lb mushrooms, sliced\n8oz chicken broth\n1 1/2 Tbsp apple cider vinegar\n1tsp salt\n2tsp worcestershire \n \nDirections \nAdd all ingredients to a gallon freezer bag. Freeze. \n \nTo serve \nThaw overnight. Place contents in slowcooker. Cook on low, 6-8 hours. \nCould serve with bread, salad, baked potato, etc., or over roasted potatoes.",
+      "Tags": "pork roast, peppers, celery, acorn squash, mushrooms",
+      "Tool (Instant, Sous, Normal)": "Instant Pot",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 122,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "recipe": {
+    "description": "Great, but not quite there",
+    "notes": "Tags: Indian, Main, Instant Pot, chicken, tomatoes, cream",
+    "title": "Butter chicken",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.99,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "WHAT IS IN THIS BUTTER CHICKEN RECIPE?",
+          "raw_text": "WHAT IS IN THIS BUTTER CHICKEN RECIPE?",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

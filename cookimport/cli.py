@@ -11,7 +11,7 @@ from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
 from cookimport.core.models import ConversionReport, MappingConfig
 from cookimport.plugins import registry
 from cookimport.plugins import excel  # noqa: F401
-from cookimport.staging.writer import write_draft_outputs, write_report
+from cookimport.staging.writer import write_draft_outputs, write_intermediate_outputs, write_report
 
 app = typer.Typer(add_completion=False, invoke_without_command=True)
 
@@ -144,13 +144,27 @@ def _resolve_mapping_path(workbook: Path, out: Path, override: Path | None) -> P
     return None
 
 
+def _slugify_name(name: str) -> str:
+    """Convert a name to a filesystem-safe slug."""
+    import re
+    lowered = name.strip().lower()
+    slug = re.sub(r"[^a-z0-9]+", "_", lowered).strip("_")
+    return slug or "unknown"
+
+
 @app.command()
 def stage(
     path: Path = typer.Argument(..., help="Folder containing source files."),
     out: Path = typer.Option(Path("staging"), "--out", help="Output folder."),
     mapping: Path | None = typer.Option(None, "--mapping", help="Mapping file path."),
 ) -> None:
-    """Stage recipes from a folder of source files."""
+    """Stage recipes from a folder of source files.
+
+    Outputs are organized as:
+      {out}/{timestamp}/{workbook_name}/intermediate drafts/  - RecipeSage JSON-LD
+      {out}/{timestamp}/{workbook_name}/final drafts/         - RecipeDraftV1 format
+      {out}/{timestamp}/{workbook_name}/reports/              - Conversion reports
+    """
     if not path.exists():
         _fail(f"Path not found: {path}")
     if not path.is_dir():
@@ -164,7 +178,7 @@ def stage(
     if mapping is not None:
         mapping_override = load_mapping_config(mapping)
 
-    # Use a timestamped folder for this run
+    # Create timestamped output folder for this run
     timestamp = dt.datetime.now().strftime("%Y-%m-%d-%H%M%S")
     out = out / timestamp
     out.mkdir(parents=True, exist_ok=True)
@@ -174,24 +188,46 @@ def stage(
         if importer is None or score <= 0:
             continue
         try:
-            mapping_path = _resolve_mapping_path(file_path, out, mapping)
+            # Create workbook-specific output folder
+            workbook_slug = _slugify_name(file_path.stem)
+            workbook_out = out / workbook_slug
+            intermediate_dir = workbook_out / "intermediate drafts"
+            final_dir = workbook_out / "final drafts"
+            reports_dir = workbook_out / "reports"
+
+            mapping_path = _resolve_mapping_path(file_path, workbook_out, mapping)
             mapping_config = mapping_override
             if mapping_config is None and mapping_path is not None:
                 mapping_config = load_mapping_config(mapping_path)
             if mapping_config is None:
                 inspection = importer.inspect(file_path)
                 mapping_config = inspection.mapping_stub
+
             result = importer.convert(file_path, mapping_config)
-            write_draft_outputs(result, out)
-            write_report(result.report, out, file_path.stem)
+
+            # Write intermediate JSON-LD files
+            write_intermediate_outputs(result, intermediate_dir)
+
+            # Write final DraftV1 files
+            write_draft_outputs(result, final_dir)
+
+            # Write conversion report
+            write_report(result.report, reports_dir, file_path.stem)
+
             imported += 1
+            typer.secho(
+                f"  {file_path.name}: {len(result.recipes)} recipes",
+                fg=typer.colors.GREEN,
+            )
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{file_path.name}: {exc}")
+            workbook_slug = _slugify_name(file_path.stem)
+            reports_dir = out / workbook_slug / "reports"
             report = ConversionReport(errors=[str(exc)])
-            write_report(report, out, file_path.stem)
+            write_report(report, reports_dir, file_path.stem)
             continue
 
-    typer.secho(f"Staged {imported} workbook(s).", fg=typer.colors.GREEN)
+    typer.secho(f"\nStaged {imported} workbook(s).", fg=typer.colors.GREEN)
     if errors:
         typer.secho("Errors encountered:", fg=typer.colors.YELLOW)
         for message in errors:

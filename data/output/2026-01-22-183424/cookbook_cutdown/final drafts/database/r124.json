@@ -1,0 +1,191 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Mexican, Main, Instant Pot, chicken, peppers",
+    "title": "Freezer-to-Crockpot chicken Fajitas",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "TO FREEZE:"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Label your freezer bag with the name of the recipe, cooking instructions, and \"use-by\" date. (I use these simple printable labels.)"
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "fat trimmed",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "boneless skinless chicken breasts",
+          "raw_text": "2 pounds of boneless skinless chicken breasts, fat trimmed",
+          "raw_unit_text": "pounds"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "bell peppers",
+          "raw_text": "2 bell peppers, sliced",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and sliced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "yellow onion",
+          "raw_text": "1 small yellow onion, peeled and sliced",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "2 cloves of garlic, minced",
+          "raw_unit_text": "cloves"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "honey",
+          "raw_text": "1 tablespoon honey",
+          "raw_unit_text": "tablespoon"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "apple cider vinegar",
+          "raw_text": "1 tablespoon apple cider vinegar",
+          "raw_unit_text": "tablespoon"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "chili powder",
+          "raw_text": "1 tablespoon chili powder",
+          "raw_unit_text": "tablespoon"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cumin",
+          "raw_text": "2 teaspoons cumin",
+          "raw_unit_text": "teaspoons"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "paprika",
+          "raw_text": "1 teaspoon paprika",
+          "raw_unit_text": "teaspoon"
+        },
+        {
+          "confidence": 0.932,
+          "ingredient_id": "",
+          "input_qty": 0.25,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "crushed red pepper flakes",
+          "raw_text": "1/4 teaspoon crushed red pepper flakes",
+          "raw_unit_text": "teaspoons"
+        }
+      ],
+      "instruction": "Add all ingredients."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove as much air from the bag as possible, seal, and lay flat in your freezer for up to three months."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "TO COOK:"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "The night before cooking, move the frozen bag to your refrigerator to thaw."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "The morning of cooking, pour contents of freezer bag into your crockpot and cook on \u201clow\u201d setting for 6 hours or until chicken is tender."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "bell peppers",
+          "raw_text": "2 bell peppers, sliced",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "Shred chicken and serve with cooked onions and peppers."
+    }
+  ]
+}

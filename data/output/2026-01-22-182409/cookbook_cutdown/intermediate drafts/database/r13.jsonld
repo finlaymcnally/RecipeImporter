@@ -1,0 +1,65 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r13",
+  "@type": "Recipe",
+  "description": "Chicken thighs are great when you brown them skin side down over medium to med-low heat over a longer time. Get a good deep brown color, fat is rendered out, and skin gets incredibly crispy. By doing it on a lower heat, you also run less of a risk of burning your seasonings. Then, flip the chicken and do the same thing again. Don't worry, you're not going to overcook a chicken thigh. You could put those in a 400\u00b0F oven for 4 hours and they'd still be edible.\n\nSaut\u00e9e your rice for a minute or two in the fat before adding liquid. Would need be a bad idea to drain some of the fat off too. There seems to be a little much in there. Helps develop the flavor and keeps the rice from becoming mushy. Also, don't overcook your rice. Finally, I'd add a bit of cider or wine vinegar to the cooking liquid to help add some depth of flavor and cut through some of the fat. Could also use citrus.",
+  "keywords": "American, Main, Normal, chicken",
+  "name": "Paprika chicken And Rice Bake",
+  "recipeIngredient": [
+    "5 chicken thighs",
+    "1 teaspoon salt",
+    "1 teaspoon pepper",
+    "1 teaspoon paprika",
+    "1 teaspoon dried parsley",
+    "1 tablespoon olive oil",
+    "1 tablespoon garlic, minced",
+    "\u00bd cup red onion, diced",
+    "1 cup long grain rice",
+    "1\u00bd cups chicken broth",
+    "Salt, to taste",
+    "Pepper, to taste"
+  ],
+  "recipeInstructions": [
+    "Preheat oven to 400\u02daF/200\u02daC.",
+    "In a large bowl, evenly season chicken thighs with salt, pepper, paprika, and parsley.",
+    "On high, heat olive oil in a oven-proof pot and place chicken thighs, skin-side down, in the hot oil. Cook 5-6 minutes or the thighs develop brown crispy skin and flip over. Cook an additional 5-6 minutes to brown the other side and remove from the pot.",
+    "Add the garlic and onions to the pot, and cook until the onions are transparent.",
+    "Pour in the rice and chicken broth to the pot and season with salt and pepper. Stir well, bringing to a boil.",
+    "Add the chicken thighs back into the pot, skin-side up, on top of the rice, bring back to a boil and cover with a lid.",
+    "Bake for 35-40 minutes, or until the rice is fully cooked.",
+    "Optional: remove chicken thighs and broil for crispy skin."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r13",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:10Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "American",
+      "Name": "Paprika chicken And Rice Bake",
+      "Notes": "Chicken thighs are great when you brown them skin side down over medium to med-low heat over a longer time. Get a good deep brown color, fat is rendered out, and skin gets incredibly crispy. By doing it on a lower heat, you also run less of a risk of burning your seasonings. Then, flip the chicken and do the same thing again. Don't worry, you're not going to overcook a chicken thigh. You could put those in a 400\u00b0F oven for 4 hours and they'd still be edible.\n\nSaut\u00e9e your rice for a minute or two in the fat before adding liquid. Would need be a bad idea to drain some of the fat off too. There seems to be a little much in there. Helps develop the flavor and keeps the rice from becoming mushy. Also, don't overcook your rice. Finally, I'd add a bit of cider or wine vinegar to the cooking liquid to help add some depth of flavor and cut through some of the fat. Could also use citrus.",
+      "Recipe/Ingredients": "Paprika Chicken & Rice\n\nServings: 5\n\n \n\nINGREDIENTS\n\n5 chicken thighs\n\n1 teaspoon salt\n\n1 teaspoon pepper\n\n1 teaspoon paprika\n\n1 teaspoon dried parsley\n\n1 tablespoon olive oil\n\n1 tablespoon garlic, minced\n\n\u00bd cup red onion, diced\n\n1 cup long grain rice\n\n1\u00bd cups chicken broth\n\nSalt, to taste\n\nPepper, to taste\n\n \n\nPREPARATION\n\nPreheat oven to 400\u02daF/200\u02daC.\nIn a large bowl, evenly season chicken thighs with salt, pepper, paprika, and parsley.\nOn high, heat olive oil in a oven-proof pot and place chicken thighs, skin-side down, in the hot oil. Cook 5-6 minutes or the thighs develop brown crispy skin and flip over. Cook an additional 5-6 minutes to brown the other side and remove from the pot.\nAdd the garlic and onions to the pot, and cook until the onions are transparent.\nPour in the rice and chicken broth to the pot and season with salt and pepper. Stir well, bringing to a boil.\nAdd the chicken thighs back into the pot, skin-side up, on top of the rice, bring back to a boil and cover with a lid.\nBake for 35-40 minutes, or until the rice is fully cooked.\nOptional: remove chicken thighs and broil for crispy skin.",
+      "Tags": "chicken",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 13,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r43",
+  "@type": "Recipe",
+  "description": "I kind of merge the two recipes together\n\nless than 1/2 cup vinegar\nhoney is bomb\ncook chicken separately so it gets rid of it's grease\nlearn how to cook/reduce gravy\n\ncinnamon and brown sugar/honey are secret ingredients",
+  "keywords": "Filipino, Main, Normal, chicken thighs, coconut milk, cauliflower",
+  "name": "Chicken Adobo",
+  "recipeIngredient": [
+    "1/4 cup (65 ml) soy sauce",
+    "1/2 cup (125 ml) white Filipino cane vinegar, or distilled white vinegar",
+    "6\u20138 cloves garlic, smashed with the side of a knife and peeled",
+    "1 teaspoon whole black peppercorns",
+    "2 bay leaves",
+    "6 skin-on, bone-in chicken thighs",
+    "Can add coconut milk",
+    "10 dried bay leaves",
+    "2 tablespoons black peppercorns",
+    "2 tablespoons ground turmeric",
+    "\u00bc cup unsweetened shredded coconut",
+    "\u00bd head of cauliflower, broken into small florets",
+    "\u00bc kabocha squash, cut into 1-inch pieces (about 2 cups)",
+    "3 tablespoons vegetable oil, divided",
+    "Kosher salt, freshly ground pepper",
+    "1 small white onion, chopped",
+    "2 medium shallots, chopped",
+    "6 large garlic cloves, chopped",
+    "1 3-inch piece ginger, peeled, finely grated",
+    "1 teaspoon crushed red pepper flakes",
+    "2 13.5-ounce cans unsweetened coconut milk",
+    "1 cup sugarcane vinegar or distilled white vinegar, divided",
+    "4 chicken legs, drumsticks and thighs separated",
+    "3 tablespoons (or more) honey",
+    "Unsalted, roasted pumpkin seeds (pepitas), thinly sliced Fresno chiles, and sliced scallion (for serving)",
+    "RECIPE PREPARATION",
+    "Place bay leaves and peppercorns in center of cheesecloth and tie closed with kitchen twine; set sachet aside. Toast turmeric in a dry small skillet over medium-low heat, stirring often, just until fragrant (be careful not to let it brown), about 3 minutes. Transfer to a plate.",
+    "Cook coconut in same skillet over medium-high heat, stirring occasionally, until burnt (not browned: burnt), about 3 minutes. Grind in a spice mill or with a mortar and pestle or finely chop. Transfer to another plate.",
+    "Heat oven to 375\u00b0. Toss cauliflower and squash on a large rimmed baking sheet with 1 Tbsp. oil to coat; season with salt and pepper. Roast vegetables, tossing occasionally, until browned and tender, 30\u201340 minutes.",
+    "Heat remaining 2 Tbsp. oil in a large Dutch oven or other heavy pot over medium-high. Add onion, shallots, garlic, and ginger and cook, stirring often, until golden brown and very fragrant, 8\u201310 minutes. Add red pepper flakes and cook, stirring often, just until fragrant, about 1 minute. Stir in toasted turmeric, coconut milk, and \u00be cup vinegar. Bring to a boil and cook until liquid is reduced by about one-third, 20\u201330 minutes.",
+    "Meanwhile, prepare a grill for medium-high heat (or heat a grill pan over medium-high). Season chicken with salt and pepper and grill, turning occasionally, just until skin is charred (chicken will not be cooked through at this point), 8\u201310 minutes.",
+    "Add chicken and reserved sachet to turmeric sauce. Cook, partially covered, until chicken is tender, 60\u201380 minutes. Stir honey and remaining \u00bc cup vinegar in a small bowl until honey is dissolved; add to braise, then add roasted cauliflower and squash. Taste and season with more salt or honey as needed.",
+    "Divide adobo among bowls and top with burnt coconut, pumpkin seeds, chiles, and scallion."
+  ],
+  "recipeInstructions": [
+    "1.",
+    "Place the soy sauce, vinegar, garlic, black peppercorns, and bay leaves in a large, nonreactive saut\u00e9 pan, and then nestle the chicken thighs, skin side down, into the pan. Bring the liquid to a boil over high heat, and then cover and simmer over low heat for 20 minutes. Turn the chicken over, and then cover and simmer for another 10 minutes.",
+    "2.",
+    "Uncover the pan, and then increase the heat to high and return the sauce to a boil. While occasionally turning and basting the chicken, continue boiling the sauce, uncovered, until it is reduced by half and thickens slightly, 5\u20137 minutes. Serve with steamed white rice.",
+    "3.",
+    "Variations: While the sauce is reducing, transfer the chicken thighs, skin side up, to a foil-lined sheet pan. Brown the chicken thighs underneath the broiler for 3\u20135 minutes.",
+    "Use freshly ground black pepper instead of whole peppercorns.",
+    "For a \u201cdrier\u201d chicken adobo, you can reduce the sauce until it is almost completely evaporated. The chicken will then begin to fry in its own fat that is still left in the pan. This is how my grandmother finishes her adobo.",
+    "For a saucier adobo, double the amount of soy sauce and vinegar.",
+    "OTHER ONE"
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r43",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:25Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Filipino",
+      "Name": "Chicken Adobo",
+      "Notes": "I kind of merge the two recipes together\n\nless than 1/2 cup vinegar\nhoney is bomb\ncook chicken separately so it gets rid of it's grease\nlearn how to cook/reduce gravy\n\ncinnamon and brown sugar/honey are secret ingredients",
+      "Recipe/Ingredients": "Ingredients\n1/4 cup (65 ml) soy sauce\n1/2 cup (125 ml) white Filipino cane vinegar, or distilled white vinegar\n6\u20138 cloves garlic, smashed with the side of a knife and peeled\n1 teaspoon whole black peppercorns\n2 bay leaves\n6 skin-on, bone-in chicken thighs\nCan add coconut milk\n\nDirections\n1.\nPlace the soy sauce, vinegar, garlic, black peppercorns, and bay leaves in a large, nonreactive saut\u00e9 pan, and then nestle the chicken thighs, skin side down, into the pan. Bring the liquid to a boil over high heat, and then cover and simmer over low heat for 20 minutes. Turn the chicken over, and then cover and simmer for another 10 minutes.\n\n2.\nUncover the pan, and then increase the heat to high and return the sauce to a boil. While occasionally turning and basting the chicken, continue boiling the sauce, uncovered, until it is reduced by half and thickens slightly, 5\u20137 minutes. Serve with steamed white rice.\n\n3.\nVariations: While the sauce is reducing, transfer the chicken thighs, skin side up, to a foil-lined sheet pan. Brown the chicken thighs underneath the broiler for 3\u20135 minutes.\n\nUse freshly ground black pepper instead of whole peppercorns.\n\nFor a \u201cdrier\u201d chicken adobo, you can reduce the sauce until it is almost completely evaporated. The chicken will then begin to fry in its own fat that is still left in the pan. This is how my grandmother finishes her adobo.\n\nFor a saucier adobo, double the amount of soy sauce and vinegar.\n\nOTHER ONE\n\nINGREDIENTS\n10 dried bay leaves\n2 tablespoons black peppercorns\n2 tablespoons ground turmeric\n\u00bc cup unsweetened shredded coconut\n\u00bd head of cauliflower, broken into small florets\n\u00bc kabocha squash, cut into 1-inch pieces (about 2 cups)\n3 tablespoons vegetable oil, divided\nKosher salt, freshly ground pepper\n1 small white onion, chopped\n2 medium shallots, chopped\n6 large garlic cloves, chopped\n1 3-inch piece ginger, peeled, finely grated\n1 teaspoon crushed red pepper flakes\n2 13.5-ounce cans unsweetened coconut milk\n1 cup sugarcane vinegar or distilled white vinegar, divided\n4 chicken legs, drumsticks and thighs separated\n3 tablespoons (or more) honey\nUnsalted, roasted pumpkin seeds (pepitas), thinly sliced Fresno chiles, and sliced scallion (for serving)\n\nRECIPE PREPARATION\nPlace bay leaves and peppercorns in center of cheesecloth and tie closed with kitchen twine; set sachet aside. Toast turmeric in a dry small skillet over medium-low heat, stirring often, just until fragrant (be careful not to let it brown), about 3 minutes. Transfer to a plate.\n\nCook coconut in same skillet over medium-high heat, stirring occasionally, until burnt (not browned: burnt), about 3 minutes. Grind in a spice mill or with a mortar and pestle or finely chop. Transfer to another plate.\n\nHeat oven to 375\u00b0. Toss cauliflower and squash on a large rimmed baking sheet with 1 Tbsp. oil to coat; season with salt and pepper. Roast vegetables, tossing occasionally, until browned and tender, 30\u201340 minutes.\n\nHeat remaining 2 Tbsp. oil in a large Dutch oven or other heavy pot over medium-high. Add onion, shallots, garlic, and ginger and cook, stirring often, until golden brown and very fragrant, 8\u201310 minutes. Add red pepper flakes and cook, stirring often, just until fragrant, about 1 minute. Stir in toasted turmeric, coconut milk, and \u00be cup vinegar. Bring to a boil and cook until liquid is reduced by about one-third, 20\u201330 minutes.\n\nMeanwhile, prepare a grill for medium-high heat (or heat a grill pan over medium-high). Season chicken with salt and pepper and grill, turning occasionally, just until skin is charred (chicken will not be cooked through at this point), 8\u201310 minutes.\n\nAdd chicken and reserved sachet to turmeric sauce. Cook, partially covered, until chicken is tender, 60\u201380 minutes. Stir honey and remaining \u00bc cup vinegar in a small bowl until honey is dissolved; add to braise, then add roasted cauliflower and squash. Taste and season with more salt or honey as needed.\n\nDivide adobo among bowls and top with burnt coconut, pumpkin seeds, chiles, and scallion.",
+      "Tags": "chicken thighs, coconut milk, cauliflower",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 43,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

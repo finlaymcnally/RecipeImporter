@@ -1,0 +1,158 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, cornmeal, sour cream, buttermilk",
+    "title": "Brown Butter cornbread",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 7.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "plus more for serving",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "unsalted butter",
+          "raw_text": "7 tablespoons unsalted butter, plus more for serving",
+          "raw_unit_text": "tablespoons"
+        }
+      ],
+      "instruction": "Adjust oven rack to center position and preheat oven to 425\u00b0F. Place butter in a 10-inch cast iron skillet. Transfer skillet to oven and heat until the butter is melted and well browned, 10 to 20 minutes (you can measure your wet and dry ingredients while waiting). Pour browned butter into a heatproof cup or bowl, leaving about 1 tablespoon remaining in skillet."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 7.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "plus more for serving",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "unsalted butter",
+          "raw_text": "7 tablespoons unsalted butter, plus more for serving",
+          "raw_unit_text": "tablespoons"
+        },
+        {
+          "confidence": 0.983,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "fine yellow cornmeal",
+          "raw_text": "1 cup (about 5 ounces) fine yellow cornmeal",
+          "raw_unit_text": "cup"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "baking powder",
+          "raw_text": "2 teaspoons baking powder",
+          "raw_unit_text": "teaspoons"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 0.25,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "baking soda",
+          "raw_text": "1/4 teaspoon baking soda",
+          "raw_unit_text": "teaspoons"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 6.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "sour cream",
+          "raw_text": "6 ounces (about 3/4 cup) sour cream",
+          "raw_unit_text": "ounces"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cultured buttermilk",
+          "raw_text": "4 ounces (about 1/2 cup) cultured buttermilk",
+          "raw_unit_text": "ounces"
+        }
+      ],
+      "instruction": "Combine cornmeal, flour, sugar, salt, baking powder, and baking soda in a large bowl. Combine eggs, sour cream, and buttermilk in a second bowl and whisk until homogenous. Whisking constantly, slowly drizzle in reserved browned butter. Whisk wet ingredients into dry ingredients until homogenous."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 7.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "plus more for serving",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "unsalted butter",
+          "raw_text": "7 tablespoons unsalted butter, plus more for serving",
+          "raw_unit_text": "tablespoons"
+        },
+        {
+          "confidence": 0.987,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "approximate",
+          "raw_ingredient_text": "Honey",
+          "raw_text": "Honey, for serving",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "Remove skillet from the oven and swirl to coat all surfaces with melted butter. Spoon batter into skillet, smooth top lightly, then transfer to oven. Bake until light golden brown on top and a wooden skewer inserted into cornbread comes out with no crumbs, 20 to 25 minutes. Let cool 10 minutes, then serve with extra butter and honey at the table. Leftover cornbread can be stored in a sealed container in the refrigerator for up to 3 days."
+    }
+  ]
+}

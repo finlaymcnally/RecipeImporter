@@ -1,0 +1,61 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r59",
+  "@type": "Recipe",
+  "description": "lots of fancy peppers",
+  "keywords": "Mexican, Main, Instant Pot, pork shoulder, peppers, chili pepper, tortillas, limes",
+  "name": "Pork Chile Verde",
+  "recipeIngredient": [
+    "4 pounds (1.9kg) boneless pork shoulder, cut into 2-inch chunks",
+    "3/4 pound tomatillos (about 4 tomatillos; 350g), quartered, husks discarded",
+    "2/3 pound Poblano peppers (about 2 peppers; 300g), roughly chopped, seeds and stems discarded (see note)",
+    "6 ounces Anaheim or Cubanelle peppers (about 2 peppers; 170g), roughly chopped, seeds and stems discarded (see note)",
+    "2 serrano or jalape\u00f1o chilies, roughly chopped, stems discarded (see note)",
+    "8 ounces white onion (about 1 medium; 225g), roughly chopped",
+    "6 medium cloves garlic, peeled",
+    "1 tablespoon (15g) whole cumin seed, toasted and ground",
+    "Kosher salt",
+    "1/2 cup loosely packed fresh cilantro leaves and fine stems (about 1/2 ounce; 15g), plus more for garnish",
+    "1 tablespoon (15ml) Asian fish sauce",
+    "Fresh corn tortillas and lime wedges, for serving"
+  ],
+  "recipeInstructions": [
+    "1.",
+    "In a pressure cooker, combine pork, tomatillos, Poblano peppers, Anaheim peppers, serrano peppers, onion, garlic, cumin, and a big pinch of salt. Heat over high heat until gently sizzling, then seal pressure cooker, bring to high pressure, and cook for 30 minutes. Release pressure.",
+    "2.",
+    "Using tongs, transfer pork pieces to a bowl and set aside. Add cilantro and fish sauce to remaining contents of pressure cooker. Blend with an immersion blender or in a countertop blender, then season to taste with salt. Return pork to sauce and stir gently to combine. Serve immediately with tortillas and lime wedges."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r59",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:10Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Mexican",
+      "Name": "Pork Chile Verde",
+      "Notes": "lots of fancy peppers",
+      "Recipe/Ingredients": "TOTAL TIME:\n45 minutes\n\nIngredients\n4 pounds (1.9kg) boneless pork shoulder, cut into 2-inch chunks\n3/4 pound tomatillos (about 4 tomatillos; 350g), quartered, husks discarded\n2/3 pound Poblano peppers (about 2 peppers; 300g), roughly chopped, seeds and stems discarded (see note)\n6 ounces Anaheim or Cubanelle peppers (about 2 peppers; 170g), roughly chopped, seeds and stems discarded (see note)\n2 serrano or jalape\u00f1o chilies, roughly chopped, stems discarded (see note)\n8 ounces white onion (about 1 medium; 225g), roughly chopped\n6 medium cloves garlic, peeled\n1 tablespoon (15g) whole cumin seed, toasted and ground\nKosher salt\n1/2 cup loosely packed fresh cilantro leaves and fine stems (about 1/2 ounce; 15g), plus more for garnish\n1 tablespoon (15ml) Asian fish sauce\nFresh corn tortillas and lime wedges, for serving\n\nDirections\n1.\nIn a pressure cooker, combine pork, tomatillos, Poblano peppers, Anaheim peppers, serrano peppers, onion, garlic, cumin, and a big pinch of salt. Heat over high heat until gently sizzling, then seal pressure cooker, bring to high pressure, and cook for 30 minutes. Release pressure.\n\n2.\nUsing tongs, transfer pork pieces to a bowl and set aside. Add cilantro and fish sauce to remaining contents of pressure cooker. Blend with an immersion blender or in a countertop blender, then season to taste with salt. Return pork to sauce and stir gently to combine. Serve immediately with tortillas and lime wedges.",
+      "Tags": "pork shoulder, peppers, chili pepper, tortillas, limes",
+      "Tool (Instant, Sous, Normal)": "Instant Pot",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 59,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

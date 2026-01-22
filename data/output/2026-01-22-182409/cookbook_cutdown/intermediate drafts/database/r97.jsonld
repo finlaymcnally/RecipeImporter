@@ -1,0 +1,47 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r97",
+  "@type": "Recipe",
+  "keywords": "American, Component, Normal, cranberries, apples",
+  "name": "Applesauce with cranberries",
+  "recipeIngredient": [
+    "3lbs golden delicious apples, peeled, quartered, cored, cut into 3/4inch pieces",
+    "1.5 cups apple juice",
+    "1.5 cups fresh/frozen cranberries",
+    "1/2 cup sugar",
+    "Combine in large pot, bring to boil, simmer till apples are tender, 25min"
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r97",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:11Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "American",
+      "Name": "Applesauce with cranberries",
+      "Notes": "",
+      "Recipe/Ingredients": "3lbs golden delicious apples, peeled, quartered, cored, cut into 3/4inch pieces\n1.5 cups apple juice\n1.5 cups fresh/frozen cranberries\n1/2 cup sugar\n\nCombine in large pot, bring to boil, simmer till apples are tender, 25min",
+      "Tags": "cranberries, apples",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Component"
+    },
+    "row_index": 97,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r2",
+  "@type": "Recipe",
+  "description": "chicken is optional\nLots of spices\n\n*The package of sausage I bought was 14oz, but any amount from 12 to 16oz. (3/4 to 1 lb.) will work just fine.",
+  "keywords": "Main, Normal, celery, peppers, sausage, tomatoes",
+  "name": "Jambalaya",
+  "recipeIngredient": [
+    "3 ribs celery",
+    "1 yellow onion",
+    "1 green bell pepper",
+    "2 cloves garlic",
+    "12-16 oz. smoked sausage*",
+    "2 boneless, skinless chicken thighs (optional)",
+    "1 tsp dried oregano",
+    "1 tsp dried thyme",
+    "1/2 Tbsp smoked paprika",
+    "1/2 tsp cayenne pepper",
+    "Freshly cracked pepper (15-20 cranks of a mill)",
+    "2 15 oz. cans diced tomatoes (or one 28oz. can)",
+    "1/4 bunch fresh parsley, chopped",
+    "2 cups chicken broth",
+    "2 cups uncooked long grain white rice",
+    "3 green onions, sliced"
+  ],
+  "recipeInstructions": [
+    "Finely dice the celery, onion, and bell pepper. Mince the garlic. Add the celery, onion, bell pepper, and garlic to the bottom of a 5 quart or larger slow cooker.",
+    "Slice the smoked sausage into rounds or half moons and add them to the slow cooker, along with the chicken thighs, oregano, thyme, paprika, cayenne, and freshly cracked pepper.",
+    "Pour the diced tomatoes and all their juices over the meat and spices in the slow cooker. Add the chicken broth and a handful of chopped fresh parsley. Stir briefly.",
+    "Place the lid on the slow cooker, turn the heat on to high, and cook for four hours.",
+    "After four hours, the liquid in the slow cooker should be boiling. Carefully remove the chicken thighs, making sure to replace the lid quickly, shred the meat, and stir it back into the pot along with the uncooked rice. Replace the lid and let it continue to cook on high for 20-25 minutes, or until the rice has absorbed most of the liquid.",
+    "Remove the lid, test the rice to make sure it's tender, then stir to fluff the ingredients. Sprinkle the sliced green onions over top, then serve."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r2",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:25Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Jambalaya",
+      "Notes": "chicken is optional\nLots of spices",
+      "Recipe/Ingredients": "INGREDIENTS\n3 ribs celery \n1 yellow onion \n1 green bell pepper\n2 cloves garlic\n12-16 oz. smoked sausage* \n2 boneless, skinless chicken thighs (optional) \n1 tsp dried oregano \n1 tsp dried thyme \n1/2 Tbsp smoked paprika\n1/2 tsp cayenne pepper \nFreshly cracked pepper (15-20 cranks of a mill) \n2 15 oz. cans diced tomatoes (or one 28oz. can) \n1/4 bunch fresh parsley, chopped \n2 cups chicken broth \n2 cups uncooked long grain white rice \n3 green onions, sliced \nINSTRUCTIONS\nFinely dice the celery, onion, and bell pepper. Mince the garlic. Add the celery, onion, bell pepper, and garlic to the bottom of a 5 quart or larger slow cooker.\nSlice the smoked sausage into rounds or half moons and add them to the slow cooker, along with the chicken thighs, oregano, thyme, paprika, cayenne, and freshly cracked pepper.\nPour the diced tomatoes and all their juices over the meat and spices in the slow cooker. Add the chicken broth and a handful of chopped fresh parsley. Stir briefly.\nPlace the lid on the slow cooker, turn the heat on to high, and cook for four hours.\nAfter four hours, the liquid in the slow cooker should be boiling. Carefully remove the chicken thighs, making sure to replace the lid quickly, shred the meat, and stir it back into the pot along with the uncooked rice. Replace the lid and let it continue to cook on high for 20-25 minutes, or until the rice has absorbed most of the liquid.\nRemove the lid, test the rice to make sure it's tender, then stir to fluff the ingredients. Sprinkle the sliced green onions over top, then serve.\nNOTES\n*The package of sausage I bought was 14oz, but any amount from 12 to 16oz. (3/4 to 1 lb.) will work just fine.",
+      "Tags": "celery, peppers, sausage, tomatoes",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 2,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

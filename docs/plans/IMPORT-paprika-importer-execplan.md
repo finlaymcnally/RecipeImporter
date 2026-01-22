@@ -1,5 +1,5 @@
 ---
-sunmmary: "ExecPlan for the Paprika Recipe Manager import engine."
+summary: "ExecPlan for the Paprika Recipe Manager import engine."
 read_when:
   - When implementing the Paprika import engine
 ---

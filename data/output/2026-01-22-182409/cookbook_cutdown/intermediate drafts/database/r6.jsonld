@@ -1,0 +1,73 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r6",
+  "@type": "Recipe",
+  "keywords": "Indian, Main, Normal, chicken, curry base",
+  "name": "Chicken Madras",
+  "recipeIngredient": [
+    "800g pre-cooked chicken",
+    "2 tablespoon ghee or vegetable oil",
+    "2 - 4 dried Kashmiri chillies",
+    "A few green cardamom pods",
+    "1 tablespoon garlic paste",
+    "1 tablespoon ginger paste",
+    "1 tablespoon tomato paste",
+    "2 green chilli peppers finely chopped",
+    "1 tablespoon cumin powder",
+    "1 tablespoon coriander powder",
+    "1 - 2 tablespoons Madras curry powder",
+    "1 teaspoon turmeric",
+    "1 - 2 tablespoons red chilli powder",
+    "750ml (3 cups) heated base curry sauce",
+    "1 - 2 tablespoons mango chutney",
+    "salt and pepper to taste",
+    "Fresh coriander to garnish",
+    "A pinch of garam masala (Optional)"
+  ],
+  "recipeInstructions": [
+    "For best results, always warm your curry sauce before adding it to the curry.",
+    "Heat the ghee/oil over medium heat in a large pan or wok.",
+    "Add the dried chillies and cardamoms and allow to sizzle for about 30 seconds.",
+    "Scoop in the garlic and ginger pastes, the tomato paste and the chopped chilli peppers.",
+    "Allow them to sizzle for about 15 seconds and then add the cumin, coriander powder, chilli powder, curry powder and turmeric.",
+    "Stir to combine.",
+    "Now pour in the heated base curry sauce and mango chutney. The ingredients should spit their approval in the hot pan.",
+    "Add the pre-cooked chicken pieces and allow to simmer for about three minutes. If you slow cooked your chicken, you could add a tablespoon or two of the broth for extra flavour.",
+    "Test for seasoning and add a little salt and pepper.",
+    "Sprinkle with the fresh coriander and serve.",
+    "A teaspoon of garam masala sprinkled over the top at the end of cooking is a nice touch!"
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r6",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:10Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Indian",
+      "Name": "Chicken Madras",
+      "Notes": "",
+      "Recipe/Ingredients": "PREP TIME\n10 minutes\nCOOK TIME\n10 minutes\nTOTAL TIME\n20 minutes\nINGREDIENTS\n800g pre-cooked chicken\n2 tablespoon ghee or vegetable oil\n2 - 4 dried Kashmiri chillies\nA few green cardamom pods\n1 tablespoon garlic paste\n1 tablespoon ginger paste\n1 tablespoon tomato paste\n2 green chilli peppers finely chopped\n1 tablespoon cumin powder\n1 tablespoon coriander powder\n1 - 2 tablespoons Madras curry powder\n1 teaspoon turmeric\n1 - 2 tablespoons red chilli powder\n750ml (3 cups) heated base curry sauce\n1 - 2 tablespoons mango chutney\nsalt and pepper to taste\nFresh coriander to garnish\nA pinch of garam masala (Optional)\nINSTRUCTIONS\nFor best results, always warm your curry sauce before adding it to the curry.\nHeat the ghee/oil over medium heat in a large pan or wok.\nAdd the dried chillies and cardamoms and allow to sizzle for about 30 seconds.\nScoop in the garlic and ginger pastes, the tomato paste and the chopped chilli peppers.\nAllow them to sizzle for about 15 seconds and then add the cumin, coriander powder, chilli powder, curry powder and turmeric.\nStir to combine.\nNow pour in the heated base curry sauce and mango chutney. The ingredients should spit their approval in the hot pan.\nAdd the pre-cooked chicken pieces and allow to simmer for about three minutes. If you slow cooked your chicken, you could add a tablespoon or two of the broth for extra flavour.\nTest for seasoning and add a little salt and pepper.\nSprinkle with the fresh coriander and serve.\nA teaspoon of garam masala sprinkled over the top at the end of cooking is a nice touch!",
+      "Tags": "chicken, curry base",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 6,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

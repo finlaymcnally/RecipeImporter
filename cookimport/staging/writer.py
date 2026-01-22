@@ -9,6 +9,7 @@ from typing import Any
 from cookimport import __version__
 from cookimport.core.models import ConversionReport, ConversionResult, RecipeCandidate
 from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
+from cookimport.staging.jsonld import recipe_candidate_to_jsonld
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -90,39 +91,54 @@ def _ensure_candidate_id(
     return stable_id
 
 
-def write_draft_outputs(results: ConversionResult, out_dir: Path) -> None:
-    """Write RecipeDraftV1 outputs to the staging layout."""
+def write_intermediate_outputs(results: ConversionResult, out_dir: Path) -> None:
+    """Write intermediate RecipeSage JSON-LD outputs.
+
+    These are the raw extracted recipes before transformation to final format.
+    Output path: {out_dir}/{sheet_slug}/r{row_index}.jsonld
+    """
     for candidate in results.recipes:
         provenance = _ensure_provenance(candidate)
-        workbook_name = _resolve_workbook_name(results, provenance)
         sheet_name = _resolve_sheet_name(provenance)
         row_index = _resolve_row_index(provenance)
-        workbook_slug = _slugify(workbook_name)
         sheet_slug = _slugify(sheet_name)
-        # file_hash = _resolve_file_hash(results, provenance)
+        file_hash = _resolve_file_hash(results, provenance)
 
-        # Ensure ID if needed for internal tracking, though DraftV1 doesn't use it in the schema directly as a top-level field?
-        # The schema doesn't have an ID field for the draft itself, only ingredients.
-        # But we might want to keep the provenance in the filename.
-        
+        # Ensure stable ID for the candidate
+        _ensure_candidate_id(candidate, file_hash, sheet_slug, row_index)
+
+        jsonld = recipe_candidate_to_jsonld(candidate)
+
+        out_path = out_dir / sheet_slug / f"r{row_index}.jsonld"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(jsonld, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def write_draft_outputs(results: ConversionResult, out_dir: Path) -> None:
+    """Write RecipeDraftV1 outputs (final format).
+
+    Output path: {out_dir}/{sheet_slug}/r{row_index}.json
+    """
+    for candidate in results.recipes:
+        provenance = _ensure_provenance(candidate)
+        sheet_name = _resolve_sheet_name(provenance)
+        row_index = _resolve_row_index(provenance)
+        sheet_slug = _slugify(sheet_name)
+
         draft = recipe_candidate_to_draft_v1(candidate)
-        
-        # We can write the draft
-        out_path = (
-            out_dir
-            / "drafts"
-            / workbook_slug
-            / sheet_slug
-            / f"r{row_index}.json"
-        )
+
+        out_path = out_dir / sheet_slug / f"r{row_index}.json"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(draft, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def write_report(report: ConversionReport, out_dir: Path, workbook_name: str) -> Path:
-    """Write a conversion report JSON file for a workbook."""
+    """Write a conversion report JSON file for a workbook.
+
+    Output path: {out_dir}/{workbook_slug}.excel_import_report.json
+    """
     slug = _slugify(workbook_name)
-    out_path = out_dir / "reports" / f"{slug}.excel_import_report.json"
+    out_path = out_dir / f"{slug}.excel_import_report.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = report.model_dump(by_alias=True, exclude_none=True)
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")

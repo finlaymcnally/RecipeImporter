@@ -1,0 +1,47 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r22",
+  "@type": "Recipe",
+  "keywords": "Side, Normal, broccoli, cheese",
+  "name": "Broccoli Tots",
+  "recipeInstructions": [
+    "Preheat oven to 400 degrees.",
+    "Fill a medium saucepan with water and bring to a boil. Aggressively season it with salt.",
+    "Blanch the broccoli in boiling water for about two minutes. Drain and finely chop the cooked broccoli. In a mixing bowl, add broccoli, scallions, garlic, cheddar, egg, and breadcrumbs. Optional: add hot sauce of choice. Mix well and chill in the refrigerator for 15-20 minutes.",
+    "Spray a nonstick baking sheet with nonstick spray. Shape the mixture into tot shapes and spread them evenly on the sheet.",
+    "Bake for 8-9 minutes. Flip and then bake for an additional 8-9 minutes on the other side until golden brown."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r22",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:25Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Broccoli Tots",
+      "Notes": "",
+      "Recipe/Ingredients": "NGREDIENTS\n\n12 ounces broccoli, cut into small florets\n\n1/4 cup scallions, thinly sliced\n\n2 large garlic cloves, finely diced\n\n2/3 cup shredded cheddar cheese\n\n1 egg, beaten\n\n2/3 cup breadcrumbs\n\nSalt & pepper\n\nOptional: 2 tsp Sriracha (optional but recommended!)\n\nPREPARATION\n\nPreheat oven to 400 degrees.\n\nFill a medium saucepan with water and bring to a boil. Aggressively season it with salt.\n\nBlanch the broccoli in boiling water for about two minutes. Drain and finely chop the cooked broccoli. In a mixing bowl, add broccoli, scallions, garlic, cheddar, egg, and breadcrumbs. Optional: add hot sauce of choice. Mix well and chill in the refrigerator for 15-20 minutes.\n\nSpray a nonstick baking sheet with nonstick spray. Shape the mixture into tot shapes and spread them evenly on the sheet.\n\nBake for 8-9 minutes. Flip and then bake for an additional 8-9 minutes on the other side until golden brown.",
+      "Tags": "broccoli, cheese",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 22,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

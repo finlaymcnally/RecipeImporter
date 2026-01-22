@@ -1,0 +1,56 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r119",
+  "@type": "Recipe",
+  "keywords": "Main, Normal, beef flank steak, baguette, arugula, blue cheese",
+  "name": "Balsamic and blue cheese Steak Sandwich",
+  "recipeIngredient": [
+    "1 teaspoon fennel seed, toasted, crushed",
+    "3/4 cup balsamic vinegar, divided",
+    "3 Tbsp olive oil, divided",
+    "1 teaspoon salt",
+    "1 teaspoon crushed black pepper",
+    "1 beef flank steak (about 1 pound)1 ciabatta baguette loaf (about 15 inches)",
+    "2 cups arugula",
+    "3/4 cup crumbled blue cheese"
+  ],
+  "recipeInstructions": [
+    "Combine fennel seed, 1/2 cup balsamic vinegar, 1-1/2 tablespoons olive oil, salt and pepper in small bowl; mix well. Place beef steak and marinade in food-safe plastic bag; turn steak to coat. Close bag securely; marinate in refrigerator 6 to 24 hours.",
+    "Remove steak from marinade; discard marinade. Place steak on grid over medium, ash-covered coals; grill steak, covered, 11 to 16 minutes (over medium heat on preheated gas grill, covered, 16 to 21 minutes) for medium rare (145\u00b0F) to medium (160\u00b0F), turning occasionally. Carve steak diagonally into thin slices.",
+    "Meanwhile cut ciabatta in half lengthwise; brush cut sides with remaining olive oil. Grill cut-side-down, during last 2 minutes of grilling beef",
+    "Place steak slices on bottom half of bread, top with arugula and blue cheese; drizzle with remaining balsamic vinegar. Top with second bread slice and serve."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r119",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:27Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Balsamic and blue cheese Steak Sandwich",
+      "Notes": "",
+      "Recipe/Ingredients": "Ingredients\n1 teaspoon fennel seed, toasted, crushed\n3/4 cup balsamic vinegar, divided\n3 Tbsp olive oil, divided\n1 teaspoon salt\n1 teaspoon crushed black pepper\n1 beef flank steak (about 1 pound)1 ciabatta baguette loaf (about 15 inches)\n2 cups arugula\n3/4 cup crumbled blue cheese\n\nDirections\nCombine fennel seed, 1/2 cup balsamic vinegar, 1-1/2 tablespoons olive oil, salt and pepper in small bowl; mix well. Place beef steak and marinade in food-safe plastic bag; turn steak to coat. Close bag securely; marinate in refrigerator 6 to 24 hours.\nRemove steak from marinade; discard marinade. Place steak on grid over medium, ash-covered coals; grill steak, covered, 11 to 16 minutes (over medium heat on preheated gas grill, covered, 16 to 21 minutes) for medium rare (145\u00b0F) to medium (160\u00b0F), turning occasionally. Carve steak diagonally into thin slices.\nMeanwhile cut ciabatta in half lengthwise; brush cut sides with remaining olive oil. Grill cut-side-down, during last 2 minutes of grilling beef\nPlace steak slices on bottom half of bread, top with arugula and blue cheese; drizzle with remaining balsamic vinegar. Top with second bread slice and serve.",
+      "Tags": "beef flank steak, baguette, arugula, blue cheese",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Main"
+    },
+    "row_index": 119,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

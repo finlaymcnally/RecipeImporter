@@ -1,0 +1,55 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r77",
+  "@type": "Recipe",
+  "keywords": "Indian, Side, Normal, spinach, chickpeas, tomato sauce",
+  "name": "Curried chickpeas with spinach",
+  "recipeIngredient": [
+    "2 Tbsp olive oil",
+    "1 yellow onion",
+    "2 cloves garlic",
+    "1 inch fresh ginger",
+    "1 1/2 Tbsp curry powder",
+    "8 oz. spinach (fresh or frozen)",
+    "1 15oz. can tomato sauce",
+    "2 15oz. cans chickpeas"
+  ],
+  "recipeInstructions": [
+    "Dice the onion, mince the garlic, and grate the ginger on a small holed cheese grater. Saut\u00e9 the onion, garlic, and ginger in a large skillet with the olive oil over medium heat until the onions have softened (3-5 minutes).",
+    "Add the curry powder and continue to saut\u00e9 with the onion mixture for one minute more. Add about 1/4 cup of water to the skillet along with the fresh spinach and continue to saut\u00e9 until the spinach has wilted. The water will help steam and wilt the spinach (no water needed if using frozen spinach).",
+    "Drain and rinse the chickpeas. Add them to the skillet along with the tomato sauce. Stir well to distribute the spices in the sauce and heat through (5 minutes). Serve over rice or with bread."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r77",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:26Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Indian",
+      "Name": "Curried chickpeas with spinach",
+      "Notes": "",
+      "Recipe/Ingredients": "INGREDIENTS\n2 Tbsp olive oil\n1 yellow onion\n2 cloves garlic\n1 inch fresh ginger\n1 1/2 Tbsp curry powder\n8 oz. spinach (fresh or frozen)\n1 15oz. can tomato sauce\n2 15oz. cans chickpeas\n\nINSTRUCTIONS\nDice the onion, mince the garlic, and grate the ginger on a small holed cheese grater. Saut\u00e9 the onion, garlic, and ginger in a large skillet with the olive oil over medium heat until the onions have softened (3-5 minutes).\nAdd the curry powder and continue to saut\u00e9 with the onion mixture for one minute more. Add about 1/4 cup of water to the skillet along with the fresh spinach and continue to saut\u00e9 until the spinach has wilted. The water will help steam and wilt the spinach (no water needed if using frozen spinach).\nDrain and rinse the chickpeas. Add them to the skillet along with the tomato sauce. Stir well to distribute the spices in the sauce and heat through (5 minutes). Serve over rice or with bread.",
+      "Tags": "spinach, chickpeas, tomato sauce",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 77,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

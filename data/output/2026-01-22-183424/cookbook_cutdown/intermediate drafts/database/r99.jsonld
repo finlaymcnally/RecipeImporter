@@ -1,0 +1,69 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r99",
+  "@type": "Recipe",
+  "description": "Lots of spices",
+  "keywords": "Jamacian, Side, Normal, coconut cream",
+  "name": "Jamaican Rice and Beans",
+  "recipeIngredient": [
+    "8 ounces small dried red beans or 8 ounces red kidney beans",
+    "1 quart water",
+    "16 ounces chicken broth or 16 ounces chicken stock or 16 ounces water",
+    "1\u20442 cup coconut cream",
+    "2 teaspoons fresh thyme leaves",
+    "1\u20442 teaspoon ground allspice",
+    "2 scallions, finely chopped",
+    "1\u20442 cup white onion, chopped",
+    "2 minced garlic cloves",
+    "1 teaspoon black pepper",
+    "1 1\u20442 teaspoons kosher salt",
+    "1 scotch bonnet pepper (left whole)",
+    "1 teaspoon brown sugar",
+    "2 1\u20444 cups uncooked long grain rice"
+  ],
+  "recipeInstructions": [
+    "Rinse and sort beans and place in a stockpot.",
+    "Cover with several inches of water and soak overnight,-or- bring to a boil, boil gently for 3 minutes, then remove from heat, cover, and allow to sit undisturbed for 1 hour.",
+    "Drain and rinse beans.",
+    "Bring to a boil with chicken stock, water, and coconut cream.",
+    "Cover, reduce heat, and simmer for 1 1/2-2 hours or until beans are tender and creamy.",
+    "Add the thyme, allspice, scallion, onion, garlic, scotch bonnet, brown sugar, uncooked rice, salt and pepper.",
+    "Check the level of liquid over the rice and make sure there is at least one inch of liquid (if not, you may add water or broth to cover).",
+    "Bring to a boil, reduce heat, cover and simmer for 20-30 minutes or until rice is tender.",
+    "Serve hot as a side dish, with Jamaican hot sauce as a condiment, if desired.",
+    "For Vegetarian use water not the chicken broth or stock."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r99",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:26Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Jamacian",
+      "Name": "Jamaican Rice and Beans",
+      "Notes": "Lots of spices",
+      "Recipe/Ingredients": "READY IN: 2 hrs 1 min\n\nINGREDIENTS\n8 ounces small dried red beans or 8 ounces red kidney beans\n1 quart water\n16 ounces chicken broth or 16 ounces chicken stock or 16 ounces water\n1\u20442 cup coconut cream\n2 teaspoons fresh thyme leaves\n1\u20442 teaspoon ground allspice\n2 scallions, finely chopped\n1\u20442 cup white onion, chopped\n2 minced garlic cloves\n1 teaspoon black pepper\n1 1\u20442 teaspoons kosher salt\n1 scotch bonnet pepper (left whole)\n1 teaspoon brown sugar\n2 1\u20444 cups uncooked long grain rice\n\nDIRECTIONS\nRinse and sort beans and place in a stockpot.\nCover with several inches of water and soak overnight,-or- bring to a boil, boil gently for 3 minutes, then remove from heat, cover, and allow to sit undisturbed for 1 hour.\nDrain and rinse beans.\nBring to a boil with chicken stock, water, and coconut cream.\nCover, reduce heat, and simmer for 1 1/2-2 hours or until beans are tender and creamy.\nAdd the thyme, allspice, scallion, onion, garlic, scotch bonnet, brown sugar, uncooked rice, salt and pepper.\nCheck the level of liquid over the rice and make sure there is at least one inch of liquid (if not, you may add water or broth to cover).\nBring to a boil, reduce heat, cover and simmer for 20-30 minutes or until rice is tender.\nServe hot as a side dish, with Jamaican hot sauce as a condiment, if desired.\nFor Vegetarian use water not the chicken broth or stock.",
+      "Tags": "coconut cream",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 99,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

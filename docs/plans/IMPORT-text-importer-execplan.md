@@ -1,5 +1,5 @@
 ---
-sunmary: "ExecPlan for the text file import engine."
+summary: "ExecPlan for the text file import engine."
 read_when:
   - When implementing the text file import engine
 ---

@@ -1,0 +1,70 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r63",
+  "@type": "Recipe",
+  "description": "So much spices",
+  "keywords": "Indian, Side, Instant Pot, lentils, tomatoes",
+  "name": "Dal Makhani",
+  "recipeIngredient": [
+    "1 cup whole and split lentils (any combination of whole black lentils, whole mung beans, whole masoor beans, red lentils, red kidney beans, etc), soaked overnight",
+    "2 tablespoons neutral oil (I like avocado oil)",
+    "1 tablespoon cumin seeds",
+    "1 large onion, chopped",
+    "1 bay leaf",
+    "3 teaspoons minced garlic",
+    "1 \u00bd teaspoons minced ginger",
+    "Spices",
+    "1 teaspoon garam masala",
+    "1 teaspoon salt, adjust to taste",
+    "1 teaspoon turmeric",
+    "\u00bd teaspoon black pepper",
+    "\u00bd \u2013 1 teaspoon cayenne",
+    "2 tomatoes, chopped",
+    "3 cups water",
+    "2 tablespoons ghee, adjust to taste",
+    "Cilantro, garnish",
+    "Drizzle of heavy cream, optional garnish"
+  ],
+  "recipeInstructions": [
+    "Soak the lentils in cold water overnight. Drain, rinse and set aside.",
+    "Press the saut\u00e9 button on the Instant Pot, add the oil and allow it to heat up for a minute. Add the cumin seeds and once they start to brown, add the onion and bay leaf. Stir-fry for 6-7 minutes or until the onion begins to brown.",
+    "Add the garlic, ginger, spices and stir, then add the tomatoes. Cook for 5 minutes, or until the tomatoes break down.",
+    "Add the lentils to the pot along with the 3 cups of water and mix well.",
+    "Secure the lid, close the pressure valve and cook for 30 minutes at high pressure.",
+    "Allow the pressure to release naturally.",
+    "Stir in the ghee and garnish with cilantro if desired."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r63",
+    "converter_version": "0.1.0",
+    "file_path": "data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:24:10Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "Indian",
+      "Name": "Dal Makhani",
+      "Notes": "So much spices",
+      "Recipe/Ingredients": "INGREDIENTS\n1 cup whole and split lentils (any combination of whole black lentils, whole mung beans, whole masoor beans, red lentils, red kidney beans, etc), soaked overnight\n2 tablespoons neutral oil (I like avocado oil)\n1 tablespoon cumin seeds\n1 large onion, chopped\n1 bay leaf\n3 teaspoons minced garlic\n1 \u00bd teaspoons minced ginger\nSpices\n1 teaspoon garam masala\n1 teaspoon salt, adjust to taste\n1 teaspoon turmeric\n\u00bd teaspoon black pepper\n\u00bd \u2013 1 teaspoon cayenne\n2 tomatoes, chopped\n3 cups water\n2 tablespoons ghee, adjust to taste\nCilantro, garnish\nDrizzle of heavy cream, optional garnish\n\nINSTRUCTIONS\nSoak the lentils in cold water overnight. Drain, rinse and set aside.\nPress the saut\u00e9 button on the Instant Pot, add the oil and allow it to heat up for a minute. Add the cumin seeds and once they start to brown, add the onion and bay leaf. Stir-fry for 6-7 minutes or until the onion begins to brown.\nAdd the garlic, ginger, spices and stir, then add the tomatoes. Cook for 5 minutes, or until the tomatoes break down.\nAdd the lentils to the pot along with the 3 cups of water and mix well.\nSecure the lid, close the pressure valve and cook for 30 minutes at high pressure.\nAllow the pressure to release naturally.\nStir in the ghee and garnish with cilantro if desired.",
+      "Tags": "lentils, tomatoes",
+      "Tool (Instant, Sous, Normal)": "Instant Pot",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 63,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

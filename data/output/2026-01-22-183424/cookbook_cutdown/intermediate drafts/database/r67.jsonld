@@ -1,0 +1,73 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r67",
+  "@type": "Recipe",
+  "description": "Can sub chair for earl grey\nI didn\u2019t have buttermilk on hand, so I added 1 tbsp lemon juice to 1 cup milk. To give it more earl grey flavor, I first infused the milk with earl grey, then added lemon juice. You can omit this step if you want to!",
+  "keywords": "British, Dessert, Normal, buttermilk, tea, milk",
+  "name": "Earl grey tea bundt cake + lavender icing",
+  "recipeIngredient": [
+    "Ingredients",
+    "3 cups all-purpose flour",
+    "1 teaspoon baking powder",
+    "1/2 teaspoon baking soda",
+    "1/2 teaspoon salt",
+    "3 tbsp earl grey tea in a mesh strainer (tea bags work too)",
+    "3 tbsp earl grey tea, ground.",
+    "1 cup + 2 tbsp (2 1/4 sticks unsalted butter) at room temp",
+    "1.5 cups granulated sugar",
+    "1 tbsp vanilla extract",
+    "4 large eggs",
+    "1 cup buttermilk (1 cup milk with 1 tbsp lemon)",
+    "1| Prepare beforehand: I wanted buttermilk to be infused with earl grey tea, so I made my own buttermilk. I first heated up milk until it is just boiling, then added in earl grey leaves to steep for 10 minutes. Then, I let it cool. I added 1 tbsp lemon juice to make buttermilk.",
+    "2| Preheat oven to 350. Grease bundt pan and dust with flour.",
+    "3| Sift together flour, baking powder, baking soda, salt, ground up tea.",
+    "4| Cream together butter and sugar until pale and fluffy, about 5 minutes.",
+    "5| Add in extract and beat until well incorporated, about 1-2 minutes.",
+    "6| Add in eggs, one at a time, making sure it is well incorporated after each addition.",
+    "7| Add 1/3 of the flour mixture and mix. Add in 1/2 of buttermilk and mix. Add in another 1/3 of flour. Add in remaining \u00bd of buttermilk. Then, add in the remaining amount of flour. After each addition, mix until just combined. Do not over mix.",
+    "8| Pour batter evenly into the pan. Lightly tap it against a surface to remove any air bubbles.",
+    "9| Bake for one hour, until toothpick inserted comes out clean. Invert onto a wire rack and cool for another hour.",
+    "10| Drizzle glaze on completely cooled cake.",
+    "Lavender honey icing",
+    "1 cup powdered sugar",
+    "1 tsp vanilla extract",
+    "1 tbsp honey",
+    "1 tsp ground up lavender",
+    "1-2 tbsp milk",
+    "1| Heat up milk in microwave for 30 seconds. Add in lavender. Let steep for 10 minutes. Strain.",
+    "2| Whisk in sugar, extract, honey."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r67",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:26Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "British",
+      "Name": "Earl grey tea bundt cake + lavender icing",
+      "Notes": "Can sub chair for earl grey\nI didn\u2019t have buttermilk on hand, so I added 1 tbsp lemon juice to 1 cup milk. To give it more earl grey flavor, I first infused the milk with earl grey, then added lemon juice. You can omit this step if you want to!",
+      "Recipe/Ingredients": "Ingredients\n3 cups all-purpose flour\n1 teaspoon baking powder\n1/2 teaspoon baking soda\n1/2 teaspoon salt\n3 tbsp earl grey tea in a mesh strainer (tea bags work too)\n3 tbsp earl grey tea, ground.\n1 cup + 2 tbsp (2 1/4 sticks unsalted butter) at room temp\n1.5 cups granulated sugar\n1 tbsp vanilla extract\n4 large eggs\n1 cup buttermilk (1 cup milk with 1 tbsp lemon)\n\n1| Prepare beforehand: I wanted buttermilk to be infused with earl grey tea, so I made my own buttermilk. I first heated up milk until it is just boiling, then added in earl grey leaves to steep for 10 minutes. Then, I let it cool. I added 1 tbsp lemon juice to make buttermilk.\n2| Preheat oven to 350. Grease bundt pan and dust with flour.\n3| Sift together flour, baking powder, baking soda, salt, ground up tea.\n4| Cream together butter and sugar until pale and fluffy, about 5 minutes.\n5| Add in extract and beat until well incorporated, about 1-2 minutes.\n6| Add in eggs, one at a time, making sure it is well incorporated after each addition.\n7| Add 1/3 of the flour mixture and mix. Add in 1/2 of buttermilk and mix. Add in another 1/3 of flour. Add in remaining \u00bd of buttermilk. Then, add in the remaining amount of flour. After each addition, mix until just combined. Do not over mix.\n8| Pour batter evenly into the pan. Lightly tap it against a surface to remove any air bubbles.\n9| Bake for one hour, until toothpick inserted comes out clean. Invert onto a wire rack and cool for another hour.\n10| Drizzle glaze on completely cooled cake.\n\nLavender honey icing\n1 cup powdered sugar\n1 tsp vanilla extract\n1 tbsp honey\n1 tsp ground up lavender\n1-2 tbsp milk\n\n1| Heat up milk in microwave for 30 seconds. Add in lavender. Let steep for 10 minutes. Strain.\n2| Whisk in sugar, extract, honey.",
+      "Tags": "buttermilk, tea, milk",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Dessert"
+    },
+    "row_index": 67,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}

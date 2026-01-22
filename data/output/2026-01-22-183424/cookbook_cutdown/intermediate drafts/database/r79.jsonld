@@ -1,0 +1,44 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:excel:55b7c11740bb:database:r79",
+  "@type": "Recipe",
+  "keywords": "Side, Normal, carrots",
+  "name": "Honey Balsamic roasted carrots",
+  "recipeIngredient": [
+    "Ingredients 1 bag rainbow or baby carrots 6-8 sprigs thyme 2 Tablespoons EVOO 2 Tablespoons Balsamic Vinegar 2 Tablespoons Honey Salt and Pepper to taste",
+    "Instructions Preheat Oven to 375 degrees. Wash and cut carrots if applicable. In a large bowl place carrots and EVOO. Coat evenly. Transfer carrots to a baking dish. Sprinkle with salt and pepper and thyme leaves. whole sprigs are fine too. roast for 20 mins. While the carrots are roasting, in a small mixing bowl combine balsamic vinegar and honey. Whisk together. Remove carrots from over and transfer back into the large mixing bowl. Pour balsamic and honey mixture over and coat evenly. Transfer back to the baking dish and roast for another 5-10 minutes until carrots are soft. Serve immediately and enjoy!"
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:excel:55b7c11740bb:database:r79",
+    "converter_version": "0.1.0",
+    "file_path": "/home/mcnal/projects/recipeimport/data/input/Cookbook cutdown.xlsx",
+    "import_timestamp": "2026-01-22T23:34:26Z",
+    "original_headers": [
+      "Name",
+      "Cuisine",
+      "Notes",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+      "Tool (Instant, Sous, Normal)",
+      "Tags",
+      "Recipe/Ingredients",
+      ""
+    ],
+    "original_row": {
+      "Cuisine": "",
+      "Name": "Honey Balsamic roasted carrots",
+      "Notes": "",
+      "Recipe/Ingredients": "Ingredients 1 bag rainbow or baby carrots 6-8 sprigs thyme 2 Tablespoons EVOO 2 Tablespoons Balsamic Vinegar 2 Tablespoons Honey Salt and Pepper to taste \n\nInstructions Preheat Oven to 375 degrees. Wash and cut carrots if applicable. In a large bowl place carrots and EVOO. Coat evenly. Transfer carrots to a baking dish. Sprinkle with salt and pepper and thyme leaves. whole sprigs are fine too. roast for 20 mins. While the carrots are roasting, in a small mixing bowl combine balsamic vinegar and honey. Whisk together. Remove carrots from over and transfer back into the large mixing bowl. Pour balsamic and honey mixture over and coat evenly. Transfer back to the baking dish and roast for another 5-10 minutes until carrots are soft. Serve immediately and enjoy!",
+      "Tags": "carrots",
+      "Tool (Instant, Sous, Normal)": "Normal",
+      "Type (Breakfast, Main, Side, Dessert, Component, Meal)": "Side"
+    },
+    "row_index": 79,
+    "sheet": "Database",
+    "workbook": "Cookbook cutdown.xlsx"
+  }
+}
