@@ -1,0 +1,172 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: American, Main, Normal, oats, milk, chicken, celery, carrots, blue cheese",
+    "title": "Buffalo chicken Meatloaf",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "2b3d3d2f-5a53-4a97-8f95-3893167168d2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients:"
+        },
+        {
+          "ingredient_id": "a8c5974c-bb63-4f77-b8cd-024d6590f93e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Olive oil spray"
+        },
+        {
+          "ingredient_id": "53084260-e55c-4dd8-9df3-41c762a2cbf1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2/3 cup old fashioned oats"
+        },
+        {
+          "ingredient_id": "9ba7cf2a-dfd7-4167-b570-ca4cbb483fa4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup fat free milk"
+        },
+        {
+          "ingredient_id": "43525676-0948-4e01-aa2b-48e249bcd73c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/3 cup hot sauce, plus more to sprinkle on top"
+        },
+        {
+          "ingredient_id": "30be5da8-ad22-4bf4-a4e5-43135a8c2464",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 lb extra-lean ground chicken breast"
+        },
+        {
+          "ingredient_id": "c4e192c9-c961-4993-96bd-48d63277890e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup finely chopped celery"
+        },
+        {
+          "ingredient_id": "2d94a59a-bc3c-4f73-9c93-8ebf81c56cf2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup shredded carrot (I didn't have any on hand, so I just increased the celery & onion)"
+        },
+        {
+          "ingredient_id": "e4eceb14-8431-4e74-9599-ad04b8ab531d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup finely chopped sweet onion"
+        },
+        {
+          "ingredient_id": "e924fca5-164c-4b66-a077-1c16363dbbf9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 large egg whites, lightly beaten"
+        },
+        {
+          "ingredient_id": "a0199a72-983c-4709-a2ef-aa1a0d0dd659",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 teaspoon salt"
+        },
+        {
+          "ingredient_id": "f68b1fd8-3d21-44f0-8a7c-793adb127614",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup crumbled reduced fat blue cheese"
+        },
+        {
+          "ingredient_id": "92db28eb-4989-4eae-b88a-7ac4ca560842",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Directions:"
+        },
+        {
+          "ingredient_id": "dd1dde84-6c8a-4bec-af0e-87f4f804d850",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Preheat oven to 350F. Lightly mist a 9\u201d x 5\u201d x 3\u201d nonstick loaf pan with olive oil spray."
+        },
+        {
+          "ingredient_id": "02b6a13e-0e85-459a-aabf-e5868ee3fdb0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Combine oats and milk in a medium size mixing bowl. Mix well. Let stand for 3 minutes or until oats are softened. Stir in hot sauce until well mixed. Add chicken, celery, carrots, onion, egg whites, and salt. With fork, mix ingredients well. Add blue cheese and gently mix."
+        },
+        {
+          "ingredient_id": "aa38af09-ca04-48b5-b453-6ed54b5c88f2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Transfer mixture to pan and spread so that top is flat. Sprinkle on a couple shakes of hot sauce and spread evenly. Bake 35 to 40 mins or until chicken is no longer pink. Cut into 8 slices. Makes 4 servings."
+        },
+        {
+          "ingredient_id": "f626d70c-d9b9-429b-833e-65144352c73c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Nutrition Facts: 263 calories per serving, 35g protein, 14g carbohydrates, 6g fat (2g saturated fat), 74mg sodium (Note: 2 slices = 1 serving.)"
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

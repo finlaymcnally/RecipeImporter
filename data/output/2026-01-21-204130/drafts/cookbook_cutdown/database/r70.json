@@ -1,0 +1,253 @@
+{
+  "recipe": {
+    "description": "browned butter in chocolate chip cookies\nOR crisco baking lard instead of butter, but then dont freeze\nMexican vanilla",
+    "notes": "Tags: American, Dessert, Normal, chocolate",
+    "title": "Chocolate Chip Cookies",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "5a0a4edd-9fcb-4388-8dd2-a3711a8322b1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Firstly, I still add the salt, however I will also 1/2 Cup salted and 1/2 Cup unsalted butter."
+        },
+        {
+          "ingredient_id": "6322f639-a634-4129-8ac5-5826078e229b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "With my mixer and the pastry paddle attachment, I cream together the egg, the butter which has been softened to room temperature, the salt, vanilla extract, and sugars until they're a single consistency, with a low/ medium-low speed. Be sure to scrape off the bottom and sides a few times to aid in this."
+        },
+        {
+          "ingredient_id": "16a38a76-8635-42d0-9bef-84ab3bf03d5e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "A few tips with this:"
+        },
+        {
+          "ingredient_id": "148641f5-de60-4df1-9b07-5b8cbd1dd6d5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Use only dark brown sugar and when measuring it and make sure it's packed."
+        },
+        {
+          "ingredient_id": "dbe7ca8b-11ef-4ffa-94f1-362420cae02c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Use a fine grind of salt, like table salt. No kosher."
+        },
+        {
+          "ingredient_id": "ed2dc187-35fb-4447-b60c-312e2e35b972",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Sift your white sugar. Where I am is humid and we can get chunks of solidified sugar."
+        },
+        {
+          "ingredient_id": "01934222-143f-4aeb-afa7-6ee3b1dded45",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "While that's churning away, I will sift together my baking soda and flour. This I feel helps the wet mix with the dry better."
+        },
+        {
+          "ingredient_id": "9365b6bd-50c0-497b-a92c-fb85f9b15fd4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "When the butter and sugars are well creamed, take off the paddle attachment, scrape it off, add the flour to your mixing bowl, along with your chocolate chips and if you so desire, nuts. Attach your dough hook and with the speed on the lowest setting possible (mine says \"STIR\"), combine your wet and dry, stopping to scrape off the sides and the bottom of your bowl often."
+        },
+        {
+          "ingredient_id": "fa39b11b-78b6-4641-b41f-8cfdcc49fac9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Another tip if adding nuts:"
+        },
+        {
+          "ingredient_id": "da06f3d0-cb22-47d3-930d-dffc56fe4200",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pecans I feel get chewy when baked like this and peanuts can taste rancid or even take over in the taste department. If you want a subtle nutty flavor with some crunch, I use only walnuts."
+        },
+        {
+          "ingredient_id": "1793f168-8f5e-4dd1-860e-9bb383598239",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "When your mixing your dough, the second it appears everything is combined stop. You don't want to overwork the gluten in the flour."
+        },
+        {
+          "ingredient_id": "1889b405-f25f-4a09-8732-3cdfb71b818f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Once your dough is done STOP. Don't bake it immediately. What you will do is this:"
+        },
+        {
+          "ingredient_id": "315e3c36-b448-473d-9fa9-9088533c5d09",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Roll your dough into balls. The size I found that works best is 1/8 Cup Measure. You can either buy a 1/8th measure (and if you're an avid baker it comes in handy), or you can achieve this by simple measuring out two table spoons of dough and combining them into one ball."
+        },
+        {
+          "ingredient_id": "9bdc5bc7-8201-455b-8e50-1c0675d6e39d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "When your done rolling a ball, place it directly onto a cookie/baking sheet. You're going to place these guys into a freezer so you only need to space them 1/4 inch apart."
+        },
+        {
+          "ingredient_id": "473137dd-4787-4dfa-aa19-af67b7f714eb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Freeze your dough balls for about 30 minutes and from there you can transfer them into a gallon size Zip-Lock bag or a container with a seal-able lid. I have a large glass container with a silicone cover I keep my balls in."
+        },
+        {
+          "ingredient_id": "94eb959b-444f-4afd-8a00-320d90dfdd57",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Once transferred keep them in your freezer and freeze them overnight."
+        },
+        {
+          "ingredient_id": "5ffe1a54-9535-4559-97c8-e51f0ed95a56",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "When your ready to bake, preheat your oven to 350F. Place your dough balls ~2\" apart directly onto the sheet. Now... I can't give you time here. I watch my dough. What I look for is this:"
+        },
+        {
+          "ingredient_id": "a4e61f3a-cdbd-4178-a073-49e44ef7ebfe",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "The bottoms looking golden brown and muy delicioso and"
+        },
+        {
+          "ingredient_id": "0cf43396-a882-4b79-ae5b-03ac36377330",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "They will spread out and puff up and look like muffin tops. When the tops start looking dry (not as shiny as they were) pull them out."
+        },
+        {
+          "ingredient_id": "d8a8b244-9962-4af9-9970-2f7eef2bf024",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Now, they're technically not done, and will need to keep cooking and the residual heat is going to do just that. However, you don't want them to cool too rapidly or too slowly."
+        },
+        {
+          "ingredient_id": "7ad3bbc5-3987-4c7f-bd37-d7b6f6dd1b96",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "What I will do is I will take a bath towel (something CLEAN and somewhat fluffy - like cotton), fold it until it's roughly the same size as your pan and place the pan onto the towel."
+        },
+        {
+          "ingredient_id": "73749a90-d95c-4f5d-a521-70be6498b9da",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Some more tips:"
+        },
+        {
+          "ingredient_id": "95b9303b-deda-49d9-bb93-4d271a54f4c0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Never leave your dough balls out. Keep them in the freezer. If you're working in batches, which I usually am, I will take my dough out, place them onto the sheet and whatever's still in my container it goes right back into the freezer and the sheet pan will go immediately into the oven."
+        },
+        {
+          "ingredient_id": "635a1be7-f6a9-443e-a6c8-f12744e7cf2a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Make sure your oven is preheated. Also, I will put my oven rack about a third to three quarters up towards the top, not in the middle position. However, all ovens are different and I would experiment to see what positioning works best for you."
+        },
+        {
+          "ingredient_id": "57dea1ea-bd86-4517-b670-53881616bdd1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Never use a warm or hot pan. This can cause the butter in the dough to start melting too early. Only use the pan when its cold or sufficiently cooled off. Drives my family up a wall because I'll have four pans I'm rotating, but its worth it in the end because COOKIES!"
+        },
+        {
+          "ingredient_id": "eec389cf-5517-4f5c-a2ed-b042cc253057",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Let your cookies cool for about 6-10 minutes on the pan. At that point you should be able to pick them up by hand, however if you want to use a spatula, I recommend using a fish turner. I bought one specifically for helping me out with cookies because it's light and thin, and boy do I love it."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

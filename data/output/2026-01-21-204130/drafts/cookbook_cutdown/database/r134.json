@@ -1,0 +1,127 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Instant Pot, pork tenderloin",
+    "title": "Honey Soy pork tenderloin",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "de0f2fe0-b9c6-4d90-a9e2-1147b7555989",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients:"
+        },
+        {
+          "ingredient_id": "02f3a037-9bb4-414e-b296-a790efb5a54a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc cup Olive Oil"
+        },
+        {
+          "ingredient_id": "e58caae7-c4b2-470d-970c-e12fb22e1df5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc cup Soy sauce"
+        },
+        {
+          "ingredient_id": "2019f74e-4eaf-49c7-80d7-9b0302dbbb6c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd cup Honey"
+        },
+        {
+          "ingredient_id": "e1e85fa6-a96c-4ec9-a792-5eefb282c3fe",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 TBSP Steak Seasoning"
+        },
+        {
+          "ingredient_id": "f6d6bfa7-84f6-4aa9-ae69-3234bceee07c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd TSP Garlic Powder"
+        },
+        {
+          "ingredient_id": "4cd28da3-a632-415f-918a-1ddde9bceb4b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/8 TSP ground ginger"
+        },
+        {
+          "ingredient_id": "2457a25b-d0da-4d8c-a1db-919bd15987b8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/8 TSP red Pepper Flakes"
+        },
+        {
+          "ingredient_id": "9920531d-f156-4194-a31c-f48b90a3da3f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2-3 lb pork tenderloin"
+        },
+        {
+          "ingredient_id": "dc763bf2-c653-49f1-aaa1-0bf36838344d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Directions:"
+        },
+        {
+          "ingredient_id": "8204a672-6677-41a1-b11d-576160922b58",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Put all ingredients in your labeled freezer bag and place in the freezer."
+        },
+        {
+          "ingredient_id": "b6630ec9-fba1-4959-b8e1-2c40ce9f929d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Place into the crockpot (ingredients can be thawed or frozen) and cook on low for 6-8 hours. We served this with mashed potatoes and green beans."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

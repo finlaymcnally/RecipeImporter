@@ -1,0 +1,163 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, white beans, chicken, peppers",
+    "title": "White chicken chili Recipe",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "ca8b569d-2e75-45e4-82c0-b728a1bb0563",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "6 cans white beans"
+        },
+        {
+          "ingredient_id": "86917393-5a0e-417e-bb7d-953855b842af",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 fresh poblano chilies"
+        },
+        {
+          "ingredient_id": "27642dbb-771b-4271-b4b1-ebe820abf597",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 fresh Anaheim or Hatch chilies"
+        },
+        {
+          "ingredient_id": "ba749640-1595-4fa5-964e-d393c467767e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 serrano chilies"
+        },
+        {
+          "ingredient_id": "cd4ed097-1e47-4be6-96b9-fde33fa64974",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 medium onion, peeled, trimmed, and split in halt from top to bottom"
+        },
+        {
+          "ingredient_id": "834e7092-d811-45ad-9cf0-39be76aaba5d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8 medium cloves garlic"
+        },
+        {
+          "ingredient_id": "9e0915a1-5587-42b4-9bee-e0018962bb21",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 whole pickled jalape\u00f1o pepper, plus 2 tablespoons pickling liquid from the can"
+        },
+        {
+          "ingredient_id": "03655832-b384-44da-8640-1b67c7375a44",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 tablespoons vegetable or canola oil"
+        },
+        {
+          "ingredient_id": "3daa15d7-df2b-4c80-a7fc-8d59399ee136",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 quart chicken stock"
+        },
+        {
+          "ingredient_id": "675136f8-6d7c-450f-b510-efc4e8a2c4a6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon ground cumin"
+        },
+        {
+          "ingredient_id": "b5b9e18b-07fd-4243-b2a7-f7543783e54e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon ground coriander seed"
+        },
+        {
+          "ingredient_id": "e7504497-e14d-46f5-ac8f-8d71c741bdcf",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cans corn"
+        },
+        {
+          "ingredient_id": "29193609-2dfe-4db1-b817-b7b7668fb219",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 boneless skinless chicken breast halves"
+        },
+        {
+          "ingredient_id": "19d5a2bd-d804-483d-b855-359c18c41816",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Juice of 2 limes"
+        },
+        {
+          "ingredient_id": "7436ee67-a74f-4de9-b2f9-aadaba4f752c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "0.5 cup roughly chopped fresh cilantro leaves"
+        },
+        {
+          "ingredient_id": "7ae6e9b9-a619-4178-bfe8-87072f14a431",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Adjust broiler rack to 8 inches below broiler element and preheat broiler to high. Place poblanos, Anaheims, jalape\u00f1os, onion, and garlic on a foil-lined rimmed baking sheet. Toss with one tablespoon oil using your hands to coat. Season with salt. Place under broiler and broil, turning peppers and rearranging vegetables occasionally, until peppers are blackened on all sides and skins are wrinkled all over, 15 to 20 minutes total. Gather up foil and form a sealed pouch. Let chilies rest for 5 minutes. Place chilies and chicken stock in a large bowl. Peel chilies under the chicken stock, leaving skins and seeds behind. Transfer chili flesh to the cup of a hand blender or a standing blender. Add broiled onion, broiled garlic, and the canned jalape\u00f1o (do not add jalape\u00f1o pickling liquid). Blend until a smooth pur\u00e9e is formed. Set aside. Heat remaining oil in a large Dutch oven over medium heat until shimmering. Add cumin and coriander and cook, stirring, until fragrant, about 30 seconds. Add chili pur\u00e9e and cook, stirring, until incorporated. Strain chicken stock into pot, pressing on skins and seeds to extract as much liquid as possible. Discard skins and seeds. Add canned beans and chicken breasts to pot, adding water as necessary until beans and chicken are fully submerged. Bring to a boil, reduce to a bare simmer and cook, stirring occasionally, until chicken breasts register 150\u00b0F on an instant read thermometer, about 15 minutes. Transfer chicken breasts to a bowl and let rest. Continue simmering broth and beans until beans are fully tender, about 30 minutes. Remove 1 1/2 cups of beans and their liquid and transfer to a standing blender or the work cup of an immersion blender. Blend until completely smooth. Stir back into pot. Heat a cast iron skillet over high heat. Add 1 can drained corn to the skillet with 1 tbsp oil. Blacken the corn, turning a few times while cooking. Cook about 5 minutes. Shred chicken into bite-sized pieces and stir back into stew. Stir in jalape\u00f1o pickling liquid, lime juice, and half of cilantro. Season to taste with salt."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

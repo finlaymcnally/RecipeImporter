@@ -1,0 +1,154 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, broccoli, cheese",
+    "title": "Broccoli Tots",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "a66d246c-9e5b-4eec-89cd-6d577dca86d4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "NGREDIENTS"
+        },
+        {
+          "ingredient_id": "40ed40de-0c98-430e-bdb0-fd57a137e964",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "12 ounces broccoli, cut into small florets"
+        },
+        {
+          "ingredient_id": "864e88b0-4cf8-4330-b052-aff39bc95828",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup scallions, thinly sliced"
+        },
+        {
+          "ingredient_id": "742dec02-e068-4406-9aa9-4f3aab058097",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 large garlic cloves, finely diced"
+        },
+        {
+          "ingredient_id": "3ceaede6-2837-4af5-b07d-b7147ec9d02c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2/3 cup shredded cheddar cheese"
+        },
+        {
+          "ingredient_id": "f8288dcd-ab88-4bc9-add7-3019f8a2308c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 egg, beaten"
+        },
+        {
+          "ingredient_id": "b2e11ffa-18ad-493e-92d4-3e250648412b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2/3 cup breadcrumbs"
+        },
+        {
+          "ingredient_id": "d680454f-0a7b-439c-ada4-abaa48734f8d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt & pepper"
+        },
+        {
+          "ingredient_id": "b37d6647-8c58-408b-a98b-7817ae182e87",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Optional: 2 tsp Sriracha (optional but recommended!)"
+        },
+        {
+          "ingredient_id": "63643a45-b221-4bcd-9605-719154391837",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "PREPARATION"
+        },
+        {
+          "ingredient_id": "5308bbdd-f2ba-4fe5-b78f-093944ee287f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Preheat oven to 400 degrees."
+        },
+        {
+          "ingredient_id": "e693a5ec-c185-44a9-98f7-c1804f5e59fa",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Fill a medium saucepan with water and bring to a boil. Aggressively season it with salt."
+        },
+        {
+          "ingredient_id": "a18a79cf-e321-4461-a509-fba101f7d4ed",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Blanch the broccoli in boiling water for about two minutes. Drain and finely chop the cooked broccoli. In a mixing bowl, add broccoli, scallions, garlic, cheddar, egg, and breadcrumbs. Optional: add hot sauce of choice. Mix well and chill in the refrigerator for 15-20 minutes."
+        },
+        {
+          "ingredient_id": "d65502f7-adbb-4e4d-941a-91ee4fdaf2e6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Spray a nonstick baking sheet with nonstick spray. Shape the mixture into tot shapes and spread them evenly on the sheet."
+        },
+        {
+          "ingredient_id": "6984179e-094c-4bd6-b45b-4c70df2e56da",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Bake for 8-9 minutes. Flip and then bake for an additional 8-9 minutes on the other side until golden brown."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

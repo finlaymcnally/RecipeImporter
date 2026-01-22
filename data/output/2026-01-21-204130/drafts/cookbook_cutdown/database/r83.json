@@ -1,0 +1,289 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Indian, Side, Normal, sweet potatoes, zucchini, peppers, tomatoes, spinach",
+    "title": "Vegetable Madras",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "f478cc09-97f0-4f87-aaf6-968eba66198e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Total time 40 mins"
+        },
+        {
+          "ingredient_id": "b79fd72e-501b-42f9-ba15-80232b38e265",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients"
+        },
+        {
+          "ingredient_id": "e20c902c-d647-43e5-9e18-da6bc01035df",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 lg onion, finely chopped"
+        },
+        {
+          "ingredient_id": "ddd9943a-850f-4eca-97a0-13b4f567338e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2-3 cloves garlic, finely chopped"
+        },
+        {
+          "ingredient_id": "c57e245d-292d-49ce-bb0b-d34b90471fb4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 thumb size piece of ginger, grated or finely chopped"
+        },
+        {
+          "ingredient_id": "11b9a744-5faf-4d7f-b2e6-aac4c2384ecd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "splash Groundnut/walnut/sunflower oil"
+        },
+        {
+          "ingredient_id": "abba1570-8a8f-4bb2-b405-1b5232d8402f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 medium sweet potato, cubed"
+        },
+        {
+          "ingredient_id": "1cf43929-7db0-488c-996c-d1d88302c4c0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 courgette, halved and sliced"
+        },
+        {
+          "ingredient_id": "462b29a7-66a6-4f04-9397-b32c4fbebb2b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 red pepper, chopped into slices of similar size to courgette"
+        },
+        {
+          "ingredient_id": "e55b588c-51c5-44c5-969d-ef9130a88346",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 medium size tomatoes, sliced into 1/4's"
+        },
+        {
+          "ingredient_id": "9efa1c26-e915-43da-965d-8123205c4ade",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/3 - full bag of spinach"
+        },
+        {
+          "ingredient_id": "28876fd7-668e-4bef-bfb5-fbffa23d10a2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 - 4 heaped teaspoons Madras curry paste"
+        },
+        {
+          "ingredient_id": "d2aecc3c-842e-4de2-b7ff-e2f67460b7b0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "stock: 1/3 vegetable stock cube disolved in 1/4 pint water & residue from red pepper pan (top up dish with hot water as necessary when cooking)"
+        },
+        {
+          "ingredient_id": "e31c2ebc-e70b-4092-9b39-87b38417101f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "stock: 1/3 vegetable stock cube disolved in 1/4 pint water & residue from red pepper pan (top up dish with hot water as necessary when cooking)"
+        },
+        {
+          "ingredient_id": "a798a9f3-988e-4eb3-9572-ff1aea099da4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "To finish:"
+        },
+        {
+          "ingredient_id": "79f5bf43-ad16-4bcb-a8d0-bf983ec1658a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "teaspoon garam masala"
+        },
+        {
+          "ingredient_id": "705810dd-7a59-4040-a0c4-3fe7aae728f1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "ceyenne pepper (only to add heat at end if you prefer hot)"
+        },
+        {
+          "ingredient_id": "6dbdf8fa-bf5a-4151-a3bf-a9346b9923bd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "spoon of mango chutney (if you want to add sweetness)"
+        },
+        {
+          "ingredient_id": "0ffd58b2-2d7e-497e-aa2a-107d2b6a4fa0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "chopped coriander (optional)"
+        },
+        {
+          "ingredient_id": "f8ed0bc2-3a5d-4487-9305-42f3e752436e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Method"
+        },
+        {
+          "ingredient_id": "69be1209-a5b2-4152-9a3b-92ca44380fe9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "STEP 1"
+        },
+        {
+          "ingredient_id": "96956386-689f-4dc0-9d3f-515194ae3836",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Put shallow casserole or deep frying pan on heat with splash of oil. When pan has heated, add onions to pan and let cook slowly for about 20 minutes until they first soften, then start to slightly caramelise and catch on the base. Keep an eye on them and stir occasionally. The idea is to bring out the sweetness in the onions to add flavour. While the onions are cooking put the sweet potato's on to steam for about 10 minutes or until they just start to soften. In a seperate pan fry the red pepper, initially with the lid on to soften them. When you think the onions are ready, add the garlic and ginger and cook the rawness out but don't let it burn."
+        },
+        {
+          "ingredient_id": "6b468f75-26b0-4f02-9a74-4a96e25090a4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "STEP 2"
+        },
+        {
+          "ingredient_id": "db1a0fdd-3786-460e-9bab-574d8a887066",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the Madras curry paste to the pan with the onion/garlic/ginger and let it cook out a bit on a low heat. Then add the courgette and mix around so it gets coated in the paste. Then add the red pepper. Then the sweet potato."
+        },
+        {
+          "ingredient_id": "dfc936de-d2fc-48ef-9758-98f1e1b4a99c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "STEP 3"
+        },
+        {
+          "ingredient_id": "72d7df1a-a5c3-420e-9320-85c3d9c23a06",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Swirl around the hot water in the pan that the red pepper cooked in and add the stock cube to dissolve. Add to main pan. Add the chopped tomotoes. Top up with hot water if it looks too dry."
+        },
+        {
+          "ingredient_id": "3d46b713-bcd0-4cc0-9ce4-ccd14b1b2f08",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "STEP 4"
+        },
+        {
+          "ingredient_id": "d0142974-00fc-49a0-8c92-faf928c57ebe",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "After about 10 minutes add the spinach in gradual handfuls. Let it bubble away on a low heat for about another 10 minutes or until it starts to thicken. Some of the smaller pieces of sweet potato should break down a bit and help to thicken the sauce."
+        },
+        {
+          "ingredient_id": "d39fcd97-b586-40c9-abf7-0d291467bf47",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "STEP 5"
+        },
+        {
+          "ingredient_id": "0991b6dd-e426-469b-a184-6df904f43e4a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "When the sauce gets to a medium consistency, taste it and adjust the flavouring to your liking by adding garam masala, ceyenne, chutney, coriander etc. Serve with rice or nan bread."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

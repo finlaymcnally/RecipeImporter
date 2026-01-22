@@ -1,0 +1,271 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Thai, Main, Normal, chicken, chili sauce, broccoli, peppers, snow peas, carrots, cilantro",
+    "title": "Sheet Pan Thai Peanut-chili chicken",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "bffd3ebb-cb21-4485-9803-1f5c0e3d06d3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "INGREDIENTS"
+        },
+        {
+          "ingredient_id": "c815577e-511a-4c9b-b92c-5bfba10d6a06",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 large boneless skinless chicken breasts, cut in half lengthwise"
+        },
+        {
+          "ingredient_id": "efd17424-4576-4419-8a95-abc1f07425a8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt and black pepper, to taste"
+        },
+        {
+          "ingredient_id": "2c5a5a7a-cf34-42d6-aab0-fee7a3e4b27f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup sweet Thai chili sauce"
+        },
+        {
+          "ingredient_id": "2c2ca17d-8dcf-444c-91db-9e9951c78d51",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup lime juice"
+        },
+        {
+          "ingredient_id": "6d845ea5-4010-4b29-a6d4-cbafa96a98eb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup low sodium soy sauce"
+        },
+        {
+          "ingredient_id": "1a6aeb0d-1bed-43f1-86f4-b9013267db01",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 tablespoons natural peanut butter"
+        },
+        {
+          "ingredient_id": "36518534-7cf1-4e76-a6c1-51d6ec4b021e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 inch piece fresh ginger peeled and grated"
+        },
+        {
+          "ingredient_id": "b00baaaa-75ac-48fb-ad8a-98a7af9a1cf2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 cloves garlic, minced"
+        },
+        {
+          "ingredient_id": "e4433158-979d-4987-b52a-b6d41eade510",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 bell peppers, stemmed and chopped"
+        },
+        {
+          "ingredient_id": "4302f100-8043-4eff-97bc-946922a780f9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 medium bunch of broccoli, separated into florets"
+        },
+        {
+          "ingredient_id": "e1e2f7ec-d8d3-4cb4-9c0f-9418c2c4e13f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 handfuls snow peas"
+        },
+        {
+          "ingredient_id": "8e95081b-6ddd-4331-a4ad-7a6db4b662df",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 carrots, sliced"
+        },
+        {
+          "ingredient_id": "8c1c3d95-c8aa-4376-9be1-dd2a2790dfae",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 white onion, chopped"
+        },
+        {
+          "ingredient_id": "ba6a4b81-63d1-4672-9f91-d69433406430",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons oil"
+        },
+        {
+          "ingredient_id": "a0d7088d-7db7-43e9-b4f4-539aaaa16381",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Lime wheels, to top"
+        },
+        {
+          "ingredient_id": "56197d93-6419-42a5-bbdc-f317e4a0d9ce",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup unsalted peanuts, chopped"
+        },
+        {
+          "ingredient_id": "b9cf70e5-840a-43bf-9d3e-a88d3b1d3412",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Fresh cilantro and/or thai basil, to serve"
+        },
+        {
+          "ingredient_id": "983e8f20-72a0-4ff1-9a2c-dbbbb2a55513",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Basmati rice, to serve"
+        },
+        {
+          "ingredient_id": "404e8d0d-a905-4ede-aff4-c90dc49b1fac",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "INSTRUCTIONS"
+        },
+        {
+          "ingredient_id": "9f277cb7-f81a-445c-a57a-5a480a5390e2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Preheat the oven to 400\u00b0F."
+        },
+        {
+          "ingredient_id": "c98f0de3-389b-4493-97df-74fbd2276970",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Season the chicken breast pieces generously with salt and pepper and place in a large, sealable plastic bag."
+        },
+        {
+          "ingredient_id": "b23ba91c-65cb-438a-b9f8-c7f091a3bed7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "In a medium-sized bowl, combine the sweet Thai chili sauce, lime juice, soy sauce, peanut butter, ginger, and garlic. Pour enough to cover the chicken into the sealable plastic bag. Close, shake around, and allow the chicken to marinate for at least 30 minutes."
+        },
+        {
+          "ingredient_id": "1ffada7c-479f-4622-8a0c-ca900148632c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Remove the chicken from the marinade and place the chicken on a large nonstick baking sheet. Brush the chicken with additional marinade, if desired."
+        },
+        {
+          "ingredient_id": "96a4fe87-440c-494f-aa64-abbefa98c820",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "In a separate large bowl, toss the bell peppers, broccoli, snow peas, carrots, and onion with the oil and about 1/3 cup\u2019s worth of the chicken marinade. Season with salt and pepper. Lay the vegetables around the chicken and top with lime wheels. Discard all of the remaining marinade that has touched raw chicken."
+        },
+        {
+          "ingredient_id": "f0c9828d-c3d0-47cf-922b-932023bc39b1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Bake for about 20 minutes, or until chicken is cooked through and the vegetables are tender."
+        },
+        {
+          "ingredient_id": "aed0321d-9c99-4a35-ae79-8d8d6d33a50d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Drizzle the chicken and vegetables with additional marinade, if desired, sprinkle the chicken with the crushed peanuts, and broil to further crisp the vegetables and toast the peanuts, about 2 minutes."
+        },
+        {
+          "ingredient_id": "35b74744-500b-40a6-8b1f-6f1bf9974fd0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Top with cilantro and/or thai basil, and serve over basmati rice with additional sauce, if desired."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

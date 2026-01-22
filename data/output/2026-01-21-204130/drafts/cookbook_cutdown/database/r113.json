@@ -1,0 +1,217 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, potatoes, cream of potato soup, sour cream",
+    "title": "Hash Brown Potato Casserole",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "4407ac07-6064-4443-a9a3-6c352d45a7fb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Potato Ingredients:"
+        },
+        {
+          "ingredient_id": "ce0b072a-3e96-4c5a-81ff-8be6ea2d34e5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 1.75 lb Package of Ore-Ida potatoes O'Brien"
+        },
+        {
+          "ingredient_id": "bc9587cf-2115-4593-b8aa-f8587c3a842a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cans Camp-bell's cream of Potato soup"
+        },
+        {
+          "ingredient_id": "4bc4e6e3-9bb4-43f1-b890-a2e792a78e12",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8-ounces sour cream"
+        },
+        {
+          "ingredient_id": "0bded063-0165-4ec1-98cb-4e14e13f7079",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8 or 10 or 12 ounces sharp cheddar cheese, grated (does not need to be exact but 10 to 12 is best)"
+        },
+        {
+          "ingredient_id": "941dd508-b475-49b5-be6b-2e7713c44eca",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp garlic salt (Optional)"
+        },
+        {
+          "ingredient_id": "ff419233-ef9b-4bf2-a807-d02bd3d36242",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Topping:"
+        },
+        {
+          "ingredient_id": "20d2b808-bbdc-4b43-844e-6a5053b8cb90",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd Cup Parmesan cheese, grated"
+        },
+        {
+          "ingredient_id": "f7b0109c-bbd1-4ade-b920-b86fb13aea7e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Butter (about 1 to 2 Tbs, cut into small pieces) (Optional)"
+        },
+        {
+          "ingredient_id": "e5ad59e1-2659-4b20-b0aa-b7e3df3815fb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Paprika (Optional)"
+        },
+        {
+          "ingredient_id": "c0bfcd4f-abdc-4dd6-8280-479a3eb4426d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Mix together in a big bowl:"
+        },
+        {
+          "ingredient_id": "e5cc4b1c-e214-499c-81b1-40851e579e43",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Package of Ore-Ida potatoes O'Brien"
+        },
+        {
+          "ingredient_id": "bda804fe-67e7-4a2e-a3ca-bd7567c3a84e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Camp-bell's cream of Potato soup"
+        },
+        {
+          "ingredient_id": "7394d341-4c1c-4e1c-bc3f-355e686730a1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "sour cream"
+        },
+        {
+          "ingredient_id": "38949f47-2c5a-4a93-abbe-14bd7e4efeb0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "cheddar cheese"
+        },
+        {
+          "ingredient_id": "f5c8807b-c214-4485-b6b4-4f5dc65696c1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "garlic salt"
+        },
+        {
+          "ingredient_id": "9c15a649-823a-4e1b-bfa5-722658b90e1f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Instructions:"
+        },
+        {
+          "ingredient_id": "230be347-1465-447d-86a5-dc9f88c83932",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pour into a greased 13 X 9-inch baking dish that has been sprayed with Pam."
+        },
+        {
+          "ingredient_id": "e29e299b-c352-4c32-b40e-28dc19c9c354",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cut the butter into about 8-12 little pieces and place on top of the potatoes (this is optional)."
+        },
+        {
+          "ingredient_id": "f361cab2-ca9f-4e6a-99ff-e82381cc1897",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Sprinkle Parmesan cheese over top."
+        },
+        {
+          "ingredient_id": "2e3c4abf-050a-4c80-97a9-eb7b7160a75c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Sprinkle a little paprika over top for color."
+        },
+        {
+          "ingredient_id": "ed9aa62b-f777-453b-b521-ca3255a8fe05",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Bake uncovered at 350F degrees for 1 \u00bd hours."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

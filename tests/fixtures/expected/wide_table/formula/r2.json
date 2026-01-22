@@ -1,0 +1,39 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "<ID>",
+  "@type": "Recipe",
+  "description": "=\"Formula note\"",
+  "name": "Formula Recipe",
+  "recipeIngredient": [
+    "1 cup sugar"
+  ],
+  "recipeInstructions": [
+    "Mix"
+  ],
+  "recipeimport:provenance": {
+    "@id": "<ID>",
+    "converter_version": "0.1.0",
+    "file_path": "<FILE_PATH>",
+    "import_timestamp": "<TS>",
+    "original_headers": [
+      "Title",
+      "Ingredients",
+      "Instructions",
+      "Description"
+    ],
+    "original_row": {
+      "Description": "=\"Formula note\"",
+      "Ingredients": "1 cup sugar",
+      "Instructions": "Mix",
+      "Title": "Formula Recipe"
+    },
+    "row_index": 2,
+    "sheet": "Formula",
+    "workbook": "wide_table.xlsx"
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, carrots, maple syrup, lemons",
+    "title": "Maple-Glazed carrots",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "ed9f3411-87d2-44e6-b751-79e74230e350",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients"
+        },
+        {
+          "ingredient_id": "c052b799-0a7c-4a49-82ce-d326acc52691",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "12 large carrots, peeled"
+        },
+        {
+          "ingredient_id": "45eff6fe-e4e5-4fa6-b5f2-a97b967f5fbf",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8 tbsp. butter"
+        },
+        {
+          "ingredient_id": "a37d1634-0dfe-4c97-add5-a80b7d07b1e0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1\u20444 cup maple syrup"
+        },
+        {
+          "ingredient_id": "478eef1a-096f-4992-b59d-b6d5783c8d79",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Fresh lemon juice"
+        },
+        {
+          "ingredient_id": "6331a319-b943-4634-8c51-f16f36a50b5e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt and freshly ground black pepper"
+        },
+        {
+          "ingredient_id": "e51af0d8-74cb-4b46-8bd4-d400fb8565c9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tbsp. fresh thyme leaves"
+        },
+        {
+          "ingredient_id": "ade9e512-eccb-44e0-a707-dbb6cdbbc489",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Instructions"
+        },
+        {
+          "ingredient_id": "d912cc5e-8a84-4219-b1a6-33fbe79d5388",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cut carrots into 2\" lengths, then halve or quarter the pieces lengthwise so that all the carrots are in equal-size strips."
+        },
+        {
+          "ingredient_id": "3af88727-b7ff-4c14-9fa0-361c97cc7c4e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Melt butter in a large heavy saut\u00e9 pan over medium-low heat. Add carrots, cover, and braise, stirring occasionally, until carrots are fork-tender, 20\u201330 minutes."
+        },
+        {
+          "ingredient_id": "914cd5d7-6e15-408d-a92a-cca99cfe4ae0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Increase heat to medium, and stir in syrup and a squeeze of lemon juice. Cook for 2 minutes, then season to taste with salt and pepper. Add thyme and mix well."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

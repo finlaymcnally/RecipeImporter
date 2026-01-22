@@ -1,0 +1,325 @@
+{
+  "recipe": {
+    "description": "Acid reflux central (cayenne, garlic powder, onions, peppers, high fat dairy and sausages)\ncook the pasta separately to keep the dish from getting too starchy.",
+    "notes": "Tags: American, Meal, Normal, chicken, sausage, milk, peppers, pasta",
+    "title": "Cajun Fettuccine Alfredo",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "18f28dcc-b8fc-4910-8782-b582627700d2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "One-Pot Cajun Fettuccine Alfredo"
+        },
+        {
+          "ingredient_id": "31faf16f-4364-4efb-909d-a9c95d9ec68c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Servings: 6-8"
+        },
+        {
+          "ingredient_id": "0151a69d-7a18-4aa1-8420-f640f2406475",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "INGREDIENTS"
+        },
+        {
+          "ingredient_id": "b12951be-54fe-4006-9bbd-aae6cec31761",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cajun Seasoning"
+        },
+        {
+          "ingredient_id": "08a5691a-66c7-41b8-91be-c48e897d6f97",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon cayenne pepper"
+        },
+        {
+          "ingredient_id": "083ab43a-79b0-4805-92aa-bf21131dab9f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon garlic powder"
+        },
+        {
+          "ingredient_id": "89b38c17-5dd8-4e07-ad96-b646b772ab69",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon paprika"
+        },
+        {
+          "ingredient_id": "512f497c-9880-4e0f-b6d4-085665366ee0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon onion powder"
+        },
+        {
+          "ingredient_id": "ae24de11-97c0-44ef-a16b-77828a7bc1da",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon dried oregano"
+        },
+        {
+          "ingredient_id": "0439dd7b-0984-48d3-8875-ec94ce2ae530",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon dried thyme"
+        },
+        {
+          "ingredient_id": "36ec641d-aa24-4f9d-8616-b29760d9003c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon salt"
+        },
+        {
+          "ingredient_id": "7e16de42-32d8-4f6b-80b0-83e7d56896f4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon pepper"
+        },
+        {
+          "ingredient_id": "7b1e8a38-c39f-4d3f-83be-c597d20a83ed",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 chicken breasts, sliced"
+        },
+        {
+          "ingredient_id": "1ef46781-6870-41df-bc9d-3733bba3f754",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pound cooked andouille sausage"
+        },
+        {
+          "ingredient_id": "5d870483-2efb-44d0-9ffa-4c55f928884f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 tablespoons olive oil"
+        },
+        {
+          "ingredient_id": "7d615807-af9a-4f37-8bb2-db14c8685fca",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 cloves garlic, minced"
+        },
+        {
+          "ingredient_id": "e3a5f793-c160-4ffd-83aa-67719338faa0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 bell peppers, diced"
+        },
+        {
+          "ingredient_id": "63e071c9-c045-4744-ae10-31648158f17c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 medium onion, diced"
+        },
+        {
+          "ingredient_id": "d985c093-4824-4aef-b246-731ac0331e7a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "6 cups milk (whole preferred)"
+        },
+        {
+          "ingredient_id": "75c0c963-1035-4fb6-a304-7a48f22edd1f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pound fettuccine pasta, uncooked"
+        },
+        {
+          "ingredient_id": "62a05a45-5bc3-42f5-9f3a-6794825f33c6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00be cup parmesan cheese, plus more for serving"
+        },
+        {
+          "ingredient_id": "d1b28999-dbf9-4c23-86d9-7ab9c7140604",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 tablespoons chopped parsley, plus more for serving"
+        },
+        {
+          "ingredient_id": "c729ed3d-d674-4b29-9402-89b9a3b2b4ac",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "PREPARATION"
+        },
+        {
+          "ingredient_id": "94769682-4419-4a53-a0d9-e0f6adaa3604",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "In a small bowl, combine all spices for the cajun seasoning and mix together. Set aside. Store any extra in an airtight container for future use."
+        },
+        {
+          "ingredient_id": "c065aaaa-246c-450c-ab68-2a4db61937ae",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "In a heavy bottom pot (such as a Dutch oven), heat 2 tablespoons of olive oil over medium heat."
+        },
+        {
+          "ingredient_id": "ae092f91-438d-4295-82a8-449180369b0a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the sliced chicken and 2\u00bd tablespoons of the prepared cajun seasoning."
+        },
+        {
+          "ingredient_id": "1032ef1b-dd24-4b95-ac37-2662ad8e23bd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the andouille sausage and cook until the chicken is no longer pink, about 4-5 minutes."
+        },
+        {
+          "ingredient_id": "67ddf7e5-607f-4d3f-825b-d0b6cc9b2cf7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Remove the meat from the pot and add the remaining olive oil."
+        },
+        {
+          "ingredient_id": "015145f8-6394-4cf8-a5a5-edb1100efda8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the diced peppers and onions and cook until the onions are transparent and softened, about 5 minutes."
+        },
+        {
+          "ingredient_id": "9c899308-a400-45d6-b13a-10eab1224a19",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the milk and stir so that the seasoning is incorporated into the liquid."
+        },
+        {
+          "ingredient_id": "3a8497e4-6abe-4856-b2ee-7a86a144e1ed",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Turn the heat to high and bring to a boil."
+        },
+        {
+          "ingredient_id": "ceeccb1d-cd83-4587-998a-072a6a051eff",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the uncooked fettuccine, stirring constantly until the noodles are al dente, about 10 minutes."
+        },
+        {
+          "ingredient_id": "25bdcf9b-911a-45e1-aba2-1f3ec3b119d3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "On low heat, add the meat back in and stir so that it\u2019s evenly incorporated."
+        },
+        {
+          "ingredient_id": "0fd2f4f2-0af0-4ff9-ac97-68e5b438f5f8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the cheese and parsley, and stir. Remove from the heat."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

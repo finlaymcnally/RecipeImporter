@@ -1,0 +1,361 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, pork chop, red onion, peppers",
+    "title": "Pork chop with peppers",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "d3a3e42a-c896-4eb5-90ef-a388ed9ce118",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients"
+        },
+        {
+          "ingredient_id": "5af97170-d387-4a52-a693-8fb42a17c2bb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 pork chops, about 200g each"
+        },
+        {
+          "ingredient_id": "6184ff10-bd2b-4033-acfb-3256c71aec36",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Olive oil, for frying"
+        },
+        {
+          "ingredient_id": "d27c66d8-59bd-4638-acf1-d616bfb8c5e3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 garlic cloves, skin on, crushed"
+        },
+        {
+          "ingredient_id": "d2c5d513-f033-42e8-9621-0981c4aa649a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Small bunch of thyme"
+        },
+        {
+          "ingredient_id": "d6268a33-f7ad-4a53-b96f-ea8af1fb76fd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Butter"
+        },
+        {
+          "ingredient_id": "414a84ec-5fc8-4030-b14d-d3da022e2e63",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For the Sweet and Sour Peppers"
+        },
+        {
+          "ingredient_id": "f3369a29-5e5c-4763-8609-93922ebef47d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Olive oil, for frying"
+        },
+        {
+          "ingredient_id": "d5a5b4bc-f80e-47e5-83f5-0827af79d32b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 red onion, peeled and sliced"
+        },
+        {
+          "ingredient_id": "2f185e01-da38-4012-a392-924fd2ba1fa5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 red peppers, deseeded and thinly sliced"
+        },
+        {
+          "ingredient_id": "4bdbc25c-9e7e-4928-a6a9-95c27f3f362f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Sea salt and freshly ground black pepper"
+        },
+        {
+          "ingredient_id": "0f6dfc40-24f6-4c79-aa84-3c189fc44d25",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tbsp caster sugar"
+        },
+        {
+          "ingredient_id": "bda5ee72-93fc-49ab-bc0a-e610a014ace2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 tbsp red wine vinegar"
+        },
+        {
+          "ingredient_id": "36e7a594-1fab-4022-9cd4-01528746ef36",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tbsp extra virgin olive oil"
+        },
+        {
+          "ingredient_id": "dace1938-aa44-4ce0-9448-5f4809970c68",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Small bunch of basil, leaves shredded"
+        },
+        {
+          "ingredient_id": "720cf3c8-bf80-4ae8-b4e7-c1ef05b72e77",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Method"
+        },
+        {
+          "ingredient_id": "5f36fd30-c3e9-4076-94c6-ed5ec84b6b8d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1."
+        },
+        {
+          "ingredient_id": "ec62147e-b4cf-432a-a085-baa5901aa3b7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "To make the peppers, heat a little olive oil in large frying pan and add the onion and peppers. Season with salt and pepper, add the sugar and saut\u00e9 over a high heat for 4\u20135 minutes until soft and coloured. (Make sure you can hear the vegetables hissing in the pan. If not, the pan isn\u2019t hot enough and you\u2019re in danger of boiling the vegetables instead of frying them.)"
+        },
+        {
+          "ingredient_id": "977c9ac6-767e-4385-95b2-898aecad83b4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2."
+        },
+        {
+          "ingredient_id": "434d9c7f-5814-4340-be83-c76efbea5697",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the vinegar and let it bubble for a minute or two until it has reduced and the peppers are soft."
+        },
+        {
+          "ingredient_id": "df3cf1f9-40f5-4c60-a64d-3c2b985bf0fd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3."
+        },
+        {
+          "ingredient_id": "6ea28a11-d685-4678-9729-d475060f0ed9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Turn down the heat, add the tablespoon of extra virgin olive oil and cook for a further 2\u20133 minutes."
+        },
+        {
+          "ingredient_id": "3360bcc4-dcc3-4ad8-a935-ef9a132b58d0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4."
+        },
+        {
+          "ingredient_id": "cc6290a7-ec34-46f2-a50f-9a56a053fdb8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Stir in the shredded basil and continue to cook for 30 seconds, then turn off the heat. Transfer to a bowl and set aside to infuse. Wipe the pan clean, ready to cook the pork."
+        },
+        {
+          "ingredient_id": "967346ba-43d4-4b9e-aca5-50b5dd3995de",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5."
+        },
+        {
+          "ingredient_id": "f730652f-b317-40a3-bad7-6bb47e693ef8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Using a sharp knife, make cuts into the fat of the chops, about 5mm deep and at 3\u20134cm intervals, making sure you don\u2019t cut into the meat. (This will stop the meat from curling up during cooking and will make it cook more evenly.)"
+        },
+        {
+          "ingredient_id": "d691fe22-8e43-4c0c-900b-c4e85a433875",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "6."
+        },
+        {
+          "ingredient_id": "7e5d8ebc-5510-461e-959a-06a63f514497",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Season the chops really well on both sides, pushing the seasoning into the meat."
+        },
+        {
+          "ingredient_id": "c0f9955e-0d95-4661-9039-5ccb29563abb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "7."
+        },
+        {
+          "ingredient_id": "d6f16112-2b50-4e8a-b8a5-6bb1754a1da2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Place the cleaned-out frying pan over a high heat until hot and add a dash of oil. Add the chops, garlic and thyme and fry for 2\u20133 minutes until coloured. Turn and fry for a further 2\u20133 minutes on the other side, pushing the thyme under the chops and breaking up the garlic a little."
+        },
+        {
+          "ingredient_id": "f7a680cc-17a1-4a16-ab8e-6b6fea26da5f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8."
+        },
+        {
+          "ingredient_id": "cb032d87-6325-40b1-a582-80052571565b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Towards the end of cooking time, add 3 knobs of butter and baste the chops with it as they are cooking, to speed up the cooking process and keep the chops moist. (Push the fatty edge of the chops towards the back of the pan to help render the fat.)"
+        },
+        {
+          "ingredient_id": "6e869b66-cdda-4c27-b24e-925c70f0d874",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "9."
+        },
+        {
+          "ingredient_id": "7a897dcd-a70c-4a61-872a-5a797c6dc699",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Squeeze the garlic out of its skin and place with the herbs on top of the chops."
+        },
+        {
+          "ingredient_id": "22c1c4aa-c3df-4295-80d7-35ab1c51b257",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "10."
+        },
+        {
+          "ingredient_id": "33b4c0b1-0927-45a2-b916-2421c5a9ca45",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Transfer the chops to a plate, and rest for 5\u201310 minutes, spooning over the basting butter now and again."
+        },
+        {
+          "ingredient_id": "2d9d5f56-3cc3-4093-9a4a-40d0657c246a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "11."
+        },
+        {
+          "ingredient_id": "4743297d-ea42-413b-85fc-c296eb6fcc5a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Serve the chops on top of the peppers with the resting juices and a little juice from the peppers."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

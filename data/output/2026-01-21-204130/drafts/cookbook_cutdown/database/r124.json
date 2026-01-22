@@ -1,0 +1,199 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Mexican, Main, Instant Pot, chicken, peppers",
+    "title": "Freezer-to-Crockpot chicken Fajitas",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "b2c50e04-2812-4abf-9e57-59d5c2002da9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients"
+        },
+        {
+          "ingredient_id": "c5375347-90a6-45ef-89c0-3a716d14f6f5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 pounds of boneless skinless chicken breasts, fat trimmed"
+        },
+        {
+          "ingredient_id": "ec8681fe-66e8-4993-b54d-7f3cb948cf83",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 bell peppers, sliced"
+        },
+        {
+          "ingredient_id": "1ebb2065-7619-46ec-bc8d-a65894d00165",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 small yellow onion, peeled and sliced"
+        },
+        {
+          "ingredient_id": "96196a0b-27d5-40c0-91c3-67acbab3e8bd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cloves of garlic, minced"
+        },
+        {
+          "ingredient_id": "cad14fe8-64a9-44f9-8835-006059f945f7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon honey"
+        },
+        {
+          "ingredient_id": "49fe0a43-ba1d-4ac9-a3b7-1db66620eb3d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon apple cider vinegar"
+        },
+        {
+          "ingredient_id": "2b13da57-e073-4976-b876-141f2c4f1d2f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon chili powder"
+        },
+        {
+          "ingredient_id": "28425777-6699-4dcb-b269-ef012be68c2a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 teaspoons cumin"
+        },
+        {
+          "ingredient_id": "6fc45a57-1b26-491a-a549-17f9ae95010b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon paprika"
+        },
+        {
+          "ingredient_id": "8cecbc49-ff6e-46e8-b585-a7eac259646f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 teaspoon crushed red pepper flakes"
+        },
+        {
+          "ingredient_id": "fc3d92c1-07f6-4c45-bbae-d4d80497e394",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Instructions"
+        },
+        {
+          "ingredient_id": "44bc3066-99b7-4566-8f88-ee6e28af5658",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "TO FREEZE:"
+        },
+        {
+          "ingredient_id": "44c59f87-f1bd-4959-8a50-d8535375f806",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Label your freezer bag with the name of the recipe, cooking instructions, and \"use-by\" date. (I use these simple printable labels.)"
+        },
+        {
+          "ingredient_id": "84a18357-a4bc-47d4-865d-3aab9e7b1ce0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add all ingredients."
+        },
+        {
+          "ingredient_id": "1b5ac9fc-2014-4c94-a682-f332b08fc394",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Remove as much air from the bag as possible, seal, and lay flat in your freezer for up to three months."
+        },
+        {
+          "ingredient_id": "3f87cb2a-1374-436c-8539-fc23dea154d7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "TO COOK:"
+        },
+        {
+          "ingredient_id": "cc1e8ce4-4ec1-4b56-ba0d-33a78158456f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "The night before cooking, move the frozen bag to your refrigerator to thaw."
+        },
+        {
+          "ingredient_id": "96a5ff9a-04f1-471e-b20c-7f5a784574ad",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "The morning of cooking, pour contents of freezer bag into your crockpot and cook on \u201clow\u201d setting for 6 hours or until chicken is tender."
+        },
+        {
+          "ingredient_id": "3d28e93a-e9e1-4f75-a506-360f98b8be95",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Shred chicken and serve with cooked onions and peppers."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

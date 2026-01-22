@@ -1,0 +1,44 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "<ID>",
+  "@type": "Recipe",
+  "description": "A simple soup",
+  "name": "Template Soup",
+  "recipeIngredient": [
+    "1 cup water",
+    "Salt"
+  ],
+  "recipeInstructions": [
+    "Boil",
+    "Serve"
+  ],
+  "recipeYield": "4 servings",
+  "recipeimport:provenance": {
+    "@id": "<ID>",
+    "converter_version": "0.1.0",
+    "file_path": "<FILE_PATH>",
+    "import_timestamp": "<TS>",
+    "original_headers": [
+      "name",
+      "ingredients",
+      "instructions",
+      "recipeYield",
+      "description"
+    ],
+    "original_row": {
+      "description": "A simple soup",
+      "ingredients": "1 cup water\nSalt",
+      "instructions": "Boil\nServe",
+      "name": "  Template Soup  ",
+      "recipeYield": "4 servings"
+    },
+    "row_index": 1,
+    "sheet": "Template",
+    "workbook": "template.xlsx"
+  }
+}

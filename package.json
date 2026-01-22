@@ -1,0 +1,8 @@
+{
+  "name": "recipeimport",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "docs:list": "npm_config_cache=/tmp/npm-cache npx tsx docs/docs-list.ts"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "<ID>",
+  "@type": "Recipe",
+  "keywords": "breakfast",
+  "name": "Toast",
+  "recipeIngredient": [
+    "2 slices bread",
+    "butter"
+  ],
+  "recipeInstructions": [
+    "Toast bread",
+    "Spread butter"
+  ],
+  "recipeYield": "2 servings",
+  "recipeimport:provenance": {
+    "@id": "<ID>",
+    "converter_version": "0.1.0",
+    "file_path": "<FILE_PATH>",
+    "import_timestamp": "<TS>",
+    "original_headers": [
+      "Title",
+      "Ingredients",
+      "Instructions",
+      "Yield",
+      "Tags"
+    ],
+    "original_row": {
+      "Ingredients": "- 2 slices bread\n- butter",
+      "Instructions": "- Toast bread\n- Spread butter",
+      "Tags": "breakfast",
+      "Title": "Toast",
+      "Yield": "2 servings"
+    },
+    "row_index": 3,
+    "sheet": "Sheet1",
+    "workbook": "wide_table.xlsx"
+  }
+}

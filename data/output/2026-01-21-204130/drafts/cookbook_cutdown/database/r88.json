@@ -1,0 +1,208 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, potatoes, sausage, green onions",
+    "title": "Potato Salad with sausage and Grainy Mustard Dressing",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "679d2a3d-a808-4cf5-ab54-79d1f162b7a7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients"
+        },
+        {
+          "ingredient_id": "52caec39-c82d-4694-866f-5bfd6f15be79",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pound small red new potatoes, halved"
+        },
+        {
+          "ingredient_id": "8c2f17fd-832b-4df8-b98c-7c4db0a63f55",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pound small yellow new potatoes, halved"
+        },
+        {
+          "ingredient_id": "7eb66103-5d13-42ce-bedb-7e281ae8680f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 tablespoons cider vinegar"
+        },
+        {
+          "ingredient_id": "21678c81-8fb9-40fe-b17f-45a0601c93e0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon kosher salt"
+        },
+        {
+          "ingredient_id": "d19d183f-64a6-42e2-84ee-86bd7de39965",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Dressing"
+        },
+        {
+          "ingredient_id": "9befe7a1-bcd0-4172-be7c-284475f55895",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc cup coarse-grain mustard"
+        },
+        {
+          "ingredient_id": "620bceac-3752-46ab-a65f-242df33f73c6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 tablespoons cider vinegar"
+        },
+        {
+          "ingredient_id": "b9262b76-36a4-4ac5-96ea-da3c50dd8c2f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 tablespoons sugar"
+        },
+        {
+          "ingredient_id": "807efb29-1b18-4674-bad5-b6ad13f91b36",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc cup peanut or vegetable oil"
+        },
+        {
+          "ingredient_id": "6118ee17-5759-406d-a3b2-19125eff04ad",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2153 cup dry cured sausage, such as soppresata, pepperoni, or salami, cut in 1/4- to 1/2-inch pieces"
+        },
+        {
+          "ingredient_id": "9ca5ad1d-0aef-476b-ba71-45862ca4b02d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Freshly ground black pepper and kosher salt"
+        },
+        {
+          "ingredient_id": "ef517048-6232-42f6-87f5-7d6098335681",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd cup torn fresh curly-leaf parsley"
+        },
+        {
+          "ingredient_id": "af50dabc-75ca-4130-acb4-628d9ff9257a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons thinly sliced green onions"
+        },
+        {
+          "ingredient_id": "7e90579b-fc3f-43d6-88d1-4335ca5ca1d7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Directions"
+        },
+        {
+          "ingredient_id": "7d074c93-6bbc-45ef-a7e4-33775a2a27ac",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Step 1"
+        },
+        {
+          "ingredient_id": "072d663f-c18a-4ac9-8395-4e711449f78a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "In a 3- to 4-quart saucepan combine potatoes, 3 Tbsp. cider vinegar, and 1 Tbsp. kosher salt. Add water (about 4 cups) to cover potatoes. Bring to boiling over medium heat. Reduce heat and simmer, uncovered, for 15 to 20 minutes, just until potatoes are tender when gently pierced with a fork. Drain well. Let stand for 2 to 3 minutes before adding dressing."
+        },
+        {
+          "ingredient_id": "4c84a583-f796-421e-8200-135ab99ec774",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Step 2"
+        },
+        {
+          "ingredient_id": "86b41308-351c-4188-9744-c581aa33d8b6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For Grainy Mustard Dressing, in a small bowl whisk together the mustard, 3 Tbsp. vinegar, sugar, and 1/2 tsp. kosher salt. In a steady stream, whisk in peanut oil until well blended."
+        },
+        {
+          "ingredient_id": "acc29645-8917-47fa-83e3-4c51f821b95d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Step 3"
+        },
+        {
+          "ingredient_id": "349beddc-49d0-4644-9a0d-3da7b3960b4f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Transfer potatoes to a mixing bowl. Add Grainy Mustard Dressing all at once. Mix gently to avoid breaking potatoes. Gently mix in sausage. Season with a generous pinch of kosher salt and a few grinds of black pepper. Add parsley and green onions. Serve warm or at room temperature."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

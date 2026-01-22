@@ -1,0 +1,217 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Mexican, Main, Normal, chicken, taco shell, tomatoes, jalapeno, cilantro, limes",
+    "title": "Chicken tacos + salsa fresca",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "0c18018f-e023-4a58-8681-b73c8d06ee27",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Shredded Chicken for Tacos"
+        },
+        {
+          "ingredient_id": "3cf3ca95-f3bf-4f74-8380-ceb81aafbb2b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Serves 6 to 8"
+        },
+        {
+          "ingredient_id": "9e6227fa-1fb1-46cc-a3ef-9a9565bca989",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 pounds boneless chicken thighs"
+        },
+        {
+          "ingredient_id": "368bb543-7cda-466d-b4ed-a622b41ae1f2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 large white onion, peeled and quartered"
+        },
+        {
+          "ingredient_id": "e7c807c8-f0ea-4882-8a28-8c76b3af47d3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5 cloves garlic, peeled and lightly crushed"
+        },
+        {
+          "ingredient_id": "a58ded56-87dd-4197-b75a-9be780994678",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 bay leaves"
+        },
+        {
+          "ingredient_id": "36781277-d441-41b1-afe5-b80f1d9e7f4c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon ground cumin"
+        },
+        {
+          "ingredient_id": "a13a43f2-59bc-4e19-a996-7cc4531a035c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 ancho or other mild dried chili, optional"
+        },
+        {
+          "ingredient_id": "01753d27-4b5c-41b0-922e-a5db531146c2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt and pepper to taste."
+        },
+        {
+          "ingredient_id": "687d3e25-6e8a-4a5e-a121-50e86cd1802b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Combine all ingredients in a saucepan and add water to cover. Turn heat to high, bring to a boil, and skim any foam that comes to the surface. Partially cover and adjust heat so mixture simmers steadily. Cook until meat is very tender, about 30 minutes. Remove from liquid and cool."
+        },
+        {
+          "ingredient_id": "1f4f0cc9-8907-4b02-8839-cf4ff7a8589d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Shred meat with fingers. Taste and adjust seasonings; use within a couple of days."
+        },
+        {
+          "ingredient_id": "1489e651-edfc-4fc0-bbd1-e71b05df6dae",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salsa Fresca"
+        },
+        {
+          "ingredient_id": "f83fe0f2-af0d-4ba1-b4c7-e2a97a5f7b96",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Makes about 2 cups."
+        },
+        {
+          "ingredient_id": "d097a89e-5a43-4a18-821f-4710a10db56a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 large fresh ripe tomatoes, chopped"
+        },
+        {
+          "ingredient_id": "f0eb3fa2-dc1e-4ad4-a480-e16c4f3fb298",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 large white onion, peeled and minced"
+        },
+        {
+          "ingredient_id": "835c01aa-5208-4d9d-9a75-e15fe37b6170",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 teaspoon minced raw garlic, or to taste"
+        },
+        {
+          "ingredient_id": "2ea4a503-9224-4508-975c-0d1111ebcc3f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 habanero or jalape\u00f1o pepper, stemmed, seeded and minced, or to taste"
+        },
+        {
+          "ingredient_id": "fac724df-01c5-4d0b-a260-83bbf10bbba0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup chopped cilantro leaves"
+        },
+        {
+          "ingredient_id": "e5391881-47b6-4913-89ef-68001414a757",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon fresh lime juice or 1 teaspoon red-wine vinegar"
+        },
+        {
+          "ingredient_id": "6efb7787-f036-46c4-b86a-10556e574dab",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt and freshly ground pepper."
+        },
+        {
+          "ingredient_id": "e3bf5121-3ee3-4012-a59c-a9e5023ad589",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Combine all ingredients, taste and adjust seasoning as necessary."
+        },
+        {
+          "ingredient_id": "74820b12-abf1-44ad-9357-817447c9bb3e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Let the flavors marry for 15 minutes or so before serving, but serve within a couple of hours."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

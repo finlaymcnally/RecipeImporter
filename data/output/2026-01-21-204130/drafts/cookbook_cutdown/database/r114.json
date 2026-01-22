@@ -1,0 +1,127 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, avocados, bread crumbs, chili",
+    "title": "Crispy Baked Avocado Fries",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "142920e8-e14c-4d64-881b-0256446e54e2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "ingredients"
+        },
+        {
+          "ingredient_id": "04f46120-0162-4717-a37c-79a5d6fec402",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 large avocados, sliced"
+        },
+        {
+          "ingredient_id": "07095ad2-ba8a-469b-8e7a-127e7df33bf8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "salt, pepper and cayenne to taste"
+        },
+        {
+          "ingredient_id": "2fe88c83-3c7e-4958-96ee-bbbe953c60d8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup flour"
+        },
+        {
+          "ingredient_id": "cba132cf-890e-463f-958d-a1cbe3c739a1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 egg, lightly beaten"
+        },
+        {
+          "ingredient_id": "130b5059-8390-4ed2-bd05-e2b96c3f43d5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup panko bread crumbs"
+        },
+        {
+          "ingredient_id": "e1b8f2fc-21d8-49a9-97b5-3ccf20f82aa5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup ranch dressing"
+        },
+        {
+          "ingredient_id": "e71b3fb6-5b06-4864-936b-7737a35c786a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 chipotle chili in adobo, chopped"
+        },
+        {
+          "ingredient_id": "e50f0002-9f6c-4c99-9d80-7e5d1d5fb706",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "directions"
+        },
+        {
+          "ingredient_id": "1e041d0b-8ea7-4aac-9e20-5bc61c2a7ee2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Season the avocado slices with salt, pepper and cayenne to taste, dredge them in flour, dip them in egg and then panko breadcrumbs."
+        },
+        {
+          "ingredient_id": "c53d3024-4a59-40bb-9dcf-dbfe51296fc0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Place the avocado slices in a single layer on a wire rack on a baking sheet and bake in a preheated 425F/220C oven until golden brown, about 15-20 minutes."
+        },
+        {
+          "ingredient_id": "de298c9f-0356-4523-8393-e92b47672de6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Serve with a mixture of ranch and chipotle dressing."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "<ID>",
+  "@type": "Recipe",
+  "name": "Salad",
+  "recipeIngredient": [
+    "Lettuce"
+  ],
+  "recipeInstructions": [
+    "Toss"
+  ],
+  "recipeimport:provenance": {
+    "@id": "<ID>",
+    "converter_version": "0.1.0",
+    "file_path": "<FILE_PATH>",
+    "import_timestamp": "<TS>",
+    "original_headers": [
+      "Recipe",
+      "Section",
+      "Text"
+    ],
+    "original_row": {
+      "rows": [
+        {
+          "Recipe": "Salad",
+          "Section": "Ingredient",
+          "Text": "Lettuce",
+          "row_index": 5
+        },
+        {
+          "Recipe": "Salad",
+          "Section": "Instruction",
+          "Text": "Toss",
+          "row_index": 6
+        }
+      ]
+    },
+    "row_index": 5,
+    "sheet": "TallSheet",
+    "workbook": "tall_relational.xlsx"
+  }
+}

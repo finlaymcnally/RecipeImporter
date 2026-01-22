@@ -1,0 +1,280 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Moroccan, Side, Normal, peppers, carrots, zucchini, lemons, couscous",
+    "title": "Moroccan Couscous with roasted Vegetables Chick peas and Almonds",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "a6d2f62e-561a-4091-8a08-a506b13d4651",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Total Time"
+        },
+        {
+          "ingredient_id": "fda2d786-102d-414c-ada1-8475aaada507",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "32 minutes"
+        },
+        {
+          "ingredient_id": "95fcef7c-98d9-4af1-a094-f0c1dce76368",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients"
+        },
+        {
+          "ingredient_id": "b5b39c14-3ae7-4b13-adb8-af3b8393520b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 large red bell pepper, cored and diced"
+        },
+        {
+          "ingredient_id": "ce2f7ea8-ccd4-4643-8038-fe8e247e0cc5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 medium carrots, halved through length and sliced fairly thin"
+        },
+        {
+          "ingredient_id": "dbaaa1e5-c99a-4822-9997-938a9d4c1e3c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 small red onion, diced into 1-inch chunks"
+        },
+        {
+          "ingredient_id": "69b3fc8e-d71d-4134-8ce3-3adbdcdb6e40",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 medium zucchini, halved through the length and sliced"
+        },
+        {
+          "ingredient_id": "662f7b1e-9bda-4ba9-b985-f1f08f5ff5e8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 Tbsp olive oil, divided"
+        },
+        {
+          "ingredient_id": "fcc82813-6419-423f-bbe3-2956937b7e42",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 Tbsp fresh lemon juice"
+        },
+        {
+          "ingredient_id": "baefa6f1-7201-4a34-bf54-c8dd1fe6aa00",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tsp minced garlic (2 cloves)"
+        },
+        {
+          "ingredient_id": "4b776978-dda8-40e1-85ef-fbf2af52a87d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp ground cumin"
+        },
+        {
+          "ingredient_id": "5a0f533c-cadc-4ab0-92bc-2053752700de",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp ground coriander"
+        },
+        {
+          "ingredient_id": "165d0282-66da-446f-9fa4-bc77ad1a98d7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 tsp ground cinnamon"
+        },
+        {
+          "ingredient_id": "c964e7c7-ba11-4b1c-acde-7818e9f438cf",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt"
+        },
+        {
+          "ingredient_id": "384f6266-4468-4b5a-a663-e306c542c6a2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 1/3 cups dry couscous"
+        },
+        {
+          "ingredient_id": "939127b5-7110-4789-a408-2a5bb3c74dd0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 (14.5 oz) can low-sodium chicken broth"
+        },
+        {
+          "ingredient_id": "53aef763-edca-4e7b-80d4-35e641d11bc6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 tsp turmeric"
+        },
+        {
+          "ingredient_id": "3c8e16d4-9b09-4a04-b730-4a025fa4b68a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup raisins"
+        },
+        {
+          "ingredient_id": "5edc5e5e-bb14-4074-9099-c447fb6d2219",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 (14 oz) can chick peas, drained and rinsed"
+        },
+        {
+          "ingredient_id": "04d6007a-bf2e-40ae-9236-8ddec6988a99",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup slivered almonds, toasted"
+        },
+        {
+          "ingredient_id": "621fdc2e-4083-42e0-a84a-714f8028103a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 Tbsp minced fresh cilantro"
+        },
+        {
+          "ingredient_id": "8c7a1cb5-9a03-4889-b801-6fd892ba9a59",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 Tbsp minced fresh mint"
+        },
+        {
+          "ingredient_id": "496eefd5-c938-4bd2-b9aa-c7370518feaf",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Instructions"
+        },
+        {
+          "ingredient_id": "51ceffb5-e990-4470-a745-ac1af3e5263d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Preheat oven to 475 degrees. Spray a 18 by 13-inch rimmed baking sheet with non-stick cooking spray. Place bell pepper, carrots, onions and zucchini on baking sheet."
+        },
+        {
+          "ingredient_id": "c5aa5f01-c2f7-44f6-a374-850b1bb5dfc4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Drizzle with 1 Tbsp olive oil and season with salt and toss to evenly coat. Roast in preheated oven about 15 minutes until tender, tossing once halfway through roasting."
+        },
+        {
+          "ingredient_id": "31071ee1-abe5-4c09-adb4-cda9d36c5143",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Then if desired move oven rack closer to broiler and broil for about 1 - 2 minutes to add a light char."
+        },
+        {
+          "ingredient_id": "5daa8614-173c-41c2-89b8-d7b310f23fb7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "While vegetables are roasting, in a small mixing bowl whisk together remaining 3 Tbsp olive oil, lemon juice, garlic, cumin, coriander, cinnamon and season with 1/4 tsp salt, set aside."
+        },
+        {
+          "ingredient_id": "cff69f1e-6e61-4b05-9c2f-083a99d940d5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Bring chicken broth, 1/2 tsp salt and turmeric to a boil. Place couscous and raisins in a large mixing bowl, pour hot chicken broth over couscous and stir, cover bowl with plastic wrap and let rest for 5 minutes."
+        },
+        {
+          "ingredient_id": "5f7b5be5-a8dc-418b-bf14-7d90395d6bad",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add roasted vegetables, chick peas, almonds, cilantro, mint and lemon mixture to couscous and toss to evenly coat (while seasoning with a little more salt to taste as desired). Serve warm."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

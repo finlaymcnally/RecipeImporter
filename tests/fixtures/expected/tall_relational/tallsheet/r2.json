@@ -1,0 +1,54 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "<ID>",
+  "@type": "Recipe",
+  "name": "Cereal",
+  "recipeIngredient": [
+    "1 cup cereal",
+    "1 cup milk"
+  ],
+  "recipeInstructions": [
+    "Combine and eat"
+  ],
+  "recipeimport:provenance": {
+    "@id": "<ID>",
+    "converter_version": "0.1.0",
+    "file_path": "<FILE_PATH>",
+    "import_timestamp": "<TS>",
+    "original_headers": [
+      "Recipe",
+      "Section",
+      "Text"
+    ],
+    "original_row": {
+      "rows": [
+        {
+          "Recipe": "Cereal",
+          "Section": "Ingredient",
+          "Text": "1 cup cereal",
+          "row_index": 2
+        },
+        {
+          "Recipe": "Cereal",
+          "Section": "Ingredient",
+          "Text": "1 cup milk",
+          "row_index": 3
+        },
+        {
+          "Recipe": "Cereal",
+          "Section": "Instruction",
+          "Text": "Combine and eat",
+          "row_index": 4
+        }
+      ]
+    },
+    "row_index": 2,
+    "sheet": "TallSheet",
+    "workbook": "tall_relational.xlsx"
+  }
+}

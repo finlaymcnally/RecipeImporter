@@ -1,0 +1,334 @@
+{
+  "recipe": {
+    "description": "Onions, cream cheese and sour cream are good additions",
+    "notes": "Tags: Main, Normal, chicken thighs, artichoke hearts, sun dried tomatoes",
+    "title": "Crock Pot chicken thighs",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "164d038d-64ee-420d-ba90-73c2b4f2d75c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "INGREDIENTS"
+        },
+        {
+          "ingredient_id": "851b3c80-20c5-4dac-8e37-8f9618d46520",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Chicken thighs"
+        },
+        {
+          "ingredient_id": "9fa2f14c-73eb-49e6-9cc5-2642bdb0724f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Seasonings"
+        },
+        {
+          "ingredient_id": "7f96da1f-c835-4134-94ba-13e85f6f8b1b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Jarred Artichoke Hearts + liquid"
+        },
+        {
+          "ingredient_id": "7eba9cba-afee-4bc6-a210-757bb0e59adc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Julienne Cut Sun-Dried Tomatoes"
+        },
+        {
+          "ingredient_id": "b90f2df6-91f3-4679-9ba6-eac5757c45b4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Garlic"
+        },
+        {
+          "ingredient_id": "1c5de339-ba6d-42f7-8b60-b48349dd6546",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "HOW TO MAKE THIS CROCK POT CHICKEN THIGHS RECIPE:"
+        },
+        {
+          "ingredient_id": "a46aef26-b3be-429a-80ca-2b6efaed0c01",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Start by spraying a 6-quart crock pot/slow cooker with cooking spray."
+        },
+        {
+          "ingredient_id": "5e1081db-6b63-4f91-9a08-64a9a7bf9a06",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Next, season chicken thighs with salt, pepper, and dried oregano. Transfer chicken thighs to the slow cooker in one layer."
+        },
+        {
+          "ingredient_id": "446c22bf-1cb4-4cd8-bb78-9f7585d638aa",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Then, layer the artichoke hearts over the chicken and sprinkle with garlic. Take a 1/3-cup of the liquid from the jar with the artichoke hearts and pour it over the top."
+        },
+        {
+          "ingredient_id": "1eee8114-f873-4386-9e43-82e386237d0f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Next, cover; cook on HIGH for 4 to 4-1/2 hours, or on LOW for about 6 hours."
+        },
+        {
+          "ingredient_id": "4ba9e859-14f0-48fc-8d3d-ce43f7fd768e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add in the sun-dried tomatoes 30 minutes before chicken is done cooking."
+        },
+        {
+          "ingredient_id": "d61c6e9e-4667-42a5-906f-36c60da18089",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Finally, sprinkle with fresh parsley and serve."
+        },
+        {
+          "ingredient_id": "1af0707b-b64a-4ede-ac66-6acacef73c8d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "FREQUENTLY ASKED QUESTIONS"
+        },
+        {
+          "ingredient_id": "e945c09a-abc1-4469-93b8-fae7fa841581",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "CAN I USE CHICKEN BREASTS INSTEAD?"
+        },
+        {
+          "ingredient_id": "1c0fb80d-e210-4493-942d-dcb1469e227c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Yes, you can absolutely use chicken breasts, but keep in mind that chicken breasts will need less time cooking, so start checking around 5-hour mark if cooking on LOW, and around the 3-hour mark if cooking on HIGH."
+        },
+        {
+          "ingredient_id": "e64b9457-63ec-410a-8fa3-495e4bc76c0f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "CAN I USE BONE-IN CHICKEN THIGHS?"
+        },
+        {
+          "ingredient_id": "28489f67-910e-4711-8a05-1de83d122499",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Yes, using bone-in chicken thighs is fine. They might take a bit longer to cook; about 20 minutes longer in the crock pot."
+        },
+        {
+          "ingredient_id": "ab653d39-1449-43c7-b39a-99971fb162ae",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "CAN I DOUBLE THE RECIPE?"
+        },
+        {
+          "ingredient_id": "f6842508-218b-4643-81c3-72aacdc8bb57",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "I have always read not to use too many pieces of meat in a slow cooker. I think up to 6 is a good number, maybe even 8, depending on their size, but anything more than that might get a bit crowded. You want them all in one layer, slightly overlapping so to make room for the rest of the ingredients."
+        },
+        {
+          "ingredient_id": "5d0503b9-c023-4046-ae96-8f08ea401773",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "HOW TO STORE CROCK POT CHICKEN THIGHS"
+        },
+        {
+          "ingredient_id": "325b2433-d3b3-46c3-9765-0fb93545767a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Your crock pot chicken thighs should be cooled and refrigerated 2 hours after cooking."
+        },
+        {
+          "ingredient_id": "d3b8a0e7-14d6-4fc4-95e2-f89fa4b1282b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Keep them stored in your fridge in an airtight container for 3 to 4 days."
+        },
+        {
+          "ingredient_id": "d8da1ea0-b16e-4ff7-a04e-8818d21ef6a0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "You can also freeze them. Let the chicken thighs cool completely; transfer to a freezer bag and place in the freezer. Keep frozen for up to 3 months."
+        },
+        {
+          "ingredient_id": "be713430-84ba-480c-a760-877e07f8d961",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "HOW TO REHEAT CHICKEN THIGHS"
+        },
+        {
+          "ingredient_id": "42a282b4-f464-4787-aa9b-d1e6008585f8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Place chicken thighs on a baking sheet and reheat in a 350\u02daF oven for 15 to 20 minutes, or until heated through."
+        },
+        {
+          "ingredient_id": "0ca6545f-fb8f-4eff-9e69-352344bbb7ee",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "TIPS FOR USING YOUR CROCKPOT"
+        },
+        {
+          "ingredient_id": "62f913c3-ce3a-4ad9-ac11-f85c00b5bbf1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Use the right size crock pot."
+        },
+        {
+          "ingredient_id": "ce9ba271-c716-42da-aa2e-41cc417f3960",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Coating the inside of the crock pot with a non-stick spray can prevent the need for scrubbing later."
+        },
+        {
+          "ingredient_id": "7380cb47-f2d1-4863-b289-a4dc5bbbd854",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For most crock pots, the high setting is about 280\u02daF, and the low setting is around 170\u02daF."
+        },
+        {
+          "ingredient_id": "e045bf54-cf0f-44af-97ec-c3e19a2f673a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cooking on HIGH for one hour is about equal to cooking on the low setting for two hours."
+        },
+        {
+          "ingredient_id": "34f8948d-a125-4e71-85e6-001409f68683",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add fresh herbs at the end to keep flavors bright and fresh."
+        },
+        {
+          "ingredient_id": "8fe2f924-6360-4bc3-8b1f-07a970b8ada3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Place hard vegetables, like potatoes, carrots, and other root vegetables at the bottom of the slow cooker where they will have more moisture and cook thoroughly."
+        },
+        {
+          "ingredient_id": "b77be161-a09c-45ba-97a8-b72a42548220",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Use cheaper cuts of meat. Inexpensive cuts of meat are often high in fat or connective tissue, both of which break down during long hour cooking methods."
+        },
+        {
+          "ingredient_id": "9193f911-7f62-4e80-8d9d-72d1472447ac",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add dairy at the end. Milk, cream, and other dairy products can break down and coagulate if overheated. Stir the dairy products into crock pot in the last 15-30 minutes, so it has just enough time to heat through."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

@@ -1,0 +1,586 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, bacon, beef roast, celery, carrots, turnip, guinness, cheese",
+    "title": "Guinness beef Stew with Cheddar Herb Dumplings",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "34ac06e5-2234-45f4-923a-d6fa3921bec9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients"
+        },
+        {
+          "ingredient_id": "a2f9c168-1256-45f0-af1d-92f4835d68c0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For the Stew:"
+        },
+        {
+          "ingredient_id": "03ef4965-c224-4f7a-aeef-8095636329f7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc pound bacon"
+        },
+        {
+          "ingredient_id": "a85cfb1f-f352-4c02-bd9c-accdc94548d1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 pounds boneless beef chuck, chopped into"
+        },
+        {
+          "ingredient_id": "34426b5f-a665-46b4-8b1b-8eb2d08803ed",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "bite-sized pieces"
+        },
+        {
+          "ingredient_id": "edfc63f1-6697-4239-9665-bc6b3e253572",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt and black pepper"
+        },
+        {
+          "ingredient_id": "a3a246ed-44c2-4340-aec3-7a0848c78ada",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 sticks celery, chopped"
+        },
+        {
+          "ingredient_id": "18df7a2e-cc1c-4a4e-8539-8915c1b5edcc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 large carrots, chopped"
+        },
+        {
+          "ingredient_id": "02b06dc8-6dbf-494d-97e2-6945983da130",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 large onion, chopped"
+        },
+        {
+          "ingredient_id": "0eb23d55-0b7f-470c-8a14-bf2e103ace65",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 cloves garlic, minced"
+        },
+        {
+          "ingredient_id": "b638e78f-81f5-4947-86b8-6e71ee48dc6a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 large potatoes or parsnips, diced"
+        },
+        {
+          "ingredient_id": "dac4dc31-0c5a-4ee3-b084-09b2f0a6ab0c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 turnip, diced"
+        },
+        {
+          "ingredient_id": "ffcf9c9f-ad00-42d2-80ab-157ddfb42694",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 ounces tomato paste"
+        },
+        {
+          "ingredient_id": "b666975e-cca0-42ad-914c-849aa4e5837b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 (12 ounce) bottle Guinness"
+        },
+        {
+          "ingredient_id": "8a4c230b-0930-4639-b94e-87396d20c96a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 cups low sodium chicken broth"
+        },
+        {
+          "ingredient_id": "952f5296-864d-4572-857f-48ee082cbf0d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons Worcestershire sauce"
+        },
+        {
+          "ingredient_id": "3058e819-ca07-4720-aedf-c1b07a5cbe61",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 bay leaf"
+        },
+        {
+          "ingredient_id": "4e009d5d-e6cf-4127-b9c9-1eaedf382d89",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 sprigs thyme"
+        },
+        {
+          "ingredient_id": "bce1de45-063f-4098-be1a-41a7957b12c4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon cornstarch, or as needed"
+        },
+        {
+          "ingredient_id": "ac0d69ab-128d-4753-bbc7-82c86ec4d5d6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd pound cremini mushrooms, sliced (optional)"
+        },
+        {
+          "ingredient_id": "92966b3f-cacc-4fdc-bbd9-195673cd268c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Chopped parsley"
+        },
+        {
+          "ingredient_id": "9a87d0a8-8dc7-451b-945b-585acb7d5ff8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For the Cheddar Herb Dumplings:"
+        },
+        {
+          "ingredient_id": "79e3c5be-16d1-4e1d-9bf3-9ab4ce876508",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 \u00bd cups self-rising flour"
+        },
+        {
+          "ingredient_id": "6cea34fd-bbd6-456a-b274-d0cc7a088654",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 teaspoon garlic powder"
+        },
+        {
+          "ingredient_id": "8eb7858f-55d3-45c2-aa1b-ff92f4308e78",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/3 cup shortening"
+        },
+        {
+          "ingredient_id": "b6915f7b-e916-467e-acda-b8c2e8dd499e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3/4 cup shredded Irish sharp cheddar"
+        },
+        {
+          "ingredient_id": "d1612123-bbb0-4e9b-a379-a4f4db320c10",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2/3 cup milk"
+        },
+        {
+          "ingredient_id": "5aef6ebf-50a9-4e1f-86dd-69d0a5273d47",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons mixed fresh herbs such as"
+        },
+        {
+          "ingredient_id": "60fa8153-f223-4a71-8c2a-36b808c6c5a4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "parsley, chives, and thyme, chopped"
+        },
+        {
+          "ingredient_id": "edd6979e-1e06-48fb-a86e-34df1ad94c9c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Instructions"
+        },
+        {
+          "ingredient_id": "3f3175a9-dbfa-46d3-b0ba-dd0103bd6c0d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cook the bacon in a large, oven-safe, heavy-based pot or"
+        },
+        {
+          "ingredient_id": "71e4d09c-f699-49e9-8824-4040d2eda4c4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "high-walled saute pan over medium heat."
+        },
+        {
+          "ingredient_id": "6cc07fdb-c3ee-4743-b315-eb478f8f203b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Remove the bacon, crumble, and set aside, but leave the"
+        },
+        {
+          "ingredient_id": "afebb5b2-70e9-438e-9357-054ded912cf9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "bacon fat in the pot. Season the beef with salt and pepper and"
+        },
+        {
+          "ingredient_id": "1a58b863-7019-476b-ad59-f3cdfe1cfb21",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "fry in the bacon fat until browned on all sides. Remove the"
+        },
+        {
+          "ingredient_id": "ec329985-5d76-44c2-a0d8-81fadbd66a10",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "beef from the pan and set aside."
+        },
+        {
+          "ingredient_id": "5cb8f8d3-806e-4c13-9698-83adab382a07",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "In the same pot, fry the onion, celery, and carrots until soft"
+        },
+        {
+          "ingredient_id": "8cea8edb-5d59-43b7-8cd9-64fd51a482c4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "and fragrant, adding a little oil if necessary."
+        },
+        {
+          "ingredient_id": "c59ca7dc-d71c-4c29-8b87-6bb8bff3648c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add garlic and fry for another 30 seconds. Stir in the tomato paste."
+        },
+        {
+          "ingredient_id": "db6ca649-9e4f-43d2-913a-6a0066d9fc7b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pour in the Guinness and Worcestershire sauce. Allow to"
+        },
+        {
+          "ingredient_id": "c1976b54-3daa-48d5-b5f4-9c8bd3083b05",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "come to a simmer and stir with a wooden spoon, scraping up"
+        },
+        {
+          "ingredient_id": "f6f13b9b-9750-409a-a098-b32d2ec0ea7f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "the browned bits from the bottom of the pot."
+        },
+        {
+          "ingredient_id": "68303735-6d93-454d-bb2c-f9b257db22d6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the beef back to the pot and pour in the chicken broth."
+        },
+        {
+          "ingredient_id": "e18d0242-d7ae-44bc-a0d7-e475dd48bee7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the bay leaf and thyme."
+        },
+        {
+          "ingredient_id": "9d8910f7-ac09-425c-876c-214729e4bf2d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Reduce to a simmer and cover. Simmer for 1 1/2 hours."
+        },
+        {
+          "ingredient_id": "4b768ab3-0c48-41f6-9c9f-8e75533e9f61",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the potatoes or parsnips and the turnip. Simmer for another"
+        },
+        {
+          "ingredient_id": "d2888d2d-99d7-464b-b852-cb03629717a7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd hour, or until the vegetables are tender."
+        },
+        {
+          "ingredient_id": "d9ddbe2a-b793-4882-b69c-c963f0273383",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Remove the bay leaf and thyme branches. If the stew is still"
+        },
+        {
+          "ingredient_id": "c59590da-ecc7-4932-a05f-6c221ad3ac96",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "thin, mix a tablespoon of cornstarch with a tablespoon of cold"
+        },
+        {
+          "ingredient_id": "0a72590d-4fbc-419d-9a6d-e0646bd239f3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "water to form a slurry. Mix the slurry into the stew and bring the"
+        },
+        {
+          "ingredient_id": "b8f4c499-c9bf-4666-848f-ac98bb216b1e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "mixture to a boil. Reduce to a simmer again, stirring occasionally,"
+        },
+        {
+          "ingredient_id": "7f9be839-2df9-434c-a166-8e16b5cd9c06",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "and add in the mushrooms if desired. Cook for 10 minutes, uncovered,"
+        },
+        {
+          "ingredient_id": "f89bbd96-a230-4f21-a662-00cc37552aad",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "until the stew thickens and the mushrooms are cooked through."
+        },
+        {
+          "ingredient_id": "891bd24f-4e00-4ec2-8ce7-a5900e927eea",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Stir the bacon back in. Preheat the oven to 350\u00b0F."
+        },
+        {
+          "ingredient_id": "cc4e6f9c-9454-42ef-a5f3-c126776e97f0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Stir together the self-rising flour and garlic powder in a medium"
+        },
+        {
+          "ingredient_id": "d0569665-2011-4778-a9b1-8253c1766414",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "bowl. Cut in the shortening until mixture resembles coarse crumbs."
+        },
+        {
+          "ingredient_id": "57575ee4-fca7-4236-9c7a-b26b59a052c9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Stir in the cheddar cheese, then add the milk and stir until the dry"
+        },
+        {
+          "ingredient_id": "86d51a84-2405-47b0-847b-a0eadfcff9de",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "ingredients are moistened."
+        },
+        {
+          "ingredient_id": "24b755d2-8213-4ddb-b6c1-fda92d06c111",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Make small balls with the dough and place them on top of the"
+        },
+        {
+          "ingredient_id": "fd61ab03-b6f4-4518-bffd-aefe26607c72",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "stew, leaving them room to expand\u2013 they grow a lot as they cook."
+        },
+        {
+          "ingredient_id": "a192938e-6d05-463e-beeb-31c26d003949",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Place the stew in the oven uncovered and bake until the dumplings"
+        },
+        {
+          "ingredient_id": "925bd03b-cfa0-4e11-badd-6d61eb46adc3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "are browned and cooked through, about 30 to 40 minutes."
+        },
+        {
+          "ingredient_id": "9ccee741-851b-48ea-a748-6cc4e0a36002",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Garnish the stew with parsley and serve."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

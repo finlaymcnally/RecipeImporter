@@ -1,0 +1,226 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Italian, Main, Instant Pot, meatballs, carrots, pasta",
+    "title": "Italian wedding soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "de2d476a-e4bf-4111-85a2-998c19b5a383",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients"
+        },
+        {
+          "ingredient_id": "1ddd93bf-7755-427c-8bb4-052cc012c0c8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "12oz bag of frozen mini meatballs (I use these because they are cheap and easy, but you can also substitute cooked homemade meatballs or make a \u201cdeconstructed wedding soup\u201d with 1 pound of ground meatloaf meat, beef/pork/veal.)"
+        },
+        {
+          "ingredient_id": "ffc0ab59-cf4f-4bea-b1c2-9e505dad62e2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 small onion, diced (one cup)"
+        },
+        {
+          "ingredient_id": "5c436e61-4dfb-46cf-adc4-780d51750f5f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 pound carrots (about 4 large carrots), peeled and thinly sliced"
+        },
+        {
+          "ingredient_id": "773c1b69-53a5-4f2f-8bd1-5dc6bc375f1e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 head of escarole, thinly sliced"
+        },
+        {
+          "ingredient_id": "c739afc9-6db5-445b-9205-4f6f3960ecfb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon Worcestershire sauce"
+        },
+        {
+          "ingredient_id": "a254b751-1e27-4b31-bbe7-5922972e1db8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon onion powder"
+        },
+        {
+          "ingredient_id": "9fec05ab-8e7a-4ec2-af8b-39f1bcf3dd83",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon garlic salt"
+        },
+        {
+          "ingredient_id": "1f04ca3d-998d-438b-b89c-2f43f22ef504",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon Montreal steak seasoning"
+        },
+        {
+          "ingredient_id": "f60a4774-79c4-4937-b5a5-791f3a593cab",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8 teaspoons of chicken bullion granules"
+        },
+        {
+          "ingredient_id": "a457a350-3ad6-4602-83ee-d813c32d03c2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8 cups of water *not needed until day of cooking (If you want to use store-bought or homemade crockpot chicken broth, omit the bullion granules and add it the day-of cooking.)"
+        },
+        {
+          "ingredient_id": "765ba367-d252-4def-9f36-e5f1b457972a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup uncooked pasta *not needed until day of cooking (I use acini de pepe, ditallini, or small shells)"
+        },
+        {
+          "ingredient_id": "ced799f7-ac3f-42a8-94cc-76004bdb06ec",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Materials"
+        },
+        {
+          "ingredient_id": "17bba88a-bc25-4c6c-a717-47606df03dfd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 gallon-sized plastic freezer bag"
+        },
+        {
+          "ingredient_id": "7ae70dc0-8549-4829-a63e-96af0882e710",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Prep"
+        },
+        {
+          "ingredient_id": "4bafcba3-f99d-455e-9c5e-48e41106b637",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Label your freezer bag with the name of the meal, cooking instructions, and \u201cuse by date\u201d. (For standard fridge/freezer combos, this will be three months from the prep day.)"
+        },
+        {
+          "ingredient_id": "8956d2d0-60ab-47a3-82e0-67725af39413",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add all ingredients except water and pasta."
+        },
+        {
+          "ingredient_id": "fd97a08c-2ae9-4525-ab69-9306f6febcd9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Remove as much air from bag as possible, seal, and lay flat in your freezer."
+        },
+        {
+          "ingredient_id": "a1c875f9-750a-4385-a7a6-ea1b70088083",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cook"
+        },
+        {
+          "ingredient_id": "fa42f8ae-70f1-4a76-b549-21e745a1f22e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "The night before cooking, move freezer bag to your refrigerator to thaw."
+        },
+        {
+          "ingredient_id": "0aa946ac-1238-44d4-b4b1-917186450471",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "The morning of cooking, add contents of freezer bag to crockpot with 8 cups of water."
+        },
+        {
+          "ingredient_id": "31e503e0-3cb8-4987-83b1-2717ad837e9a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cook for 6-8 hours on \u201clow\u201d setting or until carrots are soft."
+        },
+        {
+          "ingredient_id": "58c1cd5b-678b-4dca-9554-e3c226eeadbf",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add pasta and cook for an additional 30 minutes."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

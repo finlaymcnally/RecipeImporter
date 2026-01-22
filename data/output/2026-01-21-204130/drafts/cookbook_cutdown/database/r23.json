@@ -1,0 +1,244 @@
+{
+  "recipe": {
+    "description": "chickpeas, carrots, celery in serious eats, in Bittman?\n\nSave the water used to boil the chickpeas and use it to thin the hummus as you're processing everything.\n\nTahini\nstart by putting whole, unpeeled garlic cloves\u2014a whole head's worth of them\u2014in a blender with a good amount of lemon juice and blending it to a pulpy pur\u00e9e. You then press the liquid through a fine-mesh strainer into a bowl. \n\nFinishing the tahini sauce is as simple as adding some ground cumin and store-bought tahini\u2014sesame paste is one of those things that are simply easier and better to get store-bought than to try grinding at home\u2014and thinning it out with water.\n\nTahini behaves in an interesting way when you add liquids to it. Out of the jar, it's pretty soft and flowing. As you add a little water or lemon juice, it'll first seize up and turn thick like cement. Continue adding water, and it'll eventually thin out into a pourable sauce. Whisking thoroughly between small additions of water ensures that the sauce is smooth, light, and lump-free.\n\nCHICKPEAS\nThe bland, tinny flavor of canned chickpeas can't compare to the full flavor of chickpeas that are cooked from dry before blending. But carefully rinsing canned chickpeas to remove excess liquid (it's the liquid that's the biggest culprit in that canned flavor), then simmering them for about an hour in fresh water with some aromatics, can work wonders, so, in a pinch, there are ways to make canned chickpeas better.\n\nPeeling chickpeas (should you desire) Once you've cooked your chickpeas, transfer them to a bowl of cold water and massage them firmly between your hands. The skins should mostly slip off and start to float above the chickpeas, making them relatively easy to scoop out and dump in the compost. OR just cook them a lot lmao\n\nBlending whole garlic cloves in lemon juice prevents harsher garlic flavors from forming, leaving the sauce aromatic instead of pungent.",
+    "notes": "Tags: Middle Eastern, Side, Normal, chickpeas",
+    "title": "Hummus",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "4a0ac65c-7cba-41e8-bcb2-aeac1ffe3bcc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients"
+        },
+        {
+          "ingredient_id": "da81f5d9-cc55-4972-873e-f4b5c9983b36",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 pound dried chickpeas (1 generous cup; 225g); see note"
+        },
+        {
+          "ingredient_id": "f446fb26-626e-46c6-9e5b-4e243ce75480",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 teaspoons (12g) baking soda, divided"
+        },
+        {
+          "ingredient_id": "3ddc44cf-1ede-4df0-9d32-7386b53b32cc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt"
+        },
+        {
+          "ingredient_id": "2eabfe0f-3c4f-4641-bcf1-51d7f141eca2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 small onion, split in half"
+        },
+        {
+          "ingredient_id": "8d4b5568-772f-47c5-ba16-2244a7ec59c8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 small stalk celery"
+        },
+        {
+          "ingredient_id": "44ee09a1-dc9a-48ec-8f23-8f89bde669a0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 small carrot"
+        },
+        {
+          "ingredient_id": "7a6ca565-4bf8-47fa-b103-182f6487861e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 medium cloves garlic"
+        },
+        {
+          "ingredient_id": "57ecffd9-6261-43b3-8c40-6b070055357f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 bay leaves"
+        },
+        {
+          "ingredient_id": "60e857f2-a1bc-4c24-ac7d-1689556f76c7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 1/2 cups (350ml) Tahini Sauce With Garlic and Lemon"
+        },
+        {
+          "ingredient_id": "4a8da9b1-ed4f-4179-9c1e-b3cbb8fd55e6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Extra-virgin olive oil, for serving"
+        },
+        {
+          "ingredient_id": "25f20c3e-fd99-4919-a503-0b5dd0804131",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Za'atar, paprika, warmed whole chickpeas, and/or chopped fresh parsley leaves, for serving"
+        },
+        {
+          "ingredient_id": "b9d3f1de-f2c5-4ea2-b4e6-13a3809cd391",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Directions"
+        },
+        {
+          "ingredient_id": "fe0cef45-92a3-4e59-b8ab-5ccac64e7b37",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1."
+        },
+        {
+          "ingredient_id": "4e121c21-280e-41d9-8a37-5dd6bca355dc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Combine beans, 1 teaspoon (6g) baking soda, and 2 tablespoons (24g) kosher salt in a large bowl and cover with 6 cups (1.4L) cold water. Stir to dissolve salt and baking soda. Let stand at room temperature overnight. Drain and rinse beans thoroughly."
+        },
+        {
+          "ingredient_id": "8f7551b7-c179-4afa-8b92-bddc915890fc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2."
+        },
+        {
+          "ingredient_id": "4e9334ab-89a7-4b20-b44a-08d6bbf4747d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Place beans in a large Dutch oven or saucepan. Add remaining baking soda, 1 tablespoon (12g) salt, onion, celery, carrot, garlic, and bay leaves. Add 6 cups (1.4L) water and bring to a boil over high heat. Reduce to a simmer, cover with lid slightly cracked, and cook until beans are completely tender, to the point of falling apart, about 2 hours. Check on beans occasionally and top up with more water if necessary; they should be completely submerged at all times."
+        },
+        {
+          "ingredient_id": "14e573ea-022e-4711-ba65-2bb8140d2bf6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3."
+        },
+        {
+          "ingredient_id": "2a12108d-744a-40b8-ad5d-6ff743235e19",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Discard onion, celery, and bay leaves. Transfer chickpeas, carrot, and garlic to a food processor or high-powered blender (such as a Vitamix, BlendTec, or Breville Boss; see note) with enough cooking liquid to barely cover them. Cover blender, taking out the central insert on the blender lid."
+        },
+        {
+          "ingredient_id": "dfa97fa4-4f52-45c5-a44d-98e9c4ed58d6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4."
+        },
+        {
+          "ingredient_id": "d9384fbb-0ead-466b-9e5d-da41dca62254",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Place a folded kitchen towel over the hole in the center of the lid to allow steam to escape. Holding the towel down firmly, turn the blender to the lowest possible speed and slowly increase speed to high. If the mixture becomes too thick to blend, add cooking liquid until it has the texture of a very thick milkshake, always starting the blender on low speed before increasing to high. If your blender comes with a push-stick for thick pur\u00e9es, use it. Continue blending until completely smooth, about 2 minutes."
+        },
+        {
+          "ingredient_id": "e66c6220-ce67-46a6-8c9b-b4cdac160928",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5."
+        },
+        {
+          "ingredient_id": "cb57ba1e-e07b-44cd-92e9-ebd80cd392e5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Transfer hot chickpea mixture to a large bowl. Whisk in tahini sauce. Whisk in salt to taste. Transfer to a sealed container and allow to cool to room temperature. It should thicken up until it can hold its shape when spooned onto a plate."
+        },
+        {
+          "ingredient_id": "15583128-2ead-4f9d-a718-a7ddca245d52",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "6."
+        },
+        {
+          "ingredient_id": "5413d2c2-85e9-4479-afb1-b1b7846f5482",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Serve hummus on a wide, shallow plate, drizzled with olive oil and sprinkled with za'atar, paprika, warmed whole chickpeas, and/or chopped parsley. Leftover hummus can be stored in the refrigerator for up to 1 week. Allow to come to room temperature before serving."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

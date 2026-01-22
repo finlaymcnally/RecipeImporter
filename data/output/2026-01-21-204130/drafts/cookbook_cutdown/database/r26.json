@@ -1,0 +1,226 @@
+{
+  "recipe": {
+    "description": "Great, but not quite there",
+    "notes": "Tags: Indian, Main, Instant Pot, chicken, tomatoes, cream",
+    "title": "Butter chicken",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "d0d1f1a9-2e5f-492b-9589-0bd0f757c9ec",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "WHAT IS IN THIS BUTTER CHICKEN RECIPE?"
+        },
+        {
+          "ingredient_id": "6f794d22-c35d-4a59-a93a-ed1651acca67",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Canned Tomatoes"
+        },
+        {
+          "ingredient_id": "ea964cb1-343e-48d8-b795-69491aa37a67",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5-6 cloves Garlic"
+        },
+        {
+          "ingredient_id": "d942aea4-64ce-4679-84dd-9e86b04f66cc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Minced Fresh Ginger"
+        },
+        {
+          "ingredient_id": "87b5328f-0782-48c6-bc41-625c9c1a9e20",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Turmeric"
+        },
+        {
+          "ingredient_id": "b4c128e7-7d28-4b51-b428-2132851d9c94",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cayenne Pepper"
+        },
+        {
+          "ingredient_id": "43cd1166-187a-455a-98a1-bbc068ed70f2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Smoked Paprika"
+        },
+        {
+          "ingredient_id": "f5fa2de3-8f5c-4f39-92a8-4e109e9af034",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher Salt"
+        },
+        {
+          "ingredient_id": "e38fe0f0-e84b-46d7-9fd3-66b6216df125",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Garam Masala"
+        },
+        {
+          "ingredient_id": "29b68796-eea9-4c47-bb68-a8cbf9f52f48",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ground Cumin"
+        },
+        {
+          "ingredient_id": "a9b5f3f7-8249-4fb9-bc4c-c4515cac4eec",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Boneless Skinless Chicken Thighs, (or use skinless chicken breast, bone-in, or whatever works for you. If frozen, add 1-2 minutes to total time)"
+        },
+        {
+          "ingredient_id": "7acfdd61-160c-4b56-824c-de8bd1624c93",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Butter cut into cubes, (use coconut oil if dairy-free)"
+        },
+        {
+          "ingredient_id": "d448980d-3a76-4426-8802-e44a53396b34",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Heavy Cream, (use full-fat coconut milk if dairy-free)"
+        },
+        {
+          "ingredient_id": "0ecc87d3-5c18-4101-b289-7c9a32d3ccb4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Garam Masala spice mix"
+        },
+        {
+          "ingredient_id": "1d35ed44-02f4-4199-81af-3cc703725886",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "chopped cilantro"
+        },
+        {
+          "ingredient_id": "5f3d74d9-3a66-4f7b-9c74-1405af2eda49",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Place tomatoes and all spices in the bottom of the Instant Pot."
+        },
+        {
+          "ingredient_id": "0b58b675-094e-4658-8d41-53e8ff0c60ed",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add in chicken thighs or chicken breast. You do not need to add any water. The chicken and tomatoes alone will release a lot of water. If you have an 8-quart pressure cooker, you may want to double the ingredients or add in 1/4 cup of water just to be cautious."
+        },
+        {
+          "ingredient_id": "41d9a037-5b72-4826-88d8-ec8aa33ed3b1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cook the butter chicken for 10 mins on high pressure. Allow it to release pressure naturally for an additional 10 minutes."
+        },
+        {
+          "ingredient_id": "7f930b91-c400-4911-9498-bf5936e15418",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "At this point, remove the chicken and set it aside. You will be adding things and blending the sauce into a tomato puree--and you don't want blended chicken in your Butter Chicken."
+        },
+        {
+          "ingredient_id": "2635f46a-2646-4356-8753-f52f15419473",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add butter, cream, and 1 additional teaspoon of garam masala."
+        },
+        {
+          "ingredient_id": "87af4b0c-5191-492f-8d5b-ec868541a3ed",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "You are doing this after the tomato sauce has cooked because pressure cooking causes butter and heavy cream to separate into a greasy mess. Adding it afterward allows the fat to emulsify properly into the sauce, resulting in utter deliciousness."
+        },
+        {
+          "ingredient_id": "ac5f0a8c-83e5-4c7d-b537-945e9e802198",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "The additional teaspoon of garam masala is to add fragrance to the dish before serving."
+        },
+        {
+          "ingredient_id": "41aa6c26-4d06-4396-b004-a711f8c9be65",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Once it's cooked and you've pur\u00e9ed and finished the sauce, you'll TAKE OUT half the sauce and save it."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

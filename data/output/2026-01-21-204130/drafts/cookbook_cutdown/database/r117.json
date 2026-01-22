@@ -1,0 +1,181 @@
+{
+  "recipe": {
+    "description": "Marinate thin strips of pork first in a mixture of soy sauce, a little sugar, and cornstarch. The cornstarch marinade is a useful trick to help keep the pork from drying out when it gets cooked on that high heat. The sugar is just enough to create some caramelization for added flavor",
+    "notes": "Tags: Main, Normal, pork loin, green onions",
+    "title": "Pork Stir Fry with green Onion",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "e2791f58-6683-4302-b062-92661b257595",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "INGREDIENTS"
+        },
+        {
+          "ingredient_id": "fda7ff6a-45c8-4f33-ad22-3f728086e2e1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pound pork loin or boneless pork chops"
+        },
+        {
+          "ingredient_id": "ef99d591-1ef8-4aea-ab73-6f12eb991486",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons soy sauce (use gluten-free soy sauce if cooking gluten-free)"
+        },
+        {
+          "ingredient_id": "2ea31e7b-f7b1-4464-88eb-7c2552af4b49",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon sugar"
+        },
+        {
+          "ingredient_id": "97c820a6-d3b0-4b04-b143-788a80f86130",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon cornstarch"
+        },
+        {
+          "ingredient_id": "d4c2a202-3b83-4c77-b77f-3def97719ceb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 tablespoons peanut oil or canola oil"
+        },
+        {
+          "ingredient_id": "fed95a33-1cba-43b9-853b-78a4abb2f00a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5 cloves garlic, thinly sliced"
+        },
+        {
+          "ingredient_id": "63272f36-a90e-45c3-8318-b31a05b9e107",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8-12 scallions/green onions, sliced diagonally into 1 to 2-inch pieces, green and white parts included"
+        },
+        {
+          "ingredient_id": "ff12887b-07ca-4ccc-a40b-ce6c1560db6b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 teaspoon sesame oil (optional)"
+        },
+        {
+          "ingredient_id": "ad2f0bfc-d0c4-427b-a450-bde23431e18a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cooked rice, to serve"
+        },
+        {
+          "ingredient_id": "08e0836b-80a6-454e-9fa0-b5ed399157de",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "METHOD"
+        },
+        {
+          "ingredient_id": "9d3fdf43-4a85-4d9c-a06e-3b090c03381a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 Prepare the pork: pork chops tend to come in thicknesses either around 1/2 inch thick or an inch thick. If you are working with a thick boneless pork chop, start by slicing it into two thin layers, horizontally. If starting with pork loin, cut slices 1/2 inch thick."
+        },
+        {
+          "ingredient_id": "2df6f097-13c1-4770-844b-9ee8f2c0a80b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Put the slices under some plastic wrap or wax paper and pound them thin with a rubber mallet, meat mallet or even an empty wine bottle. This will help tenderize the meat. The slices should be about 1/4 inch thick."
+        },
+        {
+          "ingredient_id": "7920a1d1-ca75-4b09-9723-62e44af6a785",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cut the pork across the grain into thin strips, about 1 1/2 inches long."
+        },
+        {
+          "ingredient_id": "0ccb266b-b332-492b-a4cf-6870c34853b2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 Marinate the pork: Put the soy sauce, sugar, and cornstarch into a large bowl and whisk to combine. Add the pork strips to the bowl with the marinade and toss to coat completely. Set aside for at least 10 minutes."
+        },
+        {
+          "ingredient_id": "15b2d805-001b-4cf9-98b5-4870f4c752f7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 Stir fry pork on high heat: Heat the peanut oil in a wok or large saut\u00e9 pan on high heat. When the oil is hot (shimmering but not smoking) add the garlic slices and stir-fry until they begin to turn brown at the edges, about 30 seconds."
+        },
+        {
+          "ingredient_id": "1fc28652-f165-4418-a08e-5a17f4d65775",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the pork strips and stir-fry until the pork changes color, about 90 seconds, stirring constantly."
+        },
+        {
+          "ingredient_id": "03afff88-298d-44ff-8678-530eb779e1cf",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 Add in green onions and sesame oil: Add the sliced green onions and continue to stir-fry for another minute, or until the green onions wilt. Turn off the heat and stir in the sesame oil, if using."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

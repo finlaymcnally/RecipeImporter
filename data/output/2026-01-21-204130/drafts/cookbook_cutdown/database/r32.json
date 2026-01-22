@@ -1,0 +1,280 @@
+{
+  "recipe": {
+    "description": "A few tips: We find the salt a little too much and usually adjust it down to 1.5 tsp or less per pound of pork. This dish has a little heat from the red peppers, but if you like spicy add a dash or two of cayenne pepper! And as always, be sure to use the flour to thicken the broth AFTER pressure cooking. Hope y'all enjoy!",
+    "notes": "Tags: Indian, Main, Instant Pot, pork shoulder, tomatoes",
+    "title": "Pork Vindaloo",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "ea4cee56-acba-4600-a55c-1b3a6a728a25",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients"
+        },
+        {
+          "ingredient_id": "6d6bf96b-9c8e-40db-be7c-1a7c80c581a4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp black peppercorns"
+        },
+        {
+          "ingredient_id": "5ab61e6e-cd59-4b4d-82b4-a73b14cd2a13",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp coriander seeds"
+        },
+        {
+          "ingredient_id": "1a02cde4-19f2-4553-8d2a-7621599e3be7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5 green cardamom pods"
+        },
+        {
+          "ingredient_id": "43813f0b-0241-4095-8efa-9bdfebfdc518",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp cumin seeds"
+        },
+        {
+          "ingredient_id": "ed8f5aed-75c1-4191-abe1-109864f202bf",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 tsp fennel seeds"
+        },
+        {
+          "ingredient_id": "b921d174-d57f-49e2-a42f-1d1329dc7146",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tsp chili flakes"
+        },
+        {
+          "ingredient_id": "68fed985-a682-4232-a8b3-0bbc0bb2c95f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tsp salt"
+        },
+        {
+          "ingredient_id": "433feabf-fb20-4d2f-9ee2-311dbe602855",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tbs oil"
+        },
+        {
+          "ingredient_id": "e2a9006b-c646-47d0-85c2-6dbcd42d903b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 medium onion, diced"
+        },
+        {
+          "ingredient_id": "5248eb6e-a099-42d9-b5c6-5e43074381e8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 cloves garlic, minced"
+        },
+        {
+          "ingredient_id": "99370a9c-6078-4db2-9777-f7b96bf287e1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp oil"
+        },
+        {
+          "ingredient_id": "4db0757f-291f-4760-874f-291a5e14ad5e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 lb pork shoulder, chopped in to 1 inch cubes"
+        },
+        {
+          "ingredient_id": "4bcd0bbc-ed10-4bfb-b694-7e8a85eaf3c8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp sugar"
+        },
+        {
+          "ingredient_id": "bd0b5cd2-295e-4a2c-9b6d-15d30192f520",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tbsp red wine vinegar"
+        },
+        {
+          "ingredient_id": "27f76dd0-493a-419f-b72e-c6cfada38528",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 can of diced tomatoes"
+        },
+        {
+          "ingredient_id": "a72f57a8-47c2-44d8-932d-c78bdb3f9547",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tbsp flour"
+        },
+        {
+          "ingredient_id": "bae0edb3-da66-4902-b53e-2428d0bee6c2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Instructions"
+        },
+        {
+          "ingredient_id": "af451192-54d8-456f-96ee-07f5a4205534",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Grind spices in mortar and pestle until smooth"
+        },
+        {
+          "ingredient_id": "5cde415f-d81f-4e5d-a6c0-0778882615d9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "In a large pan, heat oil over medium-high heat"
+        },
+        {
+          "ingredient_id": "b5310249-85f0-4776-9686-49d3974c9a57",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add onion and garlic and stir often until onions are translucent and garlic is fragrant"
+        },
+        {
+          "ingredient_id": "c05cf8be-1435-4179-9252-49cfc444f217",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Scoop onion and garlic in to pressure cooker"
+        },
+        {
+          "ingredient_id": "7faf51c8-cb34-4d6e-be00-8585ca11c2d5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "In the same pan, add additional oil if needed"
+        },
+        {
+          "ingredient_id": "199e30da-b3c9-461d-b4f7-b29236249f18",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Sear pork shoulder cubes on all sides until browned"
+        },
+        {
+          "ingredient_id": "49763ed2-fe46-4bd5-b9d5-fcdf3e1228dd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Remove from heat and add pork to pressure cooker"
+        },
+        {
+          "ingredient_id": "36ad4ddf-ed74-47c0-bd46-8ab015773ab1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pour in spices, sugar, red wine vinegar, tomatoes, and flour"
+        },
+        {
+          "ingredient_id": "6cc515b2-9f01-4616-b824-99fa0483d827",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Gently mix"
+        },
+        {
+          "ingredient_id": "3e7eec8d-e90a-4f04-a22c-837c49e40e33",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cook on high for 30-40 minutes (adjust according to your pressure cooker)"
+        },
+        {
+          "ingredient_id": "7b6d3975-bd00-463b-a8b1-4558c7125103",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Serve hot over rice"
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "errors": [],
+  "lowConfidenceSheets": [],
+  "mappingUsed": {
+    "ingredientDelimiters": [
+      "\n"
+    ],
+    "instructionDelimiters": [
+      "\n"
+    ],
+    "sheets": [
+      {
+        "columnAliases": {
+          "description": [
+            "Notes"
+          ],
+          "ingredients": [
+            "Recipe/Ingredients"
+          ],
+          "name": [
+            "Name"
+          ],
+          "tags": [
+            "Cuisine",
+            "Type (Breakfast, Main, Side, Dessert, Component, Meal)",
+            "Tool (Instant, Sous, Normal)",
+            "Tags"
+          ]
+        },
+        "headerRow": 1,
+        "layout": "wide-table",
+        "lowConfidence": false,
+        "sheetName": "Database",
+        "tallKeys": {},
+        "templateCells": {
+          "name": "B1"
+        }
+      }
+    ],
+    "skipRows": []
+  },
+  "missingFieldCounts": {
+    "instructions": 138
+  },
+  "perSheetCounts": {
+    "Database": 138
+  },
+  "samples": [
+    {
+      "name": "Jambalaya",
+      "sheet": "Database"
+    },
+    {
+      "name": "Instant pot cheesy lentil/rice",
+      "sheet": "Database"
+    },
+    {
+      "name": "Balsamic Thyme chicken with brussels sprouts, apples and bacon",
+      "sheet": "Database"
+    }
+  ],
+  "skippedRows": [],
+  "totalRecipes": 138,
+  "warnings": []
+}

@@ -1,0 +1,172 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Instant Pot, beef roast",
+    "title": "Balsamic beef Pot roast",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "62966f46-dd98-41f6-9005-d886312acfc1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "ingredients"
+        },
+        {
+          "ingredient_id": "c5bca524-c186-4e77-8a72-5b706dbc91b2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "One boneless chuck roast, approximately 3 lbs."
+        },
+        {
+          "ingredient_id": "6ec0f54d-9a6e-4e8f-bab6-791246ccffe7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 Tbsp kosher salt"
+        },
+        {
+          "ingredient_id": "fb517088-fb0a-49f6-9288-9ab7d08b22ba",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp black ground pepper"
+        },
+        {
+          "ingredient_id": "bbe9315e-bf6a-4e60-8730-0c1a7f8b0746",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp garlic powder"
+        },
+        {
+          "ingredient_id": "02508205-306e-4dd2-b44a-35ad40cb25d5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup of balsamic vinegar"
+        },
+        {
+          "ingredient_id": "12c26371-43f9-4072-a373-d736f1ebb703",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cups water"
+        },
+        {
+          "ingredient_id": "ae7fdb3b-e187-4dd5-b8af-a4ae18b1f996",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup onion, chopped"
+        },
+        {
+          "ingredient_id": "0f47142b-2c3e-40c3-86ec-66015673e929",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 tsp xanthan gum"
+        },
+        {
+          "ingredient_id": "7bb65826-03d1-416d-9a51-1a9f844a0e50",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Fresh parsley, chopped to garnish"
+        },
+        {
+          "ingredient_id": "7f76a7e3-c274-444b-92ac-6c41245ef6ca",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "instructions"
+        },
+        {
+          "ingredient_id": "49d37bae-b33e-4f67-89d4-dc9715ae9cd4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cut your chuck roast in half so you have two pieces. Season the roast with the salt, pepper, and garlic powder on all sides. Using the saute feature on the instant pot, brown the roast pieces on both sides."
+        },
+        {
+          "ingredient_id": "0aa93981-3356-412a-a2d9-206d63328fea",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add 1/4 cup of balsamic vinegar, 1 cup water, and 1/2 cup onion to the meat. Cover and seal, then using the manual button set the timer for 40 minutes. When the timer runs out, release the pressure by moving the lever to the \u201cventing\u201d setting. Once all the pressure is released, uncover the pot."
+        },
+        {
+          "ingredient_id": "d6e14ad1-e3f8-42a4-986e-4bc28c9ce95d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Carefully remove the meat from the pan to a large bowl. Break carefully into chunks and remove any large pieces of fat or other refuse."
+        },
+        {
+          "ingredient_id": "c77397de-f075-4001-9eb9-ae74498eae27",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Use the saute function to bring the remaining liquid to a boil in the pot, and simmer for 10 minutes to reduce."
+        },
+        {
+          "ingredient_id": "13630e8e-c1d2-4845-97e3-262e0b400333",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Whisk in the xanthan gum, then add the meat back to the pan and stir gently."
+        },
+        {
+          "ingredient_id": "498b683b-1cb5-404f-83c3-c1a35ab86e5f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Turn off the heat and serve hot over cauliflower puree, garnished with lots of fresh chopped parsley."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

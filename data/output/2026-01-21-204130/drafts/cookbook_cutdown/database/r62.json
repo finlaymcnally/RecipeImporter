@@ -1,0 +1,289 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Indian, Main, Instant Pot, chicken, greek yogurt, lemons, tomato sauce, cream",
+    "title": "Tikka Masala - Pressure cooker",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "381b1832-616d-4cc8-a744-6a07ae8c6fe0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "TOTAL TIME:"
+        },
+        {
+          "ingredient_id": "3e443b81-24f3-40f5-bd59-21b93a2aac59",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "40 minutes"
+        },
+        {
+          "ingredient_id": "e4e4b5da-2ebd-4581-8128-3c987a868ef1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Yield: 4 servings"
+        },
+        {
+          "ingredient_id": "1f8195bb-32b0-4893-989c-a580bd07598f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "INGREDIENTS"
+        },
+        {
+          "ingredient_id": "7a9038ae-d923-410d-a567-f63f7fd82aef",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For marinating the chicken:"
+        },
+        {
+          "ingredient_id": "96b4b081-e638-43b1-ab65-e7a081210cda",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pound boneless skinless chicken breasts about 2, chopped into bite-sized pieces"
+        },
+        {
+          "ingredient_id": "ac4ac9a2-0ee0-40f2-86bd-73cffe780c7d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup plain 2% fat greek yogurt 7 ounces"
+        },
+        {
+          "ingredient_id": "c9010559-da09-4be8-b472-de0700506c9f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon garam masala"
+        },
+        {
+          "ingredient_id": "de4071c1-345b-40e3-b31a-1f3fb5eebdd4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon lemon juice"
+        },
+        {
+          "ingredient_id": "b709e2b0-0bad-4a49-b6ea-5933bcda0373",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon black pepper"
+        },
+        {
+          "ingredient_id": "d73c0989-6751-4a8c-a7fc-dafa842164eb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 teaspoon ground ginger"
+        },
+        {
+          "ingredient_id": "a218136f-2c1a-44f6-8bfc-2f486d4f3897",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For the sauce:"
+        },
+        {
+          "ingredient_id": "6534e0a3-4c02-4814-aad5-dd4b6d1a224f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "15 ounces canned tomato sauce or puree"
+        },
+        {
+          "ingredient_id": "40f07c73-f5ed-435a-bbbd-150d4c0ea415",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5 cloves garlic minced"
+        },
+        {
+          "ingredient_id": "33220150-c6c3-44f1-833a-ce1244e78a0a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 teaspoons garam masala"
+        },
+        {
+          "ingredient_id": "87071f44-a69b-4a85-9f7e-1f3f0a8a5d69",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 teaspoon paprika"
+        },
+        {
+          "ingredient_id": "de026c89-62f2-4a28-b7f3-fb00da8a47c3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 teaspoon turmeric"
+        },
+        {
+          "ingredient_id": "11ecb108-48c1-4147-bd0d-8f40d2e088c5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 teaspoon salt"
+        },
+        {
+          "ingredient_id": "a9ef1089-4ad8-4a37-a7e6-785b975d8f9c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 teaspoon cayenne"
+        },
+        {
+          "ingredient_id": "41bb0774-f441-40b0-9ee0-41af66e323a5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup heavy whipping cream added last"
+        },
+        {
+          "ingredient_id": "858afa54-ac30-4f74-8f12-015011584a17",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For serving:"
+        },
+        {
+          "ingredient_id": "251e7895-332a-4d27-94cb-435a1f2178df",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "basmati rice"
+        },
+        {
+          "ingredient_id": "d421399c-5956-44fc-8bec-fac745170bf3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "naan"
+        },
+        {
+          "ingredient_id": "ce0b3ab4-94d7-4750-b068-f0869329e82f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "freshly chopped cilantro"
+        },
+        {
+          "ingredient_id": "36dc6f3b-1ed5-4a32-842c-d0113a7735ab",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "INSTRUCTIONS"
+        },
+        {
+          "ingredient_id": "a3b09b09-6c9e-4caf-bbcf-c8d3b6ef19b1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Marinating the chicken: Combine all marinade ingredients (minus the chicken) in a bowl and mix well. Add chicken chunks and coat with the marinade. Let sit in the refrigerator for at least 1 hour."
+        },
+        {
+          "ingredient_id": "84626b21-6569-4371-8677-71cb957b6be1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pressure cooker saute mode: Select the saute mode on the pressure cooker for medium heat. When it has reached temperature, add chicken chunks (along with any marinade sticking to them) to the pressure cooker. Saute until the chicken is cooked on all sides, about 5 minutes, stirring occasionally. Turn off the saute mode."
+        },
+        {
+          "ingredient_id": "deb22f8b-db5c-459f-9210-1b5db97fc99f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pressure cooker high pressure mode: Add all of the sauce ingredients except the cream to the pressure cooker, over the chicken, and stir. Secure and seal the lid. Select the manual mode to cook for 10 minutes at high pressure. Use the quick steam release handle to release pressure."
+        },
+        {
+          "ingredient_id": "0afeaf0c-c819-43db-9493-f61e926f2b9a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pressure cooker saute mode: Select the saute mode on the pressure cooker for low heat. When it has reached temperature, add cream to the pot, stirring with the other ingredients. Simmer until the sauce is thickened to your liking, a few minutes."
+        },
+        {
+          "ingredient_id": "5ae47766-2131-4f0b-8287-e81f1ae75aa1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Serving: Serve with basmati rice or naan. Garnish with cilantro."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

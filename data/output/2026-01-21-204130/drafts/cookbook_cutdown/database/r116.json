@@ -1,0 +1,163 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, potatoes",
+    "title": "Roasted Smashed potatoes",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "5a1e9134-f267-48af-af55-17be14a27c53",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "INGREDIENTS"
+        },
+        {
+          "ingredient_id": "ad867a66-9031-4f5a-bef7-699f450934ea",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 lb. baby red bliss or yukon gold potatoes (you want them to be small \u2013 like, golfball size \u2013 about 18 potatoes)"
+        },
+        {
+          "ingredient_id": "ba1a5909-7d59-4c76-97c4-9899dce1692e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "6 tbsp olive oil, divided"
+        },
+        {
+          "ingredient_id": "2ee7e540-d7c5-4a26-a93b-ba5c993ba964",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp fresh thyme, chopped (feel free to substitute with rosemary, basil, garlic, parmesan)"
+        },
+        {
+          "ingredient_id": "b8eec8b6-c85b-4716-a421-1cb819b35863",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt and pepper, to taste"
+        },
+        {
+          "ingredient_id": "55526127-3aa2-440f-b618-378759597375",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "HOW TO MAKE IT"
+        },
+        {
+          "ingredient_id": "a8dd873f-949e-4954-af27-7e7a813919f2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Preheat the oven to 500\u00b0F"
+        },
+        {
+          "ingredient_id": "c7fae9e5-460d-4394-a5d3-f4ae4b5e83e1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Wash and scrub the potatoes and place them on a rimmed baking sheet pan"
+        },
+        {
+          "ingredient_id": "058511ed-8ca8-4f5d-b6ce-ef14edf1a2c2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Fill the pan with 3/4 cup water and cover the pan tightly with aluminum foil"
+        },
+        {
+          "ingredient_id": "5ffbb665-1d36-4ef1-bd29-a4a5497c09cd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Place the potatoes on the bottom rack for 25-30 minutes or until they are tender (check by piercing through the foil with a knife)"
+        },
+        {
+          "ingredient_id": "1ebcd818-75dd-4907-8e0d-b47ce66f126c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Remove the potatoes from the oven and blot the remaining water with a paper towel"
+        },
+        {
+          "ingredient_id": "d853a8e6-796d-4d28-aa5c-5e7f42dea893",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Allow the potatoes to cool for 10 minutes before coating them with 3 tbsp olive oil"
+        },
+        {
+          "ingredient_id": "fdfe9b9b-5d49-4aac-b7da-f7ad14a1c61a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Once the potatoes are coated in oil, smash each one with a potato masher (you could also use a fork or even the back of another sheet pan); you want them 1/3\u2033 \u2013 1/2\u2033 thick"
+        },
+        {
+          "ingredient_id": "ac55dcb1-cacf-4950-bffc-87b6020779e7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Drizzle the smashed potatoes with the remaining 3 tbsp olive oil"
+        },
+        {
+          "ingredient_id": "4334df50-c297-410b-9576-d8369ae9aff4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Sprinkle your herbs on the potatoes and season generously with salt and pepper"
+        },
+        {
+          "ingredient_id": "c73f0bd9-eae3-4664-b547-ceebb22a73a9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Place back in the oven on the top rack for 15 minutes and then lower to the bottom rack for an additional 20-25 minutes or until well browned"
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

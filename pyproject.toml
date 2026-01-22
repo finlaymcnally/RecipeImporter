@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cookimport"
+version = "0.1.0"
+description = "Local CLI for importing recipe sources into staging JSON-LD."
+readme = "cookimport/README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "openpyxl>=3.1",
+  "pydantic>=2.5,<3",
+  "PyYAML>=6.0",
+  "questionary>=2.0",
+  "rich>=13.7",
+  "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4",
+]
+
+[project.scripts]
+cookimport = "cookimport.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cookimport*"]

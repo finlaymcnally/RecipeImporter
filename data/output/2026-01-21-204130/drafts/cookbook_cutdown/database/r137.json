@@ -1,0 +1,100 @@
+{
+  "recipe": {
+    "description": "Halves easily\nWorks best with thicker chips\nAdd salt if using low salt chips",
+    "notes": "Tags: French, Main, Normal, chips",
+    "title": "Potato Chip & Chive Omelet",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "25e8f769-1f4c-407e-ae30-58d7b4df7688",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 large eggs"
+        },
+        {
+          "ingredient_id": "2966e829-4757-4eff-9a46-01ffbcf5355a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "About 1 cup somewhat crushed potatoes"
+        },
+        {
+          "ingredient_id": "550f84ed-39aa-47f5-a153-2776dce08bbc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 tablespoons finely chopped chives"
+        },
+        {
+          "ingredient_id": "131268bd-8414-4867-8ba4-b84a98cf9f22",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp dried garlic flakes"
+        },
+        {
+          "ingredient_id": "30d782e4-eaf2-4975-ad23-47a3f41fed9b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp butter or olive oil"
+        },
+        {
+          "ingredient_id": "27d601b9-74f8-42eb-ae72-fb4f1eabcd2e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "In a medium bowl, beat eggs lightly with a fork"
+        },
+        {
+          "ingredient_id": "1e232222-ed13-430e-aac7-5c0f0efb2006",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "In a second bowl, combine the chips, chives and garlic flakes, stir half into the eggs"
+        },
+        {
+          "ingredient_id": "db614268-5ef0-4f25-b61b-c3dfa4d0a9db",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "In a medium skillet, melt the butter over the medium heat. When it foams, add the eggs. Cook the eggs for 2 minutes, then sprinkle the remining chips over the surface. Cook for 1 more minute, or until the omelet is cooked to your taste."
+        },
+        {
+          "ingredient_id": "e7ea8109-8144-4bcf-ac30-a4161e14d68a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Fold the omelet in two and slide onto a serving plate."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

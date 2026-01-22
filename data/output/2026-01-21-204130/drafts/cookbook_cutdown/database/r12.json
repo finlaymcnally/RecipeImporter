@@ -1,0 +1,253 @@
+{
+  "recipe": {
+    "description": "great",
+    "notes": "Tags: American, Meal, Normal, peppers, sausage, tomatoes, pasta",
+    "title": "One-Pot sausage And peppers pasta",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "62807a9d-f399-46ec-a45f-26823974fdb3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "One-Pot Sausage And Peppers Pasta"
+        },
+        {
+          "ingredient_id": "ef7781c3-083c-4b38-a836-d70bcd522c70",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Servings: 4-5"
+        },
+        {
+          "ingredient_id": "23afee0a-f517-4ab1-bbd1-12aebc9554a0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "INGREDIENTS"
+        },
+        {
+          "ingredient_id": "6e833448-77d2-47db-a514-627eae91761a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pound any short pasta (we used bow ties)"
+        },
+        {
+          "ingredient_id": "a41b16da-7f10-4fcf-8752-7104ccafd4c3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon olive oil"
+        },
+        {
+          "ingredient_id": "e1915ccb-ed0a-4579-b4bb-20d42313fcf5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 hot Italian sausages"
+        },
+        {
+          "ingredient_id": "56697674-dd54-47fd-9cdf-e7a656c8e41b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 sweet Italian sausages"
+        },
+        {
+          "ingredient_id": "6a13021f-090c-456e-89e9-362188762b8b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 red bell pepper, large diced"
+        },
+        {
+          "ingredient_id": "995f2cb2-db87-4caf-923e-861db7f9e674",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 green bell pepper, large diced"
+        },
+        {
+          "ingredient_id": "ca7e8ece-4fa4-4ad0-98ac-a8550fb4dd96",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 yellow bell pepper, large diced"
+        },
+        {
+          "ingredient_id": "efb42f29-22a7-43fa-873d-9a83b8866412",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd white onion, sliced"
+        },
+        {
+          "ingredient_id": "b06382b6-2436-49aa-8be6-e72676409aa8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cloves of garlic, sliced"
+        },
+        {
+          "ingredient_id": "29df2602-e7b2-4f62-bdaf-1e588700b5d6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "28 ounces can diced tomato"
+        },
+        {
+          "ingredient_id": "19f6b782-870b-4f67-ab95-9c8f60782997",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon oregano"
+        },
+        {
+          "ingredient_id": "655d027a-4c63-4ee9-8ba2-16cf56814001",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon salt"
+        },
+        {
+          "ingredient_id": "d070a0b0-1f90-4161-a642-d941362a6cf4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon black ground pepper"
+        },
+        {
+          "ingredient_id": "78794184-b37e-4bd8-a13e-196eefbf020c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "PREPARATION"
+        },
+        {
+          "ingredient_id": "728ffdad-3502-40d0-b510-203be7f974ff",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Bring a large pot of water to a rolling boil, add a generous amount of salt, and cook pasta 2 minutes less than the package instructions."
+        },
+        {
+          "ingredient_id": "8d541709-de78-426e-a02c-23b729a43104",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Strain pasta and set aside. Toss with a small amount of oil to prevent sticking"
+        },
+        {
+          "ingredient_id": "7d4968df-4d92-4917-a43e-bf5c07495183",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "In the same pot, heat 1 tbsp of olive oil and fry sausages, working in batches as needed, until deeply browned on all sides."
+        },
+        {
+          "ingredient_id": "81e29976-dadf-4f68-88a4-9e7140ed0cb0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Remove sausages, slice in \u00be-inch rings, and set aside."
+        },
+        {
+          "ingredient_id": "9e37c4ec-5686-4b9a-9144-94153d0ff358",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Saut\u00e9 all of the bell peppers, onion, and garlic for about 2 minutes."
+        },
+        {
+          "ingredient_id": "24a172d6-f4e3-464d-b5d5-ed60834e0d83",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the canned tomatoes, all of the spices, and the sausage slices to the pot."
+        },
+        {
+          "ingredient_id": "b2da1e09-abb8-4f89-b132-a5e87210af92",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Simmer about 10 minutes."
+        },
+        {
+          "ingredient_id": "3c8802c2-fbd0-4d35-9f5e-99bb39104295",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the pasta back to the pot and stir gently until all the ingredients are coated in the sauce. Continue simmering until pasta is al dente."
+        },
+        {
+          "ingredient_id": "1fea3541-7ca8-49b2-87a7-c5f8e5a3ba65",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Serve with grated parmesan."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

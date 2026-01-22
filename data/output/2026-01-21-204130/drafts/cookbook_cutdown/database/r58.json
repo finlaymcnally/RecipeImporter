@@ -1,0 +1,397 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Mexican, Main, Instant Pot, chili pepper, chicken thighs, tomatoes, limes, tortillas",
+    "title": "Chicken Enchiladas",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "ba0f1c5a-e285-48bc-a0bf-f40c4afd0aa0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "TOTAL TIME:"
+        },
+        {
+          "ingredient_id": "586b8306-2842-4202-b9a8-93bb57fae125",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 hour"
+        },
+        {
+          "ingredient_id": "7595bae3-e472-4ea1-8c8b-d951f26fc023",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients"
+        },
+        {
+          "ingredient_id": "643aef70-8fc2-472c-842d-4a8d6fa3f0ed",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For the Chicken and Sauce:"
+        },
+        {
+          "ingredient_id": "153d67c7-2708-4985-964e-a953f1fc6ced",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 whole dried ancho chilies"
+        },
+        {
+          "ingredient_id": "c87dda48-9876-4b5f-9190-00a784941f75",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 pounds bone-in, skin-on chicken thighs"
+        },
+        {
+          "ingredient_id": "084d9c09-a1b7-4259-a749-35abc77d6340",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 Serrano or jalape\u00f1o pepper, roughly sliced"
+        },
+        {
+          "ingredient_id": "6dbfb264-270a-4836-b70b-0cc72189d25f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pound roma tomatoes, roughly chopped (about 4)"
+        },
+        {
+          "ingredient_id": "fec602eb-ee8a-49b4-81da-5c4b20c9fc86",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 medium onion, sliced"
+        },
+        {
+          "ingredient_id": "e2290446-9b6a-467f-9d96-7729ea7af880",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 medium cloves garlic, smashed"
+        },
+        {
+          "ingredient_id": "34e54350-e4c3-4d68-8bfc-8a275075ca2f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 whole canned chipotle chilies packed in adobo, plus 2 tablepoons sauce from the can"
+        },
+        {
+          "ingredient_id": "50a6828a-dabb-4da0-abf5-404bcdccf023",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 bay leaf"
+        },
+        {
+          "ingredient_id": "d61806fb-3d6b-4ecb-9acf-d6617821b8eb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 teaspoons dried oregano, preferably Mexican"
+        },
+        {
+          "ingredient_id": "972e9978-e3ce-4da7-8934-758df94927a6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon ground cumin seed"
+        },
+        {
+          "ingredient_id": "6a6f5678-1f08-495a-bda2-59f0bf4eef72",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 teaspoon ground coriander seed"
+        },
+        {
+          "ingredient_id": "257933e6-6f49-4469-87b7-81911f3bb51c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup homemade or store-bought low-sodium chicken stock"
+        },
+        {
+          "ingredient_id": "a53d58c9-a4be-422a-a66a-9326ace0398d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt and freshly ground black pepper"
+        },
+        {
+          "ingredient_id": "37997e62-777e-43c3-9219-44a5941e76b4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon juice from 1 lime"
+        },
+        {
+          "ingredient_id": "365f5233-6b8d-43b6-a4f2-7c6b623b8549",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon soy sauce"
+        },
+        {
+          "ingredient_id": "19cfa96a-c892-4810-8e9b-2fba77af4d2f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup chopped fresh cilantro leaves and fine stems"
+        },
+        {
+          "ingredient_id": "69053960-da73-4044-a564-d7903c9dbcc7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "To Assemble:"
+        },
+        {
+          "ingredient_id": "f4bc67d0-c0f5-4555-a5ea-25589cfbe12b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup canola oil"
+        },
+        {
+          "ingredient_id": "f8f9cb83-494b-42fe-bf03-d3db039c578a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "12 fresh corn tortillas"
+        },
+        {
+          "ingredient_id": "5d211f94-c663-44a6-bf2a-0e66f25c2be1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 ounces grated Jack or cheddar cheese"
+        },
+        {
+          "ingredient_id": "a3c3d03d-71be-4b01-8acb-2049344ba171",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 ounce crumbled cotija cheese"
+        },
+        {
+          "ingredient_id": "4709718e-3f64-4dfb-8db2-0ff47c224fd3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Directions"
+        },
+        {
+          "ingredient_id": "4faae594-ca1d-4701-bc16-ebb1b0b23635",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1."
+        },
+        {
+          "ingredient_id": "a6946117-cb71-46c3-808b-479b72f41d24",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For the Chicken and Sauce: Trim tops of chilies and discard seeds (see here for more detailed instructions). Place on a microwave-safe plate and microwave on high power until pliable and fragrant, about 15 seconds. Cut chilies into thin strips using kitchen shears or a sharp knife."
+        },
+        {
+          "ingredient_id": "7cb1baf7-a5f1-4a17-9744-a6dae6f727ac",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2."
+        },
+        {
+          "ingredient_id": "58e5f8a6-920d-4547-929b-2796c80835c4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Combine chilies, chicken, Serrano or jalape\u00f1o, tomatoes, onion, garlic, chipotle peppers and adobo sauce, bay leaf, oregano, cumin, coriander, and chicken stock in a pressure cooker, season with salt and pepper, and stir roughly until ingredients are evenly distributed. Seal pressure cooker and cook on high pressure for 15 minutes. Release pressure using quick-release method. Using tongs, transfer chicken to a bowl and set aside to cool."
+        },
+        {
+          "ingredient_id": "0d090f78-8c6a-4329-94fa-7d4db5cf3b69",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3."
+        },
+        {
+          "ingredient_id": "b99fa790-3037-4fe8-bbba-bd4d5350c865",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Discard bay leaf. Transfer remaining ingredients from pressure cooker to the jar of a blender. Add soy sauce and lime juice. Blend, starting at low speed and slowly increasing to high until sauce is smooth. Season to taste with salt and stir in 3 tablespoons of cilantro. Transfer to a bowl."
+        },
+        {
+          "ingredient_id": "0de4b4db-afe9-4c6e-8e4e-ce92b1afb5e8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4."
+        },
+        {
+          "ingredient_id": "4061676c-e036-4611-bd58-3c924ab99913",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "When chicken is cool enough to handle, discard skin and bones. Shred chicken meat roughly with your fingers or two forks. Fold in 1/4 cup of sauce and season to taste with salt and pepper."
+        },
+        {
+          "ingredient_id": "9aa79bf4-8cd8-410f-9d08-d2c5bfd940a2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5."
+        },
+        {
+          "ingredient_id": "49267739-33c6-4f9f-a110-fcb934445bcc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "To Assemble: Adjust oven rack to middle position and preheat oven to 400\u00b0F. Heat canola oil in a medium cast iron or non-stick skillet over medium heat until shimmering. Working one at a time, place a tortilla in the oil, fry for 5 seconds, turn, and fry second side for 5 seconds. Transfer to a paper towel-lined plate to drain, then to a second clean plate. Stack tortillas as you work and cover with a clean kitchen towel or paper towel when finished to keep tortillas warm."
+        },
+        {
+          "ingredient_id": "76b7aaf6-d939-4294-99ea-2ef56a4bd894",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "6."
+        },
+        {
+          "ingredient_id": "87352dc8-a360-4ba3-b4ae-64299a859d1b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Dip tortillas in sauce one at a time, letting excess drip off and stacking them as you go. Ladle one cup of sauce over the base of a 9- by 13-inch baking dish. Place 2 to 3 tablespoons of chicken filling in a line along the center of one tortilla. Roll tortilla up like a cigar and transfer to the baking dish, seam side-down. Repeat with remaining tortillas and filling."
+        },
+        {
+          "ingredient_id": "d0790e20-5cb1-4880-bac5-f2ee207f0e60",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "7."
+        },
+        {
+          "ingredient_id": "72d27b53-1281-4fa1-95a9-5dfcd2ae7d22",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Spoon more sauce over the top of the tortillas, then spread cheddar or Jack cheese in two even rows across the center of the tortillas. Spoon a few more tablespoons of sauce on top of the cheese. Cover baking dish with aluminum foil, transfer to the oven, and bake for 10 minutes. Remove foil, sprinkle with half of cotija cheese, and continue baking until heated through, 5 to 10 minutes longer."
+        },
+        {
+          "ingredient_id": "d1553926-701b-46f6-92fe-3f9026ce472e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8."
+        },
+        {
+          "ingredient_id": "4ff50e78-783f-4804-9ed5-861b0b1295c0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Remove baking dish from oven, sprinkle with remaining cotija cheese and chopped cilantro, and serve immediately, passing any additional salsa at the table."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "<ID>",
+  "@type": "Recipe",
+  "keywords": "baking, dessert",
+  "name": "Lemon Bread",
+  "recipeIngredient": [
+    "1 cup flour",
+    "2 eggs"
+  ],
+  "recipeInstructions": [
+    "Mix",
+    "Bake"
+  ],
+  "recipeYield": "1 loaf",
+  "recipeimport:provenance": {
+    "@id": "<ID>",
+    "converter_version": "0.1.0",
+    "file_path": "<FILE_PATH>",
+    "import_timestamp": "<TS>",
+    "original_headers": [
+      "Title",
+      "Ingredients",
+      "Instructions",
+      "Yield",
+      "Tags"
+    ],
+    "original_row": {
+      "Ingredients": "1 cup flour\n2 eggs",
+      "Instructions": "1. Mix\n2. Bake",
+      "Tags": "baking, dessert",
+      "Title": "Lemon Bread",
+      "Yield": "1 loaf"
+    },
+    "row_index": 2,
+    "sheet": "Sheet1",
+    "workbook": "wide_table.xlsx"
+  }
+}
