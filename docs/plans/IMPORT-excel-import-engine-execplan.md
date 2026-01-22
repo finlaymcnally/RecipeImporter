@@ -188,3 +188,7 @@ Plan update note (2026-01-21 15:28Z): Marked milestone-1 scaffolding as complete
 Plan update note (2026-01-21 16:02Z): Completed the Excel importer implementation, added CLI wiring and fixture/test coverage, and documented the local environment limitation that blocked running the generator and tests.
 Plan update note (2026-01-21 16:16Z): Bootstrapped a pip-enabled venv using the no-ensurepip workaround, generated fixtures, ran CLI help commands, and verified pytest coverage passes.
 Plan update note (2026-01-21 17:00Z): Add support for combined "Recipe/Ingredients" columns and aggregating multiple tag columns (e.g. Cuisine, Type, Tool).
+
+
+
+## SOME IDEAS - less relevant now as this has been built mostly

@@ -1,10 +1,10 @@
 ---
-summary: "ExecPlan for the text file recipe import engine."
+sunmary: "ExecPlan for the text file import engine."
 read_when:
   - When implementing the text file import engine
 ---
 
-# Text File Recipe Importer ExecPlan
+# Text File Importer ExecPlan
 
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 
@@ -12,7 +12,7 @@ This plan must be maintained in accordance with docs/PLANS.md from the repositor
 
 ## Purpose / Big Picture
 
-After this change, a user can point the cookimport CLI at a folder containing text files (.txt, .md) with recipes and receive RecipeSage JSON-LD files plus a per-file report. The importer handles both single-recipe files and multi-recipe files, detecting recipe boundaries and extracting structured fields. Success is visible by staging/recipesage_jsonld/<file>/<recipe>.json files, staging/reports/<file>.text_import_report.json, and diagnostic artifacts showing split decisions and parse confidence.
+After this change, a user can point the cookimport CLI at a folder containing text files (TXT, MD, etc.) and receive RecipeSage JSON-LD files plus a report in the staging layout. The importer will normalize text content, intelligently split files containing multiple recipes, and parse structure (ingredients, instructions, metadata) into standardized candidates. Success is visible by the presence of staging/recipesage_jsonld/<file>/<recipe>.json files and staging/reports/<file>.text_import_report.json.
 
 ## Progress
 
@@ -24,20 +24,16 @@ After this change, a user can point the cookimport CLI at a folder containing te
 
 ## Decision Log
 
-- Decision: Support both single-recipe and multi-recipe files with automatic detection.
-  Rationale: User has a mix of saved notes (often one recipe) and compiled collections (multiple recipes). Auto-detection reduces manual configuration.
+- Decision: Normalize all input text formats (Markdown, RTF, etc.) into a "Normalized Text Document" before processing.
+  Rationale: Removing encoding issues, line endings, and excessive whitespace early simplifies the downstream splitting and parsing logic.
   Date/Author: 2026-01-21 / Initial Plan
 
-- Decision: Support an explicit recipe delimiter convention that users can adopt over time.
-  Rationale: Reduces ambiguity for multi-recipe files. Recommended delimiter: a line containing only "=== RECIPE ===" or a Markdown H1 heading.
+- Decision: Implement a "Split Decision" step to classify files as "Single Recipe" or "Multi-Recipe" before parsing.
+  Rationale: Prevents trying to parse a whole cookbook file as one giant recipe, and allows for specialized splitting logic (e.g., Markdown headers vs. delimiters).
   Date/Author: 2026-01-21 / Initial Plan
 
-- Decision: Support YAML frontmatter in Markdown files for metadata extraction.
-  Rationale: Many users already use frontmatter for personal notes. Extracting source, author, tags from frontmatter reduces parsing complexity.
-  Date/Author: 2026-01-21 / Initial Plan
-
-- Decision: Use deterministic section detection with LLM escalation only for genuinely ambiguous cases.
-  Rationale: Text files are often well-structured with clear section headers. LLM is reserved for interleaved or poorly formatted content.
+- Decision: Support YAML frontmatter for metadata injection.
+  Rationale: Allows users to easily add metadata (tags, servings, source) to their text notes in a standard way that the importer can pick up deterministically.
   Date/Author: 2026-01-21 / Initial Plan
 
 ## Outcomes & Retrospective
@@ -46,157 +42,83 @@ After this change, a user can point the cookimport CLI at a folder containing te
 
 ## Context and Orientation
 
-The cookimport package has importers for Excel, EPUB, and PDF. This plan adds a text file importer at cookimport/plugins/text.py following the same Importer protocol.
+This plan adds a Text importer at cookimport/plugins/text.py. It follows the standard Importer protocol. The challenge with text files is lack of explicit structure; a file might be a quick note, a copy-paste from a blog, or an entire exported notebook.
 
-Key terms used in this plan:
-
-A NormalizedTextDocument is the cleaned, decoded text content of a file with metadata about encoding decisions and normalization applied. A SplitDecision records whether a file is treated as single-recipe or multi-recipe and the reasoning/confidence. A RecipeCandidate is a text chunk representing one recipe with start/end character offsets and provenance. Section Headers are lines like "Ingredients", "Directions", "Notes" that mark structural boundaries within a recipe.
-
-Text files are the simplest source format but have high variability: some are carefully formatted with clear sections, others are copy-pasted from websites with minimal structure. The importer must handle both gracefully.
+Key terms:
+*   **NormalizedText:** UTF-8 text with consistent line endings (\n) and trimmed whitespace.
+*   **Split Mode:** A classification (`single` vs. `multi`) determining if the file should be sliced.
+*   **RecipeCandidate:** A chunk of text identified as one recipe.
+*   **Skeleton:** An internal intermediate object identifying the structural blocks (Title, Ingredients Block, Instructions Block) before field parsing.
 
 ## Plan of Work
 
-Milestone 1 establishes text file discovery and normalization. Create cookimport/plugins/text.py with the Importer protocol. Implement detect to return high confidence for .txt and .md files. Implement _normalize_text that: reads bytes and decodes with UTF-8 (fallback to CP1252/Latin-1 with warnings), normalizes line endings to \n, trims excessive whitespace (collapse 3+ blank lines to 2), and preserves original content in a raw artifact for debugging. Write staging/_raw_text/<file_id>.txt and staging/_normalized_text/<file_id>.txt.
+### Phase 1: Ingest & Normalization (Milestone 1)
 
-Milestone 2 implements single vs multi-recipe detection. Create _detect_split_mode that analyzes normalized text and returns (mode, confidence, reasons). Use these multi-recipe signals: multiple top-level headings (Markdown # or underlined), repeated section headers (Ingredients/Directions appearing more than once), explicit delimiters (---, ***, ====, === RECIPE ===), very long file (> 3000 words) without clear single-recipe structure. Default to single-recipe if signals are weak. Support explicit delimiter convention that users can adopt.
+**Goal:** Turn any text file into a clean, normalized string.
 
-Milestone 3 implements recipe splitting for multi-recipe files. Create _split_into_candidates that applies splitting strategies in order: explicit delimiter split (trust user convention), Markdown heading split (split on ^# ), repeated section-pattern split (find multiple disjoint Ingredients/Directions pairs), title-ish line split (short lines in Title Case surrounded by blank lines). Each candidate chunk includes source_file, start_offset, end_offset, raw_text. If deterministic split is uncertain and file is clearly multi-recipe, flag for optional LLM boundary detection.
+1.  **File Discovery:** Accept `.txt`, `.md`, `.markdown`.
+2.  **Normalization:**
+    *   Decode bytes -> UTF-8 (fallback to cp1252/latin-1).
+    *   Normalize line endings to `\n`.
+    *   Trim excessive whitespace (collapse 3+ blank lines to 2).
+    *   *Artifact:* `staging/_normalized_text/<file_id>.txt`.
 
-Milestone 4 implements structure recovery for each candidate. Create _parse_candidate that extracts fields from a text chunk. For title: first non-empty line if short, or first Markdown heading. For section detection: identify lines matching known headers (Ingredients, Directions, Method, Instructions, Notes) that are short and either match header words or end with colon. Assign subsequent lines to sections. For ingredients: lines within ingredient section, preserving as-is (no quantity parsing at this stage). For instructions: lines within directions section, split on numbered lists or paragraphs. For metadata: regex extraction of yield (Serves, Makes, Yield), times (Prep, Cook, Total), and other common patterns.
+### Phase 2: Recipe Splitting (Milestone 2)
 
-Milestone 5 handles frontmatter and LLM escalation. If a file starts with YAML frontmatter (--- block), parse it and merge fields (source, author, tags, servings) into the recipe metadata. For low-confidence parses (no ingredient section found but ingredient-like lines exist, or interleaved content), send to LLM with constrained schema. Validate output with Pydantic.
+**Goal:** Decide if a file is one recipe or many, and slice it accordingly.
 
-Milestone 6 converts parsed candidates to RecipeSage JSON-LD and emits output. Each recipe gets a stable @id, includes provenance (file, offsets, parse decisions), and is written to the staging layout. Generate a per-file report with split decision, recipe count, parse confidence per recipe, and warnings.
+1.  **Classification (Heuristics):**
+    *   **Multi-Recipe Signals:** Multiple top-level Markdown headers (`#`), repeated "Ingredients" headers, clear delimiters (`---`, `***`, `===`).
+    *   **Single-Recipe Signals:** Short length, only one "Ingredients" section.
+2.  **Splitting Strategy (Order of Operations):**
+    1.  **Explicit Delimiter:** If `\n=== RECIPE ===\n` or similar is found, split there.
+    2.  **Markdown Heading:** Split on `^#\s+` (and optionally `^##\s+`).
+    3.  **Repeated Patterns:** If "Ingredients" appears multiple times disjointly, split around them.
+    4.  **Fallback:** Detect title-ish lines (short, Title Case, surrounded by blank lines).
+3.  **Output:** List of `RecipeCandidate` chunks (text + line number range).
 
-Milestone 7 adds tests, fixtures, and documentation. Create fixture text files under tests/fixtures/text/ covering: single-recipe .txt, single-recipe .md with frontmatter, multi-recipe .md with headings, multi-recipe with explicit delimiters, poorly formatted copy-paste. Add golden outputs and pytest tests.
+### Phase 3: Structure Recovery (Milestone 3)
+
+**Goal:** Parse each candidate chunk into fields (Deterministic First).
+
+1.  **Frontmatter:** If file/chunk starts with YAML frontmatter (`---`), parse it as metadata (tags, source, servings).
+2.  **Section Detection:**
+    *   **Title:** First non-empty line (or Markdown header).
+    *   **Headers:** Detect lines like "Ingredients", "Directions", "Method", "Notes".
+3.  **Field Extraction:**
+    *   **Ingredients:** Lines within the ingredients block.
+    *   **Instructions:** Lines within directions block (split on numbered lists `1.`, `2)` or blank-line-separated paragraphs).
+    *   **Metadata:** Regex for "Yield:", "Prep time:", "Cook time:".
+4.  **LLM Escalation:** Trigger only if skeleton confidence is low (e.g., no ingredient block found, interwoven text).
+
+### Phase 4: JSON-LD Emission (Milestone 4)
+
+1.  **Emission:**
+    *   Write `staging/recipesage_jsonld/<file_id>/<candidate_id>.jsonld`.
+    *   Include provenance: source file, line numbers, original text chunk.
+2.  **Reporting:**
+    *   Write `manifest.json` with split decisions and parse confidence.
+    *   Flag "needs review" items.
 
 ## Concrete Steps
 
-Work from /home/mcnal/projects/recipeimport with the virtual environment activated.
-
-Install PyYAML if not already present (for frontmatter parsing):
-
-    pip install pyyaml
-
-Create the text importer:
-
-    touch cookimport/plugins/text.py
-
-Register in the plugin registry.
-
-Run tests:
-
-    pytest tests/test_text_importer.py
-
-Verify with CLI:
-
-    cookimport inspect tests/fixtures/text/single_recipe.md
-    cookimport stage tests/fixtures/text --out data/output/text_test
+1.  **Create Plugin:** `touch cookimport/plugins/text.py`.
+2.  **Implement `TextImporter`:**
+    *   `detect`: Check file extensions.
+    *   `inspect`: Print split decision (single vs. multi) and detected sections for the first recipe.
+    *   `convert`: Run full pipeline.
+3.  **Implement `TextNormalizer`:** Encoding handling and whitespace cleanup.
+4.  **Implement `RecipeSplitter`:** Logic for multi-recipe detection and slicing.
+5.  **Implement `TextParser`:** Logic for identifying headers and extracting lists.
 
 ## Validation and Acceptance
 
-The change is accepted when: Running cookimport inspect on a fixture text file prints split mode decision, detected recipe count, and section detection summary. Running cookimport stage produces JSON-LD files and a report. Each JSON-LD includes @id, name, recipeIngredient, recipeInstructions, and provenance with source file and character offsets. The report lists split decision, recipe count, parse confidence, and any warnings. Pytest tests pass and verify normalization, split detection, and field extraction.
-
-## Idempotence and Recovery
-
-Stable @id as urn:recipeimport:text:<file_hash>:<candidate_idx>. Intermediate artifacts (_raw_text, _normalized_text, _candidates) enable debugging and resumption. Errors in one file do not stop processing of others.
-
-## Artifacts and Notes
-
-Example frontmatter handling:
-
-    ---
-    source: "Grandma's Recipe Box"
-    author: "Grandma"
-    tags: ["dessert", "holiday"]
-    servings: 12
-    ---
-
-    # Pumpkin Pie
-
-    ## Ingredients
-    - 1 can pumpkin puree
-    ...
-
-Becomes:
-
-    {
-      "@id": "urn:recipeimport:text:abc123:0",
-      "name": "Pumpkin Pie",
-      "author": "Grandma",
-      "keywords": ["dessert", "holiday"],
-      "recipeYield": "12",
-      "recipeIngredient": ["1 can pumpkin puree", ...],
-      "recipeimport:provenance": {
-        "file_path": "...",
-        "source_meta": {"source": "Grandma's Recipe Box"},
-        "start_offset": 95,
-        "end_offset": 1523
-      }
-    }
-
-Example split decision diagnostic:
-
-    {
-      "file": "family_recipes.txt",
-      "split_mode": "multi_recipe",
-      "confidence": 0.9,
-      "reasons": [
-        "found_repeated_section_headers",
-        "file_length_exceeds_threshold"
-      ],
-      "candidate_count": 5
-    }
+*   `cookimport inspect` correctly identifies "multi-recipe" files and prints the count.
+*   `cookimport stage` correctly splits a multi-recipe Markdown file into separate JSON-LD files.
+*   YAML frontmatter is correctly parsed into metadata fields.
+*   Provenance data includes accurate line number ranges for tracing back to the source file.
 
 ## Interfaces and Dependencies
 
-Dependencies: pyyaml for frontmatter parsing (already in project for mapping files).
-
-In cookimport/plugins/text.py:
-
-    from pathlib import Path
-    from cookimport.plugins.base import Importer
-    from cookimport.core.models import WorkbookInspection, MappingConfig, ConversionResult
-
-    class TextImporter:
-        name = "text"
-
-        def detect(self, path: Path) -> float:
-            """Return 0.85 for .txt/.md files."""
-            ...
-
-        def inspect(self, path: Path) -> WorkbookInspection:
-            """Normalize, detect split mode, return summary."""
-            ...
-
-        def convert(self, path: Path, mapping: MappingConfig | None) -> ConversionResult:
-            """Full normalization, splitting, parsing, JSON-LD emission."""
-            ...
-
-        def _normalize_text(self, path: Path) -> tuple[str, dict]:
-            """Read, decode, normalize. Return (text, metadata)."""
-            ...
-
-        def _detect_split_mode(self, text: str) -> tuple[str, float, list[str]]:
-            """Return (mode, confidence, reasons). mode is 'single' or 'multi'."""
-            ...
-
-        def _split_into_candidates(self, text: str, mode: str) -> list[dict]:
-            """Split text into candidate chunks with offsets."""
-            ...
-
-        def _parse_candidate(self, chunk: str, offset: int) -> RecipeCandidate:
-            """Extract title, ingredients, instructions, metadata from chunk."""
-            ...
-
-        def _parse_frontmatter(self, text: str) -> tuple[dict, str]:
-            """Extract YAML frontmatter if present, return (metadata, remaining_text)."""
-            ...
-
-Section header aliases for detection:
-
-    INGREDIENT_HEADERS = {"ingredients", "ingredient list", "you'll need", "what you need"}
-    INSTRUCTION_HEADERS = {"directions", "instructions", "method", "steps", "preparation", "how to make"}
-    NOTE_HEADERS = {"notes", "tips", "variations", "headnote", "description"}
-
-MappingConfig extensions for text files: explicit_delimiter (string to use for splitting), assume_single_recipe (bool to skip split detection), section_header_overrides (dict to add custom header aliases).
+*   **PyYAML:** For parsing optional frontmatter.
+*   **Regex:** Heavy use for splitting and header detection.

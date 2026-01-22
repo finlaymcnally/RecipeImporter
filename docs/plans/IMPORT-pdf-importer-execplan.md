@@ -1,5 +1,5 @@
 ---
-summary: "ExecPlan for the PDF cookbook import engine (pre-OCR'd PDFs)."
+summary: "ExecPlan for the PDF cookbook import engine."
 read_when:
   - When implementing the PDF import engine
 ---
@@ -12,7 +12,7 @@ This plan must be maintained in accordance with docs/PLANS.md from the repositor
 
 ## Purpose / Big Picture
 
-After this change, a user can point the cookimport CLI at a folder containing PDF cookbooks (already OCR'd or with selectable text) and receive RecipeSage JSON-LD files plus a per-book report. The importer extracts text blocks with coordinates from each page, reconstructs reading order across columns, detects recipe boundaries, and emits one JSON-LD file per recipe. Success is visible by staging/recipesage_jsonld/<book>/<recipe>.json files, staging/reports/<book>.pdf_import_report.json, and work/<book_id>/pages/*.blocks.json debug artifacts.
+After this change, a user can point the cookimport CLI at a folder containing PDF files (primarily OCR'd or text-based) and receive RecipeSage JSON-LD files plus a per-book report. The importer will extract text with layout awareness, reconstruct reading order (columns, sidebars), detect recipe boundaries, and emit structured recipe candidates. Success is visible by the presence of staging/recipesage_jsonld/<book>/<recipe>.json files and staging/reports/<book>.pdf_import_report.json.
 
 ## Progress
 
@@ -24,20 +24,16 @@ After this change, a user can point the cookimport CLI at a folder containing PD
 
 ## Decision Log
 
-- Decision: Use PyMuPDF (fitz) as the primary PDF extraction library.
-  Rationale: PyMuPDF provides block-level extraction with bounding boxes, font info, and is faster than pdfplumber for large files. Coordinates enable column detection and reading order reconstruction.
+- Decision: Use PyMuPDF (fitz) for local, layout-aware block extraction.
+  Rationale: It provides bounding boxes (bbox) and font metadata, which are essential for reconstructing reading order in multi-column layouts, unlike simple text extraction.
   Date/Author: 2026-01-21 / Initial Plan
 
-- Decision: Implement custom reading order reconstruction using column detection heuristics before recipe detection.
-  Rationale: PDF text extraction often interleaves columns. Cookbook PDFs frequently use two-column layouts; correct reading order is essential for coherent recipes.
+- Decision: Implement a "page stream" abstraction that orders blocks before recipe detection.
+  Rationale: Cookbooks often have complex layouts (sidebars, 2-3 columns). Solving "reading order" first simplifies the downstream logic to just "scanning a stream of blocks" for recipe signals.
   Date/Author: 2026-01-21 / Initial Plan
 
-- Decision: User is responsible for OCR before import; this importer assumes text is already extractable.
-  Rationale: User stated they will OCR in advance. This keeps the importer focused and avoids bundling OCR dependencies.
-  Date/Author: 2026-01-21 / Initial Plan
-
-- Decision: Use deterministic heuristics for recipe detection with LLM escalation only for ambiguous cases.
-  Rationale: Consistent with the EPUB importer approach; saves tokens and provides predictable output.
+- Decision: Use deterministic heuristics for candidate detection (title signals, ingredient patterns) before any LLM use.
+  Rationale: LLMs are slow and expensive for scanning entire books. Fast heuristics can identify likely recipe regions ("candidates") which can then be parsed more intensively if needed.
   Date/Author: 2026-01-21 / Initial Plan
 
 ## Outcomes & Retrospective
@@ -46,132 +42,93 @@ After this change, a user can point the cookimport CLI at a folder containing PD
 
 ## Context and Orientation
 
-The cookimport package has Excel and (after the EPUB plan) EPUB importers. This plan adds a PDF importer at cookimport/plugins/pdf.py following the same Importer protocol.
+This plan adds a PDF importer at cookimport/plugins/pdf.py. It follows the standard Importer protocol. Unlike Excel or EPUB, PDFs lack semantic structure (no "cells" or "tags"), so the core challenge is **Geometric Layout Analysis**: turning a bag of positioned words into a coherent stream of text blocks.
 
-Key terms used in this plan:
-
-A Block is a text region extracted from a PDF page with bounding box coordinates (x0, y0, x1, y1), text content, and style information (font size, bold-ish flag). Blocks are the atomic unit for reading order and recipe detection. Reading Order is the sequence of blocks as they should be read, accounting for multi-column layouts. Column Detection is the process of clustering blocks by their x-position to identify left/right columns, then ordering blocks top-to-bottom within each column, columns left-to-right. A RecipeCandidate is a contiguous sequence of blocks (possibly spanning pages) that likely represents one recipe.
-
-PDFs present unique challenges: text blocks may be out of order, columns interleave, headers/footers repeat, and sidebars contain tips or variations. The importer must handle these deterministically before attempting recipe segmentation.
+Key terms:
+*   **Block:** A unit of text with a bounding box (x0, y0, x1, y1), font info, and text content.
+*   **Page Stream:** A linear sequence of blocks for a page, sorted by reading order (e.g., Column 1 Top-to-Bottom -> Column 2 Top-to-Bottom).
+*   **Candidate:** A span of blocks (potentially crossing page boundaries) identified as a single recipe.
 
 ## Plan of Work
 
-Milestone 1 establishes PDF extraction and block representation. Create cookimport/plugins/pdf.py with the Importer protocol. Implement detect to return high confidence for .pdf files. Implement _extract_pages that uses PyMuPDF to load each page and extract blocks with get_text("dict") or get_text("blocks"). For each block, capture: page number, block index, bounding box, text, font size median, bold-ish flag (based on font name or weight), and block kind (text/image). Write per-page block files to work/<book_id>/pages/0001.blocks.json for debugging.
+### Phase 1: Ingest & Layout Extraction (Milestone 1)
 
-Milestone 2 implements cleaning and normalization. Create _clean_blocks that: removes repeating headers/footers (text repeating at top/bottom bands across many pages), fixes hyphenation artifacts (choco-\nlate to chocolate), normalizes ligatures (fi, fl), collapses whitespace, and normalizes bullet characters. Merge adjacent blocks that appear to be the same paragraph (close vertically, same style). This produces fewer, larger, cleaner blocks.
+**Goal:** Turn a PDF into a standardized "Working Folder" with block data.
 
-Milestone 3 implements reading order reconstruction. Create _reconstruct_reading_order that: clusters blocks by x-position to detect 1-3 columns per page, sorts blocks top-to-bottom within each column, orders columns left-to-right, and handles sidebars (small-width, far-right blocks) by flagging them rather than discarding. Output is an ordered block stream per page with column and sidebar annotations.
+1.  **Ingest + Identify:**
+    *   Input: `some_cookbook.pdf`
+    *   Output: `work/<book_id>/` folder with `meta.json` (hash, title guess) and `pages/` (JSON block data).
+2.  **Layout-Aware Extraction (PyMuPDF):**
+    *   Extract blocks -> lines -> spans.
+    *   Normalize into `Block` objects: `{ page, block_id, bbox, text, style: { size, is_bold }, kind }`.
+    *   *Why:* Downstream steps need to know "this block is in the left column" or "this is a margin sidebar".
+3.  **Cleaning (Deterministic):**
+    *   **Header/Footer Removal:** Detect repeating text near top/bottom bands (e.g., y < 60px) and drop them.
+    *   **Artifact Fixes:** Fix hyphenation (`choco-\nlate`), ligatures (`ﬁ`->`fi`), and whitespace.
+    *   **Merge Fragments:** Merge adjacent blocks that share style and are vertically close.
 
-Milestone 4 implements recipe candidate detection. Create _detect_candidates that scans the ordered block stream across all pages. Use title signals: font size jump vs page median, bold, centered, short length, followed by ingredient-ish patterns. Use ingredient signals: blocks with many quantity/unit patterns, short lines. Use instruction signals: numbered steps, imperative verbs. Build candidates as block ranges (start_page, start_block, end_page, end_block) with confidence scores. Allow candidates to span pages.
+### Phase 2: Reading Order Reconstruction (Milestone 2)
 
-Milestone 5 implements field extraction. For each candidate, extract: title (highest-scored title block), headnote (blocks before ingredients), ingredients (ingredient-ish blocks, detecting subheaders), instructions (step-ish blocks), and metadata (yield/times via regex). Sidebar blocks within the candidate range become notes/variations. Convert to RecipeCandidate model and emit RecipeSage JSON-LD.
+**Goal:** Turn "soup of blocks" into a reliable reading sequence.
 
-Milestone 6 handles LLM escalation and edge cases. For low-confidence candidates (interleaved ingredients/instructions, unclear boundaries), send block text to LLM with constrained schema for section labeling. Validate with Pydantic. Flag image-heavy pages for manual review or future OCR integration.
+1.  **Column Detection:** Cluster blocks by x-position into 1-3 columns (using x0 distribution gaps).
+2.  **Order Within Columns:** Sort blocks by y0 (top to bottom) within each column, then order columns left-to-right.
+3.  **Sidebars/Callouts:** Identify blocks with distinct properties (narrow width, far-right margin, different font) as `sidebar=true`. Do not discard; keeps them available for notes/variations.
+4.  **Output:** `PageTextStream` (ordered blocks with metadata).
 
-Milestone 7 adds tests, fixtures, and documentation. Create fixture PDFs under tests/fixtures/pdf/ covering: single-column layout, two-column layout, mixed content, header/footer heavy, and sidebar-heavy pages. Add golden outputs and pytest tests.
+### Phase 3: Recipe Candidate Detection (Milestone 3)
+
+**Goal:** Detect start/end boundaries of recipes in the stream.
+
+1.  **Start Signals (Heuristics):**
+    *   **Title:** Font size jump vs. median, bold/all-caps, centered, short length (< 80 chars).
+    *   **Followed by:** "Serves", "Yield", or Ingredient patterns.
+2.  **Content Signals:**
+    *   **Ingredients:** Blocks with many short lines, numbers/fractions (`1/2`, `½`), units (`cup`, `g`, `oz`).
+    *   **Steps:** Numbered lists (`1.`, `Step 1`) or imperative verbs (`Mix`, `Bake`).
+3.  **Candidate Spans:**
+    *   Start at a likely Title.
+    *   Continue until the next strong Title signal.
+    *   Allow crossing page boundaries.
+    *   Store `start_page`, `end_page`, `block_ids`, `confidence`.
+
+### Phase 4: Section Splitting & JSON-LD (Milestone 4)
+
+**Goal:** Parse candidates into fields and emit JSON-LD.
+
+1.  **Deterministic Splitting:**
+    *   **Headnote:** Everything before first ingredient region.
+    *   **Ingredients:** Ingredient-ish region until step-ish region. Detect subheaders ("For the sauce") to create groups.
+    *   **Instructions:** Step-ish region until end.
+    *   **Notes:** Sidebar blocks near the candidate.
+2.  **LLM Escalation (Surgical):**
+    *   *Trigger:* Interleaved ingredients/instructions, multi-column ordering confusion, no clear boundaries.
+    *   *Constraint:* Input ordered blocks; Output JSON identifying block ranges for sections.
+3.  **Emission:**
+    *   Write `staging/recipesage_jsonld/<book_id>/<slug>.jsonld`.
+    *   Include provenance: source file, page range, raw extracted text.
+    *   Write `manifest.json` summarizing valid vs. review-needed recipes.
 
 ## Concrete Steps
 
-Work from /home/mcnal/projects/recipeimport with the virtual environment activated.
-
-Install PyMuPDF:
-
-    pip install pymupdf
-
-Create the PDF importer:
-
-    touch cookimport/plugins/pdf.py
-
-Register in the plugin registry.
-
-Run tests:
-
-    pytest tests/test_pdf_importer.py
-
-Verify with CLI:
-
-    cookimport inspect tests/fixtures/pdf/sample_cookbook.pdf
-    cookimport stage tests/fixtures/pdf --out data/output/pdf_test
+1.  **Dependencies:** `pip install pymupdf` (and `numpy`/`scikit-learn` if needed for clustering).
+2.  **Create Plugin:** `touch cookimport/plugins/pdf.py`.
+3.  **Implement `PdfImporter`:**
+    *   `detect`: Check for `.pdf` header.
+    *   `inspect`: Run extraction on first 10 pages, print layout guess (1-col vs 2-col).
+    *   `convert`: Full pipeline execution.
+4.  **Implement `LayoutAnalyzer`:** Logic for column clustering and sorting.
+5.  **Implement `RecipeSegmenter`:** Logic for scanning the block stream for titles/ingredients.
 
 ## Validation and Acceptance
 
-The change is accepted when: Running cookimport inspect on a fixture PDF prints page count, detected recipe count, column layout summary, and writes a mapping stub. Running cookimport stage produces JSON-LD files and a report. Each JSON-LD includes @id, name, recipeIngredient, recipeInstructions, and provenance with source file, page range, and block indices. The report lists recipe counts, page coverage, low-confidence candidates, and skipped pages. Pytest tests pass and verify block extraction, reading order reconstruction, and candidate detection.
-
-## Idempotence and Recovery
-
-Stable @id as urn:recipeimport:pdf:<file_hash>:<recipe_slug>. Work directory artifacts (pages/*.blocks.json) enable resumption. Errors in one file do not stop processing of other files.
-
-## Artifacts and Notes
-
-Example block from pages/0012.blocks.json:
-
-    {
-      "page": 12,
-      "block_idx": 7,
-      "bbox": [72.0, 150.0, 280.0, 180.0],
-      "text": "Classic Tomato Soup",
-      "style": {
-        "font_size_med": 18.0,
-        "is_boldish": true
-      },
-      "column": 0,
-      "is_sidebar": false
-    }
-
-Example reading order output showing cross-column ordering:
-
-    Page 12: [block_7 (col0), block_8 (col0), block_9 (col0), block_3 (col1), block_4 (col1)]
+*   `cookimport inspect` accurately identifies column layout on test PDFs.
+*   `cookimport stage` produces valid JSON-LD files for standard layouts (1-col and 2-col).
+*   Provenance data accurately links back to specific page numbers and bounding boxes.
+*   Review HTML (optional) shows the PDF page with bounding boxes overlaying the detected recipe.
 
 ## Interfaces and Dependencies
 
-Dependencies: pymupdf (fitz) for PDF parsing and block extraction.
-
-In cookimport/plugins/pdf.py:
-
-    from pathlib import Path
-    import fitz  # PyMuPDF
-    from cookimport.plugins.base import Importer
-    from cookimport.core.models import WorkbookInspection, MappingConfig, ConversionResult
-
-    class PdfImporter:
-        name = "pdf"
-
-        def detect(self, path: Path) -> float:
-            """Return 0.9 for .pdf files."""
-            ...
-
-        def inspect(self, path: Path) -> WorkbookInspection:
-            """Extract blocks, detect layout, return summary."""
-            ...
-
-        def convert(self, path: Path, mapping: MappingConfig | None) -> ConversionResult:
-            """Full extraction, candidate detection, field extraction."""
-            ...
-
-        def _extract_pages(self, path: Path, work_dir: Path) -> list[Path]:
-            """Extract blocks from each page, write to work_dir/pages/."""
-            ...
-
-        def _clean_blocks(self, blocks: list[dict]) -> list[dict]:
-            """Remove headers/footers, fix hyphenation, merge paragraphs."""
-            ...
-
-        def _detect_columns(self, blocks: list[dict]) -> list[dict]:
-            """Cluster by x-position, assign column indices."""
-            ...
-
-        def _reconstruct_reading_order(self, blocks: list[dict]) -> list[dict]:
-            """Order blocks by column then y-position."""
-            ...
-
-        def _detect_candidates(self, ordered_blocks: list[dict]) -> list[dict]:
-            """Find recipe boundaries across pages."""
-            ...
-
-        def _extract_fields(self, blocks: list[dict], candidate: dict) -> RecipeCandidate:
-            """Extract title, ingredients, instructions from block range."""
-            ...
-
-The Block schema for PDFs includes: page (int), block_idx (int), bbox (list of 4 floats), text (str), style (dict with font_size_med, is_boldish), column (int), is_sidebar (bool).
-
-Column detection parameters (configurable via mapping): min_column_gap (pixels between columns), sidebar_max_width (max width for sidebar classification), header_footer_band_height (pixels from top/bottom to check for repeating content).
+*   **PyMuPDF (fitz):** Primary extraction engine.
+*   **Block Model:** Shared with EPUB importer (see `cookimport.core.models` or equivalent).
+*   **Clustering:** Simple 1D clustering for column detection (can be custom heuristic or `sklearn.cluster.KMeans` if deps allow).
