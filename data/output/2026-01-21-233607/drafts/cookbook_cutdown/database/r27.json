@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "(finely chopped)",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 red onion (finely chopped)"
         },
         {
@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "(finely chopped)",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 red bell pepper (finely chopped)"
         },
         {
@@ -45,7 +45,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "(minced)",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 garlic cloves (minced)"
         },
         {
@@ -57,7 +57,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 cup Bob's Red Mill brown rice"
         },
         {
@@ -69,7 +69,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 cup Bob's Red Mill brown lentils"
         },
         {
@@ -81,7 +81,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 1/2 cups vegetable broth"
         },
         {
@@ -93,7 +93,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 can petite diced tomatoes (15 oz.)"
         },
         {
@@ -105,7 +105,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 can diced green chiles (4 oz.)"
         },
         {
@@ -117,7 +117,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 Tbsp taco seasoning"
         },
         {
@@ -129,7 +129,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tsp dried oregano"
         },
         {
@@ -141,7 +141,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tsp kosher salt"
         },
         {
@@ -153,7 +153,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 tsp Black pepper"
         },
         {
@@ -165,7 +165,7 @@
           "is_optional": false,
           "note": "(I prefer mozzarella and sharp cheddar)",
           "preparation": "shredded",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cups shredded cheese (I prefer mozzarella and sharp cheddar)"
         },
         {
@@ -177,7 +177,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup chopped fresh cilantro (for topping)"
         }
       ],
@@ -194,7 +194,7 @@
           "is_optional": false,
           "note": "(I prefer mozzarella and sharp cheddar)",
           "preparation": "shredded",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cups shredded cheese (I prefer mozzarella and sharp cheddar)"
         }
       ],
@@ -211,7 +211,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup chopped fresh cilantro (for topping)"
         }
       ],

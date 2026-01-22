@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "cored and diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large red bell pepper, cored and diced"
         },
         {
@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "halved through length and sliced fairly thin",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 medium carrots, halved through length and sliced fairly thin"
         },
         {
@@ -45,7 +45,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "halved through the length and sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 medium zucchini, halved through the length and sliced"
         }
       ],
@@ -62,7 +62,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 Tbsp olive oil, divided"
         },
         {
@@ -95,7 +95,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 Tbsp olive oil, divided"
         },
         {
@@ -107,7 +107,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tsp minced garlic (2 cloves)"
         },
         {
@@ -119,7 +119,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tsp ground coriander"
         },
         {
@@ -131,7 +131,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 tsp ground cinnamon"
         }
       ],
@@ -148,7 +148,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 1/3 cups dry couscous"
         },
         {
@@ -160,7 +160,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 tsp turmeric"
         },
         {
@@ -172,7 +172,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 cup raisins"
         }
       ],
@@ -189,7 +189,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 1/3 cups dry couscous"
         },
         {
@@ -201,7 +201,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "drained and rinsed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (14 oz) can chick peas, drained and rinsed"
         },
         {
@@ -213,7 +213,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "slivered, toasted",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 cup slivered almonds, toasted"
         },
         {
@@ -225,7 +225,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 Tbsp minced fresh cilantro"
         }
       ],

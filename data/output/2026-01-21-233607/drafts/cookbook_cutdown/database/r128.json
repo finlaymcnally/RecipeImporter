@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon olive oil"
         },
         {
@@ -45,7 +45,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "peeled and sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "5 carrots, peeled and sliced"
         },
         {
@@ -57,7 +57,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1.5 teaspoons dried parsley"
         },
         {
@@ -69,7 +69,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 teaspoon white pepper*"
         },
         {
@@ -81,7 +81,7 @@
           "is_optional": true,
           "note": "such as asparagus, zucchini, etc. (optional)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2-1 pound of lighter vegetables such as asparagus, zucchini, etc. (optional)"
         }
       ],
@@ -102,7 +102,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 cup orzo"
         }
       ],
@@ -123,7 +123,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "48oz chicken broth (6 cups)"
         },
         {
@@ -135,7 +135,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 cup orzo"
         }
       ],

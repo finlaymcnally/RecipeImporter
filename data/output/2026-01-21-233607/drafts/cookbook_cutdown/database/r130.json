@@ -29,7 +29,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "7 cups water"
         },
         {
@@ -41,7 +41,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sorted and rinsed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 package (16 ounces) dried split peas (2 1/4 cups), sorted and rinsed"
         },
         {
@@ -53,7 +53,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon salt"
         },
         {
@@ -65,7 +65,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 teaspoon pepper"
         },
         {
@@ -77,7 +77,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "cut into 1/4 inch slices",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 medium carrots, cut into 1/4-inch slices (1 1/2 cups)"
         },
         {
@@ -89,7 +89,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "finely chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 medium stalks celery, finely chopped (1 cup)"
         },
         {
@@ -101,7 +101,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 medium onion, chopped (1/2 cup)"
         },
         {
@@ -113,7 +113,7 @@
           "is_optional": false,
           "note": "2 pounds ham shanks or 2 pounds smoked pork hocks",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 ham bone, 2 pounds ham shanks or 2 pounds smoked pork hocks"
         }
       ],
@@ -134,7 +134,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sorted and rinsed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 package (16 ounces) dried split peas (2 1/4 cups), sorted and rinsed"
         }
       ],

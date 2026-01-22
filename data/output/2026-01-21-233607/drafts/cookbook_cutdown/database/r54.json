@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tbs olive oil"
         },
         {
@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 cloves garlic, minced"
         },
         {
@@ -45,7 +45,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tsp cumin"
         },
         {
@@ -57,7 +57,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tsp dried oregano"
         }
       ],
@@ -74,7 +74,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 lb boneless skinless chicken thighs"
         },
         {
@@ -86,7 +86,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 - 15 oz can green enchilada sauce"
         },
         {
@@ -110,7 +110,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cups chicken broth,"
         }
       ],
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 lb boneless skinless chicken thighs"
         },
         {
@@ -139,7 +139,7 @@
           "is_optional": false,
           "note": "to taste",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "salt and pepper, to taste"
         }
       ],

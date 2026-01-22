@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (14.5 oz) can low-sodium chicken broth"
         }
       ],
@@ -38,7 +38,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (14.5 oz) can low-sodium chicken broth"
         }
       ],
@@ -55,7 +55,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 1/2 cups all-purpose flour"
         },
         {
@@ -67,7 +67,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 1/2 tsp baking powder"
         },
         {
@@ -79,7 +79,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 tsp salt"
         },
         {
@@ -91,7 +91,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "freshly ground",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 tsp freshly ground black pepper"
         },
         {
@@ -103,7 +103,7 @@
           "is_optional": false,
           "note": "(use 1/2 tsp for a slightly stronger garlic flavor)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 tsp garlic powder (use 1/2 tsp for a slightly stronger garlic flavor)"
         },
         {
@@ -115,7 +115,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/8 tsp cayenne pepper (optional)"
         },
         {
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "cold and diced into small cubes",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup butter , cold and diced into small cubes"
         },
         {
@@ -139,7 +139,7 @@
           "is_optional": false,
           "note": "packed",
           "preparation": "finely shredded",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 oz . finely shredded Parmesan cheese (about 1/2 cup packed)"
         },
         {
@@ -151,7 +151,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 cup + 2 Tbsp heavy cream"
         }
       ],
@@ -168,7 +168,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 Tbsp butter"
         },
         {
@@ -180,7 +180,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/3 cup all-purpose flour"
         },
         {
@@ -192,7 +192,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 1/2 tsp baking powder"
         },
         {
@@ -204,7 +204,7 @@
           "is_optional": false,
           "note": "(use 1/2 tsp for a slightly stronger garlic flavor)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 tsp garlic powder (use 1/2 tsp for a slightly stronger garlic flavor)"
         },
         {
@@ -216,7 +216,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/8 tsp cayenne pepper (optional)"
         },
         {
@@ -228,7 +228,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "cold and diced into small cubes",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup butter , cold and diced into small cubes"
         }
       ],
@@ -245,7 +245,7 @@
           "is_optional": false,
           "note": "packed",
           "preparation": "finely shredded",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 oz . finely shredded Parmesan cheese (about 1/2 cup packed)"
         },
         {
@@ -257,7 +257,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 cup + 2 Tbsp heavy cream"
         }
       ],
@@ -278,7 +278,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 Tbsp olive oil"
         },
         {
@@ -290,7 +290,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "peeled and diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup peeled and diced carrots (about 2 large carrots)"
         },
         {
@@ -302,7 +302,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 cup diced celery (about 2 large stalks)"
         },
         {
@@ -314,7 +314,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "finely diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 cup finely diced yellow onion (about 1/2 medium onion)"
         }
       ],
@@ -331,7 +331,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 Tbsp butter"
         },
         {
@@ -343,7 +343,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/3 cup all-purpose flour"
         },
         {
@@ -355,7 +355,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "cold and diced into small cubes",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup butter , cold and diced into small cubes"
         }
       ],
@@ -372,7 +372,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tsp lemon juice"
         },
         {
@@ -384,7 +384,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 1/2 tsp dried parsley"
         },
         {
@@ -396,7 +396,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "freshly ground",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 tsp freshly ground black pepper"
         },
         {
@@ -408,7 +408,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/8 tsp cayenne pepper (optional)"
         }
       ],
@@ -425,7 +425,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2/3 cup frozen peas"
         }
       ],
@@ -442,7 +442,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 1/2 cups all-purpose flour"
         },
         {
@@ -454,7 +454,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 1/2 tsp baking powder"
         },
         {
@@ -466,7 +466,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 tsp salt"
         },
         {
@@ -478,7 +478,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "freshly ground",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 tsp freshly ground black pepper"
         },
         {
@@ -490,7 +490,7 @@
           "is_optional": false,
           "note": "(use 1/2 tsp for a slightly stronger garlic flavor)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 tsp garlic powder (use 1/2 tsp for a slightly stronger garlic flavor)"
         },
         {
@@ -502,7 +502,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/8 tsp cayenne pepper (optional)"
         },
         {
@@ -514,7 +514,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "cold and diced into small cubes",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup butter , cold and diced into small cubes"
         },
         {
@@ -526,7 +526,7 @@
           "is_optional": false,
           "note": "packed",
           "preparation": "finely shredded",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 oz . finely shredded Parmesan cheese (about 1/2 cup packed)"
         },
         {
@@ -538,7 +538,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 cup + 2 Tbsp heavy cream"
         }
       ],

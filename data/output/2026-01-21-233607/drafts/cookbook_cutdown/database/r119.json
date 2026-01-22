@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "toasted, crushed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon fennel seed, toasted, crushed"
         },
         {
@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 cup balsamic vinegar, divided"
         },
         {
@@ -45,7 +45,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 Tbsp olive oil, divided"
         },
         {
@@ -57,7 +57,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon salt"
         },
         {
@@ -69,7 +69,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "crushed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon crushed black pepper"
         },
         {
@@ -81,7 +81,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 beef flank steak (about 1 pound)1 ciabatta baguette loaf (about 15 inches)"
         }
       ],
@@ -98,7 +98,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 beef flank steak (about 1 pound)1 ciabatta baguette loaf (about 15 inches)"
         }
       ],
@@ -115,7 +115,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 Tbsp olive oil, divided"
         }
       ],
@@ -132,7 +132,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 cup balsamic vinegar, divided"
         },
         {
@@ -144,7 +144,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 beef flank steak (about 1 pound)1 ciabatta baguette loaf (about 15 inches)"
         },
         {
@@ -156,7 +156,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cups arugula"
         },
         {
@@ -168,7 +168,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "crumbled",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 cup crumbled blue cheese"
         }
       ],

@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (28-ounce) can whole peeled tomatoes"
         }
       ],
@@ -46,7 +46,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (28-ounce) can whole peeled tomatoes"
         },
         {
@@ -58,7 +58,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "grated on microplane grater",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 medium cloves garlic, grated on microplane grater (about 2 teaspoons)"
         },
         {
@@ -70,7 +70,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon dried oregano"
         }
       ],

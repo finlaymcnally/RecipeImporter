@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": "or to taste",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pinch garlic salt, or to taste"
         }
       ],
@@ -46,7 +46,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 onion, chopped"
         },
         {
@@ -58,7 +58,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd pound fresh mushrooms, sliced"
         },
         {
@@ -70,7 +70,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (10.75 ounce) can condensed cream of mushroom soup"
         }
       ],

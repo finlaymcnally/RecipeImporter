@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 teaspoons (12g) baking soda, divided"
         },
         {
@@ -58,7 +58,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 teaspoons (12g) baking soda, divided"
         },
         {
@@ -70,7 +70,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 small stalk celery"
         },
         {
@@ -82,7 +82,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 small carrot"
         },
         {
@@ -94,7 +94,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 medium cloves garlic"
         },
         {
@@ -106,7 +106,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 bay leaves"
         }
       ],
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": "1 generous cup, see note",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 pound dried chickpeas (1 generous cup; 225g); see note"
         },
         {
@@ -139,7 +139,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 small stalk celery"
         },
         {
@@ -151,7 +151,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 small carrot"
         },
         {
@@ -163,7 +163,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 bay leaves"
         }
       ],
@@ -213,7 +213,7 @@
           "is_optional": false,
           "note": "1 generous cup, see note",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 pound dried chickpeas (1 generous cup; 225g); see note"
         },
         {
@@ -225,7 +225,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Extra-virgin olive oil, for serving"
         },
         {
@@ -237,7 +237,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Za'atar, paprika, warmed whole chickpeas, and/or chopped fresh parsley leaves, for serving"
         }
       ],

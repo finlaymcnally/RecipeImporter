@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons paprika"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "freshly ground",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons freshly ground black pepper"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 teaspoons garlic powder"
         },
         {
@@ -61,7 +61,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 teaspoons dried oregano"
         }
       ],
@@ -82,7 +82,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup buttermilk"
         },
         {
@@ -106,7 +106,7 @@
           "is_optional": false,
           "note": "or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
           "preparation": "cut into 10 pieces",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "One whole chicken, about 4 pounds, cut into 10 pieces or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings"
         }
       ],
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup buttermilk"
         },
         {
@@ -139,7 +139,7 @@
           "is_optional": false,
           "note": "or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
           "preparation": "cut into 10 pieces",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "One whole chicken, about 4 pounds, cut into 10 pieces or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings"
         },
         {
@@ -151,7 +151,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1\u20442 cup cornstarch"
         },
         {
@@ -163,7 +163,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon baking powder"
         }
       ],
@@ -184,7 +184,7 @@
           "is_optional": false,
           "note": "or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
           "preparation": "cut into 10 pieces",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "One whole chicken, about 4 pounds, cut into 10 pieces or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings"
         },
         {
@@ -196,7 +196,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cups vegetable shortening or peanut oil"
         }
       ],
@@ -217,7 +217,7 @@
           "is_optional": false,
           "note": "or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
           "preparation": "cut into 10 pieces",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "One whole chicken, about 4 pounds, cut into 10 pieces or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings"
         },
         {
@@ -229,7 +229,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 1\u20442 cups all-purpose flour"
         }
       ],
@@ -262,7 +262,7 @@
           "is_optional": false,
           "note": "or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
           "preparation": "cut into 10 pieces",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "One whole chicken, about 4 pounds, cut into 10 pieces or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings"
         }
       ],
@@ -283,7 +283,7 @@
           "is_optional": false,
           "note": "or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings",
           "preparation": "cut into 10 pieces",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "One whole chicken, about 4 pounds, cut into 10 pieces or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings"
         }
       ],

@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 ribs celery"
         },
         {
@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cloves garlic"
         },
         {
@@ -62,7 +62,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12-16 oz. smoked sausage*"
         },
         {
@@ -74,7 +74,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 boneless, skinless chicken thighs (optional)"
         },
         {
@@ -86,7 +86,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tsp dried oregano"
         },
         {
@@ -98,7 +98,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 Tbsp smoked paprika"
         },
         {
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": "(or one 28 oz can)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 15 oz. cans diced tomatoes (or one 28oz. can)"
         },
         {
@@ -139,7 +139,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 bunch fresh parsley, chopped"
         },
         {
@@ -151,7 +151,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cups chicken broth"
         }
       ],
@@ -172,7 +172,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 boneless, skinless chicken thighs (optional)"
         },
         {
@@ -184,7 +184,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "uncooked",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cups uncooked long grain white rice"
         }
       ],
@@ -201,7 +201,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "uncooked",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cups uncooked long grain white rice"
         },
         {
@@ -213,7 +213,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 green onions, sliced"
         }
       ],

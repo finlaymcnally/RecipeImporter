@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "finely chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup finely chopped red onion"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": "or more to taste",
           "preparation": "seeded and finely chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 jalapeno pepper, seeded and finely chopped - or more to taste"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "(2\" dia), juiced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 lime (2\" dia)s limes, juiced"
         },
         {
@@ -61,7 +61,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "seeded and chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2\u2009\u00bd cups Roma (plum) tomatoes, seeded and chopped"
         },
         {
@@ -73,7 +73,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd cup chopped fresh cilantro"
         },
         {
@@ -85,7 +85,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon salt"
         }
       ],

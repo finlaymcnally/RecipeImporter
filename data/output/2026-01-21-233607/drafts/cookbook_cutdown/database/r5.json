@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "quartered",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 onions, quartered"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 garlic cloves"
         }
       ],
@@ -98,7 +98,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tbsp rapeseed oil"
         }
       ],
@@ -119,7 +119,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cinnamon stick"
         },
         {
@@ -131,7 +131,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tbsp ground coriander"
         },
         {
@@ -143,7 +143,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tsp ground cumin"
         },
         {
@@ -155,7 +155,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tsp ground turmeric"
         },
         {
@@ -167,7 +167,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd tsp fennel seeds"
         },
         {
@@ -179,7 +179,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "750g leg of lamb, diced"
         }
       ],
@@ -200,7 +200,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "400g can chopped tomatoes"
         },
         {
@@ -212,7 +212,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "deseeded and sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 red chilli or green chilli, deseeded and sliced"
         }
       ],
@@ -233,7 +233,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "750g leg of lamb, diced"
         },
         {
@@ -266,7 +266,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tbsp ground coriander"
         },
         {

@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tbs oil"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tsp oil"
         }
       ],
@@ -54,7 +54,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 medium onion, diced"
         },
         {
@@ -66,7 +66,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cloves garlic, minced"
         }
       ],
@@ -83,7 +83,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 medium onion, diced"
         },
         {
@@ -95,7 +95,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cloves garlic, minced"
         }
       ],
@@ -112,7 +112,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tbs oil"
         },
         {
@@ -124,7 +124,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tsp oil"
         }
       ],
@@ -141,7 +141,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped in to 1 inch cubes",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 lb pork shoulder, chopped in to 1 inch cubes"
         }
       ],
@@ -162,7 +162,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tsp sugar"
         },
         {
@@ -174,7 +174,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tbsp red wine vinegar"
         },
         {
@@ -186,7 +186,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 can of diced tomatoes"
         },
         {
@@ -198,7 +198,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tbsp flour"
         }
       ],

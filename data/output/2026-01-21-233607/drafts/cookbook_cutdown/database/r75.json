@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (12 ounce) package dried rice noodles"
         }
       ],
@@ -46,7 +46,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (12 ounce) package dried rice noodles"
         },
         {
@@ -58,7 +58,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 cloves garlic, minced"
         },
         {
@@ -70,7 +70,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "thinly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 small head cabbage, thinly sliced"
         },
         {
@@ -82,7 +82,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc cup soy sauce"
         }
       ],

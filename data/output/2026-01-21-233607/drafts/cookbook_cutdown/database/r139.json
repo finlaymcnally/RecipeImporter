@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": "in total",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 large eggplants (about 1kg in total)"
         }
       ],
@@ -42,7 +42,7 @@
           "is_optional": false,
           "note": "in total",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 large eggplants (about 1kg in total)"
         }
       ],
@@ -59,7 +59,7 @@
           "is_optional": false,
           "note": "in total",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 large eggplants (about 1kg in total)"
         },
         {
@@ -71,7 +71,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 garlic cloves"
         },
         {
@@ -83,7 +83,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "stalks removed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "5g flatleaf parsley, stalks removed"
         },
         {
@@ -95,7 +95,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "30ml lemon juice"
         },
         {
@@ -107,7 +107,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "50ml extra virgin olive oil + extra for serving"
         },
         {
@@ -119,7 +119,7 @@
           "is_optional": false,
           "note": "to taste",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Salt to taste"
         },
         {
@@ -131,7 +131,7 @@
           "is_optional": false,
           "note": "to taste",
           "preparation": "Freshly ground",
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Freshly ground black pepper to taste"
         }
       ],
@@ -148,7 +148,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "stalks removed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "5g flatleaf parsley, stalks removed"
         },
         {
@@ -160,7 +160,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "50ml extra virgin olive oil + extra for serving"
         }
       ],

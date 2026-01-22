@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "peeled",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12 large carrots, peeled"
         }
       ],
@@ -38,7 +38,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "peeled",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12 large carrots, peeled"
         },
         {
@@ -50,7 +50,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "8 tbsp. butter"
         }
       ],
@@ -67,7 +67,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1\u20444 cup maple syrup"
         },
         {

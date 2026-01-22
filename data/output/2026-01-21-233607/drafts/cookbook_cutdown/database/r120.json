@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "6 tablespoons unsalted butter divided"
         }
       ],
@@ -38,7 +38,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 teaspoon kosher salt"
         },
         {
@@ -50,7 +50,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "coarse ground",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 teaspoon coarse ground black pepper"
         },
         {
@@ -62,7 +62,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon Italian seasoning"
         }
       ],
@@ -87,7 +87,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "6 tablespoons unsalted butter divided"
         },
         {
@@ -99,7 +99,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "juiced and zested",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 lemons juiced and zested"
         },
         {
@@ -111,7 +111,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 garlic cloves minced"
         }
       ],
@@ -132,7 +132,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup half and half"
         },
         {
@@ -144,7 +144,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon cornstarch"
         },
         {
@@ -156,7 +156,7 @@
           "is_optional": true,
           "note": "optional, but delicious!",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon chicken base optional, but delicious!"
         }
       ],

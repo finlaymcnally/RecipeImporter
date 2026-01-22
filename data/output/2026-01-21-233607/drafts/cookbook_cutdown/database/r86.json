@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 teaspoon (4g) baking soda"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": false,
           "note": "sixths, depending on size (see note)",
           "preparation": "peeled and cut into quarters",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 pounds (about 2kg) russet or Yukon Gold potatoes, peeled and cut into quarters, sixths, or eighths, depending on size (see note)"
         }
       ],
@@ -70,7 +70,7 @@
           "is_optional": false,
           "note": "duck fat",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "5 tablespoons (75ml) extra-virgin olive oil, duck fat, goose fat, or beef fat"
         },
         {
@@ -82,7 +82,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 medium cloves garlic, minced"
         },
         {
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": "sixths, depending on size (see note)",
           "preparation": "peeled and cut into quarters",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 pounds (about 2kg) russet or Yukon Gold potatoes, peeled and cut into quarters, sixths, or eighths, depending on size (see note)"
         },
         {
@@ -160,7 +160,7 @@
           "is_optional": false,
           "note": "sixths, depending on size (see note)",
           "preparation": "peeled and cut into quarters",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 pounds (about 2kg) russet or Yukon Gold potatoes, peeled and cut into quarters, sixths, or eighths, depending on size (see note)"
         }
       ],
@@ -181,7 +181,7 @@
           "is_optional": false,
           "note": "sixths, depending on size (see note)",
           "preparation": "peeled and cut into quarters",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 pounds (about 2kg) russet or Yukon Gold potatoes, peeled and cut into quarters, sixths, or eighths, depending on size (see note)"
         },
         {
@@ -193,7 +193,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 medium cloves garlic, minced"
         },
         {

@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "peeled and cut into 1-2 inch chunks",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 large Russet or Yukon Gold potatoes, peeled and cut into 1- to 2-inch chunks"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sliced into 1/4 inch slices",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large onion, sliced into 1/4-inch slices (about 1 1/2 cups)"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": false,
           "note": "or 4 whole chicken legs",
           "preparation": "back removed, cut into 8 pieces, cut into thighs and drumsticks",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 whole chicken, back removed, cut into 8 pieces (about 4 pounds), or 4 whole chicken legs, cut into thighs and drumsticks"
         },
         {
@@ -61,7 +61,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 bay leaves"
         }
       ],

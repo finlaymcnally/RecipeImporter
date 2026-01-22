@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tbsp. extra-virgin olive oil"
         },
         {
@@ -74,7 +74,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cloves garlic, minced"
         },
         {
@@ -86,7 +86,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 c. heavy cream"
         },
         {
@@ -98,7 +98,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 c. chopped sun-dried tomatoes"
         },
         {
@@ -110,7 +110,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "freshly grated",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 c. freshly grated Parmesan"
         }
       ],
@@ -131,7 +131,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "Freshly torn",
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Freshly torn basil, for serving"
         }
       ],

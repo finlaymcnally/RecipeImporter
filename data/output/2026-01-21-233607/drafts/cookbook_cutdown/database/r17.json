@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "grated",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon grated lemon rind"
         },
         {
@@ -45,7 +45,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 teaspoon ground allspice"
         },
         {
@@ -57,7 +57,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 teaspoon vanilla"
         },
         {
@@ -69,7 +69,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pinch cinnamon"
         },
         {
@@ -81,7 +81,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 bay leaf"
         }
       ],
@@ -98,7 +98,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons butter"
         },
         {
@@ -110,7 +110,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cloves garlic minced"
         },
         {
@@ -122,7 +122,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "finely chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 onion finely chopped"
         }
       ],
@@ -139,7 +139,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 teaspoon each salt and pepper"
         },
         {
@@ -151,7 +151,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 teaspoon pepper"
         },
         {
@@ -163,7 +163,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 teaspoon ground Szechuan pepper (optional)"
         }
       ],

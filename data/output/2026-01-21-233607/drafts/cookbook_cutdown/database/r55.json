@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": "plus more of needed",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cups low sodium chicken broth plus more of needed"
         },
         {
@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup + 2-4 tablespoons rice vinegar"
         },
         {
@@ -45,7 +45,7 @@
           "is_optional": true,
           "note": "optional",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons fish sauce optional"
         },
         {
@@ -57,7 +57,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons thai red curry paste"
         },
         {
@@ -69,7 +69,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon fresh ginger"
         },
         {
@@ -81,7 +81,7 @@
           "is_optional": false,
           "note": "The juice of",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "The juice of 1 lime"
         },
         {
@@ -93,7 +93,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon Chinese five spice"
         },
         {
@@ -105,7 +105,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon black pepper"
         },
         {
@@ -117,7 +117,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup + 1 tablespoon brown sugar"
         },
         {
@@ -129,7 +129,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon brown sugar"
         }
       ],
@@ -146,7 +146,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2-3 pounds pork shoulder roast or butt"
         },
         {
@@ -170,7 +170,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "seeded + diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 medium acorn squash seeded + diced"
         }
       ],
@@ -187,7 +187,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon black pepper"
         },
         {
@@ -199,7 +199,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup + 1 tablespoon brown sugar"
         },
         {
@@ -223,7 +223,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "melted",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons coconut oil melted"
         },
         {
@@ -235,7 +235,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon brown sugar"
         },
         {
@@ -247,7 +247,7 @@
           "is_optional": false,
           "note": "to taste",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Pepper to taste"
         }
       ],
@@ -264,7 +264,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cups wild mushrooms left whole - or button mushrooms, sliced"
         }
       ],
@@ -281,7 +281,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup + 2-4 tablespoons rice vinegar"
         },
         {
@@ -293,7 +293,7 @@
           "is_optional": true,
           "note": "optional",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons fish sauce optional"
         },
         {
@@ -305,7 +305,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons sesame oil"
         },
         {
@@ -317,7 +317,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup + 1 tablespoon brown sugar"
         },
         {
@@ -329,7 +329,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon brown sugar"
         }
       ],
@@ -346,7 +346,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2-3 pounds pork shoulder roast or butt"
         },
         {
@@ -358,7 +358,7 @@
           "is_optional": false,
           "note": "plus more of needed",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cups low sodium chicken broth plus more of needed"
         },
         {
@@ -370,7 +370,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4-1/2 cup + 2-4 tablespoons low sodium soy sauce <--Use low sodium"
         },
         {
@@ -382,7 +382,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup + 2-4 tablespoons rice vinegar"
         },
         {
@@ -394,7 +394,7 @@
           "is_optional": true,
           "note": "optional",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons fish sauce optional"
         },
         {
@@ -406,7 +406,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons thai red curry paste"
         },
         {
@@ -418,7 +418,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon fresh ginger"
         },
         {
@@ -430,7 +430,7 @@
           "is_optional": false,
           "note": "or to taste",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon sambal oelek chili paste, or to taste"
         },
         {
@@ -442,7 +442,7 @@
           "is_optional": false,
           "note": "The juice of",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "The juice of 1 lime"
         },
         {
@@ -454,7 +454,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon Chinese five spice"
         },
         {
@@ -466,7 +466,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon black pepper"
         },
         {
@@ -478,7 +478,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons sesame oil"
         },
         {
@@ -490,7 +490,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup + 1 tablespoon brown sugar"
         },
         {
@@ -502,7 +502,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cups wild mushrooms left whole - or button mushrooms, sliced"
         },
         {
@@ -514,7 +514,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "discarded",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 packs Ramen noodles seasoning packets discarded"
         },
         {
@@ -526,7 +526,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "boiled or fried",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 soft boiled or fried eggs for serving"
         },
         {
@@ -538,7 +538,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "Chopped, sliced",
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Chopped carrots sliced jalapenos, cilantro + green onions, for serving"
         },
         {
@@ -562,7 +562,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "seeded + diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 medium acorn squash seeded + diced"
         },
         {
@@ -574,7 +574,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "melted",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons coconut oil melted"
         },
         {
@@ -586,7 +586,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon curry powder I use spicy curry"
         },
         {
@@ -598,7 +598,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon white miso paste"
         },
         {
@@ -610,7 +610,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon brown sugar"
         },
         {
@@ -622,7 +622,7 @@
           "is_optional": false,
           "note": "to taste",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Pepper to taste"
         }
       ],

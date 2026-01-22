@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cups leftover mashed potatoes"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup gluten free panko crumbs"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": true,
           "note": "plus more for topping (optional)",
           "preparation": "shredded",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 cup shredded sharp cheddar cheese, plus more for topping (optional)"
         },
         {
@@ -61,7 +61,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup milk"
         },
         {
@@ -73,7 +73,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "lightly beaten",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 eggs, lightly beaten"
         },
         {
@@ -85,7 +85,7 @@
           "is_optional": false,
           "note": "to taste",
           "preparation": "fresh ground",
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "salt and fresh ground pepper, to taste"
         },
         {
@@ -97,7 +97,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 teaspoon garlic powder"
         },
         {
@@ -109,7 +109,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 teaspoon dried oregano"
         },
         {
@@ -121,7 +121,7 @@
           "is_optional": false,
           "note": "or to taste, plus more for serving",
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon chopped fresh chives, or to taste, plus more for serving"
         },
         {
@@ -133,7 +133,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 teaspoon baking powder"
         },
         {
@@ -145,7 +145,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 teaspoon baking soda"
         },
         {
@@ -169,7 +169,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "sour cream, for serving (optional)"
         }
       ],
@@ -194,7 +194,7 @@
           "is_optional": true,
           "note": "plus more for topping (optional)",
           "preparation": "shredded",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 cup shredded sharp cheddar cheese, plus more for topping (optional)"
         }
       ],
@@ -215,7 +215,7 @@
           "is_optional": false,
           "note": "or to taste, plus more for serving",
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon chopped fresh chives, or to taste, plus more for serving"
         },
         {
@@ -227,7 +227,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "sour cream, for serving (optional)"
         }
       ],

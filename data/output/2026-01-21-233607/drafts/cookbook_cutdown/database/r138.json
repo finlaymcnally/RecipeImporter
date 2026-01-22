@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "drained and cubed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12 oz. feta cheese drained and cubed"
         },
         {
@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "drained",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 oz. roasted red bell peppers drained"
         },
         {
@@ -45,7 +45,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup fresh mint leaves"
         },
         {
@@ -57,7 +57,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup olive oil"
         },
         {
@@ -69,7 +69,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 small cloves garlic"
         },
         {
@@ -81,7 +81,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 Tbsp. fresh lemon juice"
         },
         {
@@ -93,7 +93,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 tsp. red pepper flakes"
         }
       ],
@@ -110,7 +110,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 Tbsp. fresh lemon juice"
         }
       ],

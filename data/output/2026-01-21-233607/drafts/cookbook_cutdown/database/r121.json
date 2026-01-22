@@ -29,7 +29,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 \u00bd lbs. boneless skinless chicken"
         }
       ],
@@ -46,7 +46,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u2153 cup brown sugar"
         },
         {
@@ -58,7 +58,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc cup ketchup"
         },
         {
@@ -70,7 +70,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u2153 cup soy sauce"
         },
         {
@@ -82,7 +82,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc cup apple juice"
         },
         {
@@ -94,7 +94,7 @@
           "is_optional": false,
           "note": "(or broth if you don't want to use bourbon)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd cup bourbon (or broth if you don't want to use bourbon)"
         },
         {
@@ -106,7 +106,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tsp. cornstarch"
         },
         {
@@ -118,7 +118,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd tsp. black pepper"
         }
       ],
@@ -135,7 +135,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 \u00bd lbs. boneless skinless chicken"
         }
       ],
@@ -164,7 +164,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 \u00bd lbs. boneless skinless chicken"
         },
         {
@@ -176,7 +176,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u2153 cup soy sauce"
         }
       ],

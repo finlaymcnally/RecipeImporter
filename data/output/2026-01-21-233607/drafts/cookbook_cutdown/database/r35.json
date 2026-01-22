@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "partially peeled (thoroughly washed)",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 pounds yukon gold potatoes, partially peeled (thoroughly washed)"
         },
         {
@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": "(to taste)",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Salt and pepper (to taste)"
         }
       ],
@@ -50,7 +50,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3-4 Tbsp vegan butter"
         },
         {
@@ -62,7 +62,7 @@
           "is_optional": false,
           "note": "(to taste)",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Salt and pepper (to taste)"
         }
       ],
@@ -79,7 +79,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "partially peeled (thoroughly washed)",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 pounds yukon gold potatoes, partially peeled (thoroughly washed)"
         }
       ],
@@ -96,7 +96,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "(minced)",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cloves garlic (minced)"
         }
       ],
@@ -113,7 +113,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "uncooked, (rinsed and drained)",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 1/2 cups uncooked brown or green lentils (rinsed and drained)"
         },
         {
@@ -125,7 +125,7 @@
           "is_optional": false,
           "note": "(DIY or store-bought)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cups vegetable stock (DIY or store-bought)"
         },
         {
@@ -137,7 +137,7 @@
           "is_optional": false,
           "note": "(or sub 1 tsp dried thyme per 2 tsp fresh)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tsp fresh thyme (or sub 1 tsp dried thyme per 2 tsp fresh)"
         },
         {
@@ -149,7 +149,7 @@
           "is_optional": false,
           "note": "(to taste)",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Salt and pepper (to taste)"
         }
       ],
@@ -166,7 +166,7 @@
           "is_optional": false,
           "note": "and corn",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 10-ounce bag frozen mixed veggies: peas, carrots, green beans, and corn"
         }
       ],
@@ -183,7 +183,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "partially peeled (thoroughly washed)",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 pounds yukon gold potatoes, partially peeled (thoroughly washed)"
         },
         {
@@ -195,7 +195,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3-4 Tbsp vegan butter"
         },
         {
@@ -207,7 +207,7 @@
           "is_optional": false,
           "note": "(to taste)",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Salt and pepper (to taste)"
         }
       ],
@@ -224,7 +224,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "partially peeled (thoroughly washed)",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 pounds yukon gold potatoes, partially peeled (thoroughly washed)"
         },
         {
@@ -236,7 +236,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3-4 Tbsp vegan butter"
         },
         {
@@ -248,7 +248,7 @@
           "is_optional": false,
           "note": "(to taste)",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Salt and pepper (to taste)"
         }
       ],

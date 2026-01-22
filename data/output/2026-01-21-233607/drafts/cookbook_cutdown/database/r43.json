@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup (65 ml) soy sauce"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 cup (125 ml) white Filipino cane vinegar, or distilled white vinegar"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "smashed with the side of a knife and peeled",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "6\u20138 cloves garlic, smashed with the side of a knife and peeled"
         },
         {
@@ -61,7 +61,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 bay leaves"
         },
         {
@@ -73,7 +73,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons black peppercorns"
         },
         {
@@ -85,7 +85,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup sugarcane vinegar or distilled white vinegar, divided"
         }
       ],
@@ -106,7 +106,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup (65 ml) soy sauce"
         }
       ],
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup (65 ml) soy sauce"
         },
         {
@@ -139,7 +139,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "6 skin-on, bone-in chicken thighs"
         }
       ],
@@ -156,7 +156,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon whole black peppercorns"
         },
         {
@@ -168,7 +168,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons black peppercorns"
         },
         {
@@ -197,7 +197,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup (65 ml) soy sauce"
         }
       ],
@@ -214,7 +214,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup (65 ml) soy sauce"
         },
         {
@@ -226,7 +226,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 cup (125 ml) white Filipino cane vinegar, or distilled white vinegar"
         },
         {
@@ -238,7 +238,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup sugarcane vinegar or distilled white vinegar, divided"
         }
       ],

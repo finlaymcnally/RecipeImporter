@@ -38,7 +38,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 tablespoons olive oil"
         }
       ],
@@ -72,7 +72,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "cooked",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound cooked andouille sausage"
         }
       ],
@@ -89,7 +89,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 tablespoons olive oil"
         }
       ],
@@ -106,7 +106,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 bell peppers, diced"
         }
       ],
@@ -135,7 +135,7 @@
           "is_optional": false,
           "note": "(whole preferred)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "6 cups milk (whole preferred)"
         }
       ],
@@ -164,7 +164,7 @@
           "is_optional": false,
           "note": "plus more for serving",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00be cup parmesan cheese, plus more for serving"
         },
         {
@@ -176,7 +176,7 @@
           "is_optional": false,
           "note": "plus more for serving",
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 tablespoons chopped parsley, plus more for serving"
         }
       ],

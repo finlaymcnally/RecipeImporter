@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound (450g) dried spaghetti"
         }
       ],
@@ -46,7 +46,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 cup (120ml) extra-virgin olive oil, divided"
         },
         {
@@ -58,7 +58,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "thinly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 medium cloves garlic, thinly sliced"
         },
         {
@@ -70,7 +70,7 @@
           "is_optional": true,
           "note": "to taste (optional)",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Red pepper flakes, to taste (optional)"
         },
         {
@@ -82,7 +82,7 @@
           "is_optional": false,
           "note": "as needed",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "-olive oil as needed"
         }
       ],
@@ -103,7 +103,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": "Minced",
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Minced flat-leaf parsley, for serving (optional)"
         },
         {
@@ -115,7 +115,7 @@
           "is_optional": false,
           "note": "as needed",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "-olive oil as needed"
         }
       ],
@@ -172,7 +172,7 @@
           "is_optional": false,
           "note": "sugar as needed",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "-salt/pepper/sugar as needed"
         },
         {
@@ -208,7 +208,7 @@
           "is_optional": false,
           "note": "as needed",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "-olive oil as needed"
         }
       ],

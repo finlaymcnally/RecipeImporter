@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 stick unsalted butter"
         },
         {
@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tsp garlic powder"
         },
         {
@@ -45,7 +45,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 tsp black pepper"
         },
         {
@@ -57,7 +57,7 @@
           "is_optional": true,
           "note": "Optional, or jar of chopped \"heart of",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "Optional: 1 small can or jar of chopped \"heart of artichoke\""
         }
       ],
@@ -74,7 +74,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "shredded",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1lb bag of sharp cheddar cheese, shredded"
         },
         {
@@ -86,7 +86,7 @@
           "is_optional": true,
           "note": "Optional",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "Optional 4-6oz of crumbled blue cheese"
         },
         {
@@ -98,7 +98,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2-3/4 cup of \"fried onions\""
         }
       ],

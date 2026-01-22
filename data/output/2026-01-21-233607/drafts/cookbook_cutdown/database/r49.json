@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 teaspoon extra-virgin olive oil"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large flour tortilla that just fits inside your cast iron skillet"
         }
       ],
@@ -58,7 +58,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large flour tortilla that just fits inside your cast iron skillet"
         },
         {
@@ -70,7 +70,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "thinly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 ounces thinly sliced pepperoni"
         },
         {
@@ -82,7 +82,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "formed into 1/2 inch balls",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 ounces raw Italian sausage, formed into 1/2-inch balls"
         }
       ],
@@ -103,7 +103,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large flour tortilla that just fits inside your cast iron skillet"
         },
         {
@@ -115,7 +115,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "shredded",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 1/2 ounces shredded whole milk low moisture mozzarella cheese"
         },
         {
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "formed into 1/2 inch balls",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 ounces raw Italian sausage, formed into 1/2-inch balls"
         }
       ],

@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 tablespoons butter"
         },
         {
@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 stalks celery, diced"
         },
         {
@@ -45,7 +45,7 @@
           "is_optional": false,
           "note": "Or substitute 2 14.5 ounce cans of diced tomatoes",
           "preparation": "cored, peeled, and quartered",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 pounds tomatoes - cored, peeled, and quartered*Or substitute 2 14.5 ounce cans of diced tomatoes"
         },
         {
@@ -57,7 +57,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon tomato paste"
         }
       ],
@@ -82,7 +82,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup half and half"
         }
       ],

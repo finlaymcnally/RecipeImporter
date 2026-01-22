@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound pork loin or boneless pork chops"
         }
       ],
@@ -46,7 +46,7 @@
           "is_optional": false,
           "note": "(use gluten-free soy sauce if cooking gluten-free)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons soy sauce (use gluten-free soy sauce if cooking gluten-free)"
         },
         {
@@ -58,7 +58,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon sugar"
         },
         {
@@ -70,7 +70,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon cornstarch"
         }
       ],
@@ -87,7 +87,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 tablespoons peanut oil or canola oil"
         },
         {
@@ -99,7 +99,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "thinly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "5 cloves garlic, thinly sliced"
         }
       ],
@@ -120,7 +120,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 teaspoon sesame oil (optional)"
         }
       ],

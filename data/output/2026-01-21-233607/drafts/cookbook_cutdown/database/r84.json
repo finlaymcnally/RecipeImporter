@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "250ml vegetable oil"
         }
       ],
@@ -38,7 +38,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "finely sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "10 large cooking onions \u2013 finely sliced"
         }
       ],
@@ -55,7 +55,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "peeled and chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 carrot - peeled and chopped"
         },
         {
@@ -67,7 +67,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc head of cabbage - chopped"
         }
       ],
@@ -84,7 +84,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon turmeric"
         }
       ],
@@ -113,7 +113,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "400ml (14 US fluid ounces ) chopped tomatoes"
         }
       ],
@@ -138,7 +138,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon garam masala powder"
         },
         {
@@ -150,7 +150,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon cumin powder"
         },
         {
@@ -162,7 +162,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon turmeric"
         }
       ],
@@ -179,7 +179,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 tablespoons ghee (clarified butter)"
         },
         {
@@ -191,7 +191,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon turmeric"
         }
       ],

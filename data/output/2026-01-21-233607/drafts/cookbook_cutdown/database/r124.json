@@ -29,7 +29,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "fat trimmed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pounds of boneless skinless chicken breasts, fat trimmed"
         },
         {
@@ -41,7 +41,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 bell peppers, sliced"
         },
         {
@@ -53,7 +53,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "peeled and sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 small yellow onion, peeled and sliced"
         },
         {
@@ -65,7 +65,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cloves of garlic, minced"
         },
         {
@@ -77,7 +77,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon honey"
         },
         {
@@ -89,7 +89,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon apple cider vinegar"
         },
         {
@@ -101,7 +101,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon chili powder"
         },
         {
@@ -113,7 +113,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 teaspoons cumin"
         },
         {
@@ -125,7 +125,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon paprika"
         },
         {
@@ -137,7 +137,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 teaspoon crushed red pepper flakes"
         }
       ],
@@ -170,7 +170,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 bell peppers, sliced"
         }
       ],

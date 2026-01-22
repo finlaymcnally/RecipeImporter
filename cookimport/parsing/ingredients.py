@@ -11,6 +11,23 @@ from ingredient_parser import parse_ingredient
 from ingredient_parser.dataclasses import ParsedIngredient, IngredientAmount
 
 
+_APPROXIMATE_PATTERNS = (
+    re.compile(r"\bto taste\b"),
+    re.compile(r"\bas needed\b"),
+    re.compile(r"\bas desired\b"),
+    re.compile(r"\bas required\b"),
+    re.compile(r"\bfor serving\b"),
+    re.compile(r"\bfor garnish\b"),
+    re.compile(r"\bfor greasing\b"),
+    re.compile(r"\bfor frying\b"),
+    re.compile(r"\bfor the pan\b"),
+    re.compile(r"\bfor pan\b"),
+    re.compile(r"\bto grease\b"),
+    re.compile(r"\bto oil\b"),
+    re.compile(r"\boil\b.*\bpan\b"),
+)
+
+
 def parse_ingredient_line(text: str) -> dict[str, Any]:
     """Parse an ingredient string into structured components.
 
@@ -22,7 +39,7 @@ def parse_ingredient_line(text: str) -> dict[str, Any]:
 
     Returns:
         Dict with:
-            quantity_kind: "quantified", "unquantified", or "section_header"
+            quantity_kind: "exact", "approximate", "unquantified", or "section_header"
             input_qty: float or None
             input_unit_id: str or None
             input_item: str or None (the ingredient name)
@@ -248,7 +265,12 @@ def _build_result(text: str, parsed: ParsedIngredient) -> dict[str, Any]:
     avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
 
     # Determine quantity kind
-    quantity_kind = "quantified" if input_qty is not None else "unquantified"
+    quantity_kind = _determine_quantity_kind(
+        input_qty=input_qty,
+        raw_text=text,
+        note=note,
+        preparation=preparation,
+    )
 
     return {
         "quantity_kind": quantity_kind,
@@ -281,7 +303,12 @@ def _empty_result(text: str) -> dict[str, Any]:
 def _fallback_result(text: str) -> dict[str, Any]:
     """Return result when parsing fails."""
     return {
-        "quantity_kind": "unquantified",
+        "quantity_kind": _determine_quantity_kind(
+            input_qty=None,
+            raw_text=text,
+            note=None,
+            preparation=None,
+        ),
         "input_qty": None,
         "input_unit_id": None,
         "input_item": text,  # Use raw text as item name
@@ -306,3 +333,32 @@ def _section_header_result(text: str) -> dict[str, Any]:
         "is_optional": False,
         "confidence": 0.0,
     }
+
+
+def _determine_quantity_kind(
+    input_qty: float | None,
+    raw_text: str,
+    note: str | None,
+    preparation: str | None,
+) -> str:
+    if input_qty is not None:
+        return "exact"
+    if _has_approximate_hint(raw_text, note, preparation):
+        return "approximate"
+    return "unquantified"
+
+
+def _has_approximate_hint(
+    raw_text: str,
+    note: str | None,
+    preparation: str | None,
+) -> bool:
+    parts = [raw_text]
+    if note:
+        parts.append(note)
+    if preparation:
+        parts.append(preparation)
+    combined = " ".join(part.strip() for part in parts if part).lower()
+    if not combined:
+        return False
+    return any(pattern.search(combined) for pattern in _APPROXIMATE_PATTERNS)

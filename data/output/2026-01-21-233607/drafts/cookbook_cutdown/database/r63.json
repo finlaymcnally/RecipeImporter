@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": "(any combination of whole black lentils, whole mung beans, whole masoor beans, red lentils, red kidney beans, etc)",
           "preparation": "soaked overnight",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup whole and split lentils (any combination of whole black lentils, whole mung beans, whole masoor beans, red lentils, red kidney beans, etc), soaked overnight"
         },
         {
@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 cups water"
         }
       ],
@@ -50,7 +50,7 @@
           "is_optional": false,
           "note": "(I like avocado oil)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons neutral oil (I like avocado oil)"
         },
         {
@@ -62,7 +62,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon cumin seeds"
         },
         {
@@ -74,7 +74,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large onion, chopped"
         },
         {
@@ -86,7 +86,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 bay leaf"
         }
       ],
@@ -103,7 +103,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 teaspoons minced garlic"
         },
         {
@@ -115,7 +115,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 \u00bd teaspoons minced ginger"
         },
         {
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tomatoes, chopped"
         }
       ],
@@ -144,7 +144,7 @@
           "is_optional": false,
           "note": "(any combination of whole black lentils, whole mung beans, whole masoor beans, red lentils, red kidney beans, etc)",
           "preparation": "soaked overnight",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup whole and split lentils (any combination of whole black lentils, whole mung beans, whole masoor beans, red lentils, red kidney beans, etc), soaked overnight"
         },
         {
@@ -156,7 +156,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 cups water"
         }
       ],
@@ -181,7 +181,7 @@
           "is_optional": false,
           "note": "adjust to taste",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons ghee, adjust to taste"
         },
         {

@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 whole dried ancho chilies"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pounds bone-in, skin-on chicken thighs"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "roughly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 Serrano or jalape\u00f1o pepper, roughly sliced"
         },
         {
@@ -61,7 +61,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "roughly chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound roma tomatoes, roughly chopped (about 4)"
         },
         {
@@ -73,7 +73,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 medium onion, sliced"
         },
         {
@@ -85,7 +85,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "smashed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 medium cloves garlic, smashed"
         },
         {
@@ -97,7 +97,7 @@
           "is_optional": false,
           "note": "plus 2 tablepoons sauce from the can",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 whole canned chipotle chilies packed in adobo, plus 2 tablepoons sauce from the can"
         },
         {
@@ -109,7 +109,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 bay leaf"
         },
         {
@@ -121,7 +121,7 @@
           "is_optional": false,
           "note": "preferably Mexican",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 teaspoons dried oregano, preferably Mexican"
         },
         {
@@ -133,7 +133,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon ground cumin seed"
         },
         {
@@ -145,7 +145,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 teaspoon ground coriander seed"
         },
         {
@@ -157,7 +157,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 cup homemade or store-bought low-sodium chicken stock"
         },
         {
@@ -181,7 +181,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon juice from 1 lime"
         },
         {
@@ -193,7 +193,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon soy sauce"
         },
         {
@@ -205,7 +205,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup chopped fresh cilantro leaves and fine stems"
         },
         {
@@ -229,7 +229,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup canola oil"
         },
         {
@@ -241,7 +241,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12 fresh corn tortillas"
         },
         {
@@ -253,7 +253,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "grated",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 ounces grated Jack or cheddar cheese"
         },
         {
@@ -265,7 +265,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "crumbled",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 ounce crumbled cotija cheese"
         }
       ],
@@ -286,7 +286,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 whole dried ancho chilies"
         },
         {
@@ -298,7 +298,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "roughly chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound roma tomatoes, roughly chopped (about 4)"
         },
         {
@@ -310,7 +310,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 bay leaf"
         },
         {
@@ -322,7 +322,7 @@
           "is_optional": false,
           "note": "preferably Mexican",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 teaspoons dried oregano, preferably Mexican"
         }
       ],
@@ -343,7 +343,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 bay leaf"
         },
         {
@@ -367,7 +367,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon juice from 1 lime"
         },
         {
@@ -379,7 +379,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon soy sauce"
         }
       ],
@@ -400,7 +400,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "roughly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 Serrano or jalape\u00f1o pepper, roughly sliced"
         },
         {
@@ -424,7 +424,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon soy sauce"
         }
       ],
@@ -457,7 +457,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup canola oil"
         },
         {
@@ -469,7 +469,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12 fresh corn tortillas"
         }
       ],
@@ -490,7 +490,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon soy sauce"
         },
         {
@@ -502,7 +502,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12 fresh corn tortillas"
         }
       ],
@@ -523,7 +523,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon soy sauce"
         },
         {
@@ -535,7 +535,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12 fresh corn tortillas"
         },
         {
@@ -547,7 +547,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "grated",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 ounces grated Jack or cheddar cheese"
         },
         {
@@ -559,7 +559,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "crumbled",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 ounce crumbled cotija cheese"
         }
       ],
@@ -580,7 +580,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "crumbled",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 ounce crumbled cotija cheese"
         }
       ],

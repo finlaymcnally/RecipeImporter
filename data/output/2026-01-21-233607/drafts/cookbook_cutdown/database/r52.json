@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": "(pork butt meat)",
           "preparation": "cut into 2-2#1$4 inches cubes",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 \u00bc pounds (~1475g) pork shoulder meat (pork butt meat) , cut into 2 \u2013 2 \u00bc inches cubes"
         }
       ],
@@ -42,7 +42,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "crushed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 (13g) garlic cloves , crushed"
         },
         {
@@ -54,7 +54,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "roughly chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (200g) medium onion , roughly chopped"
         },
         {
@@ -66,7 +66,7 @@
           "is_optional": false,
           "note": "or 1 cinnamon stick",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon (2g) cinnamon powder or 1 cinnamon stick"
         },
         {
@@ -78,7 +78,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 bay leaves"
         },
         {
@@ -90,7 +90,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon (15ml) regular soy sauce"
         },
         {
@@ -102,7 +102,7 @@
           "is_optional": false,
           "note": "from 1 fresh orange",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "55 ml juice from 1 fresh orange"
         },
         {
@@ -143,7 +143,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "200 ml (~\u2158 cup) unsalted chicken stock"
         }
       ],
@@ -177,7 +177,7 @@
           "is_optional": false,
           "note": "(pork butt meat)",
           "preparation": "cut into 2-2#1$4 inches cubes",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 \u00bc pounds (~1475g) pork shoulder meat (pork butt meat) , cut into 2 \u2013 2 \u00bc inches cubes"
         }
       ],
@@ -198,7 +198,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "8 - 12 corn tortillas"
         }
       ],
@@ -215,7 +215,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "8 - 12 corn tortillas"
         },
         {

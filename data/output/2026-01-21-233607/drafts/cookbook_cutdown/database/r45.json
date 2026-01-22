@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": "(I used conchiglie)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "400g pasta (I used conchiglie)"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped into small chunks",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large head of broccoli chopped into small chunks"
         }
       ],
@@ -54,7 +54,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tbsp oil"
         },
         {
@@ -66,7 +66,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "cubed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "600g chicken cubed"
         },
         {
@@ -95,7 +95,7 @@
           "is_optional": false,
           "note": "(I used conchiglie)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "400g pasta (I used conchiglie)"
         },
         {
@@ -107,7 +107,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "50g low fat pesto"
         },
         {
@@ -119,7 +119,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "100g ricotta"
         }
       ],
@@ -136,7 +136,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped into small chunks",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large head of broccoli chopped into small chunks"
         },
         {
@@ -148,7 +148,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "cubed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "600g chicken cubed"
         },
         {
@@ -172,7 +172,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "100g ricotta"
         }
       ],

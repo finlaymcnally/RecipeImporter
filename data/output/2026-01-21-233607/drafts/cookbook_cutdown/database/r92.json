@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon coconut oil"
         },
         {
@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cups chopped yellow (sweet) onion"
         },
         {
@@ -45,7 +45,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cloves garlic, minced"
         },
         {
@@ -57,7 +57,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon minced fresh ginger"
         }
       ],
@@ -74,7 +74,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons red curry paste"
         },
         {
@@ -86,7 +86,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc cup raw almond butter or peanut butter"
         },
         {
@@ -98,7 +98,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced peeled",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 cups diced peeled carrots"
         },
         {
@@ -110,7 +110,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced peeled",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 cups diced peeled sweet potatoes"
         }
       ],
@@ -139,7 +139,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced peeled",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 cups diced peeled carrots"
         },
         {
@@ -151,7 +151,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced peeled",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 cups diced peeled sweet potatoes"
         }
       ],
@@ -197,7 +197,7 @@
           "is_optional": false,
           "note": "plus more if needed",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cups low-sodium vegetable broth, plus more if needed"
         },
         {
@@ -209,7 +209,7 @@
           "is_optional": false,
           "note": "plus more to taste",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd teaspoon fine-grain sea salt, plus more to taste"
         },
         {
@@ -233,7 +233,7 @@
           "is_optional": true,
           "note": "Up to, (optional, if you like spice)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "Up to \u00bc teaspoon cayenne pepper (optional, if you like spice)"
         }
       ],
@@ -344,7 +344,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "finely chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd cup raw almonds, finely chopped"
         }
       ],
@@ -385,7 +385,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "finely chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd cup raw almonds, finely chopped"
         }
       ],
@@ -426,7 +426,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "finely chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd cup raw almonds, finely chopped"
         }
       ],

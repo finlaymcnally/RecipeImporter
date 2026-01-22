@@ -41,20 +41,33 @@ const IngredientLineSchema = z
       return;
     }
 
-    if (!hasQty) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["input_qty"],
-        message: "input_qty is required for exact or approximate lines.",
-      });
+    if (value.quantity_kind === "exact") {
+      if (!hasQty) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["input_qty"],
+          message: "input_qty is required for exact lines.",
+        });
+      }
+
+      if (!hasUnit) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["input_unit_id"],
+          message: "input_unit_id is required for exact lines.",
+        });
+      }
+      return;
     }
 
-    if (!hasUnit) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["input_unit_id"],
-        message: "input_unit_id is required for exact or approximate lines.",
-      });
+    if (value.quantity_kind === "approximate") {
+      if (hasQty !== hasUnit) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: hasQty ? ["input_unit_id"] : ["input_qty"],
+          message: "input_qty and input_unit_id must be provided together for approximate lines.",
+        });
+      }
     }
   });
 

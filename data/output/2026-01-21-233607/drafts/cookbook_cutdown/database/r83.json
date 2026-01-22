@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "finely chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2-3 cloves garlic, finely chopped"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "grated or finely chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 thumb size piece of ginger, grated or finely chopped"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "cubed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 medium sweet potato, cubed"
         },
         {
@@ -61,7 +61,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped into slices of similar size to courgette",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 red pepper, chopped into slices of similar size to courgette"
         }
       ],
@@ -82,7 +82,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "finely chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2-3 cloves garlic, finely chopped"
         },
         {
@@ -94,7 +94,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "grated or finely chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 thumb size piece of ginger, grated or finely chopped"
         },
         {
@@ -106,7 +106,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "cubed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 medium sweet potato, cubed"
         },
         {
@@ -118,7 +118,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "halved and sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 courgette, halved and sliced"
         },
         {
@@ -130,7 +130,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped into slices of similar size to courgette",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 red pepper, chopped into slices of similar size to courgette"
         },
         {
@@ -142,7 +142,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 - 4 heaped teaspoons Madras curry paste"
         }
       ],
@@ -163,7 +163,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped into slices of similar size to courgette",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 red pepper, chopped into slices of similar size to courgette"
         },
         {
@@ -175,7 +175,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "disolved in 1/4 pint water, (top up dish with hot water as necessary when cooking)",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "stock: 1/3 vegetable stock cube disolved in 1/4 pint water & residue from red pepper pan (top up dish with hot water as necessary when cooking)"
         },
         {
@@ -187,7 +187,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "disolved in 1/4 pint water, (top up dish with hot water as necessary when cooking)",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "stock: 1/3 vegetable stock cube disolved in 1/4 pint water & residue from red pepper pan (top up dish with hot water as necessary when cooking)"
         }
       ],
@@ -208,7 +208,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "cubed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 medium sweet potato, cubed"
         },
         {
@@ -220,7 +220,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/3 - full bag of spinach"
         }
       ],

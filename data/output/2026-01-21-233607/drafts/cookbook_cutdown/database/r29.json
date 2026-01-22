@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "peeled and roughly chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 medium carrots, peeled and roughly chopped"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": "such as Le Puy",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "8 ounces dried French lentils, such as Le Puy"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "leaves roughly chopped, stems tied together with a piece of kitchen twine",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12 sprigs parsley, leaves roughly chopped, stems tied together with a piece of kitchen twine"
         },
         {
@@ -61,7 +61,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 bay leaves"
         }
       ],
@@ -82,7 +82,7 @@
           "is_optional": false,
           "note": "such as Le Puy",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "8 ounces dried French lentils, such as Le Puy"
         },
         {
@@ -94,7 +94,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "leaves roughly chopped, stems tied together with a piece of kitchen twine",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12 sprigs parsley, leaves roughly chopped, stems tied together with a piece of kitchen twine"
         },
         {
@@ -106,7 +106,7 @@
           "is_optional": false,
           "note": "(a mix of thighs and drumsticks for best texture, though breasts will work as well)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 1/2 pounds bone-in, skin-on chicken pieces (a mix of thighs and drumsticks for best texture, though breasts will work as well)"
         }
       ],
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": "plus more for serving",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons extra-virgin olive oil, plus more for serving"
         },
         {
@@ -139,7 +139,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "leaves roughly chopped, stems tied together with a piece of kitchen twine",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12 sprigs parsley, leaves roughly chopped, stems tied together with a piece of kitchen twine"
         },
         {
@@ -163,7 +163,7 @@
           "is_optional": false,
           "note": "plus more to taste",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 teaspoons sherry vinegar, plus more to taste"
         }
       ],

@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "halved",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound small red new potatoes, halved"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "halved",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound small yellow new potatoes, halved"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 tablespoons cider vinegar"
         },
         {
@@ -61,7 +61,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon kosher salt"
         },
         {
@@ -73,7 +73,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc cup coarse-grain mustard"
         },
         {
@@ -85,7 +85,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 tablespoons cider vinegar"
         },
         {
@@ -97,7 +97,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 tablespoons sugar"
         },
         {
@@ -109,7 +109,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc cup peanut or vegetable oil"
         },
         {
@@ -121,7 +121,7 @@
           "is_optional": false,
           "note": "such as soppresata, pepperoni, or salami",
           "preparation": "cut in 1/4-1/2 inch pieces",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u2153 cup dry cured sausage, such as soppresata, pepperoni, or salami, cut in 1/4- to 1/2-inch pieces"
         },
         {
@@ -145,7 +145,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "torn",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd cup torn fresh curly-leaf parsley"
         },
         {
@@ -157,7 +157,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "thinly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons thinly sliced green onions"
         }
       ],
@@ -178,7 +178,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 tablespoons cider vinegar"
         },
         {
@@ -190,7 +190,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon kosher salt"
         },
         {
@@ -202,7 +202,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc cup coarse-grain mustard"
         },
         {
@@ -214,7 +214,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 tablespoons cider vinegar"
         },
         {
@@ -226,7 +226,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 tablespoons sugar"
         },
         {
@@ -238,7 +238,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc cup peanut or vegetable oil"
         },
         {
@@ -250,7 +250,7 @@
           "is_optional": false,
           "note": "such as soppresata, pepperoni, or salami",
           "preparation": "cut in 1/4-1/2 inch pieces",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u2153 cup dry cured sausage, such as soppresata, pepperoni, or salami, cut in 1/4- to 1/2-inch pieces"
         },
         {
@@ -274,7 +274,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "torn",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd cup torn fresh curly-leaf parsley"
         },
         {
@@ -286,7 +286,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "thinly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons thinly sliced green onions"
         }
       ],
@@ -307,7 +307,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "halved",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound small red new potatoes, halved"
         },
         {
@@ -319,7 +319,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "halved",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound small yellow new potatoes, halved"
         },
         {
@@ -331,7 +331,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon kosher salt"
         },
         {
@@ -343,7 +343,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc cup coarse-grain mustard"
         },
         {
@@ -355,7 +355,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 tablespoons cider vinegar"
         },
         {
@@ -367,7 +367,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 tablespoons sugar"
         },
         {
@@ -379,7 +379,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc cup peanut or vegetable oil"
         },
         {
@@ -391,7 +391,7 @@
           "is_optional": false,
           "note": "such as soppresata, pepperoni, or salami",
           "preparation": "cut in 1/4-1/2 inch pieces",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u2153 cup dry cured sausage, such as soppresata, pepperoni, or salami, cut in 1/4- to 1/2-inch pieces"
         },
         {
@@ -415,7 +415,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "torn",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd cup torn fresh curly-leaf parsley"
         },
         {
@@ -427,7 +427,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "thinly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons thinly sliced green onions"
         }
       ],

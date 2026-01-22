@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": "(we used bow ties)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound any short pasta (we used bow ties)"
         },
         {
@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon salt"
         }
       ],
@@ -50,7 +50,7 @@
           "is_optional": false,
           "note": "(we used bow ties)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound any short pasta (we used bow ties)"
         },
         {
@@ -62,7 +62,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon olive oil"
         }
       ],
@@ -79,7 +79,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon olive oil"
         },
         {
@@ -91,7 +91,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 hot Italian sausages"
         },
         {
@@ -103,7 +103,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 sweet Italian sausages"
         }
       ],
@@ -120,7 +120,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 hot Italian sausages"
         },
         {
@@ -132,7 +132,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 sweet Italian sausages"
         }
       ],
@@ -149,7 +149,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd white onion, sliced"
         },
         {
@@ -161,7 +161,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cloves of garlic, sliced"
         }
       ],
@@ -186,7 +186,7 @@
           "is_optional": false,
           "note": "(we used bow ties)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound any short pasta (we used bow ties)"
         },
         {
@@ -198,7 +198,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon olive oil"
         },
         {
@@ -210,7 +210,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 hot Italian sausages"
         },
         {
@@ -222,7 +222,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 sweet Italian sausages"
         },
         {
@@ -234,7 +234,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "large diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 red bell pepper, large diced"
         },
         {
@@ -246,7 +246,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "large diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 green bell pepper, large diced"
         },
         {
@@ -258,7 +258,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "large diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 yellow bell pepper, large diced"
         },
         {
@@ -270,7 +270,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd white onion, sliced"
         },
         {
@@ -282,7 +282,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cloves of garlic, sliced"
         },
         {
@@ -294,7 +294,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "28 ounces can diced tomato"
         },
         {
@@ -306,7 +306,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon oregano"
         },
         {
@@ -318,7 +318,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon salt"
         },
         {
@@ -330,7 +330,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon black ground pepper"
         }
       ],

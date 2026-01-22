@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": "(breasts, legs, or a mix)",
           "preparation": "skin removed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "5 pounds bone-in chicken pieces (breasts, legs, or a mix), skin removed"
         }
       ],
@@ -46,7 +46,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "toasted",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 tablespoons toasted paprika"
         },
         {
@@ -58,7 +58,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 teaspoon ground turmeric"
         },
         {
@@ -70,7 +70,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "grated on the medium holes of a box grater, divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12 cloves garlic, grated on the medium holes of a box grater, divided"
         }
       ],
@@ -91,7 +91,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "grated on the medium holes of a box grater, divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12 cloves garlic, grated on the medium holes of a box grater, divided"
         },
         {
@@ -103,7 +103,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "grated on the medium holes of a box grater, divided",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 tablespoons fresh ginger, grated on the medium holes of a box grater, divided"
         },
         {
@@ -115,7 +115,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 tablespoons butter or ghee"
         },
         {
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "roughly mashed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (28-ounce) can whole peeled tomatoes, roughly mashed"
         }
       ],
@@ -160,7 +160,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup heavy cream"
         }
       ],

@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": "such as Vlasic, with brine",
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 jar sliced pickles, such as Vlasic, with brine"
         }
       ],
@@ -67,7 +67,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup buttermilk"
         },
         {
@@ -79,7 +79,7 @@
           "is_optional": false,
           "note": "(see note)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 1/2 cups self-rising flour (see note)"
         }
       ],
@@ -100,7 +100,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup buttermilk"
         },
         {
@@ -112,7 +112,7 @@
           "is_optional": false,
           "note": "(see note)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 1/2 cups self-rising flour (see note)"
         }
       ],
@@ -133,7 +133,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 quart peanut, vegetable, or canola oil"
         }
       ],
@@ -154,7 +154,7 @@
           "is_optional": false,
           "note": "such as Vlasic, with brine",
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 jar sliced pickles, such as Vlasic, with brine"
         },
         {
@@ -166,7 +166,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "toasted",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 soft hamburger buns or potato rolls, toasted"
         }
       ],

@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "split in half",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 medium yellow onions, split in half"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "roughly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 small hand of ginger, roughly sliced"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "thinly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 small white or yellow onion, thinly sliced"
         }
       ],
@@ -70,7 +70,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 small bunch cilantro"
         },
         {
@@ -82,7 +82,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cinnamon stick"
         },
         {
@@ -94,7 +94,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cloves"
         },
         {
@@ -106,7 +106,7 @@
           "is_optional": false,
           "note": "plus more to taste",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup fish sauce, plus more to taste"
         }
       ],
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": "plus more to taste",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup fish sauce, plus more to taste"
         },
         {
@@ -139,7 +139,7 @@
           "is_optional": false,
           "note": "plus more to taste",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons rock sugar or raw sugar, plus more to taste"
         }
       ],
@@ -160,7 +160,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "split in half",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 medium yellow onions, split in half"
         },
         {
@@ -184,7 +184,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "prepared according to package directions",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 servings pho noodles, prepared according to package directions"
         },
         {
@@ -196,7 +196,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "thinly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 cup thinly sliced scallions"
         },
         {
@@ -208,7 +208,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "trimmed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cups trimmed bean sprouts"
         }
       ],

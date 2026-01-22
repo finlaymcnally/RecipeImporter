@@ -14,7 +14,7 @@ This plan must be maintained in accordance with docs/PLANS.md from the repositor
 
 ## Purpose / Big Picture
 
-After this change, the recipe importer will parse raw ingredient strings like "3 stalks celery, sliced" into structured data with separate fields for quantity (3), unit (stalks), ingredient name (celery), and preparation notes (sliced). Currently, all ingredients are stored as raw text with quantity_kind set to "unquantified" and input_qty/input_unit_id set to null. After this change, the Draft V1 output will contain properly parsed and normalized ingredient data that downstream applications can consume without additional parsing.
+After this change, the recipe importer will parse raw ingredient strings like "3 stalks celery, sliced" into structured data with separate fields for quantity (3), unit (stalks), ingredient name (celery), and preparation notes (sliced). Currently, all ingredients are stored as raw text with quantity_kind set to "unquantified" and input_qty/input_unit_id set to null. After this change, the Draft V1 output will contain properly parsed and normalized ingredient data that downstream applications can consume without additional parsing. Measured amounts are labeled quantity_kind="exact", cue-based lines like "to taste" or "for pan" are labeled quantity_kind="approximate", and everything else without quantity cues is quantity_kind="unquantified".
 
 The user can verify success by running the stage command on any Excel file and inspecting the output JSON files. Where an ingredient previously appeared as:
 
@@ -28,7 +28,7 @@ The user can verify success by running the stage command on any Excel file and i
 It will now appear as:
 
     {
-      "quantity_kind": "quantified",
+      "quantity_kind": "exact",
       "input_qty": 3.0,
       "input_unit_id": "stalks",
       "input_item": "celery",
@@ -47,6 +47,7 @@ It will now appear as:
 - [x] (2026-01-21 22:47Z) Update _convert_ingredient() in draft_v1.py to use the new parser.
 - [x] (2026-01-21 22:48Z) Create tests (23 test cases) to verify parsed output.
 - [x] (2026-01-21 22:50Z) Run full staging on cookbook_cutdown.xlsx and verify output quality.
+- [x] (2026-01-22 21:14Z) Align quantity_kind to exact/approximate/unquantified and add approximate cue detection.
 
 
 ## Surprises & Discoveries
@@ -79,6 +80,10 @@ It will now appear as:
   Rationale: The library parses headers like "FILLING" and "Marinade" as ingredient names with no amounts. These are section dividers in recipes, not actual ingredients. They should be flagged as quantity_kind="section_header" so downstream apps can handle them appropriately.
   Date/Author: 2026-01-21 / Agent (based on user guidance)
 
+- Decision: Emit quantity_kind values as exact/approximate/unquantified, with approximate when no amount is provided but "to taste"/"for pan" style cues appear.
+  Rationale: This matches the Draft V1 semantics and keeps measured lines clearly distinct from approximate cues or unknown quantities.
+  Date/Author: 2026-01-22 / User + Agent
+
 - Decision: Integrate parsing at staging time (in draft_v1.py) rather than at import time.
   Rationale: User preference to do all the work in this tool so the downstream cookbook app receives clean, fully-parsed data.
   Date/Author: 2026-01-21 / User
@@ -90,7 +95,7 @@ It will now appear as:
 
 ## Outcomes & Retrospective
 
-Implementation completed successfully. All 27 tests pass (4 existing + 23 new ingredient parser tests).
+Implementation updated to align quantity_kind values; ingredient parser tests cover exact/approximate/unquantified cases.
 
 Key outcomes:
 - Ingredients are now parsed into structured components: quantity, unit, ingredient name, preparation, and notes
@@ -99,13 +104,14 @@ Key outcomes:
 - Unicode fractions (⅓, ½, ¼) are converted to decimal floats
 - Confidence scores from the parser are preserved for downstream quality assessment
 - Raw text is always preserved for reference
+- Approximate cues (to taste/for pan) are labeled quantity_kind="approximate"
 
 Sample output verification shows the parser correctly handles:
 - "1 tablespoon ginger, minced" → qty=1, unit=tablespoon, item=ginger, prep=minced
 - "⅓ cup soy sauce" → qty=0.333, unit=cups, item=soy sauce
 - "3-4 Tbsp vegan butter" → qty=4 (range normalized), unit=Tbsp, item=vegan butter
 - "FILLING" → quantity_kind=section_header, item=FILLING
-- "Salt and pepper (to taste)" → quantity_kind=unquantified, item=Salt, note=(to taste)
+- "Salt and pepper (to taste)" → quantity_kind=approximate, item=Salt, note=(to taste)
 
 The implementation is clean and self-contained in cookimport/parsing/ingredients.py with a single public function parse_ingredient_line().
 
@@ -144,7 +150,7 @@ The library handles unicode fractions (⅓, ½, ¾), mixed fractions ("1 1/2"), 
 Milestone 1 adds the dependency and creates the parsing module. Add ingredient-parser-nlp to the dependencies list in pyproject.toml. Create a new module at cookimport/parsing/__init__.py (empty) and cookimport/parsing/ingredients.py containing the parsing logic. The module will expose a single function parse_ingredient_line(text: str) -> ParsedIngredientResult that wraps the library and normalizes the output.
 
 The ParsedIngredientResult will be a TypedDict or dataclass with these fields:
-- quantity_kind: One of "quantified", "unquantified", "section_header"
+- quantity_kind: One of "exact", "approximate", "unquantified", "section_header"
 - input_qty: float or None (the normalized quantity)
 - input_unit_id: str or None (the unit as a string)
 - input_item: str or None (the ingredient name)
@@ -163,15 +169,16 @@ The function will:
 6. Extract comment text if present
 7. Detect "optional" in comment and set is_optional accordingly
 8. Detect section headers (no amount + header-like text pattern)
+9. If no amount is present, classify "to taste"/"for pan" style cues as quantity_kind="approximate"
 
-Milestone 2 integrates the parser into draft_v1.py. Modify the _convert_ingredient() function to call parse_ingredient_line() instead of just wrapping raw text. The output dict structure will be extended to include input_item and preparation fields. The quantity_kind field will now have meaningful values ("quantified", "unquantified", or "section_header").
+Milestone 2 integrates the parser into draft_v1.py. Modify the _convert_ingredient() function to call parse_ingredient_line() instead of just wrapping raw text. The output dict structure will be extended to include input_item and preparation fields. The quantity_kind field will now have meaningful values ("exact", "approximate", "unquantified", or "section_header").
 
 Milestone 3 adds tests and validates output quality. Create tests/test_ingredient_parser.py with unit tests covering:
 - Simple ingredients: "1 cup flour" -> qty=1, unit="cup", item="flour"
 - Prep instructions: "2 cloves garlic, minced" -> prep="minced"
 - Ranges: "3-4 Tbsp butter" -> qty=4 (midpoint rounded up)
 - Fractions: "⅓ cup sugar" -> qty=0.333...
-- Unquantified: "salt to taste" -> quantity_kind="unquantified"
+- Approximate: "salt to taste" -> quantity_kind="approximate"
 - Section headers: "FILLING", "Marinade" -> quantity_kind="section_header"
 - Complex: "1 10-ounce bag frozen peas" -> multiple amounts handled
 
@@ -216,8 +223,9 @@ The change is accepted when:
 3. Running cookimport stage data/input --out data/output completes without errors.
 
 4. Inspecting output files shows ingredients with properly populated fields:
-   - Ingredients with amounts have quantity_kind="quantified", input_qty set to a float, input_unit_id set to a string, and input_item set to the ingredient name.
-   - Ingredients without amounts have quantity_kind="unquantified" and input_item set to the ingredient name.
+   - Ingredients with amounts have quantity_kind="exact", input_qty set to a float, input_unit_id set to a string, and input_item set to the ingredient name.
+   - Ingredients without amounts but with "to taste"/"for pan" cues have quantity_kind="approximate".
+   - Ingredients without amounts or cues have quantity_kind="unquantified" and input_item set to the ingredient name.
    - Section headers like "FILLING" have quantity_kind="section_header".
 
 5. The raw_text field is preserved for all ingredients so no information is lost.
@@ -225,7 +233,7 @@ The change is accepted when:
 
 ## Idempotence and Recovery
 
-The parsing function is pure and deterministic. Running stage multiple times produces identical output. The parser does not modify any state and all transformations are derived from the input text. If the ingredient-parser library fails on malformed input, the function should catch exceptions and fall back to returning an unquantified result with just the raw_text preserved.
+The parsing function is pure and deterministic. Running stage multiple times produces identical output. The parser does not modify any state and all transformations are derived from the input text. If the ingredient-parser library fails on malformed input, the function should catch exceptions and fall back to returning an unquantified/approximate result based on cues with just the raw_text preserved.
 
 
 ## Artifacts and Notes
@@ -234,7 +242,7 @@ Example of expected output for "3 stalks celery, sliced":
 
     {
       "ingredient_id": "uuid-here",
-      "quantity_kind": "quantified",
+      "quantity_kind": "exact",
       "input_qty": 3.0,
       "input_unit_id": "stalks",
       "input_item": "celery",
@@ -260,11 +268,11 @@ Example of expected output for "FILLING" (section header):
       "confidence": 0.0
     }
 
-Example of expected output for "salt, to taste" (unquantified):
+Example of expected output for "salt, to taste" (approximate):
 
     {
       "ingredient_id": "uuid-here",
-      "quantity_kind": "unquantified",
+      "quantity_kind": "approximate",
       "input_qty": null,
       "input_unit_id": null,
       "input_item": "salt",
@@ -300,7 +308,7 @@ Create cookimport/parsing/ingredients.py with:
         """Parse an ingredient string into structured components.
 
         Returns a dict with:
-            quantity_kind: "quantified", "unquantified", or "section_header"
+            quantity_kind: "exact", "approximate", "unquantified", or "section_header"
             input_qty: float or None
             input_unit_id: str or None
             input_item: str or None (the ingredient name)

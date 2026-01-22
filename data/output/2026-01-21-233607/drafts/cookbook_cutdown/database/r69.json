@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": "plus more for serving",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "7 tablespoons unsalted butter, plus more for serving"
         }
       ],
@@ -46,7 +46,7 @@
           "is_optional": false,
           "note": "plus more for serving",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "7 tablespoons unsalted butter, plus more for serving"
         },
         {
@@ -58,7 +58,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup (about 5 ounces) fine yellow cornmeal"
         },
         {
@@ -70,7 +70,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 teaspoons baking powder"
         },
         {
@@ -82,7 +82,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 teaspoon baking soda"
         },
         {
@@ -94,7 +94,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "6 ounces (about 3/4 cup) sour cream"
         },
         {
@@ -106,7 +106,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 ounces (about 1/2 cup) cultured buttermilk"
         }
       ],
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": "plus more for serving",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "7 tablespoons unsalted butter, plus more for serving"
         },
         {
@@ -139,7 +139,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Honey, for serving"
         }
       ],

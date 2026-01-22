@@ -46,7 +46,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons (30ml) extra-virgin olive oil"
         },
         {
@@ -70,7 +70,7 @@
           "is_optional": false,
           "note": "if serving seared",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 teaspoons (10ml) vegetable oil, if serving seared"
         }
       ],
@@ -99,7 +99,7 @@
           "is_optional": false,
           "note": "about 1#1$2-2 inches thick, (see note)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 (10- to 12-ounce) tuna steaks (about 1 1/2 to 2 inches thick; 280 to 320g each) (see note)"
         },
         {
@@ -140,7 +140,7 @@
           "is_optional": false,
           "note": "about 1#1$2-2 inches thick, (see note)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 (10- to 12-ounce) tuna steaks (about 1 1/2 to 2 inches thick; 280 to 320g each) (see note)"
         },
         {
@@ -152,7 +152,7 @@
           "is_optional": true,
           "note": "(optional; for searing)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 cup (60g) black or white sesame seeds (optional; for searing)"
         }
       ],
@@ -173,7 +173,7 @@
           "is_optional": false,
           "note": "if serving seared",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 teaspoons (10ml) vegetable oil, if serving seared"
         }
       ],

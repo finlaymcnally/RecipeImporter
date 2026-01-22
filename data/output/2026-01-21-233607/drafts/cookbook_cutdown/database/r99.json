@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": "or 8 ounces red kidney beans",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "8 ounces small dried red beans or 8 ounces red kidney beans"
         }
       ],
@@ -38,7 +38,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 quart water"
         }
       ],
@@ -55,7 +55,7 @@
           "is_optional": false,
           "note": "or 8 ounces red kidney beans",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "8 ounces small dried red beans or 8 ounces red kidney beans"
         }
       ],
@@ -72,7 +72,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 quart water"
         },
         {
@@ -84,7 +84,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1\u20442 cup coconut cream"
         }
       ],
@@ -101,7 +101,7 @@
           "is_optional": false,
           "note": "or 8 ounces red kidney beans",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "8 ounces small dried red beans or 8 ounces red kidney beans"
         }
       ],
@@ -118,7 +118,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1\u20442 teaspoon ground allspice"
         },
         {
@@ -130,7 +130,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 minced garlic cloves"
         },
         {
@@ -142,7 +142,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon black pepper"
         },
         {
@@ -154,7 +154,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon brown sugar"
         }
       ],
@@ -171,7 +171,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 quart water"
         },
         {
@@ -183,7 +183,7 @@
           "is_optional": false,
           "note": "or 16 ounces chicken stock or 16 ounces water",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "16 ounces chicken broth or 16 ounces chicken stock or 16 ounces water"
         },
         {
@@ -195,7 +195,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "uncooked",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 1\u20444 cups uncooked long grain rice"
         }
       ],
@@ -212,7 +212,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "uncooked",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 1\u20444 cups uncooked long grain rice"
         }
       ],
@@ -233,7 +233,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 quart water"
         },
         {
@@ -245,7 +245,7 @@
           "is_optional": false,
           "note": "or 16 ounces chicken stock or 16 ounces water",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "16 ounces chicken broth or 16 ounces chicken stock or 16 ounces water"
         }
       ],

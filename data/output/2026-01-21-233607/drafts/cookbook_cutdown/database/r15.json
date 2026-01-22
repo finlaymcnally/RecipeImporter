@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc pound bacon"
         }
       ],
@@ -42,7 +42,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc pound bacon"
         }
       ],
@@ -59,7 +59,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc pound bacon"
         },
         {
@@ -88,7 +88,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc pound bacon"
         }
       ],
@@ -109,7 +109,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 sticks celery, chopped"
         },
         {
@@ -121,7 +121,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 large carrots, chopped"
         },
         {
@@ -133,7 +133,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large onion, chopped"
         }
       ],
@@ -154,7 +154,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cloves garlic, minced"
         },
         {
@@ -166,7 +166,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 ounces tomato paste"
         }
       ],
@@ -183,7 +183,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (12 ounce) bottle Guinness"
         },
         {
@@ -195,7 +195,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons Worcestershire sauce"
         }
       ],
@@ -220,7 +220,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cups low sodium chicken broth"
         }
       ],
@@ -237,7 +237,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 bay leaf"
         },
         {
@@ -249,7 +249,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 sprigs thyme"
         }
       ],
@@ -270,7 +270,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 large potatoes or parsnips, diced"
         },
         {
@@ -282,7 +282,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 turnip, diced"
         }
       ],
@@ -303,7 +303,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc pound bacon"
         },
         {
@@ -315,7 +315,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped into",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pounds boneless beef chuck, chopped into"
         },
         {
@@ -351,7 +351,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 sticks celery, chopped"
         },
         {
@@ -363,7 +363,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 large carrots, chopped"
         },
         {
@@ -375,7 +375,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large onion, chopped"
         },
         {
@@ -387,7 +387,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cloves garlic, minced"
         },
         {
@@ -399,7 +399,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 large potatoes or parsnips, diced"
         },
         {
@@ -411,7 +411,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 turnip, diced"
         },
         {
@@ -423,7 +423,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 ounces tomato paste"
         },
         {
@@ -435,7 +435,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (12 ounce) bottle Guinness"
         },
         {
@@ -447,7 +447,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cups low sodium chicken broth"
         },
         {
@@ -459,7 +459,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons Worcestershire sauce"
         },
         {
@@ -471,7 +471,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 bay leaf"
         },
         {
@@ -483,7 +483,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 sprigs thyme"
         },
         {
@@ -495,7 +495,7 @@
           "is_optional": false,
           "note": "or as needed",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon cornstarch, or as needed"
         },
         {
@@ -507,7 +507,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd pound cremini mushrooms, sliced (optional)"
         },
         {
@@ -536,7 +536,7 @@
           "is_optional": false,
           "note": "or as needed",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon cornstarch, or as needed"
         }
       ],
@@ -553,7 +553,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc pound bacon"
         },
         {
@@ -565,7 +565,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped into",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pounds boneless beef chuck, chopped into"
         },
         {
@@ -601,7 +601,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 sticks celery, chopped"
         },
         {
@@ -613,7 +613,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 large carrots, chopped"
         },
         {
@@ -625,7 +625,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large onion, chopped"
         },
         {
@@ -637,7 +637,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cloves garlic, minced"
         },
         {
@@ -649,7 +649,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 large potatoes or parsnips, diced"
         },
         {
@@ -661,7 +661,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 turnip, diced"
         },
         {
@@ -673,7 +673,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 ounces tomato paste"
         },
         {
@@ -685,7 +685,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (12 ounce) bottle Guinness"
         },
         {
@@ -697,7 +697,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cups low sodium chicken broth"
         },
         {
@@ -709,7 +709,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons Worcestershire sauce"
         },
         {
@@ -721,7 +721,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 bay leaf"
         },
         {
@@ -733,7 +733,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 sprigs thyme"
         },
         {
@@ -745,7 +745,7 @@
           "is_optional": false,
           "note": "or as needed",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon cornstarch, or as needed"
         },
         {
@@ -757,7 +757,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd pound cremini mushrooms, sliced (optional)"
         },
         {
@@ -790,7 +790,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd pound cremini mushrooms, sliced (optional)"
         }
       ],
@@ -807,7 +807,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc pound bacon"
         },
         {
@@ -819,7 +819,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped into",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pounds boneless beef chuck, chopped into"
         },
         {
@@ -855,7 +855,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 sticks celery, chopped"
         },
         {
@@ -867,7 +867,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 large carrots, chopped"
         },
         {
@@ -879,7 +879,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large onion, chopped"
         },
         {
@@ -891,7 +891,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cloves garlic, minced"
         },
         {
@@ -903,7 +903,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 large potatoes or parsnips, diced"
         },
         {
@@ -915,7 +915,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 turnip, diced"
         },
         {
@@ -927,7 +927,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 ounces tomato paste"
         },
         {
@@ -939,7 +939,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (12 ounce) bottle Guinness"
         },
         {
@@ -951,7 +951,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cups low sodium chicken broth"
         },
         {
@@ -963,7 +963,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons Worcestershire sauce"
         },
         {
@@ -975,7 +975,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 bay leaf"
         },
         {
@@ -987,7 +987,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 sprigs thyme"
         },
         {
@@ -999,7 +999,7 @@
           "is_optional": false,
           "note": "or as needed",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon cornstarch, or as needed"
         },
         {
@@ -1011,7 +1011,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd pound cremini mushrooms, sliced (optional)"
         },
         {
@@ -1040,7 +1040,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc pound bacon"
         }
       ],
@@ -1057,7 +1057,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 \u00bd cups self-rising flour"
         },
         {
@@ -1069,7 +1069,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 teaspoon garlic powder"
         }
       ],
@@ -1086,7 +1086,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/3 cup shortening"
         }
       ],
@@ -1103,7 +1103,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "shredded",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 cup shredded Irish sharp cheddar"
         },
         {
@@ -1115,7 +1115,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2/3 cup milk"
         }
       ],
@@ -1140,7 +1140,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc pound bacon"
         },
         {
@@ -1152,7 +1152,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped into",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pounds boneless beef chuck, chopped into"
         },
         {
@@ -1188,7 +1188,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 sticks celery, chopped"
         },
         {
@@ -1200,7 +1200,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 large carrots, chopped"
         },
         {
@@ -1212,7 +1212,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large onion, chopped"
         },
         {
@@ -1224,7 +1224,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cloves garlic, minced"
         },
         {
@@ -1236,7 +1236,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 large potatoes or parsnips, diced"
         },
         {
@@ -1248,7 +1248,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 turnip, diced"
         },
         {
@@ -1260,7 +1260,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 ounces tomato paste"
         },
         {
@@ -1272,7 +1272,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (12 ounce) bottle Guinness"
         },
         {
@@ -1284,7 +1284,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cups low sodium chicken broth"
         },
         {
@@ -1296,7 +1296,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons Worcestershire sauce"
         },
         {
@@ -1308,7 +1308,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 bay leaf"
         },
         {
@@ -1320,7 +1320,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 sprigs thyme"
         },
         {
@@ -1332,7 +1332,7 @@
           "is_optional": false,
           "note": "or as needed",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon cornstarch, or as needed"
         },
         {
@@ -1344,7 +1344,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd pound cremini mushrooms, sliced (optional)"
         },
         {
@@ -1373,7 +1373,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc pound bacon"
         },
         {
@@ -1385,7 +1385,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped into",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pounds boneless beef chuck, chopped into"
         },
         {
@@ -1421,7 +1421,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 sticks celery, chopped"
         },
         {
@@ -1433,7 +1433,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 large carrots, chopped"
         },
         {
@@ -1445,7 +1445,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large onion, chopped"
         },
         {
@@ -1457,7 +1457,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cloves garlic, minced"
         },
         {
@@ -1469,7 +1469,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 large potatoes or parsnips, diced"
         },
         {
@@ -1481,7 +1481,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 turnip, diced"
         },
         {
@@ -1493,7 +1493,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 ounces tomato paste"
         },
         {
@@ -1505,7 +1505,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (12 ounce) bottle Guinness"
         },
         {
@@ -1517,7 +1517,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cups low sodium chicken broth"
         },
         {
@@ -1529,7 +1529,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons Worcestershire sauce"
         },
         {
@@ -1541,7 +1541,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 bay leaf"
         },
         {
@@ -1553,7 +1553,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 sprigs thyme"
         },
         {
@@ -1565,7 +1565,7 @@
           "is_optional": false,
           "note": "or as needed",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon cornstarch, or as needed"
         },
         {
@@ -1577,7 +1577,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd pound cremini mushrooms, sliced (optional)"
         },
         {
@@ -1610,7 +1610,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc pound bacon"
         },
         {
@@ -1622,7 +1622,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped into",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pounds boneless beef chuck, chopped into"
         },
         {
@@ -1658,7 +1658,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 sticks celery, chopped"
         },
         {
@@ -1670,7 +1670,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 large carrots, chopped"
         },
         {
@@ -1682,7 +1682,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 large onion, chopped"
         },
         {
@@ -1694,7 +1694,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cloves garlic, minced"
         },
         {
@@ -1706,7 +1706,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 large potatoes or parsnips, diced"
         },
         {
@@ -1718,7 +1718,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "diced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 turnip, diced"
         },
         {
@@ -1730,7 +1730,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 ounces tomato paste"
         },
         {
@@ -1742,7 +1742,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 (12 ounce) bottle Guinness"
         },
         {
@@ -1754,7 +1754,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cups low sodium chicken broth"
         },
         {
@@ -1766,7 +1766,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons Worcestershire sauce"
         },
         {
@@ -1778,7 +1778,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 bay leaf"
         },
         {
@@ -1790,7 +1790,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 sprigs thyme"
         },
         {
@@ -1802,7 +1802,7 @@
           "is_optional": false,
           "note": "or as needed",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon cornstarch, or as needed"
         },
         {
@@ -1814,7 +1814,7 @@
           "is_optional": true,
           "note": "(optional)",
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd pound cremini mushrooms, sliced (optional)"
         },
         {

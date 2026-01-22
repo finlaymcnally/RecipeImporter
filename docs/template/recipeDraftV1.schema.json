@@ -93,19 +93,19 @@
         "quantity_kind": {
           "type": "string",
           "enum": ["exact", "approximate", "unquantified"],
-          "description": "Type of quantity: 'exact' for precise measurements, 'approximate' for rough measurements, 'unquantified' for items like 'salt to taste'"
+          "description": "Type of quantity: 'exact' for precise measurements, 'approximate' for cue-based or rough measurements (e.g., 'to taste', 'for pan'), 'unquantified' for items with no quantity cues"
         },
         "input_qty": {
           "type": ["number", "null"],
           "exclusiveMinimum": 0,
-          "description": "Quantity amount. Required for exact/approximate, must be null/omitted for unquantified."
+          "description": "Quantity amount. Required for exact, optional for approximate, must be null/omitted for unquantified."
         },
         "input_unit_id": {
           "oneOf": [
             { "$ref": "#/$defs/UUID" },
             { "type": "null" }
           ],
-          "description": "UUID of the unit (must exist in database). Required for exact/approximate, must be null/omitted for unquantified."
+          "description": "UUID of the unit (must exist in database). Required for exact, optional for approximate, must be null/omitted for unquantified."
         },
         "note": {
           "type": ["string", "null"],
@@ -135,7 +135,7 @@
         },
         {
           "if": {
-            "properties": { "quantity_kind": { "enum": ["exact", "approximate"] } }
+            "properties": { "quantity_kind": { "const": "exact" } }
           },
           "then": {
             "required": ["input_qty", "input_unit_id"],

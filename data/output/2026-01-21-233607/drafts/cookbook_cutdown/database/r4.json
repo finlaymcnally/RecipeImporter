@@ -33,7 +33,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tbsp olive oil"
         },
         {
@@ -45,7 +45,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup balsamic vinegar"
         },
         {
@@ -57,7 +57,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 tsp sea salt"
         },
         {
@@ -69,7 +69,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tsp paprika"
         },
         {
@@ -81,7 +81,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 tsp crushed red pepper flakes"
         },
         {
@@ -93,7 +93,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "crushed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 large cloves garlic crushed"
         },
         {
@@ -105,7 +105,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "squeezed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 lemon squeezed"
         },
         {
@@ -117,7 +117,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 sprigs of fresh thyme stripped from the stem"
         },
         {
@@ -129,7 +129,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 lb chicken breasts of medium thickness boneless and skinless"
         },
         {
@@ -141,7 +141,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "halved and quartered",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 lb brussels sprouts halved and quartered"
         },
         {
@@ -153,7 +153,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "peeled, cored and sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 Granny Smith apple peeled, cored and sliced"
         },
         {
@@ -165,7 +165,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tbsp olive oil for the veggies"
         },
         {
@@ -177,7 +177,7 @@
           "is_optional": false,
           "note": "(to sprinkle over the veggies)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "two sprigs of fresh thyme stripped from the stem (to sprinkle over the veggies)"
         },
         {
@@ -201,7 +201,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "5 bacon strips"
         }
       ],
@@ -230,7 +230,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 lb chicken breasts of medium thickness boneless and skinless"
         }
       ],
@@ -247,7 +247,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tbsp olive oil"
         },
         {
@@ -259,7 +259,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 sprigs of fresh thyme stripped from the stem"
         },
         {
@@ -271,7 +271,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "halved and quartered",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 lb brussels sprouts halved and quartered"
         },
         {
@@ -283,7 +283,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "peeled, cored and sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 Granny Smith apple peeled, cored and sliced"
         },
         {
@@ -295,7 +295,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tbsp olive oil for the veggies"
         },
         {
@@ -307,7 +307,7 @@
           "is_optional": false,
           "note": "(to sprinkle over the veggies)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "two sprigs of fresh thyme stripped from the stem (to sprinkle over the veggies)"
         }
       ],
@@ -336,7 +336,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "halved and quartered",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 lb brussels sprouts halved and quartered"
         }
       ],
@@ -353,7 +353,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "5 bacon strips"
         }
       ],

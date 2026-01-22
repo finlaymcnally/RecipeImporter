@@ -21,7 +21,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "dry",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12oz penne pasta, dry"
         }
       ],
@@ -38,7 +38,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4lb bacon (4 slices,) chopped"
         },
         {
@@ -62,7 +62,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "drained and chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 can quartered artichoke hearts, drained and chopped"
         },
         {
@@ -74,7 +74,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "julienned",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup julienned sun dried tomatoes"
         },
         {
@@ -86,7 +86,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "5oz baby spinach"
         },
         {
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 Tablespoons extra virgin olive oil"
         },
         {
@@ -139,7 +139,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 Tablespoons butter"
         },
         {
@@ -151,7 +151,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup flour"
         },
         {
@@ -163,7 +163,7 @@
           "is_optional": false,
           "note": "(I used 2%)",
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1-1/2 cups milk (I used 2%)"
         },
         {
@@ -175,7 +175,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1-1/2 cups chicken broth"
         },
         {
@@ -199,7 +199,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "grated",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 cup grated parmesan cheese"
         },
         {
@@ -211,7 +211,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 teaspoons Italian seasoning"
         },
         {
@@ -223,7 +223,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 teaspoon garlic powder"
         }
       ],
@@ -240,7 +240,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "dry",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "12oz penne pasta, dry"
         },
         {
@@ -252,7 +252,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4lb bacon (4 slices,) chopped"
         }
       ],

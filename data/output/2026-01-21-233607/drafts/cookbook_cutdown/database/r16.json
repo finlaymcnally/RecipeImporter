@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Olive oil, for frying"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Olive oil, for frying"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "peeled and sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 red onion, peeled and sliced"
         },
         {
@@ -61,7 +61,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "deseeded and thinly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 red peppers, deseeded and thinly sliced"
         },
         {
@@ -73,7 +73,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tbsp caster sugar"
         }
       ],
@@ -94,7 +94,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "deseeded and thinly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 red peppers, deseeded and thinly sliced"
         },
         {
@@ -106,7 +106,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 tbsp red wine vinegar"
         }
       ],
@@ -127,7 +127,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Olive oil, for frying"
         },
         {
@@ -139,7 +139,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Olive oil, for frying"
         },
         {
@@ -151,7 +151,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tbsp extra virgin olive oil"
         }
       ],
@@ -193,7 +193,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pork chops, about 200g each"
         }
       ],
@@ -214,7 +214,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pork chops, about 200g each"
         }
       ],
@@ -235,7 +235,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pork chops, about 200g each"
         },
         {
@@ -247,7 +247,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "skin on, crushed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 garlic cloves, skin on, crushed"
         },
         {
@@ -280,7 +280,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pork chops, about 200g each"
         },
         {
@@ -313,7 +313,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pork chops, about 200g each"
         },
         {
@@ -325,7 +325,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "skin on, crushed",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 garlic cloves, skin on, crushed"
         }
       ],
@@ -346,7 +346,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pork chops, about 200g each"
         },
         {
@@ -379,7 +379,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 pork chops, about 200g each"
         },
         {
@@ -391,7 +391,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "deseeded and thinly sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 red peppers, deseeded and thinly sliced"
         }
       ],

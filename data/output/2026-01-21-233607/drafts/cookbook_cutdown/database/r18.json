@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": "to taste",
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Kosher salt and black pepper, to taste"
         }
       ],
@@ -42,7 +42,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 cup sweet Thai chili sauce"
         },
         {
@@ -54,7 +54,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup lime juice"
         },
         {
@@ -66,7 +66,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3 tablespoons natural peanut butter"
         },
         {
@@ -78,7 +78,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "peeled and grated",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 inch piece fresh ginger peeled and grated"
         },
         {
@@ -90,7 +90,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "4 cloves garlic, minced"
         }
       ],
@@ -111,7 +111,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "stemmed and chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 bell peppers, stemmed and chopped"
         },
         {
@@ -123,7 +123,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "separated into florets",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 medium bunch of broccoli, separated into florets"
         },
         {
@@ -135,7 +135,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 handfuls snow peas"
         },
         {
@@ -147,7 +147,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "sliced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 carrots, sliced"
         },
         {
@@ -159,7 +159,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 white onion, chopped"
         },
         {
@@ -192,7 +192,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup unsalted peanuts, chopped"
         }
       ],
@@ -209,7 +209,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/2 cup sweet Thai chili sauce"
         },
         {
@@ -221,7 +221,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1/4 cup low sodium soy sauce"
         },
         {

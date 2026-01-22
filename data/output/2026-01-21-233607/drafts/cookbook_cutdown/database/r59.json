@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": "about 4 tomatillos",
           "preparation": "quartered, husks discarded",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "3/4 pound tomatillos (about 4 tomatillos; 350g), quartered, husks discarded"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": "about 2 peppers, (see note)",
           "preparation": "roughly chopped, seeds and stems discarded",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2/3 pound Poblano peppers (about 2 peppers; 300g), roughly chopped, seeds and stems discarded (see note)"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": false,
           "note": "about 2 peppers, (see note)",
           "preparation": "roughly chopped, seeds and stems discarded",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "6 ounces Anaheim or Cubanelle peppers (about 2 peppers; 170g), roughly chopped, seeds and stems discarded (see note)"
         },
         {
@@ -61,7 +61,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "roughly chopped",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "8 ounces white onion (about 1 medium; 225g), roughly chopped"
         },
         {
@@ -73,7 +73,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "peeled",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "6 medium cloves garlic, peeled"
         }
       ],
@@ -106,7 +106,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 tablespoon (15ml) Asian fish sauce"
         },
         {
@@ -118,7 +118,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "unquantified",
+          "quantity_kind": "approximate",
           "raw_text": "Fresh corn tortillas and lime wedges, for serving"
         }
       ],

@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "grated",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound carrots, grated"
         },
         {
@@ -37,7 +37,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "minced",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 clove garlic, minced"
         },
         {
@@ -49,7 +49,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc cup all-purpose flour"
         },
         {
@@ -61,7 +61,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bc cup bread crumbs or matzo meal"
         },
         {
@@ -73,7 +73,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "ground",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pinch ground black pepper"
         }
       ],
@@ -94,7 +94,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 tablespoons vegetable oil"
         }
       ],

@@ -25,7 +25,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound linguine pasta"
         }
       ],
@@ -46,7 +46,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd cup butter"
         },
         {
@@ -58,7 +58,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cups heavy cream"
         },
         {
@@ -70,7 +70,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "ground",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u00bd teaspoon ground black pepper"
         }
       ],
@@ -91,7 +91,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "2 cups heavy cream"
         },
         {
@@ -103,7 +103,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "grated",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 cup grated Parmesan cheese"
         },
         {
@@ -115,7 +115,7 @@
           "is_optional": false,
           "note": null,
           "preparation": null,
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "\u2153 cup pesto"
         }
       ],
@@ -136,7 +136,7 @@
           "is_optional": false,
           "note": null,
           "preparation": "peeled and deveined",
-          "quantity_kind": "quantified",
+          "quantity_kind": "exact",
           "raw_text": "1 pound large shrimp, peeled and deveined"
         }
       ],
