@@ -1,0 +1,175 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, chicken thighs, cream, sun dried tomatoes",
+    "title": "Marry Me chicken",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "0a5a0c3a-2b5a-406e-91c4-14fb21137e94",
+          "input_item": "extra-virgin olive oil",
+          "input_qty": 1.0,
+          "input_unit_id": "tbsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tbsp. extra-virgin olive oil"
+        },
+        {
+          "confidence": 0.986,
+          "ingredient_id": "fff02d35-0fce-4ec6-8729-a277648550cb",
+          "input_item": "bone-in, skin-on chicken thighs",
+          "input_qty": 6.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "6 bone-in, skin-on chicken thighs (about 2 pounds)"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "4851d528-093e-4eb7-bbc4-049d5c4d0424",
+          "input_item": "Kosher salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "fe94ba95-44f5-46e5-847f-c0928ebfc505",
+          "input_item": "black pepper",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "Freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_text": "Freshly ground black pepper"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "3723cdff-ae26-4965-bcba-80c425c6cd7c",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 cloves garlic, minced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "483822d1-f564-495e-be41-794f05b8c3b2",
+          "input_item": "fresh thyme leaves",
+          "input_qty": 1.0,
+          "input_unit_id": "tbsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tbsp. fresh thyme leaves"
+        },
+        {
+          "confidence": 0.955,
+          "ingredient_id": "7e21adca-23df-4137-91fa-10067d244a82",
+          "input_item": "crushed red pepper flakes",
+          "input_qty": 1.0,
+          "input_unit_id": "tsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tsp. crushed red pepper flakes"
+        },
+        {
+          "confidence": 0.946,
+          "ingredient_id": "367c17e0-4962-4daa-a07d-fc13e311aa57",
+          "input_item": "low-sodium chicken broth",
+          "input_qty": 0.75,
+          "input_unit_id": "c",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3/4 c. low-sodium chicken broth"
+        },
+        {
+          "confidence": 0.974,
+          "ingredient_id": "e4e3cd35-b785-4c00-b559-e42f83a142ff",
+          "input_item": "heavy cream",
+          "input_qty": 0.5,
+          "input_unit_id": "c",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 c. heavy cream"
+        },
+        {
+          "confidence": 0.985,
+          "ingredient_id": "2c2a3aa5-f67d-4bbd-9f98-ff643758eff4",
+          "input_item": "sun-dried tomatoes",
+          "input_qty": 0.5,
+          "input_unit_id": "c",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 c. chopped sun-dried tomatoes"
+        },
+        {
+          "confidence": 0.987,
+          "ingredient_id": "0971f058-0fc5-4aa0-a13f-4b9aeda83e44",
+          "input_item": "Parmesan",
+          "input_qty": 0.25,
+          "input_unit_id": "c",
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly grated",
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 c. freshly grated Parmesan"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "d3619eb6-f0c7-4f73-9d4e-eaefe6315c3f",
+          "input_item": "basil",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "Freshly torn",
+          "quantity_kind": "unquantified",
+          "raw_text": "Freshly torn basil, for serving"
+        }
+      ],
+      "instruction": "Preheat oven to 375\u00b0. In a large oven-safe skillet over medium-high heat, heat oil. Season chicken generously with salt and pepper and sear, skin-side down, until golden, 4 to 5 minutes per side. Transfer chicken to a plate and pour off half the fat from skillet."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Return skillet to medium heat and add garlic, thyme, and red pepper flakes. Cook until fragrant, 1 minute, then stir in broth, heavy cream, sun-dried tomatoes, and Parmesan and season with more salt. Bring to a simmer, then return chicken to skillet, skin-side up."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Transfer skillet to oven and bake until chicken is cooked through (and juices run clear when chicken is pierced with a knife), 17 to 20 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Garnish with basil and serve."
+    }
+  ]
+}

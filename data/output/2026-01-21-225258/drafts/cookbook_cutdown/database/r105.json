@@ -1,0 +1,283 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, beef roast, mushrooms, carrots, celery",
+    "title": "Beef Stew Recipe",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "5a1fc5fc-a31a-46b3-8405-25334fa5418c",
+          "input_item": "homemade chicken stock",
+          "input_qty": 4.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 cups homemade chicken stock"
+        },
+        {
+          "confidence": 0.965,
+          "ingredient_id": "3cc6adaa-17e2-43ea-8e08-487121c789fc",
+          "input_item": "powdered unflavored gelatin",
+          "input_qty": 4.0,
+          "input_unit_id": "ounces",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 ounces powdered unflavored gelatin"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "fb8be17f-4cec-47ed-a43c-cbfde3d85485",
+          "input_item": "tomato paste",
+          "input_qty": 3.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 tablespoons tomato paste"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "ec43fcdd-ee4a-4c6f-8d64-f714c4ad1587",
+          "input_item": "soy sauce",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon soy sauce"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "f1a052f8-1cdc-4fea-9762-78a8f40deab0",
+          "input_item": "Asian fish sauce",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon Asian fish sauce"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "781bf399-7b80-4271-b5d3-0a9e82f586db",
+          "input_item": "Worcestershire sauce",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon Worcestershire sauce"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "1408e9d8-e96d-44b1-b86d-6cef6c9594f5",
+          "input_item": "vegetable oil",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons vegetable oil"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "cd810106-21b0-41cf-9a6a-52b913619371",
+          "input_item": "whole boneless beef chuck roast",
+          "input_qty": 3.0,
+          "input_unit_id": "pounds",
+          "is_optional": false,
+          "note": null,
+          "preparation": "cut into 3 steaks",
+          "quantity_kind": "quantified",
+          "raw_text": "3 pounds whole boneless beef chuck roast, cut into 3 steaks"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "d32b17ae-a182-4ddb-9500-142c550a0c22",
+          "input_item": "Kosher salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt and freshly ground black pepper"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "4d53b772-a2e6-4712-9e85-cbbf4e227acf",
+          "input_item": "white portebella mushroom",
+          "input_qty": 8.0,
+          "input_unit_id": "ounces",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "8 ounces white portebella mushroom, chopped"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "e296b5e3-3ce6-4968-a701-aa59b8c7addb",
+          "input_item": "carrots",
+          "input_qty": 4.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "2 left whole, 2 cut into bite-sized pieces",
+          "quantity_kind": "quantified",
+          "raw_text": "4 medium carrots, 2 left whole, 2 cut into bite-sized pieces"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "743b73ae-94b8-42e8-9456-a185552b5c84",
+          "input_item": "fresh pearl onions",
+          "input_qty": 8.0,
+          "input_unit_id": "ounces",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled",
+          "quantity_kind": "quantified",
+          "raw_text": "8 ounces fresh pearl onions, peeled"
+        },
+        {
+          "confidence": 0.991,
+          "ingredient_id": "4c24d30b-7f44-4df5-a36d-23717ae4f6a8",
+          "input_item": "yellow onion",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "unpeeled, split in half",
+          "quantity_kind": "quantified",
+          "raw_text": "1 large yellow onion, unpeeled, split in half"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "012db361-0554-4017-b62f-2104c289e216",
+          "input_item": "celery",
+          "input_qty": 2.0,
+          "input_unit_id": "small stalks",
+          "is_optional": false,
+          "note": null,
+          "preparation": "cut into thirds",
+          "quantity_kind": "quantified",
+          "raw_text": "2 small stalks celery, cut into thirds"
+        },
+        {
+          "confidence": 0.988,
+          "ingredient_id": "1a244ab4-42c1-41a8-8716-1855cc4c1f60",
+          "input_item": "garlic",
+          "input_qty": 3.0,
+          "input_unit_id": "medium cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "unpeeled",
+          "quantity_kind": "quantified",
+          "raw_text": "3 medium cloves garlic, unpeeled"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "ce62b3fd-8788-4d1c-9efb-ac0ccb561228",
+          "input_item": "dark beer",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": "(use a neutral porter or stout)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup dark beer (use a neutral porter or stout)"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "a02f14ab-7045-4ab4-b0d1-5db1ed4b1f69",
+          "input_item": "flour",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons flour"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "abbe1cf9-3fa2-4a1c-852d-adc3a2496b8f",
+          "input_item": "bay leaves",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 bay leaves"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "058e7eb7-ee49-4704-bfa4-d0380e614c2a",
+          "input_item": "thyme",
+          "input_qty": 4.0,
+          "input_unit_id": "sprigs",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 sprigs thyme"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "9459fcf7-95b9-4d03-bfbb-95bdc5d540f1",
+          "input_item": "pearl barley",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup pearl barley"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "fa9e6629-15fa-4c04-960a-c6ac3fa667b0",
+          "input_item": "frozen peas",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup frozen peas"
+        },
+        {
+          "confidence": 0.872,
+          "ingredient_id": "cb661cb1-e1c8-4e9f-a706-3fb9fae35b2d",
+          "input_item": "Combine stock",
+          "input_qty": 6.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Set aside. Adjust oven rack to lower position and preheat oven to 300\u00b0F., Cook, turning occasionally, about 10 minutes., Add mushrooms to Dutch oven and cook, stirring, stirring, Add halved yellow onion to Dutch oven, cut-side-down., Cook, turning carrots, about 3 minutes., Remove from heat., Toss with flour., Transfer to oven, about 1 hour 30 minutes., Remove stew from oven., thyme, onion, Add reserved saut\u00e9ed mushroom, to stew, return to oven, and continue to cook, Remove stew from oven., Season to taste with salt and pepper if necessary.",
+          "preparation": "in a blender and blend on high speed until homogenous., In a large Dutch oven, heat oil over medium-high heat until shimmering. Season beef all over with salt and pepper and add to Dutch oven., until beef is well browned on 2 sides, Transfer beef to a rimmed baking sheet or large plate and set aside., until liquid is released and mushrooms begin to brown, lowering heat as necessary to prevent scorching. Add diced, until well-browned on all sides. Season to taste with salt and pepper then transfer to a bowl and set aside., and garlic occasionally until all the vegetables are well-browned, scrape up browned bits with a wooden spoon, and cook until reduced by 3/4, Add broth mixture and bring to a simmer., Cut seared steaks into 1#1$2-2 inch chunks and transfer to a large bowl., Add beef and any juices accumulated in the tray or plate to the Dutch oven along with bay leaves and thyme sprigs. Stir to combine and return to a simmer over medium heat., cover with lid partially open, and cook until beef is starting to become tender, Liquid should be at a slow, steady simmer the entire time. Adjust oven temperature if necessary during cooking., fish out and discard carrot, partially covered, until beef, are tender and broth has thickened, 45 minutes to 1 hour., Place over a burner, and simmer for up to 15 minutes.",
+          "quantity_kind": "quantified",
+          "raw_text": "Combine stock, gelatin, tomato paste, soy sauce, fish sauce, and Worcestershire sauce in a blender and blend on high speed until homogenous. Set aside. Adjust oven rack to lower position and preheat oven to 300\u00b0F. In a large Dutch oven, heat oil over medium-high heat until shimmering. Season beef all over with salt and pepper and add to Dutch oven. Cook, turning occasionally, until beef is well browned on 2 sides, about 10 minutes. Transfer beef to a rimmed baking sheet or large plate and set aside. Add mushrooms to Dutch oven and cook, stirring, until liquid is released and mushrooms begin to brown, about 6 minutes, lowering heat as necessary to prevent scorching. Add diced carrots and pearl onions and cook, stirring, until well-browned on all sides. Season to taste with salt and pepper then transfer to a bowl and set aside. Add halved yellow onion to Dutch oven, cut-side-down. Add whole carrots, celery sticks, and garlic. Cook, turning carrots, celery, and garlic occasionally until all the vegetables are well-browned, about 4 minutes. Add beer, scrape up browned bits with a wooden spoon, and cook until reduced by 3/4, about 3 minutes. Add broth mixture and bring to a simmer. Remove from heat. Cut seared steaks into 1 1/2- to 2-inch chunks and transfer to a large bowl. Toss with flour. Add beef and any juices accumulated in the tray or plate to the Dutch oven along with bay leaves and thyme sprigs. Stir to combine and return to a simmer over medium heat. Transfer to oven, cover with lid partially open, and cook until beef is starting to become tender, about 1 hour 30 minutes. Liquid should be at a slow, steady simmer the entire time. Adjust oven temperature if necessary during cooking. Remove stew from oven. Using tongs, fish out and discard carrot, celery, thyme, bay leaves, onion, and garlic. Add reserved saut\u00e9ed mushroom, pearl onions, and carrots to stew, return to oven, and continue to cook, partially covered, until beef, potatoes, and carrots are tender and broth has thickened, 45 minutes to 1 hour. Remove stew from oven. Place over a burner, add barley, and simmer for up to 15 minutes. Stir in peas. Season to taste with salt and pepper if necessary."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

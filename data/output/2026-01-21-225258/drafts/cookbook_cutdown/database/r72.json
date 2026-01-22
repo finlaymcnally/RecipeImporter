@@ -1,0 +1,91 @@
+{
+  "recipe": {
+    "description": "Great for pasta",
+    "notes": "Tags: Component, Normal, cheese",
+    "title": "Browned Butter sauce",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "d8ca8c27-3989-44f3-8158-4231a4b13723",
+          "input_item": "butter",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd cup butter"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "322388e9-138e-414e-bc07-602e90ac2709",
+          "input_item": "garlic",
+          "input_qty": 1.0,
+          "input_unit_id": "clove",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 clove garlic, minced"
+        },
+        {
+          "confidence": 0.896,
+          "ingredient_id": "1ded0d83-faf1-47ba-878d-d23da5d4cbba",
+          "input_item": "fresh basil",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": "Italian, or 1/2 teaspoon fresh thyme leaves",
+          "preparation": "snipped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon snipped fresh basil, sage, oregano, Italian (flat-leaf) parsley, and/or chives or 1/2 teaspoon fresh thyme leaves"
+        },
+        {
+          "confidence": 0.82,
+          "ingredient_id": "0a57d205-ad15-4d6f-a3b0-cc5355b74ab3",
+          "input_item": "ground black pepper",
+          "input_qty": null,
+          "input_unit_id": "Dash",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Dash ground black pepper"
+        },
+        {
+          "confidence": 0.918,
+          "ingredient_id": "fecd4a0f-3002-4f7d-9c29-ccf59e06bffd",
+          "input_item": "Pecorino Romano, Asiago",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "grated or shredded",
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons grated or shredded Pecorino Romano, Asiago, and/or Parmesan cheese"
+        }
+      ],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a medium saucepan, combine butter and garlic. Cook and stir over medium heat until butter is melted. Cook for 5 to 8 minutes or until butter is lightly browned, stirring occasionally and skimming foam as necessary. Remove from heat. Stir in herb(s) and pepper."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Drizzle sauce over cooked pasta, as a dipping oil, over popcorn, or other creative uses. Sprinkle with cheese."
+    }
+  ]
+}

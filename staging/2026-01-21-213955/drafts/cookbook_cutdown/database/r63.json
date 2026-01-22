@@ -1,0 +1,205 @@
+{
+  "recipe": {
+    "description": "So much spices",
+    "notes": "Tags: Indian, Side, Instant Pot, lentils, tomatoes",
+    "title": "Dal Makhani",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "3fb7d101-d7ca-4acf-aa59-36664865a109",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup whole and split lentils (any combination of whole black lentils, whole mung beans, whole masoor beans, red lentils, red kidney beans, etc), soaked overnight"
+        },
+        {
+          "ingredient_id": "2b5bb591-adfc-4d3d-9a98-fbf2bcc5e5ec",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons neutral oil (I like avocado oil)"
+        },
+        {
+          "ingredient_id": "82b6697f-d17a-4808-b2c9-7344218b26d7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon cumin seeds"
+        },
+        {
+          "ingredient_id": "a7e94a88-0d54-43df-9bc2-c471b2ab84cd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 large onion, chopped"
+        },
+        {
+          "ingredient_id": "7abf2f80-e61d-4ffb-a650-cfe984892cb4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 bay leaf"
+        },
+        {
+          "ingredient_id": "f0a0074d-8879-4a99-a60a-1562f99c8ac6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 teaspoons minced garlic"
+        },
+        {
+          "ingredient_id": "40135704-d8b7-46c5-a97a-ef91883eafd2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 \u00bd teaspoons minced ginger"
+        },
+        {
+          "ingredient_id": "f4d75bf4-59e9-42a0-b5c7-caa17e6cc0c3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Spices"
+        },
+        {
+          "ingredient_id": "31971c14-0735-41c7-9778-7e415fbb3ed8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon garam masala"
+        },
+        {
+          "ingredient_id": "e00b6946-85de-4177-b27a-a3bf49c10abb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon salt, adjust to taste"
+        },
+        {
+          "ingredient_id": "d755a60a-73c5-4cca-baa5-1f2096f8aeb3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon turmeric"
+        },
+        {
+          "ingredient_id": "a761e5db-10e1-4232-aa96-8fd277649906",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd teaspoon black pepper"
+        },
+        {
+          "ingredient_id": "b18fb3b2-1f7c-4277-8abd-ee48571f17b7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd \u2013 1 teaspoon cayenne"
+        },
+        {
+          "ingredient_id": "ebdf94a0-9d60-4cd2-810e-b73150ab7c99",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tomatoes, chopped"
+        },
+        {
+          "ingredient_id": "44ba3b58-ffe1-409c-a9df-ffefe67eff15",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 cups water"
+        },
+        {
+          "ingredient_id": "cb739382-41cb-46ec-8022-6be90792cb5a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons ghee, adjust to taste"
+        },
+        {
+          "ingredient_id": "d989c79a-c77b-4ce2-a49c-d707f0594250",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cilantro, garnish"
+        },
+        {
+          "ingredient_id": "db16fb54-ea43-4532-8e89-26077fb51705",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Drizzle of heavy cream, optional garnish"
+        }
+      ],
+      "instruction": "Soak the lentils in cold water overnight. Drain, rinse and set aside."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Press the saut\u00e9 button on the Instant Pot, add the oil and allow it to heat up for a minute. Add the cumin seeds and once they start to brown, add the onion and bay leaf. Stir-fry for 6-7 minutes or until the onion begins to brown."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the garlic, ginger, spices and stir, then add the tomatoes. Cook for 5 minutes, or until the tomatoes break down."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the lentils to the pot along with the 3 cups of water and mix well."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Secure the lid, close the pressure valve and cook for 30 minutes at high pressure."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Allow the pressure to release naturally."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir in the ghee and garnish with cilantro if desired."
+    }
+  ]
+}

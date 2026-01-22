@@ -1,0 +1,123 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Indian, Side, Normal, spinach, chickpeas, tomato sauce",
+    "title": "Curried chickpeas with spinach",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "79f6f5a1-7e78-4038-8275-de5a5bb41e16",
+          "input_item": "olive oil",
+          "input_qty": 2.0,
+          "input_unit_id": "Tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 Tbsp olive oil"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "892d37ba-405c-46f1-bd3e-65b0ff466c7c",
+          "input_item": "yellow onion",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 yellow onion"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "0d5485cd-af56-441f-9a26-acd8ca6aefba",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 cloves garlic"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "848c6bf3-de1b-48ff-90d5-63b34c61f361",
+          "input_item": "fresh ginger",
+          "input_qty": 1.0,
+          "input_unit_id": "inch",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 inch fresh ginger"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "1101889f-d5b8-450d-b7b9-8d4d8edeb543",
+          "input_item": "curry powder",
+          "input_qty": 1.5,
+          "input_unit_id": "Tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 1/2 Tbsp curry powder"
+        },
+        {
+          "confidence": 0.992,
+          "ingredient_id": "dd260011-43a8-44ef-9271-6e1a9b332e17",
+          "input_item": "spinach",
+          "input_qty": 8.0,
+          "input_unit_id": "oz",
+          "is_optional": false,
+          "note": "(fresh or frozen)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "8 oz. spinach (fresh or frozen)"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "cf2c3170-41ba-404a-b0e2-e0f6ed02878d",
+          "input_item": "tomato sauce",
+          "input_qty": 1.0,
+          "input_unit_id": "can",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 15oz. can tomato sauce"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "f5f6c940-ce86-4331-9f63-bf9a025b45ea",
+          "input_item": "chickpeas",
+          "input_qty": 2.0,
+          "input_unit_id": "cans",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 15oz. cans chickpeas"
+        }
+      ],
+      "instruction": "Dice the onion, mince the garlic, and grate the ginger on a small holed cheese grater. Saut\u00e9 the onion, garlic, and ginger in a large skillet with the olive oil over medium heat until the onions have softened (3-5 minutes)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the curry powder and continue to saut\u00e9 with the onion mixture for one minute more. Add about 1/4 cup of water to the skillet along with the fresh spinach and continue to saut\u00e9 until the spinach has wilted. The water will help steam and wilt the spinach (no water needed if using frozen spinach)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Drain and rinse the chickpeas. Add them to the skillet along with the tomato sauce. Stir well to distribute the spices in the sauce and heat through (5 minutes). Serve over rice or with bread."
+    }
+  ]
+}

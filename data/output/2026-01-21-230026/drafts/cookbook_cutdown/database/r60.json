@@ -1,0 +1,187 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Italian, Side, Instant Pot, celery, carrots, tomatoes, cream",
+    "title": "Creamy tomatoes Basil Parmesan soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "5e129a32-939f-4618-9da2-1d5b976b6914",
+          "input_item": "butter",
+          "input_qty": 3.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 tablespoons butter"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "6c068546-7674-4f37-98c3-241441179535",
+          "input_item": "onion",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 large onion, diced"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "dc04a5eb-1d5a-4463-a189-6e9f41e45665",
+          "input_item": "celery",
+          "input_qty": 2.0,
+          "input_unit_id": "stalks",
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 stalks celery, diced"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "ad9aab0c-3af3-4933-8aee-bd6e32307196",
+          "input_item": "carrot",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 large carrot, diced"
+        },
+        {
+          "confidence": 0.984,
+          "ingredient_id": "776b3064-8fa2-4910-a5f4-433a5d8c1f19",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced or pressed",
+          "quantity_kind": "quantified",
+          "raw_text": "2 garlic cloves, minced or pressed"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "64ce79f7-674d-4461-aa81-5f2627041525",
+          "input_item": "chicken broth",
+          "input_qty": 2.0,
+          "input_unit_id": "cans",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 14.5 oz. cans chicken broth"
+        },
+        {
+          "confidence": 0.984,
+          "ingredient_id": "e3d7caec-cb95-45ed-ab27-426dcc25252a",
+          "input_item": "tomatoes",
+          "input_qty": 3.0,
+          "input_unit_id": "pounds",
+          "is_optional": false,
+          "note": "Or substitute 2 14.5 ounce cans of diced tomatoes",
+          "preparation": "cored, peeled, and quartered",
+          "quantity_kind": "quantified",
+          "raw_text": "3 pounds tomatoes - cored, peeled, and quartered*Or substitute 2 14.5 ounce cans of diced tomatoes"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "7d746c15-c6ed-4893-9250-ac5b1745775e",
+          "input_item": "fresh basil",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup fresh basil"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "e1fa91fd-21e0-46a4-96d9-914e222dcee9",
+          "input_item": "tomato paste",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon tomato paste"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "799c0be1-0ad9-4eb6-941b-a496ab7d5ecb",
+          "input_item": "salt",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon salt"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "2b4a9653-103c-4dc8-bfac-75487e0581cc",
+          "input_item": "black pepper",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly ground",
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon freshly ground black pepper"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "797d171e-15c2-4386-a925-5df9c8b8dc95",
+          "input_item": "Parmesan cheese",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "shredded",
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup shredded Parmesan cheese"
+        },
+        {
+          "confidence": 0.989,
+          "ingredient_id": "4d8621d3-b42c-45e1-8c83-dee8344492ee",
+          "input_item": "half and half",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup half and half"
+        }
+      ],
+      "instruction": "Melt butter in pressure cooker pot. Saute onions, celery, and carrots until tender. Add garlic and cook 1 minute stirring often. Add chicken stock, tomatoes, basil, tomato paste, salt, and pepper."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Select high pressure and 5 minutes cook time. When beep sounds turn pressure cooker off, wait 5 minutes and then use a Quick Pressure Release to release pressure."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "When valve drops carefully remove lid. Puree mixture until it\u2019s very smooth. (I used my immersion blender and pureed it in the pressure cooker pot.)"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Select Simmer or Saute and stir in Parmesan and half and half."
+    }
+  ]
+}

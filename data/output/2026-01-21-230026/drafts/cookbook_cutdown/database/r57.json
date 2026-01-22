@@ -1,0 +1,299 @@
+{
+  "recipe": {
+    "description": "tons of spices",
+    "notes": "Tags: Vietnamese, Main, Instant Pot, ginger, chicken, noodles, limes",
+    "title": "Pressure Pho",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.985,
+          "ingredient_id": "ea6a47d9-aa8d-4ebb-931f-25639676b205",
+          "input_item": "canola oil",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons canola or vegetable oil"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "4441aea6-00d6-4b22-970b-63d033298da4",
+          "input_item": "yellow onions",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "split in half",
+          "quantity_kind": "quantified",
+          "raw_text": "2 medium yellow onions, split in half"
+        },
+        {
+          "confidence": 0.82,
+          "ingredient_id": "7f235257-555f-4415-a4a4-aa6ad80af871",
+          "input_item": "ginger",
+          "input_qty": 1.0,
+          "input_unit_id": "small hand",
+          "is_optional": false,
+          "note": null,
+          "preparation": "roughly sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 small hand of ginger, roughly sliced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "674b0d39-0609-4d9b-8b51-3eca3063f668",
+          "input_item": "cilantro",
+          "input_qty": 1.0,
+          "input_unit_id": "small bunch",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 small bunch cilantro"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "000ce667-49b9-4ba6-a1a5-d8620e271443",
+          "input_item": "star anise pods",
+          "input_qty": 3.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 star anise pods"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "384ab6bb-20ba-4a5d-a154-3b63a1a2123c",
+          "input_item": "cinnamon stick",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cinnamon stick"
+        },
+        {
+          "confidence": 0.934,
+          "ingredient_id": "f2558a60-fb73-4e5f-b77f-fd42913c9de2",
+          "input_item": "cloves",
+          "input_qty": 4.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 cloves"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "b6a87069-65da-43c3-830c-48e2ab6c31c4",
+          "input_item": "fennel seeds",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon fennel seeds"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "2682fd69-0a88-4d66-84f4-c7ffac925063",
+          "input_item": "coriander seeds",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon coriander seeds"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "15790459-3839-4d90-9553-0ba45834f9ad",
+          "input_item": "chicken drumsticks",
+          "input_qty": 7.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "6 to 8 chicken drumsticks"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "ec1bd8e4-1b59-4ff7-b350-155b4a17ee01",
+          "input_item": "fish sauce",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": "plus more to taste",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup fish sauce, plus more to taste"
+        },
+        {
+          "confidence": 0.991,
+          "ingredient_id": "ce8b5b03-c9a8-452c-b1c3-145e1bf350b9",
+          "input_item": "rock sugar",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": "plus more to taste",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons rock sugar or raw sugar, plus more to taste"
+        },
+        {
+          "confidence": 0.479,
+          "ingredient_id": "ca960d5f-17ea-4888-9dbd-3b5a506ebe4d",
+          "input_item": "To Serve",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "To Serve:"
+        },
+        {
+          "confidence": 0.98,
+          "ingredient_id": "7bec577a-1d4a-4c06-bf21-b873415eba4d",
+          "input_item": "servings pho noodles",
+          "input_qty": 4.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "prepared according to package directions",
+          "quantity_kind": "quantified",
+          "raw_text": "4 servings pho noodles, prepared according to package directions"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "8145fcfa-2379-4cb1-be47-9eb2d3fec120",
+          "input_item": "white onion",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "thinly sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 small white or yellow onion, thinly sliced"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "b212cca1-0058-47bf-b318-3bf7b77d3653",
+          "input_item": "scallions",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "thinly sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup thinly sliced scallions"
+        },
+        {
+          "confidence": 0.957,
+          "ingredient_id": "6829de77-735f-4427-9781-5d997ab8e544",
+          "input_item": "mixed herbs",
+          "input_qty": 2.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": "(cilantro, basil, and mint)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 cups mixed herbs (cilantro, basil, and mint)"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "53ed4aab-47e3-490e-ae70-c8ca69b7db7c",
+          "input_item": "bean sprouts",
+          "input_qty": 2.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "trimmed",
+          "quantity_kind": "quantified",
+          "raw_text": "2 cups trimmed bean sprouts"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "4ac771e0-8661-42f1-9fd3-6af2d5bdc970",
+          "input_item": "Thai chilis",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "Thinly sliced",
+          "quantity_kind": "unquantified",
+          "raw_text": "Thinly sliced Thai chilis"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "2de8b905-cc5c-4d2a-953a-a850ce11e48d",
+          "input_item": "limes",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "each cut into 4 wedges",
+          "quantity_kind": "quantified",
+          "raw_text": "2 limes, each cut into 4 wedges"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "5ec7fe9d-f7db-46cc-b45a-463714e3f413",
+          "input_item": "Hoisin sauce",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Hoisin sauce and Sriracha"
+        }
+      ],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Heat oil in a pressure cooker over high heat until smoking. Add halved onions and ginger, cut side down. Cook without moving, reducing heat if smoking excessively, until onion and ginger are well charred, about 5 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add cilantro, star anise, cinnamon, cloves, fennel seed, coriander, and chicken to the pot. Add 2 quarts of water, the fish sauce, and the sugar to the pot. Seal the pressure cooker and bring it to high pressure over high heat. Cook on high pressure for 20 minutes, then shock under cold running water in the sink (or release pressure valve if using an electric pressure cooker)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Open pressure cooker. Transfer chicken legs to a plate. Pour broth through a fine mesh strainer into a clean pot and discard solids. Skim any scum off the surface of the broth using a ladle, but leave the small bubbles of fat intact. Season broth to taste with more fish sauce and sugar if desired."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "4."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "To serve, place re-hydrated pho noodles in individual noodle bowls. Top with chicken legs, sliced onions, and scallions. Pour hot broth over chicken and noodles. Serve immediately, allowing guests to add herbs, bean sprouts, chilis, lime, and sauces as they wish."
+    }
+  ]
+}

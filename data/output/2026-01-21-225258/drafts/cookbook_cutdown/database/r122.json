@@ -1,0 +1,30 @@
+{
+  "recipe": {
+    "description": "Acorn squash is the worst thing ever to peel and cube, butternut squash is a great substitute. I'm going to try this with unpeeled acorn squash, since you can eat the peel",
+    "notes": "Tags: Main, Instant Pot, pork roast, peppers, celery, acorn squash, mushrooms",
+    "title": "Crock Pot pork & Veggies",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "Add all ingredients to a gallon freezer bag. Freeze."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "To serve"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Thaw overnight. Place contents in slowcooker. Cook on low, 6-8 hours."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Could serve with bread, salad, baked potato, etc., or over roasted potatoes."
+    }
+  ]
+}

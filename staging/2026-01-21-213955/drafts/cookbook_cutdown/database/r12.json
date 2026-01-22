@@ -1,0 +1,168 @@
+{
+  "recipe": {
+    "description": "great",
+    "notes": "Tags: American, Meal, Normal, peppers, sausage, tomatoes, pasta",
+    "title": "One-Pot sausage And peppers pasta",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "1316f04d-98c3-429c-93ae-0f1de021fe1d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pound any short pasta (we used bow ties)"
+        },
+        {
+          "ingredient_id": "cbc295be-8278-4140-9c7c-8ef69156ab2e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon olive oil"
+        },
+        {
+          "ingredient_id": "8350c388-2d34-4244-9a29-6f49f39c92c4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 hot Italian sausages"
+        },
+        {
+          "ingredient_id": "d16f2393-8667-4498-b6d8-002a8afe047a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 sweet Italian sausages"
+        },
+        {
+          "ingredient_id": "68426270-e3a8-4899-9612-48daf63a8faf",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 red bell pepper, large diced"
+        },
+        {
+          "ingredient_id": "4bd95955-b215-478e-b14a-c7e0c0a27baf",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 green bell pepper, large diced"
+        },
+        {
+          "ingredient_id": "3b302ece-0f03-43b3-bf3b-a93e722844e0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 yellow bell pepper, large diced"
+        },
+        {
+          "ingredient_id": "2cad1a5b-6e5a-40ca-885e-16906bd10e20",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd white onion, sliced"
+        },
+        {
+          "ingredient_id": "ebd9a170-5b6f-480a-95c0-cfeb6dbdcfe3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cloves of garlic, sliced"
+        },
+        {
+          "ingredient_id": "af266ebc-0550-442b-af58-155fae73345b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "28 ounces can diced tomato"
+        },
+        {
+          "ingredient_id": "f09233b2-897b-492e-a8b3-125d04ce2c85",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon oregano"
+        },
+        {
+          "ingredient_id": "472369ee-d5d8-4c37-974e-faff755cccf6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon salt"
+        },
+        {
+          "ingredient_id": "df6a93a0-540b-4b2e-af72-1816e76daeb5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon black ground pepper"
+        }
+      ],
+      "instruction": "Bring a large pot of water to a rolling boil, add a generous amount of salt, and cook pasta 2 minutes less than the package instructions."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Strain pasta and set aside. Toss with a small amount of oil to prevent sticking"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In the same pot, heat 1 tbsp of olive oil and fry sausages, working in batches as needed, until deeply browned on all sides."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove sausages, slice in \u00be-inch rings, and set aside."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Saut\u00e9 all of the bell peppers, onion, and garlic for about 2 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the canned tomatoes, all of the spices, and the sausage slices to the pot."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Simmer about 10 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the pasta back to the pot and stir gently until all the ingredients are coated in the sauce. Continue simmering until pasta is al dente."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Serve with grated parmesan."
+    }
+  ]
+}

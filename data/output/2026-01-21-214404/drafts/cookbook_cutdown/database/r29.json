@@ -1,0 +1,138 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: American, Main, Instant Pot, carrots, chicken, lentils",
+    "title": "Chicken, Lentil, and bacon Stew With carrots",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "c4aa8a3f-384f-4792-b870-e8f1a7e71826",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons extra-virgin olive oil, plus more for serving"
+        },
+        {
+          "ingredient_id": "66deec77-6a9b-41ac-aadd-fc145fae4200",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8 ounces slab bacon or pancetta, cut into 1/2-inch lardons"
+        },
+        {
+          "ingredient_id": "540f29d1-f88b-47e8-968a-30f77c76887d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 medium onion, diced (about 1 cup)"
+        },
+        {
+          "ingredient_id": "0751c58e-7b83-4ea7-8cbe-fa9219686545",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 medium carrots, peeled and roughly chopped"
+        },
+        {
+          "ingredient_id": "90c971cb-0420-4726-8cbd-bf3e34de83aa",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8 ounces dried French lentils, such as Le Puy"
+        },
+        {
+          "ingredient_id": "6e7f1335-4cf1-48eb-a55e-21c111915d3c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "12 sprigs parsley, leaves roughly chopped, stems tied together with a piece of kitchen twine"
+        },
+        {
+          "ingredient_id": "6df4933a-9c18-44df-b010-49fdb6a78790",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 bay leaves"
+        },
+        {
+          "ingredient_id": "4474355b-036a-4b8d-b54d-1116b1daa79c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 1/2 pounds bone-in, skin-on chicken pieces (a mix of thighs and drumsticks for best texture, though breasts will work as well)"
+        },
+        {
+          "ingredient_id": "86c33653-0f8c-4327-894f-48b776e94ac0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 quart homemade or store-bought low-sodium chicken stock"
+        },
+        {
+          "ingredient_id": "86492bf0-d64c-4023-bc15-6e043fbcdf28",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt and freshly ground black pepper"
+        },
+        {
+          "ingredient_id": "774fcb98-9da1-4e7c-b530-e7ccc0be4dc8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 teaspoons sherry vinegar, plus more to taste"
+        }
+      ],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Heat oil in a pressure cooker over medium-high heat until shimmering. Add bacon and cook until starting to crisp around edges, about 1 minute. Add onions and cook, stirring, until softened but not browned, about 2 minutes longer. Add carrots, lentils, parsley stems, bay leaves, chicken legs, and chicken stock. Season gently with salt and pepper and stir to combine."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Seal pressure cooker and bring to high pressure. Cook for 20 minutes. Cool pressure cooker under a cold running tap (if using an electric cooker, use the quick release valve), and open. Using tongs, transfer chicken pieces to a bowl. Discard parsley stems. Return lentils to high heat and continue cooking, stirring, until reduced to a thick, stew-like consistency, about 5 minutes. Meanwhile, shred chicken, discarding bones and skin."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir chicken and vinegar into beans. Season to taste with salt and pepper, stir in half of chopped parsley, and serve, passing remaining parsley, sherry vinegar, and olive oil at the table."
+    }
+  ]
+}

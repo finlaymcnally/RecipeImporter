@@ -1,0 +1,95 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Instant Pot, cream of chicken soup, tomatoes, milk, chicken",
+    "title": "Chicken & Rice with black beans",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "450e9e6d-6b07-4d91-8ab9-35d628f20715",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 TBSP Paprika"
+        },
+        {
+          "ingredient_id": "ba1ca36e-dba0-4cfc-a35e-9bf0312ba393",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/3 cup Dehydrated Minced Onions"
+        },
+        {
+          "ingredient_id": "415baa42-7351-4c86-a9bd-56462072261a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 can black beans"
+        },
+        {
+          "ingredient_id": "96dc4344-b197-4386-9706-dbaf51610010",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 can corn"
+        },
+        {
+          "ingredient_id": "04ff6015-355f-44b9-942a-ae959a3773f2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 can cream of chicken soup"
+        },
+        {
+          "ingredient_id": "74d6cce5-9348-4f82-8626-f8fca0302c9b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 can Rotel"
+        },
+        {
+          "ingredient_id": "9105a9e7-1f95-401e-90c8-4660ef0aa897",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup of milk"
+        },
+        {
+          "ingredient_id": "f7f0d3d2-f49f-441f-bf2f-2eac765c5d54",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4-6 chicken Breasts"
+        }
+      ],
+      "instruction": "Put all ingredients in your labeled freezer bag and place in the freezer."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place into the crockpot (ingredients can be thawed or frozen) and cook on low for 6-8. Shred chicken and add 2 cups of cooked rice."
+    }
+  ]
+}

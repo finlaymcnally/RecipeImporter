@@ -1,0 +1,199 @@
+{
+  "recipe": {
+    "description": "A note on pasta making: if your eggs are small, or if when incorporating the flour you find that your dough is too dry, add a bit of warm water, little by little, until the dough is workable but not wet.\n\nFresh pasta cooks faster than dry! Add to salted boiling water, and stir. Once the pasta floats to the surface, it's cooked.",
+    "notes": "Tags: Component, Normal, mushrooms, gorgonzola, creme fraiche, lemons",
+    "title": "Mushroom cream sauce",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.625,
+          "ingredient_id": "d5ce1662-db1c-4ab0-8e38-2417a42f6c83",
+          "input_item": "serves",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "(serves 2)"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "d145c316-c25c-46f9-bba1-834a46b09527",
+          "input_item": "fresh porcini mushrooms",
+          "input_qty": 4.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "(depending on size)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2-5 fresh porcini mushrooms (depending on size)"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "01d6d017-235c-460c-a51f-4d614d14d509",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "large cloves",
+          "is_optional": false,
+          "note": "(more or less, depending on how much you like garlic and how flavourful the bulbs you have are)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 large cloves of garlic (more or less, depending on how much you like garlic and how flavourful the bulbs you have are)"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "cab5467c-e3ab-430c-b3e5-bc0af7b06a8d",
+          "input_item": "gorgonzola cheese",
+          "input_qty": 20.0,
+          "input_unit_id": "g",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "20 g gorgonzola cheese"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "3f69723d-ffc6-4100-8a53-2b7ed3bf2dda",
+          "input_item": "cr\u00e8me fra\u00eeche",
+          "input_qty": 3.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 tablespoons cr\u00e8me fra\u00eeche"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "424b53b1-2be4-47ac-9312-bb2b41609560",
+          "input_item": "lemon juice",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": "(to taste)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon lemon juice (to taste)"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "ee09df5d-f796-4e01-afb7-31d8e8896bdd",
+          "input_item": "olive oil",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "olive oil"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "67de1120-8556-46d1-ad70-9188a0efba00",
+          "input_item": "salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "salt to taste"
+        },
+        {
+          "confidence": 0.885,
+          "ingredient_id": "ab0aae5c-1299-4c52-b915-96fe6fcb6b1c",
+          "input_item": "the mushrooms and mince the garlic. Add olive oil Salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "add the mushrooms and garlic., Add the gorgonzola to the pan, Taste your creation and say, \"hmm, this is good, but it's missing something...\" then add the lemon juice, a little at a time, stirring and tasting after each addition until it's achieved your desired flavour (\"absolutely amazing\").",
+          "preparation": "Thinly slice, once heated, and cook until the mushrooms have let off their liquid and reduced., followed by the cr\u00e8me fra\u00eeche. Stir everything together until the cheese has all melted and dissolved into the sauce.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Thinly slice the mushrooms and mince the garlic. Add olive oil to a pan and, once heated, add the mushrooms and garlic. Salt, and cook until the mushrooms have let off their liquid and reduced. Add the gorgonzola to the pan, followed by the cr\u00e8me fra\u00eeche. Stir everything together until the cheese has all melted and dissolved into the sauce. Taste your creation and say, \"hmm, this is good, but it's missing something ...\" then add the lemon juice, a little at a time, stirring and tasting after each addition until it's achieved your desired flavour (\"absolutely amazing\")."
+        },
+        {
+          "confidence": 0.946,
+          "ingredient_id": "69bb5c49-2334-44fb-97ed-584ac156e183",
+          "input_item": null,
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "You can serve this with whatever pasta you prefer, but I would recommend making your own pappardelle if you can. (Store bought is obviously fine otherwise.)",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "You can serve this with whatever pasta you prefer, but I would recommend making your own pappardelle if you can. (Store bought is obviously fine otherwise.)"
+        },
+        {
+          "confidence": 0.561,
+          "ingredient_id": "14ef4394-b0d4-49fe-8d50-40b2d7fba234",
+          "input_item": "To make your own pasta",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "To make your own pasta:"
+        },
+        {
+          "confidence": 0.991,
+          "ingredient_id": "0928f942-7f7d-4748-9f3c-10b855c38c1c",
+          "input_item": "flour",
+          "input_qty": 2.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 cups of flour"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "ad391b7f-adf8-4420-bb76-9dce2391f11b",
+          "input_item": "eggs",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 large eggs"
+        },
+        {
+          "confidence": 0.983,
+          "ingredient_id": "33efcb9d-7eb2-4cc2-86ea-578767379619",
+          "input_item": "salt",
+          "input_qty": null,
+          "input_unit_id": "pinch",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "A pinch of salt"
+        },
+        {
+          "confidence": 0.814,
+          "ingredient_id": "7efdff66-6075-4df0-8b3e-39960025bcb7",
+          "input_item": "Put the flour and salt in a large bowl Whisk them",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "make a well in the middle and add the eggs., slowly incorporating the flour., adding more flour as needed. Roll out the dough either by hand or with a pasta machine to your desired thickness",
+          "preparation": "Once the flour has been incorporated fully, turn the dough out onto a floured work surface and knead it until its consistency has become firm and smooth, and cut into ribbons about 2 cm wide.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Put the flour and salt in a large bowl, make a well in the middle and add the eggs. Whisk them, slowly incorporating the flour. Once the flour has been incorporated fully, turn the dough out onto a floured work surface and knead it until its consistency has become firm and smooth, adding more flour as needed. Roll out the dough either by hand or with a pasta machine to your desired thickness, and cut into ribbons about 2 cm wide."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

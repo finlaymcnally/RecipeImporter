@@ -1,0 +1,339 @@
+{
+  "recipe": {
+    "description": "60 min in pressure or 90 if frozen",
+    "notes": "Tags: Japanese, Main, Instant Pot, pork shoulder, limes, mushrooms, noodles, acorn squash, carrots",
+    "title": "Crispy caramelized pork ramen noodle soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.0,
+          "ingredient_id": "dbe32e8f-28a5-426d-858e-f1bd5c8b4bd9",
+          "input_item": "SOUP",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "SOUP"
+        },
+        {
+          "confidence": 0.801,
+          "ingredient_id": "c05891fd-de7d-4ea1-9a8e-84a3c3432a32",
+          "input_item": "pork shoulder roast",
+          "input_qty": 3.0,
+          "input_unit_id": "pound",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2-3 pounds pork shoulder roast or butt"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "960868f6-bdd5-4b2e-856f-7e8b6c618328",
+          "input_item": "low sodium chicken broth",
+          "input_qty": 4.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": "plus more of needed",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 cups low sodium chicken broth plus more of needed"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "4320ec6a-3523-44f6-9f35-a252be9d25c9",
+          "input_item": "low sodium soy sauce <--Use low sodium",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4-1/2 cup + 2-4 tablespoons low sodium soy sauce <--Use low sodium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "c79fd6fc-cea5-4c3e-8c93-16066ffd27d6",
+          "input_item": "rice vinegar",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup + 2-4 tablespoons rice vinegar"
+        },
+        {
+          "confidence": 0.913,
+          "ingredient_id": "68d73ad7-7185-4d65-b331-f539c6bcef53",
+          "input_item": "fish sauce",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": true,
+          "note": "optional",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons fish sauce optional"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "6983f423-d3f1-40af-96c2-81b932af1d7c",
+          "input_item": "thai red curry paste",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons thai red curry paste"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "91b0ebac-7cb1-4a13-9983-1d5cf4e7a27e",
+          "input_item": "fresh ginger",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon fresh ginger"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "aafa1a6b-eea7-4983-906a-df504ebb13e9",
+          "input_item": "sambal oelek chili paste",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": "or to taste",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon sambal oelek chili paste, or to taste"
+        },
+        {
+          "confidence": 0.857,
+          "ingredient_id": "24a4e631-0ebb-464c-8044-ceb9cbf5abd9",
+          "input_item": "lime",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "The juice of",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "The juice of 1 lime"
+        },
+        {
+          "confidence": 0.976,
+          "ingredient_id": "958e418c-1337-4ab8-9e81-786e32c6545e",
+          "input_item": "Chinese five spice",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon Chinese five spice"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "3db40214-00c8-48de-93d4-34dc8c3942be",
+          "input_item": "black pepper",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon black pepper"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "434821bc-a454-4bf0-9d13-f2a7185fe56c",
+          "input_item": "sesame oil",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons sesame oil"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "c49731ee-411f-4d85-91ce-dc1e7a35ca9b",
+          "input_item": "brown sugar",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup + 1 tablespoon brown sugar"
+        },
+        {
+          "confidence": 0.922,
+          "ingredient_id": "9b5ae5d8-f251-4ab4-b039-7b55e39cf673",
+          "input_item": "wild mushrooms left whole button mushrooms",
+          "input_qty": 2.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 cups wild mushrooms left whole - or button mushrooms, sliced"
+        },
+        {
+          "confidence": 0.892,
+          "ingredient_id": "ed2a4ab1-4175-40f8-b8eb-2f914004c71e",
+          "input_item": "Ramen noodles seasoning packets",
+          "input_qty": 4.0,
+          "input_unit_id": "packs",
+          "is_optional": false,
+          "note": null,
+          "preparation": "discarded",
+          "quantity_kind": "quantified",
+          "raw_text": "4 packs Ramen noodles seasoning packets discarded"
+        },
+        {
+          "confidence": 0.741,
+          "ingredient_id": "61723d4c-87df-427c-8264-c414ee37381c",
+          "input_item": "soft eggs",
+          "input_qty": 4.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "boiled or fried",
+          "quantity_kind": "quantified",
+          "raw_text": "4 soft boiled or fried eggs for serving"
+        },
+        {
+          "confidence": 0.833,
+          "ingredient_id": "10e74b41-c7e0-476a-934f-1d816d31c8f7",
+          "input_item": "carrots",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "Chopped, sliced",
+          "quantity_kind": "unquantified",
+          "raw_text": "Chopped carrots sliced jalapenos, cilantro + green onions, for serving"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "857fc2ee-ca1d-4177-9a61-3a5110dfdbc8",
+          "input_item": "CURRY ROASTED ACORN SQUASH",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "CURRY ROASTED ACORN SQUASH"
+        },
+        {
+          "confidence": 0.968,
+          "ingredient_id": "c639f9a0-c092-4dcd-bcdc-539f400d470b",
+          "input_item": "acorn squash",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "seeded + diced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 medium acorn squash seeded + diced"
+        },
+        {
+          "confidence": 0.951,
+          "ingredient_id": "6971db7d-d412-407e-9c41-254654c367da",
+          "input_item": "coconut oil",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "melted",
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons coconut oil melted"
+        },
+        {
+          "confidence": 0.876,
+          "ingredient_id": "951b7cc8-8ec8-4c18-a8a2-94f291fb4085",
+          "input_item": "curry powder I use spicy curry",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon curry powder I use spicy curry"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "488eec0c-e9d6-46f9-914e-57336eb9e0db",
+          "input_item": "white miso paste",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon white miso paste"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "fe36602f-050a-4e88-a3b6-91a0956d484e",
+          "input_item": "brown sugar",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon brown sugar"
+        },
+        {
+          "confidence": 0.985,
+          "ingredient_id": "cf9b760b-0293-4469-9fee-c8bb2d73069d",
+          "input_item": "Pepper",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pepper to taste"
+        }
+      ],
+      "instruction": "Add the pork to the bowl of a crockpot. Pour the chicken broth, 1/4-1/2 cup soy sauce (depending on your taste), 1/4 cup rice vinegar and fish sauce over the pork. Add the thai red curry paste, ginger, sambal oelek, juice of 1 lime, Chinese five spice powder, black pepper and 1 tablespoon brown sugar. Cover the crockpot and cook on low for 7-8 hours or on high for 4-6 hours (I recommend going low and slow)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "About 40 minutes before you are ready to eat, roast the squash. Preheat the oven to 400 degrees F."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a small bowl mix together the melted coconut oil, curry powder, miso, brown sugar and a good pinch of pepper. Add the cubed squash to a greased baking sheet and pour the curry mixture over the squash. Toss well. Bake for 30-40 minutes, tossing a couple of times during cooking. You want the squash to be lightly browned and crisp."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Meanwhile, remove the pork from the crockpot and add the mushrooms. Cover the crockpot and crank the heat up to high. Lightly shred the pork with two forks or your hands."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Heat a large skillet over medium heat. Add the sesame oil. Once hot, add enough pork to cover just the surface of your skillet, do not over crowd the skillet. Sprinkle a little brown sugar over the pork, add 2 tablespoons soy sauce and 2 tablespoons rice vinegar, toss. Allow the pork to caramelize, about 2 minutes. Stir and allow the pork to continue to caramelize, about 3-5 minutes total. Remove the pork from the skillet, repeat with the remaining pork. Keep the pork warm."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the Ramen noodles to the crockpot and allow them to cook 5 minutes. Once the noodles are cooked, stir in only half of the pork. Ladle the soup into bowls. Top with extra caramelized pork, curry roasted acorn squash and an egg. Season the egg with salt and pepper, Add the carrots, jalape\u00f1os, green onions and cilantro if desired. Happy slurping!"
+    }
+  ]
+}

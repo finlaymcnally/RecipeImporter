@@ -1,0 +1,223 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Instant Pot, chicken, tomatillos, peppers, chili pepper, fish sauce",
+    "title": "Green chili With chicken",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.0,
+          "ingredient_id": "c37b3323-f827-4ad9-847b-5377b4b3e8ca",
+          "input_item": "Ingredients",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "Ingredients"
+        },
+        {
+          "confidence": 0.99,
+          "ingredient_id": "f48bd34b-6d55-49d7-b15b-c932720f095c",
+          "input_item": "bone-in skin-on chicken thighs",
+          "input_qty": 3.0,
+          "input_unit_id": "pounds",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 pounds bone-in skin-on chicken thighs and drumsticks"
+        },
+        {
+          "confidence": 0.954,
+          "ingredient_id": "beba9717-c351-4afb-a5fc-0596bd227d2b",
+          "input_item": "tomatillos",
+          "input_qty": 0.75,
+          "input_unit_id": "pounds",
+          "is_optional": false,
+          "note": "tomatillos",
+          "preparation": "quartered, husks discarded",
+          "quantity_kind": "quantified",
+          "raw_text": "3/4 pound tomatillos, quartered, husks discarded (about 4 tomatillos)"
+        },
+        {
+          "confidence": 0.958,
+          "ingredient_id": "373035a9-0281-458e-b44d-f69f4919696d",
+          "input_item": "poblano peppers",
+          "input_qty": 1.0,
+          "input_unit_id": "pound",
+          "is_optional": false,
+          "note": "(about 3 peppers)",
+          "preparation": "roughly chopped, seeds and stems discarded",
+          "quantity_kind": "quantified",
+          "raw_text": "1 pound poblano peppers, roughly chopped, seeds and stems discarded (about 3 peppers)"
+        },
+        {
+          "confidence": 0.944,
+          "ingredient_id": "1fb38748-bbc3-4e08-96f9-ba3411040be4",
+          "input_item": "Anaheim peppers",
+          "input_qty": 6.0,
+          "input_unit_id": "ounces",
+          "is_optional": false,
+          "note": "(about 2 peppers)",
+          "preparation": "roughly chopped, seeds and stems discarded",
+          "quantity_kind": "quantified",
+          "raw_text": "6 ounces Anaheim or Cubanelle peppers, roughly chopped, seeds and stems discarded (about 2 peppers)"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "41880c65-5b1d-4b1c-b03d-2e9177f3362b",
+          "input_item": "Serrano chilies",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "roughly chopped, stems discarded",
+          "quantity_kind": "quantified",
+          "raw_text": "2 Serrano or jalape\u00f1o chilies, roughly chopped, stems discarded"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "07cbaec3-1f58-4eee-bf5d-c35ae67ddea2",
+          "input_item": "white onion",
+          "input_qty": 10.0,
+          "input_unit_id": "ounces",
+          "is_optional": false,
+          "note": null,
+          "preparation": "roughly chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "10 ounces white onion, roughly chopped (about 1 medium)"
+        },
+        {
+          "confidence": 0.991,
+          "ingredient_id": "49813031-2283-4206-9a46-fdb0e69ac2c4",
+          "input_item": "garlic",
+          "input_qty": 6.0,
+          "input_unit_id": "medium cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled",
+          "quantity_kind": "quantified",
+          "raw_text": "6 medium cloves garlic, peeled"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "427bcfbd-cd02-4e76-92b9-8e064cbac892",
+          "input_item": "whole cumin seed",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": "toasted and ground",
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon whole cumin seed, toasted and ground"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "0124b8f7-9d9a-4edd-928c-5e5e5121dae1",
+          "input_item": "Kosher salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt"
+        },
+        {
+          "confidence": 0.988,
+          "ingredient_id": "a37d8e69-c7bd-42f7-9e1e-be1932368ab9",
+          "input_item": "fresh cilantro leaves and fine stems",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": "loosely packed, plus more for garnish",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup loosely packed fresh cilantro leaves and fine stems, plus more for garnish"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "cec159a3-560d-4c26-a074-b174abbfb6ed",
+          "input_item": "Asian fish sauce",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon Asian fish sauce"
+        },
+        {
+          "confidence": 0.977,
+          "ingredient_id": "6a06f1e9-8dc8-4a15-a4e8-668aea1433af",
+          "input_item": "Fresh corn tortillas",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Fresh corn tortillas and lime wedges, for serving"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "4838f59b-ad10-4489-ad1d-26f69ea2e334",
+          "input_item": null,
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1."
+        },
+        {
+          "confidence": 0.891,
+          "ingredient_id": "96c7799a-8a92-495e-bed8-c93e04c2a08b",
+          "input_item": "Combine chicken",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "onion, cumin, and a big pinch of salt in a pressure cooker. Heat over high heat until gently sizzling, then seal pressure cooker, bring to high pressure, and cook for 15 minutes. Release pressure.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Combine chicken, tomatillos, poblano peppers, Anaheim peppers, Serrano peppers, onion, garlic, cumin, and a big pinch of salt in a pressure cooker. Heat over high heat until gently sizzling, then seal pressure cooker, bring to high pressure, and cook for 15 minutes. Release pressure."
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "aed98cc6-37d3-4a61-ab2d-029336677ad3",
+          "input_item": null,
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2."
+        },
+        {
+          "confidence": 0.785,
+          "ingredient_id": "50f7ffe0-28d2-4bc8-a7ca-254a4778f635",
+          "input_item": "Using tongs Add cilantro and fish sauce Return chicken to sauce",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "transfer chicken pieces to a bowl and set aside., to remaining contents of pressure cooker., Transfer to a serving platter",
+          "preparation": "Blend with a hand blender or in a standing blender and season to taste with salt., discarding skin and bones and shredding if desired., garnish with chopped, and serve immediately with tortillas and lime wedges.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Using tongs, transfer chicken pieces to a bowl and set aside. Add cilantro and fish sauce to remaining contents of pressure cooker. Blend with a hand blender or in a standing blender and season to taste with salt. Return chicken to sauce, discarding skin and bones and shredding if desired. Transfer to a serving platter, garnish with chopped cilantro, and serve immediately with tortillas and lime wedges."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

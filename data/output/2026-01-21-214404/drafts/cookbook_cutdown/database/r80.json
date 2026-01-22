@@ -1,0 +1,153 @@
+{
+  "recipe": {
+    "description": "tons of spices\ncan add coconut milk",
+    "notes": "Tags: Indian, Side, Normal, lentils",
+    "title": "Lentil Dhal",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "e3030019-64fd-47c4-89b0-6e7a87582ae5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 \u00bd cups red or pink lentils"
+        },
+        {
+          "ingredient_id": "594477d0-f711-4ddb-9359-cc6ca9ef5705",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5\u20136 cups of water (a large pot half full)"
+        },
+        {
+          "ingredient_id": "339491ac-3381-4358-aa4f-765d7cf46d2a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons curry paste"
+        },
+        {
+          "ingredient_id": "a5e5271e-5699-4878-9374-ffa81ea7ba41",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd cup coconut milk"
+        },
+        {
+          "ingredient_id": "830353ad-e657-47e1-abe3-8a61c6227d05",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/3 cup water"
+        },
+        {
+          "ingredient_id": "7b95c93f-ef8f-47a9-9185-f4e5a0610d43",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 teaspoons salt"
+        },
+        {
+          "ingredient_id": "d66e2ae5-dd92-4bfd-9384-088791fec59e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc teaspoon black pepper"
+        },
+        {
+          "ingredient_id": "1eb76aef-ae07-4bba-8c5f-4d68ae8468da",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc teaspoon cayenne"
+        },
+        {
+          "ingredient_id": "08109dbc-3e6a-416a-895b-4bf00a172783",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 teaspoons curry powder"
+        },
+        {
+          "ingredient_id": "e074b3fa-681c-4a92-9f12-e5c58c87d52d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd teaspoon turmeric"
+        },
+        {
+          "ingredient_id": "fd52a8ac-e735-4c23-988e-45292232b7f7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon chili powder"
+        },
+        {
+          "ingredient_id": "3e8acd74-6f69-495b-8e1d-64a5bbbd7b0f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons sugar"
+        },
+        {
+          "ingredient_id": "4809e7fc-8e38-44a3-b754-79a6eab97b85",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "lime juice"
+        },
+        {
+          "ingredient_id": "4243f70a-0314-43ed-ab50-8b2933bc5ca9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "green herbs for garnish (I used malunggay leaves \u2013 you could use cilantro, green onions, etc.)"
+        }
+      ],
+      "instruction": "1Bring the water to a boil in a large pot."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2Add lentils and cook uncovered for 10 minutes, stirring every few minutes to prevent burning on the bottom. Remove from heat."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3Stir in remaining ingredients until completely incorporated. Season with additional salt and herbs for garnish."
+    }
+  ]
+}

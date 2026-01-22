@@ -1,0 +1,187 @@
+{
+  "recipe": {
+    "description": "Not freezer friendly",
+    "notes": "Tags: British, Main, Normal, lentils, frozen vegetables, potatoes",
+    "title": "Vegan Shepherd's Pie",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.0,
+          "ingredient_id": "cdb02aae-9ee8-4fc2-a81a-c00214325eb7",
+          "input_item": "FILLING",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "FILLING"
+        },
+        {
+          "confidence": 0.988,
+          "ingredient_id": "a63746fa-7dbc-40bd-8115-076841f7bc51",
+          "input_item": "onion",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "(diced)",
+          "quantity_kind": "quantified",
+          "raw_text": "1 medium onion (diced)"
+        },
+        {
+          "confidence": 0.989,
+          "ingredient_id": "cf644844-c42e-4d50-b686-5c1bf995579f",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "(minced)",
+          "quantity_kind": "quantified",
+          "raw_text": "2 cloves garlic (minced)"
+        },
+        {
+          "confidence": 0.942,
+          "ingredient_id": "25a74c8c-40e7-40d8-bedf-705595796d51",
+          "input_item": "brown lentils",
+          "input_qty": 1.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "uncooked, (rinsed and drained)",
+          "quantity_kind": "quantified",
+          "raw_text": "1 1/2 cups uncooked brown or green lentils (rinsed and drained)"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "f2480595-7abf-4903-ad14-0dd446fad345",
+          "input_item": "vegetable stock",
+          "input_qty": 4.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": "(DIY or store-bought)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 cups vegetable stock (DIY or store-bought)"
+        },
+        {
+          "confidence": 0.957,
+          "ingredient_id": "bee8b820-50dc-4148-a753-74df7ebdfe59",
+          "input_item": "fresh thyme",
+          "input_qty": 2.0,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": "(or sub 1 tsp dried thyme per 2 tsp fresh)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tsp fresh thyme (or sub 1 tsp dried thyme per 2 tsp fresh)"
+        },
+        {
+          "confidence": 0.936,
+          "ingredient_id": "8e158ff6-674f-44fc-8508-7051adeb096e",
+          "input_item": "frozen mixed veggies",
+          "input_qty": 1.0,
+          "input_unit_id": "bag",
+          "is_optional": false,
+          "note": "and corn",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 10-ounce bag frozen mixed veggies: peas, carrots, green beans, and corn"
+        },
+        {
+          "confidence": 0.0,
+          "ingredient_id": "5b3f4b97-86ce-42ba-98f5-54308e735e18",
+          "input_item": "MASHED POTATOES",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "MASHED POTATOES"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "dd02a0d0-ced4-40dd-a8c6-edf0689c9b7c",
+          "input_item": "yukon gold potatoes",
+          "input_qty": 3.0,
+          "input_unit_id": "pounds",
+          "is_optional": false,
+          "note": null,
+          "preparation": "partially peeled (thoroughly washed)",
+          "quantity_kind": "quantified",
+          "raw_text": "3 pounds yukon gold potatoes, partially peeled (thoroughly washed)"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "3375b194-f6cc-4c8b-9489-916362021a66",
+          "input_item": "vegan butter",
+          "input_qty": 4.0,
+          "input_unit_id": "Tbsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3-4 Tbsp vegan butter"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "e569541b-a1de-48c7-8b1b-b585f59d71b6",
+          "input_item": "Salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "(to taste)",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt and pepper (to taste)"
+        }
+      ],
+      "instruction": "Slice any large potatoes in half, place in a large pot and fill with water until they\u2019re just covered. Bring to a low boil on medium high heat, then generously salt, cover and cook for 20-30 minutes or until they slide off a knife very easily."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Once cooked, drain, add back to the pot to evaporate any remaining water, then transfer to a mixing bowl. Use a masher, pastry cutter or large fork to mash until smooth. Add add desired amount of vegan butter (2-4 Tbsp as original recipe is written // adjust if altering batch size), and season with salt and pepper to taste. Loosely cover and set aside."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "While potatoes are cooking, preheat oven to 425 degrees F (218 C) and lightly grease a 2-quart baking dish (or comparable sized dish, such as 9\u00d713 pan. An 8\u00d78 won\u2019t fit it all but close! // as original recipe is written // adjust number or size of dish if altering batch size)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a large saucepan over medium heat, saut\u00e9 onions and garlic in 1 Tbsp olive oil (amounts as original recipe is written // adjust if altering batch size) until lightly browned and caramelized \u2013 about 5 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add a pinch each salt and pepper. Then add lentils, stock, and thyme and stir. Bring to a low boil. Then reduce heat to simmer. Continue cooking until lentils are tender (35-40 minutes)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In the last 10 minutes of cooking, add the frozen veggies, stir, and cover to meld the flavors together."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "OPTIONAL: To thicken the mixture, add 2-3 Tbsp (amount as original recipe is written // adjust if altering batch size) mashed potatoes and stir. Alternatively, scoop out 1/2 of the mixture and whisk in 2 Tbsp (amount as original recipe is written // adjust if altering batch size) cornstarch or arrowroot powder and whisk. Return to the pan and whisk to thicken."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Taste and adjust seasonings as needed. Then transfer to your prepared oven-safe baking dish and carefully top with mashed potatoes. Smooth down with a spoon or fork and season with another crack of pepper and a little sea salt."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place on a baking sheet to catch overflow and bake for 10-15 minutes or until the mashers are lightly browned on top."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Let cool briefly before serving. The longer it sits, the more it will thicken. Let cool completely before covering, and then store in the fridge for up to a few days. Reheats well in the microwave"
+    }
+  ]
+}

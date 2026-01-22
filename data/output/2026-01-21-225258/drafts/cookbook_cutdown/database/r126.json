@@ -1,0 +1,259 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Instant Pot, chicken, artichokes, lemons, tomatoes",
+    "title": "White Wine chicken with artichokes",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.0,
+          "ingredient_id": "3e087115-fece-4d30-b4ed-288e05fcf9b2",
+          "input_item": "Ingredients",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "Ingredients"
+        },
+        {
+          "confidence": 0.864,
+          "ingredient_id": "05fc44f2-22eb-4c8d-89fd-42c3996c34b5",
+          "input_item": "boneless skinless chicken breasts",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 2 pounds boneless skinless chicken breasts"
+        },
+        {
+          "confidence": 0.821,
+          "ingredient_id": "e3a76fde-707d-4e52-b840-f11037556ebd",
+          "input_item": "artichokes",
+          "input_qty": 1.0,
+          "input_unit_id": "can",
+          "is_optional": false,
+          "note": "\u2022",
+          "preparation": "quartered and drained",
+          "quantity_kind": "quantified",
+          "raw_text": "\u2022 1 can of artichokes (14oz), quartered and drained"
+        },
+        {
+          "confidence": 0.92,
+          "ingredient_id": "00ed5093-f2db-407f-8139-b11327f0310f",
+          "input_item": "petite diced tomatoes",
+          "input_qty": 1.0,
+          "input_unit_id": "can",
+          "is_optional": false,
+          "note": "\u2022",
+          "preparation": "undrained",
+          "quantity_kind": "quantified",
+          "raw_text": "\u2022 1 can of petite diced tomatoes (14.5oz), undrained"
+        },
+        {
+          "confidence": 0.956,
+          "ingredient_id": "14c2e2bf-423a-4c34-a8e0-800d1cf322cd",
+          "input_item": "lemon",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "\u2022 Juice of",
+          "quantity_kind": "quantified",
+          "raw_text": "\u2022 Juice of 1 lemon"
+        },
+        {
+          "confidence": 0.713,
+          "ingredient_id": "10e0e352-8836-46b4-a8ec-b4bf3f065309",
+          "input_item": "dry white wine",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 1/2 cup dry white wine"
+        },
+        {
+          "confidence": 0.89,
+          "ingredient_id": "8a7814a5-4026-4f78-ac60-1d2e07269ac8",
+          "input_item": "garlic",
+          "input_qty": 4.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": "\u2022",
+          "preparation": "sliced or minced",
+          "quantity_kind": "quantified",
+          "raw_text": "\u2022 4 cloves of garlic, sliced or minced"
+        },
+        {
+          "confidence": 0.84,
+          "ingredient_id": "8d6f9578-0044-4485-abc5-0f0302a2fba8",
+          "input_item": "\u2022 butter",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u2022 1/4 cup butter"
+        },
+        {
+          "confidence": 0.971,
+          "ingredient_id": "5d4875ca-37f1-4e2a-a64f-9ddd996dfe07",
+          "input_item": "capers",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": true,
+          "note": "\u2022, (optional)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u2022 1 tablespoon capers (optional)"
+        },
+        {
+          "confidence": 0.89,
+          "ingredient_id": "e8026d30-12bd-4ead-92c5-1cdc4a9e3906",
+          "input_item": "corn starch",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": "\u2022",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u2022 1 tablespoon corn starch"
+        },
+        {
+          "confidence": 0.992,
+          "ingredient_id": "fc206e02-5b70-4ad4-948e-c191020fc500",
+          "input_item": "Materials",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Materials"
+        },
+        {
+          "confidence": 0.584,
+          "ingredient_id": "fa5b1851-65ce-4cf1-a135-a57958541db2",
+          "input_item": "\u2022 1 gallon-sized plastic freezer bag",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 1 gallon-sized plastic freezer bag"
+        },
+        {
+          "confidence": 0.974,
+          "ingredient_id": "43316625-13a0-4450-9c4e-824a88991cba",
+          "input_item": "Prep",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Prep"
+        },
+        {
+          "confidence": 0.956,
+          "ingredient_id": "6efd592f-d484-4b47-80d1-42589c30bd78",
+          "input_item": "Combine all ingredients in a gallon-sized plastic freezer bag.",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1. Combine all ingredients in a gallon-sized plastic freezer bag."
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "a2d295d3-e312-4316-9789-ea0c29667d21",
+          "input_item": null,
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Remove as much air as possible and freeze for up to three months.",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2. Remove as much air as possible and freeze for up to three months."
+        },
+        {
+          "confidence": 0.96,
+          "ingredient_id": "9cf3d11c-bed4-4ab4-9ef8-f2c39973a52d",
+          "input_item": "Cook",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cook"
+        },
+        {
+          "confidence": 0.919,
+          "ingredient_id": "95a686bd-c722-4074-b40b-8b26fdeddbda",
+          "input_item": "Thaw overnight in refrigerator.",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1. Thaw overnight in refrigerator."
+        },
+        {
+          "confidence": 0.9,
+          "ingredient_id": "d4552619-913e-48ab-b91e-dbd0c65388d6",
+          "input_item": null,
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Cook on \u201clow\u201d setting for 4-6 hours",
+          "preparation": "or until chicken is cooked through and",
+          "quantity_kind": "quantified",
+          "raw_text": "2. Cook on \u201clow\u201d setting for 4-6 hours, or until chicken is cooked through and"
+        },
+        {
+          "confidence": 0.897,
+          "ingredient_id": "9d4a51f1-6807-4593-a9b6-767e0a895ef3",
+          "input_item": "tender.",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "tender."
+        },
+        {
+          "confidence": 0.973,
+          "ingredient_id": "ab29d13b-20e2-4b0d-adad-d94811331d0e",
+          "input_item": "Serve over a bed of saut\u00e9ed spinach",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "or both!",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Serve over a bed of saut\u00e9ed spinach, angel hair pasta, or both!"
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

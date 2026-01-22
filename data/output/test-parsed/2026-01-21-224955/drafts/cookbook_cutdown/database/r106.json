@@ -1,0 +1,199 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, sweet potatoes, chickpeas, chicken, coconut milk",
+    "title": "Coconut chicken Curry Recipe",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "b14db257-ae6e-43f2-89c7-1df0154b2aeb",
+          "input_item": "sweet potatoes",
+          "input_qty": 3.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "3 medium sweet potatoes, chopped"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "b81278ee-782e-4961-84c0-142f798b95db",
+          "input_item": "onion",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 medium onion, chopped"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "df06d2d3-6a6e-4de6-ae99-7d22c68f2fb1",
+          "input_item": "chickpeas",
+          "input_qty": 2.0,
+          "input_unit_id": "cans",
+          "is_optional": false,
+          "note": null,
+          "preparation": "drained",
+          "quantity_kind": "quantified",
+          "raw_text": "2 cans chickpeas, drained"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "31c4621f-9d6e-4319-a159-acade90ea0a6",
+          "input_item": "ginger",
+          "input_qty": 1.0,
+          "input_unit_id": "tbsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tbsp ginger"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "04b88a6f-5024-486f-a301-21808ecf5f27",
+          "input_item": "red curry paste",
+          "input_qty": 4.0,
+          "input_unit_id": "tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 tbsp red curry paste"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "e3251ff9-555c-4dc6-b4e2-835ca3748248",
+          "input_item": "cayenne pepper",
+          "input_qty": 1.0,
+          "input_unit_id": "tsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tsp cayenne pepper"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "29c3eaa8-2bfc-49be-a1c7-916943ac4d74",
+          "input_item": "chicken breasts",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "2 chicken breasts, chopped"
+        },
+        {
+          "confidence": 0.781,
+          "ingredient_id": "d18088f4-94d6-4f9c-ab9e-8c2f87fd3907",
+          "input_item": "lime",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "Juice and zest from",
+          "quantity_kind": "quantified",
+          "raw_text": "Juice and zest from 1 lime"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "79430223-fc2d-4172-870e-5d28e1ec7543",
+          "input_item": "coconut milk",
+          "input_qty": 1.0,
+          "input_unit_id": "jar",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 jar coconut milk"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "d0f5f711-c743-4df1-9646-41ad1df6c3c4",
+          "input_item": "cilantro",
+          "input_qty": 1.0,
+          "input_unit_id": "bunch",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 bunch cilantro"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "c064e5e3-d03a-44ec-9c27-08f0662578bf",
+          "input_item": "fresh jalapenos",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 fresh jalapenos"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "f3af30e8-8cfe-4c51-8d9b-50b2398abab2",
+          "input_item": "cauliflower",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cauliflower"
+        },
+        {
+          "confidence": 0.863,
+          "ingredient_id": "ec8466e3-2605-401b-bfbd-492aad6207b8",
+          "input_item": "Blend lime juice",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Set aside. Boil sweet potato 6 minutes. While cooking, sautee onions in 2 tbsp oil or butter over medium heat. Add in potatoes and cook 8 minutes., (salt and pepper chicken beforehand) and cook 5 minutes., add in jalapeno, and add 0.25 cup chopped cilantro.",
+          "preparation": "Add in coconut milk mixture and simmer until chicken is cooked through.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Blend lime juice, coconut milk, and cilantro stems. Set aside. Boil sweet potato 6 minutes. While cooking, sautee onions in 2 tbsp oil or butter over medium heat. Add in potatoes and cook 8 minutes. Add ginger, curry paste, and cayenne pepper and stir. Add in chickpeas and chicken (salt and pepper chicken beforehand) and cook 5 minutes. Add in coconut milk mixture and simmer until chicken is cooked through. Season with salt, add in jalapeno, and add 0.25 cup chopped cilantro. Mix in cauliflower rice."
+        },
+        {
+          "confidence": 0.0,
+          "ingredient_id": "ba03e979-b89e-412a-ad75-1a9080187fc4",
+          "input_item": "For the rice",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "For the rice:"
+        },
+        {
+          "confidence": 0.748,
+          "ingredient_id": "13892287-8489-4b3a-8c11-b810a7f74a2d",
+          "input_item": "Add oil",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "(do 2-3 batches if food processor isn't very big). Pulse until cauliflower is around couscous sized., to a pan over medium high heat and cook stirring occasionally, 5 minutes.",
+          "preparation": "Cut 1 head into florets and add to a food processor",
+          "quantity_kind": "unquantified",
+          "raw_text": "Cut 1 head into florets and add to a food processor (do 2-3 batches if food processor isn't very big). Pulse until cauliflower is around couscous sized. Add oil to a pan over medium high heat and cook stirring occasionally, 5 minutes."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

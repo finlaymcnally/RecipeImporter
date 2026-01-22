@@ -1,0 +1,76 @@
+{
+  "recipe": {
+    "description": "Great for pasta",
+    "notes": "Tags: Component, Normal, cheese",
+    "title": "Browned Butter sauce",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "25858800-04cf-48bf-bf57-2e1e27509e61",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd cup butter"
+        },
+        {
+          "ingredient_id": "bd2c684b-ec2c-42f4-a952-f6024a0327b3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 clove garlic, minced"
+        },
+        {
+          "ingredient_id": "42322d75-d604-4202-bc82-f8167501f7cd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon snipped fresh basil, sage, oregano, Italian (flat-leaf) parsley, and/or chives or 1/2 teaspoon fresh thyme leaves"
+        },
+        {
+          "ingredient_id": "433886f4-32ef-4c0d-a01b-742c31a4bae5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Dash ground black pepper"
+        },
+        {
+          "ingredient_id": "c2db78ca-2bb6-4552-8c87-392e98e7db90",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons grated or shredded Pecorino Romano, Asiago, and/or Parmesan cheese"
+        }
+      ],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a medium saucepan, combine butter and garlic. Cook and stir over medium heat until butter is melted. Cook for 5 to 8 minutes or until butter is lightly browned, stirring occasionally and skimming foam as necessary. Remove from heat. Stir in herb(s) and pepper."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Drizzle sauce over cooked pasta, as a dipping oil, over popcorn, or other creative uses. Sprinkle with cheese."
+    }
+  ]
+}

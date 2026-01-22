@@ -1,0 +1,99 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Mexican, Side, Normal, pinto beans, pork shoulder, bacon, cilantro",
+    "title": "Drunken Mexican beans w/ cilantro and bacon",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "e719a995-dd0c-43cc-a44a-721c5f66851f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8 Ounces About 1 1/4 Cups Dried pinto beans"
+        },
+        {
+          "ingredient_id": "805b136c-7f46-41c8-b40a-323aa8b4ab33",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 Cup About 2 Ounces Cubed pork shoulder or Extra chopsped bacon"
+        },
+        {
+          "ingredient_id": "b562cc6b-ac93-40be-9406-105b465c3627",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 Thick Slices bacon Cut Into 1/2 Inch Pieces"
+        },
+        {
+          "ingredient_id": "eecbea53-9213-473e-8084-8fb7ecbe5b20",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 Small White Onion Diced Into 1/4 Inch Pieces"
+        },
+        {
+          "ingredient_id": "e83c556f-3726-4736-b72b-5893190299a6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 Jalapeno Pepper Stemmed, Seeded and Finely chopsped"
+        },
+        {
+          "ingredient_id": "920fc4f5-8df5-4f6e-810a-a4faafa7abd3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "About 2-2 1/2 Teaspoons Salt"
+        },
+        {
+          "ingredient_id": "81f29403-2c7f-479a-9f13-c9bc7dac7274",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 1/2 Tablespoons Tequila"
+        },
+        {
+          "ingredient_id": "a3be37d6-55af-4877-84ff-607c9a558660",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 Cup cilantro Leaves Roughly chopsped"
+        }
+      ],
+      "instruction": "Rinse the beans thoroughly and scoop into a medium-size Dutch oven. Add 5 cups water, remove any beans that float, then add the pork shoulder (or extra chopped bacon) and bring to a boil. reduce the heat to medium-low, and very gently simmer, partially covered, until the beans are thoroughly tender about 2 hours. You'll need to gently stir the beans regularly and add water as necessary to keep the liquid a generous 1/2 inch above the level of the beans."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a medium-size skillet, fry the bacon (that is, the remaining bacon if you used some for the simmering), stirring regularly, until crisp, about 10 minutes. With a slotted spoon, remove the bacon, leaving behind as much of the drippings as possible. Pour off all but about 2 tablespoons of the drippings and return the pan to medium heat. Add the onion and chiles and fry until deep golden brown, about 10 minutes. Scrape the onion mixture into the beans, then taste and season it all with salt. Continue simmering, stirring occasionally, for 20 to 30 minutes to blend the flavors. If the beans seem quite soupy, boil over medium-high heat, stirring frequently, until the consistency of a nice, brothy bean soup. (An alternative here is to puree 1/4 of the beans in a food processor or blender, returning them to the pot to thicken the broth.)"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Just before serving, stir in the tequila and cilantro, then serve in warm bowls topped with the crumbled bacon."
+    }
+  ]
+}

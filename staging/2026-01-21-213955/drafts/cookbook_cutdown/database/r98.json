@@ -1,0 +1,145 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Cuban, Side, Normal, black beans, limes",
+    "title": "Moros Y Cristianos",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "1e23037e-f23c-433e-81d3-42a1a7f6f67d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients"
+        },
+        {
+          "ingredient_id": "c89a82e9-c035-4702-98fd-1026f8cdf8ea",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup of dried black beans"
+        },
+        {
+          "ingredient_id": "07e0aaf4-925b-419c-a3b3-f64935bd54be",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 Tablespoons vegetable oil"
+        },
+        {
+          "ingredient_id": "de50d483-c9ad-434d-9882-fd1a8b8561c4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 cloves of fresh garlic, minced"
+        },
+        {
+          "ingredient_id": "cf5a3c9c-80cb-4cf7-9dd6-cb4fc85db233",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 small green pepper, minced"
+        },
+        {
+          "ingredient_id": "656c626a-f95c-458f-b573-428c2f16a01a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 white onion, minced"
+        },
+        {
+          "ingredient_id": "4a0f222f-0af1-4514-83ad-acefd238cc96",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 cups white rice, long-grain"
+        },
+        {
+          "ingredient_id": "792a4504-5674-4137-b0d0-749347953bd6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup fresh squeezed lime juice"
+        },
+        {
+          "ingredient_id": "35a8daf4-5d3a-4676-9b73-2d2101c88308",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "salt and fresh ground pepper, to taste"
+        },
+        {
+          "ingredient_id": "f99e4778-1c50-485a-b03c-24f9d6473407",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cuban Rice Directions"
+        },
+        {
+          "ingredient_id": "6087a8da-35c8-4717-a97f-001ac21fe68d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "If using dry beans, soak in cold water overnight. Drain and place in a stockpot with fresh water covering the beans. Bring to a boil then reduce and simmer, covered for 1 hour or until beans are tender but firm. Drain the beans by pouring the cooking water into a bowl. Save the water, you will use it later for the rice."
+        },
+        {
+          "ingredient_id": "fc01e345-5a98-4d29-a15e-03991fcef97f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the vegetable oil to the stockpot and saut\u00e9 the garlic, pepper, and onion for 2 to 3 minutes until they soften. Stir in the black beans and rice, and add the water you have saved from cooking the beans. Add an additional 2 cups of water."
+        },
+        {
+          "ingredient_id": "1d2e7cb3-f92b-4723-9d99-de307f134fb1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Bring the mixture to a boil, then reduce the heat to a simmer and cook until the rice is tender approximately 20 minutes. Stir frequently and check to see if you need additional water to keep the rice from sticking. You can add more water 1/2 cup at a time while it finishes. Just don\u2019t overdo it or your rice will get mushy."
+        },
+        {
+          "ingredient_id": "d7e9ce88-dbdd-4609-9578-f58cd086a5ba",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Once the rice is fully cooked, add the lime juice and salt and pepper to taste. The dish is best served hot. If you like, you can add some chopped bacon at the end. Or serve as a side dish with hearty roasted meat like pork or chicken."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

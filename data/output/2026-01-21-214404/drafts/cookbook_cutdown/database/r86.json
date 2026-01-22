@@ -1,0 +1,127 @@
+{
+  "recipe": {
+    "description": "Parboiling the potatoes in alkaline water breaks down their surfaces, creating tons of starchy slurry for added surface area and crunch.\n\nRusset potatoes will produce crisper crusts and fluffier centers. Yukon Golds will be slightly less crisp and have creamier centers, with a darker color and deeper flavor. You can also use a mix of the two.\n\nThe potatoes should be cut into very large chunks, at least 2 to 3 inches or so. For medium-sized Yukon Golds, this means cutting them in half crosswise, then splitting each half again to make quarters. For larger Yukon Golds or russets, you can cut the potatoes into chunky sixths or eighths.",
+    "notes": "Tags: American, Side, Normal, potatoes",
+    "title": "Best Crispy roast potatoes",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "3c488df7-1b27-4b82-af20-d83a1197aabc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt"
+        },
+        {
+          "ingredient_id": "dcbe3aad-dcb5-4b0a-b0d3-792f9082e776",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 teaspoon (4g) baking soda"
+        },
+        {
+          "ingredient_id": "15bd6dd3-55cf-4653-8db8-14680d5542b3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 pounds (about 2kg) russet or Yukon Gold potatoes, peeled and cut into quarters, sixths, or eighths, depending on size (see note)"
+        },
+        {
+          "ingredient_id": "2decbcfb-e39c-4892-b022-b0c72812b7de",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5 tablespoons (75ml) extra-virgin olive oil, duck fat, goose fat, or beef fat"
+        },
+        {
+          "ingredient_id": "1c1a1c6b-7885-44d0-aa9d-3b34b9050f47",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Small handful picked rosemary leaves, finely chopped"
+        },
+        {
+          "ingredient_id": "b7ce4550-a991-4757-baab-9aad25aad338",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 medium cloves garlic, minced"
+        },
+        {
+          "ingredient_id": "03dd07b6-28ba-4589-a640-d8596f9524c6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Freshly ground black pepper"
+        },
+        {
+          "ingredient_id": "531fe4d1-592a-4fe5-9888-0827e42f1468",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Small handful fresh parsley leaves, minced"
+        }
+      ],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Adjust oven rack to center position and preheat oven to 450\u00b0F/230\u00b0C (or 400\u00b0F/200\u00b0C if using convection). Heat 2 quarts (2L) water in a large pot over high heat until boiling. Add 2 tablespoons kosher salt (about 1 ounce; 25g), baking soda, and potatoes and stir. Return to a boil, reduce to a simmer, and cook until a knife meets little resistance when inserted into a potato chunk, about 10 minutes after returning to a boil."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Meanwhile, combine olive oil, duck fat, or beef fat with rosemary, garlic, and a few grinds of black pepper in a small saucepan and heat over medium heat. Cook, stirring and shaking pan constantly, until garlic just begins to turn golden, about 3 minutes. Immediately strain oil through a fine-mesh strainer set in a large bowl. Set garlic/rosemary mixture aside and reserve separately."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "When potatoes are cooked, drain carefully and let them rest in the pot for about 30 seconds to allow excess moisture to evaporate. Transfer to bowl with infused oil, season to taste with a little more salt and pepper, and toss to coat, shaking bowl roughly, until a thick layer of mashed potato\u2013like paste has built up on the potato chunks."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "4."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Transfer potatoes to a large rimmed baking sheet and separate them, spreading them out evenly. Transfer to oven and roast, without moving, for 20 minutes. Using a thin, flexible metal spatula to release any stuck potatoes, shake pan and turn potatoes. Continue roasting until potatoes are deep brown and crisp all over, turning and shaking them a few times during cooking, 30 to 40 minutes longer."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "5."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Transfer potatoes to a large bowl and add garlic/rosemary mixture and minced parsley. Toss to coat and season with more salt and pepper to taste. Serve immediately."
+    }
+  ]
+}

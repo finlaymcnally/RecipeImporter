@@ -1,0 +1,139 @@
+{
+  "recipe": {
+    "description": "idk what to put for meat",
+    "notes": "Tags: Main, Instant Pot, split peas, carrots, celery",
+    "title": "Slow-Cooker split Pea soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "30fcea34-a696-4ce7-a352-097ba0a86839",
+          "input_item": "water",
+          "input_qty": 7.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "7 cups water"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "c2b50900-115e-430b-9948-a0b23edad301",
+          "input_item": "dried split peas",
+          "input_qty": 1.0,
+          "input_unit_id": "package",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sorted and rinsed",
+          "quantity_kind": "quantified",
+          "raw_text": "1 package (16 ounces) dried split peas (2 1/4 cups), sorted and rinsed"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "7440a3c7-c54b-464f-8f66-56989b3cdae3",
+          "input_item": "salt",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon salt"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "9efbd344-8d3b-4b0f-8b38-67c925f9683c",
+          "input_item": "pepper",
+          "input_qty": 0.25,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 teaspoon pepper"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "f34926d7-840a-41d1-9914-33fa1e731124",
+          "input_item": "carrots",
+          "input_qty": 3.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "cut into 1/4 inch slices",
+          "quantity_kind": "quantified",
+          "raw_text": "3 medium carrots, cut into 1/4-inch slices (1 1/2 cups)"
+        },
+        {
+          "confidence": 0.988,
+          "ingredient_id": "ea97d4d3-897f-4430-9dd5-4ab3c57cd059",
+          "input_item": "celery",
+          "input_qty": 2.0,
+          "input_unit_id": "medium stalks",
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "2 medium stalks celery, finely chopped (1 cup)"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "d0bc9116-cd94-43ca-8dcf-4260b723c903",
+          "input_item": "onion",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 medium onion, chopped (1/2 cup)"
+        },
+        {
+          "confidence": 0.928,
+          "ingredient_id": "3c5556f7-d001-4444-be43-7505098c8949",
+          "input_item": "ham bone",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "2 pounds ham shanks or 2 pounds smoked pork hocks",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 ham bone, 2 pounds ham shanks or 2 pounds smoked pork hocks"
+        }
+      ],
+      "instruction": "Prevent your screen from going dark while you cook."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Mix all ingredients except ham in 4- to 5-quart slow cooker. Add ham."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cover and cook on Low heat setting 8 to 10 hours or until peas are tender."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove ham from cooker; place on cutting board. Pull meat from bones, using 2 forks; discard bones and skin. Stir ham into soup. Stir well before serving."
+    }
+  ]
+}

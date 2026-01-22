@@ -1,0 +1,191 @@
+{
+  "recipe": {
+    "description": "can be pre-prepped",
+    "notes": "Tags: American, Main, Instant Pot, chicken, apple juice",
+    "title": "Bourbon chicken",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "7e234b2b-ad44-43ef-865c-5663ef0bb5c2",
+          "input_item": "boneless skinless chicken",
+          "input_qty": 1.5,
+          "input_unit_id": "lbs",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 \u00bd lbs. boneless skinless chicken"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "df4d0766-9414-47ef-a8f0-e7050815b24e",
+          "input_item": "brown sugar",
+          "input_qty": 0.3333333333333333,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u2153 cup brown sugar"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "54e17905-65e5-4edd-80f4-f473cc72d503",
+          "input_item": "ketchup",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc cup ketchup"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "a8f3a5f6-f172-435a-bf9c-e7808bc59f9a",
+          "input_item": "soy sauce",
+          "input_qty": 0.3333333333333333,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u2153 cup soy sauce"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "ca78c69b-7816-4d86-8a23-722b19f63fd2",
+          "input_item": "apple juice",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc cup apple juice"
+        },
+        {
+          "confidence": 0.958,
+          "ingredient_id": "a9e0f26b-d073-4382-9734-86413689e87e",
+          "input_item": "T. apple cider vinegar",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 T. apple cider vinegar"
+        },
+        {
+          "confidence": 0.99,
+          "ingredient_id": "9422103f-2f3e-4f1d-8170-0b368aa9bd7f",
+          "input_item": "bourbon",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": "(or broth if you don't want to use bourbon)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd cup bourbon (or broth if you don't want to use bourbon)"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "77576772-cbb4-4bdd-bd57-12d9440ede49",
+          "input_item": "cornstarch",
+          "input_qty": 2.0,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tsp. cornstarch"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "b2edd989-972b-4938-8324-f4ecf8ab6782",
+          "input_item": "garlic",
+          "input_qty": 0.25,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc tsp. minced garlic"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "42d23c88-befa-46e2-8295-8ba3f3dabf6b",
+          "input_item": "ginger",
+          "input_qty": 0.25,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc tsp. ginger"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "682d99ab-814b-404f-8fb2-1367d6d5c511",
+          "input_item": "black pepper",
+          "input_qty": 0.5,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd tsp. black pepper"
+        }
+      ],
+      "instruction": "Freezer Prep:"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Label gallon freezer bag with contents, date, and cooking directions."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cut chicken into small bite sized pieces."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In freezer bag whisk together brown sugar, ketchup, soy sauce, cornstarch, apple juice, apple cider, bourbon, garlic, ginger, and black pepper."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add chicken, shake bag to coat."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Press flat, seal bag securely."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cooking:"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Thaw bag contents."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Pour chicken and sauce into a slow cooker that has been coated in nonstick cooking spray or lined with a slow cooker bag for easy clean up."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cook on low for 6-7 hours, stirring occasionally."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Serve over rice, add fresh steamed broccoli or another favorite veggie for a complete meal."
+    }
+  ]
+}

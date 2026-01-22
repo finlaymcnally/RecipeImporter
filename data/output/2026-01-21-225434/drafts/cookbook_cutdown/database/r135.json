@@ -1,0 +1,83 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Instant Pot, cream of chicken soup, cream cheese, chicken",
+    "title": "Instant Pot chicken Alfredo",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.995,
+          "ingredient_id": "14ecb887-76a4-401c-84e9-a11130bee13e",
+          "input_item": "cream of chicken soup",
+          "input_qty": 2.0,
+          "input_unit_id": "cans",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 cans cream of chicken soup"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "04a744c3-73d5-4214-afcd-61c120375e82",
+          "input_item": "Italian Dressing Mix",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 Italian Dressing Mix"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "8aaded11-f88a-4438-bb67-72b5a867544b",
+          "input_item": "cream cheese",
+          "input_qty": 8.0,
+          "input_unit_id": "oz",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "8 oz cream cheese"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "332c4424-f26f-416e-a15e-26984c030d41",
+          "input_item": "Water",
+          "input_qty": 2.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 cups Water"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "ac58e304-c000-4ba1-8542-8dd119eeea1e",
+          "input_item": "chicken Breasts",
+          "input_qty": 5.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4-6 chicken Breasts"
+        }
+      ],
+      "instruction": "Put all ingredients in your labeled freezer bag and place in the freezer."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place into the crockpot (ingredients can be thawed or frozen) and cook on low for 6-8. Shred chicken and serve over Fettuccine noodles."
+    }
+  ]
+}

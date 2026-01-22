@@ -1,0 +1,145 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, yeast, starter",
+    "title": "Sourdough",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "47499d18-9f8a-42ee-89b5-0dce20a6ce8b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4\u2009\u00be cups bread flour"
+        },
+        {
+          "ingredient_id": "69be661f-4207-48a6-98e5-1e0194df7f28",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 tablespoons white sugar"
+        },
+        {
+          "ingredient_id": "dd6dbe95-04b1-43c1-910b-17a00b9787e9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2\u2009\u00bd teaspoons salt"
+        },
+        {
+          "ingredient_id": "723ce790-2faf-4fc8-b7cf-cdb30a6278ab",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 (.25 ounce) package active dry yeast"
+        },
+        {
+          "ingredient_id": "31dee696-1a16-46b9-ae4d-a2be76fb37ce",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup warm milk"
+        },
+        {
+          "ingredient_id": "928c4421-fcab-44c0-abc4-45048a774ada",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons margarine, softened"
+        },
+        {
+          "ingredient_id": "6cec42a7-8938-4b08-8ff6-3ed5d66b324a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1\u2009\u00bd cups sourdough starter"
+        },
+        {
+          "ingredient_id": "d0caecc8-134d-44df-bb9e-999313b3391d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 extra large egg"
+        },
+        {
+          "ingredient_id": "2ab629c7-d81b-4c78-a748-dc20e6dd2029",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon water"
+        },
+        {
+          "ingredient_id": "ec93e307-8487-4d91-aab1-507def175db1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc cup chopped onion"
+        }
+      ],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a large bowl, combine 1 cup flour, sugar, salt, and dry yeast. Add milk and softened butter or margarine. Stir in starter. Mix in up to 3 3/4 cups flour gradually, you may need more depending on your climate."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Turn dough out onto a floured surface, and knead for 8 to 10 minutes. Place in a greased bowl, turn once to oil surface, and cover. Allow to rise for 1 hour, or until doubled in volume."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 3"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Punch down, and let rest 15 minutes. Shape into loaves. Place on a greased baking pan. Allow to rise for 1 hour, or until doubled."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 4"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Brush egg wash over tops of loaves, and sprinkle with chopped onion."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 5"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bake at 375 degrees F (190 degrees C) for 30 minutes, or till done."
+    }
+  ]
+}

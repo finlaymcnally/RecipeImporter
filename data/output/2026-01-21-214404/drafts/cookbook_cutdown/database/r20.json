@@ -1,0 +1,149 @@
+{
+  "recipe": {
+    "description": "needs seasoning, rosemary, not sure what to put for biscuits",
+    "notes": "Tags: Main, Normal, chicken, cream, frozen vegetables",
+    "title": "Chicken & Biscuits Bake",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "18668705-4173-4ff6-94f1-812ee5f5f6f6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "6 tablespoons butter"
+        },
+        {
+          "ingredient_id": "7a755849-535d-4884-8abc-942865e49d6c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 onion, chopped"
+        },
+        {
+          "ingredient_id": "33a2df9f-5303-4195-8ff7-fad54fdb5f66",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd cup flour"
+        },
+        {
+          "ingredient_id": "9d02e9e6-ed23-4496-a59b-96206e8cb3c0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 cups chicken broth"
+        },
+        {
+          "ingredient_id": "62b25d03-22b1-4a8b-93be-6f3ccfa3f152",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon salt"
+        },
+        {
+          "ingredient_id": "f8012d92-a977-4e18-8ff3-2bf342589d09",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon pepper"
+        },
+        {
+          "ingredient_id": "33f70a1e-bb27-4366-96be-727a2fe07828",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup heavy cream"
+        },
+        {
+          "ingredient_id": "f0c63bce-cb8e-4276-9d1f-bac14d8b0893",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2\u00bd cups frozen mixed vegetables"
+        },
+        {
+          "ingredient_id": "449c3c3d-5778-422c-aea8-55083fceb83d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 rotisserie chicken, shredded"
+        },
+        {
+          "ingredient_id": "03a977a8-e223-4725-adfd-ae11afb1b038",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tubes biscuit dough (8 biscuits each)"
+        }
+      ],
+      "instruction": "Preheat oven to 350\u02daF/180\u02daC."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a large pot over medium-high heat, melt the butter."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the onion, stir until softened. About 1 minute."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Whisk in the flour, stirring constantly to prevent the flour from browning. About 1 minute."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Whisk in the chicken broth, salt, and pepper. Continue to whisk until no lumps remain."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Whisk in the heavy cream. Bring to a light simmer until the sauce has thickened slightly. Test for additional salt/pepper."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the mixed vegetables and shredded chicken, stir until fully incorporated."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Transfer to a 9x13-inch baking dish."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Evenly top with 12 pieces of biscuit dough (you will have extra biscuits, which can be baked off separately)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bake in a preheated oven for 20 minutes, until the biscuits are golden and the gravy mixture is bubbling."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cool slightly before serving."
+    }
+  ]
+}

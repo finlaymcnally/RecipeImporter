@@ -1,0 +1,199 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, orecchiette, green beans, frozen peas, sausages, pesto, pasta",
+    "title": "Pesto Orecchiette With chicken sausage",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.0,
+          "ingredient_id": "1da2cf48-5b57-480e-a355-2bd9890ff942",
+          "input_item": "Ingredients",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "Ingredients"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "f96a12e4-22b0-4000-a0d2-7365633b3c56",
+          "input_item": "orecchiette",
+          "input_qty": 0.75,
+          "input_unit_id": "pounds",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00be pound orecchiette"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "216beefb-b6d8-4e37-b16a-a544b628ed54",
+          "input_item": "green beans",
+          "input_qty": 0.5,
+          "input_unit_id": "pounds",
+          "is_optional": false,
+          "note": null,
+          "preparation": "trimmed and cut into 1 inch pieces",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd pound green beans, trimmed and cut into 1-inch pieces"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "176dfc63-ef45-44c0-ab2f-7117f9f6621c",
+          "input_item": "frozen peas",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup frozen peas"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "92090f86-03b0-4898-9dda-c22c82846acf",
+          "input_item": "olive oil",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon olive oil"
+        },
+        {
+          "confidence": 0.946,
+          "ingredient_id": "70784b85-a2c1-4b85-8e8a-17cb878795f4",
+          "input_item": "Italian-style chicken sausage links",
+          "input_qty": 8.0,
+          "input_unit_id": "ounces",
+          "is_optional": false,
+          "note": null,
+          "preparation": "fully cooked, thinly sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "8 ounces fully cooked Italian-style chicken sausage links, thinly sliced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "8a778884-d1cb-450b-a0b6-eedcc4bbe636",
+          "input_item": "pesto",
+          "input_qty": 0.3333333333333333,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u2153 cup pesto"
+        },
+        {
+          "confidence": 0.987,
+          "ingredient_id": "49fbeea5-2f6e-47fd-b422-b77456555a23",
+          "input_item": "Parmesan",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "grated",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd cup grated Parmesan (2 ounces)"
+        },
+        {
+          "confidence": 0.852,
+          "ingredient_id": "0904aefe-552d-404f-85b0-dc13b1f9c7e4",
+          "input_item": null,
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "How to Make It",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "How to Make It"
+        },
+        {
+          "confidence": 0.898,
+          "ingredient_id": "5cb5a7c0-ad54-4a18-953c-67f89d159bd9",
+          "input_item": "Step",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "Step 1"
+        },
+        {
+          "confidence": 0.911,
+          "ingredient_id": "ff19f8f0-a8e8-467f-87bf-3a81de5ea19b",
+          "input_item": null,
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Cook the pasta according to the package directions, adding the green beans and peas during the last 3 minutes of cooking. Reserve 1 cup of the cooking water; drain the pasta and vegetables and return them to the pot.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cook the pasta according to the package directions, adding the green beans and peas during the last 3 minutes of cooking. Reserve 1 cup of the cooking water; drain the pasta and vegetables and return them to the pot."
+        },
+        {
+          "confidence": 0.898,
+          "ingredient_id": "57bf0c09-6c1b-4529-bfe9-45251e1f09b2",
+          "input_item": "Step",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "Step 2"
+        },
+        {
+          "confidence": 0.823,
+          "ingredient_id": "55d3046c-3dfe-4dd8-a25f-20fd2ae2ad78",
+          "input_item": "Meanwhile",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Add the sausage and cook, turning occasionally",
+          "preparation": "heat the oil in a large skillet over medium-high heat., until browned, 6-8 minutes.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Meanwhile, heat the oil in a large skillet over medium-high heat. Add the sausage and cook, turning occasionally, until browned, 6 to 8 minutes."
+        },
+        {
+          "confidence": 0.898,
+          "ingredient_id": "08ec3217-4d6b-4a0d-9b73-cae41314bddb",
+          "input_item": "Step",
+          "input_qty": 3.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "Step 3"
+        },
+        {
+          "confidence": 0.585,
+          "ingredient_id": "5e1e58db-1ccd-492c-b0a4-32619a4350a2",
+          "input_item": "Parmesan",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Add the sausage, and 1/2 cup of the reserved cooking water to the pasta and vegetables and toss to combine (add more cooking water as needed to loosen the sauce).",
+          "preparation": "pesto",
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the sausage, pesto, Parmesan, and \u00bd cup of the reserved cooking water to the pasta and vegetables and toss to combine (add more cooking water as needed to loosen the sauce)."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

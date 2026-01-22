@@ -1,0 +1,289 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Cuban, Main, Normal, baguette, mango juice, orange juice, limes, pork shoulder",
+    "title": "Paseo Cuban roast pork Sandwich",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "2d1444e5-420c-4dc3-8641-aa86b7b4c174",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 baguette (ideally something with a texture more like the bread used in banh mi)"
+        },
+        {
+          "ingredient_id": "de18ca65-c2ff-4a3e-9a57-6bb5d5e5a58d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "garlic mayo (see below)"
+        },
+        {
+          "ingredient_id": "f33619b2-1d27-4e05-b7be-d575f0de6ee0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "roast pork (see below)"
+        },
+        {
+          "ingredient_id": "0e446b3c-9fbb-413a-8b3f-b93fa1d7d408",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 large yellow onions"
+        },
+        {
+          "ingredient_id": "34da6518-2da5-4a12-8f1d-7778a81efe2a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "olive oil"
+        },
+        {
+          "ingredient_id": "79c357e3-4568-4735-a15d-4e2e5168f491",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "lettuce"
+        },
+        {
+          "ingredient_id": "0552137a-fe0d-4fa6-9d6e-774263257c11",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "cilantro"
+        },
+        {
+          "ingredient_id": "0a364511-df68-4752-bbe6-8494c1a9d96d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "pickled jalape\u00f1o peppers"
+        },
+        {
+          "ingredient_id": "150ea2e6-1ee8-4477-bf1a-9e374d070db6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "roast pork"
+        },
+        {
+          "ingredient_id": "7b022dda-f287-416d-bbb9-13b64afa6ecb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup mango juice (or sub 1 cup orange juice)"
+        },
+        {
+          "ingredient_id": "c7679f1c-cd6e-4e01-82c7-6abc3931d7a5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cups orange juice"
+        },
+        {
+          "ingredient_id": "3e542bd9-7659-46f2-a7ec-0857865af0e5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tbsps olive oil"
+        },
+        {
+          "ingredient_id": "b742b79a-b3de-4a2f-9afe-e8ddfcd82491",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 lime, juice of"
+        },
+        {
+          "ingredient_id": "01dc324e-c69a-409f-93bc-4a5dfc653277",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tbsps garlic, minced"
+        },
+        {
+          "ingredient_id": "89f8faeb-6a46-4c41-a78b-4e214dfd049d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp oregano, minced"
+        },
+        {
+          "ingredient_id": "1e130400-050a-4986-9a90-3f8a2936e8ea",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 tsp salt"
+        },
+        {
+          "ingredient_id": "035ed2f9-a1e3-4ef1-b1a3-82675a61fadd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 tsp pepper"
+        },
+        {
+          "ingredient_id": "71ba2def-58f9-4579-b596-36c0b47746cb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 oz. rum"
+        },
+        {
+          "ingredient_id": "93b932f0-3ad2-4bc4-a671-c84e0d2b3cd3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3-4 lb. pork shoulder (bone in)"
+        },
+        {
+          "ingredient_id": "faa81f02-1694-4803-9504-d17abc909f77",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "garlic mayo"
+        },
+        {
+          "ingredient_id": "26cd4361-97a0-4617-9ffa-5c7591c71b93",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 bulb garlic"
+        },
+        {
+          "ingredient_id": "febdf155-aa08-453c-8861-47f6acbafb5e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "olive oil for drizzling"
+        },
+        {
+          "ingredient_id": "4b7a282c-f24e-4999-935c-dbee68b06af7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup mayonnaise"
+        },
+        {
+          "ingredient_id": "c4e80dac-33a5-41d8-86ca-75b3f11e0d20",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tbsps olive oil"
+        },
+        {
+          "ingredient_id": "8810a0a2-2c4b-4e5b-a01a-911ec5d51770",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 lime, juice of"
+        },
+        {
+          "ingredient_id": "8a85b35d-9200-4ea0-9d13-27efc80be00a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 tbsp dill pickle relish"
+        },
+        {
+          "ingredient_id": "bc1e1191-d6c8-4bd7-9c76-d230f48ac167",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Make the pork: Combine the mango juice, orange juice, olive oil, lime juice, chopped garlic, oregano, salt, pepper, and rum in a large vessel or ziploc bag. Place the pork in the vessel or bag and marinate for a minimum of 3 hours (but you\u2019d do well to do 12 or even 24 hours). When the pork is ready, save the marinade and preheat the oven to 300\u00b0F. Sear the meat on all sides in a lightly greased frying pan or skillet until it\u2019s nicely browned. Remove the pork to a baking dish (BUT DON\u2019T WASH THE SKILLET/PAN \u2013 save it for later) and pour the marinade into the baking dish. Tent the meat with foil and bake for 2 hours. The original recipe said 45 minutes, but that didn\u2019t get me to a fall-apart texture. Remove the foil and cook uncovered for another 2 hours, basting the meat with the marinade ever 15 minutes and turning the meat after an hour. Remove from oven when the meat is fork-tender and comes off the bone easily. Shred the pork with two forks."
+        },
+        {
+          "ingredient_id": "1fbb360a-acf3-4bb3-9bf4-453276940da8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Make the garlic mayonnaise: While the pork is cooking in the oven, slice the top off the garlic bulb and place it in a small baking dish or on a piece of foil that has been pulled up at the edges (to form a bowl). Drizzle a little olive oil over the top and bake in the oven (next to the pork) for thirty minutes or until the garlic is soft. Peel the skins off the garlic cloves and mash the garlic into a paste. Combine the garlic with mayonnaise, olive oil, lime juice, and pickle relish. Stir until blended."
+        },
+        {
+          "ingredient_id": "fb938aed-944a-4224-8112-4b4d0278c487",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Caramelize the onions: Peel and slice the onions into 1/4-inch strips. Heat a little olive oil on medium flame in the same pan you used to sear the pork. When the oil is hot, add the onions and cook for 15-20 minutes, stirring occasionally to prevent burning. Remove from heat when the onions are caramelized."
+        },
+        {
+          "ingredient_id": "8a79853f-0d8e-4815-b041-2224f75045df",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Assemble the goodness: Cut an 8-inch long piece of a baguette or other similarly shaped bread that has a nice, crusty outside and soft, chewy inside. Slice it in half, lengthwise. Spread garlic mayonnaise on both pieces of bread and bake or toast in the oven until the mayonnaise starts to bubble and puff. Remove from the oven. Layer the pork, onions, lettuce, cilantro, pickled jalape\u00f1os, and more garlic mayonnaise on one piece of the bread. Top with the other half of the bread and serve. The pork can probably yield a dozen sandwiches."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

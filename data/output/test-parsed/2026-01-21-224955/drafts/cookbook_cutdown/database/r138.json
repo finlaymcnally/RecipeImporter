@@ -1,0 +1,107 @@
+{
+  "recipe": {
+    "description": "Try adding ricotta, chili\nIf at all possible, use a feta cheese that has been packed in brine",
+    "notes": "Tags: Greek, Side, Normal, Feta, peppers",
+    "title": "Kopanisti",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.991,
+          "ingredient_id": "35ce1de5-5690-4069-87bb-63d927439c54",
+          "input_item": "feta cheese",
+          "input_qty": 12.0,
+          "input_unit_id": "oz",
+          "is_optional": false,
+          "note": null,
+          "preparation": "drained and cubed",
+          "quantity_kind": "quantified",
+          "raw_text": "12 oz. feta cheese drained and cubed"
+        },
+        {
+          "confidence": 0.982,
+          "ingredient_id": "1cd2372d-f429-4f4c-91e0-e4c016b2a01e",
+          "input_item": "roasted red bell peppers",
+          "input_qty": 4.0,
+          "input_unit_id": "oz",
+          "is_optional": false,
+          "note": null,
+          "preparation": "drained",
+          "quantity_kind": "quantified",
+          "raw_text": "4 oz. roasted red bell peppers drained"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "4a209d4b-45e3-4b8b-b721-a9c35a7a96fa",
+          "input_item": "fresh mint leaves",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup fresh mint leaves"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "fe53e965-7f8a-474b-85dd-8d159e9d5e8d",
+          "input_item": "olive oil",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup olive oil"
+        },
+        {
+          "confidence": 0.988,
+          "ingredient_id": "0ec1e106-7598-45f9-bc79-7f9c025da65d",
+          "input_item": "garlic",
+          "input_qty": 3.0,
+          "input_unit_id": "small cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 small cloves garlic"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "765a2ae2-762e-416d-855a-e098741eb3f8",
+          "input_item": "fresh lemon juice",
+          "input_qty": 2.0,
+          "input_unit_id": "Tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 Tbsp. fresh lemon juice"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "2d66954d-093c-4150-8203-e5293f7a4a47",
+          "input_item": "red pepper flakes",
+          "input_qty": 0.25,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 tsp. red pepper flakes"
+        }
+      ],
+      "instruction": "Combine all the ingredients in the bowl of a food processor and pulse until the ingredients are combined. Continue to pulse until the mixture is smooth but still retains some texture."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Taste and add more lemon juice or pepper if needed."
+    }
+  ]
+}

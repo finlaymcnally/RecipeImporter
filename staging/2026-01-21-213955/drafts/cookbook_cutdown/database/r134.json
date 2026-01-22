@@ -1,0 +1,95 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Instant Pot, pork tenderloin",
+    "title": "Honey Soy pork tenderloin",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "eadf4e06-a74e-45af-8772-e02879cccc93",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc cup Olive Oil"
+        },
+        {
+          "ingredient_id": "6e420191-8599-4f81-b158-55934582872a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc cup Soy sauce"
+        },
+        {
+          "ingredient_id": "90cad019-e2c3-4667-a0a2-795dd9715418",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd cup Honey"
+        },
+        {
+          "ingredient_id": "49948173-736c-482e-b564-611497bcf326",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 TBSP Steak Seasoning"
+        },
+        {
+          "ingredient_id": "6add8d48-a09c-402e-9150-2124c7ef5192",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd TSP Garlic Powder"
+        },
+        {
+          "ingredient_id": "fc5a7c80-4f02-4676-8f44-a05c6fd6ea2e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/8 TSP ground ginger"
+        },
+        {
+          "ingredient_id": "787cfc3b-5b1c-4a28-a0f0-009bb93e4ef1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/8 TSP red Pepper Flakes"
+        },
+        {
+          "ingredient_id": "8df8a62e-78d9-4e80-a3ce-b1d3ff2959ae",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2-3 lb pork tenderloin"
+        }
+      ],
+      "instruction": "Put all ingredients in your labeled freezer bag and place in the freezer."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place into the crockpot (ingredients can be thawed or frozen) and cook on low for 6-8 hours. We served this with mashed potatoes and green beans."
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: American, Component, Normal, cranberries, apples",
+    "title": "Applesauce with cranberries",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "49c19091-17a2-4045-adfc-e95b59fdd3f0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3lbs golden delicious apples, peeled, quartered, cored, cut into 3/4inch pieces"
+        },
+        {
+          "ingredient_id": "48817c2c-9035-4c0d-bfdb-d5ad3c4de54d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1.5 cups apple juice"
+        },
+        {
+          "ingredient_id": "3d84e2ae-869c-41cd-a558-3c102579a18c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1.5 cups fresh/frozen cranberries"
+        },
+        {
+          "ingredient_id": "04d841d1-544c-4dbd-a5f6-0c60a6e918dc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup sugar"
+        },
+        {
+          "ingredient_id": "e751d0bd-1584-4fe9-8cc3-97fbf978f1f9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Combine in large pot, bring to boil, simmer till apples are tender, 25min"
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

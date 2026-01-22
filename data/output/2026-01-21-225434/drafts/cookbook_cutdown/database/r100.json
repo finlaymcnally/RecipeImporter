@@ -1,0 +1,199 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Costa Rican, Side, Normal, black beans, peppers",
+    "title": "Costa Rican Gallo pinto",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.623,
+          "ingredient_id": "046ef626-1852-4be7-908d-658db281871c",
+          "input_item": "Gallo Pinto (beans and rice)",
+          "input_qty": null,
+          "input_unit_id": "Recipe",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Gallo Pinto (beans and rice) Recipe"
+        },
+        {
+          "confidence": 0.954,
+          "ingredient_id": "29680533-6ff2-4b6a-9300-a563a8a7085b",
+          "input_item": "Black beans.",
+          "input_qty": 1.0,
+          "input_unit_id": "lb",
+          "is_optional": false,
+          "note": "(450 gr.), Fresh are best but most likely you\u2019ll find them dried.",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 lb (450 gr.) Black beans. Fresh are best but most likely you\u2019ll find them dried."
+        },
+        {
+          "confidence": 0.949,
+          "ingredient_id": "c8777657-454d-4925-9167-e196ef67d461",
+          "input_item": "cilantro (coriander leaf)",
+          "input_qty": 9.0,
+          "input_unit_id": "sprig",
+          "is_optional": false,
+          "note": "not dried!",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "8-10 sprigs cilantro (coriander leaf) fresh or frozen, not dried!"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "ad7868a7-5c40-4bf3-a18f-9ab3cddfd121",
+          "input_item": "onion",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 small or medium onion"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "d5cddb45-77a1-49d8-b2ab-cc80be833684",
+          "input_item": "red sweet pepper",
+          "input_qty": 0.5,
+          "input_unit_id": null,
+          "is_optional": true,
+          "note": "(optional)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd small red or yellow sweet pepper (optional)"
+        },
+        {
+          "confidence": 0.982,
+          "ingredient_id": "dc119ced-dc98-4f1b-a0d7-1a6bc44aac08",
+          "input_item": "chicken broth",
+          "input_qty": 3.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 cups (700 ml) chicken broth or water"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "c9037cc1-b32b-471f-bf22-1926f5629c59",
+          "input_item": "white rice",
+          "input_qty": 2.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 cups (350 ml) white rice"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "95237352-c692-4bc1-9ffb-cd6290280643",
+          "input_item": "salt",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd teaspoon (2.5 ml) salt"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "f7f173d5-41b4-4537-878d-3bd250e6a656",
+          "input_item": "vegetable oil",
+          "input_qty": 1.0,
+          "input_unit_id": "Tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 Tablespoon (15 ml) vegetable oil"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "f55d068a-b773-4dbd-b5d1-0dfd00b069db",
+          "input_item": "oil",
+          "input_qty": 2.0,
+          "input_unit_id": "Tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1-3 Tablespoon oil to fry the Gallo Pinto"
+        },
+        {
+          "confidence": 0.873,
+          "ingredient_id": "a9eeeb0b-184f-4637-9288-1f8b46ae7069",
+          "input_item": "Add salt.",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "If beans are dried, if they are \u201cfresh\u201d, but only from laying out in the sun like they do in Costa Rica, just rise them off., 3 hours.",
+          "preparation": "cover with water and soak overnight, still dried, Drain the beans and add fresh water to an inch (2.5 cm) above the top of the beans and bring to a boil. Cover the pan and reduce heat to very low simmer until beans are soft ~",
+          "quantity_kind": "unquantified",
+          "raw_text": "If beans are dried, cover with water and soak overnight, if they are \u201cfresh\u201d (still dried, but only from laying out in the sun like they do in Costa Rica), just rise them off. Drain the beans and add fresh water to an inch (2.5-cm) above the top of the beans and bring to a boil. Cover the pan and reduce heat to very low simmer until beans are soft (~3 hours). Add salt."
+        },
+        {
+          "confidence": 0.52,
+          "ingredient_id": "d94c0571-5f93-4969-8e93-b98b62bb56bd",
+          "input_item": "Chop cilantro",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "and sweet pepper very fine.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Chop cilantro, onion, and sweet pepper very fine."
+        },
+        {
+          "confidence": 0.964,
+          "ingredient_id": "bd0fdb3d-81da-48a2-9d09-076ebc6807c5",
+          "input_item": "oil",
+          "input_qty": 1.0,
+          "input_unit_id": "Tablespoon",
+          "is_optional": false,
+          "note": "Add, sweet pepper and cilantro and saut\u00e9 another 2 minutes., (20-35 minutes). This is also the recipe for Tico rice used in other favorites like tamales.",
+          "preparation": "bring to a boil, cover and reduce heat to simmer until rice is tender",
+          "quantity_kind": "quantified",
+          "raw_text": "Add 1 Tablespoon oil to a large pan and saut\u00e9 the dry rice for 2 minutes over medium high flame then add half of the chopped onion, sweet pepper and cilantro and saut\u00e9 another 2 minutes. Add water or chicken broth, bring to a boil, cover and reduce heat to simmer until rice is tender (20-35 minutes). This is also the recipe for Tico rice used in other favorites like tamales."
+        },
+        {
+          "confidence": 0.962,
+          "ingredient_id": "63a4d225-6423-4be7-be8b-a704e4c395c9",
+          "input_item": null,
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Once the rice and beans are cooked you can refrigerate or freeze them. Make up small batches of Gallo Pinto when you want it by simply saut\u00e9ing them together.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Once the rice and beans are cooked you can refrigerate or freeze them. Make up small batches of Gallo Pinto when you want it by simply saut\u00e9ing them together."
+        },
+        {
+          "confidence": 0.82,
+          "ingredient_id": "8672cc03-37f6-44a9-a959-949878a9b151",
+          "input_item": "Keep a significant amount of the \u201cblack water\u201d with the beans This is what gives the rice its color and some of its flavor. Saut\u00e9 the rice",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "(#1$2-1 cup 120-240 ml)., sweet pepper and cilantro together in vegetable oil for a few minutes.",
+          "preparation": "beans reserved chopped, Sprinkle with a little fresh chopped cilantro just before serving.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Keep a significant amount of the \u201cblack water\u201d with the beans (\u00bd-1 cup 120-240 ml). This is what gives the rice its color and some of its flavor. Saut\u00e9 the rice, beans reserved chopped onion, sweet pepper and cilantro together in vegetable oil for a few minutes. Sprinkle with a little fresh chopped cilantro just before serving."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

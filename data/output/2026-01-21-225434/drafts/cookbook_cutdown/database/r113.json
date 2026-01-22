@@ -1,0 +1,34 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, potatoes, cream of potato soup, sour cream",
+    "title": "Hash Brown Potato Casserole",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "Pour into a greased 13 X 9-inch baking dish that has been sprayed with Pam."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cut the butter into about 8-12 little pieces and place on top of the potatoes (this is optional)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Sprinkle Parmesan cheese over top."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Sprinkle a little paprika over top for color."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bake uncovered at 350F degrees for 1 \u00bd hours."
+    }
+  ]
+}

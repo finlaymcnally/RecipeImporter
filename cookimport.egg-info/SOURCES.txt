@@ -14,11 +14,15 @@ cookimport/core/mapping_io.py
 cookimport/core/models.py
 cookimport/llm/__init__.py
 cookimport/llm/repair.py
+cookimport/parsing/__init__.py
+cookimport/parsing/ingredients.py
 cookimport/plugins/__init__.py
 cookimport/plugins/base.py
 cookimport/plugins/excel.py
 cookimport/plugins/registry.py
 cookimport/staging/__init__.py
+cookimport/staging/draft_v1.py
 cookimport/staging/jsonld.py
 cookimport/staging/writer.py
 tests/test_excel_importer.py
+tests/test_ingredient_parser.py

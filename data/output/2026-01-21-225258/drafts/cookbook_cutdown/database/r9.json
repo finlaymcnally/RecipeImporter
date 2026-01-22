@@ -1,0 +1,139 @@
+{
+  "recipe": {
+    "description": "adding some Litchi or Pineapple to the sauce in place of sugar makes it so much better.",
+    "notes": "Tags: Thai, Meal, Normal, chicken, coconut milk, snow peas",
+    "title": "Red Thai chicken Curry With Rice",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.0,
+          "ingredient_id": "28e778ab-08f8-4f42-930d-182f62fe48dd",
+          "input_item": "Ingredients",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "Ingredients:"
+        },
+        {
+          "confidence": 0.982,
+          "ingredient_id": "ab5e3575-51f7-4b79-9aef-6285df06b598",
+          "input_item": "-Red curry Paste -400 ml Coconut Milk -1 Tsp Fish Sauce & Caster Sugar -500 g Chicken Breast -1 small Red Capsicum -100 g Snow Peas -1 Cup Jasmine Rice.",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "-Red curry Paste -400ml Coconut Milk -1 Tsp Fish Sauce & Caster Sugar -500g Chicken Breast -1 small Red Capsicum -100g Snow Peas -1 Cup Jasmine Rice."
+        },
+        {
+          "confidence": 0.633,
+          "ingredient_id": "ecb99e3e-041a-4b66-a9bd-99b3644e1714",
+          "input_item": "coconut milk",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Add some oil into a pan, add a tbsp of, and the curry paste.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add some oil into a pan, add a tbsp of coconut milk and the curry paste."
+        },
+        {
+          "confidence": 0.497,
+          "ingredient_id": "58e3c5e1-f2c8-4bc3-b616-50d05484fa3e",
+          "input_item": "Cook this",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "out for 5/6 minutes on a medium heat.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Cook this out for 5/6 minutes on a medium heat."
+        },
+        {
+          "confidence": 0.87,
+          "ingredient_id": "c11f70e4-da19-4af5-8833-14a128b0822a",
+          "input_item": "Add the rest of the coconut milk",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the rest of the coconut milk"
+        },
+        {
+          "confidence": 0.981,
+          "ingredient_id": "86229fb5-6de3-40f6-842c-6523a3f4c677",
+          "input_item": "Add chicken and Kafir Lime leaf",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "(if you have them)",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add chicken and Kafir Lime leaf( if you have them)"
+        },
+        {
+          "confidence": 0.754,
+          "ingredient_id": "e92db5d2-6d47-4f81-8cc5-725d20d54d6b",
+          "input_item": "Cook for mins",
+          "input_qty": 15.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "Cook for 15 mins"
+        },
+        {
+          "confidence": 0.929,
+          "ingredient_id": "c89365fc-fbba-462b-906a-c990c6755bf4",
+          "input_item": "sugar",
+          "input_qty": null,
+          "input_unit_id": "pinch",
+          "is_optional": false,
+          "note": "Add a, (palm, caster, brown)",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add a pinch of sugar (palm, caster, brown)"
+        },
+        {
+          "confidence": 0.805,
+          "ingredient_id": "81c056a3-53cc-406b-ba5d-1dea512622d9",
+          "input_item": "fish sauce",
+          "input_qty": 1.0,
+          "input_unit_id": "tbsp",
+          "is_optional": false,
+          "note": "Add",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "Add 1tbsp fish sauce"
+        },
+        {
+          "confidence": 0.73,
+          "ingredient_id": "b8d53cbb-7d1b-4d88-99e8-124aaf534c43",
+          "input_item": "Add",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "and Thai basil",
+          "preparation": "chopped",
+          "quantity_kind": "unquantified",
+          "raw_text": "Add chopped Coriander, and Thai basil"
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

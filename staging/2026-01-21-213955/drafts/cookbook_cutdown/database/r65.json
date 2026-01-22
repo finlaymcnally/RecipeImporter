@@ -1,0 +1,106 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Indian, Main, Instant Pot, chicken, lemons, chili pepper, yogurt",
+    "title": "Chicken Biryani",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "*************************"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 1 : Marinate the chicken."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a large bowl, marinate the chicken, first, by adding all the garam masala spices."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the ginger garlic paste, mint leaves, coriander powder, green chilies and the fried onions."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Next add the spices: red chilli powder, turmeric, cumin powder, coriander powder, garam masala powder, and salt."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the yogurt and the oil, and squeeze some fresh lime juice on top."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Mix them really well, and keep it in the fridge for 30 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Now your chicken biryani base mix is ready."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2. Saute the base mix."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Turn on the IP, and switch to Saut\u00e9 mode and adjust the temperature to \u2018Low\u2019. (Setting it 'low' ensures the bottom doesn't get burnt. )"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the marinated chicken into the IP, and let it saut\u00e9 for 5 minutes. Gentle stir occasionally to brown the meat.If there is any burnt food stuck to the bottom, turn off saute mode and scrape out the burnt food. This will greatly reduce the chances of seeing the 'BURN' sign."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 3: Cook the chicken in Venting mode."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Close the lid, switch to \u2018Manual\u2019 mode, adjust the time to 10 minutes and make sure the whistle is in VENTING Mode."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "After 10 minutes, carefully open the lid. At this point, the chicken will be \u201chalf cooked\u201d."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 4: Add the rice to the base mix."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the rice, and gently spread the rice around evenly."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "For 3 cups of rice, add 3 cups of water."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Close the lid, in manual mode, set to 6 minutes, and make sure the whistle is in SEALING mode."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 5 : NPR for 6 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Let the pressure release naturally for 6 minutes. Release rest of the pressure using Quick Release."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Make sure the safety valve has dropped before opening the lid."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Serve hot, alongside \u201cRaita\u201c and \u201cMirchi ka Salan\u201d"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Garnish with onions/cucumbers/tomatoes."
+    }
+  ]
+}

@@ -1,0 +1,221 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Indian, Main, Normal, chicken, curry base",
+    "title": "Chicken Madras",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "69b588c6-3583-4b24-a668-f15cf9995d04",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "800g pre-cooked chicken"
+        },
+        {
+          "ingredient_id": "f92108b0-9027-4367-bdfe-be0f040e3bac",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoon ghee or vegetable oil"
+        },
+        {
+          "ingredient_id": "a5592486-ddf7-4579-9594-b7594e2e372d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 - 4 dried Kashmiri chillies"
+        },
+        {
+          "ingredient_id": "385e7dc3-ebe9-4a0f-9ab9-8e04b5c51878",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "A few green cardamom pods"
+        },
+        {
+          "ingredient_id": "251468a9-7b10-4012-a9a3-df8f1914d7a3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon garlic paste"
+        },
+        {
+          "ingredient_id": "9e686da7-40bd-468c-a5ad-e572ef6f2d23",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon ginger paste"
+        },
+        {
+          "ingredient_id": "930e577d-a41e-40d1-9620-54ded5b5a019",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon tomato paste"
+        },
+        {
+          "ingredient_id": "c72c1b97-e34e-4007-94b6-556fef273f77",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 green chilli peppers finely chopped"
+        },
+        {
+          "ingredient_id": "4f4fdcb8-b97c-4d49-b140-e00e6e92af5c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon cumin powder"
+        },
+        {
+          "ingredient_id": "b8ce468b-daea-406a-8820-427b03b50925",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon coriander powder"
+        },
+        {
+          "ingredient_id": "000eb72b-5e51-4c0b-b43f-aa266b1dbdbc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 - 2 tablespoons Madras curry powder"
+        },
+        {
+          "ingredient_id": "35b571d2-c020-47c4-914d-32cd2ca776b8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon turmeric"
+        },
+        {
+          "ingredient_id": "2b2f7b09-5a2d-483d-9876-cacaaa74e9d4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 - 2 tablespoons red chilli powder"
+        },
+        {
+          "ingredient_id": "2b821380-e7b3-430f-9d5b-9245a936b6dc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "750ml (3 cups) heated base curry sauce"
+        },
+        {
+          "ingredient_id": "16673ed7-b6b7-4ca5-a31e-9a3802552742",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 - 2 tablespoons mango chutney"
+        },
+        {
+          "ingredient_id": "bf414986-3a2d-424a-af98-afe0bad552ca",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "salt and pepper to taste"
+        },
+        {
+          "ingredient_id": "68c6826c-8915-4add-ab1b-794d9954fbcc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Fresh coriander to garnish"
+        },
+        {
+          "ingredient_id": "f5276c8f-7710-42ad-8014-5617dc58d3a4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "A pinch of garam masala (Optional)"
+        }
+      ],
+      "instruction": "For best results, always warm your curry sauce before adding it to the curry."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Heat the ghee/oil over medium heat in a large pan or wok."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the dried chillies and cardamoms and allow to sizzle for about 30 seconds."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Scoop in the garlic and ginger pastes, the tomato paste and the chopped chilli peppers."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Allow them to sizzle for about 15 seconds and then add the cumin, coriander powder, chilli powder, curry powder and turmeric."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir to combine."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Now pour in the heated base curry sauce and mango chutney. The ingredients should spit their approval in the hot pan."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the pre-cooked chicken pieces and allow to simmer for about three minutes. If you slow cooked your chicken, you could add a tablespoon or two of the broth for extra flavour."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Test for seasoning and add a little salt and pepper."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Sprinkle with the fresh coriander and serve."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "A teaspoon of garam masala sprinkled over the top at the end of cooking is a nice touch!"
+    }
+  ]
+}

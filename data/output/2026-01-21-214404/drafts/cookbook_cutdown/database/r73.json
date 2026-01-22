@@ -1,0 +1,103 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, carrots, bread crumbs",
+    "title": "Carrots Patties",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "61ad329b-030e-443a-91f2-fd91bdab1174",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pound carrots, grated"
+        },
+        {
+          "ingredient_id": "d68766b3-f28c-46dc-b5f8-733293c932c6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 clove garlic, minced"
+        },
+        {
+          "ingredient_id": "eac51f33-7841-4dbe-9eb8-e44069abe2ee",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 large eggs eggs"
+        },
+        {
+          "ingredient_id": "3633b117-f4dd-4398-893b-903aad647ed7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc cup all-purpose flour"
+        },
+        {
+          "ingredient_id": "c46cd40d-bca0-45bf-b799-de956aeff650",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc cup bread crumbs or matzo meal"
+        },
+        {
+          "ingredient_id": "8d3dbf67-7066-462a-9272-27881f0b69c5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd teaspoon salt"
+        },
+        {
+          "ingredient_id": "f69bc6f8-dff1-475d-8440-c4b18c02e2ee",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pinch ground black pepper"
+        },
+        {
+          "ingredient_id": "3a706071-8990-4a8e-bd13-adc01bf2a501",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons vegetable oil"
+        }
+      ],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a medium size mixing bowl, combine the grated carrots, garlic, eggs, flour, bread crumbs, salt and black pepper; mix well."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Heat oil in a frying pan over medium-high heat. Make the mixture into patties, and fry until golden brown on each side."
+    }
+  ]
+}

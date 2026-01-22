@@ -1,0 +1,415 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Middle Eastern, Meal, Normal, chicken, coriander, greek yogurt, tomatoes, lettuce, spinach, pita",
+    "title": "Halal Cart-Style chicken and Rice with White sauce",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.0,
+          "ingredient_id": "7ee1fbf1-ac15-4dd0-a5cd-77d38507409d",
+          "input_item": "For the chicken",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "For the chicken:"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "b28b3bd7-80c8-437a-946d-cf1f08b870fe",
+          "input_item": "fresh lemon juice",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons fresh lemon juice"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "cd1ed798-629d-4d0e-bd9d-ee886d70409a",
+          "input_item": "fresh oregano",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon chopped fresh oregano"
+        },
+        {
+          "confidence": 0.99,
+          "ingredient_id": "f2f3c84c-45ac-4522-b1fa-df36938c71a3",
+          "input_item": "ground coriander seed",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon ground coriander seed"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "70c27381-aeca-4e7b-81b4-c6add0e85dce",
+          "input_item": "garlic",
+          "input_qty": 3.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "roughly chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "3 garlic cloves, roughly chopped (about 1 1/2 tablespoons)"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "2caf0075-1b01-402f-bafb-b7b5367b19ff",
+          "input_item": "light olive oil",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup light olive oil"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "89d32a6b-8777-4c34-b08e-79dd74c84525",
+          "input_item": "Kosher salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt and freshly ground black pepper"
+        },
+        {
+          "confidence": 0.98,
+          "ingredient_id": "a0131f4c-e81f-4090-8b7c-62ee6dc63848",
+          "input_item": "boneless, skinless chicken thighs",
+          "input_qty": 2.0,
+          "input_unit_id": "pounds",
+          "is_optional": false,
+          "note": "(6-8 thighs)",
+          "preparation": "trimmed of excess fat",
+          "quantity_kind": "quantified",
+          "raw_text": "2 pounds boneless, skinless chicken thighs, trimmed of excess fat (6 to 8 thighs)"
+        },
+        {
+          "confidence": 0.99,
+          "ingredient_id": "7fd0ffde-f5ee-47ae-8b3e-9e8d568e449a",
+          "input_item": "vegetable oil",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon vegetable or canola oil"
+        },
+        {
+          "confidence": 0.0,
+          "ingredient_id": "6460c1fd-5b7a-4558-9d30-4f21ae8c97f4",
+          "input_item": "For the rice",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "For the rice:"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "327f6506-1fea-406f-9818-0d037204d89d",
+          "input_item": "unsalted butter",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons unsalted butter"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "41a1da79-c2e7-4b7c-a850-8a05b1ffc87e",
+          "input_item": "turmeric",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon turmeric"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "52a5c960-a61a-4d10-87e8-5385d948057f",
+          "input_item": "ground cumin",
+          "input_qty": 0.25,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 teaspoon ground cumin"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "0009bd59-56a7-4498-8b5b-17bf4b9fb991",
+          "input_item": "long-grain rice",
+          "input_qty": 1.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 1/2 cups long-grain or Basmati rice"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "4c364530-2035-44b1-a433-32e72dd3d616",
+          "input_item": "chicken broth",
+          "input_qty": 2.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 1/2 cups chicken broth"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "b65a316a-1cd1-4151-b637-3c4f06df8b1f",
+          "input_item": "Kosher salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt and freshly ground black pepper"
+        },
+        {
+          "confidence": 0.0,
+          "ingredient_id": "da78285d-c76a-4e6f-a52e-7b1f2403e28c",
+          "input_item": "For the sauce",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "For the sauce:"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "876b1965-e4f9-4c3f-911a-bc838fb63db3",
+          "input_item": "mayonnaise",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup mayonnaise"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "8870352a-3aaa-4f4a-9bb0-30596afb74fc",
+          "input_item": "Greek yogurt",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup Greek yogurt"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "dd6030f0-55df-48e0-9bf1-a9831099b2ff",
+          "input_item": "sugar",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon sugar"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "1aea9131-ba29-4a41-960c-1360dceac578",
+          "input_item": "white vinegar",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons white vinegar"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "e1627ef7-5196-445b-9c72-c7d796de9b8e",
+          "input_item": "lemon juice",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon lemon juice"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "01876e31-89ec-456f-819a-9b0845146ce1",
+          "input_item": "fresh parsley",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup chopped fresh parsley"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "9c60bede-5ec9-4470-885c-ab5e2d6777ac",
+          "input_item": "Kosher salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt and freshly ground black pepper"
+        },
+        {
+          "confidence": 0.0,
+          "ingredient_id": "7fe0acf9-e6a3-431b-98ca-cd8341de6546",
+          "input_item": null,
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "To serve:"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "daca7e1d-5a1d-4ba2-9007-b3c4100df420",
+          "input_item": "iceberg lettuce",
+          "input_qty": 1.0,
+          "input_unit_id": "head",
+          "is_optional": false,
+          "note": null,
+          "preparation": "shredded",
+          "quantity_kind": "quantified",
+          "raw_text": "1 head iceberg lettuce, shredded"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "99087a86-b5df-44d0-b12a-15761c220b1a",
+          "input_item": "tomato",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "cut into wedges",
+          "quantity_kind": "quantified",
+          "raw_text": "1 large tomato, cut into wedges"
+        },
+        {
+          "confidence": 0.986,
+          "ingredient_id": "959d6e8b-77ba-4f9e-b600-00f783c95ab2",
+          "input_item": "Fluffy pocketless pita bread",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "brushed in butter, lightly toasted, and cut into 1 \u00d7 3 inch strips",
+          "quantity_kind": "unquantified",
+          "raw_text": "Fluffy pocketless pita bread, brushed in butter, lightly toasted, and cut into 1 \u00d7 3-inch strips"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "1babede7-aef3-49b9-a672-4714004792f8",
+          "input_item": "Harissa-style hot sauce",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Harissa-style hot sauce, for serving"
+        }
+      ],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "For the chicken: Combine the lemon juice, oregano, coriander, garlic, and olive oil in a blender. Blend until smooth. Season the marinade to taste with kosher salt and black pepper. Place the chicken in a 1-gallon zipper-lock bag and add half of the marinade (reserve the remaining marinade in the refrigerator). Turn the chicken to coat, seal the bag, and marinate the chicken in the refrigerator for at least 1 hour and up to 4 hours, turning occasionally to redistribute the marinade (see Note)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove the chicken from the bag and pat it dry with paper towels. Season with kosher salt and pepper, going heavy on the pepper. Heat the oil in a 12-inch heavy-bottomed cast iron or stainless-steel skillet over medium-high heat until it is lightly smoking. Add the chicken pieces and cook without disturbing until they are lightly browned on the first side, about 4 minutes. Using tongs, flip the chicken. Reduce the heat to medium and cook until the chicken is cooked through and the center of each thigh registers 165\u00b0F. on an instant-read thermometer, about 6 minutes longer. Transfer the chicken to a cutting board and allow to cool for 5 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Using a chef\u2019s knife, roughly chop the chicken into 1/2- to 1/4-inch chunks. Transfer to a medium bowl, add the remaining marinade, cover loosely with plastic, and refrigerate while you cook the rice and prepare the sauce."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "4."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "For the rice: Melt the butter over medium heat in a large Dutch oven. Add the turmeric and cumin and cook until fragrant but not browned, about 1 minute. Add the rice and stir to coat. Cook, stirring frequently, until the rice is lightly toasted, about 4 minutes. Add the chicken broth. Season to taste with salt and pepper. Raise the heat to high and bring to a boil. Cover, reduce to a simmer, and cook for 15 minutes without disturbing. Remove from the heat and allow to rest until the water is completely absorbed and the rice is tender, about 15 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "5."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "For the sauce: In a small bowl, combine the mayonnaise, yogurt, sugar, vinegar, lemon juice, parsley, and 2 teaspoons black pepper. Whisk to combine. Season to taste with salt."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "6."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "To serve: Return the entire contents of the chicken bowl (chicken, marinade, and all juices) to the skillet. Cook over medium-high heat, stirring occasionally, until heated through. To serve, divide the rice, lettuce, tomato, and toasted pita bread evenly among four to six plates. Pile the chicken on top of the rice. Top with the white sauce and hot sauce. Serve immediately, passing extra sauce at the table."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Note: Do not marinate the chicken longer than 4 hours or it\u2019ll get a mushy texture. If you must delay cooking the chicken for any reason, remove it from the marinade, pat it dry with paper towels, and refrigerate until ready to cook."
+    }
+  ]
+}

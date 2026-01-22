@@ -1,0 +1,289 @@
+{
+  "recipe": {
+    "description": "idk what to put for meat tag",
+    "notes": "Tags: Main, Instant Pot, carrots, celery, potatoes, barley",
+    "title": "Ham & Potato soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "17cafa88-6ac0-4398-a388-93080df2f29c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "INGREDIENTS"
+        },
+        {
+          "ingredient_id": "a435f733-ee26-4c3b-b924-df29bd4a89e1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 4 carrots, peeled and diced (about 1.5 cups or 1/2 pound)"
+        },
+        {
+          "ingredient_id": "5a27199b-166e-4b4e-b480-f48899cbe398",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 2 small potatoes, peeled and cut into 1-inch chunks (about 8oz or 1.5 cups)"
+        },
+        {
+          "ingredient_id": "f57d1016-6eed-4dd2-9674-de9c313e3414",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 2 ribs celery, diced (about 2/3 cup)"
+        },
+        {
+          "ingredient_id": "df5d9fc8-9fab-45aa-ac0c-2ba2346889f1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 1 small onion, diced (about one cup)"
+        },
+        {
+          "ingredient_id": "4da843c8-2d87-4646-ad03-61592980277f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 2 garlic cloves, minced (one teaspoon)"
+        },
+        {
+          "ingredient_id": "3dfd9123-522e-4afb-8958-1a625598572d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 1/2 cup uncooked medium barley (not quick cooking)"
+        },
+        {
+          "ingredient_id": "fbaf26c9-ed88-4d6c-ade7-683f20468a02",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 1/4 teaspoon pepper"
+        },
+        {
+          "ingredient_id": "96265ab0-cfc7-466c-90dc-6356519ce9fd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 1/4 teaspoon ground thyme"
+        },
+        {
+          "ingredient_id": "4ffb43b8-912c-4267-aa44-2065ca54a4a4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 8 oz bone-in ham steak, cut into 1/2 inch pieces (about 1 cup diced)"
+        },
+        {
+          "ingredient_id": "d0942ddc-2240-42ad-9fc1-6f87d2da515e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 6oz evaporated milk (I split 12 oz can into two freezer bags)"
+        },
+        {
+          "ingredient_id": "47a65304-5c14-4f40-98fa-4c5974f80c3a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 4 cups of chicken broth *not needed until day of cooking"
+        },
+        {
+          "ingredient_id": "d080ea2e-f611-44b8-961e-ea5d733d2697",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "MATERIALS"
+        },
+        {
+          "ingredient_id": "5a97334e-92a0-4532-bc98-bb86ff529dd2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 1 gallon-sized plastic freezer bag"
+        },
+        {
+          "ingredient_id": "9bad3133-8c08-4b8c-9e75-5caeca1e70cd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 1 quart-sized plastic freezer bag (or two if you buy a 12oz can of milk)"
+        },
+        {
+          "ingredient_id": "d0729d3b-1e99-46e8-82a9-9594d4925116",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "PREP"
+        },
+        {
+          "ingredient_id": "7e6258b8-25a4-4ea8-8d58-4709fc6339fa",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1. Label your freezer bag."
+        },
+        {
+          "ingredient_id": "31276e40-97fe-49f2-b62c-c7080328521f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2. To your gallon-sized freezer bag, add all ingredients (except evaporated milk and"
+        },
+        {
+          "ingredient_id": "c07d7738-6b35-4f26-9979-2c5b7c720393",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "chicken broth). To keep potatoes from browning, chop them last and add the to the"
+        },
+        {
+          "ingredient_id": "103ab82f-3670-4ed2-acb8-8512eb48377e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "top of your freezer bag."
+        },
+        {
+          "ingredient_id": "9ef8f6f0-aa9a-43f0-9979-6878f0ea6a18",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3. Add evaporated milk to a quart-sized plastic freezer bag. Seal, and add to gallonsized bag."
+        },
+        {
+          "ingredient_id": "932b4fae-79e3-4ad7-9384-5ab26348f8c0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4. Remove as much air from the gallon-sized freezer bag as possible, seal, and lay flat"
+        },
+        {
+          "ingredient_id": "cb5bb5b0-6a79-493b-b145-4ef131574f5a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "in your freezer."
+        },
+        {
+          "ingredient_id": "db49eb15-f9db-4873-9f0d-e53fd492f1d9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "COOK"
+        },
+        {
+          "ingredient_id": "7f52ef9e-9ac9-499c-aeb2-ee64ed9c5c36",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1. The night before cooking, move frozen bag to your refrigerator to thaw."
+        },
+        {
+          "ingredient_id": "00488bb5-93a1-47ca-babe-9f615553c689",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2. The morning of cooking, pour contents of gallon-sized freezer bag into your"
+        },
+        {
+          "ingredient_id": "da45e981-4690-4b7a-adfa-64a0a9abc325",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "crockpot and add chicken broth. Keep bag of evaporated milk in the refrigerator."
+        },
+        {
+          "ingredient_id": "ba82ad8c-230c-4067-b58b-2e446fc5d233",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3. Cook item in crockpot on \u201clow\u201d setting for 8 hours, or until carrots and potatoes"
+        },
+        {
+          "ingredient_id": "3e6cdabb-8726-4cca-9147-e86bb0311f1b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "are soft. Stir in evaporated milk and leave lid open a crack. Continue to cook 15"
+        },
+        {
+          "ingredient_id": "97544e69-fa41-451b-85d9-a619f956a9aa",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "minutes or until heated through."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

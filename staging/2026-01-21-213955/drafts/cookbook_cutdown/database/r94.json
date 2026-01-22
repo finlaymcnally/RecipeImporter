@@ -1,0 +1,144 @@
+{
+  "recipe": {
+    "description": "Add fish sauce",
+    "notes": "Tags: That, Side, Normal, chicken, broccoli, carrots, mushrooms, coconut milk",
+    "title": "Thai chicken coconut soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "d3893037-2cf8-47d8-a442-0e604fff3ef0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 lb boneless, skinless chicken breast - sliced"
+        },
+        {
+          "ingredient_id": "0e3ccaba-aba5-474c-b901-99a41feb5ed8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 medium onion - sliced"
+        },
+        {
+          "ingredient_id": "ff98fa9b-538f-4a7d-8427-080994b3d82f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "12-16oz broccoli"
+        },
+        {
+          "ingredient_id": "118fba68-4b3e-4310-989f-c8cc02169691",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8oz mushrooms - sliced"
+        },
+        {
+          "ingredient_id": "7363a1cd-cab3-4656-b00a-0a84b24c32d5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2-3 carrots - sliced"
+        },
+        {
+          "ingredient_id": "4c54da22-829e-49d5-b1e2-22dd854e0f90",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1-2 tablespoons curry paste"
+        },
+        {
+          "ingredient_id": "2c3c8d7d-988d-4c1a-8fef-89aeb5e9a556",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1-2 tablespoons fresh ginger/garlic paste (optional)"
+        },
+        {
+          "ingredient_id": "3a908752-6cd7-41df-8d0c-2f2235bfc4f4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 can coconut milk"
+        },
+        {
+          "ingredient_id": "79fbf2a4-f80d-4879-985c-f846db5d2a26",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cups chicken broth"
+        }
+      ],
+      "instruction": "chicken in a large dutch oven, remove"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "over medium heat, cook onions until slightly soft, 4-5 minutess"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "add mushrooms and continue to cook with onions 3-5 minutes"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "add carrots to onions and cook another 2-3 minutess"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "remove vetables"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "scrape fat off top of coconut milk and add to dutch oven"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "mix curry paste and garlic/ginger into coconut fat, cook for 2-3 minutes"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "add vegetables back to pot along with coconut milk and broth"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "cook covered for 10 minutes"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "add broccoli and cook covered for 5-8 minutes, until broccoli is just tender"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "add cooked chicken"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "serve with thai basil (or cilantro), fresh lime and sriracha"
+    }
+  ]
+}

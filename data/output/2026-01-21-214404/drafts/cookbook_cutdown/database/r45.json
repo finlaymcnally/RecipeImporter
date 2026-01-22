@@ -1,0 +1,120 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, broccoli, chicken, cherry tomatoes, pesto, ricotta, pasta",
+    "title": "Ricotta-pesto chicken pasta bake",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "32fb74ff-2d7b-4626-bd14-a31597594992",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "400g pasta (I used conchiglie)"
+        },
+        {
+          "ingredient_id": "00a32e6b-3370-431e-82e3-aeaac50807d3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 large head of broccoli chopped into small chunks"
+        },
+        {
+          "ingredient_id": "c27c34d9-bd19-43c6-9f10-570a8d97d00c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tbsp oil"
+        },
+        {
+          "ingredient_id": "5fa5e78f-ba43-46f2-b6f1-01de74a818dd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "600g chicken cubed"
+        },
+        {
+          "ingredient_id": "be2488d3-1a51-40c7-91ae-6da1f06ea96e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Handful of cherry tomatoes, chopped"
+        },
+        {
+          "ingredient_id": "609f254c-bd79-4ece-9785-1e5bfd89aefd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "50g low fat pesto"
+        },
+        {
+          "ingredient_id": "d73d0ba1-9d81-4c11-948a-f45295706099",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "100g ricotta"
+        },
+        {
+          "ingredient_id": "43123662-17e0-4bbf-a94f-704ca9dd3fb2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "salt & pepper"
+        },
+        {
+          "ingredient_id": "d7111fcc-ced7-4bfd-8f31-a17191018429",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Parmesan"
+        }
+      ],
+      "instruction": "Turn on oven to 200 Celsius."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cook pasta in heavily salted water according to instructions on pack but reduce cooking time by 3 mins. When the pasta is 3 min from being ready, add all the broccoli. Cook for 3 further mins and then drain, reserving the pasta water (KEY)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In the meantime, heat the oil over high heat, add the chicken and cook for about 5 mins (not fully cooked), add salt and pepper."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the ricotta, pesto to a beaker and add about 200ml drained pasta water and mix."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Combine the pasta, broccoli, chicken, cherry tomatoes and ricotta-pesto sauce to a large oven tray, and mix. Cover with as much salt and pepper as desired and place in the oven for 15-20 mins until the top is crispy and the chicken is cooked through."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Keeps well in the fridge for 3 days!"
+    }
+  ]
+}

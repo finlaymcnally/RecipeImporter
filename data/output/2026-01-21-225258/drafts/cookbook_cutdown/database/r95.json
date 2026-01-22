@@ -1,0 +1,259 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, squash, sausage",
+    "title": "Delicous delicata squash",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.983,
+          "ingredient_id": "533e86cb-edac-4f13-9830-e9a07b7b490d",
+          "input_item": "THE THINGS THAT GO INTO IT",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "THE THINGS THAT GO INTO IT"
+        },
+        {
+          "confidence": 0.901,
+          "ingredient_id": "062ec7ea-84f9-4794-bce9-dfd9e51ef29c",
+          "input_item": "delicata squash",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Not the end of the world, Take that sentence out of context if you want.",
+          "preparation": "outside scrubbed of dirt, halved lengthwise, seeds scooped out. Remove the stem and the little disc from the blossom end with the tip of a paring knife., I just always find it in my mouth at some point.",
+          "quantity_kind": "quantified",
+          "raw_text": "1 delicata squash, outside scrubbed of dirt, halved lengthwise, seeds scooped out. Remove the stem and the little disc from the blossom end with the tip of a paring knife. Not the end of the world, I just always find it in my mouth at some point. Take that sentence out of context if you want."
+        },
+        {
+          "confidence": 0.883,
+          "ingredient_id": "c4021ef3-8651-460a-a288-158d9f05f41f",
+          "input_item": "Salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "oil.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt, pepper, oil."
+        },
+        {
+          "confidence": 0.891,
+          "ingredient_id": "7deaaea6-fe0e-4ed6-b021-f3b9d747197b",
+          "input_item": "hot sausage",
+          "input_qty": 2.0,
+          "input_unit_id": "links",
+          "is_optional": false,
+          "note": null,
+          "preparation": "uncooked, casings removed",
+          "quantity_kind": "quantified",
+          "raw_text": "2 links uncooked hot or sweet Italian sausage, casings removed"
+        },
+        {
+          "confidence": 0.944,
+          "ingredient_id": "5544120e-43c1-480e-b198-c914e9c622c1",
+          "input_item": "onion",
+          "input_qty": 0.5,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely diced",
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 small onion or whole shallot, finely diced"
+        },
+        {
+          "confidence": 0.948,
+          "ingredient_id": "5d1d17b2-5804-4c58-ac64-0e68b388f06f",
+          "input_item": "breadcrumbs",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": "preferably homemade but storebought is fine if you're not Martha friggin Stewart.",
+          "preparation": "divided",
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup breadcrumbs divided, preferably homemade but storebought is fine if you're not Martha friggin Stewart."
+        },
+        {
+          "confidence": 0.877,
+          "ingredient_id": "e5aeeb18-97fc-4a47-a4d5-c912050e20cd",
+          "input_item": "White wine",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "if you've got it. Nothing too sweet.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "White wine if you've got it. Nothing too sweet."
+        },
+        {
+          "confidence": 0.978,
+          "ingredient_id": "b138ebcc-ea80-4693-8928-818531574469",
+          "input_item": "Garlic",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "because why the hell not? I actually don't usually do garlic because the sausage is usually seasoned enough. Same reason I'm not adding salt to the stuffing. But use it if you want. Keeps away vampires.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Garlic, because why the hell not? I actually don't usually do garlic because the sausage is usually seasoned enough. Same reason I'm not adding salt to the stuffing. But use it if you want. Keeps away vampires."
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "b3d9b138-c648-4d66-9b08-0685fe0145d7",
+          "input_item": "Parmigiana Reggiano microplaned",
+          "input_qty": 3.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 tablespoons Parmigiana Reggiano microplaned"
+        },
+        {
+          "confidence": 0.955,
+          "ingredient_id": "1d9fbb19-1bc2-4062-8768-7767d9368926",
+          "input_item": "HOW TO DO THE THING",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "HOW TO DO THE THING"
+        },
+        {
+          "confidence": 0.986,
+          "ingredient_id": "1dcf1f51-1e15-4e5d-b638-870b8a1fe285",
+          "input_item": null,
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Preheat the oven to 450. If I were writing this recipe the way I truly cook this would be step eleven or something. Try and do it first, though.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Preheat the oven to 450. If I were writing this recipe the way I truly cook this would be step eleven or something. Try and do it first, though."
+        },
+        {
+          "confidence": 0.936,
+          "ingredient_id": "6ed6559f-b7c7-4c94-af95-51425b5efa02",
+          "input_item": "Rub the cut sides and inside of the squash with olive oil",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "whatever the hell that means. A squash is never really hard to pierce, is it? Do your best.",
+          "preparation": "then season lightly with salt and pepper. Place the halves cut side down on a rimmed baking sheet. roast for 20 minutes or until the flesh is easily pierced with a fork, Remove and allow to cool.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Rub the cut sides and inside of the squash with olive oil, then season lightly with salt and pepper. Place the halves cut side down on a rimmed baking sheet. roast for 20 minutes or until the flesh is easily pierced with a fork, whatever the hell that means. A squash is never really hard to pierce, is it? Do your best. Remove and allow to cool."
+        },
+        {
+          "confidence": 0.721,
+          "ingredient_id": "349ae39e-2028-41b1-b4f8-9d7e9eb37478",
+          "input_item": "Saute until soft",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Meanwhile heat a tablespoon of oil in a stainless steel pan over medium-high heat. Add the onion/shallot and garlic if using., then add the sausage.",
+          "preparation": "Break it up with a wooden spoon and stir it around. When just cooked drain as much of the fat as it takes to make you feel okay about eating this.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Meanwhile heat a tablespoon of oil in a stainless steel pan over medium-high heat. Add the onion/shallot and garlic if using. Saute until soft, then add the sausage. Break it up with a wooden spoon and stir it around. When just cooked drain as much of the fat as it takes to make you feel okay about eating this."
+        },
+        {
+          "confidence": 0.826,
+          "ingredient_id": "17134ac8-5a25-4113-bd35-01ad4066d1b3",
+          "input_item": "white wine",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Remove the sausage onion mixture to a bowl and return the pan to the stove. Splash a quarter cup of, in and scrape the bottom until you've deglazed it well, Add that to the bowl of sausage.",
+          "preparation": "then continue simmering until the wine is well reduced.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Remove the sausage onion mixture to a bowl and return the pan to the stove. Splash a quarter cup of white wine in and scrape the bottom until you've deglazed it well, then continue simmering until the wine is well reduced. Add that to the bowl of sausage."
+        },
+        {
+          "confidence": 0.782,
+          "ingredient_id": "2b0edcf7-2255-4371-8cf4-b2c3ce7c43f4",
+          "input_item": "Drink a glass of wine.",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Drink a glass of wine."
+        },
+        {
+          "confidence": 0.531,
+          "ingredient_id": "f0b01e75-372d-49f8-a44d-2ae040b851c7",
+          "input_item": "Mix the rest of the breadcrumbs with the grated cheese and set aside.",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "Add roughly 2/3 of the breadcrumbs to the sausage mixture and stir to combine.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Add roughly 2/3 of the breadcrumbs to the sausage mixture and stir to combine. Mix the rest of the breadcrumbs with the grated cheese and set aside."
+        },
+        {
+          "confidence": 0.878,
+          "ingredient_id": "88d7af59-58f4-4a67-88ad-a1dffe1cf2d0",
+          "input_item": "Heat the broiler",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "and move a rack to six inches below the heating element.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Heat the broiler and move a rack to six inches below the heating element."
+        },
+        {
+          "confidence": 0.77,
+          "ingredient_id": "54fbede8-d1a3-484d-b5fd-780672932511",
+          "input_item": "cheese mixture between the two",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Spoon half the filling into each squash half. If there's too much just eat it with a spoon when nobody is watching. Wash it down with more wine. Divide the reserved breadcrumb, as a topping.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Spoon half the filling into each squash half. If there's too much just eat it with a spoon when nobody is watching. Wash it down with more wine. Divide the reserved breadcrumb/cheese mixture between the two as a topping."
+        },
+        {
+          "confidence": 0.733,
+          "ingredient_id": "da1a5944-355d-40be-9cfc-6e322e61123a",
+          "input_item": "Broil for a few minutes.",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Way less than you think it will be, so keep the oven door cracked and don't blink. Remove when golden brown. Or as soon after golden brown as you can, preferably before it all turns black and you order a pizza instead.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Broil for a few minutes. Way less than you think it will be, so keep the oven door cracked and don't blink. Remove when golden brown. Or as soon after golden brown as you can, preferably before it all turns black and you order a pizza instead."
+        },
+        {
+          "confidence": 0.821,
+          "ingredient_id": "0fa75310-a151-404c-9fb9-7291a25b2851",
+          "input_item": "Done!",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "If there's any wine left have it with dinner. A light salad would work too. Or just mainline any remaining sausage grease. I'm not a nutritionist.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Done! If there's any wine left have it with dinner. A light salad would work too. Or just mainline any remaining sausage grease. I'm not a nutritionist."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

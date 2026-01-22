@@ -1,0 +1,291 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, beef tenderloin, red wine, walnut",
+    "title": "Beef tenderloin with Marinaded Walnut sauce",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "e2ba4f03-4615-40ca-aa80-50e22d05df26",
+          "input_item": "butter",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons butter"
+        },
+        {
+          "confidence": 0.979,
+          "ingredient_id": "5e84b2f8-fa17-4edc-a72c-8d32691dd33b",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 cloves garlic minced"
+        },
+        {
+          "confidence": 0.986,
+          "ingredient_id": "c0446228-5533-4657-96c8-4142ecbd109a",
+          "input_item": "onion",
+          "input_qty": 0.5,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 onion finely chopped"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "a1fc705d-9947-4242-990b-6b8b22af0011",
+          "input_item": "all-purpose flour",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons all-purpose flour"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "ca928514-7d07-4e26-86c3-4874bd2b4040",
+          "input_item": "dry red wine",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup dry red wine"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "602f752e-b3be-4777-a259-0dcadb062224",
+          "input_item": "beef stock",
+          "input_qty": 1.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 1/2 cup beef stock"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "6af426f2-6ff2-4565-8239-69af4d1b8cf9",
+          "input_item": "beef tenderloin",
+          "input_qty": 2.0,
+          "input_unit_id": "lbs",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 lbs beef tenderloin"
+        },
+        {
+          "confidence": 0.987,
+          "ingredient_id": "b3141cd0-c1ca-4e2e-a1e1-1c0a556fd943",
+          "input_item": "salt",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon each salt and pepper"
+        },
+        {
+          "confidence": 0.95,
+          "ingredient_id": "a3368e71-2d2a-4b6e-9973-1263919fd160",
+          "input_item": "Marinated Walnuts",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Marinated Walnuts:"
+        },
+        {
+          "confidence": 0.947,
+          "ingredient_id": "de8cd312-c7c9-4a38-83c3-7e9a17744f2c",
+          "input_item": "walnut halves",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": "lightly toasted",
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup walnut halves lightly toasted"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "2ba61b3f-0edd-4a25-a17b-ba2503f2f4cc",
+          "input_item": "cocoa powder",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon cocoa powder"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "0e279e04-85b3-4879-8bea-ae5522701053",
+          "input_item": "lemon rind",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": "grated",
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon grated lemon rind"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "8eee979a-1557-41d5-a4d8-ae2ffb10efd6",
+          "input_item": "pepper",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon pepper"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "3b19b723-5443-4d4a-b381-875c21d7d5cc",
+          "input_item": "ground allspice",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon ground allspice"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "e5d3beb8-5f8a-44e1-bdf6-4a3dc56ecb64",
+          "input_item": "ground cloves",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon ground cloves"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "2e948952-0704-48cf-837d-24152dfcb600",
+          "input_item": "ground Szechuan pepper",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": true,
+          "note": "(optional)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon ground Szechuan pepper (optional)"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "dac301f2-f0fb-4de2-abd8-37c1a1b1f2ca",
+          "input_item": "vanilla",
+          "input_qty": 0.25,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 teaspoon vanilla"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "4e25e255-ef50-4841-9567-3ce849a00af4",
+          "input_item": "salt",
+          "input_qty": 1.0,
+          "input_unit_id": "pinch",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 pinch salt"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "ced532a6-1759-4af2-b78a-badebf7aa4dd",
+          "input_item": "cinnamon",
+          "input_qty": 1.0,
+          "input_unit_id": "pinch",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 pinch cinnamon"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "9d78fcaa-c6e8-49f8-8b56-3c0f9c0c9ab6",
+          "input_item": "rice vinegar",
+          "input_qty": 0.75,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3/4 cups rice vinegar"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "d6b8ee90-444d-42f0-85f6-2d5360a1aa1d",
+          "input_item": "granulated sugar",
+          "input_qty": 0.6666666666666666,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2/3 cups granulated sugar"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "428a3e05-0c6e-49a9-be91-5a9dfd1a37bd",
+          "input_item": "bay leaf",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 bay leaf"
+        }
+      ],
+      "instruction": "Marinated Walnuts: In heatproof bowl, combine nuts, cocoa, lemon rind, pepper, allspice, cloves, Szechuan pepper (if using), vanilla, salt and cinnamon. In saucepan, bring vinegar, sugar and bay leaf to boil, stirring. Stir into nut mixture. Let cool; cover and let stand for at least 24 hours or for up to 3 days. Discard bay leaf."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In saucepan over medium heat, melt butter; cook garlic and onion until golden, about 7 minutes. Stir in flour; cook, stirring, for 1 minute. Stir in wine; cook until reduced by half, about 1 minute. Stir in stock. Drain nuts, reserving liquid; add nuts to sauce along with 1/4 cup (50 mL) of the liquid. Bring to boil; reduce heat and simmer until slightly thickened, about 20 minutes. Set aside. (Make-ahead: Let cool. Cover and refrigerate for up to 1 day.)"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Meanwhile, season beef with salt and pepper. Place on greased rack in small roasting pan; roast in 450\u00b0F (230\u00b0C) oven until meat thermometer registers 130\u00b0 to 140\u00b0F (55\u00b0 to 60\u00b0C) for rare, 25 to 35 minutes. Tent with foil; let stand for 10 to 15 minutes. Bring sauce to simmer. Cut beef into 8 slices. Serve with walnut sauce."
+    }
+  ]
+}

@@ -1,0 +1,235 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: American, Side, Normal, corn, black eyed peas, tomatoes, peppers",
+    "title": "Texas Caviar",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "551c9d33-dcdc-41a4-a25f-cf48ce649df0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For the dressing:"
+        },
+        {
+          "ingredient_id": "c062cbdc-3df8-4140-ae49-644c643b2c63",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup red wine vinegar"
+        },
+        {
+          "ingredient_id": "02586306-3637-4d30-b213-6b6b400dfe67",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 medium garlic clove, finely chopped"
+        },
+        {
+          "ingredient_id": "df37b2af-16f5-4c29-9005-eba5481ba178",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon kosher salt"
+        },
+        {
+          "ingredient_id": "afdc7f02-495a-4cfb-b592-a57d4663558c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 teaspoon ground cumin"
+        },
+        {
+          "ingredient_id": "20b233d0-73c8-461d-9294-61649e708541",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 teaspoon freshly ground black pepper"
+        },
+        {
+          "ingredient_id": "a0c69d7b-1ef5-43e5-a3e0-a3013eb81ebd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons vegetable oil"
+        },
+        {
+          "ingredient_id": "105e1b04-c299-4367-8ee3-910eb89b1609",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For the dip:"
+        },
+        {
+          "ingredient_id": "45bf0604-b661-4ec7-b264-d8d470273a29",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 medium cobs white corn (about 1 pound), shucked"
+        },
+        {
+          "ingredient_id": "be015835-6ff0-43c2-a02d-88cd2424a0b2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 (15-ounce) can black-eyed peas, drained and rinsed"
+        },
+        {
+          "ingredient_id": "92a48de9-c606-439b-a783-56fdbba08b8b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 Pickled Jalape\u00f1os (see Game Plan note), stems removed and finely chopped"
+        },
+        {
+          "ingredient_id": "d111f438-bad4-4c8e-a15c-76d737778056",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 medium Roma tomato, seeded and cut into small dice"
+        },
+        {
+          "ingredient_id": "75702f45-985f-4aa8-a0ab-5aa64c162a39",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3/4 cup red bell pepper, seeded, white pith removed, and cut into small dice"
+        },
+        {
+          "ingredient_id": "58d8ffab-9fa9-409e-b1b4-af25d8fa376a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup small dice white onion"
+        },
+        {
+          "ingredient_id": "7506e309-d74a-41c3-a56a-88fa6e4fd991",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "To serve:"
+        },
+        {
+          "ingredient_id": "b8a4716a-4b36-4d2c-a19f-5eb1237efae1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons finely chopped fresh cilantro"
+        },
+        {
+          "ingredient_id": "0a683245-b5bf-4f29-8ef3-051876c9587a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Tortilla chips"
+        },
+        {
+          "ingredient_id": "2ebc6d96-8d25-45f3-b779-0c0e8b801841",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For the dressing:"
+        },
+        {
+          "ingredient_id": "5fce81f3-0be5-442a-aa49-d3da0a2b3871",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1Combine vinegar, garlic, salt, cumin, and pepper in a large nonreactive bowl. While whisking constantly, slowly add oil in a thin stream until completely incorporated; set aside."
+        },
+        {
+          "ingredient_id": "797ad52f-8489-4947-8749-251a225e4127",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For the dip:"
+        },
+        {
+          "ingredient_id": "ed8b7f9a-7cbb-4d9f-a6bb-91fc05e77909",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1Heat the oven to 450\u00b0F and arrange a rack in the middle. Place corn cobs on the oven rack and roast until knife tender and golden brown in spots, about 25 minutes. Remove to a cutting board until cool enough to handle, about 2 minutes, then slice kernels off the cobs."
+        },
+        {
+          "ingredient_id": "0bf58c7a-ec64-4297-b880-b57361eca524",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2Add black-eyed peas, jalape\u00f1os, tomato, bell pepper, onion, and corn kernels to the bowl with the dressing and stir until well coated. Cover and refrigerate for at least 4 hours or overnight."
+        },
+        {
+          "ingredient_id": "c7a46d4e-d1ab-4687-8ba8-d1b6742a8630",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "To serve:"
+        },
+        {
+          "ingredient_id": "7bf0b5e5-181f-403d-99a5-c7fec113f7f7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1Stir in cilantro and serve with tortilla chips."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

@@ -1,0 +1,109 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Component, Normal, orange juice",
+    "title": "Orange Juice Brine",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "59706eac-76db-4809-8278-34d06047db0e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients:"
+        },
+        {
+          "ingredient_id": "426b2617-ac8e-41aa-9ade-7a889024ac4a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 qt vegetable stock, chilled (regular, not low sodium - that's important)"
+        },
+        {
+          "ingredient_id": "4f8b685a-71c3-4227-b1a9-ae9c53f7cdd2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup kosher salt"
+        },
+        {
+          "ingredient_id": "9b630746-b72b-46f3-b029-cfd9b3b68e4e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup dark brown sugar"
+        },
+        {
+          "ingredient_id": "6685e3b8-74dd-4c3b-bac8-dc5ea84b4e34",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp black peppercorns (I usually use more like 1 tbsp, but I like pepper)"
+        },
+        {
+          "ingredient_id": "26e90226-2bcb-4650-96a4-2aabb50c069d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 bay leaves"
+        },
+        {
+          "ingredient_id": "d10feab0-e0c3-4496-992f-ce6df564f3e3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 qt. orange juice, chilled"
+        },
+        {
+          "ingredient_id": "64c1c917-167a-4542-b413-38602c99f046",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 qts. ice water"
+        },
+        {
+          "ingredient_id": "2de4a125-f264-4151-ba31-bd4c6fe6ad17",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Bring 2 cups of the stock, the salt, brown sugar, peppercorns, and bay leaves to a boil. Dissolve the sugar and salt, and cut the fire. Add in the remaining stock, orange juice, and ice water. Once the brine has cooled to 40F or under, add the meat and keep in a cold place (under 40F). Brine for 8-48 hours."
+        },
+        {
+          "ingredient_id": "8d3a39d7-6e26-4fc2-959a-1670737edefc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "This is enough for 2 chickens, one turkey, one pork butt, or about one tenderloin. For chickens, I like to skin and cut into quarters. You can fit one chicken's worth of quarters in a one gallon Ziplock baggie with enough room for brine. If I don't use the Ziplock baggies, I put everything in a food grade plastic bucket."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

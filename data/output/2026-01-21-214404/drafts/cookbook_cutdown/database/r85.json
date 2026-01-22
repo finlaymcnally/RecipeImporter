@@ -1,0 +1,81 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, carrots, maple syrup, lemons",
+    "title": "Maple-Glazed carrots",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "74cfc3f3-fad7-4903-b9fb-c4e98305efe7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "12 large carrots, peeled"
+        },
+        {
+          "ingredient_id": "84a54191-748e-4839-bc1c-175c66707a44",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8 tbsp. butter"
+        },
+        {
+          "ingredient_id": "37b8667d-e6cd-4bb1-afcc-8a53ab0d3e38",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1\u20444 cup maple syrup"
+        },
+        {
+          "ingredient_id": "64d362fa-2440-4bf3-9790-8753b6b06db0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Fresh lemon juice"
+        },
+        {
+          "ingredient_id": "b4c64595-13dd-401c-b5a7-57249214360e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt and freshly ground black pepper"
+        },
+        {
+          "ingredient_id": "47310227-7b72-44b2-88a5-a2b2bd8521ea",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tbsp. fresh thyme leaves"
+        }
+      ],
+      "instruction": "Cut carrots into 2\" lengths, then halve or quarter the pieces lengthwise so that all the carrots are in equal-size strips."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Melt butter in a large heavy saut\u00e9 pan over medium-low heat. Add carrots, cover, and braise, stirring occasionally, until carrots are fork-tender, 20\u201330 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Increase heat to medium, and stir in syrup and a squeeze of lemon juice. Cook for 2 minutes, then season to taste with salt and pepper. Add thyme and mix well."
+    }
+  ]
+}

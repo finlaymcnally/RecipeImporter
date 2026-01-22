@@ -1,0 +1,127 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, carrots, bread crumbs",
+    "title": "Carrots Patties",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "4f7372a0-e7ed-423d-b016-a9f526a5e678",
+          "input_item": "carrots",
+          "input_qty": 1.0,
+          "input_unit_id": "pound",
+          "is_optional": false,
+          "note": null,
+          "preparation": "grated",
+          "quantity_kind": "quantified",
+          "raw_text": "1 pound carrots, grated"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "2325c6fe-2f90-4ba2-b448-e05283666054",
+          "input_item": "garlic",
+          "input_qty": 1.0,
+          "input_unit_id": "clove",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 clove garlic, minced"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "b2dbcd4b-3cf5-47cd-8665-e0dd311f2434",
+          "input_item": "eggs eggs",
+          "input_qty": 4.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 large eggs eggs"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "7291719d-0e29-4592-91c0-2d3d3fa7e5ad",
+          "input_item": "all-purpose flour",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc cup all-purpose flour"
+        },
+        {
+          "confidence": 0.753,
+          "ingredient_id": "23b6dd00-65df-4d00-b8ac-135990f19c1b",
+          "input_item": "bread crumbs",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc cup bread crumbs or matzo meal"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "c258fd1a-c233-420c-b084-842031233776",
+          "input_item": "salt",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd teaspoon salt"
+        },
+        {
+          "confidence": 0.815,
+          "ingredient_id": "7df9fc76-b6e4-4f91-b3bd-d4558aa98a47",
+          "input_item": "black pepper",
+          "input_qty": 1.0,
+          "input_unit_id": "pinch",
+          "is_optional": false,
+          "note": null,
+          "preparation": "ground",
+          "quantity_kind": "quantified",
+          "raw_text": "1 pinch ground black pepper"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "2e0fefbc-62c6-4de1-9c96-39313d43e2b8",
+          "input_item": "vegetable oil",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons vegetable oil"
+        }
+      ],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a medium size mixing bowl, combine the grated carrots, garlic, eggs, flour, bread crumbs, salt and black pepper; mix well."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Heat oil in a frying pan over medium-high heat. Make the mixture into patties, and fry until golden brown on each side."
+    }
+  ]
+}

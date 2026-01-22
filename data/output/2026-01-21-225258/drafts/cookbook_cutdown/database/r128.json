@@ -1,0 +1,215 @@
+{
+  "recipe": {
+    "description": "Adding the water just makes the soup more soupy. Totally a preference call.",
+    "notes": "Tags: Main, Instant Pot, chicken, carrots, celery, lemons",
+    "title": "Spring chicken soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "46bd58bd-ebfe-4028-90b4-bce6a87841f2",
+          "input_item": "olive oil",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon olive oil"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "ff46d96c-426e-4d31-a200-5f85c142ee6e",
+          "input_item": "boneless, skinless chicken breasts",
+          "input_qty": null,
+          "input_unit_id": "pounds",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1-1.5 pounds boneless, skinless chicken breasts"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "e80c1c28-c908-489a-9081-4dc598824074",
+          "input_item": "chicken broth",
+          "input_qty": 48.0,
+          "input_unit_id": "oz",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "48oz chicken broth (6 cups)"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "44ef2615-b9a6-47bc-af4b-67cb9810b9da",
+          "input_item": "water",
+          "input_qty": 16.0,
+          "input_unit_id": "oz",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "16oz water (2 cups)"
+        },
+        {
+          "confidence": 0.942,
+          "ingredient_id": "5d27201f-fd47-476b-b92f-b6de9aedf177",
+          "input_item": "scallions green portions.",
+          "input_qty": 1.0,
+          "input_unit_id": "bunch",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped and separated into white",
+          "quantity_kind": "quantified",
+          "raw_text": "1 bunch of scallions, chopped and separated into white & green portions."
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "ff6f149a-0fcc-4b91-b344-15d1c3defd63",
+          "input_item": "garlic",
+          "input_qty": 1.0,
+          "input_unit_id": "clove",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 garlic clove, minced"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "effb3cbe-bd1d-41f2-b97f-ed1214e01391",
+          "input_item": "carrots",
+          "input_qty": 5.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "5 carrots, peeled and sliced"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "62cc2017-76b6-44fe-8adf-b4a2ecb65cf1",
+          "input_item": "celery",
+          "input_qty": 3.0,
+          "input_unit_id": "stalks",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "3 celery stalks, sliced"
+        },
+        {
+          "confidence": 0.992,
+          "ingredient_id": "97848f4c-be63-4730-af15-ee1bcd7ff1cc",
+          "input_item": "lemon",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "juiced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 lemon, juiced"
+        },
+        {
+          "confidence": 0.99,
+          "ingredient_id": "4b8586f2-0c72-44cc-a70a-22874c0791d4",
+          "input_item": "dried dill",
+          "input_qty": 1.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1.5 teaspoons dried dill"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "d10ff4e4-6868-4945-bb5d-f432b978327b",
+          "input_item": "dried parsley",
+          "input_qty": 1.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1.5 teaspoons dried parsley"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "95d9c945-dcab-4271-b64c-b4ee483be0ee",
+          "input_item": "white pepper",
+          "input_qty": 0.25,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 teaspoon white pepper*"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "c79a2b8f-3e80-4c25-b92a-b9876c2cfbb0",
+          "input_item": "orzo",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup orzo"
+        },
+        {
+          "confidence": 0.963,
+          "ingredient_id": "1285db02-5173-4805-915a-a152d4b2ad23",
+          "input_item": "lighter vegetables",
+          "input_qty": 1.0,
+          "input_unit_id": "pound",
+          "is_optional": true,
+          "note": "such as asparagus, zucchini, etc. (optional)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2-1 pound of lighter vegetables such as asparagus, zucchini, etc. (optional)"
+        },
+        {
+          "confidence": 0.97,
+          "ingredient_id": "9e3152fe-51b2-4e56-ab5a-c5acbce4e6a7",
+          "input_item": null,
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "white pepper is more subtle than black pepper and is a nice addition to any spice cabinet\u2026especially when making fresh, light dishes. However, black pepper will work too!",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "*white pepper is more subtle than black pepper and is a nice addition to any spice cabinet\u2026especially when making fresh, light dishes. However, black pepper will work too!"
+        }
+      ],
+      "instruction": "Place olive oil, chicken breasts, broth, water, WHITE portion of the scallions, garlic, carrots, celery, lemon juice, dill, parsley, and white pepper in the slow cooker. Add lighter vegetables (if using)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cook on \u201clow\u201d setting for 6 hours."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add GREEN portion of the scallions, orzo*."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cook on \u201clow\u201d for additional 1/2 hour."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "*although it is convenient to add your pasta directly to your slow cooker, if you are planning on eating this soup in more than one sitting, I recommend making the orzo on the side and then adding it as eaten. I find when pasta sits in soup for a few days it gets mushy and the broth gets starchy."
+    }
+  ]
+}

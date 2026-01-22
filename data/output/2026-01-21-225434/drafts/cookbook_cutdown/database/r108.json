@@ -1,0 +1,339 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, chicken, carrots, celery, frozen peas, milk, lemons, cream",
+    "title": "Chicken Pot Pie Crumble",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "6071c24d-3b05-4599-8c21-54698ca55936",
+          "input_item": "boneless skinless chicken breast halves",
+          "input_qty": 20.0,
+          "input_unit_id": "oz",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "20 oz boneless skinless chicken breast halves (about 2 large)"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "b21bcccc-b9b9-4f1a-801e-8a70e90c5301",
+          "input_item": "low-sodium chicken broth",
+          "input_qty": 1.0,
+          "input_unit_id": "can",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 (14.5 oz) can low-sodium chicken broth"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "b61abfb8-47ad-4827-897e-107912da414f",
+          "input_item": "olive oil",
+          "input_qty": 1.0,
+          "input_unit_id": "Tbsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 Tbsp olive oil"
+        },
+        {
+          "confidence": 0.934,
+          "ingredient_id": "4c07b153-ba0f-446f-a25e-fb78ae6e953a",
+          "input_item": "carrots",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and diced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup peeled and diced carrots (about 2 large carrots)"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "73831d77-6c1e-4844-8a70-4b93f2c33637",
+          "input_item": "celery",
+          "input_qty": 0.75,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced",
+          "quantity_kind": "quantified",
+          "raw_text": "3/4 cup diced celery (about 2 large stalks)"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "3bca0a35-d6aa-42a7-a129-c6bc4ca37a3e",
+          "input_item": "yellow onion",
+          "input_qty": 0.75,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely diced",
+          "quantity_kind": "quantified",
+          "raw_text": "3/4 cup finely diced yellow onion (about 1/2 medium onion)"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "e078c2ae-6756-405a-b9e3-bc7c3246963f",
+          "input_item": "frozen peas",
+          "input_qty": 0.6666666666666666,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2/3 cup frozen peas"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "aab46f31-481d-4d35-a368-46152816545c",
+          "input_item": "butter",
+          "input_qty": 3.0,
+          "input_unit_id": "Tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 Tbsp butter"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "d53ade0e-671f-47b3-b080-d76d39da8dfb",
+          "input_item": "all-purpose flour",
+          "input_qty": 0.3333333333333333,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/3 cup all-purpose flour"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "68c0264a-6f77-417e-a6bd-b69baaec6604",
+          "input_item": "milk",
+          "input_qty": 0.75,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3/4 cup milk"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "1c0111e3-bd2b-4468-95da-5767d06c09ac",
+          "input_item": "lemon juice",
+          "input_qty": 1.0,
+          "input_unit_id": "tsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tsp lemon juice"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "8d52a317-90e5-4dc4-9a41-a45b1b733d1e",
+          "input_item": "dried parsley",
+          "input_qty": 1.5,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 1/2 tsp dried parsley"
+        },
+        {
+          "confidence": 0.908,
+          "ingredient_id": "af50c8c8-5a37-4957-bcaf-2fea3e860b1c",
+          "input_item": "dried thyme",
+          "input_qty": 0.25,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 tsp dried thyme or rosemary"
+        },
+        {
+          "confidence": 0.0,
+          "ingredient_id": "06b5bbf6-7e78-4496-a09f-6ba5599cef88",
+          "input_item": "For the crumble",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "For the crumble:"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "b36ca7ab-1d83-4eb2-8f67-b8795464dbd0",
+          "input_item": "all-purpose flour",
+          "input_qty": 1.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 1/2 cups all-purpose flour"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "8abc9288-034d-40ee-86bf-397cd32a5240",
+          "input_item": "baking powder",
+          "input_qty": 1.5,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 1/2 tsp baking powder"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "b9fa1282-1252-445a-b541-41aeba824386",
+          "input_item": "salt",
+          "input_qty": 0.5,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 tsp salt"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "0fd68958-d279-47f7-9bb9-2ce5b055da09",
+          "input_item": "black pepper",
+          "input_qty": 0.25,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly ground",
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 tsp freshly ground black pepper"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "639aae04-da0f-491b-a4e8-68282650e50f",
+          "input_item": "garlic powder",
+          "input_qty": 0.25,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": "(use 1/2 tsp for a slightly stronger garlic flavor)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 tsp garlic powder (use 1/2 tsp for a slightly stronger garlic flavor)"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "71f78eee-455c-4f12-abf5-3c6eb1f09b78",
+          "input_item": "cayenne pepper",
+          "input_qty": 0.125,
+          "input_unit_id": "tsps",
+          "is_optional": true,
+          "note": "(optional)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/8 tsp cayenne pepper (optional)"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "08b793bd-2f37-46e5-97b4-79e7553a916a",
+          "input_item": "butter",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "cold and diced into small cubes",
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup butter , cold and diced into small cubes"
+        },
+        {
+          "confidence": 0.891,
+          "ingredient_id": "600e5e63-afbc-4c41-81e3-db3f8cfb131f",
+          "input_item": "Parmesan cheese",
+          "input_qty": 2.0,
+          "input_unit_id": "oz",
+          "is_optional": false,
+          "note": "packed",
+          "preparation": "finely shredded",
+          "quantity_kind": "quantified",
+          "raw_text": "2 oz . finely shredded Parmesan cheese (about 1/2 cup packed)"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "0d6eaab0-4405-4229-a32f-db7538ab480f",
+          "input_item": "heavy cream",
+          "input_qty": 0.75,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3/4 cup + 2 Tbsp heavy cream"
+        }
+      ],
+      "instruction": "Place chicken in a slow cooker, pour chicken broth over chicken. Cover with lid and cook on low heat about 5 hours until chicken is cooked through. Remove chicken from slow cooker, dice and set aside."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Strain broth from slow cooker through a fine mesh strainer into a bowl and reserve broth (if you don't have a fine mesh strainer just try to remove the pieces of fat)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "To prepare crumble"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Preheat oven to 450 degree. In a mixing bowl, whisk together flour, baking powder, salt, pepper, garlic powder and optional cayenne pepper. Using your finger tips, cut butter into mixture until mixture resembles coarse crumbs."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir in Parmesan cheese. Pour in heavy cream and mix just until combine. Break and drop mixture into 1 - 2-inch pieces onto a Silpat lined baking dish. Bake in preheated oven for 10 minutes until golden. Remove from oven and set aside."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "To prepare filling"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Heat olive oil over medium high heat. Once hot, add diced carrots, onion and celery. Saute vegetables, stirring occasionally until lightly golden and tender, about 5 - 6 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Pour vegetables into a bowl and set aside. reduce heat to medium, melt butter in saucepan (I like to brown it a bit for and extra layer of flavor), then add in flour and cook, stirring constantly for about 20 seconds (it will be very thick)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "While stirring, slowly add in milk followed by reserved chicken broth, lemon juice, parsley, thyme and season with salt and pepper to taste. Bring mixture just to a boil, then slightly reduce heat and allow to cook about 1 minute longer until thickened, stirring constantly."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove sauce from heat and add sauteed vegetables, frozen peas and diced chicken to sauce, then toss to evenly coat."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Pour mixture into a 9-inch pie dish and sprinkle with baked crumble topping (mine fit perfectly in my pie dish but if yours is coming close to the top edge you may want to sit it on top of a cookie sheet to prevent spills in your oven)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bake in 400 degree oven until nicely golden about 12 - 14 minutes. Serve warm."
+    }
+  ]
+}

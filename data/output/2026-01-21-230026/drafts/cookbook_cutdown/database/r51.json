@@ -1,0 +1,227 @@
+{
+  "recipe": {
+    "description": "This is hard, keep the temp low for the garlic at first\n\nYou can make a salad to go along with it. If you'd like to stick with an Italian theme, then just mix some greens, tomatoes, and olives with some oil, lemon juice, salt, and pepper to taste. Crumble some feta over the salad, if you'd like.",
+    "notes": "Tags: Italian, Main, Normal, LOL",
+    "title": "Pasta Aglio e Olio",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "b7dd626c-1e67-4bd5-8f57-91f5edfca203",
+          "input_item": "Kosher salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "4c5866a6-ec12-4ce1-993f-53feeda3cc27",
+          "input_item": "dried spaghetti",
+          "input_qty": 1.0,
+          "input_unit_id": "pound",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 pound (450g) dried spaghetti"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "7ea5e115-6898-450b-b7cf-1c6fca1065e3",
+          "input_item": "extra-virgin olive oil",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "divided",
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup (120ml) extra-virgin olive oil, divided"
+        },
+        {
+          "confidence": 0.988,
+          "ingredient_id": "3c6664b3-b653-408c-93bc-f86afa9212c4",
+          "input_item": "garlic",
+          "input_qty": 4.0,
+          "input_unit_id": "medium cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "thinly sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "4 medium cloves garlic, thinly sliced"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "ee7f51bc-805e-477b-a9c9-74d53cd0314f",
+          "input_item": "Red pepper flakes",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": true,
+          "note": "to taste (optional)",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Red pepper flakes, to taste (optional)"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "a677620b-a8fb-47ab-b7c7-c57fdcfe9425",
+          "input_item": "flat-leaf parsley",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": true,
+          "note": "(optional)",
+          "preparation": "Minced",
+          "quantity_kind": "unquantified",
+          "raw_text": "Minced flat-leaf parsley, for serving (optional)"
+        },
+        {
+          "confidence": 0.86,
+          "ingredient_id": "da84126c-3f90-45c3-8d6e-8726911b58c1",
+          "input_item": "ground beef",
+          "input_qty": null,
+          "input_unit_id": "-#1$4 pound",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "-1/4 pound of ground beef"
+        },
+        {
+          "confidence": 0.93,
+          "ingredient_id": "384b1098-a8cc-4c54-b8ac-3c031c72a02b",
+          "input_item": "onion",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "-chopped",
+          "quantity_kind": "unquantified",
+          "raw_text": "-chopped onion"
+        },
+        {
+          "confidence": 0.895,
+          "ingredient_id": "f26722bb-b1a2-453a-aff2-286e825c3759",
+          "input_item": "crushed tomatoes",
+          "input_qty": null,
+          "input_unit_id": "large cans",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "-3/4 large can of crushed tomatoes"
+        },
+        {
+          "confidence": 0.856,
+          "ingredient_id": "1cac6f17-908e-49cc-840b-59a0465c277e",
+          "input_item": "-salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "sugar as needed",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "-salt/pepper/sugar as needed"
+        },
+        {
+          "confidence": 0.975,
+          "ingredient_id": "42ba264c-985f-448d-8b4a-e766eb1ad7c1",
+          "input_item": "-oregano",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "-oregano"
+        },
+        {
+          "confidence": 0.961,
+          "ingredient_id": "30690f75-a614-4515-85eb-9226b80acbb0",
+          "input_item": "-hot pepper flakes",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "-hot pepper flakes"
+        },
+        {
+          "confidence": 0.976,
+          "ingredient_id": "a1ca0a72-0b73-426b-bc30-97f238556365",
+          "input_item": "-olive oil",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "as needed",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "-olive oil as needed"
+        },
+        {
+          "confidence": 0.739,
+          "ingredient_id": "2de39e12-159c-42da-a8b0-a921540fa9ac",
+          "input_item": "-Touch of Balsamic Vinegar for an extra kick",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "-Touch of Balsamic Vinegar for an extra kick"
+        },
+        {
+          "confidence": 0.96,
+          "ingredient_id": "a4b7fb29-15dc-46e2-8114-328c72016181",
+          "input_item": null,
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "That's how my grandma starts her legendary sauce. She makes a garlic infused oil and uses that to brown lamb neck and Italian sausage that my dad makes. Then she deglazes with brandy, adds crushed tomatoes and a couple of basil leaves, and summers for a few hours until the lamb is tender.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "That's how my grandma starts her legendary sauce. She makes a garlic infused oil and uses that to brown lamb neck and Italian sausage that my dad makes. Then she deglazes with brandy, adds crushed tomatoes and a couple of basil leaves, and summers for a few hours until the lamb is tender."
+        }
+      ],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a pot of salted boiling water, cook spaghetti until just shy of al dente (about 1 minute less than the package directs). Reserve pasta cooking water."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Meanwhile, in a large skillet, combine 6 tablespoons oil and garlic. Add pinch of red pepper flakes, if using. Cook over medium heat until garlic is very lightly golden, about 5 minutes. (Adjust heat as necessary to keep it gently sizzling.)"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Transfer pasta to skillet along with 1/2 cup pasta water, increase heat to high, and cook, stirring and tossing rapidly, until a creamy, emulsified sauce forms and coats the noodles. Remove from heat, add remaining 2 tablespoons olive oil, and stir well to combine. Mix in parsley, if using, and serve right away."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "MEAT SAUCE"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Heat up the leftover oil first and get the pan hot. Put ground beef and chopped onions into the pan, season, then cook until browned. Turn down the heat to low and add crushed tomatoes, salt/pepper/sugar, oregano, hot pepper flakes, and olive oil as needed. Stir and taste for any adjustments. I added a touch of balsamic towards the end to spice it up."
+    }
+  ]
+}

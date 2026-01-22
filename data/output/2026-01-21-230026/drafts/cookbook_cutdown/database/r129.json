@@ -1,0 +1,195 @@
+{
+  "recipe": {
+    "description": "Makes a VERY FULL gallon bag. \nConsider adding an extra can of beans, and waiting until cook day to add the lentils (you could wait until cook day to add the beans too). \nGood with sweet potaotes",
+    "notes": "Tags: Main, Instant Pot, peppers, carrots, tomato sauce, tomatoes, lentils, red beans",
+    "title": "Slow Cooker Lentil chili",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.994,
+          "ingredient_id": "e80989e2-dc28-4766-9b42-3496e2b2ad34",
+          "input_item": "onion",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 medium onion diced"
+        },
+        {
+          "confidence": 0.979,
+          "ingredient_id": "df2e6d0b-2963-4171-8732-d6e7857f5089",
+          "input_item": "garlic",
+          "input_qty": 3.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "3 cloves garlic minced"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "c5356900-6786-49c2-9812-ade3c5c3ea73",
+          "input_item": "jalape\u00f1o",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced, seeds removed",
+          "quantity_kind": "quantified",
+          "raw_text": "1 jalape\u00f1o diced, seeds removed"
+        },
+        {
+          "confidence": 0.988,
+          "ingredient_id": "022215f4-44f3-4d38-85fb-2cc7c79e8949",
+          "input_item": "red pepper",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 red pepper chopped"
+        },
+        {
+          "confidence": 0.989,
+          "ingredient_id": "3ffd3b6a-e5bf-4576-899d-7cccd8d9bd67",
+          "input_item": "yellow pepper",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 yellow pepper chopped"
+        },
+        {
+          "confidence": 0.976,
+          "ingredient_id": "a5019998-2be4-4d9c-8c41-3ea80b521454",
+          "input_item": "carrot",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and diced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 large carrot peeled and diced"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "b8e6d5c7-f93b-4c28-a3c9-0cef2d49b54a",
+          "input_item": "vegetable broth",
+          "input_qty": 2.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 1/2 cups vegetable broth"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "8f9c362f-b621-4fb7-83ce-1407c0b7e3d9",
+          "input_item": "tomato sauce",
+          "input_qty": 2.0,
+          "input_unit_id": "cans",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 15 oz cans tomato sauce"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "63e2a63c-9468-4415-b324-6ad2218f2aa5",
+          "input_item": "diced tomatoes",
+          "input_qty": 2.0,
+          "input_unit_id": "cans",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 15 oz cans diced tomatoes"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "b2437e42-4475-44d2-b184-c8f6fc18f84d",
+          "input_item": "brown lentils",
+          "input_qty": 1.0,
+          "input_unit_id": "bag",
+          "is_optional": false,
+          "note": null,
+          "preparation": "rinsed",
+          "quantity_kind": "quantified",
+          "raw_text": "1 16 oz bag brown lentils, rinsed"
+        },
+        {
+          "confidence": 0.914,
+          "ingredient_id": "7cf978ac-2487-401d-8549-660280e09ee2",
+          "input_item": "small red beans",
+          "input_qty": 2.0,
+          "input_unit_id": "cans",
+          "is_optional": false,
+          "note": null,
+          "preparation": "rinsed and drained",
+          "quantity_kind": "quantified",
+          "raw_text": "2 15 oz cans small red beans, rinsed and drained"
+        },
+        {
+          "confidence": 0.883,
+          "ingredient_id": "c90a039c-c476-4327-8d61-8801413a33dc",
+          "input_item": "chili powder",
+          "input_qty": 3.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": "we used 3 tablespoons",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2-3 tablespoons chili powder we used 3 tablespoons"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "6309d602-b62e-46ad-bc4c-2bc88df1065e",
+          "input_item": "cumin",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon cumin"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "1d3a922f-ceaa-4efa-996c-be72c2f7345b",
+          "input_item": "Salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt and black pepper to taste"
+        }
+      ],
+      "instruction": "Place all ingredients in a slow cooker. Stir well to combine."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cover and cook on High for 4 hours or low for 6 hours. Serve warm."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Note-we use a 6 quart slow cooker. This chili freezes well. Top with your favorite chili toppings, if desired. Some people have commented that their lentils didn't cook in the slow cooker, we haven't had this problem, but you might want to cook them before adding them into the slow cooker to be safe."
+    }
+  ]
+}

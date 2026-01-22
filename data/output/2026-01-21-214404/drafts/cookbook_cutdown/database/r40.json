@@ -1,0 +1,136 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, broccoli, pizza dough, mozzarella, ricotta, lemons",
+    "title": "Vegetarian Calzones",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "3d2807a2-3304-470a-86e0-0aa817d06b8f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1. Preheat oven to 400\u00b0. Trim end of stem from 1 head of broccoli, then use a vegetable peeler to remove thick woody exterior of stalk (you can eat the broccoli stalk\u2014it\u2019s the best part!). Coarsely chop entire head of broccoli into \u00bd\" pieces."
+        },
+        {
+          "ingredient_id": "7655c67c-9308-4be9-be90-ea7d443d6982",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2. Toss broccoli on a rimmed baking sheet with 3 Tbsp. oil; season generously with salt. Roast, tossing once halfway through, until broccoli is browned all over and tender, 20\u201325 minutes. Let cool."
+        },
+        {
+          "ingredient_id": "76de45c0-9e46-42b6-9fdd-2e259e78b9e4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3. While broccoli is roasting, remove 1 lb. pizza dough from refrigerator and let sit at room temperature (this will make it easier to stretch). Divide into 4 equal pieces and cover loosely with plastic wrap."
+        },
+        {
+          "ingredient_id": "d104586f-740b-46ff-8e10-8fe4508de382",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4. Combine 2 cups mozzarella, 1 cup ricotta, \u00bd cup Parmesan, and \u00bd tsp. red pepper flakes in a medium bowl. Peel 1 garlic clove and grate on a microplane into bowl, then finely grate zest of 1 lemon into bowl (save remaining lemon for another use)."
+        },
+        {
+          "ingredient_id": "d45f54d4-1e15-4d1e-8a8e-904ad28211af",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5. Stack \u00bd cup basil leaves on top of each other and roll into a cigar shape. Slice leaves crosswise as thinly as possible (you can do this in 2 batches if needed). Add basil shreds to bowl."
+        },
+        {
+          "ingredient_id": "0ddeaba0-3418-49da-8056-b4354f5ce65d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "6. Season cheese mixture with salt, then scrape in roasted broccoli (save the baking sheet, which you\u2019re going to use it to bake the calzones). Stir with a flexible spatula to incorporate."
+        },
+        {
+          "ingredient_id": "d01c06db-ca44-4d03-8676-3aaa56a4ffbc",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "7. Drizzle 1 Tbsp. oil over reserved baking sheet and spread around with fingers to coat surface. Beat 1 egg in a small bowl with a fork until no streaks remain."
+        },
+        {
+          "ingredient_id": "af7ceab9-3f4f-4007-9f77-cd90455044dd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8. Working one piece at a time, roll out dough on a clean dry surface to an 8\" round. Brush a thin coating of egg wash around perimeter of dough. Spoon one-quarter of the cheese mixture onto one side of dough."
+        },
+        {
+          "ingredient_id": "2fc35cab-b6b3-4e27-8052-c5fc52004bca",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "9. Fold empty half of dough down over filling and press firmly all around edge to seal the two sides to form a half-moon shape. Press really firmly to prevent the calzones from opening during baking. Repeat with remaining pieces of dough and filling, transferring each to prepared sheet as they\u2019re done, spacing evenly."
+        },
+        {
+          "ingredient_id": "98c415fe-8c39-4086-a414-b4cda49b6ac4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "10. Brush dough all over with remaining egg wash."
+        },
+        {
+          "ingredient_id": "5af88845-2a3a-4fd6-bb33-8d4665f9d40b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "11. Do a final crimp around each calzone: fold the outermost \u00bd\" of border back up and over itself, pinching like crazy to seal."
+        },
+        {
+          "ingredient_id": "4c6a1e37-3a8a-4767-8291-f518eb02a4c9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "12. Bake calzones until dough is golden brown all over and bottom is well browned, 30\u201335 minutes. Transfer calzones to a wire rack. Poke a tiny hole with the tip of a knife into each calzone to let steam escape"
+        },
+        {
+          "ingredient_id": "dd9fdda5-8b46-4138-aaca-e9f5ad371d87",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "13. Cut calzones in half and serve with marinara sauce alongside. Top with more grated Parmesan."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

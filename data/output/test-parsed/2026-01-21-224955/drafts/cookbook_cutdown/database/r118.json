@@ -1,0 +1,259 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, pasta, bacon, chicken, artichoke hearts, sun dried tomatoes, spinach, milk",
+    "title": "Chicken, bacon, and Artichoke pasta with creamy Garlic sauce",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.0,
+          "ingredient_id": "766de5ec-3d2c-4386-bb42-9e050798c04f",
+          "input_item": "SERVES 6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "SERVES 6"
+        },
+        {
+          "confidence": 0.797,
+          "ingredient_id": "cc8b9ec0-288d-47a1-82ca-359f10008688",
+          "input_item": "penne pasta",
+          "input_qty": 12.0,
+          "input_unit_id": "oz",
+          "is_optional": false,
+          "note": null,
+          "preparation": "dry",
+          "quantity_kind": "quantified",
+          "raw_text": "12oz penne pasta, dry"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "d2ef0348-c414-4cd6-9aa7-3e8dd5aa1dd8",
+          "input_item": "bacon",
+          "input_qty": 0.25,
+          "input_unit_id": "lbs",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1/4lb bacon (4 slices,) chopped"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "a276a10c-8043-4be9-ad17-e0bd6af2b247",
+          "input_item": "chicken breasts",
+          "input_qty": 1.0,
+          "input_unit_id": "lb",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped into bite-sized pieces",
+          "quantity_kind": "quantified",
+          "raw_text": "1lb chicken breasts, chopped into bite-sized pieces"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "5b488ed8-82b7-4cf4-a942-2691f662caa0",
+          "input_item": "salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "salt and pepper"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "2d8e0f79-8385-4819-b754-aed001c95acb",
+          "input_item": "quartered artichoke hearts",
+          "input_qty": 1.0,
+          "input_unit_id": "can",
+          "is_optional": false,
+          "note": null,
+          "preparation": "drained and chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 can quartered artichoke hearts, drained and chopped"
+        },
+        {
+          "confidence": 0.919,
+          "ingredient_id": "8990dead-af2b-49f2-af0d-d5cc976e1e9d",
+          "input_item": "sun dried tomatoes",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "julienned",
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup julienned sun dried tomatoes"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "94ffac1b-af7f-4fa9-b424-851ac3d3bf2d",
+          "input_item": "baby spinach",
+          "input_qty": 5.0,
+          "input_unit_id": "oz",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "5oz baby spinach"
+        },
+        {
+          "confidence": 0.0,
+          "ingredient_id": "a652ced0-54c4-412a-98bc-e78b1fa76820",
+          "input_item": "For the creamy Garlic sauce",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "For the creamy Garlic sauce:"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "24284b0c-83c2-49ac-87dc-ff5a14bb42a6",
+          "input_item": "extra virgin olive oil",
+          "input_qty": 2.0,
+          "input_unit_id": "Tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 Tablespoons extra virgin olive oil"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "fcccca22-90dc-4a7d-9897-906d8af6e19a",
+          "input_item": "butter",
+          "input_qty": 2.0,
+          "input_unit_id": "Tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 Tablespoons butter"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "9c7853f0-b08a-47cd-b6fb-74fc734cc955",
+          "input_item": "garlic",
+          "input_qty": 4.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "4 cloves garlic, minced"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "a2b14a51-2052-42ac-91b2-f6ab039544bf",
+          "input_item": "flour",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup flour"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "d6dd6a13-999d-4fce-b7a3-afe66692f35e",
+          "input_item": "milk",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": "(I used 2%)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1-1/2 cups milk (I used 2%)"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "ead0777a-061f-4b4d-9906-81afa91773f4",
+          "input_item": "chicken broth",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1-1/2 cups chicken broth"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "3fd9f1bb-306a-407e-91e5-542cc638474b",
+          "input_item": "salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "salt and pepper"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "013905a9-5a15-43c2-a198-eac1b247256f",
+          "input_item": "parmesan cheese",
+          "input_qty": 0.75,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "grated",
+          "quantity_kind": "quantified",
+          "raw_text": "3/4 cup grated parmesan cheese"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "1bf2f6c6-8ac8-4dee-986f-3408ae2687ab",
+          "input_item": "Italian seasoning",
+          "input_qty": 2.0,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 teaspoons Italian seasoning"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "d08cfd2d-e13c-4033-8483-2ca8303f58f8",
+          "input_item": "garlic powder",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon garlic powder"
+        }
+      ],
+      "instruction": "Cook pasta in a large pot of salted, boiling water until al dente. Drain then set aside."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cook bacon in a large skillet over medium heat until crisp. Remove to a paper towel-lined plate then discard all but 1 teaspoon bacon grease. Add chicken to the skillet then season with salt and pepper and saute until no longer pink. Add artichoke hearts and sun-dried tomatoes then saute until warmed through, 3-4 minutes. Add spinach then flip with tongs until wilted, 1-2 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Meanwhile melt butter in extra virgin olive oil in a skillet or saucepan over medium heat. Add garlic then saute for 30 seconds. Sprinkle in flour then whisk until smooth and cook for 1 minute. Slowly stream in milk and chicken broth, whisking to avoid lumps. Season with salt and pepper then switch to a wooden spoon and stir until thick and bubbly, stirring often, about 10 minutes. Remove from heat then stir in parmesan cheese, Italian seasoning, and garlic powder."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Combine pasta, chicken and artichoke mixture, sauce, and bacon then scoop and serve."
+    }
+  ]
+}

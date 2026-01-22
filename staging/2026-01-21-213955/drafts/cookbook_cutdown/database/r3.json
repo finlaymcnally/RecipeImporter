@@ -1,0 +1,153 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Instant Pot, lentils, carrots, peppers",
+    "title": "Instant pot cheesy lentil/rice",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "d2b9ce6d-7795-418f-9472-4d6bbfd33068",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 red onion (finely chopped)"
+        },
+        {
+          "ingredient_id": "c9073436-f289-4e64-a624-1691a8844f0f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 red bell pepper (finely chopped)"
+        },
+        {
+          "ingredient_id": "0a8c2f37-7ba1-4892-b7ed-f54a992420bb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 garlic cloves (minced)"
+        },
+        {
+          "ingredient_id": "a322e6a1-1a2b-4650-86c8-75bfd70d3268",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3/4 cup Bob's Red Mill brown rice"
+        },
+        {
+          "ingredient_id": "3a7030da-4f56-4c80-b636-6bf6f80059dd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3/4 cup Bob's Red Mill brown lentils"
+        },
+        {
+          "ingredient_id": "4f9b3d72-49b6-4673-a678-4621bb8c0edd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 1/2 cups vegetable broth"
+        },
+        {
+          "ingredient_id": "e805fe91-b721-4266-ac43-92259749c63b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 can petite diced tomatoes (15 oz.)"
+        },
+        {
+          "ingredient_id": "950e49a7-1880-472b-ae35-4ef79e053a97",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 can diced green chiles (4 oz.)"
+        },
+        {
+          "ingredient_id": "f8928303-8e3a-498a-a3a9-e4fde25f0538",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 Tbsp taco seasoning"
+        },
+        {
+          "ingredient_id": "db43b8bb-7e63-4331-80ea-a9823bd5713a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tsp dried oregano"
+        },
+        {
+          "ingredient_id": "c1613e4e-0ab5-40d7-8a59-863d79317991",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp kosher salt"
+        },
+        {
+          "ingredient_id": "307fd868-7d62-41d3-a294-b6e35d2f0343",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 tsp Black pepper"
+        },
+        {
+          "ingredient_id": "b7b064fe-91b4-4bed-8417-d89e8d569a72",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cups shredded cheese (I prefer mozzarella and sharp cheddar)"
+        },
+        {
+          "ingredient_id": "45fcc697-67c1-4ebb-bb3e-919286829358",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup chopped fresh cilantro (for topping)"
+        }
+      ],
+      "instruction": "Add all ingredients, except cheese and cilantro, to your Instant Pot. Set to manual and cook on high pressure for 15 minutes. Allow pressure to naturally release for 15 minutes then release remaining pressure."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove cover and stir in half of the cheese. Sprinkle remaining cheese over the top and replace the cover. Allow to stand for 5 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Sprinkle with cilantro and serve. Enjoy!"
+    }
+  ]
+}

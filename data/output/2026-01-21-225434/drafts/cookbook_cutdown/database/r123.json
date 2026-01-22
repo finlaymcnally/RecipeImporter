@@ -1,0 +1,235 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Instant Pot, carrots, potatoes, celery, barley, beef roast, milk",
+    "title": "Banana Pepper Shredded beef",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.0,
+          "ingredient_id": "d8b57f5b-9d81-406d-87b5-3a231392a19e",
+          "input_item": "INGREDIENTS",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "INGREDIENTS"
+        },
+        {
+          "confidence": 0.87,
+          "ingredient_id": "d73bf03e-ee07-43b3-aedc-0eb78449be9b",
+          "input_item": "boneless beef chuck shoulder roast",
+          "input_qty": 2.0,
+          "input_unit_id": "lbs",
+          "is_optional": false,
+          "note": "\u2022",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u2022 2lb boneless beef chuck shoulder roast"
+        },
+        {
+          "confidence": 0.939,
+          "ingredient_id": "cfface3c-8ef1-43d5-b981-c9ad83e08409",
+          "input_item": "banana peppers",
+          "input_qty": 4.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "\u2022, (mild or hot), Please wear gloves so",
+          "preparation": "seeds removed and sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "\u2022 4 banana peppers (mild or hot), seeds removed and sliced (Please wear gloves so"
+        },
+        {
+          "confidence": 0.916,
+          "ingredient_id": "84da4d5a-ee3c-4b3b-a753-8c0c4f1ec1e7",
+          "input_item": "your fingers don\u2019t burn afterwards!",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "your fingers don\u2019t burn afterwards!)"
+        },
+        {
+          "confidence": 0.763,
+          "ingredient_id": "8b0529eb-9a95-4ff7-8050-8c2dacf21fd1",
+          "input_item": "\u2022",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "\u2022 1 small yellow onion, peeled and sliced"
+        },
+        {
+          "confidence": 0.864,
+          "ingredient_id": "3dbd586c-60e8-4d13-bb95-2e318ce4e692",
+          "input_item": "beef broth",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": "\u2022",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u2022 1 cup beef broth"
+        },
+        {
+          "confidence": 0.0,
+          "ingredient_id": "2ded2978-5d1e-4ff1-bcbd-003defc3a049",
+          "input_item": "MATERIALS",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "MATERIALS"
+        },
+        {
+          "confidence": 0.584,
+          "ingredient_id": "ab28aec3-19ee-4956-bd48-d94c2cbaa04e",
+          "input_item": "\u2022 1 gallon-sized plastic freezer bag",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2022 1 gallon-sized plastic freezer bag"
+        },
+        {
+          "confidence": 0.0,
+          "ingredient_id": "f63fcd90-5744-4a31-b506-6b40d8d08e40",
+          "input_item": "PREP",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "PREP"
+        },
+        {
+          "confidence": 0.917,
+          "ingredient_id": "103c24da-cb9f-4fd5-9fd4-e5f72f954257",
+          "input_item": "Label your freezer bag.",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1. Label your freezer bag."
+        },
+        {
+          "confidence": 0.903,
+          "ingredient_id": "784d2a56-ddd9-4186-8ef7-6fe68c6227d1",
+          "input_item": "To your freezer bag",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "add all ingredients.",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2. To your freezer bag, add all ingredients."
+        },
+        {
+          "confidence": 0.838,
+          "ingredient_id": "b2309ae2-d13f-478d-b532-0c75392369ed",
+          "input_item": "seal",
+          "input_qty": 3.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Remove as much air from the freezer bag as possible, and lay flat in your freezer.",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3. Remove as much air from the freezer bag as possible, seal, and lay flat in your freezer."
+        },
+        {
+          "confidence": 0.0,
+          "ingredient_id": "856a2a8f-1a1f-44f5-a9f9-937dd3d7464f",
+          "input_item": "COOK",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "COOK"
+        },
+        {
+          "confidence": 0.641,
+          "ingredient_id": "9b47183f-1ed2-4ebc-a527-c9dcb34f4128",
+          "input_item": "before cooking",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "The night, move frozen bag to your refrigerator to thaw.",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1. The night before cooking, move frozen bag to your refrigerator to thaw."
+        },
+        {
+          "confidence": 0.745,
+          "ingredient_id": "1e15cde8-0052-4e31-98c8-5f0c9d3b4bfa",
+          "input_item": "cooking",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "The morning of, pour contents of freezer bag into your crockpot and cook on",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2. The morning of cooking, pour contents of freezer bag into your crockpot and cook on"
+        },
+        {
+          "confidence": 0.414,
+          "ingredient_id": "065d888d-0cf9-4a71-bd76-a7d31b439539",
+          "input_item": "\u201clow\u201d for 6-8 hours",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u201clow\u201d for 6-8 hours or until beef shreds easily with a fork."
+        },
+        {
+          "confidence": 0.85,
+          "ingredient_id": "d2f57e76-af6a-41d4-a417-f50361b9dc78",
+          "input_item": "Shred beef.",
+          "input_qty": 3.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3. Shred beef."
+        },
+        {
+          "confidence": 0.984,
+          "ingredient_id": "5c7f67a9-97b1-474e-8bc7-6f6ed6258265",
+          "input_item": "Serve on sandwich rolls with a side salad.",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Serve on sandwich rolls with a side salad."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

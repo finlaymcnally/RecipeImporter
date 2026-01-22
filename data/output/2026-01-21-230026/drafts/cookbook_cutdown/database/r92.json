@@ -1,0 +1,295 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Thai, Side, Normal, carrots, sweet potatoes",
+    "title": "Creamy Thai carrots sweet potatoes soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.941,
+          "ingredient_id": "02556c44-7c59-4f92-bdb2-74fa9835154f",
+          "input_item": "Soup",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Soup"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "ac91a3bf-86b2-4e20-810e-a243cbac0a06",
+          "input_item": "coconut oil",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon coconut oil"
+        },
+        {
+          "confidence": 0.982,
+          "ingredient_id": "ef0f56d6-6abf-40ce-a1a9-94be597e7c8f",
+          "input_item": "yellow (sweet) onion",
+          "input_qty": 2.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "2 cups chopped yellow (sweet) onion"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "fc5ed880-221e-4ea7-9f19-3100ddf04eea",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 cloves garlic, minced"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "8f72c42f-faf1-4a7b-ad79-2e80cad85130",
+          "input_item": "fresh ginger",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon minced fresh ginger"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "827ef835-5d67-490d-b2fa-9bfdadf71314",
+          "input_item": "red curry paste",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons red curry paste"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "5fbd58f9-d1ad-45c3-b848-634ddf5f4103",
+          "input_item": "low-sodium vegetable broth",
+          "input_qty": 4.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": "plus more if needed",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 cups low-sodium vegetable broth, plus more if needed"
+        },
+        {
+          "confidence": 0.918,
+          "ingredient_id": "b8dafece-63db-4d46-bf38-f1f953833b42",
+          "input_item": "raw almond butter",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc cup raw almond butter or peanut butter"
+        },
+        {
+          "confidence": 0.978,
+          "ingredient_id": "3f53b08b-c54b-44b9-b0e2-4b247200de5a",
+          "input_item": "carrots",
+          "input_qty": 3.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced peeled",
+          "quantity_kind": "quantified",
+          "raw_text": "3 cups diced peeled carrots"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "f505206e-37e9-45aa-86b8-643079c86571",
+          "input_item": "sweet potatoes",
+          "input_qty": 3.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced peeled",
+          "quantity_kind": "quantified",
+          "raw_text": "3 cups diced peeled sweet potatoes"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "8124225f-8d3b-4591-a96a-bfc6c54083da",
+          "input_item": "fine-grain sea salt",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": "plus more to taste",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd teaspoon fine-grain sea salt, plus more to taste"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "1312230b-98b7-479f-b03e-aeae9c62a48d",
+          "input_item": "black pepper",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "Freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_text": "Freshly ground black pepper"
+        },
+        {
+          "confidence": 0.978,
+          "ingredient_id": "ec4d340a-5082-43e2-83de-a1481c045522",
+          "input_item": "cayenne pepper",
+          "input_qty": 0.25,
+          "input_unit_id": "teaspoons",
+          "is_optional": true,
+          "note": "Up to, (optional, if you like spice)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "Up to \u00bc teaspoon cayenne pepper (optional, if you like spice)"
+        },
+        {
+          "confidence": 0.927,
+          "ingredient_id": "4af3f020-6d8f-4c2d-966b-5d922056e2cc",
+          "input_item": "Toppings",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Toppings"
+        },
+        {
+          "confidence": 0.985,
+          "ingredient_id": "9b417a83-0554-426c-9d79-7a419bf76c3e",
+          "input_item": "fresh cilantro",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "Minced",
+          "quantity_kind": "unquantified",
+          "raw_text": "Minced fresh cilantro"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "fdc35419-dcf9-4114-a3cd-b5942aa5313a",
+          "input_item": "Fresh lime juice",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Fresh lime juice"
+        },
+        {
+          "confidence": 0.97,
+          "ingredient_id": "7258bdd7-fddd-438c-b141-f147a1099c5e",
+          "input_item": "Roasted tamari almonds",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": true,
+          "note": "(optional, see below)",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Roasted tamari almonds (optional, see below)"
+        },
+        {
+          "confidence": 0.905,
+          "ingredient_id": "8a22dbce-ea6b-444a-a4ab-d7217280dec5",
+          "input_item": "Roasted tamari almonds",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Roasted tamari almonds"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "11795c0c-7b2b-453d-9a57-6292287786e5",
+          "input_item": "raw almonds",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd cup raw almonds, finely chopped"
+        },
+        {
+          "confidence": 0.902,
+          "ingredient_id": "e3e42144-e895-4e4b-9378-b5454de669e8",
+          "input_item": "low-sodium tamari",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon plus 1 teaspoon low-sodium tamari or coconut aminos"
+        }
+      ],
+      "instruction": "To make the soup: In a large pot, melt the coconut oil over medium heat. Add the onion, garlic, and ginger and saut\u00e9 for 5 to 6 minutes, until the onion is translucent."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir in the curry paste. In a small bowl, whisk together some of the broth with the almond butter until smooth. Add the mixture to the pot, along with the carrots, sweet potatoes, salt, and remaining vegetable broth. Stir until combined."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bring the soup to a low boil over medium-high heat and then reduce the heat to medium-low. Cover and simmer for 15 to 20 minutes, until the potatoes and carrots are fork-tender."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Ladle the soup carefully into a blender. You will likely have to do this in a couple of batches, depending on the size of your blender (never fill your blender past the maximum fill line). Being careful to avoid hot steam escaping from the lid, blend on low and slowly increase the speed until the soup is completely smooth. (Alternatively, you can use an immersion blender and blend the soup directly in the pot.)"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Taste, and season with salt and black pepper. If you\u2019d like more spice, add a pinch or full \u00bc teaspoon cayenne pepper, and blend again. Transfer the soup back to the pot and reheat if necessary. If desired, you can thin the soup out with a bit more broth if it\u2019s too thick for your preference."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Ladle the soup into bowls and top with minced cilantro, a squeeze of lime juice, and optional tamari almonds. This soup will keep in the fridge for up to a week, and freezes well for 1 to 2 months."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "To make the roasted tamari almonds: Preheat the oven to 325\u00b0F (160\u00b0C). Line a large baking sheet with parchment paper."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a medium bowl, toss the almonds with the tamari until the almond pieces are fully coated. Spread the almonds over the prepared baking sheet in an even layer."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Roast the almonds for 9 to 12 minutes, until lightly golden. The tamari will have dried up."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Let cool completely on the pan. The almonds will harden up as they cool. Using a spoon, scrape the almonds off the parchment paper and enjoy! Leftovers can be stored in an airtight container at room temperature for a couple of weeks."
+    }
+  ]
+}

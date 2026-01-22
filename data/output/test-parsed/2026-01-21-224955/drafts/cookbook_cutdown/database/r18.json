@@ -1,0 +1,263 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Thai, Main, Normal, chicken, chili sauce, broccoli, peppers, snow peas, carrots, cilantro",
+    "title": "Sheet Pan Thai Peanut-chili chicken",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "94369fc8-6e66-4daf-afc1-5ac5f351407c",
+          "input_item": "boneless skinless chicken breasts",
+          "input_qty": 3.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "cut in half lengthwise",
+          "quantity_kind": "quantified",
+          "raw_text": "3 large boneless skinless chicken breasts, cut in half lengthwise"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "a62dd539-00a4-46f4-8005-6e7f9d60bc9c",
+          "input_item": "Kosher salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt and black pepper, to taste"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "5b549b45-5ee1-4dfb-b636-a129e7c250e6",
+          "input_item": "sweet Thai chili sauce",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup sweet Thai chili sauce"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "136dd0be-bcaa-4501-9d90-af9f6a55c006",
+          "input_item": "lime juice",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup lime juice"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "a21571d1-46f3-46e7-b680-04f10480052e",
+          "input_item": "low sodium soy sauce",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup low sodium soy sauce"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "9923f7dc-fc51-4712-b908-6bc6554cb3fd",
+          "input_item": "natural peanut butter",
+          "input_qty": 3.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 tablespoons natural peanut butter"
+        },
+        {
+          "confidence": 0.973,
+          "ingredient_id": "f9c1917c-4112-4b7a-b515-ea754806da94",
+          "input_item": "fresh ginger",
+          "input_qty": 1.0,
+          "input_unit_id": "inch piece",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and grated",
+          "quantity_kind": "quantified",
+          "raw_text": "1 inch piece fresh ginger peeled and grated"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "6ab8c9fc-76a1-4693-95de-0629f8c38733",
+          "input_item": "garlic",
+          "input_qty": 4.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "4 cloves garlic, minced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "c5663055-485a-429f-9ea9-96e197a60dde",
+          "input_item": "bell peppers",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "stemmed and chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "2 bell peppers, stemmed and chopped"
+        },
+        {
+          "confidence": 0.986,
+          "ingredient_id": "c80b8bb0-64d9-4dbb-8d37-2f606ecd988d",
+          "input_item": "broccoli",
+          "input_qty": 1.0,
+          "input_unit_id": "medium bunch",
+          "is_optional": false,
+          "note": null,
+          "preparation": "separated into florets",
+          "quantity_kind": "quantified",
+          "raw_text": "1 medium bunch of broccoli, separated into florets"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "6ade4083-d16b-43a9-865e-0d8472ee2894",
+          "input_item": "snow peas",
+          "input_qty": 2.0,
+          "input_unit_id": "handfuls",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 handfuls snow peas"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "dbc9ac0c-6dea-4d9b-ae47-6b9841fc75dd",
+          "input_item": "carrots",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 carrots, sliced"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "cc4155ef-fa3d-4f3d-bb49-53dfdc7e7e1c",
+          "input_item": "white onion",
+          "input_qty": 0.5,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 white onion, chopped"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "ca6a06e9-3ed9-4c5c-82a2-7608cef0707f",
+          "input_item": "oil",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons oil"
+        },
+        {
+          "confidence": 0.904,
+          "ingredient_id": "6b9850c4-d46a-47cd-be70-0d83f3d614ec",
+          "input_item": "Lime wheels",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Lime wheels, to top"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "aa390a6b-f4c3-41df-80fe-7e6798fa600d",
+          "input_item": "unsalted peanuts",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup unsalted peanuts, chopped"
+        },
+        {
+          "confidence": 0.783,
+          "ingredient_id": "2f8731c2-ce35-4622-97fe-192fe1c4cc64",
+          "input_item": "Fresh cilantro",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Fresh cilantro and/or thai basil, to serve"
+        },
+        {
+          "confidence": 0.978,
+          "ingredient_id": "9d7f07bb-1521-4240-ba59-dce22eef4bd8",
+          "input_item": "Basmati rice",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Basmati rice, to serve"
+        }
+      ],
+      "instruction": "Preheat the oven to 400\u00b0F."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Season the chicken breast pieces generously with salt and pepper and place in a large, sealable plastic bag."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a medium-sized bowl, combine the sweet Thai chili sauce, lime juice, soy sauce, peanut butter, ginger, and garlic. Pour enough to cover the chicken into the sealable plastic bag. Close, shake around, and allow the chicken to marinate for at least 30 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove the chicken from the marinade and place the chicken on a large nonstick baking sheet. Brush the chicken with additional marinade, if desired."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a separate large bowl, toss the bell peppers, broccoli, snow peas, carrots, and onion with the oil and about 1/3 cup\u2019s worth of the chicken marinade. Season with salt and pepper. Lay the vegetables around the chicken and top with lime wheels. Discard all of the remaining marinade that has touched raw chicken."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bake for about 20 minutes, or until chicken is cooked through and the vegetables are tender."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Drizzle the chicken and vegetables with additional marinade, if desired, sprinkle the chicken with the crushed peanuts, and broil to further crisp the vegetables and toast the peanuts, about 2 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Top with cilantro and/or thai basil, and serve over basmati rice with additional sauce, if desired."
+    }
+  ]
+}

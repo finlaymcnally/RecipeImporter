@@ -1,0 +1,211 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, potatoes",
+    "title": "Roasted Smashed potatoes",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.0,
+          "ingredient_id": "afa94d42-e424-4b3c-8ba4-b43f449e15ef",
+          "input_item": "INGREDIENTS",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "INGREDIENTS"
+        },
+        {
+          "confidence": 0.82,
+          "ingredient_id": "7118362f-5ce4-479c-b5de-33825cc7794d",
+          "input_item": "baby red bliss",
+          "input_qty": 2.0,
+          "input_unit_id": "lbs",
+          "is_optional": false,
+          "note": "(you want them to be small - like, golfball size - about 18 potatoes)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 lb. baby red bliss or yukon gold potatoes (you want them to be small \u2013 like, golfball size \u2013 about 18 potatoes)"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "5b7bd1f4-5abf-4c43-93bb-4cfb49478ee0",
+          "input_item": "olive oil",
+          "input_qty": 6.0,
+          "input_unit_id": "tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": "divided",
+          "quantity_kind": "quantified",
+          "raw_text": "6 tbsp olive oil, divided"
+        },
+        {
+          "confidence": 0.991,
+          "ingredient_id": "21cec46c-bc89-4dda-b06d-ed026e5cb722",
+          "input_item": "fresh thyme",
+          "input_qty": 1.0,
+          "input_unit_id": "tsp",
+          "is_optional": false,
+          "note": "(feel free to substitute with rosemary, basil, garlic, parmesan)",
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 tsp fresh thyme, chopped (feel free to substitute with rosemary, basil, garlic, parmesan)"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "6cc6a292-6692-41e2-ae37-826a8615a6f2",
+          "input_item": "Salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt and pepper, to taste"
+        },
+        {
+          "confidence": 0.958,
+          "ingredient_id": "b1d2295d-e115-4cbb-bc91-8aca4fb8b89f",
+          "input_item": "HOW TO MAKE IT",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "HOW TO MAKE IT"
+        },
+        {
+          "confidence": 0.773,
+          "ingredient_id": "296f9042-99b9-4062-9294-5818d37f2021",
+          "input_item": "Preheat the oven",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Preheat the oven to 500\u00b0F"
+        },
+        {
+          "confidence": 0.664,
+          "ingredient_id": "1ec7b93a-be19-43d2-8325-b6165c9afaba",
+          "input_item": "the potatoes and place them on a rimmed baking sheet pan",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "Wash and scrub",
+          "quantity_kind": "unquantified",
+          "raw_text": "Wash and scrub the potatoes and place them on a rimmed baking sheet pan"
+        },
+        {
+          "confidence": 0.618,
+          "ingredient_id": "5d82d6b2-8fcd-449e-944f-312ede81b02d",
+          "input_item": "Fill the pan",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "with 3/4 cup water and cover the pan tightly with aluminum foil",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Fill the pan with 3/4 cup water and cover the pan tightly with aluminum foil"
+        },
+        {
+          "confidence": 0.846,
+          "ingredient_id": "09da2254-ecfd-4ddb-84dd-554141fd3860",
+          "input_item": "Place the potatoes",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "on the bottom rack for 25-30 minutes or until they are tender",
+          "preparation": "(check by piercing through the foil with a knife)",
+          "quantity_kind": "unquantified",
+          "raw_text": "Place the potatoes on the bottom rack for 25-30 minutes or until they are tender (check by piercing through the foil with a knife)"
+        },
+        {
+          "confidence": 0.878,
+          "ingredient_id": "ee69261d-3e8c-4b4a-a52a-2024778abc29",
+          "input_item": "Remove the potatoes from the oven",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "and blot the remaining water with a paper towel",
+          "quantity_kind": "unquantified",
+          "raw_text": "Remove the potatoes from the oven and blot the remaining water with a paper towel"
+        },
+        {
+          "confidence": 0.558,
+          "ingredient_id": "ef3eaa47-5d06-4dfa-b601-eb1828491875",
+          "input_item": "olive oil",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "Allow the potatoes to cool for 10 minutes before coating them with 3 tbsp",
+          "quantity_kind": "unquantified",
+          "raw_text": "Allow the potatoes to cool for 10 minutes before coating them with 3 tbsp olive oil"
+        },
+        {
+          "confidence": 0.959,
+          "ingredient_id": "b1b5035e-0724-4c22-bfe9-a38f1094199f",
+          "input_item": null,
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Once the potatoes are coated in oil, (you could also use a fork or even the back of another sheet pan); you want them #1$3\u2033 - #1$2\u2033 thick",
+          "preparation": "smash each one with a potato masher",
+          "quantity_kind": "unquantified",
+          "raw_text": "Once the potatoes are coated in oil, smash each one with a potato masher (you could also use a fork or even the back of another sheet pan); you want them 1/3\u2033 \u2013 1/2\u2033 thick"
+        },
+        {
+          "confidence": 0.9,
+          "ingredient_id": "cd007401-6c87-492d-8477-74061de7b68e",
+          "input_item": "Drizzle the smashed potatoes with the remaining",
+          "input_qty": 3.0,
+          "input_unit_id": "tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "Drizzle the smashed potatoes with the remaining 3 tbsp olive oil"
+        },
+        {
+          "confidence": 0.916,
+          "ingredient_id": "bdc8b380-88e7-4ade-a8fd-7e417c63c6cb",
+          "input_item": "Sprinkle your herbs on the potatoes and season generously with salt and pepper",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Sprinkle your herbs on the potatoes and season generously with salt and pepper"
+        },
+        {
+          "confidence": 0.426,
+          "ingredient_id": "50aafa0b-cc26-429b-8069-be77886324db",
+          "input_item": "Place back in",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "the oven on the top rack for 15 minutes and then lower to the bottom rack for an additional 20-25 minutes or until well browned",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Place back in the oven on the top rack for 15 minutes and then lower to the bottom rack for an additional 20-25 minutes or until well browned"
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

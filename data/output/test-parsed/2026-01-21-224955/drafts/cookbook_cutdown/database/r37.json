@@ -1,0 +1,207 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: French, Main, Normal, chicken thighs, carrots, celery, mushrooms, cream",
+    "title": "Chicken Fricassee",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "586d13a1-ea05-4297-8067-83a907a7e4e9",
+          "input_item": "extra-virgin olive oil",
+          "input_qty": 2.0,
+          "input_unit_id": "tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tbsp. extra-virgin olive oil"
+        },
+        {
+          "confidence": 0.989,
+          "ingredient_id": "00c504eb-a371-4514-8194-bf5a5ccd01e1",
+          "input_item": "skin-on, bone-in chicken thighs",
+          "input_qty": 2.0,
+          "input_unit_id": "lbs",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 lb. skin-on, bone-in chicken thighs"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "19e6bdfd-4c23-4920-8f30-aa08b8e06ac0",
+          "input_item": "Kosher salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "e9fec8fb-2d29-4b6c-971f-b7203deae073",
+          "input_item": "black pepper",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "Freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_text": "Freshly ground black pepper"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "fcde2c4b-e732-4773-88e6-3896892a50ee",
+          "input_item": "butter",
+          "input_qty": 2.0,
+          "input_unit_id": "tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tbsp. butter"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "42cdf9cd-c4fa-4580-9361-89a5a2f9fd38",
+          "input_item": "onion",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 large onion, chopped"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "7d91949f-edae-443c-8bf6-cfb9faf7228d",
+          "input_item": "carrot",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 large carrot, peeled and chopped"
+        },
+        {
+          "confidence": 0.99,
+          "ingredient_id": "338bb968-d1f4-4b81-b9b7-322d22911e9d",
+          "input_item": "celery",
+          "input_qty": 1.0,
+          "input_unit_id": "stalk",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 celery stalk, chopped"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "3fd87c49-3a65-4e0e-b29d-631ca0feb079",
+          "input_item": "mushrooms",
+          "input_qty": 8.0,
+          "input_unit_id": "oz",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "8 oz. mushrooms, sliced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "bdbdeccf-6aac-4ea1-8f5e-0b6cabee6627",
+          "input_item": "all-purpose flour",
+          "input_qty": 2.0,
+          "input_unit_id": "tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tbsp. all-purpose flour"
+        },
+        {
+          "confidence": 0.913,
+          "ingredient_id": "3fb2c5ed-0d0e-4404-b445-47dabc8d9390",
+          "input_item": "white wine",
+          "input_qty": 0.5,
+          "input_unit_id": "c",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 c. white wine"
+        },
+        {
+          "confidence": 0.946,
+          "ingredient_id": "845b1f32-1ac8-476f-b8cc-93c620477247",
+          "input_item": "low-sodium chicken broth",
+          "input_qty": 2.0,
+          "input_unit_id": "c",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 c. low-sodium chicken broth"
+        },
+        {
+          "confidence": 0.974,
+          "ingredient_id": "b370eff2-f159-4d41-abed-d169b82e45c0",
+          "input_item": "heavy cream",
+          "input_qty": 1.0,
+          "input_unit_id": "c",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 c. heavy cream"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "0d1c7175-5bed-47f1-9453-13ff83b142a2",
+          "input_item": "parsley",
+          "input_qty": 2.0,
+          "input_unit_id": "tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "2 tbsp. freshly chopped parsley"
+        },
+        {
+          "confidence": 0.908,
+          "ingredient_id": "4c12cff5-2d89-48aa-af13-4b896a76f35d",
+          "input_item": "freshly thyme leaves",
+          "input_qty": 2.0,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tsp. freshly thyme leaves"
+        }
+      ],
+      "instruction": "In a large high-sided skillet over medium heat, heat oil. Season chicken on both sides with salt and pepper then add to skillet and cook until golden, 5 minutes per side. Remove from skillet and set aside on a plate."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In the same skillet add butter and melt then add onion, carrot, celery, and mushrooms and cook until soft, 5 minutes. Add flour and cook 1 minute. Pour in wine and scrape up any bits on the bottom of pan and reduce wine by half, 7 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add broth and cream and season with parsley, thyme, and salt and pepper. Add chicken back to pan and simmer until chicken is cooked through and sauce is thickened, 15 minutes."
+    }
+  ]
+}

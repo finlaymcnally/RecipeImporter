@@ -1,0 +1,243 @@
+{
+  "recipe": {
+    "description": "Its skirt steak btw not flank. if you use flank youre gonna have a bad time.\nFYI on flank steak, you need to tenderize it with a jaccard and you over cooked it. Anything over medium makes it shoe leather.",
+    "notes": "Tags: American, Main, Normal, steak, cilantro",
+    "title": "Carne Asada Fries",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.955,
+          "ingredient_id": "9b5f09e1-9b08-4791-bb38-cbf8c845a768",
+          "input_item": "Oven-Baked French Fries",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Oven-Baked French Fries"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "51d709e3-08c8-4d3a-98a0-2666694485d0",
+          "input_item": "russet potatoes",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 russet potatoes"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "9d875e37-f0f9-43ad-b84e-2f6a4a876d4d",
+          "input_item": "olive oil",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoon olive oil"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "b04cc6a3-344d-4996-a795-96812d90344d",
+          "input_item": "salt",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon salt"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "53c5717e-d0f3-4cee-8f3d-b688b7d02d6a",
+          "input_item": "garlic powder",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon garlic powder"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "9fcc6532-cd7e-44ab-bb6b-bf77b9209f24",
+          "input_item": "paprika",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon paprika"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "0f897430-8a39-4069-9937-8983061b0ed7",
+          "input_item": "Carne Asada",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Carne Asada"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "ea58d011-e6db-4ec8-a8cb-301fa8a3fd05",
+          "input_item": "flank steak",
+          "input_qty": 0.5,
+          "input_unit_id": "pounds",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd pound flank steak"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "710e2f4f-ef74-460b-bb82-9cf1e64eb0b8",
+          "input_item": "salt",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon salt"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "31efb15d-bc44-490a-9331-67f0fccd0625",
+          "input_item": "pepper",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd teaspoon pepper"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "12331694-a72a-4420-9601-af363b0264c1",
+          "input_item": "chili powder",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon chili powder"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "87e43904-8d2b-4fb7-a6cc-4fa390ad7584",
+          "input_item": "oregano",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd teaspoon oregano"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "5cfe6f06-ef0e-4c68-896c-9e72ea84aa3f",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 cloves garlic, minced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "b5ce6b6f-3fc0-4b64-a09e-74cab05e403f",
+          "input_item": "cilantro",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons cilantro, minced"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "4bb1a572-9870-4870-83bd-79fcd473ac02",
+          "input_item": "fresh orange juice",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd cup fresh orange juice"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "a67af5a7-ed16-4f93-9698-4d384086e12b",
+          "input_item": "lime juice",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc cup lime juice"
+        }
+      ],
+      "instruction": "Preheat oven to 450\u00b0F/230\u00b0C."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Rinse off your potatoes and give them a light scrub to remove any excess dirt. Dry with towel then cut into fries."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a large mixing bowl, combine potatoes, olive oil, salt, garlic powder, and paprika until each fry is fully coated in all of the spices."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place fries on a baking sheet lined with parchment paper and bake at 450\u00b0F/230\u00b0C for 30-35 minutes or until the fries are crispy and golden brown."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Marinate flank steak with salt, pepper, chili powder, oregano, garlic, cilantro, lime juice, and orange juice for 20 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Heat up a cast-iron skillet with 1 tablespoon of canola oil."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place steak in the hot cast-iron skillet and cook for 3 minutes on both sides for a medium cooked steak. Take steak off the heat and let it rest for 10 minutes before dicing."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In an ovenproof skillet, place baked french fries, pepper jack cheese, and diced carne asada, then broil until the cheese is melted."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Top with sour cream, guacamole, diced tomatoes, cilantro, and cotija cheese."
+    }
+  ]
+}

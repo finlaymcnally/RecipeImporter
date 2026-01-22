@@ -1,0 +1,170 @@
+{
+  "recipe": {
+    "description": "Adding the water just makes the soup more soupy. Totally a preference call.",
+    "notes": "Tags: Main, Instant Pot, chicken, carrots, celery, lemons",
+    "title": "Spring chicken soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "80cfdede-69b0-411c-9786-6e55dd174480",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon olive oil"
+        },
+        {
+          "ingredient_id": "3af9d2fd-b43b-430e-959a-2e79c7bf3062",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1-1.5 pounds boneless, skinless chicken breasts"
+        },
+        {
+          "ingredient_id": "c85bc360-15a4-432c-a513-f037c5b8087a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "48oz chicken broth (6 cups)"
+        },
+        {
+          "ingredient_id": "efdf6878-8b94-4343-809a-cbf549ff8605",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "16oz water (2 cups)"
+        },
+        {
+          "ingredient_id": "318370f7-8bae-4b83-b516-b6fa7c520b55",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 bunch of scallions, chopped and separated into white & green portions."
+        },
+        {
+          "ingredient_id": "d87a0e4b-9a4a-489b-ac4e-b8c217d08b8c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 garlic clove, minced"
+        },
+        {
+          "ingredient_id": "03ea4c4f-b284-4998-96cd-93385cb59cd9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5 carrots, peeled and sliced"
+        },
+        {
+          "ingredient_id": "ce78015f-fb51-4b73-8f46-e8b014987f7c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 celery stalks, sliced"
+        },
+        {
+          "ingredient_id": "e8b6f48e-db6c-4f30-aa42-e898420f6a0c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 lemon, juiced"
+        },
+        {
+          "ingredient_id": "9b49ac3f-12aa-4fbe-a381-9469c46c9266",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1.5 teaspoons dried dill"
+        },
+        {
+          "ingredient_id": "314a56a2-6d0f-4bbd-9760-8bb0f700bfb9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1.5 teaspoons dried parsley"
+        },
+        {
+          "ingredient_id": "b01daec5-13ce-4f09-b9d9-3b2f0be0d104",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 teaspoon white pepper*"
+        },
+        {
+          "ingredient_id": "31fabd1d-20fb-4e68-a2bf-69f02891fe02",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup orzo"
+        },
+        {
+          "ingredient_id": "432156e7-8c80-4e22-844c-343f2874fcc3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2-1 pound of lighter vegetables such as asparagus, zucchini, etc. (optional)"
+        },
+        {
+          "ingredient_id": "2ac53ee2-1fef-49aa-8e3f-c57dc97ccc8f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "*white pepper is more subtle than black pepper and is a nice addition to any spice cabinet\u2026especially when making fresh, light dishes. However, black pepper will work too!"
+        }
+      ],
+      "instruction": "Place olive oil, chicken breasts, broth, water, WHITE portion of the scallions, garlic, carrots, celery, lemon juice, dill, parsley, and white pepper in the slow cooker. Add lighter vegetables (if using)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cook on \u201clow\u201d setting for 6 hours."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add GREEN portion of the scallions, orzo*."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cook on \u201clow\u201d for additional 1/2 hour."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "*although it is convenient to add your pasta directly to your slow cooker, if you are planning on eating this soup in more than one sitting, I recommend making the orzo on the side and then adding it as eaten. I find when pasta sits in soup for a few days it gets mushy and the broth gets starchy."
+    }
+  ]
+}

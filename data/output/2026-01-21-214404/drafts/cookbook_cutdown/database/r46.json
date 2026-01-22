@@ -1,0 +1,215 @@
+{
+  "recipe": {
+    "description": "so many spices",
+    "notes": "Tags: Indian, Main, Normal, chicken, ginger, yogurt, lemons, tomatoes, cream",
+    "title": "Tikka Masala",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "1463dd37-666d-433f-8e15-af1369123f74",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5 pounds bone-in chicken pieces (breasts, legs, or a mix), skin removed"
+        },
+        {
+          "ingredient_id": "eb5b75a7-0513-4cb2-a97c-4479351c532b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 tablespoons toasted ground cumin"
+        },
+        {
+          "ingredient_id": "6fce812e-1489-4921-9239-0243e0af2aec",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 tablespoons toasted paprika"
+        },
+        {
+          "ingredient_id": "c4b64972-506d-4cf9-af5d-25b89331e015",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoon toasted ground coriander seed"
+        },
+        {
+          "ingredient_id": "e99e26d6-560d-4e39-a165-b25adacf96f8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 teaspoon ground turmeric"
+        },
+        {
+          "ingredient_id": "4f5b446b-f237-49c7-b19a-e238288405bd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon cayenne pepper"
+        },
+        {
+          "ingredient_id": "ad635978-d8f8-4a6d-8c4c-ba6585a02977",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "12 cloves garlic, grated on the medium holes of a box grater, divided"
+        },
+        {
+          "ingredient_id": "8919115e-51b5-4174-bebe-2d574d0f862e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 tablespoons fresh ginger, grated on the medium holes of a box grater, divided"
+        },
+        {
+          "ingredient_id": "a339d97a-68fe-40a8-9b54-b1a1d2cd0176",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cups yogurt"
+        },
+        {
+          "ingredient_id": "72307c38-3a1d-4c8c-a8b3-ebffedf17476",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3/4 cup fresh juice from 4 to 6 lemons, divided"
+        },
+        {
+          "ingredient_id": "d05cdc85-a321-4fe1-8dc8-056d5e718049",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Diamond Crystal kosher salt; for table salt, use about half as much by volume"
+        },
+        {
+          "ingredient_id": "d9c14ab3-5716-4516-974d-29a4595d0a98",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 tablespoons butter or ghee"
+        },
+        {
+          "ingredient_id": "cacee2bc-f92f-4b8e-87c9-99bce109f387",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 large onion, thinly sliced"
+        },
+        {
+          "ingredient_id": "12c370af-2d6b-4b70-948f-7c3aadb34d6b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 (28-ounce) can whole peeled tomatoes, roughly mashed"
+        },
+        {
+          "ingredient_id": "23a086d7-6fa7-45bc-aa57-042ecba372f0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup roughly chopped cilantro leaves and tender stems"
+        },
+        {
+          "ingredient_id": "8173ddec-1c71-433b-af9d-f3311ba69398",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup heavy cream"
+        }
+      ],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place the chicken pieces on a cutting board with the flesh-side up. Score deeply at 1-inch intervals with a sharp knife. Place in a large rimmed baking dish."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Combine cumin, paprika, coriander, turmeric, and cayenne in a small bowl and mix well. Set aside 3 tablespoons of spice mixture. Combine remaining 6 tablespoons spice mixture, 8 cloves garlic garlic, 2 tablespoons ginger, yogurt, 1/2 cup lemon juice, and 1/4 cup salt in a large bowl and whisk to combine. Pour marinade all over chicken pieces, using hands to coat every surface. cover loosely and refrigerate. Refrigerate and allow to marinate for at least 4 hours and up to 8, turning occasionally."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Meanwhile, heat butter or ghee in a large Dutch oven over medium-high heat until melted and foaming subsides. Add onions, remaining 4 tablespoons grated garlic, and remaining 2 tablespoons ginger. Cook, stirring frequently, until dark and beginning to char in spots, about 10 minutes. Add reserved spice mixture and cook, stirring frequently, until fragrant, about 30 seconds. Add tomatoes and half of cilantro, scraping up any browned bits from bottom of pan with a spoon. Simmer for 15 minutes, then puree using a hand blender or by transferring to a tabletop blender in batches."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "4."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir in cream and remaining quarter cup lemon juice. Season to taste with salt, then set aside until chicken is cooked."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "5."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "TO COOK ON THE GRILL: Light one chimney full of charcoal. When all the charcoal is lit and covered with gray ash, pour out and spread the coals evenly over half of coal grate. Set cooking grate in place, cover grill and allow to preheat for 5 minutes. Clean and oil the grilling grate. Wipe excess marinade off chicken and place over hot side of grill, flesh-side-down. Grill without moving until well charred, 5 to 7 minutes. Flip chicken and cook until second side is charred, another 4 to 5 minutes. (Chicken will not be completely cooked through\u2014this is ok). Transfer to cutting board and allow to rest 10 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "6."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "TO COOK UNDER THE BROILER: Line a broiler pan with heavy duty aluminum foil and preheat the broiler to high with the rack set 6 inches below broiler element. Wipe excess marinade off chicken and place on foil-lined pan, flesh side up. Broil until charred and blackened on surface, about 8 minutes (chicken will not be completely cooked through\u2014this is ok). Transfer to cutting board and allow to rest 10 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "7."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove chicken from bone using a sharp knife and cut into rough bite-sized chunks. Transfer chicken chunks to pot of sauce. Bring to a simmer over medium heat and cook, stirring frequently, until chicken is just cooked through, about 10 minutes. Sprinkle with remaining cilantro, then serve immediately with rice or Grilled Naan"
+    }
+  ]
+}

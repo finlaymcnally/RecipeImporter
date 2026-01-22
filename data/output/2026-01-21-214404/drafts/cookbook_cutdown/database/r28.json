@@ -1,0 +1,154 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Mexican, Main, Instant Pot, pork, peppers, chili pepper, tomatillos, fish sauce",
+    "title": "Pork Chile Verde",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "eb252f46-7c5f-4d35-b3d8-ad7df5975b2f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients"
+        },
+        {
+          "ingredient_id": "9a48ff51-bd14-48f3-8532-eafb551d9049",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 pounds (1.9kg) boneless pork shoulder, cut into 2-inch chunks"
+        },
+        {
+          "ingredient_id": "74fa0d72-6362-413c-9e91-1ce0d0188ba7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3/4 pound tomatillos (about 4 tomatillos; 350g), quartered, husks discarded"
+        },
+        {
+          "ingredient_id": "e1aaf857-5662-4159-8334-1641fa5a71c2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2/3 pound Poblano peppers (about 2 peppers; 300g), roughly chopped, seeds and stems discarded (see note)"
+        },
+        {
+          "ingredient_id": "e4295be1-a29e-48f8-8c5c-28fcf5e397c8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "6 ounces Anaheim or Cubanelle peppers (about 2 peppers; 170g), roughly chopped, seeds and stems discarded (see note)"
+        },
+        {
+          "ingredient_id": "53155a85-641e-4c86-a2e5-df1197338562",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 serrano or jalape\u00f1o chilies, roughly chopped, stems discarded (see note)"
+        },
+        {
+          "ingredient_id": "732e5100-7104-46e8-9b38-ce81c964aa6f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8 ounces white onion (about 1 medium; 225g), roughly chopped"
+        },
+        {
+          "ingredient_id": "47c00a26-19f7-42e6-ad4c-f040451f7f49",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "6 medium cloves garlic, peeled"
+        },
+        {
+          "ingredient_id": "4abf5a14-7fd6-4d94-868d-09a7ec44820a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon (15g) whole cumin seed, toasted and ground"
+        },
+        {
+          "ingredient_id": "744b237c-ac7e-467b-861b-df6e26bb1d64",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt"
+        },
+        {
+          "ingredient_id": "c85a491b-1dee-4b0d-85d8-6a28156384e3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup loosely packed fresh cilantro leaves and fine stems (about 1/2 ounce; 15g), plus more for garnish"
+        },
+        {
+          "ingredient_id": "267e8705-d3c8-40e9-aa26-1176aed775d0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon (15ml) Asian fish sauce"
+        },
+        {
+          "ingredient_id": "5a92f5ec-b30a-41dc-9968-231d8d021927",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Fresh corn tortillas and lime wedges, for serving"
+        },
+        {
+          "ingredient_id": "b4ea2272-a26e-43e6-908d-874f1e637cb8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "In a pressure cooker, combine pork, tomatillos, Poblano peppers, Anaheim peppers, serrano peppers, onion, garlic, cumin, and a big pinch of salt. Heat over high heat until gently sizzling, then seal pressure cooker, bring to high pressure, and cook for 30 minutes. Release pressure."
+        },
+        {
+          "ingredient_id": "2f2b952e-a99e-4c6f-b0a8-f87f7eeac97c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Using tongs, transfer pork pieces to a bowl and set aside. Add cilantro and fish sauce to remaining contents of pressure cooker. Blend with an immersion blender or in a countertop blender, then season to taste with salt. Return pork to sauce and stir gently to combine. Serve immediately with tortillas and lime wedges."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

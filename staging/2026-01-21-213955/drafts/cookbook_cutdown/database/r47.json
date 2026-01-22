@@ -1,0 +1,188 @@
+{
+  "recipe": {
+    "description": "Why It Works\nAn intensely flavored buttermilk brine tenderizes the chicken while keeping it moist.\nAdding wet ingredients to the dry flour coating ensures an extra-craggy crust with lots of nooks and crannies.\nStarting in hot fat and finishing in the oven gives you fried chicken with a crisp crust and evenly cooked meat.",
+    "notes": "Tags: American, Main, Normal, whole chicken, buttermilk",
+    "title": "Fried chicken",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "ef58ad72-d443-4584-be55-25e698e0486e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons paprika"
+        },
+        {
+          "ingredient_id": "8523c7c7-e4c0-44ef-99f0-56ece6f9924a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons freshly ground black pepper"
+        },
+        {
+          "ingredient_id": "e9040837-ccfb-4d8f-bbf5-ba7a2e2b63c3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 teaspoons garlic powder"
+        },
+        {
+          "ingredient_id": "53df94f6-37ed-4c3e-9fd4-259fc64b645e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 teaspoons dried oregano"
+        },
+        {
+          "ingredient_id": "9c0c01eb-aa79-4c78-a45d-48f9a5a7dac9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 teaspoon cayenne pepper"
+        },
+        {
+          "ingredient_id": "62f03fb0-cbd6-41ea-88d6-2790bba80422",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup buttermilk"
+        },
+        {
+          "ingredient_id": "72178e34-a8d7-419a-8b0e-7326f63de93c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 large egg"
+        },
+        {
+          "ingredient_id": "fc2280d6-2fbc-4dba-8f56-22acb2da7f09",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt"
+        },
+        {
+          "ingredient_id": "7fbeb284-3342-4cc0-a82e-ca58d4541425",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "One whole chicken, about 4 pounds, cut into 10 pieces or 3 1/2 pounds bone-in, skin-on breasts, legs, drumsticks, and/or wings"
+        },
+        {
+          "ingredient_id": "127d6153-47fe-40b1-9ef7-376d6b1fdf97",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 1\u20442 cups all-purpose flour"
+        },
+        {
+          "ingredient_id": "2ea1a4b9-7fb4-4fdc-83b5-cf87d9135aa4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1\u20442 cup cornstarch"
+        },
+        {
+          "ingredient_id": "6ca2379d-bcf4-4a96-ab6c-2f5a2ba81e7f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon baking powder"
+        },
+        {
+          "ingredient_id": "671bab74-4391-44ae-a506-7b01fc7f50e2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 cups vegetable shortening or peanut oil"
+        }
+      ],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Combine the paprika, black pepper, garlic powder, oregano, and cayenne in a small bowl and mix thoroughly with a fork."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Whisk the buttermilk, egg, 1 tablespoon salt, and 2 tablespoons of the spice mixture in a large bowl. Add the chicken pieces and toss and turn to coat. Transfer the contents of the bowl to a gallon-sized zipper-lock freezer bag and refrigerate for at least 4 hours, and up to overnight, flipping the bag occasionally to redistribute the contents and coat the chicken evenly."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Whisk together the flour, cornstarch, baking powder, 2 teaspoons salt, and the remaining spice mixture in a large bowl. Add 3 tablespoons of the marinade from the zipper-lock bag and work it into the flour with your fingertips. Remove one piece of chicken from the bag, allowing excess buttermilk to drip off, drop the chicken into the flour mixture, and toss to coat. Continue adding chicken pieces to the flour mixture one at a time until they are all in the bowl. Toss the chicken until every piece is thoroughly coated, pressing with your hands to get the flour to adhere in a thick layer."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "4."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Adjust an oven rack to the middle position and preheat the oven to 350\u00b0F. Heat the shortening or oil to 425\u00b0F in a 12-inch straight-sided cast-iron chicken fryer or a large wok over medium-high heat. Adjust the heat as necessary to maintain the temperature, being careful not to let the fat get any hotter."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "5."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "One piece at a time, transfer the coated chicken to a fine-mesh strainer and shake to remove excess flour. Transfer to a wire rack set on a rimmed baking sheet. Once all the chicken pieces are coated, place skin side down in the pan. The temperature should drop to 300\u00b0F; adjust the heat to maintain the temperature at 300\u00b0F for the duration of the cooking. Fry the chicken until it\u2019s a deep golden brown on the first side, about 6 minutes; do not move the chicken or start checking for doneness until it has fried for at least 3 minutes, or you may knock off the coating. Care- fully flip the chicken pieces with tongs and cook until the second side is golden brown, about 4 minutes longer."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "6."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Transfer the chicken to a clean wire rack set on a rimmed baking sheet and place in the oven. Cook until an instant-read thermometer inserted into the thickest part of the breast registers 150\u00b0F and the legs register 165\u00b0F, 5 to 10 minutes; remove the chicken pieces to a second rack or a paper-towel-lined plate as they reach their final temperature. Season with salt and serve\u2014or, for extra-crunchy fried chicken, go to step 7."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "7."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place the plate of cooked chicken in the refrigerator for at least 1 hour, and up to overnight. When ready to serve, reheat the oil to 400\u00b0F. Add the chicken pieces and cook, flipping them once halfway through cooking, until completely crisp, about 5 minutes. Transfer to a wire rack set on a rimmed baking sheet to drain, then serve immediately."
+    }
+  ]
+}

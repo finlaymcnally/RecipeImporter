@@ -1,0 +1,77 @@
+{
+  "recipe": {
+    "description": "kind of bland",
+    "notes": "Tags: Colombian, Main, Instant Pot, potatoes, tomatoes, chicken",
+    "title": "Colombian chicken Stew",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "bcfde900-a348-493a-8d97-3cef18f1a5e3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 large Russet or Yukon Gold potatoes, peeled and cut into 1- to 2-inch chunks"
+        },
+        {
+          "ingredient_id": "2f2e3924-269d-4521-a565-4100130d7466",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 large onion, sliced into 1/4-inch slices (about 1 1/2 cups)"
+        },
+        {
+          "ingredient_id": "6ce5e9f4-55a9-4fe7-87fa-9b86d658ff81",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 medium beefsteak tomatoes, cut into 1- to 2-inch chunks (about 3 cups)"
+        },
+        {
+          "ingredient_id": "88585d34-8aff-4d8e-8a55-0288080deadf",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 whole chicken, back removed, cut into 8 pieces (about 4 pounds), or 4 whole chicken legs, cut into thighs and drumsticks"
+        },
+        {
+          "ingredient_id": "13c992ab-2585-4431-b449-a9334890618c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 bay leaves"
+        },
+        {
+          "ingredient_id": "618c857b-1b17-4368-bde4-c8f835ab14cf",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt and freshly ground black pepper"
+        }
+      ],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Combine potatoes, onion, tomato, chicken pieces, bay leaves, and a large pinch of salt in a pressure cooker. Toss with hands to combine. Seal lid and cook under high pressure for 25 minutes. Release pressure, remove lid, season to taste, and serve."
+    }
+  ]
+}

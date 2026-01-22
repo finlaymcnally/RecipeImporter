@@ -34,6 +34,13 @@ _HEADER_ALIASES = {
 
 _SECTION_INGREDIENTS = ("ingredient", "ingredients", "ing")
 _SECTION_INSTRUCTIONS = ("instruction", "instructions", "direction", "directions", "method", "step", "steps")
+_SECTION_NOTES = ("note", "notes", "tip", "tips")
+
+# Regex for detecting section headers in text blobs (e.g., "Ingredients:", "INSTRUCTIONS", "Notes")
+_SECTION_HEADER_RE = re.compile(
+    r"^\s*(ingredients?|instructions?|directions?|method|steps?|preparation|notes?|tips?)\s*:?\s*$",
+    re.IGNORECASE,
+)
 
 _ALIAS_LOOKUP: dict[str, str] = {}
 
@@ -480,6 +487,71 @@ def _split_instructions(value: Any, mapping: MappingConfig | None) -> list[str]:
     ]
 
 
+def _extract_sections_from_blob(
+    text: str,
+    mapping: MappingConfig | None,
+) -> dict[str, list[str]]:
+    """
+    Parse a text blob containing section headers into ingredients/instructions/notes.
+
+    Detects headers like:
+    - "Ingredients", "INGREDIENTS", "Ingredients:"
+    - "Instructions", "Directions", "Method", "Steps"
+    - "Notes", "NOTES", "Tips"
+
+    Returns dict with keys: 'ingredients', 'instructions', 'notes'
+    If no section headers found, returns empty dict (caller should fall back).
+    """
+    normalized = _normalize_text(str(text))
+    lines = normalized.split("\n")
+
+    sections: dict[str, list[str]] = {
+        "ingredients": [],
+        "instructions": [],
+        "notes": [],
+    }
+    current_section: str | None = None
+    found_any_header = False
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        # Check if this line is a section header
+        match = _SECTION_HEADER_RE.match(stripped)
+        if match:
+            header = match.group(1).lower()
+            found_any_header = True
+            # Map header to section key
+            if header in ("ingredient", "ingredients"):
+                current_section = "ingredients"
+            elif header in ("instruction", "instructions", "direction", "directions", "method", "step", "steps", "preparation"):
+                current_section = "instructions"
+            elif header in ("note", "notes", "tip", "tips"):
+                current_section = "notes"
+            continue
+
+        # Accumulate line under current section
+        if current_section:
+            if current_section == "ingredients":
+                normalized_line = _normalize_ingredient_line(stripped)
+                if normalized_line:
+                    sections["ingredients"].append(normalized_line)
+            elif current_section == "instructions":
+                normalized_line = _normalize_instruction_line(stripped)
+                if normalized_line:
+                    sections["instructions"].append(normalized_line)
+            elif current_section == "notes":
+                sections["notes"].append(stripped)
+
+    # If no headers were found, return empty dict to signal fallback
+    if not found_any_header:
+        return {}
+
+    return sections
+
+
 def _normalize_tags(value: Any) -> list[str]:
     if value is None:
         return []
@@ -571,9 +643,34 @@ def _convert_wide_table(
             fields["tags"] = all_tags
 
         name = fields.get("name")
-        ingredients = _split_ingredients(fields.get("ingredients"), mapping)
-        instructions = _split_instructions(fields.get("instructions"), mapping)
+        raw_ingredients = fields.get("ingredients")
+        raw_instructions = fields.get("instructions")
+
+        # If we have ingredients but no instructions, check for embedded sections
+        if raw_ingredients and not raw_instructions:
+            sections = _extract_sections_from_blob(str(raw_ingredients), mapping)
+            if sections.get("instructions"):  # Found embedded instructions
+                ingredients = sections["ingredients"]
+                instructions = sections["instructions"]
+                # Handle notes section - append to description if present
+                notes_text = "\n".join(sections.get("notes", []))
+            else:
+                # No section headers found, treat all as ingredients (backward compatible)
+                ingredients = _split_ingredients(raw_ingredients, mapping)
+                instructions = []
+                notes_text = ""
+        else:
+            ingredients = _split_ingredients(raw_ingredients, mapping)
+            instructions = _split_instructions(raw_instructions, mapping)
+            notes_text = ""
+
         description = _normalize_text(str(fields.get("description"))) if fields.get("description") else None
+        # Append notes to description if found from section parsing
+        if notes_text:
+            if description:
+                description = f"{description}\n\n{notes_text}"
+            else:
+                description = notes_text
         recipe_yield = (
             _normalize_text(str(fields.get("recipeYield"))) if fields.get("recipeYield") else None
         )

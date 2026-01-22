@@ -1,0 +1,175 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Italian, Side, Normal, sun dried tomatoes, chicken, cream, tomatoes",
+    "title": "Tuscan chicken soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.982,
+          "ingredient_id": "af13940e-041b-4148-99eb-781f313cde51",
+          "input_item": "Sun Dried tomatoes",
+          "input_qty": 1.0,
+          "input_unit_id": "jar",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced (drained)",
+          "quantity_kind": "quantified",
+          "raw_text": "(1) 7 oz jar Sun Dried tomatoes, sliced (drained)"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "de2c9e5d-6895-485d-8ca5-c809de444663",
+          "input_item": "Butter",
+          "input_qty": 2.0,
+          "input_unit_id": "Tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 Tbsp Butter"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "e2dac5c7-8edc-4ce9-b4f3-0013077b84ce",
+          "input_item": "chicken breast",
+          "input_qty": 2.0,
+          "input_unit_id": "lbs",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 lbs chicken breast"
+        },
+        {
+          "confidence": 0.991,
+          "ingredient_id": "807c95f1-d4ab-4449-a11e-f5ea0cf62def",
+          "input_item": "Onion",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 small Onion, diced"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "42522297-648a-4c7f-8f00-a1fe5ef0c1de",
+          "input_item": "Italian Seasoning",
+          "input_qty": 2.0,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tsp Italian Seasoning"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "3cefbeeb-5fa8-4bb2-b2e2-9755b6b53d2b",
+          "input_item": "red Pepper Flakes",
+          "input_qty": 0.25,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 tsp red Pepper Flakes"
+        },
+        {
+          "confidence": 0.986,
+          "ingredient_id": "ff2c31e7-6666-481f-889b-4d6fba5afe1b",
+          "input_item": "chicken broth",
+          "input_qty": 3.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": "or 3 chicken broth cubes & 3 cups water",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 cups chicken broth, or 3 chicken broth cubes & 3 cups water"
+        },
+        {
+          "confidence": 0.992,
+          "ingredient_id": "42ef2b42-c5d1-46e6-bbf1-b0429d4129e1",
+          "input_item": "half & half",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup half & half"
+        },
+        {
+          "confidence": 0.794,
+          "ingredient_id": "aba1d061-d971-4707-b6e0-ca14ee71cd22",
+          "input_item": "T",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 T minced garlic"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "a4fe7fc9-1aeb-423d-80d9-9694249c0f4f",
+          "input_item": "Parmesan cheese",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup Parmesan cheese"
+        },
+        {
+          "confidence": 0.855,
+          "ingredient_id": "7a952a84-5f4a-4d45-be8d-984cd024d7ba",
+          "input_item": "frozen chopped spinach",
+          "input_qty": 4.0,
+          "input_unit_id": "ounce",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3-5 ounces frozen chopped spinach or kale"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "0e5dd855-c7c1-49bc-b0e7-d7f01ee96695",
+          "input_item": "diced tomatoes",
+          "input_qty": 1.0,
+          "input_unit_id": "can",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 15oz can diced tomatoes"
+        },
+        {
+          "confidence": 0.596,
+          "ingredient_id": "43727431-82b2-4e55-9aeb-bfbaa03a39d0",
+          "input_item": null,
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "in a pot lol",
+          "quantity_kind": "unquantified",
+          "raw_text": "all in a pot lol"
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

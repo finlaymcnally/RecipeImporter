@@ -1,0 +1,223 @@
+{
+  "recipe": {
+    "description": "Lots of spices",
+    "notes": "Tags: Jamacian, Side, Normal, coconut cream",
+    "title": "Jamaican Rice and Beans",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.995,
+          "ingredient_id": "ea75dad1-e9fc-4ee0-9f1c-6d8286b8bc6f",
+          "input_item": "dried red beans",
+          "input_qty": 8.0,
+          "input_unit_id": "ounces",
+          "is_optional": false,
+          "note": "or 8 ounces red kidney beans",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "8 ounces small dried red beans or 8 ounces red kidney beans"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "750c62a0-6778-43a5-83c3-bc64f873d74f",
+          "input_item": "water",
+          "input_qty": 1.0,
+          "input_unit_id": "quart",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 quart water"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "784ce2a0-d4d4-488c-9216-81b371df8944",
+          "input_item": "chicken broth",
+          "input_qty": 16.0,
+          "input_unit_id": "ounces",
+          "is_optional": false,
+          "note": "or 16 ounces chicken stock or 16 ounces water",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "16 ounces chicken broth or 16 ounces chicken stock or 16 ounces water"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "a4849273-ca43-4a4f-825c-c40802ccba93",
+          "input_item": "coconut cream",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1\u20442 cup coconut cream"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "ef6547b9-4177-4343-bbf7-192c9963f74b",
+          "input_item": "fresh thyme leaves",
+          "input_qty": 2.0,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 teaspoons fresh thyme leaves"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "ef51eecd-aac8-458f-b216-c8b6ada0e8ec",
+          "input_item": "ground allspice",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1\u20442 teaspoon ground allspice"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "d359538a-dbad-4e88-b137-84c4657cdb1b",
+          "input_item": "scallions",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "2 scallions, finely chopped"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "07de1e01-0d58-48b0-81f3-82962567fac8",
+          "input_item": "white onion",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1\u20442 cup white onion, chopped"
+        },
+        {
+          "confidence": 0.977,
+          "ingredient_id": "387bdeeb-5b08-48fc-9def-95f08cccc03f",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 minced garlic cloves"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "5eefee3d-03c9-412f-ac2a-a5ab8a9ef395",
+          "input_item": "black pepper",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon black pepper"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "8a0d2235-e9ce-40f7-aadc-9e660eb599be",
+          "input_item": "kosher salt",
+          "input_qty": 1.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 1\u20442 teaspoons kosher salt"
+        },
+        {
+          "confidence": 0.942,
+          "ingredient_id": "2ac6b148-d518-4b0e-9bd4-2a0718f44d04",
+          "input_item": "scotch bonnet pepper",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "(left whole)",
+          "quantity_kind": "quantified",
+          "raw_text": "1 scotch bonnet pepper (left whole)"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "35174037-c095-434f-836d-d81b31136c85",
+          "input_item": "brown sugar",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon brown sugar"
+        },
+        {
+          "confidence": 0.969,
+          "ingredient_id": "e23029c6-a47a-47cf-9796-a4f75adce0b3",
+          "input_item": "long grain rice",
+          "input_qty": 2.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "uncooked",
+          "quantity_kind": "quantified",
+          "raw_text": "2 1\u20444 cups uncooked long grain rice"
+        }
+      ],
+      "instruction": "Rinse and sort beans and place in a stockpot."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cover with several inches of water and soak overnight,-or- bring to a boil, boil gently for 3 minutes, then remove from heat, cover, and allow to sit undisturbed for 1 hour."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Drain and rinse beans."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bring to a boil with chicken stock, water, and coconut cream."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cover, reduce heat, and simmer for 1 1/2-2 hours or until beans are tender and creamy."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the thyme, allspice, scallion, onion, garlic, scotch bonnet, brown sugar, uncooked rice, salt and pepper."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Check the level of liquid over the rice and make sure there is at least one inch of liquid (if not, you may add water or broth to cover)."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bring to a boil, reduce heat, cover and simmer for 20-30 minutes or until rice is tender."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Serve hot as a side dish, with Jamaican hot sauce as a condiment, if desired."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "For Vegetarian use water not the chicken broth or stock."
+    }
+  ]
+}

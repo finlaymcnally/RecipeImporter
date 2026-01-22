@@ -1,0 +1,188 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, chicken, brussels sprouts",
+    "title": "Balsamic Thyme chicken with brussels sprouts, apples and bacon",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "a99dfa6a-f10d-4c57-b63b-1e3b750f8a26",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Balsamic Marinade:"
+        },
+        {
+          "ingredient_id": "37d88969-4361-4827-acbc-12d3fcbcdb93",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tbsp olive oil"
+        },
+        {
+          "ingredient_id": "21ff8c85-9f51-470e-abcd-e9e5c794ca58",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup balsamic vinegar"
+        },
+        {
+          "ingredient_id": "b30f9dfb-a98b-41b9-8b77-d1c740011373",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 tsp sea salt"
+        },
+        {
+          "ingredient_id": "1254124f-678a-4a24-bd0d-b72808475238",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp paprika"
+        },
+        {
+          "ingredient_id": "4eb1a59f-b246-460a-b464-e811f6bea08b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 tsp crushed red pepper flakes"
+        },
+        {
+          "ingredient_id": "5ccc85dc-3302-490f-9a3a-2ed116652cb1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 large cloves garlic crushed"
+        },
+        {
+          "ingredient_id": "47f7285c-a89c-4bc5-95f3-8f814f417b7a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 lemon squeezed"
+        },
+        {
+          "ingredient_id": "0989fdc1-57b2-4552-ae4b-1d4db34d1e6e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 sprigs of fresh thyme stripped from the stem"
+        },
+        {
+          "ingredient_id": "0a555c19-00fc-4278-b524-821c2f1aec7c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "For the pan:"
+        },
+        {
+          "ingredient_id": "445abde0-b7c6-4c8a-99ae-691894cdb50d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 lb chicken breasts of medium thickness boneless and skinless"
+        },
+        {
+          "ingredient_id": "65f24c8f-c3da-477c-9911-a0c6a80d7fba",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 lb brussels sprouts halved and quartered"
+        },
+        {
+          "ingredient_id": "36bfd024-357b-4182-8992-85d88099d78e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 Granny Smith apple peeled, cored and sliced"
+        },
+        {
+          "ingredient_id": "6e5758f7-3747-4a04-ab30-41abb5f9fc80",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tbsp olive oil for the veggies"
+        },
+        {
+          "ingredient_id": "2a33da0e-d32c-4699-9afd-3044a0df3693",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "two sprigs of fresh thyme stripped from the stem (to sprinkle over the veggies)"
+        },
+        {
+          "ingredient_id": "ca6b19a0-f866-44df-a5fa-85f2e97b3478",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "To cook separately:"
+        },
+        {
+          "ingredient_id": "b59e281b-e518-4be7-a9ae-e384afa63392",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5 bacon strips"
+        }
+      ],
+      "instruction": "BALSAMIC MARINADE: You will need a medium bowl or container to prepare the balsamic sauce. Blend \u00bc cup balsamic vinegar, 2 tablespoons of olive oil, \u00bc teaspoon of sea salt, 1 teaspoon paprika, 2 large cloves of garlic, crushed, 4 sprigs of fresh thyme, stripped from the stem and juice of \u00bd fresh lemon. Blend with a whisk until all the ingredients are well incorporated."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "CHICKEN: Cut your chicken breasts into smaller pieces and place chicken into a bowl or container with marinade. Marinade for at least 5 minutes. Start preheating oven at 400 F."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "VEGGIES: Halve or quarter 1 pound of Brussels sprouts (I quartered bigger ones and halved smaller ones). Peel and core an apple and cut it up in thick slices. Apple slices will cook much faster than other elements of this dish and you want them to be sizeable to get a good texture. Place Brussels Sprouts and apples in a large bowl, add 2 tablespoons of olive oil and 2 sprigs of fresh thyme, stripped from the stem and shake. Or, instead of adding them to a bowl, you can add them to the baking sheet, drizzle olive oil and sprinkle with thyme."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "COMBINING CHICKEN AND VEGGIES: Place Brussels sprouts and apples on the 11x17 baking sheet. Add chicken in between the veggies. Brush any remaining marinade over sprouts and apples. Bake for 25-30 minutes (depending on thickness of chicken), or until chicken is cooked through. Broil on high for 2 to 5 extra minutes to get everything extra crispy."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "ADDING BACON: While the chicken is cooking, chop 5 bacon strips into small chunks and cook for about 10 minutes on medium high heat in the skillet, until nice and crispy. Once the chicken and veggies are done and out of the oven, add bacon to the sheet and distribute evenly."
+    }
+  ]
+}

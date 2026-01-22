@@ -1,0 +1,121 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: American, Component, Normal, tomatoes",
+    "title": "New York-Style pizza sauce",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "aadba35d-dc7a-4924-8c13-6e7758800600",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 (28-ounce) can whole peeled tomatoes"
+        },
+        {
+          "ingredient_id": "f1ec6577-ccd3-45f1-9bcc-7907deb071be",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon extra-virgin olive oil"
+        },
+        {
+          "ingredient_id": "a89a6b9e-ffaa-4e34-9a22-cc9282e66091",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon unsalted butter"
+        },
+        {
+          "ingredient_id": "93c4241e-d162-4cdd-a300-11cde05eb5a2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 medium cloves garlic, grated on microplane grater (about 2 teaspoons)"
+        },
+        {
+          "ingredient_id": "8f6fe2e6-ad27-4cce-9d64-2ae0d47d4733",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon dried oregano"
+        },
+        {
+          "ingredient_id": "787d51c8-a06c-4b2d-95d9-f5decca48bc7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pinch red pepper flakes"
+        },
+        {
+          "ingredient_id": "0f89f229-6c3a-4799-8ee5-9d56ad2ab651",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt"
+        },
+        {
+          "ingredient_id": "bc159128-a595-4d43-846c-791ae11d5b1b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 (6-inch) sprigs fresh basil with leaves attached"
+        },
+        {
+          "ingredient_id": "2a4c89b7-649f-483c-8ef9-e200d3593321",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 medium yellow onion, peeled and split in half"
+        },
+        {
+          "ingredient_id": "a5f2f14c-99bd-4574-adf0-0191b4ab44a1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon sugar"
+        }
+      ],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Process tomatoes and their juice through food mill, pulse in food processor until pureed, or puree with hand blender. Puree should not be completely smooth, but should have no chunks larger than 1/16 of an inch. Set tomatoes aside."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Combine butter and oil in medium saucepan and heat over medium-low heat until butter is melted. Add garlic, oregano, pepper flakes, and large pinch salt and cook, stirring frequently, until fragrant but not browned, about 3 minutes. Add tomatoes, basil sprigs, onion halves, and sugar. Bring to a simmer, reduce heat to lowest setting (bubbles should barely be breaking the surface), and cook, stirring occasionally, until reduced by 1/2, about 1 hour. Discard onions and basil stems. Season to taste with salt. Allow to cool and store in covered container in the refrigerator for up to 2 weeks."
+    }
+  ]
+}

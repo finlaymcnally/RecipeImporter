@@ -1,0 +1,247 @@
+{
+  "recipe": {
+    "description": "what is chili LOL",
+    "notes": "Tags: Main, Normal, lamb, tomatoes, chili pepper, coriander",
+    "title": "Home-style lamb curry",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.944,
+          "ingredient_id": "bf51f0ee-0019-4641-8575-d6e0c12638ca",
+          "input_item": "ginger",
+          "input_qty": null,
+          "input_unit_id": "thumb-sized piece",
+          "is_optional": false,
+          "note": null,
+          "preparation": "1/2 cut into matchsticks, the rest left whole",
+          "quantity_kind": "unquantified",
+          "raw_text": "thumb-sized piece ginger, \u00bd cut into matchsticks, the rest left whole"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "1f65697e-b471-41fe-a3cf-c8b06209df26",
+          "input_item": "onions",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "quartered",
+          "quantity_kind": "quantified",
+          "raw_text": "2 onions, quartered"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "15dd2d80-08ec-4a6c-a834-e2e961b3c889",
+          "input_item": "garlic",
+          "input_qty": 4.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 garlic cloves"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "ce2e914e-d316-4210-b6c5-dcd062221044",
+          "input_item": "rapeseed oil",
+          "input_qty": 2.0,
+          "input_unit_id": "tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tbsp rapeseed oil"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "57908101-462f-40f5-aa13-1804e1e224f0",
+          "input_item": "cinnamon stick",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cinnamon stick"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "153482f5-717d-4dd8-a656-c82f83c5eb4d",
+          "input_item": "ground coriander",
+          "input_qty": 1.0,
+          "input_unit_id": "tbsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tbsp ground coriander"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "cd1595f7-9d38-4669-9ae1-a025f01fd226",
+          "input_item": "ground cumin",
+          "input_qty": 1.0,
+          "input_unit_id": "tsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tsp ground cumin"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "c0d7e497-7f22-4c2f-a0cf-086501f6b16c",
+          "input_item": "ground turmeric",
+          "input_qty": 1.0,
+          "input_unit_id": "tsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tsp ground turmeric"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "268308ad-9b47-41c3-aa4d-9c3c443cae7a",
+          "input_item": "fennel seeds",
+          "input_qty": 0.5,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd tsp fennel seeds"
+        },
+        {
+          "confidence": 0.992,
+          "ingredient_id": "56a6831c-3b01-4aa1-99d9-225c6a08ca8a",
+          "input_item": "leg of lamb",
+          "input_qty": 750.0,
+          "input_unit_id": "g",
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced",
+          "quantity_kind": "quantified",
+          "raw_text": "750g leg of lamb, diced"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "a432167f-894d-4f3b-b33e-b139f39fa5cf",
+          "input_item": "chopped tomatoes",
+          "input_qty": 400.0,
+          "input_unit_id": "g cans",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "400g can chopped tomatoes"
+        },
+        {
+          "confidence": 0.923,
+          "ingredient_id": "9881a9eb-71ff-484d-b057-4b7c4eca3079",
+          "input_item": "red chilli",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "deseeded and sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 red chilli or green chilli, deseeded and sliced"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "b5015446-b2f7-4302-a035-90b444a722b0",
+          "input_item": "coriander",
+          "input_qty": null,
+          "input_unit_id": "small bunch",
+          "is_optional": false,
+          "note": null,
+          "preparation": "stalks finely chopped, leaves roughly chopped",
+          "quantity_kind": "unquantified",
+          "raw_text": "small bunch coriander, stalks finely chopped, leaves roughly chopped"
+        },
+        {
+          "confidence": 0.976,
+          "ingredient_id": "8ffa30a9-f1cc-4aa8-8e2b-1d445486ec19",
+          "input_item": "basmati rice",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "basmati rice and mango chutney or raita, to serve"
+        }
+      ],
+      "instruction": "STEP 1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Put \u00bd the thumb-sized piece of ginger, 2 quartered onions and 4 garlic cloves in a food processor with 300ml water. Blitz to a smooth pur\u00e9e."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "STEP 2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Scrape down the sides with a spoon and blitz again to make it as smooth as you can. Tip into a deep saut\u00e9 pan, cover with a lid and simmer for 15 mins."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "STEP 3"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove the lid and cook for 5 mins more, stirring occasionally. By now the liquid should be all gone. If not, cook a little longer."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "STEP 4"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add 2 tbsp rapeseed oil to the pan with the remaining piece of ginger, cut into matchsticks. Turn up the heat and fry, stirring, for 3-5 mins until it starts to colour."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "STEP 5"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir in 1 cinnamon stick, 1 tbsp ground coriander, 1 tsp ground cumin, 1 tsp ground turmeric and \u00bd tsp fennel seeds, then add 750g leg of lamb. Stir-fry until the lamb changes colour."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "STEP 6"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Tip in 400g can chopped tomatoes with a can of water and 1 deseeded and sliced red or green chilli, season well, cover and leave to simmer for 1 hr."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "STEP 7"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir in the finely chopped stalks from a small bunch coriander, re-cover and cook for a final 30 mins until the lamb is tender. Add a splash of water if necessary to loosen the consistency as it cooks."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "STEP 8"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir in the roughly chopped coriander leaves and serve with basmati rice and mango chutney or raita."
+    }
+  ]
+}

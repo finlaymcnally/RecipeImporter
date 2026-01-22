@@ -1,0 +1,289 @@
+{
+  "recipe": {
+    "description": "Can sub chair for earl grey\nI didn\u2019t have buttermilk on hand, so I added 1 tbsp lemon juice to 1 cup milk. To give it more earl grey flavor, I first infused the milk with earl grey, then added lemon juice. You can omit this step if you want to!",
+    "notes": "Tags: British, Dessert, Normal, buttermilk, tea, milk",
+    "title": "Earl grey tea bundt cake + lavender icing",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "102f6863-23d9-4c3d-89d5-b0017143bb87",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Ingredients"
+        },
+        {
+          "ingredient_id": "04d55521-fe00-4fce-93ee-3a9c3d8f566f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 cups all-purpose flour"
+        },
+        {
+          "ingredient_id": "d49d8f82-51ac-44aa-9fed-32b6f4c2a532",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon baking powder"
+        },
+        {
+          "ingredient_id": "cb7d1580-6121-41bc-9634-027246bc7418",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 teaspoon baking soda"
+        },
+        {
+          "ingredient_id": "f5b8add1-37e1-4f3a-9b5e-1d4cbbfb4d00",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 teaspoon salt"
+        },
+        {
+          "ingredient_id": "559287aa-fd66-403c-9859-3612ba998134",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 tbsp earl grey tea in a mesh strainer (tea bags work too)"
+        },
+        {
+          "ingredient_id": "e0c05627-8ed0-4042-8560-8a8841a790ea",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 tbsp earl grey tea, ground."
+        },
+        {
+          "ingredient_id": "20b983f8-2b87-40c9-a74e-c9b3b0e5ec89",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup + 2 tbsp (2 1/4 sticks unsalted butter) at room temp"
+        },
+        {
+          "ingredient_id": "ec537d7e-3dc9-42c2-8616-98731e52d899",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1.5 cups granulated sugar"
+        },
+        {
+          "ingredient_id": "46460e31-f80e-4228-963d-609f76607bcb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tbsp vanilla extract"
+        },
+        {
+          "ingredient_id": "529e1391-90bf-4769-890b-8dc406d592a5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 large eggs"
+        },
+        {
+          "ingredient_id": "ad576818-7056-496d-939b-a219f42a933d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup buttermilk (1 cup milk with 1 tbsp lemon)"
+        },
+        {
+          "ingredient_id": "f72b9833-bf5a-4b70-9a8b-dee4590007ad",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1| Prepare beforehand: I wanted buttermilk to be infused with earl grey tea, so I made my own buttermilk. I first heated up milk until it is just boiling, then added in earl grey leaves to steep for 10 minutes. Then, I let it cool. I added 1 tbsp lemon juice to make buttermilk."
+        },
+        {
+          "ingredient_id": "001b8400-b255-4509-b81c-dbffc9843514",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2| Preheat oven to 350. Grease bundt pan and dust with flour."
+        },
+        {
+          "ingredient_id": "8cf7251c-f492-4b8b-9417-d6f2fe0cd07d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3| Sift together flour, baking powder, baking soda, salt, ground up tea."
+        },
+        {
+          "ingredient_id": "9c8ec04b-d5a9-40b6-888b-df5a24ca0934",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4| Cream together butter and sugar until pale and fluffy, about 5 minutes."
+        },
+        {
+          "ingredient_id": "c8d82c9d-a071-4495-aaf8-424189fc465e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5| Add in extract and beat until well incorporated, about 1-2 minutes."
+        },
+        {
+          "ingredient_id": "0ec4be63-581b-4696-8e73-2fb52727f98a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "6| Add in eggs, one at a time, making sure it is well incorporated after each addition."
+        },
+        {
+          "ingredient_id": "0803d7dd-b317-41a8-b698-0249da88c74e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "7| Add 1/3 of the flour mixture and mix. Add in 1/2 of buttermilk and mix. Add in another 1/3 of flour. Add in remaining \u00bd of buttermilk. Then, add in the remaining amount of flour. After each addition, mix until just combined. Do not over mix."
+        },
+        {
+          "ingredient_id": "68d3a98e-98a0-42c5-acff-45148a7620d8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8| Pour batter evenly into the pan. Lightly tap it against a surface to remove any air bubbles."
+        },
+        {
+          "ingredient_id": "3510c8a1-42e6-408a-934d-2e15fb039389",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "9| Bake for one hour, until toothpick inserted comes out clean. Invert onto a wire rack and cool for another hour."
+        },
+        {
+          "ingredient_id": "5ebfd76c-2fed-450a-85de-c79a044e0d81",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "10| Drizzle glaze on completely cooled cake."
+        },
+        {
+          "ingredient_id": "9ac3a021-5a5f-4263-8fa7-1cb9d6cb00c2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Lavender honey icing"
+        },
+        {
+          "ingredient_id": "5c127b57-698a-4a29-a7ae-d9e46a06a0c0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup powdered sugar"
+        },
+        {
+          "ingredient_id": "9f8d35d8-1a68-42c0-ad14-a4453eb7e512",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp vanilla extract"
+        },
+        {
+          "ingredient_id": "84a4170f-4274-40c0-aaf8-cf2672984d88",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tbsp honey"
+        },
+        {
+          "ingredient_id": "79722b54-07f7-4846-9d15-1d41eafe2a57",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp ground up lavender"
+        },
+        {
+          "ingredient_id": "0b717061-cd34-42b5-818f-702a2145ab5b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1-2 tbsp milk"
+        },
+        {
+          "ingredient_id": "8a9b062a-b63b-4ee2-9c90-da05c7f1dbf4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1| Heat up milk in microwave for 30 seconds. Add in lavender. Let steep for 10 minutes. Strain."
+        },
+        {
+          "ingredient_id": "56b5a007-0a84-45d6-ba4b-d4a4fac88392",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2| Whisk in sugar, extract, honey."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

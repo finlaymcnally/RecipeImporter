@@ -1,0 +1,235 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: American, Main, Instant Pot, chicken thighs, green enchilada sauce, frozen corn, beans",
+    "title": "Green chicken chili",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "5304c735-6c19-45ca-bc2a-399424d92447",
+          "input_item": "olive oil",
+          "input_qty": 1.0,
+          "input_unit_id": "tb",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tbs olive oil"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "faf55966-ec77-49fc-af06-3301a27e84fc",
+          "input_item": "onion",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 onion diced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "56e0a026-5ff0-41c3-95a3-7cc3c80ab2f6",
+          "input_item": "garlic",
+          "input_qty": 3.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "3 cloves garlic, minced"
+        },
+        {
+          "confidence": 0.989,
+          "ingredient_id": "42f16f5f-db75-4249-b53e-1162b71253f2",
+          "input_item": "jalape\u00f1o pepper",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "(leave the seeds and ribs for a spicier chili)",
+          "preparation": "minced, seeds and ribs removed",
+          "quantity_kind": "quantified",
+          "raw_text": "1 jalape\u00f1o pepper, minced, seeds and ribs removed (leave the seeds and ribs for a spicier chili)"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "1aef2370-9dd4-4ea5-8025-442c6999cd4f",
+          "input_item": "cumin",
+          "input_qty": 2.0,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tsp cumin"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "292a4df1-ccc5-4e6a-a1d5-a5c0c966699a",
+          "input_item": "dried oregano",
+          "input_qty": 1.0,
+          "input_unit_id": "tsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tsp dried oregano"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "79dc016e-0f73-4032-9656-8705ff815399",
+          "input_item": "boneless skinless chicken thighs",
+          "input_qty": 1.0,
+          "input_unit_id": "lb",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 lb boneless skinless chicken thighs"
+        },
+        {
+          "confidence": 0.99,
+          "ingredient_id": "ac3782f0-d8d0-4ad2-ba34-0265fa6eddfb",
+          "input_item": "diced green chiles",
+          "input_qty": null,
+          "input_unit_id": "oz cans",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 - 4.5 oz can diced green chiles"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "e290fc79-48d2-485e-802b-6d1027f43c3b",
+          "input_item": "green enchilada sauce",
+          "input_qty": 8.0,
+          "input_unit_id": "oz can",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 - 15 oz can green enchilada sauce"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "f2700776-2b4c-46cb-b32c-ef461f2a3fa0",
+          "input_item": "cannellini beans",
+          "input_qty": null,
+          "input_unit_id": "oz cans",
+          "is_optional": false,
+          "note": null,
+          "preparation": "drained and rinsed",
+          "quantity_kind": "unquantified",
+          "raw_text": "1 - 15.5 oz can cannellini beans, drained and rinsed"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "1e8c3003-3897-4fba-81e6-92f0e58dcc94",
+          "input_item": "chicken broth",
+          "input_qty": 4.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 cups chicken broth,"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "6682fa80-d4b3-44b0-ab89-16858f2557df",
+          "input_item": "frozen corn kernels",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup frozen corn kernels,"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "a2cc236e-1d9e-4e58-9752-60dd22bbf0cf",
+          "input_item": "salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "salt and pepper, to taste"
+        },
+        {
+          "confidence": 0.665,
+          "ingredient_id": "d36f77d8-81e3-48b8-a892-2f54e7b0afe0",
+          "input_item": "Optional toppings",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Optional toppings"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "cc4c144b-ea68-4a00-9ed6-c47f8208391c",
+          "input_item": "cheddar cheese",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "shredded",
+          "quantity_kind": "unquantified",
+          "raw_text": "shredded cheddar cheese"
+        },
+        {
+          "confidence": 0.99,
+          "ingredient_id": "89b204fc-75a9-4391-a5db-9928edbaad42",
+          "input_item": "sour cream",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "sour cream/Greek yogurt"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "05aaf93e-c889-4b02-a266-ac4117786247",
+          "input_item": "tortilla chips",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "tortilla chips"
+        }
+      ],
+      "instruction": "Add the olive oil to your electric pressure cooker insert. Using the saut\u00e9/brown function, heat the oil and cook the onions, garlic, and jalape\u00f1o for 3-4 minutes. Add the cumin and oregano and saut\u00e9 for another minute or two."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the chicken thighs, diced green chilis, enchilada sauce, cannellini beans, chicken broth, and frozen corn to the pressure cooker insert. Place the lid on and lock it. Cook for 25 minutes on high pressure. Allow the pressure to release naturally."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Open the pressure cooker and remove the cooked chicken thighs to a plate. Shred with two forks and return to the chiil. Taste, and add salt and pepper to taste."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Ladle into bowls and top with cheese, sour cream/Greek yogurt, and crushed tortilla chips (we like multigrain), if desired."
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Mexican, Component, Normal, tomatoes, red onion",
+    "title": "Ex-Girlfriend's Mom's Salsa Fresca (Pico de Gallo)",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "c77d748d-71f8-4a2b-9f27-201f49a720fb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup finely chopped red onion"
+        },
+        {
+          "ingredient_id": "34282277-57b9-45c0-8ab5-5d9c9eaaf56e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 jalapeno pepper, seeded and finely chopped - or more to taste"
+        },
+        {
+          "ingredient_id": "e4df59e0-6805-41c1-97cc-0d56b89bef79",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 lime (2\" dia)s limes, juiced"
+        },
+        {
+          "ingredient_id": "d3be5e83-a105-4d74-a42d-a49ad994d4b8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2\u2009\u00bd cups Roma (plum) tomatoes, seeded and chopped"
+        },
+        {
+          "ingredient_id": "0e66dbca-fad9-40ce-953f-6207c396d5c4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd cup chopped fresh cilantro"
+        },
+        {
+          "ingredient_id": "b434d00c-c37e-4385-b10a-ff15eec1d121",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon salt"
+        }
+      ],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Mix red onion, jalapeno pepper, and lime juice in a bowl. Allow to stand for 5 minutes. Mix in Roma tomatoes, cilantro, and salt; allow to stand 15 more minutes for flavors to blend."
+    }
+  ]
+}

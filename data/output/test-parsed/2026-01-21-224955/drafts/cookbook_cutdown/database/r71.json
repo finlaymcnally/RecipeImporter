@@ -1,0 +1,199 @@
+{
+  "recipe": {
+    "description": "Can do them without milk/cheese\nEverybody\u2019s recipe for mashed potatoes is going to vary in texture and moisture; if the waffle batter looks dry and is not holding together, add more liquid or one more egg. If it looks too wet, add more panko crumbs. You are looking for a mixture that is cohesive and not runny.",
+    "notes": "Tags: American, Side, Normal, potatoes, cheese, milk",
+    "title": "Mashed Potato Waffles",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.958,
+          "ingredient_id": "18884557-f264-466c-9cf5-be053d3e56a5",
+          "input_item": "leftover mashed potatoes",
+          "input_qty": 2.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 cups leftover mashed potatoes"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "2ea383a6-a9f1-4e3a-81cd-6948ee63c39e",
+          "input_item": "gluten free panko crumbs",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup gluten free panko crumbs"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "4155fe1b-e91d-42d9-9794-729b54135148",
+          "input_item": "sharp cheddar cheese",
+          "input_qty": 0.75,
+          "input_unit_id": "cups",
+          "is_optional": true,
+          "note": "plus more for topping (optional)",
+          "preparation": "shredded",
+          "quantity_kind": "quantified",
+          "raw_text": "3/4 cup shredded sharp cheddar cheese, plus more for topping (optional)"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "ca854caa-941f-4473-995f-e40654bfd522",
+          "input_item": "milk",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup milk"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "58b0ef45-ffd3-4fb1-951c-28478f1a661f",
+          "input_item": "eggs",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "lightly beaten",
+          "quantity_kind": "quantified",
+          "raw_text": "2 eggs, lightly beaten"
+        },
+        {
+          "confidence": 0.907,
+          "ingredient_id": "4109ef6c-0d77-487b-a3f7-5fd4af6f93db",
+          "input_item": "salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": "fresh ground",
+          "quantity_kind": "unquantified",
+          "raw_text": "salt and fresh ground pepper, to taste"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "93de87db-5e80-40f8-a88b-9c9dd31cfebf",
+          "input_item": "garlic powder",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon garlic powder"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "11586ba0-4515-437a-8690-df0c97fdf4fd",
+          "input_item": "dried oregano",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon dried oregano"
+        },
+        {
+          "confidence": 0.982,
+          "ingredient_id": "41217f7a-70cc-4b33-b484-9645ceafae61",
+          "input_item": "fresh chives",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": "or to taste, plus more for serving",
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon chopped fresh chives, or to taste, plus more for serving"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "51b1b8b3-cf33-4aea-8d01-29b1f3439f98",
+          "input_item": "baking powder",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 teaspoon baking powder"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "0f48124f-01d3-4da0-aa7f-346a8b50df2a",
+          "input_item": "baking soda",
+          "input_qty": 0.25,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 teaspoon baking soda"
+        },
+        {
+          "confidence": 0.934,
+          "ingredient_id": "92a7ee5e-e086-4f46-977b-f45d5f3bdd16",
+          "input_item": "Add sauteed onion",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add sauteed onion/garlic"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "b47b749b-cf98-4be5-9137-1610f229a960",
+          "input_item": "sour cream",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": true,
+          "note": "(optional)",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "sour cream, for serving (optional)"
+        }
+      ],
+      "instruction": "1Preheat waffle iron and grease with cooking spray."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2Combine all of the ingredients, except for the sour cream, in a large mixing bowl; mix and stir until thoroughly incorporated."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3If you want smaller waffles, scoop out about 1/3 cup of the batter and form into a patty. For bigger waffles, use 1/2 cup of the batter. For a perfect serving size, use 2 ounces of the batter per waffle."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "4Transfer to preheated waffle iron and close; cook for 3 to 4 minutes, or until cooked through and browned on top. Cooking time will depend on the size of the waffles."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "5Remove from waffle iron, top with a sprinkle of cheese (optional) and set aside."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "6Repeat with the remaining batter."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "7Serve the potato waffles with sour cream and fresh chives."
+    }
+  ]
+}

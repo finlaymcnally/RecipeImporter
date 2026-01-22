@@ -1,0 +1,110 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, cream, pesto, shrimp, pasta",
+    "title": "Creamy pesto shrimp",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "0d8b95c3-4b17-4aaf-9523-f0e41c538477",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pound linguine pasta"
+        },
+        {
+          "ingredient_id": "6209dbdd-fec5-4ff3-8539-2ee0034a4832",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd cup butter"
+        },
+        {
+          "ingredient_id": "0ee837e8-0543-4824-821c-48b82c275831",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cups heavy cream"
+        },
+        {
+          "ingredient_id": "efb98865-48fa-4b40-a680-cda1bf93c17b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd teaspoon ground black pepper"
+        },
+        {
+          "ingredient_id": "86039ff4-8bb6-470d-91ba-84465e14de42",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup grated Parmesan cheese"
+        },
+        {
+          "ingredient_id": "5524074b-16ee-4763-a2b2-72ba5ee5074c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u2153 cup pesto"
+        },
+        {
+          "ingredient_id": "b9f07c12-cbb4-4b0d-8db6-01a742775a29",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pound large shrimp, peeled and deveined"
+        }
+      ],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bring a large pot of lightly salted water to a boil. Add linguine pasta, and cook for 8 to 10 minutes, or until al dente; drain."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a large skillet, melt the butter over medium heat. Stir in cream, and season with pepper. Cook 6 to 8 minutes, stirring constantly."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 3"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir Parmesan cheese into cream sauce, stirring until thoroughly mixed. Blend in the pesto, and cook for 3 to 5 minutes, until thickened."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 4"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir in the shrimp, and cook until they turn pink, about 5 minutes. Serve over the hot linguine."
+    }
+  ]
+}

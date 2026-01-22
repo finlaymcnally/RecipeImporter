@@ -1,0 +1,138 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: American, Main, Normal, tortillas, pizza sauce, mozzarella, peppers, sausage",
+    "title": "Bar-Style tortilla pizza",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "2ae415e2-c5de-42a8-9df1-59ef5a94d51b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 teaspoon extra-virgin olive oil"
+        },
+        {
+          "ingredient_id": "e87606cf-7056-40c9-86f1-243cf4a20471",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 large flour tortilla that just fits inside your cast iron skillet"
+        },
+        {
+          "ingredient_id": "a6460e91-cc65-4423-b335-3e771bc1f136",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup store-bought or homemade pizza sauce"
+        },
+        {
+          "ingredient_id": "d535c81c-999c-42b4-8da3-a9326a0634aa",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 1/2 ounces shredded whole milk low moisture mozzarella cheese"
+        },
+        {
+          "ingredient_id": "b2c5b8f8-2d1e-4a71-b56d-1a47b5e1d1fa",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 ounce grated Parmesan cheese, divided"
+        },
+        {
+          "ingredient_id": "9451921c-7f9f-4283-b439-a953cfde929e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt"
+        },
+        {
+          "ingredient_id": "b68bad0d-929b-4c2e-b807-a87f0dd22eb2",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup diced yellow onion"
+        },
+        {
+          "ingredient_id": "31b131ab-f3f8-4906-93bb-fbacb3add565",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 cup diced green bell pepper"
+        },
+        {
+          "ingredient_id": "62746b1b-b4d3-4a2c-8eb9-6b89b29d5bdd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 ounces thinly sliced pepperoni"
+        },
+        {
+          "ingredient_id": "a9bf7738-5e25-411f-86a4-6e66576add92",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 ounces raw Italian sausage, formed into 1/2-inch balls"
+        },
+        {
+          "ingredient_id": "fa9551ab-69c5-469b-8443-c52193f0e37b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 basil leaves, roughly torn"
+        }
+      ],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Adjust oven rack to 6 to 8 inches below broiler element and preheat broiler to high. Heat oil in a large cast iron skillet over high heat until shimmering. Reduce heat to medium and wipe out excess oil with a paper towel."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place tortilla in skillet with the rougher textured-side facing down. Spread sauce evenly over tortilla all the way to the edges. Spread mozzarella and half of Parmesan evenly over tortilla all the way to the edges. Season lightly with salt. Sprinkle with onion and bell pepper. Lay pepperoni and sausage chunks over pizza. Scatter with basil."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place skillet under broiler and broil until sausage is cooked through and cheese is melted and starting to brown in spots, 2 to 4 minutes. Remove from oven and sprinkle with remaining Parmesan. Using a small metal spatula, gently pry edges of pizza, releasing the cheese from the skillet. Peek under bottom. If more crispness is desired, place skillet over medium heat and cook, swirling pizza and peeking occasionally, until desired crispness is achieved. Slide pizza out onto a cutting board. Cut and serve immediately."
+    }
+  ]
+}

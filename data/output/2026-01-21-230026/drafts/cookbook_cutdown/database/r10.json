@@ -1,0 +1,271 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Chinese, Main, Normal, chicken, celery, carrots, cabbage, noodles",
+    "title": "Chicken Chow Mein",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.0,
+          "ingredient_id": "dd4e108d-06b4-4e9a-abae-706c089199dd",
+          "input_item": "Marinade",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "Marinade"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "fb62010e-13e4-4c9b-a275-a3cdc4d4cfac",
+          "input_item": "soy sauce",
+          "input_qty": 0.3333333333333333,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u2153 cup soy sauce,"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "38734bc8-f3c4-4c06-9cab-273c4d270370",
+          "input_item": "ginger",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon ginger, minced"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "9570be2f-3913-47fa-b0bc-bea06e002656",
+          "input_item": "garlic",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon garlic, minced"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "74e4e1d7-626a-43b5-b435-a94e76df863d",
+          "input_item": "oyster sauce",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon oyster sauce"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "2ef14b3c-c032-45a9-b40d-cfc779cc7516",
+          "input_item": "sesame oil",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon sesame oil"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "3cf1911b-bcac-4e03-8a0e-0d4934fd3d39",
+          "input_item": "sugar",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon sugar"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "aac3e393-72f2-4b9e-8105-3ea70d29ba8f",
+          "input_item": "red pepper flakes",
+          "input_qty": 0.25,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc teaspoon red pepper flakes"
+        },
+        {
+          "confidence": 0.989,
+          "ingredient_id": "f28c4cdc-e4e4-480a-a7f2-2715c22906be",
+          "input_item": "Pepper",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pepper, to taste"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "8b7e6a3a-fb38-4fad-8234-c49fcc811158",
+          "input_item": "chicken breasts",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "cubed",
+          "quantity_kind": "quantified",
+          "raw_text": "2 chicken breasts, cubed"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "c8ca6bbd-1ab2-4c60-9914-d1daa86c0848",
+          "input_item": "onion",
+          "input_qty": 0.5,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "julienned",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd onion, julienned"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "ee190e4d-72b6-4f83-848e-37f39b755624",
+          "input_item": "celery",
+          "input_qty": 3.0,
+          "input_unit_id": "stalks",
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "3 stalks celery, sliced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "b8166e02-144a-48f9-b4ac-6be78baaaefe",
+          "input_item": "carrots",
+          "input_qty": 4.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "julienned",
+          "quantity_kind": "quantified",
+          "raw_text": "4 carrots, julienned"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "a88b5445-2745-4bdb-9179-98d34be2c933",
+          "input_item": "cabbage",
+          "input_qty": 3.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "shredded",
+          "quantity_kind": "quantified",
+          "raw_text": "3 cups cabbage, shredded"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "612dcca3-8e00-4b6e-afba-b940a7514c6f",
+          "input_item": "ramen noodles",
+          "input_qty": 2.0,
+          "input_unit_id": "packages",
+          "is_optional": false,
+          "note": "(without the seasoning packets)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 packages ramen noodles (without the seasoning packets)"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "0c5ceeda-aa8d-473d-ad43-705b22d83010",
+          "input_item": "chicken broth",
+          "input_qty": 1.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1\u00bd cups chicken broth"
+        },
+        {
+          "confidence": 0.0,
+          "ingredient_id": "87474b79-cd47-4708-88ff-5876cd6ed0b1",
+          "input_item": "Garnish",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "Garnish"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "c9c90ff2-5465-4d06-928f-188b19ee67d1",
+          "input_item": "Scallions",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Scallions"
+        }
+      ],
+      "instruction": "In a bowl, mix soy sauce, ginger, garlic, oyster sauce, sesame oil, sugar, red pepper flakes, and pepper."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place chicken cubes into a re-sealable plastic bag pour half of the marinade into the bag and save the rest for later. Let the chicken marinate in the refrigerator for at least an hour."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Pour the marinated chicken into a large pot and cook over medium-high heat. Remove chicken from the pot."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add sesame oil to the bottom of the pot and add the onion, celery, carrots, and cabbage. Saut\u00e9 until the onions are translucent."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place both of the ramen noodle bricks into the bottom of the pot."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Pour in chicken broth over the noodles."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cover the noodles with the vegetables as much as possible. Cover the pot with a lid and simmer for 5-7 minutes or until the noodles are cooked through."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Break up the noodles and add back the chicken, and pour in the rest of the marinade from earlier."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Garnish with scallions."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Enjoy!"
+    }
+  ]
+}

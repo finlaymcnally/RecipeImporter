@@ -1,0 +1,126 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: American, Main, Normal, chicken thighs, pickles, buttermilk, buns",
+    "title": "5 Ingredient Fried chicken",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "eaec2f70-6f35-402e-a7da-7e9aaf2cade9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 jar sliced pickles, such as Vlasic, with brine"
+        },
+        {
+          "ingredient_id": "4156191e-835e-4274-8d0c-a3c1f9494968",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 boneless, skinless chicken thighs"
+        },
+        {
+          "ingredient_id": "40a78fba-36ef-41b6-b890-82d1fed2ac8a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt and freshly ground black pepper"
+        },
+        {
+          "ingredient_id": "23671e3a-88d0-4da1-b077-988211f3172d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup buttermilk"
+        },
+        {
+          "ingredient_id": "90a3ccfb-8c41-487f-a0c7-72da5a07a4f0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 1/2 cups self-rising flour (see note)"
+        },
+        {
+          "ingredient_id": "33e0c1cb-a173-497b-9b7e-7acf06e440a1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 quart peanut, vegetable, or canola oil"
+        },
+        {
+          "ingredient_id": "414a13ac-8ba3-41bb-a622-5b6f1e06d37a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 soft hamburger buns or potato rolls, toasted"
+        }
+      ],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Pour 3/4 cup pickle juice out of pickle jar into a cup. Reserve pickles."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Season chicken generously with salt and pepper. Place in a plastic zipper-lock bag. Pour in pickle juice. Seal bag, pressing out as much air as possible. Refrigerate and let chicken soak in pickle juice for at least 1 hour and up to 12 hours."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "When ready to fry, remove chicken from bag and discard pickle juice. Pat chicken dry with paper towels. Pour buttermilk into a medium bowl. Add flour and 1 tablespoon pepper to a second bowl. Transfer 3 tablespoons of buttermilk to bowl with flour and work it into the flour with your fingertips."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "4."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Transfer chicken to bowl with buttermilk and turn to coat. Working with one piece at a time, remove chicken from buttermilk, allowing excess to drip off. Add chicken to bowl with flour and turn, lifting the flour on top of it and pressing it down firmly until a thick, shaggy layer of flour has stuck to the chicken. Transfer to a plate and repeat with remaining chicken pieces."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "5."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Heat oil in a wok, deep cast iron skillet, or Dutch oven to 425\u00b0F using a frying thermometer or an instant-read thermometer. Carefully lower chicken pieces into the hot oil; temperature will drop. Adjust flame to maintain a temperature of between 300 and 350\u00b0F. Cook without moving until well browned on first side, about 2 minutes. Flip chicken carefully using tongs and a slotted spatula and cook until second side is browned and chicken is fully cooked, 2 to 3 minutes longer. Transfer to a paper towel\u2013lined plate."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "6."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place bottom buns on a work surface and top with a few pickles each. Top with fried chicken, followed by top buns. Serve immediately."
+    }
+  ]
+}

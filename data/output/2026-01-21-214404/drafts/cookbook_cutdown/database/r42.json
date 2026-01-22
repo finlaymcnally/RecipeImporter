@@ -1,0 +1,85 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, mushrooms, pork chops",
+    "title": "Mushroom pork chop",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "7cbcd295-536b-468c-ba28-23c7dc3bcd2a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 raw chop with refuse, 151 g; (blank) 5.3 ounces pork chops"
+        },
+        {
+          "ingredient_id": "7c61ddcb-99a0-4d40-9f2e-a070c66b762b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd teaspoon salt and pepper to taste"
+        },
+        {
+          "ingredient_id": "c25d59a5-7f39-402e-9794-39a3e00d7e67",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pinch garlic salt, or to taste"
+        },
+        {
+          "ingredient_id": "e957196f-0ce0-4c34-8fc1-3748b12afb74",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 onion, chopped"
+        },
+        {
+          "ingredient_id": "c7972681-61ff-420d-ad51-35eaeac63915",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd pound fresh mushrooms, sliced"
+        },
+        {
+          "ingredient_id": "ea4979ed-3e2b-46a5-a16c-12e15d218e45",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 (10.75 ounce) can condensed cream of mushroom soup"
+        }
+      ],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Season pork chops with salt, pepper, and garlic salt to taste."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a large skillet, brown the chops over medium-high heat. Add the onion and mushrooms, and saute for one minute. Pour cream of mushroom soup over chops. Cover skillet, and reduce temperature to medium-low. Simmer 20 to 30 minutes, or until chops are cooked through."
+    }
+  ]
+}

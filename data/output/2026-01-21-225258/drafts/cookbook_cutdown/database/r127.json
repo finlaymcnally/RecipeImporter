@@ -1,0 +1,271 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Instant Pot, pork, chicken, sun dried tomatoes",
+    "title": "Sundried tomatoes pork/chicken",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "27cbf700-8887-4f95-b528-7a639745a144",
+          "input_item": "sundried tomato puree stuff",
+          "input_qty": 1.0,
+          "input_unit_id": "jar",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 jar of sundried tomato puree stuff"
+        },
+        {
+          "confidence": 0.992,
+          "ingredient_id": "6a68f5d0-114d-4cdb-8ae0-d2e63a23728c",
+          "input_item": "pork",
+          "input_qty": null,
+          "input_unit_id": "lbs",
+          "is_optional": false,
+          "note": null,
+          "preparation": "cut into filets",
+          "quantity_kind": "unquantified",
+          "raw_text": "1.5-2lbs of pork or chicken, cut into filets"
+        },
+        {
+          "confidence": 0.988,
+          "ingredient_id": "c1b27e6c-fe30-4c2e-a3f3-28c52df84424",
+          "input_item": "paprika",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "paprika"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "508f2384-27c8-4e97-a096-baeb28a48e70",
+          "input_item": "onion powder",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "onion powder"
+        },
+        {
+          "confidence": 0.989,
+          "ingredient_id": "9459123a-9432-4efe-b3e9-a409fd81f07f",
+          "input_item": "salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "salt"
+        },
+        {
+          "confidence": 0.989,
+          "ingredient_id": "41e2a407-d253-4485-b70d-2538b58a4e0b",
+          "input_item": "pepper",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "pepper"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "2fa32a4c-b29c-44b1-92cb-bf51219ef8eb",
+          "input_item": "olive oil",
+          "input_qty": 3.0,
+          "input_unit_id": "Tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 Tbsp olive oil"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "59ece53d-0264-4963-8e2c-9f9fd52df2bd",
+          "input_item": "dijon mustard",
+          "input_qty": 1.0,
+          "input_unit_id": "Tbsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 Tbsp dijon mustard"
+        },
+        {
+          "confidence": 0.975,
+          "ingredient_id": "afbb4855-d903-4422-8831-b6ecae0241a9",
+          "input_item": "mushroom pieces",
+          "input_qty": 2.0,
+          "input_unit_id": "can",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1-2 cans of mushroom pieces"
+        },
+        {
+          "confidence": 0.771,
+          "ingredient_id": "42a9f93f-5ed3-4860-ac4c-97d46b863bd8",
+          "input_item": "Season pork with paprika",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "onion powder, pepper",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Season pork with paprika, onion powder, salt, pepper"
+        },
+        {
+          "confidence": 0.967,
+          "ingredient_id": "2f2420be-aaef-46ab-85f2-0de3cc8c4399",
+          "input_item": "Put pork in freezer bag",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Put pork in freezer bag"
+        },
+        {
+          "confidence": 0.781,
+          "ingredient_id": "adc12fe9-8ab5-4b14-ae74-7269006475f8",
+          "input_item": "Combine remaining ingredients",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "dump in freezer bag",
+          "quantity_kind": "unquantified",
+          "raw_text": "Combine remaining ingredients, dump in freezer bag"
+        },
+        {
+          "confidence": 0.974,
+          "ingredient_id": "c6f14ba0-b63f-4a89-8aac-d9a33360e282",
+          "input_item": "freeze",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "freeze"
+        },
+        {
+          "confidence": 0.741,
+          "ingredient_id": "dd7b7e26-9b57-4580-8cae-7b905adee443",
+          "input_item": "To Serve",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "To Serve"
+        },
+        {
+          "confidence": 0.885,
+          "ingredient_id": "4362d6a1-a7d5-43ac-acb7-b12c2d0b1ac7",
+          "input_item": "Thaw pork",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "place in 9x 13 baking dish, bake covered at 375 for 20 minutes",
+          "quantity_kind": "unquantified",
+          "raw_text": "Thaw pork, place in 9x13 baking dish, bake covered at 375 for 20 minutes"
+        },
+        {
+          "confidence": 0.984,
+          "ingredient_id": "8988a9db-19c7-4f8b-8af8-85a0c4430499",
+          "input_item": "Uncover",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Uncover and bake 5 minutes"
+        },
+        {
+          "confidence": 0.708,
+          "ingredient_id": "1eb8e827-1e67-4c8d-85ca-a3a0d551d8f9",
+          "input_item": "top with cheese and place",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": true,
+          "note": "Optional, under broiler for 5 minutes",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Optional: top with cheese and place under broiler for 5 minutes"
+        },
+        {
+          "confidence": 0.85,
+          "ingredient_id": "dc6b8a6d-ee78-4ccb-b621-2fbb53034e6e",
+          "input_item": "Crockpot option with creamy sauce",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Crockpot option with creamy sauce:"
+        },
+        {
+          "confidence": 0.926,
+          "ingredient_id": "8410de84-9e90-4975-a43e-ebc212a61d7d",
+          "input_item": "Place contents in crockpot",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "cook on low for 6 hours.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Place contents in crockpot, cook on low for 6 hours."
+        },
+        {
+          "confidence": 0.91,
+          "ingredient_id": "edfcf6a2-5da6-4ec7-bdf8-0b1558883e50",
+          "input_item": "heavy cream parmesan",
+          "input_qty": 1.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": "Add, and 1/2 cup fresh, and cook additional 30 minutes",
+          "preparation": "grated",
+          "quantity_kind": "quantified",
+          "raw_text": "Add 1.5 cup heavy cream and 1/2 cup fresh grated parmesan, and cook additional 30 minutes"
+        },
+        {
+          "confidence": 0.763,
+          "ingredient_id": "9cf98378-9326-4c5c-922a-1880db0eb96c",
+          "input_item": "add spinach",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": true,
+          "note": "Optional",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Optional: add spinach or kale"
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

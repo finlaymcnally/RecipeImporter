@@ -1,0 +1,271 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: American, Main, Normal, lentils, peppers, tomatoes",
+    "title": "Lentil Sloppy Joe",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.661,
+          "ingredient_id": "689c79de-939f-4b05-826b-b19d9ef85f90",
+          "input_item": "So cut it",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "It was 10 servings.",
+          "preparation": "in half if you don't want that much.",
+          "quantity_kind": "unquantified",
+          "raw_text": "It was 10 servings. So cut it in half if you don't want that much."
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "7ddf58d5-faa6-4e16-8b3c-658b3757d784",
+          "input_item": "dry green lentils",
+          "input_qty": 2.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "cooked in vegetable stock",
+          "quantity_kind": "quantified",
+          "raw_text": "2 cup of dry green or brown lentils, cooked in vegetable stock"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "6b1f4dda-e493-4a71-96c6-a6255c9ff8fb",
+          "input_item": "yellow onion",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely diced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 small yellow onion, finely diced"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "708007c5-6b86-4d15-9976-0012a58b504a",
+          "input_item": "red bell pepper",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely diced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 red bell pepper, finely diced"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "0d8eea8e-2f85-49af-8434-6ba6e7050633",
+          "input_item": "jalapeno pepper",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 jalapeno pepper, minced"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "07f8fbd8-c663-49c1-93f6-c29b8ac7f4b9",
+          "input_item": "plum tomatoes",
+          "input_qty": 4.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "4 plum tomatoes, chopped"
+        },
+        {
+          "confidence": 0.946,
+          "ingredient_id": "304598ce-c217-45bc-9924-bedca68ff995",
+          "input_item": "garlic",
+          "input_qty": 4.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": "or more",
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "4 or more garlic cloves, minced"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "a430bd6f-9997-4a81-9199-f79f42bfc663",
+          "input_item": "ketchup",
+          "input_qty": 4.0,
+          "input_unit_id": "Tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 Tbsp. ketchup"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "21e1a4f2-0357-4440-a8fd-a606f0dbc8e0",
+          "input_item": "tomato pur\u00e9e",
+          "input_qty": 2.0,
+          "input_unit_id": "Tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 Tbsp. tomato pur\u00e9e"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "0e213d1e-edef-445f-9eaa-956f65d10334",
+          "input_item": "apple cider vinegar",
+          "input_qty": 2.0,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tsp apple cider vinegar"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "0170c315-a29c-4bb8-a5d2-b5ebdd504a72",
+          "input_item": "chili powder",
+          "input_qty": 1.0,
+          "input_unit_id": "tsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tsp chili powder"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "34706296-cf18-4018-bd2d-640c1a9f983c",
+          "input_item": "cumin",
+          "input_qty": 1.0,
+          "input_unit_id": "tsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tsp. cumin"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "665a5efe-cf0c-49d1-81ed-11331341a0c5",
+          "input_item": "ground coriander seed",
+          "input_qty": 1.0,
+          "input_unit_id": "tsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tsp. ground coriander seed"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "cc653595-f31f-4a22-ab8c-34bed799f40f",
+          "input_item": "smoked paprika",
+          "input_qty": 0.5,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 tsp. smoked paprika"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "bbf79752-d5b3-443d-af27-c0946b7b38ce",
+          "input_item": "dark brown sugar",
+          "input_qty": 4.0,
+          "input_unit_id": "Tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 Tbsp. dark brown sugar"
+        },
+        {
+          "confidence": 0.921,
+          "ingredient_id": "e5b7d771-4055-4d6a-8347-66bf5db34b47",
+          "input_item": "Bread",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "I used Franz 21 seed bread. You can use whatever",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Bread or Buns or whatever... I used Franz 21 seed bread. You can use whatever"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "1e6c58e3-98ea-4441-9764-62810582eb8b",
+          "input_item": "Avocados",
+          "input_qty": 2.5,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2.5 Avocados"
+        },
+        {
+          "confidence": 0.974,
+          "ingredient_id": "3e4d0d29-9d53-439d-942c-3dd4ef30e5be",
+          "input_item": "Daiya Chedder Cheese",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "(or real cheese if you roll that way)",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Daiya Chedder Cheese (or real cheese if you roll that way)"
+        },
+        {
+          "confidence": 0.71,
+          "ingredient_id": "7e92ea91-fd41-4425-b8ba-4db0b95ad8f5",
+          "input_item": "First rinse",
+          "input_qty": null,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": "and cook the lentils. By sort, I mean look for any stones, or other weird things that might be in there. Simmer in vegetable broth for 30 minutes (time varies depending on type of lentils you use). Then strain out the lentils. Save a, of the broth to add back in towards the end if you need some more juice.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "First rinse, sort, and cook the lentils. By sort, I mean look for any stones, pebbles, twigs, or other weird things that might be in there. Simmer in vegetable broth for 30 minutes (time varies depending on type of lentils you use). Then strain out the lentils. Save a cup of the broth to add back in towards the end if you need some more juice."
+        },
+        {
+          "confidence": 0.806,
+          "ingredient_id": "629fcfbe-543e-483d-9887-69113f0d041e",
+          "input_item": "garlic, and tomatoes",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Saute the onions and peppers for a few minutes on medium heat with a dash of oil. Then add the jalapenos, and cook for a few more minutes before throwing the seasonings on that shit. Stir it all up and lit marinade for a couple minutes.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Saute the onions and peppers for a few minutes on medium heat with a dash of oil. Then add the jalapenos, garlic, and tomatoes and cook for a few more minutes before throwing the seasonings on that shit. Stir it all up and lit marinade for a couple minutes."
+        },
+        {
+          "confidence": 0.816,
+          "ingredient_id": "d5782b3c-80a9-4629-b579-e53e6c613f33",
+          "input_item": "Now toss in the lentils",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "ketchup, and about #1$2-1 cup of the leftover lentil broth. I'll let you be the judge. That's it! You can let the flavors soak in a bit longer or serve immediately., I used Franz 21 seed bread but you can use buns or whatever., the sloppy joe mix, It was delicious. It's also good in a bowl by itself (with hot sauce of course... everything with hot sauce).",
+          "preparation": "I toasted the bread and put a bit of vegan mayo on it",
+          "quantity_kind": "unquantified",
+          "raw_text": "Now toss in the lentils, tomato puree, ketchup, apple cider vinegar, and about 1/2 cup to 1 cup of the leftover lentil broth. I'll let you be the judge. That's it! You can let the flavors soak in a bit longer or serve immediately. To serve, I used Franz 21 seed bread but you can use buns or whatever. I toasted the bread and put a bit of vegan mayo on it, the sloppy joe mix, avocado slices, daiya cheese, and hot sauce. It was delicious. It's also good in a bowl by itself (with hot sauce of course... everything with hot sauce)."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

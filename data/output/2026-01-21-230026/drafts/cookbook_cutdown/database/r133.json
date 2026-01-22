@@ -1,0 +1,59 @@
+{
+  "recipe": {
+    "description": "ONION SOUP MIX SUB: 1/4 c. dried onion flakes, 1 tbsp beef bullion granules (I used 3 cubes), 1/4 tsp onion powder, 1/4 tsp parsley flakes, 1/4 tsp celery seed, 1/4 tsp paprika, 1/4 tsp pepper",
+    "notes": "Tags: French, Main, Instant Pot, french onion soup, sour cream, chicken",
+    "title": "French Onion chicken",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.978,
+          "ingredient_id": "b20a5e91-a485-4c52-b171-ce82950c6bba",
+          "input_item": "French Onion soup",
+          "input_qty": 1.0,
+          "input_unit_id": "can",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 can of French Onion soup"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "da405a3c-7a0e-44bb-99aa-9820c4c94b03",
+          "input_item": "Sour cream",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd cup of Sour cream (or Plain Greek yogurt)"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "9574ff2c-41df-492a-840d-0d61c00b1a71",
+          "input_item": "chicken Breasts",
+          "input_qty": 5.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4-6 chicken Breasts"
+        }
+      ],
+      "instruction": "Put all ingredients in your labeled freezer bag and place in the freezer."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place into the crockpot (ingredients can be thawed or frozen) and cook on low for 6-8 hours. Shred chicken and serve over rice."
+    }
+  ]
+}

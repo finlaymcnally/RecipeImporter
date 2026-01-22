@@ -1,0 +1,179 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: American, Main, Normal, chicken thighs, sweet potatoes, apples, apple cider",
+    "title": "Apple Cider Glazed chicken",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "d9f54bd5-ce52-43bb-ae84-c2ec2d6da859",
+          "input_item": "sweet potato",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and cubed",
+          "quantity_kind": "quantified",
+          "raw_text": "1 large sweet potato, peeled and cubed"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "c649dd96-5f19-4c55-9c93-8bd9f537eef2",
+          "input_item": "apples",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 apples, sliced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "736fa495-ec36-4d82-a317-47f8189be232",
+          "input_item": "olive oil",
+          "input_qty": 2.0,
+          "input_unit_id": "tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": "divided",
+          "quantity_kind": "quantified",
+          "raw_text": "2 tbsp. olive oil, divided"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "821a34ec-7de9-4e7d-a165-313cb2caa009",
+          "input_item": "fresh rosemary",
+          "input_qty": 1.0,
+          "input_unit_id": "tbsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 tbsp. chopped fresh rosemary"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "3e1d91be-de17-4c78-8dcd-eebd95157ad3",
+          "input_item": "kosher salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "kosher salt"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "e8521be8-512c-442f-bf30-0bbb1f57a60a",
+          "input_item": "black pepper",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "Freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_text": "Freshly ground black pepper"
+        },
+        {
+          "confidence": 0.992,
+          "ingredient_id": "306b978c-f2d4-4884-9501-f2fb212cb8dc",
+          "input_item": "bone-in, skin-on chicken thighs",
+          "input_qty": 6.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "trimmed",
+          "quantity_kind": "quantified",
+          "raw_text": "6 bone-in, skin-on chicken thighs, trimmed"
+        },
+        {
+          "confidence": 0.919,
+          "ingredient_id": "72494a3b-9bb1-45e6-8395-93a33125e412",
+          "input_item": "apple cider",
+          "input_qty": 0.6666666666666666,
+          "input_unit_id": "c",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2/3 c. apple cider"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "4993d345-ec2f-47b5-a2a6-314882f82c2e",
+          "input_item": "honey",
+          "input_qty": 2.0,
+          "input_unit_id": "tbsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tbsp. honey"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "f72c49f5-1569-423d-99ca-ab71b1f16b02",
+          "input_item": "Grainy mustard",
+          "input_qty": 1.0,
+          "input_unit_id": "tbsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tbsp. Grainy mustard"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "4e5fa75a-99b6-41b4-9919-6aa87e39df66",
+          "input_item": "butter",
+          "input_qty": 1.0,
+          "input_unit_id": "tbsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tbsp. butter"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "66dfed15-233a-49ad-a86b-2ad7a9020d77",
+          "input_item": "rosemary",
+          "input_qty": 3.0,
+          "input_unit_id": "sprigs",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 rosemary sprigs, for skillet"
+        }
+      ],
+      "instruction": "Preheat oven to 425\u00b0. In a medium bowl, add potatoes, apples and chopped rosemary and season with salt and pepper. Drizzle with 1 tablespoon olive oil and toss until combined."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a large ovenproof skillet over medium-high heat, heat remaining olive oil. Add chicken and sear, skin side down, until golden, about 2 minutes. Remove chicken from heat while you make the glaze."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "To the same skillet, add apple cider, honey and grainy mustard. Bring mixture to a rapid simmer and cook until mixture has reduced slightly then whisk in the butter. Return the chicken to the skillet, skin side up, and scatter the sweet potato mixture and rosemary sprigs around the chicken. Turn off the heat and transfer the entire skillet to the oven."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bake until the sweet potatoes are tender and the chicken is cooked through, about 20 minutes. (If potatoes need longer to cook, transfer chicken to a cutting board to rest and continue cooking until tender.)"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Serve chicken and potatoes with pan drippings."
+    }
+  ]
+}

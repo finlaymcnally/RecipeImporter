@@ -1,0 +1,95 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Mexican, Component, Normal, tomatoes, red onion",
+    "title": "Ex-Girlfriend's Mom's Salsa Fresca (Pico de Gallo)",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "771774d1-e8fb-4aee-8ab4-2a07deabcd2a",
+          "input_item": "red onion",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup finely chopped red onion"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "b81a3fd4-7b76-4199-9a46-e71bec6fb2fe",
+          "input_item": "jalapeno pepper",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "or more to taste",
+          "preparation": "seeded and finely chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 jalapeno pepper, seeded and finely chopped - or more to taste"
+        },
+        {
+          "confidence": 0.942,
+          "ingredient_id": "073608e9-8faf-4b45-a397-a02bc1a7e80d",
+          "input_item": "lime",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "(2\" dia), juiced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 lime (2\" dia)s limes, juiced"
+        },
+        {
+          "confidence": 0.989,
+          "ingredient_id": "ef387288-fb0c-4aac-a162-65ec60f52945",
+          "input_item": "Roma (plum) tomatoes",
+          "input_qty": 2.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "seeded and chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "2\u2009\u00bd cups Roma (plum) tomatoes, seeded and chopped"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "f3b98aae-0bdc-4f07-8d60-35e85d77a656",
+          "input_item": "fresh cilantro",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd cup chopped fresh cilantro"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "378b2ee9-7642-41de-8f7d-371e2bc1ee0d",
+          "input_item": "salt",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon salt"
+        }
+      ],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Mix red onion, jalapeno pepper, and lime juice in a bowl. Allow to stand for 5 minutes. Mix in Roma tomatoes, cilantro, and salt; allow to stand 15 more minutes for flavors to blend."
+    }
+  ]
+}

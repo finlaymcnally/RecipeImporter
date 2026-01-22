@@ -1,0 +1,137 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Mexican, Main, Instant Pot, chicken, peppers",
+    "title": "Freezer-to-Crockpot chicken Fajitas",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "ad175e2f-7ca1-4e37-8942-a68e63467614",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 pounds of boneless skinless chicken breasts, fat trimmed"
+        },
+        {
+          "ingredient_id": "ae09fb8b-b8cd-4ee5-b118-e4cabf3d4d9a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 bell peppers, sliced"
+        },
+        {
+          "ingredient_id": "47b15f15-f8bb-4a66-a46c-12f9771bf7d1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 small yellow onion, peeled and sliced"
+        },
+        {
+          "ingredient_id": "668d7da3-f7de-4cd5-a1c8-382aeee81fef",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cloves of garlic, minced"
+        },
+        {
+          "ingredient_id": "3cb5a11b-9bca-4ed0-ac51-75d0b3f770e0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon honey"
+        },
+        {
+          "ingredient_id": "5ddb5eeb-bb24-422b-8077-0c2d2102b02c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon apple cider vinegar"
+        },
+        {
+          "ingredient_id": "27775ec7-4477-4f67-a61a-0d632d5b7400",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon chili powder"
+        },
+        {
+          "ingredient_id": "4cdebd50-be47-4209-a8a1-e5d145ac5410",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 teaspoons cumin"
+        },
+        {
+          "ingredient_id": "67bc26ba-636c-4f58-9609-4e2d94a4df3b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon paprika"
+        },
+        {
+          "ingredient_id": "13372379-ae93-46ce-8012-1bed794b33f4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 teaspoon crushed red pepper flakes"
+        }
+      ],
+      "instruction": "TO FREEZE:"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Label your freezer bag with the name of the recipe, cooking instructions, and \"use-by\" date. (I use these simple printable labels.)"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add all ingredients."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove as much air from the bag as possible, seal, and lay flat in your freezer for up to three months."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "TO COOK:"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "The night before cooking, move the frozen bag to your refrigerator to thaw."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "The morning of cooking, pour contents of freezer bag into your crockpot and cook on \u201clow\u201d setting for 6 hours or until chicken is tender."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Shred chicken and serve with cooked onions and peppers."
+    }
+  ]
+}

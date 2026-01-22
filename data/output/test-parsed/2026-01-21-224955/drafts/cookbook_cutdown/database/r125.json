@@ -1,0 +1,147 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Instant Pot, beef roast",
+    "title": "Balsamic beef Pot roast",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.992,
+          "ingredient_id": "7e56ac49-9c65-40c9-b0c7-7ccda186e5dd",
+          "input_item": "boneless chuck roast",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "One boneless chuck roast, approximately 3 lbs."
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "1ebc09f5-5083-42de-8524-cfc4c009cfe7",
+          "input_item": "kosher salt",
+          "input_qty": 1.0,
+          "input_unit_id": "Tbsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 Tbsp kosher salt"
+        },
+        {
+          "confidence": 0.886,
+          "ingredient_id": "8ba4095c-d2de-49db-ac88-b1f6fea19cdf",
+          "input_item": "black ground pepper",
+          "input_qty": 1.0,
+          "input_unit_id": "tsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tsp black ground pepper"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "cab899ff-c56e-457e-925e-5199c52cc3f7",
+          "input_item": "garlic powder",
+          "input_qty": 1.0,
+          "input_unit_id": "tsp",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tsp garlic powder"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "42c49af4-2442-445f-9742-697daafcfcf6",
+          "input_item": "balsamic vinegar",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup of balsamic vinegar"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "e5e20a7b-9802-42e2-ae3a-ad42ddf464b1",
+          "input_item": "water",
+          "input_qty": 2.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 cups water"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "c18c3b45-fe7a-48cc-ac41-0d298c685761",
+          "input_item": "onion",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup onion, chopped"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "1600ad20-bbc3-4a26-8f5f-f154a87d9454",
+          "input_item": "xanthan gum",
+          "input_qty": 0.25,
+          "input_unit_id": "tsps",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 tsp xanthan gum"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "af019833-3274-4de2-ad2e-612bb2d886e5",
+          "input_item": "Fresh parsley",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "unquantified",
+          "raw_text": "Fresh parsley, chopped to garnish"
+        }
+      ],
+      "instruction": "Cut your chuck roast in half so you have two pieces. Season the roast with the salt, pepper, and garlic powder on all sides. Using the saute feature on the instant pot, brown the roast pieces on both sides."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add 1/4 cup of balsamic vinegar, 1 cup water, and 1/2 cup onion to the meat. Cover and seal, then using the manual button set the timer for 40 minutes. When the timer runs out, release the pressure by moving the lever to the \u201cventing\u201d setting. Once all the pressure is released, uncover the pot."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Carefully remove the meat from the pan to a large bowl. Break carefully into chunks and remove any large pieces of fat or other refuse."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Use the saute function to bring the remaining liquid to a boil in the pot, and simmer for 10 minutes to reduce."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Whisk in the xanthan gum, then add the meat back to the pan and stir gently."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Turn off the heat and serve hot over cauliflower puree, garnished with lots of fresh chopped parsley."
+    }
+  ]
+}

@@ -1,0 +1,167 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Instant Pot, carrots, apples, butternut squash, tea",
+    "title": "Chai Butternut squash soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "5c7ed4e5-6196-4da8-a0e7-39a5952a4f15",
+          "input_item": "vegetable stock",
+          "input_qty": 2.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 cups vegetable stock"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "8baaa318-29a3-4ce0-ad1b-6e3f6f392515",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and minced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 cloves garlic, peeled and minced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "76c6854e-71e4-4e75-a2a9-025d44cb7cca",
+          "input_item": "carrot",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and diced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 carrot, peeled and diced"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "cdcf832e-dca2-4b6f-b880-4e0a212ae6fe",
+          "input_item": "apple",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "cored and diced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 apple, cored and diced"
+        },
+        {
+          "confidence": 0.98,
+          "ingredient_id": "24b39039-6ff7-43f9-9c71-b3d2c87d53f0",
+          "input_item": "butternut squash",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "(uncooked), peeled, seeded and diced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 medium (uncooked) butternut squash*, peeled, seeded and diced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "7c370feb-9d5e-42cb-bd2f-292f70259acf",
+          "input_item": "white onion",
+          "input_qty": 1.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and diced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 small white onion, peeled and diced"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "b6a2e18b-7573-4041-aed5-9945c75c16db",
+          "input_item": "cayenne",
+          "input_qty": 0.125,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": "or more to taste",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/8 teaspoon cayenne, or more to taste"
+        },
+        {
+          "confidence": 0.99,
+          "ingredient_id": "c2987d10-f613-4875-b0d3-7636a526ec1f",
+          "input_item": "chai tea bags",
+          "input_qty": 2.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1\u20132 chai tea bags"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "f84e4850-a266-470a-9f54-1ad713b6d2ba",
+          "input_item": "Kosher salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt and freshly-cracked black pepper, to taste"
+        },
+        {
+          "confidence": 0.979,
+          "ingredient_id": "18418344-f3d1-491a-8b6e-a564e2722ea5",
+          "input_item": "canned (unsweetened) coconut milk",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup canned (unsweetened) coconut milk"
+        },
+        {
+          "confidence": 0.89,
+          "ingredient_id": "e5bf7245-d660-4e9f-bb61-ecf167ee6e97",
+          "input_item": "swirled extra coconut milk",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": true,
+          "note": "optional garnishes",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "optional garnishes: swirled extra coconut milk and/or a sprinkle of ground cinnamon"
+        }
+      ],
+      "instruction": "Add vegetable stock, garlic, carrot, apple, butternut squash, onion, cayenne to the bowl of an Instant Pot. Toss to combine. Then nestle a chai tea bag (or use two, if you\u2019d like extra chai flavor) into the mixture so that it\u2019s completely submerged in the broth. Close lid securely and set vent to \u201cSealing\u201d."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Press \u201cManual\u201d, then press \u201cPressure\u201d until the light on \u201cHigh Pressure\u201d lights up, then adjust the +/- buttons until time reads 30 minutes. Cook. Then let the pressure release naturally, about 15 minutes. Carefully turn the vent to \u201cVenting\u201d, just to release any extra pressure that might still be in there, then remove the lid."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove and discard the chai tea bag."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Use an immersion blender to puree the soup until smooth. (Or you can transfer the soup in two batches into a traditional blender, and puree until smooth, being very careful when working with the hot liquid.) Stir in the coconut milk until combined. Then taste, and season with a few generous pinches of salt and pepper as needed. (Feel free to add in more cayenne too, if you\u2019d like.)"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Serve warm, topped with your desired garnishes. Or refrigerate in a sealed container for up to 3 days, or freeze for up to 3 months."
+    }
+  ]
+}

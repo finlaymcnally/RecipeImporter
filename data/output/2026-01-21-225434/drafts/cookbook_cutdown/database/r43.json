@@ -1,0 +1,451 @@
+{
+  "recipe": {
+    "description": "I kind of merge the two recipes together\n\nless than 1/2 cup vinegar\nhoney is bomb\ncook chicken separately so it gets rid of it's grease\nlearn how to cook/reduce gravy\n\ncinnamon and brown sugar/honey are secret ingredients",
+    "notes": "Tags: Filipino, Main, Normal, chicken thighs, coconut milk, cauliflower",
+    "title": "Chicken Adobo",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "cd57dded-3928-431a-8905-c8cb0fe622a3",
+          "input_item": "soy sauce",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup (65 ml) soy sauce"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "5bda45dc-801e-41d1-b38f-5e04fa960cc0",
+          "input_item": "white Filipino cane vinegar",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup (125 ml) white Filipino cane vinegar, or distilled white vinegar"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "49f90c41-bde4-4773-87bb-53262e5d8eef",
+          "input_item": "garlic",
+          "input_qty": 7.0,
+          "input_unit_id": "clove",
+          "is_optional": false,
+          "note": null,
+          "preparation": "smashed with the side of a knife and peeled",
+          "quantity_kind": "quantified",
+          "raw_text": "6\u20138 cloves garlic, smashed with the side of a knife and peeled"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "aa0703a2-2b59-45cb-9ad2-fff440a13f1d",
+          "input_item": "whole black peppercorns",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon whole black peppercorns"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "ebda93f7-f378-4ded-b6f1-0062b130f52b",
+          "input_item": "bay leaves",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 bay leaves"
+        },
+        {
+          "confidence": 0.961,
+          "ingredient_id": "36804ef0-41da-4d70-aca7-aac704ba80f1",
+          "input_item": "skin-on, bone-in chicken thighs",
+          "input_qty": 6.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "6 skin-on, bone-in chicken thighs"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "d8f1dcb3-09c9-455c-a8f1-443b825e6db3",
+          "input_item": "add coconut milk",
+          "input_qty": null,
+          "input_unit_id": "Can",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Can add coconut milk"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "96cb9c0d-fb41-44f1-a5d5-020641987c34",
+          "input_item": "dried bay leaves",
+          "input_qty": 10.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "10 dried bay leaves"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "d24fcd2f-12f8-4433-9989-221080bb888c",
+          "input_item": "black peppercorns",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons black peppercorns"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "d67d17f4-9d60-4be4-87a6-740989000e9a",
+          "input_item": "ground turmeric",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons ground turmeric"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "20f46275-26a5-4b34-99b1-0a0b552e30c1",
+          "input_item": "unsweetened shredded coconut",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc cup unsweetened shredded coconut"
+        },
+        {
+          "confidence": 0.981,
+          "ingredient_id": "cbc63f23-7fdd-4cdd-b7c0-e70bc3810af7",
+          "input_item": "cauliflower",
+          "input_qty": 0.5,
+          "input_unit_id": "heads",
+          "is_optional": false,
+          "note": null,
+          "preparation": "broken into small florets",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd head of cauliflower, broken into small florets"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "9f16d739-cb92-490d-8798-7fdd123dfca4",
+          "input_item": "kabocha squash",
+          "input_qty": 0.25,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "cut into 1 inch pieces",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc kabocha squash, cut into 1-inch pieces (about 2 cups)"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "2d74e26e-9cca-4f81-ae76-570abf23cc41",
+          "input_item": "vegetable oil",
+          "input_qty": 3.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "divided",
+          "quantity_kind": "quantified",
+          "raw_text": "3 tablespoons vegetable oil, divided"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "0bfa3ee7-133e-49be-9aa8-628230628473",
+          "input_item": "Kosher salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt, freshly ground pepper"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "2d49fd3c-0201-4e4f-b944-dbfd9ba18989",
+          "input_item": "white onion",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 small white onion, chopped"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "b17e71c3-3d9c-4622-9ab3-48ee9ecb0563",
+          "input_item": "shallots",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "2 medium shallots, chopped"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "116dd613-e3f6-42ee-bc92-48571b70405e",
+          "input_item": "garlic",
+          "input_qty": 6.0,
+          "input_unit_id": "large cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "6 large garlic cloves, chopped"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "e09633b1-bc47-43cd-b7a7-0765028939f0",
+          "input_item": "ginger",
+          "input_qty": 1.0,
+          "input_unit_id": "piece",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled, finely grated",
+          "quantity_kind": "quantified",
+          "raw_text": "1 3-inch piece ginger, peeled, finely grated"
+        },
+        {
+          "confidence": 0.932,
+          "ingredient_id": "9b0f0da2-4ca1-4cf0-bdeb-ddc44489e7f1",
+          "input_item": "crushed red pepper flakes",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon crushed red pepper flakes"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "a51ec8ac-ab48-4123-8e63-f72f18c8eb24",
+          "input_item": "unsweetened coconut milk",
+          "input_qty": 2.0,
+          "input_unit_id": "cans",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 13.5-ounce cans unsweetened coconut milk"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "e0db08b1-334f-40d9-919e-9ce22999902a",
+          "input_item": "sugarcane vinegar",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": "divided",
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup sugarcane vinegar or distilled white vinegar, divided"
+        },
+        {
+          "confidence": 0.91,
+          "ingredient_id": "7bc6cbeb-67fb-4d35-b0d4-4fe5565143e0",
+          "input_item": "chicken legs",
+          "input_qty": 4.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "drumsticks and thighs separated",
+          "quantity_kind": "quantified",
+          "raw_text": "4 chicken legs, drumsticks and thighs separated"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "72cd0b54-542b-4933-9e5d-63c505f9c6d4",
+          "input_item": "honey",
+          "input_qty": 3.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": "(or more)",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "3 tablespoons (or more) honey"
+        },
+        {
+          "confidence": 0.858,
+          "ingredient_id": "5e3ca29a-dd47-41d8-8a49-286b08959fa9",
+          "input_item": "pumpkin seeds (pepitas)",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "Unsalted, roasted, thinly sliced, and sliced",
+          "quantity_kind": "unquantified",
+          "raw_text": "Unsalted, roasted pumpkin seeds (pepitas), thinly sliced Fresno chiles, and sliced scallion (for serving)"
+        },
+        {
+          "confidence": 0.0,
+          "ingredient_id": "fb5be001-a68f-4099-83a4-85f9d375961d",
+          "input_item": "RECIPE PREPARATION",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "RECIPE PREPARATION"
+        },
+        {
+          "confidence": 0.756,
+          "ingredient_id": "8870afaa-6c65-4d76-894a-66325371c91e",
+          "input_item": "Place bay leaves and peppercorns",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "in center of cheesecloth and tie closed with kitchen twine; set sachet aside. Toast turmeric in a dry small skillet over medium-low heat, just until fragrant (be careful not to let it brown), about 3 minutes. Transfer to a plate.",
+          "preparation": "stirring often",
+          "quantity_kind": "unquantified",
+          "raw_text": "Place bay leaves and peppercorns in center of cheesecloth and tie closed with kitchen twine; set sachet aside. Toast turmeric in a dry small skillet over medium-low heat, stirring often, just until fragrant (be careful not to let it brown), about 3 minutes. Transfer to a plate."
+        },
+        {
+          "confidence": 0.751,
+          "ingredient_id": "9326fa47-8a9c-414c-b639-7fa78637157f",
+          "input_item": "Cook coconut",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "in same skillet over medium-high heat, stirring occasionally, until burnt (not browned: burnt), about 3 minutes., Transfer to another plate.",
+          "preparation": "Grind in a spice mill or with a mortar and pestle or finely chop.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Cook coconut in same skillet over medium-high heat, stirring occasionally, until burnt (not browned: burnt), about 3 minutes. Grind in a spice mill or with a mortar and pestle or finely chop. Transfer to another plate."
+        },
+        {
+          "confidence": 0.872,
+          "ingredient_id": "7b41d008-c2c3-490f-a6ac-048d9807330c",
+          "input_item": "Roast vegetables",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Heat oven to 375\u00b0. Toss cauliflower and squash on a large rimmed baking sheet with 1 Tbsp oil to coat; season with salt and pepper., tossing occasionally, 30-40 minutes.",
+          "preparation": "until browned and tender",
+          "quantity_kind": "unquantified",
+          "raw_text": "Heat oven to 375\u00b0. Toss cauliflower and squash on a large rimmed baking sheet with 1 Tbsp. oil to coat; season with salt and pepper. Roast vegetables, tossing occasionally, until browned and tender, 30\u201340 minutes."
+        },
+        {
+          "confidence": 0.846,
+          "ingredient_id": "7683dfa9-685a-46c9-9174-3f8c0c468cc6",
+          "input_item": "Heat remaining",
+          "input_qty": 2.0,
+          "input_unit_id": "Tbsps",
+          "is_optional": false,
+          "note": "over medium-high., stirring often, until golden brown and very fragrant, about 1 minute. Stir in toasted turmeric, and 3/4 cup vinegar.",
+          "preparation": "8-10 minutes., stirring often, just until fragrant, Bring to a boil and cook until liquid is reduced by about one-third, 20-30 minutes.",
+          "quantity_kind": "quantified",
+          "raw_text": "Heat remaining 2 Tbsp. oil in a large Dutch oven or other heavy pot over medium-high. Add onion, shallots, garlic, and ginger and cook, stirring often, until golden brown and very fragrant, 8\u201310 minutes. Add red pepper flakes and cook, stirring often, just until fragrant, about 1 minute. Stir in toasted turmeric, coconut milk, and \u00be cup vinegar. Bring to a boil and cook until liquid is reduced by about one-third, 20\u201330 minutes."
+        },
+        {
+          "confidence": 0.867,
+          "ingredient_id": "69e9da86-3bc2-4add-9066-3a0aea54e067",
+          "input_item": "Meanwhile",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "prepare a grill for medium-high heat (or heat a grill pan over medium-high). Season chicken with salt and pepper and grill, turning occasionally, (chicken will not be cooked through at this point), 8-10 minutes.",
+          "preparation": "just until skin is charred",
+          "quantity_kind": "unquantified",
+          "raw_text": "Meanwhile, prepare a grill for medium-high heat (or heat a grill pan over medium-high). Season chicken with salt and pepper and grill, turning occasionally, just until skin is charred (chicken will not be cooked through at this point), 8\u201310 minutes."
+        },
+        {
+          "confidence": 0.842,
+          "ingredient_id": "fb9b0527-a196-4bf3-a961-7e45efeb686b",
+          "input_item": null,
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Add chicken and reserved sachet to turmeric sauce. Cook, until chicken is tender, 60-80 minutes. Stir honey and remaining 1/4 cup vinegar in a small bowl until honey is dissolved; add to braise, then add roasted cauliflower and squash. Taste and season with more salt or honey as needed.",
+          "preparation": "partially covered",
+          "quantity_kind": "unquantified",
+          "raw_text": "Add chicken and reserved sachet to turmeric sauce. Cook, partially covered, until chicken is tender, 60\u201380 minutes. Stir honey and remaining \u00bc cup vinegar in a small bowl until honey is dissolved; add to braise, then add roasted cauliflower and squash. Taste and season with more salt or honey as needed."
+        },
+        {
+          "confidence": 0.925,
+          "ingredient_id": "7838742b-8919-4a2f-a1da-124f9106d414",
+          "input_item": "Divide adobo among bowls and top with burnt coconut",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "chiles, and scallion.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Divide adobo among bowls and top with burnt coconut, pumpkin seeds, chiles, and scallion."
+        }
+      ],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place the soy sauce, vinegar, garlic, black peppercorns, and bay leaves in a large, nonreactive saut\u00e9 pan, and then nestle the chicken thighs, skin side down, into the pan. Bring the liquid to a boil over high heat, and then cover and simmer over low heat for 20 minutes. Turn the chicken over, and then cover and simmer for another 10 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Uncover the pan, and then increase the heat to high and return the sauce to a boil. While occasionally turning and basting the chicken, continue boiling the sauce, uncovered, until it is reduced by half and thickens slightly, 5\u20137 minutes. Serve with steamed white rice."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Variations: While the sauce is reducing, transfer the chicken thighs, skin side up, to a foil-lined sheet pan. Brown the chicken thighs underneath the broiler for 3\u20135 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Use freshly ground black pepper instead of whole peppercorns."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "For a \u201cdrier\u201d chicken adobo, you can reduce the sauce until it is almost completely evaporated. The chicken will then begin to fry in its own fat that is still left in the pan. This is how my grandmother finishes her adobo."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "For a saucier adobo, double the amount of soy sauce and vinegar."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "OTHER ONE"
+    }
+  ]
+}

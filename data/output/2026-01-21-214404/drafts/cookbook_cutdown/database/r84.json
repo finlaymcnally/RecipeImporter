@@ -1,0 +1,212 @@
+{
+  "recipe": {
+    "description": "Freezes well",
+    "notes": "Tags: Indian, Component, Normal, carrots, cabbage, peppers, tomatoes",
+    "title": "Curry sauce",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "9b088b81-019b-46a6-92b6-af5f6d1335aa",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "10 large cooking onions \u2013 finely sliced"
+        },
+        {
+          "ingredient_id": "b9209215-0ac7-4c08-821d-70c569faed86",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "250ml vegetable oil"
+        },
+        {
+          "ingredient_id": "b478155b-a92a-4c03-b6cd-8f60fedeb5ec",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "9 tablespoons garlic/ginger paste (equal amounts garlic and ginger blended into a paste with a little water.)"
+        },
+        {
+          "ingredient_id": "d3df22f7-e0d3-439d-ae65-6bdc1dd47cb0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 carrot - peeled and chopped"
+        },
+        {
+          "ingredient_id": "581175ec-6444-4aaf-b963-2f383a0e81df",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc head of cabbage - chopped"
+        },
+        {
+          "ingredient_id": "847acc31-7a56-4b9c-8a2a-a9ea5b0deb03",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 red capsicum (bell pepper) - diced"
+        },
+        {
+          "ingredient_id": "966574ac-3efe-47d6-ba20-e335d5e65dd8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 green capsicum (bell pepper) - diced"
+        },
+        {
+          "ingredient_id": "1d709f2a-6c5c-45c1-a686-0c3c75acc972",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "water"
+        },
+        {
+          "ingredient_id": "35dbcc7b-16c2-4349-8abd-10de53be82bb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "400ml (14 US fluid ounces ) chopped tomatoes"
+        },
+        {
+          "ingredient_id": "513a43eb-3324-4bbb-bc09-3608130d9643",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 tablespoons ghee (clarified butter)"
+        },
+        {
+          "ingredient_id": "28b37c59-d003-47bc-bcd4-8aa136af97b5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon garam masala powder"
+        },
+        {
+          "ingredient_id": "003107c8-fb43-4ae0-9f43-47cd83a34047",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon cumin powder"
+        },
+        {
+          "ingredient_id": "281f5320-4fb8-49d2-a2c1-53b0aa729689",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon coriander powder"
+        },
+        {
+          "ingredient_id": "93984860-8062-4832-8efd-06658cc9ca60",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon fenugreek powder"
+        },
+        {
+          "ingredient_id": "1565d0a1-60da-4cba-8741-0ac0be3a962a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon smoked paprika"
+        },
+        {
+          "ingredient_id": "b3a1eba4-d6ac-4a22-9bc3-bc2dd4f1dc47",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon turmeric"
+        },
+        {
+          "ingredient_id": "addd6472-0107-4dbc-8114-0de2b5ff045e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt and pepper to taste (I usually leave this out and simply add it to the final dish)"
+        }
+      ],
+      "instruction": "Pour the oil into a large heavy bottomed saucepan and heat over medium high heat until bubbling."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Throw in the sliced onions and fry, stirring regularly for about 20 minutes until the onions are soft, lightly browned and translucent."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the capsicums (bell peppers), carrot and cabbage and stir to combine."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Fry for a further five minutes and then add the ginger and garlic purees and the all of the spices except for the turmeric."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Now add the tomatoes and just enough water (about 2 cups/ 500ml) to cover the vegetables and simmer for about half an hour."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "After 30 minutes, remove the mixture from the heat and allow to cool slightly."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Scoop the mixture in batches into a blender and blend until silky smooth. I usually do this for about three minutes per batch. If you have a hand held blender, this stage will be much easier."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Once your sauce is smooth, melt the ghee in a frying pan. Add the turmeric powder to the ghee. It will darken as it cooks. You want to brown it for about 30 seconds being careful not to burn the turmeric."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Now add the turmeric/ghee mixture to the sauce and bring to a simmer again."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Once it is bubbling away, turn down the heat and simmer for a further 20 to 30 minutes"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Use immediately or store in the fridge for up to three days or freeze in 750ml (3 cups) portions for up to three months."
+    }
+  ]
+}

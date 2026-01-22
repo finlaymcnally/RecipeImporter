@@ -1,0 +1,98 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: American, Side, Normal, potatoes, cream",
+    "title": "Parmesan Crusted Scalloped potatoes",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "df961c0c-d64a-4e73-881f-86946e016289",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 1/2 cups heavy cream"
+        },
+        {
+          "ingredient_id": "e2c43e51-d6d1-49d4-aedd-b71a716067fd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cloves garlic, pressed"
+        },
+        {
+          "ingredient_id": "dc793091-9815-45cb-b736-763269453f92",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 sprig fresh thyme"
+        },
+        {
+          "ingredient_id": "27173a75-6d1c-4975-8574-9112c6d34dd9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pinch of nutmeg"
+        },
+        {
+          "ingredient_id": "81cfec34-6125-44aa-b534-ecb01348ea69",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 pounds russet potatoes, peeled and cut into 1/8-inch thick slices"
+        },
+        {
+          "ingredient_id": "8eaabb34-584b-4a49-a057-9dd0ab1b6479",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt and freshly ground black pepper, to taste"
+        },
+        {
+          "ingredient_id": "7fd68192-d12c-4397-bea5-f7338d114fc7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "9 tablespoons frehsly grated Parmesan, divided"
+        }
+      ],
+      "instruction": "Preheat oven to 375 degrees F. Lightly oil a 9-inch pie plate or coat with nonstick spray."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a medium saucepan, combine heavy cream, garlic, thyme and nutmeg over medium heat until heated through, about 1-2 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add a layer of potatoes to the prepared baking dish in an overlapping pattern; season with salt and pepper, to taste. Pour 1/3 cup cream mixture over potatoes; sprinkle with 3 tablespoons Parmesan. Repeat with remaining potato slices, cream mixture and Parmesan to create 2 more layers."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place into oven and bake until cooked through, about 35-40 minutes. Sprinkle with additional Parmesan and broil for 8-10 minutes, or until top becomes golden brown and crusted."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Serve immediately."
+    }
+  ]
+}

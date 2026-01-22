@@ -1,0 +1,162 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: French, Main, Normal, chicken thighs, carrots, celery, mushrooms, cream",
+    "title": "Chicken Fricassee",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "819f1634-0092-4eb1-a4f3-99c6eab7ba3c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tbsp. extra-virgin olive oil"
+        },
+        {
+          "ingredient_id": "481cb765-7e0d-4ce4-90e5-07c693bda96e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 lb. skin-on, bone-in chicken thighs"
+        },
+        {
+          "ingredient_id": "65f8697a-3a78-409f-9aed-7962039a2aba",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt"
+        },
+        {
+          "ingredient_id": "8f36d1ee-819c-40e9-9090-b40807767830",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Freshly ground black pepper"
+        },
+        {
+          "ingredient_id": "dafbb298-4972-4da7-b089-f3e5847ac0d1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tbsp. butter"
+        },
+        {
+          "ingredient_id": "49e97c29-1f4e-46e7-9584-1ca4c20c74fb",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 large onion, chopped"
+        },
+        {
+          "ingredient_id": "d0bc9436-4a9b-4b9d-a442-001ccf2e2520",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 large carrot, peeled and chopped"
+        },
+        {
+          "ingredient_id": "bb6d2003-7c56-40f5-b4c4-da6b3acadd0b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 celery stalk, chopped"
+        },
+        {
+          "ingredient_id": "436272a5-4493-49c3-85d9-f93c84115cd8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8 oz. mushrooms, sliced"
+        },
+        {
+          "ingredient_id": "2775c93c-a54a-4a3e-b1ba-6055783e9af8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tbsp. all-purpose flour"
+        },
+        {
+          "ingredient_id": "323bc2a4-2b32-4cc8-9a28-603114ecde55",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 c. white wine"
+        },
+        {
+          "ingredient_id": "d616a2e7-3f45-407f-9fef-a719f5fbc908",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 c. low-sodium chicken broth"
+        },
+        {
+          "ingredient_id": "44f0f99e-4a8e-4e5b-854f-71caec8ee57b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 c. heavy cream"
+        },
+        {
+          "ingredient_id": "ca1e3fcc-4f7b-41e2-9c17-f7469e9314a1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tbsp. freshly chopped parsley"
+        },
+        {
+          "ingredient_id": "4d5a9c39-1ba6-431d-9867-2c5ae5656570",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tsp. freshly thyme leaves"
+        }
+      ],
+      "instruction": "In a large high-sided skillet over medium heat, heat oil. Season chicken on both sides with salt and pepper then add to skillet and cook until golden, 5 minutes per side. Remove from skillet and set aside on a plate."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In the same skillet add butter and melt then add onion, carrot, celery, and mushrooms and cook until soft, 5 minutes. Add flour and cook 1 minute. Pour in wine and scrape up any bits on the bottom of pan and reduce wine by half, 7 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add broth and cream and season with parsley, thyme, and salt and pepper. Add chicken back to pan and simmer until chicken is cooked through and sauce is thickened, 15 minutes."
+    }
+  ]
+}

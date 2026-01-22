@@ -1,0 +1,183 @@
+{
+  "recipe": {
+    "description": "chicken is optional\nLots of spices\n\n*The package of sausage I bought was 14oz, but any amount from 12 to 16oz. (3/4 to 1 lb.) will work just fine.",
+    "notes": "Tags: Main, Normal, celery, peppers, sausage, tomatoes",
+    "title": "Jambalaya",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "9d7c58d6-90f6-42f4-bca0-a0c7ed34d0e4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 ribs celery"
+        },
+        {
+          "ingredient_id": "da0a6c6c-4603-4d76-a442-6b84f9717b51",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 yellow onion"
+        },
+        {
+          "ingredient_id": "51f72def-7b29-40a4-b49e-1d81d5218f55",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 green bell pepper"
+        },
+        {
+          "ingredient_id": "4ba010c3-ee92-497f-befe-d3b70a5f7882",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cloves garlic"
+        },
+        {
+          "ingredient_id": "a1118796-1f74-4c22-8257-d11b817d3eb5",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "12-16 oz. smoked sausage*"
+        },
+        {
+          "ingredient_id": "d0c7efc2-55d0-4c72-916d-92c8191a90cd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 boneless, skinless chicken thighs (optional)"
+        },
+        {
+          "ingredient_id": "b470a4b8-2b44-407a-bc27-f4ed1eeb2627",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp dried oregano"
+        },
+        {
+          "ingredient_id": "5463d28c-6413-49cd-ba28-d9921d5f6aa7",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tsp dried thyme"
+        },
+        {
+          "ingredient_id": "76439ce2-f4bf-45b8-8908-0a151cbb1bca",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 Tbsp smoked paprika"
+        },
+        {
+          "ingredient_id": "16683f46-d261-4cc2-bfbf-e5a70462d263",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 tsp cayenne pepper"
+        },
+        {
+          "ingredient_id": "329d989e-3640-4a34-81a7-3664e946066a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Freshly cracked pepper (15-20 cranks of a mill)"
+        },
+        {
+          "ingredient_id": "32856bf1-f455-4447-9571-7bcc3c67f0ba",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 15 oz. cans diced tomatoes (or one 28oz. can)"
+        },
+        {
+          "ingredient_id": "758c404d-e2e8-4e1d-8107-5aff41a23196",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 bunch fresh parsley, chopped"
+        },
+        {
+          "ingredient_id": "4a2c34b3-a899-40bc-91ae-45ebd04949aa",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cups chicken broth"
+        },
+        {
+          "ingredient_id": "267425a6-edce-4348-be68-01f7506f773b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cups uncooked long grain white rice"
+        },
+        {
+          "ingredient_id": "fe4e9319-bb37-47f1-aa15-d2553877f097",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 green onions, sliced"
+        }
+      ],
+      "instruction": "Finely dice the celery, onion, and bell pepper. Mince the garlic. Add the celery, onion, bell pepper, and garlic to the bottom of a 5 quart or larger slow cooker."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Slice the smoked sausage into rounds or half moons and add them to the slow cooker, along with the chicken thighs, oregano, thyme, paprika, cayenne, and freshly cracked pepper."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Pour the diced tomatoes and all their juices over the meat and spices in the slow cooker. Add the chicken broth and a handful of chopped fresh parsley. Stir briefly."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place the lid on the slow cooker, turn the heat on to high, and cook for four hours."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "After four hours, the liquid in the slow cooker should be boiling. Carefully remove the chicken thighs, making sure to replace the lid quickly, shred the meat, and stir it back into the pot along with the uncooked rice. Replace the lid and let it continue to cook on high for 20-25 minutes, or until the rice has absorbed most of the liquid."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove the lid, test the rice to make sure it's tender, then stir to fluff the ingredients. Sprinkle the sliced green onions over top, then serve."
+    }
+  ]
+}

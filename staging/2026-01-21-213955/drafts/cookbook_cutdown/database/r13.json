@@ -1,0 +1,155 @@
+{
+  "recipe": {
+    "description": "Chicken thighs are great when you brown them skin side down over medium to med-low heat over a longer time. Get a good deep brown color, fat is rendered out, and skin gets incredibly crispy. By doing it on a lower heat, you also run less of a risk of burning your seasonings. Then, flip the chicken and do the same thing again. Don't worry, you're not going to overcook a chicken thigh. You could put those in a 400\u00b0F oven for 4 hours and they'd still be edible.\n\nSaut\u00e9e your rice for a minute or two in the fat before adding liquid. Would need be a bad idea to drain some of the fat off too. There seems to be a little much in there. Helps develop the flavor and keeps the rice from becoming mushy. Also, don't overcook your rice. Finally, I'd add a bit of cider or wine vinegar to the cooking liquid to help add some depth of flavor and cut through some of the fat. Could also use citrus.",
+    "notes": "Tags: American, Main, Normal, chicken",
+    "title": "Paprika chicken And Rice Bake",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "be87a820-a827-4e58-9135-8e2e818df81f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5 chicken thighs"
+        },
+        {
+          "ingredient_id": "788423d6-9e74-40f0-b9cb-9b3f8de41544",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon salt"
+        },
+        {
+          "ingredient_id": "cd5f2744-44f1-4bb7-929e-aab96be2d71b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon pepper"
+        },
+        {
+          "ingredient_id": "e8fe44df-b0d5-439e-9436-e3ceca962b07",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon paprika"
+        },
+        {
+          "ingredient_id": "c913ca6f-1e7f-480f-b465-724e6db891a1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon dried parsley"
+        },
+        {
+          "ingredient_id": "7a940cbc-5e96-4ddd-85e6-77a54beca366",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon olive oil"
+        },
+        {
+          "ingredient_id": "05977fe0-b6af-4f92-8982-dc7cf7fc0bee",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon garlic, minced"
+        },
+        {
+          "ingredient_id": "44c65e5e-effb-4061-8e3a-bf0236ab7fe1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd cup red onion, diced"
+        },
+        {
+          "ingredient_id": "07dea9cd-d367-45f0-85f0-b3dfe3663db1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup long grain rice"
+        },
+        {
+          "ingredient_id": "33d78cf7-84e6-4a09-a224-30980eb5741c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1\u00bd cups chicken broth"
+        },
+        {
+          "ingredient_id": "ef66557b-c250-4a86-8e95-fe80f10164f1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt, to taste"
+        },
+        {
+          "ingredient_id": "c988d2ca-46c0-481d-ba1d-1a59c1967776",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pepper, to taste"
+        }
+      ],
+      "instruction": "Preheat oven to 400\u02daF/200\u02daC."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a large bowl, evenly season chicken thighs with salt, pepper, paprika, and parsley."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "On high, heat olive oil in a oven-proof pot and place chicken thighs, skin-side down, in the hot oil. Cook 5-6 minutes or the thighs develop brown crispy skin and flip over. Cook an additional 5-6 minutes to brown the other side and remove from the pot."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the garlic and onions to the pot, and cook until the onions are transparent."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Pour in the rice and chicken broth to the pot and season with salt and pepper. Stir well, bringing to a boil."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the chicken thighs back into the pot, skin-side up, on top of the rice, bring back to a boil and cover with a lid."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bake for 35-40 minutes, or until the rice is fully cooked."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Optional: remove chicken thighs and broil for crispy skin."
+    }
+  ]
+}

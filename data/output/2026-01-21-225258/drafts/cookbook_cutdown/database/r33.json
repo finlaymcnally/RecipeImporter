@@ -1,0 +1,151 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: American, Component, Normal, tomatoes",
+    "title": "New York-Style pizza sauce",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "4607e624-ee81-4043-bf99-14ff13d849b5",
+          "input_item": "whole peeled tomatoes",
+          "input_qty": 1.0,
+          "input_unit_id": "can",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 (28-ounce) can whole peeled tomatoes"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "5b601399-16b9-43e8-a093-c85250b1a038",
+          "input_item": "extra-virgin olive oil",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon extra-virgin olive oil"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "e8deb223-f712-491a-a59e-a765b11b6ff0",
+          "input_item": "unsalted butter",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon unsalted butter"
+        },
+        {
+          "confidence": 0.971,
+          "ingredient_id": "65be6c0a-f035-4e53-9563-f1abc68d0d04",
+          "input_item": "garlic",
+          "input_qty": 2.0,
+          "input_unit_id": "medium cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "grated on microplane grater",
+          "quantity_kind": "quantified",
+          "raw_text": "2 medium cloves garlic, grated on microplane grater (about 2 teaspoons)"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "ec8c78f5-f132-48d1-a3f1-f92a4aebd843",
+          "input_item": "dried oregano",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon dried oregano"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "b059a749-8b84-48c7-8052-28b04411ef01",
+          "input_item": "red pepper flakes",
+          "input_qty": null,
+          "input_unit_id": "Pinch",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pinch red pepper flakes"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "cd8b19f4-f892-4e3b-9097-7e7eb3686a15",
+          "input_item": "Kosher salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt"
+        },
+        {
+          "confidence": 0.981,
+          "ingredient_id": "e4bb935c-080b-4513-a274-2902da4889ea",
+          "input_item": "fresh basil with leaves attached",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 (6-inch) sprigs fresh basil with leaves attached"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "47829d0f-43bb-491f-9b77-68fb9988a5c2",
+          "input_item": "yellow onion",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and split in half",
+          "quantity_kind": "quantified",
+          "raw_text": "1 medium yellow onion, peeled and split in half"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "eaabe359-f7c8-4cb2-b1e9-5506ce296c77",
+          "input_item": "sugar",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon sugar"
+        }
+      ],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Process tomatoes and their juice through food mill, pulse in food processor until pureed, or puree with hand blender. Puree should not be completely smooth, but should have no chunks larger than 1/16 of an inch. Set tomatoes aside."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Combine butter and oil in medium saucepan and heat over medium-low heat until butter is melted. Add garlic, oregano, pepper flakes, and large pinch salt and cook, stirring frequently, until fragrant but not browned, about 3 minutes. Add tomatoes, basil sprigs, onion halves, and sugar. Bring to a simmer, reduce heat to lowest setting (bubbles should barely be breaking the surface), and cook, stirring occasionally, until reduced by 1/2, about 1 hour. Discard onions and basil stems. Season to taste with salt. Allow to cool and store in covered container in the refrigerator for up to 2 weeks."
+    }
+  ]
+}

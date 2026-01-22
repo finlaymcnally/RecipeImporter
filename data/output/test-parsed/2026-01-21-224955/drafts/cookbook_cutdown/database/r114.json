@@ -1,0 +1,111 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, avocados, bread crumbs, chili",
+    "title": "Crispy Baked Avocado Fries",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "35bf864d-5fcc-4e91-8fa6-facffc71d5d3",
+          "input_item": "avocados",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "2 large avocados, sliced"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "532edd6e-23a8-40e0-93e8-a803ea82f167",
+          "input_item": "salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "salt, pepper and cayenne to taste"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "5459c275-bc0b-4f6f-9677-89080e263ed5",
+          "input_item": "flour",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup flour"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "6530c987-f989-4ff0-9f38-cad145c4f1e4",
+          "input_item": "egg",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "lightly beaten",
+          "quantity_kind": "quantified",
+          "raw_text": "1 egg, lightly beaten"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "412286d5-d0c2-4f0c-9c2f-71fdfd66ccf2",
+          "input_item": "panko bread crumbs",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup panko bread crumbs"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "b5d3a80d-7084-4a57-8d40-718e3f24622c",
+          "input_item": "ranch dressing",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup ranch dressing"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "d6eb85e1-f9b8-4a03-b1ba-dedd0f485323",
+          "input_item": "chipotle chili in adobo",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1 chipotle chili in adobo, chopped"
+        }
+      ],
+      "instruction": "Season the avocado slices with salt, pepper and cayenne to taste, dredge them in flour, dip them in egg and then panko breadcrumbs."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place the avocado slices in a single layer on a wire rack on a baking sheet and bake in a preheated 425F/220C oven until golden brown, about 15-20 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Serve with a mixture of ranch and chipotle dressing."
+    }
+  ]
+}

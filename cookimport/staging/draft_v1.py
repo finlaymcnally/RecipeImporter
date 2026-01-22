@@ -4,6 +4,8 @@ import uuid
 from typing import Any
 
 from cookimport.core.models import HowToStep, RecipeCandidate
+from cookimport.parsing.ingredients import parse_ingredient_line
+from cookimport.parsing.step_ingredients import assign_ingredient_lines_to_steps
 
 
 def _generate_uuid() -> str:
@@ -11,14 +13,11 @@ def _generate_uuid() -> str:
 
 
 def _convert_ingredient(text: str) -> dict[str, Any]:
+    """Parse and convert an ingredient string to structured output."""
+    parsed = parse_ingredient_line(text)
     return {
         "ingredient_id": _generate_uuid(),
-        "quantity_kind": "unquantified",
-        "input_qty": None,
-        "input_unit_id": None,
-        "note": None,
-        "raw_text": text,
-        "is_optional": False,
+        **parsed,
     }
 
 
@@ -50,7 +49,7 @@ def recipe_candidate_to_draft_v1(candidate: RecipeCandidate) -> dict[str, Any]:
     }
 
     # 2. Prepare Steps & Ingredients
-    # Strategy: Attach all ingredients to the first step.
+    # Strategy: Assign ingredients to steps with deterministic matching.
     
     # Convert all ingredients
     all_ingredient_lines = [
@@ -59,24 +58,27 @@ def recipe_candidate_to_draft_v1(candidate: RecipeCandidate) -> dict[str, Any]:
 
     # Convert all instructions
     steps_data: list[dict[str, Any]] = []
-    
+
     raw_instructions = candidate.instructions
     if not raw_instructions:
-        # If no instructions, create a dummy one to hold ingredients
+        # If no instructions, create a dummy one so output has a step.
         raw_instructions = ["See original recipe for details."]
+
+    step_ingredient_lines = assign_ingredient_lines_to_steps(
+        raw_instructions,
+        all_ingredient_lines,
+    )
 
     for idx, instr in enumerate(raw_instructions):
         text = _convert_instruction(instr)
-        step_ingredients = []
-        
-        # Attach all ingredients to the first step
-        if idx == 0:
-            step_ingredients = all_ingredient_lines
-            
-        steps_data.append({
-            "instruction": text,
-            "ingredient_lines": step_ingredients
-        })
+        step_ingredients = step_ingredient_lines[idx] if idx < len(step_ingredient_lines) else []
+
+        steps_data.append(
+            {
+                "instruction": text,
+                "ingredient_lines": step_ingredients,
+            }
+        )
 
     return {
         "schema_v": 1,

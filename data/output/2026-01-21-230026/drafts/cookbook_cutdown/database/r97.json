@@ -1,0 +1,79 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: American, Component, Normal, cranberries, apples",
+    "title": "Applesauce with cranberries",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.996,
+          "ingredient_id": "840de152-1cff-4dfd-a77b-09b5605570b4",
+          "input_item": "golden delicious apples",
+          "input_qty": 3.0,
+          "input_unit_id": "lbs",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled, quartered, cored, cut into 3/4 inch pieces",
+          "quantity_kind": "quantified",
+          "raw_text": "3lbs golden delicious apples, peeled, quartered, cored, cut into 3/4inch pieces"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "6800cb9b-e208-490e-9b17-f48bfde07fea",
+          "input_item": "apple juice",
+          "input_qty": 1.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1.5 cups apple juice"
+        },
+        {
+          "confidence": 0.894,
+          "ingredient_id": "e0c76d90-90aa-44f2-bede-0e6d6442db81",
+          "input_item": "fresh/frozen cranberries",
+          "input_qty": 1.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1.5 cups fresh/frozen cranberries"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "92f33a6a-2170-4883-8960-8a279232ed85",
+          "input_item": "sugar",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup sugar"
+        },
+        {
+          "confidence": 0.622,
+          "ingredient_id": "41a2f9fd-6b79-4bc6-8ba1-041782144ffe",
+          "input_item": "Combine",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "in large pot, 25min",
+          "preparation": "bring to boil, simmer till apples are tender",
+          "quantity_kind": "unquantified",
+          "raw_text": "Combine in large pot, bring to boil, simmer till apples are tender, 25min"
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

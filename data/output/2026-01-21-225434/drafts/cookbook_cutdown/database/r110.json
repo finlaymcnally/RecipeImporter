@@ -1,0 +1,103 @@
+{
+  "recipe": {
+    "description": "One secret to making sure that these turn out well is being sure to let them cool the FULL FIVE MINUTES after cooking before removing them from the pan.",
+    "notes": "Tags: Side, Normal, potatoes",
+    "title": "Parmesan Baked Potato Halves",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.983,
+          "ingredient_id": "aa718cf0-1dab-45cc-a789-5210098d1f32",
+          "input_item": "potatoes",
+          "input_qty": 6.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "scrubbed and cut in half",
+          "quantity_kind": "quantified",
+          "raw_text": "6 small potatoes scrubbed and cut in half"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "6197493e-f29b-415a-8a00-c36a453e6d54",
+          "input_item": "butter",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 cup butter"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "5855190b-ea56-44f5-aa15-476e3eb8e190",
+          "input_item": "Parmesan cheese",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "grated",
+          "quantity_kind": "unquantified",
+          "raw_text": "grated Parmesan cheese"
+        },
+        {
+          "confidence": 0.99,
+          "ingredient_id": "4ff114bf-bde6-4958-a211-ca93a8bd0bc3",
+          "input_item": "garlic powder",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "garlic powder"
+        },
+        {
+          "confidence": 0.841,
+          "ingredient_id": "9227efb9-f72d-4771-a461-98562c9f4cd7",
+          "input_item": "other seasonings",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "to personal preference",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "other seasonings to personal preference"
+        }
+      ],
+      "instruction": "Preheat oven to 400 degrees."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Melt butter and pour into a 9x13 inch pan and spread evenly across the bottom."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Generously sprinkle Parmesan cheese and lightly sprinkle other seasonings all over the butter."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place potato halves face down on the butter and seasonings."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place in preheated oven and bake for 40 to 45 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Cool for at least a FULL 5 minutes before removing from the pan, otherwise the parmesan crust won't stick to the potato."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Serve on a plate with a side of sour cream or Ranch dressing for dipping."
+    }
+  ]
+}

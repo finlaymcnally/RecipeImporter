@@ -1,0 +1,247 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Side, Normal, potatoes, corn, cherry tomatoes",
+    "title": "Baby potatoes with tomatoes-corn Saut\u00e9",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.0,
+          "ingredient_id": "445936a9-50c2-47b8-a8ac-f164cd024dee",
+          "input_item": "Ingredients",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "Ingredients"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "fd48251b-5b83-468d-8071-840ed72ee4c7",
+          "input_item": "baby potatoes",
+          "input_qty": 12.0,
+          "input_unit_id": "ounces",
+          "is_optional": false,
+          "note": null,
+          "preparation": "halved",
+          "quantity_kind": "quantified",
+          "raw_text": "12 ounces small baby potatoes, halved"
+        },
+        {
+          "confidence": 0.992,
+          "ingredient_id": "0a66419a-0ff0-4fce-b96a-73175449f1a1",
+          "input_item": "olive oil",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon olive oil 1 cup fresh corn kernels (about 2 ears)"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "8715be4a-a805-41ee-a4c8-ebdb5a4df5e4",
+          "input_item": "garlic",
+          "input_qty": 1.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "thinly sliced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 1/2 teaspoons thinly sliced garlic"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "a411050f-e4ca-4ba5-846f-e3701aea25d1",
+          "input_item": "salt",
+          "input_qty": 0.25,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 teaspoon salt"
+        },
+        {
+          "confidence": 0.806,
+          "ingredient_id": "03779b3a-c395-4506-8638-72adb86b357a",
+          "input_item": "red pepper",
+          "input_qty": 0.25,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "crushed",
+          "quantity_kind": "quantified",
+          "raw_text": "1/4 teaspoon crushed red pepper"
+        },
+        {
+          "confidence": 0.967,
+          "ingredient_id": "c47453d3-e249-4300-8d86-652ec5b0c78f",
+          "input_item": "grape tomatoes",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": "halved",
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup halved grape tomatoes"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "c688cdd6-81fa-456b-92b5-f14a853f543a",
+          "input_item": "fresh cilantro",
+          "input_qty": 0.3333333333333333,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "1/3 cup chopped fresh cilantro"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "3a8eb3f7-bdcd-4bea-96bb-d6314d5e5f3c",
+          "input_item": "fresh Parmesan cheese",
+          "input_qty": 1.0,
+          "input_unit_id": "ounce",
+          "is_optional": false,
+          "note": null,
+          "preparation": "shaved",
+          "quantity_kind": "quantified",
+          "raw_text": "1 ounce fresh Parmesan cheese, shaved (about 1/4 cup)"
+        },
+        {
+          "confidence": 0.898,
+          "ingredient_id": "3744bfc3-b180-436b-8682-f8707f15335c",
+          "input_item": "Step",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "Step 1"
+        },
+        {
+          "confidence": 0.825,
+          "ingredient_id": "0fedb0d1-7013-4c7c-b8cd-bff194d40125",
+          "input_item": "Place potatoes drain.",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "in a medium saucepan, Cook 10 minutes or until tender",
+          "preparation": "cover with water. Bring to a boil.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Place potatoes in a medium saucepan; cover with water. Bring to a boil. Cook 10 minutes or until tender; drain."
+        },
+        {
+          "confidence": 0.898,
+          "ingredient_id": "3c1d4694-0f12-4224-bc35-fb522b0307ae",
+          "input_item": "Step",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "Step 2"
+        },
+        {
+          "confidence": 0.564,
+          "ingredient_id": "83dd05db-0ec9-431b-8ca0-43ef4f57d1a0",
+          "input_item": "Add oil",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Heat a large nonstick skillet over medium-high heat., to pan; swirl to coat. Add corn and next 3 ingredients (through pepper) to pan; saut\u00e9 2 minutes. Add potatoes and tomatoes to pan; cook 1 minute. Top with cilantro and cheese.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Heat a large nonstick skillet over medium-high heat. Add oil to pan; swirl to coat. Add corn and next 3 ingredients (through pepper) to pan; saut\u00e9 2 minutes. Add potatoes and tomatoes to pan; cook 1 minute. Top with cilantro and cheese."
+        },
+        {
+          "confidence": 0.898,
+          "ingredient_id": "10ca2b6b-cfc1-4e50-b92d-695c8e3ff407",
+          "input_item": "Step",
+          "input_qty": 3.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "Step 3"
+        },
+        {
+          "confidence": 0.82,
+          "ingredient_id": "62581fbe-e3e2-49cc-b5a8-4e9dc281ac64",
+          "input_item": "Variation",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Place, Cook 11 minutes, Pulse, 1 tablespoon olive oil, 1 tablespoon lemon juice, 3/8 teaspoon salt, in a medium bowl, Serves 4 serving size, Fat, (sat 8 g); Sodium 279mg",
+          "preparation": "cover with water. Bring to a boil., grated, and 1/4 teaspoon pepper in a mini food processor.",
+          "quantity_kind": "quantified",
+          "raw_text": "Variation 1 Arugula Pesto: Place 1 pound baby potatoes in a saucepan; cover with water. Bring to a boil. Cook 11 minutes; drain. Pulse 1 cup arugula, 1/2 cup basil, 2 tablespoons grated Parmesan, 2 tablespoons unsalted chicken stock, 1 tablespoon olive oil, 1 tablespoon lemon juice, 3/8 teaspoon salt, and 1/4 teaspoon pepper in a mini food processor. Combine potatoes and arugula mixture in a medium bowl; toss. Serves 4 (serving size: 3/4 cup) Calories 160; Fat 6g (sat 8g); Sodium 279mg"
+        },
+        {
+          "confidence": 0.898,
+          "ingredient_id": "044b5ceb-c2a1-4da9-93c0-63cf5318586d",
+          "input_item": "Step",
+          "input_qty": 4.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "Step 4"
+        },
+        {
+          "confidence": 0.786,
+          "ingredient_id": "c229c465-3b55-4a6d-b671-489205ff27be",
+          "input_item": "Variation",
+          "input_qty": 2.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Place, Cook 8 minutes, Cook 2 center-cut bacon slices in a skillet until crisp, 1 tablespoon olive oil, 1 tablespoon Dijon, and 1/4 teaspoon salt in a bowl. Add potatoes and 2 cups spinach. Top with 1/4 cup green onions and bacon. Serves 4 serving size, Fat, (sat 1 g); Sodium 304mg",
+          "preparation": "quartered, cover with water. Bring to a boil., crumble.",
+          "quantity_kind": "quantified",
+          "raw_text": "Variation 2 Warm Bacon Vinaigrette: Place 1 pound quartered baby potatoes in a saucepan; cover with water. Bring to a boil. Cook 8 minutes; drain. Cook 2 center-cut bacon slices in a skillet until crisp; crumble. Combine drippings, 2 tablespoons cider vinegar, 1 tablespoon olive oil, 1 tablespoon Dijon, 1 teaspoon brown sugar, and 1/4 teaspoon salt in a bowl. Add potatoes and 2 cups spinach. Top with 1/4 cup green onions and bacon. Serves 4 (serving size: 3/4 cup) Calories 134; Fat 6g (sat 1g); Sodium 304mg"
+        },
+        {
+          "confidence": 0.898,
+          "ingredient_id": "fe9a858a-bebc-4d5f-961a-f1a0edc1b14f",
+          "input_item": "Step",
+          "input_qty": 5.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "Step 5"
+        },
+        {
+          "confidence": 0.841,
+          "ingredient_id": "ef918721-bc55-45ce-8830-70a25fe148a2",
+          "input_item": "Variation 3 Kale and Garlic Place",
+          "input_qty": 1.0,
+          "input_unit_id": "pound",
+          "is_optional": false,
+          "note": "Cook 8 minutes; drain. Heat a large skillet over medium-high heat. Add, cook 3 minutes. Add, and 1 tablespoon water. Cover and cook 3 minutes. Add, 1/2 teaspoon salt, and 1/4 teaspoon pepper; toss.",
+          "preparation": "sliced, cover with water. Bring to a boil., sliced, chopped",
+          "quantity_kind": "quantified",
+          "raw_text": "Variation 3 Kale and Garlic Place 1 pound sliced baby potatoes in a saucepan; cover with water. Bring to a boil. Cook 8 minutes; drain. Heat a large skillet over medium-high heat. Add 1 1/2 tablespoons canola oil. Add potatoes and 2 tablespoons sliced garlic; cook 3 minutes. Add 3 cups chopped kale and 1 tablespoon water. Cover and cook 3 minutes. Add 1 teaspoon sesame oil, 1/2 teaspoon salt, and 1/4 teaspoon pepper; toss."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

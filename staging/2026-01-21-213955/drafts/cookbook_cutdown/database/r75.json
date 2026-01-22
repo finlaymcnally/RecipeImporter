@@ -1,0 +1,112 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Filipino, Side, Normal, noodles, chicken, cabbage, carrots, lemons",
+    "title": "Quick and Easy Pancit",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "1b61a935-01e0-4586-9380-99a349a1d11e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 (12 ounce) package dried rice noodles"
+        },
+        {
+          "ingredient_id": "1c38a4d0-636f-4070-8639-92f2aaa7245e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon vegetable oil"
+        },
+        {
+          "ingredient_id": "cdcdff5a-f1cb-4de5-8b92-1be17659db3c",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 onion, finely diced"
+        },
+        {
+          "ingredient_id": "f139034d-b72a-4c71-82c6-e1c6215d3edd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 cloves garlic, minced"
+        },
+        {
+          "ingredient_id": "dd5d38b1-099d-4950-a85d-c051f1dd0ff0",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cups diced cooked chicken breast meat"
+        },
+        {
+          "ingredient_id": "a75c58f6-410c-4e00-b9a9-ba0af3703c71",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 small head cabbage, thinly sliced"
+        },
+        {
+          "ingredient_id": "86a6e8c4-a82e-4a4c-97a1-47613652f83f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 carrot, (7-1/2\")s carrot, thinly sliced"
+        },
+        {
+          "ingredient_id": "5c3f01fa-c5b5-4efc-b403-cdaac6bf4be9",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc cup soy sauce"
+        },
+        {
+          "ingredient_id": "3969dc08-ac8c-471b-8da7-0506ed800bc4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 fruit, without seeds lemons - cut into wedges, for garnish"
+        }
+      ],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place the rice noodles in a large bowl, and cover with warm water. When soft, drain, and set aside."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Heat oil in a wok or large skillet over medium heat. Saute onion and garlic until soft. Stir in chicken cabbage, carrots and soy sauce. Cook until cabbage begins to soften. Toss in noodles, and cook until heated through, stirring constantly. Transfer pancit to a serving dish and garnish with quartered lemons."
+    }
+  ]
+}

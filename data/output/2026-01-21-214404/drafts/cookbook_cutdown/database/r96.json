@@ -1,0 +1,289 @@
+{
+  "recipe": {
+    "description": "Pulsed chickpeas, cilantro, and parsley together then added it to the latke mix (dough?) before frying. Latkafel\nreally good with applesauce, tahini, or that garlicy yoghurt sauce (Toum) they serve at middle eastern restaurants.\n\nMine is a Polish recipe. Floury potatoes grated on large and as much liquid squeezed out as I can. No powdered anything. Finely chopped onion and parsley, eggs, salt and pepper, a little flour and a couple of eggs. I have been known to add finely chopped chili pepper.\n\napplesauce w/ cranberries is good with it",
+    "notes": "Tags: Middle Eastern, Side, Normal, potatoes",
+    "title": "Latkes",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "3756dddf-812d-4905-9f74-68ab0969a785",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Yotam Ottolenghi\u2019s Latkes"
+        },
+        {
+          "ingredient_id": "d318890d-38c5-4187-b8fb-27e62b4987fe",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5 \u00bd c peeled and grated waxy potatoes"
+        },
+        {
+          "ingredient_id": "2b71646d-a627-4864-a61e-09370d6739ce",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 \u00be c peeled and grated parsnips"
+        },
+        {
+          "ingredient_id": "35734596-3a2c-4ed6-a530-d228aeb87c36",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2/3 c finely chopped chives (I did not feel like spending $6 on chives so I used \u00bd of an onion)"
+        },
+        {
+          "ingredient_id": "8725ace5-12a8-4f60-8af6-7ff1b883e553",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 egg whites"
+        },
+        {
+          "ingredient_id": "531af9a2-e1da-42de-8993-a2a921a35dca",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 T cornstarch"
+        },
+        {
+          "ingredient_id": "37ee7f19-7738-44d1-9e06-74b56f3d1dba",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "5 T unsalted butter"
+        },
+        {
+          "ingredient_id": "0100566a-d3c3-458c-9af9-7ffa9c002098",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "6 1/2 T sunflower oil (I used canola)"
+        },
+        {
+          "ingredient_id": "2bb0056a-47f4-40a1-b0ed-d4b71e21c0be",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 t salt"
+        },
+        {
+          "ingredient_id": "122b502d-0978-453f-bd83-6ab510098804",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pepper"
+        },
+        {
+          "ingredient_id": "354ceea5-32fa-418d-8193-044698346d9d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Rinse the grated potatoes in cold water. (I used the shredding disc on my food processor.) Drain in a colander and squeeze out any excess water. Then spread the potatoes on a dry kitchen towel to dry completely."
+        },
+        {
+          "ingredient_id": "20789012-c051-4497-b651-738e72618428",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "In a large bowl mix the potato, parsnips, chives or onion, egg whites, cornstarch, salt and plenty of black pepper."
+        },
+        {
+          "ingredient_id": "926dbbba-0e2a-4bbf-b4e5-a2ba91be3a5e",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Heat \u00bd the butter and \u00bd the oil in a large frying pan over medium high heat. Use your hands to pick up portions of about 2 T of the latke mix. Squeeze firmly to remove some of the liquid and shape into patties about 3/8\u201d thick."
+        },
+        {
+          "ingredient_id": "73f1f0cb-8a14-4057-a9e3-a9b91d01ecb8",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Carefully place as many patties as can fit in the pan. Push them down gently and level them with the back of a spoon. Fry for 3 minutes on each side until they are completely brown on each side. Drain on paper towels and keep warm while you fry the rest using the reserved butter and oil."
+        },
+        {
+          "ingredient_id": "076fee57-f0d2-4fee-bc0c-94714ca206a4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Serve with sour cream, jam, sugar and apple sauce. And remember these do not need to be made just once a year."
+        },
+        {
+          "ingredient_id": "a33a1a86-c747-4fb4-83db-14b7d135a4fe",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Traditional Latkes"
+        },
+        {
+          "ingredient_id": "8dda7f7b-a7e0-4ede-88de-98c7da1a9fd6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 large peeled potatoes About 1 \u00bd pounds (I used a combo of russets and yukons.)"
+        },
+        {
+          "ingredient_id": "4185daaa-6017-4184-a37f-92a0b97289ed",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 grated onions"
+        },
+        {
+          "ingredient_id": "5f625378-d3c3-49f0-8721-1fe4b6a62b16",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4 T matzo meal or flour"
+        },
+        {
+          "ingredient_id": "ec8e5ae5-987a-43ba-bfd7-e5fde60a6a7b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 t baking powder"
+        },
+        {
+          "ingredient_id": "8cb53b2a-32cb-4cab-87f1-046656067266",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 eggs"
+        },
+        {
+          "ingredient_id": "bccb0128-5b5b-44e8-bc9f-bd8923068dff",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 t salt"
+        },
+        {
+          "ingredient_id": "d2a62e6b-5114-476d-94b4-147011728308",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/4 t black pepper"
+        },
+        {
+          "ingredient_id": "d58f7136-883a-4ab1-b1a4-a726ed20fdf1",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Canola oil"
+        },
+        {
+          "ingredient_id": "0a42ca79-ecb0-46af-bae4-fbc52dcf1191",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Using the steel blade of your food processor put in the potatoes and grind them to mush. Or you can shred some and mush some which is what I do so they have a bit of texture. Put in a colander and push out as much liquid as you can. At this point I also squeeze my mixture in a big piece of cheese cloth to extract as much moisture as possible."
+        },
+        {
+          "ingredient_id": "af8d70ec-e244-4c9b-938c-c0485c8b8d32",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Transfer to a bowl and add the shredded or chopped onion, matzoh meal, baking powder, eggs, salt and pepper and mix with hands until well combined. Heat oil at a medium temperature in a large skillet to the depth of about a \u00bd inch. (Mine is"
+        },
+        {
+          "ingredient_id": "bd4c380c-9294-4bc7-a1ba-159da4ce0a04",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "nonstick, but a cast iron works really well, too.)"
+        },
+        {
+          "ingredient_id": "9b999a80-6724-4642-9c00-77bdc6bec2ba",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Drop spoonfuls of the batter into the pan. Fry over medium heat for 3-4 minutes on each side until both sides are brown and crisp."
+        },
+        {
+          "ingredient_id": "79e4e10d-858d-45a3-86a1-3642f3647c5a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Drain on paper towels or a paper grocery bag. Keep warm while frying the rest of the mixture. You may have to add more oil as necessary."
+        },
+        {
+          "ingredient_id": "ae090867-b528-4b9e-9cd7-ecf19230215b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "If you want to make these ahead-I put them in a very cold refrigerator or freezer. Then when you are ready to serve place them on a baking sheet into a preheated 450 oven for about 5 minutes. It works!"
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

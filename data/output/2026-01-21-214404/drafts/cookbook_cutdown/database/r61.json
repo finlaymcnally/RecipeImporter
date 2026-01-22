@@ -1,0 +1,181 @@
+{
+  "recipe": {
+    "description": "Lots of herbs",
+    "notes": "Tags: French, Side, Instant Pot, gruy\u00e8re",
+    "title": "French Onion soup",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "00f9a712-18c9-43d2-8271-2d8aa9cf3dfd",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "6 tablespoons unsalted butter, plus more for toasts (3 ounces; about 90g)"
+        },
+        {
+          "ingredient_id": "88955850-ae79-48c1-b01f-0ccc0124078f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "3 pounds yellow or mixed onions, sliced 1/8 inch thick (1.4kg; about 4 to 5 large onions) (see note)"
+        },
+        {
+          "ingredient_id": "6f392dc5-e83a-4b00-930b-c133defaab07",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 teaspoon (2g) baking soda"
+        },
+        {
+          "ingredient_id": "3168c576-87be-4d2f-8187-f748e511069d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Kosher salt and freshly ground black pepper"
+        },
+        {
+          "ingredient_id": "47d9a488-5bcf-465a-bd06-5b1627c09242",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup (120ml) dry sherry, such as Amontillado"
+        },
+        {
+          "ingredient_id": "cdc7a5a1-2e98-4225-8a24-4a5778215718",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 quarts (about 2L) homemade or store-bought low-sodium chicken stock"
+        },
+        {
+          "ingredient_id": "05dee1bc-b2d2-4599-87c1-7bb6c80e25d3",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 sprigs thyme"
+        },
+        {
+          "ingredient_id": "bf196468-8459-4c82-b040-bdd1ad6314c4",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 bay leaf"
+        },
+        {
+          "ingredient_id": "ed8a1929-cd1b-44f7-8a27-4d5b51ac0acf",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon (5ml) Asian fish sauce (optional)"
+        },
+        {
+          "ingredient_id": "2113b7e1-d7cb-4bee-ad05-a9f81e5dbc0f",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 teaspoon (5ml) cider vinegar"
+        },
+        {
+          "ingredient_id": "73e41382-5c4c-4fe0-a77b-a4393db4be7d",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8 bowl-size slices rustic bread, toasted until crisp"
+        },
+        {
+          "ingredient_id": "3cecc87b-305c-4de6-b094-b86c760bd02a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 medium clove garlic"
+        },
+        {
+          "ingredient_id": "0957574d-90fb-402f-b49c-489add97b6bf",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 pound (450g) Gruy\u00e8re cheese, grated"
+        },
+        {
+          "ingredient_id": "f39c66e7-848c-43ec-920d-f017dad78d93",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Freshly minced chives, for garnish"
+        }
+      ],
+      "instruction": "1."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Melt butter in an electric or stovetop pressure cooker over medium heat. Add onions and baking soda and stir to combine. Season with salt and pepper. Cook, stirring, until onions slightly soften and start to release liquid, about 3 minutes. Seal pressure cooker and heat to high pressure (12.5 to 15 psi). Cook at high pressure for 20 minutes. Release pressure by allowing steam to vent, then remove lid."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "2."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Continue cooking with lid off, stirring constantly, until liquid inside has completely reduced and the onions are deep brown and sticky, about 5 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "3."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add sherry and bring to a simmer, scraping up any browned bits. Cook until alcohol smell is mostly gone, about 3 minutes. Add stock, thyme, and bay leaf, raise heat to medium-high, and bring to a simmer. Lower heat and simmer for 10 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "4."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add fish sauce, if using, and cider vinegar and season with salt and pepper (if necessary). Discard thyme sprigs and bay leaf."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "5."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "To Serve: Preheat broiler and move oven rack to top position. Butter toasts and rub with garlic clove until fragrant. Spoon a small amount of broth into the bottoms of 4 ovenproof serving bowls, then top with half the toasts. Sprinkle some grated Gruy\u00e8re on top of toasts, then spoon more soup and onions on top, nearly filling the bowls. Set the remaining 4 toasts in each bowl, pushing to nearly submerge them. Top with remaining grated cheese and set bowls on a rimmed baking sheet. Broil until cheese is melted and browned in spots. Garnish with chives and serve."
+    }
+  ]
+}

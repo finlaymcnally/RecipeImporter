@@ -1,0 +1,131 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Normal, cream, pesto, shrimp, pasta",
+    "title": "Creamy pesto shrimp",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "a21843b1-7c37-43ff-b08a-796a462e7aca",
+          "input_item": "linguine pasta",
+          "input_qty": 1.0,
+          "input_unit_id": "pound",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 pound linguine pasta"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "e1fbc4d4-6c61-4998-a4fd-afd822021b11",
+          "input_item": "butter",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd cup butter"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "571f9689-514d-42cc-80c6-53e0b8549b7e",
+          "input_item": "heavy cream",
+          "input_qty": 2.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 cups heavy cream"
+        },
+        {
+          "confidence": 0.81,
+          "ingredient_id": "564f969b-83d3-41cd-855f-18179b109064",
+          "input_item": "black pepper",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "ground",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd teaspoon ground black pepper"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "5d5bd9f4-ba2e-432c-a5c0-7c686165430a",
+          "input_item": "Parmesan cheese",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": "grated",
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup grated Parmesan cheese"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "73d91b18-33a6-41ab-9028-78d8090fadc2",
+          "input_item": "pesto",
+          "input_qty": 0.3333333333333333,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u2153 cup pesto"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "dacdbf82-fa8d-4b54-a58c-5b678b3fdeeb",
+          "input_item": "shrimp",
+          "input_qty": 1.0,
+          "input_unit_id": "pound",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and deveined",
+          "quantity_kind": "quantified",
+          "raw_text": "1 pound large shrimp, peeled and deveined"
+        }
+      ],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bring a large pot of lightly salted water to a boil. Add linguine pasta, and cook for 8 to 10 minutes, or until al dente; drain."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a large skillet, melt the butter over medium heat. Stir in cream, and season with pepper. Cook 6 to 8 minutes, stirring constantly."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 3"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir Parmesan cheese into cream sauce, stirring until thoroughly mixed. Blend in the pesto, and cook for 3 to 5 minutes, until thickened."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 4"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir in the shrimp, and cook until they turn pink, about 5 minutes. Serve over the hot linguine."
+    }
+  ]
+}

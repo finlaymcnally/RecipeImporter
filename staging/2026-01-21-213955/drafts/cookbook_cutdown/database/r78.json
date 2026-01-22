@@ -1,0 +1,111 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Mexican, Side, Normal, tomato sauce, frozen vegetables",
+    "title": "Mexican Rice",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "139d9c28-15ff-4234-b653-ed0ec516cdaa",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 tablespoons canola oil"
+        },
+        {
+          "ingredient_id": "0614faae-7755-4a61-97ac-2ff30037e670",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 cup long-grain white rice (see Brown Rice Variation)"
+        },
+        {
+          "ingredient_id": "d0262254-4cf3-4885-a325-ae0687a50d4a",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bd cup finely chopped onion"
+        },
+        {
+          "ingredient_id": "2428dd09-b722-4974-8d96-01dd22234482",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "\u00bc teaspoon salt"
+        },
+        {
+          "ingredient_id": "ca50295f-93ee-46f9-8ef2-9189dd428290",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 tablespoon minced garlic"
+        },
+        {
+          "ingredient_id": "4ffcf742-d3c8-4853-b4a9-e0c384e8fd20",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 8-ounce can tomato sauce"
+        },
+        {
+          "ingredient_id": "ef434422-f9d3-44d3-99a9-d3c58adb2aae",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 1/2 cups reduced-sodium chicken broth or vegetable broth"
+        },
+        {
+          "ingredient_id": "c3ab224d-2276-447a-8791-85e64acfb459",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1/2 cup frozen mixed vegetables (such as corn, peas and carrots), thawed"
+        }
+      ],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Heat a large heavy saucepan with a tight-fitting lid over medium heat. Add oil and rice and cook, stirring, until the rice is just beginning to brown, 4 to 5 minutes. Add onion and salt and cook, stirring, until the onion begins to soften, about 2 minutes. Add garlic and cook, stirring, until fragrant, 1 minute more. Pour tomato sauce over the rice and cook, stirring, for 1 minute."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Stir in broth and bring to a boil. Reduce to a simmer, cover and cook until the rice is cooked, about 15 minutes. Stir in vegetables and serve."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 3"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Brown Rice Variation: Use 1 cup long-grain brown rice and 1 3/4 cups broth. In Step 2, simmer for 45 minutes. Remove the rice from the heat and let stand, covered, for 15 minutes before adding the vegetables."
+    }
+  ]
+}

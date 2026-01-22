@@ -1,0 +1,115 @@
+{
+  "recipe": {
+    "description": "So good",
+    "notes": "Tags: American, Component, Normal, LOL",
+    "title": "Special sauce",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.0,
+          "ingredient_id": "4f8fdd42-732a-4f3b-aeca-a7c5bf2ac313",
+          "input_item": "INGREDIENTS",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "INGREDIENTS"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "948d2226-68e9-4437-990f-b3bd2c9ad375",
+          "input_item": "mayonnaise",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup mayonnaise"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "ecae9ca5-6a69-4547-bf75-ea74089fa0fb",
+          "input_item": "ketchup",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons ketchup"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "7c10f624-286b-4557-b5f0-7fb4224566f2",
+          "input_item": "onion",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely grated",
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon finely grated onion"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "aa68b8b8-b81f-4e15-acb7-78e1e6c555fd",
+          "input_item": "sweet relish",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": "or 1 tablespoon dill pickle relish",
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon sweet relish or 1 tablespoon dill pickle relish"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "a1ee309e-f9bc-439b-83a4-6eea5c2954dd",
+          "input_item": "adobo sauce from canned chipotle chiles in adobo",
+          "input_qty": 2.0,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 teaspoons adobo sauce from canned chipotle chiles in adobo"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "4ea3a555-9143-4b7d-b7ed-0d863a188ccb",
+          "input_item": "celery salt",
+          "input_qty": 0.125,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/8 teaspoon celery salt"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "734cb349-43cd-4b99-938c-2cf6b04d4d96",
+          "input_item": "kosher salt",
+          "input_qty": 0.125,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/8 teaspoon kosher salt"
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

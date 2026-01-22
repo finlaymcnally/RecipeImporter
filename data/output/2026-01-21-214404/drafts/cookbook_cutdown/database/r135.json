@@ -1,0 +1,68 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Main, Instant Pot, cream of chicken soup, cream cheese, chicken",
+    "title": "Instant Pot chicken Alfredo",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "ingredient_id": "8fc4d3aa-b380-4fc3-a685-9b69b7d84d20",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cans cream of chicken soup"
+        },
+        {
+          "ingredient_id": "990b0a55-bea2-4213-b43e-dcfe6d600511",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "1 Italian Dressing Mix"
+        },
+        {
+          "ingredient_id": "b4d3ec56-60e2-4e9d-8938-d185a24e5e9b",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "8 oz cream cheese"
+        },
+        {
+          "ingredient_id": "cfff4d78-6e82-47fd-8afc-03f08407f7fa",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "2 cups Water"
+        },
+        {
+          "ingredient_id": "b54decda-ae86-4fca-a2f0-9341226069d6",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "4-6 chicken Breasts"
+        }
+      ],
+      "instruction": "Put all ingredients in your labeled freezer bag and place in the freezer."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Place into the crockpot (ingredients can be thawed or frozen) and cook on low for 6-8. Shred chicken and serve over Fettuccine noodles."
+    }
+  ]
+}

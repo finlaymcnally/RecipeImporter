@@ -1,0 +1,171 @@
+{
+  "recipe": {
+    "description": "Work on sauce",
+    "notes": "Tags: Main, Normal, raspberry, pork loin",
+    "title": "Pork chop with Raspberry sauce (3)",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.992,
+          "ingredient_id": "c6e663ff-5221-496b-a490-c555d7a2c2b7",
+          "input_item": "dried thyme",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "crushed",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd teaspoon dried thyme, crushed"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "9099acdb-af8c-4496-b63e-b311df68a9e7",
+          "input_item": "dried sage",
+          "input_qty": 0.5,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": "crushed",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd teaspoon dried sage, crushed"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "024f0e89-80b4-445a-ae7d-1b48c9f5a47c",
+          "input_item": "salt",
+          "input_qty": 0.25,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc teaspoon salt"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "0046d35c-6715-41ca-bb2e-10ae24ab4f85",
+          "input_item": "pepper",
+          "input_qty": 0.25,
+          "input_unit_id": "teaspoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc teaspoon pepper"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "5dfcef91-9067-43e7-a3ac-8877f0e2a3e1",
+          "input_item": "boneless pork loin chops",
+          "input_qty": 4.0,
+          "input_unit_id": "medium",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 (4 ounce) boneless pork loin chops"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "9424ffd2-f50e-40cb-a79a-ae5695bc2aa6",
+          "input_item": "butter",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon butter"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "6027a60e-a73d-4c01-a648-ab8b790cad27",
+          "input_item": "olive oil",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon olive oil"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "5893295f-b16c-4228-a044-b007ef95f597",
+          "input_item": "seedless raspberry jam",
+          "input_qty": 0.25,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bc cup seedless raspberry jam"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "44a7ccaa-d2d3-4c31-8a0f-69dda99380e9",
+          "input_item": "orange juice",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons orange juice"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "9547dbb0-099e-4aee-950a-e5f9ac8a5d1c",
+          "input_item": "white wine vinegar",
+          "input_qty": 2.0,
+          "input_unit_id": "tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 tablespoons white wine vinegar"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "a87374f5-1280-477f-8658-08b9c1753bff",
+          "input_item": "fresh thyme",
+          "input_qty": 4.0,
+          "input_unit_id": "sprigs",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "4 sprigs fresh thyme"
+        }
+      ],
+      "instruction": "Step 1"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Preheat oven to 200 degrees F (95 degrees C). In a small bowl, combine crushed thyme, sage, salt, and pepper. Rub evenly over pork chops."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 2"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Melt butter and olive oil in a nonstick skillet. Cook pork chops for 4 to 5 minutes on each side, turning once. Remove from skillet and keep warm in preheated oven."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Step 3"
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In the skillet, combine raspberry jam, orange juice, and vinegar. Bring to a boil, and cook for 2 to 3 minutes, or until sauce is reduced to desired consistency (sauce will thicken as it cools). Spoon sauce in a pool onto a serving plate, and top with pork chops. Garnish with sprigs of thyme."
+    }
+  ]
+}

@@ -1,0 +1,187 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": "Tags: Cuban, Side, Normal, black beans, limes",
+    "title": "Moros Y Cristianos",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.0,
+          "ingredient_id": "df17b118-9cf1-41c9-bd26-e7c8c11cfc31",
+          "input_item": "Ingredients",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "section_header",
+          "raw_text": "Ingredients"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "0f9af66e-e393-41b6-9f1c-f47e132c8be9",
+          "input_item": "dried black beans",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup of dried black beans"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "5045f6a2-922e-40da-80b2-e78f7da52c1b",
+          "input_item": "vegetable oil",
+          "input_qty": 2.0,
+          "input_unit_id": "Tablespoons",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "2 Tablespoons vegetable oil"
+        },
+        {
+          "confidence": 0.981,
+          "ingredient_id": "d63370d1-9a69-4518-a8cf-14383fc42a62",
+          "input_item": "fresh garlic",
+          "input_qty": 4.0,
+          "input_unit_id": "cloves",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "4 cloves of fresh garlic, minced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "6f23c383-52b4-477e-bbfd-a481af359a01",
+          "input_item": "green pepper",
+          "input_qty": 0.5,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 small green pepper, minced"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "7d33e10a-f5df-47e2-aaff-8aed6dc9e308",
+          "input_item": "white onion",
+          "input_qty": 0.5,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 white onion, minced"
+        },
+        {
+          "confidence": 0.791,
+          "ingredient_id": "2d803453-4abb-4d81-93ec-af3adc7dd147",
+          "input_item": "white rice",
+          "input_qty": 3.0,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "long-grain",
+          "quantity_kind": "quantified",
+          "raw_text": "3 cups white rice, long-grain"
+        },
+        {
+          "confidence": 0.985,
+          "ingredient_id": "74d1e5a3-8d96-437c-9958-f2109975c297",
+          "input_item": "fresh squeezed lime juice",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1/2 cup fresh squeezed lime juice"
+        },
+        {
+          "confidence": 0.907,
+          "ingredient_id": "f13ef351-70f4-40d1-8d8a-4a41cf3f7ec6",
+          "input_item": "salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": "fresh ground",
+          "quantity_kind": "unquantified",
+          "raw_text": "salt and fresh ground pepper, to taste"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "eb5f2d40-e63d-4706-82af-0ea774e0b630",
+          "input_item": "Cuban Rice Directions",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Cuban Rice Directions"
+        },
+        {
+          "confidence": 0.668,
+          "ingredient_id": "835781c4-36d5-4442-ac68-0c497f34abd6",
+          "input_item": "Drain the beans",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "If using dry beans, Save the water, you will use it later for the rice.",
+          "preparation": "soak in cold water overnight. Drain and place in a stockpot with fresh water covering the beans. Bring to a boil then reduce and simmer, covered for 1 hour or until beans are tender but firm., by pouring the cooking water into a bowl.",
+          "quantity_kind": "unquantified",
+          "raw_text": "If using dry beans, soak in cold water overnight. Drain and place in a stockpot with fresh water covering the beans. Bring to a boil then reduce and simmer, covered for 1 hour or until beans are tender but firm. Drain the beans by pouring the cooking water into a bowl. Save the water, you will use it later for the rice."
+        },
+        {
+          "confidence": 0.712,
+          "ingredient_id": "0e6f69f0-b28f-4f4f-872d-beedbb2eb831",
+          "input_item": "pepper",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Add the vegetable oil to the stockpot and saut\u00e9 the garlic, and onion for 2-3 minutes until they soften. Stir in the black beans and rice, and add the water you have saved from cooking the beans. Add an additional 2 cups of water.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Add the vegetable oil to the stockpot and saut\u00e9 the garlic, pepper, and onion for 2 to 3 minutes until they soften. Stir in the black beans and rice, and add the water you have saved from cooking the beans. Add an additional 2 cups of water."
+        },
+        {
+          "confidence": 0.702,
+          "ingredient_id": "7c079b10-4372-48e1-b3d8-db2fdd87ffef",
+          "input_item": "Bring the mixture",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Stir frequently and check to see if you need additional water to keep the rice from sticking. You can add more water 1/2 cup at a time while it finishes. Just don\u2019t overdo it or your rice will get mushy.",
+          "preparation": "then reduce the heat to a simmer and cook until the rice is tender approximately 20 minutes.",
+          "quantity_kind": "unquantified",
+          "raw_text": "Bring the mixture to a boil, then reduce the heat to a simmer and cook until the rice is tender approximately 20 minutes. Stir frequently and check to see if you need additional water to keep the rice from sticking. You can add more water 1/2 cup at a time while it finishes. Just don\u2019t overdo it or your rice will get mushy."
+        },
+        {
+          "confidence": 0.982,
+          "ingredient_id": "890d1030-66f6-422d-a66d-7a423967da75",
+          "input_item": null,
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "Once the rice is fully cooked, add the lime juice and salt and pepper to taste. The dish is best served hot. If you like, you can add some chopped bacon at the end. Or serve as a side dish with hearty roasted meat like pork or chicken.",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Once the rice is fully cooked, add the lime juice and salt and pepper to taste. The dish is best served hot. If you like, you can add some chopped bacon at the end. Or serve as a side dish with hearty roasted meat like pork or chicken."
+        }
+      ],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

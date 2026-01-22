@@ -1,0 +1,191 @@
+{
+  "recipe": {
+    "description": "Chicken thighs are great when you brown them skin side down over medium to med-low heat over a longer time. Get a good deep brown color, fat is rendered out, and skin gets incredibly crispy. By doing it on a lower heat, you also run less of a risk of burning your seasonings. Then, flip the chicken and do the same thing again. Don't worry, you're not going to overcook a chicken thigh. You could put those in a 400\u00b0F oven for 4 hours and they'd still be edible.\n\nSaut\u00e9e your rice for a minute or two in the fat before adding liquid. Would need be a bad idea to drain some of the fat off too. There seems to be a little much in there. Helps develop the flavor and keeps the rice from becoming mushy. Also, don't overcook your rice. Finally, I'd add a bit of cider or wine vinegar to the cooking liquid to help add some depth of flavor and cut through some of the fat. Could also use citrus.",
+    "notes": "Tags: American, Main, Normal, chicken",
+    "title": "Paprika chicken And Rice Bake",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "31bbe85b-269f-43a0-8b36-320028e30cd4",
+          "input_item": "chicken thighs",
+          "input_qty": 5.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "5 chicken thighs"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "ed2ab733-f9e8-4ae4-b846-79338016ff73",
+          "input_item": "salt",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon salt"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "e1849f18-fcb6-4d13-8454-b129f4d10693",
+          "input_item": "pepper",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon pepper"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "c9149fe1-2ca0-4b94-881e-8fdb4a7290a0",
+          "input_item": "paprika",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon paprika"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "9dccf522-23fa-41fd-b983-2f306d542ab3",
+          "input_item": "dried parsley",
+          "input_qty": 1.0,
+          "input_unit_id": "teaspoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 teaspoon dried parsley"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "4bc242f3-9c84-4b5e-b73f-2b582745bc95",
+          "input_item": "olive oil",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon olive oil"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "ab20f815-a5f3-408c-8886-14f7a7c32152",
+          "input_item": "garlic",
+          "input_qty": 1.0,
+          "input_unit_id": "tablespoon",
+          "is_optional": false,
+          "note": null,
+          "preparation": "minced",
+          "quantity_kind": "quantified",
+          "raw_text": "1 tablespoon garlic, minced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "4c14c1b6-ac04-45d7-b6ba-8edbf0d15f65",
+          "input_item": "red onion",
+          "input_qty": 0.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": "diced",
+          "quantity_kind": "quantified",
+          "raw_text": "\u00bd cup red onion, diced"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "a90c24c8-219c-4ee5-9405-d7dfa281fb2b",
+          "input_item": "long grain rice",
+          "input_qty": 1.0,
+          "input_unit_id": "cup",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1 cup long grain rice"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "c26faae6-622b-46d3-8f7f-a6fc65bd4882",
+          "input_item": "chicken broth",
+          "input_qty": 1.5,
+          "input_unit_id": "cups",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "quantified",
+          "raw_text": "1\u00bd cups chicken broth"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "0eac9d09-daa2-43d2-9920-85a4abd516bb",
+          "input_item": "Salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Salt, to taste"
+        },
+        {
+          "confidence": 0.989,
+          "ingredient_id": "fd164695-444f-4524-8b91-6a6c163e5469",
+          "input_item": "Pepper",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "note": "to taste",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_text": "Pepper, to taste"
+        }
+      ],
+      "instruction": "Preheat oven to 400\u02daF/200\u02daC."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "In a large bowl, evenly season chicken thighs with salt, pepper, paprika, and parsley."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "On high, heat olive oil in a oven-proof pot and place chicken thighs, skin-side down, in the hot oil. Cook 5-6 minutes or the thighs develop brown crispy skin and flip over. Cook an additional 5-6 minutes to brown the other side and remove from the pot."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the garlic and onions to the pot, and cook until the onions are transparent."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Pour in the rice and chicken broth to the pot and season with salt and pepper. Stir well, bringing to a boil."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Add the chicken thighs back into the pot, skin-side up, on top of the rice, bring back to a boil and cover with a lid."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bake for 35-40 minutes, or until the rice is fully cooked."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Optional: remove chicken thighs and broil for crispy skin."
+    }
+  ]
+}
