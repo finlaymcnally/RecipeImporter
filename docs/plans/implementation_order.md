@@ -13,7 +13,7 @@ Build these first. They define the "language" that all specific importers will s
     *   *Why:* Implements the text cleaning (fixing mojibake) and "signal detection" (identifying ingredients vs steps) used by Text, EPUB, and PDF.
 
 3.  **LLM Repair Infrastructure (`PROCESS-llm-repair.md`)**
-    *   *Why:* Sets up the API client and prompts for "surgical repair." Importers will need to call this when heuristics fail.
+    *   *Why:* Sets up the API client and prompts for "surgical repair." Importers will need to call this when heuristics fail. THIS IS FINE AS-IS FOR NOW. DO NOT BUILD. DO NOT BUILD.
 
 ## Phase 2: Importers (Unstructured Data)
 

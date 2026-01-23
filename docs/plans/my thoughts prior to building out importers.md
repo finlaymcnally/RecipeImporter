@@ -1,4 +1,6 @@
-# IMPORTER THOUGHTS
+# my thoughts prior to building out importers
+
+the next step is to build the epub/pdf/text/paprika/recipesage importers.
 
 # BEST PRACTICES:
 

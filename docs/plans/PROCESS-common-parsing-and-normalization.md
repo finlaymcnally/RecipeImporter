@@ -22,7 +22,8 @@ To provide a single, robust source of truth for "what looks like a recipe" and "
 *   **Mojibake Repair:** Fix common encoding errors (e.g., `â€™` -> `'`) using `ftfy` or similar heuristics.
 *   **Whitespace Standardization:**
     *   Collapse multiple spaces/tabs to single spaces.
-    *   Normalize all line endings to `\n`.
+    *   Normalize all line endings to `
+`.
     *   Strip non-breaking spaces (`\xa0`) and other invisible control characters.
 *   **Hyphenation Repair:** (Critical for PDF/EPUB) Rejoin words split across lines (e.g., `ingre-
 
@@ -71,3 +72,12 @@ dient` -> `ingredient`) based on dictionary lookups or heuristics.
 *   "Text normalization layer before features/heuristics."
 *   "Feature/signal logic is duplicated... centralize this."
 *   "Keep extraction deterministic first."
+
+## Implementation Status
+
+*   **2026-01-22:** Implemented Core Modules.
+    *   `cookimport.core.blocks`: Implemented `Block` model and `BlockType` enum.
+    *   `cookimport.parsing.cleaning`: Implemented `normalize_text`, `fix_mojibake`, `standardize_whitespace`, `repair_hyphenation`. Added extra French mojibake cases.
+    *   `cookimport.parsing.patterns`: Centralized regex for quantities, units, headers, times, etc.
+    *   `cookimport.parsing.signals`: Implemented `classify_block` using patterns.
+    *   Verified via manual test script `tests/test_phase1_manual.py`.

@@ -74,3 +74,11 @@ To ensure that every importer, regardless of source (PDF, Excel, Web), produces 
 *   "Output/report/idempotence patterns are repeated."
 *   "Treat 'confidence + reasons' as a first-class output."
 *   "Idempotence + provenance everywhere: stable IDs..."
+
+## Implementation Status
+
+*   **2026-01-22:** Implemented `cookimport.core.reporting`.
+    *   `ProvenanceBuilder`: Created and verifying standard provenance dictionary.
+    *   `ReportBuilder`: Context manager implemented, producing JSON reports with summary, candidates, errors, and LLM usage.
+    *   `generate_recipe_id`: Implemented stable URN generation.
+    *   Verified via manual test script `tests/test_phase1_manual.py`.

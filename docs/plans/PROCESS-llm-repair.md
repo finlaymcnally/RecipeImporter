@@ -70,3 +70,11 @@ To handle ambiguous, messy, or unstructured data that simpler code cannot parse,
 *   "LLM escalation scaffolding is repeated in all three."
 *   "Treat 'confidence + reasons' as a first-class output."
 *   "Deterministic first, 'AI' only when you must."
+
+## Implementation Status
+
+*   **2026-01-22:** Implemented Core Infrastructure.
+    *   `cookimport.llm.client`: Implemented `LLMClient` with file-based caching and mock provider.
+    *   `cookimport.llm.prompts`: Implemented `SYSTEM_PROMPT` and `REPAIR_TEMPLATE`.
+    *   `cookimport.llm.repair`: Implemented `repair_candidate` connecting Client + Prompts + `RecipeCandidate` schema.
+    *   Verified via manual test script `tests/test_phase1_manual.py`.
