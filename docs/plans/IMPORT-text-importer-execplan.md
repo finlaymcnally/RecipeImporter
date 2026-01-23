@@ -58,9 +58,9 @@ Key terms:
 
 1.  **File Discovery:** Accept `.txt`, `.md`, `.markdown`.
 2.  **Normalization:**
-    *   Decode bytes -> UTF-8 (fallback to cp1252/latin-1).
-    *   Normalize line endings to `\n`.
-    *   Trim excessive whitespace (collapse 3+ blank lines to 2).
+    *   Use the shared **Text Normalization** module (see `docs/plans/PROCESS-common-parsing-and-normalization.md`).
+    *   Decode bytes -> UTF-8.
+    *   Apply standard cleaning (whitespace, line endings, mojibake).
     *   *Artifact:* `staging/_normalized_text/<file_id>.txt`.
 
 ### Phase 2: Recipe Splitting (Milestone 2)
@@ -68,6 +68,7 @@ Key terms:
 **Goal:** Decide if a file is one recipe or many, and slice it accordingly.
 
 1.  **Classification (Heuristics):**
+    *   Use shared **Signal Detection** (see `docs/plans/PROCESS-common-parsing-and-normalization.md`) to count ingredients/headers.
     *   **Multi-Recipe Signals:** Multiple top-level Markdown headers (`#`), repeated "Ingredients" headers, clear delimiters (`---`, `***`, `===`).
     *   **Single-Recipe Signals:** Short length, only one "Ingredients" section.
 2.  **Splitting Strategy (Order of Operations):**
@@ -83,22 +84,22 @@ Key terms:
 
 1.  **Frontmatter:** If file/chunk starts with YAML frontmatter (`---`), parse it as metadata (tags, source, servings).
 2.  **Section Detection:**
-    *   **Title:** First non-empty line (or Markdown header).
-    *   **Headers:** Detect lines like "Ingredients", "Directions", "Method", "Notes".
+    *   Use shared **Signal Detection** (see `docs/plans/PROCESS-common-parsing-and-normalization.md`) for headers, ingredients, and instructions.
 3.  **Field Extraction:**
     *   **Ingredients:** Lines within the ingredients block.
-    *   **Instructions:** Lines within directions block (split on numbered lists `1.`, `2)` or blank-line-separated paragraphs).
+    *   **Instructions:** Lines within directions block.
     *   **Metadata:** Regex for "Yield:", "Prep time:", "Cook time:".
-4.  **LLM Escalation:** Trigger only if skeleton confidence is low (e.g., no ingredient block found, interwoven text).
+4.  **LLM Escalation:** 
+    *   Trigger only if skeleton confidence is low.
+    *   Use the shared **LLM Repair** strategy (see `docs/plans/PROCESS-llm-repair.md`).
 
 ### Phase 4: JSON-LD Emission (Milestone 4)
 
 1.  **Emission:**
-    *   Write `staging/recipesage_jsonld/<file_id>/<candidate_id>.jsonld`.
-    *   Include provenance: source file, line numbers, original text chunk.
+    *   Use the shared **Reporting and Provenance** standards (see `docs/plans/PROCESS-reporting-and-provenance.md`).
+    *   Write `staging/recipesage_jsonld/<file_id>/<candidate_id>.jsonld` with stable IDs.
 2.  **Reporting:**
-    *   Write `manifest.json` with split decisions and parse confidence.
-    *   Flag "needs review" items.
+    *   Write `manifest.json` using the standard `ReportBuilder`.
 
 ## Concrete Steps
 

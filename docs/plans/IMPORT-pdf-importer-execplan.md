@@ -82,8 +82,9 @@ Key terms:
 
 1.  **Start Signals (Heuristics):**
     *   **Title:** Font size jump vs. median, bold/all-caps, centered, short length (< 80 chars).
-    *   **Followed by:** "Serves", "Yield", or Ingredient patterns.
+    *   **Followed by:** "Serves", "Yield", or Ingredient patterns (using shared **Signal Detection** from `docs/plans/PROCESS-common-parsing-and-normalization.md`).
 2.  **Content Signals:**
+    *   Use shared **Signal Detection** to identify ingredient lines and instruction steps.
     *   **Ingredients:** Blocks with many short lines, numbers/fractions (`1/2`, `½`), units (`cup`, `g`, `oz`).
     *   **Steps:** Numbered lists (`1.`, `Step 1`) or imperative verbs (`Mix`, `Bake`).
 3.  **Candidate Spans:**
@@ -102,12 +103,14 @@ Key terms:
     *   **Instructions:** Step-ish region until end.
     *   **Notes:** Sidebar blocks near the candidate.
 2.  **LLM Escalation (Surgical):**
+    *   Use the shared **LLM Repair** strategy (see `docs/plans/PROCESS-llm-repair.md`).
     *   *Trigger:* Interleaved ingredients/instructions, multi-column ordering confusion, no clear boundaries.
     *   *Constraint:* Input ordered blocks; Output JSON identifying block ranges for sections.
 3.  **Emission:**
+    *   Use the shared **Reporting and Provenance** standards (see `docs/plans/PROCESS-reporting-and-provenance.md`).
     *   Write `staging/recipesage_jsonld/<book_id>/<slug>.jsonld`.
     *   Include provenance: source file, page range, raw extracted text.
-    *   Write `manifest.json` summarizing valid vs. review-needed recipes.
+    *   Write `manifest.json` using the standard `ReportBuilder`.
 
 ## Concrete Steps
 

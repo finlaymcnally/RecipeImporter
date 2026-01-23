@@ -73,7 +73,7 @@ A **RecipeCandidate** is a contiguous slice of blocks that likely represents one
     *   **HTML Cleanup:** Deterministically strip nav/TOC boilerplate, drop page numbers, normalize whitespace, and merge hyphenation artifacts (e.g., `in-
 ingredient`).
     *   **DOM Walk:** Walk the DOM and emit blocks (`h1-h6` -> heading, `li` -> list_item, `p` -> paragraph, `table` -> table block with cell grid).
-    *   **Feature Computation:** For each block, compute cheap features:
+    *   **Feature Computation:** For each block, compute cheap features using the shared **Signal Detection** module (see `docs/plans/PROCESS-common-parsing-and-normalization.md`):
         *   `has_qty_unit_pattern` (e.g., `^\s*\d+(\.\d+)?\s*(cup|tsp|tbsp|g|oz|ml|lb)\b`)
         *   `looks_like_ingredient_line` (qty + food word)
         *   `imperative_verb_score` (starts with "Mix", "Bake", "Heat")
@@ -120,11 +120,13 @@ ingredient`).
 ### Phase 4: JSON-LD Emission & Edge Cases (Milestone 4)
 
 1.  **Emit Artifacts:**
+    *   Use the shared **Reporting and Provenance** standards (see `docs/plans/PROCESS-reporting-and-provenance.md`).
     *   `candidates/<book_id>/<candidate_id>.json` (Candidate schema with provenance).
     *   `recipesage_jsonld/<book_id>/<candidate_id>.jsonld` (Valid RecipeSage format).
     *   *Optional:* `debug/<candidate_id>.html` for human review.
 2.  **Handle Image Recipes:** If a candidate has low text density but many images, extract images and flag for OCR (future expansion).
 3.  **LLM Escalation (Surgical):** Only use LLM if confidence is low.
+    *   Use the shared **LLM Repair** strategy (see `docs/plans/PROCESS-llm-repair.md`).
     *   *Trigger:* Interleaved ingredients/instructions, ambiguous structure.
     *   *Constraint:* Input ordered blocks; Output strict JSON schema validation.
 
