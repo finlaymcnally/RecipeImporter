@@ -20,10 +20,13 @@ After this change, a user can point the cookimport CLI at a folder containing EP
 - [x] Implemented `EpubImporter` in `cookimport/plugins/epub.py`.
 - [x] Implemented DocPack extraction and Candidate segmentation.
 - [x] Verified with `tests/test_epub_importer.py`.
+- [x] Added zipfile-based spine fallback when ebooklib is unavailable or fails.
+- [x] Added yield-based candidate splitting and heuristic ingredient/instruction extraction.
 
 ## Surprises & Discoveries
 
-(To be filled during implementation.)
+- Some EPUBs parse as valid ZIP files but still trigger ebooklib errors; parsing container.xml + OPF spine directly is more reliable for extraction.
+- The ATK EPUB has frequent `serves` lines but no explicit instruction headers, so segmentation must leverage yields and numbered steps.
 
 ## Decision Log
 
@@ -39,9 +42,18 @@ After this change, a user can point the cookimport CLI at a folder containing EP
   Rationale: Saves tokens and provides predictable, debuggable output. LLM is only needed for genuinely ambiguous layouts.
   Date/Author: 2026-01-21 / Initial Plan
 
+- Decision: Add a zipfile-based EPUB spine reader as a fallback when ebooklib is missing or fails to parse.
+  Rationale: Keeps the importer resilient to EPUB variants and environments without ebooklib.
+  Date/Author: 2026-01-23 / Implementation update
+
+- Decision: Use yield-line anchors to split EPUB recipes when ingredient headers are sparse or absent.
+  Rationale: Some cookbooks (like ATK) mark every recipe with "serves" but omit explicit section headers.
+  Date/Author: 2026-01-23 / Implementation update
+
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+- The EPUB importer now falls back to container.xml + OPF spine parsing when ebooklib is unavailable or fails, keeping extraction working in more environments.
+- The EPUB importer now segments recipes on yield lines and extracts instructions using heuristic step detection when instruction headers are absent.
 
 ## Context and Orientation
 

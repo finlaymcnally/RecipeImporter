@@ -3,12 +3,19 @@ from __future__ import annotations
 import logging
 import re
 import warnings
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+import zipfile
+import xml.etree.ElementTree as ET
+from pathlib import Path, PurePosixPath
+from typing import Any, List, Tuple
 
-import ebooklib
-from ebooklib import epub
-from bs4 import BeautifulSoup, NavigableString, Tag, XMLParsedAsHTMLWarning
+try:
+    import ebooklib
+    from ebooklib import epub
+except ModuleNotFoundError:
+    ebooklib = None
+    epub = None
+
+from bs4 import BeautifulSoup, FeatureNotFound, Tag, XMLParsedAsHTMLWarning
 
 from cookimport.core.models import (
     ConversionReport,
@@ -46,20 +53,39 @@ class EpubImporter:
         """
         Quickly inspect the EPUB structure.
         """
+        if epub is not None:
+            try:
+                book = epub.read_epub(str(path), options={"ignore_ncx": True})
+                spine_count = len(book.spine)
+                title = book.get_metadata("DC", "title")
+                title_str = title[0][0] if title else path.stem
+
+                return WorkbookInspection(
+                    path=str(path),
+                    sheets=[
+                        SheetInspection(
+                            name=title_str,
+                            layout="epub-book",
+                            confidence=0.9,
+                            warnings=[f"Found {spine_count} spine items."],
+                        )
+                    ],
+                    mappingStub=MappingConfig(),
+                )
+            except Exception as e:
+                logger.warning(f"Ebooklib inspect failed for EPUB {path}: {e}")
+
         try:
-            book = epub.read_epub(str(path), options={"ignore_ncx": True})
-            spine_count = len(book.spine)
-            title = book.get_metadata("DC", "title")
-            title_str = title[0][0] if title else path.stem
-            
+            title, spine_items = self._read_epub_spine(path)
+            title_str = title or path.stem
             return WorkbookInspection(
                 path=str(path),
                 sheets=[
                     SheetInspection(
                         name=title_str,
                         layout="epub-book",
-                        confidence=0.9,
-                        warnings=[f"Found {spine_count} spine items."],
+                        confidence=0.8,
+                        warnings=[f"Found {len(spine_items)} spine items (zip fallback)."],
                     )
                 ],
                 mappingStub=MappingConfig(),
@@ -143,64 +169,125 @@ class EpubImporter:
         """
         Reads EPUB and converts spine items to a linear list of Blocks.
         """
-        blocks: List[Block] = []
-        try:
-            book = epub.read_epub(str(path))
-            
-            for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
-                # Check if item is in spine (reading order)
-                # ebooklib doesn't make this super easy efficiently, but we can iterate spine
-                # Actually, get_items_of_type returns all.
-                # Better to iterate spine.
-                pass
+        if epub is not None:
+            try:
+                return self._extract_docpack_with_ebooklib(path)
+            except Exception as e:
+                logger.warning(f"Ebooklib extraction failed for EPUB {path}: {e}")
 
-            # Iterate spine
-            for item_id, linear in book.spine:
-                item = book.get_item_with_id(item_id)
-                if not item:
-                    continue
-                    
-                content = item.get_content()
-                soup = BeautifulSoup(content, "lxml")
-                
-                # Simple DOM walk
-                for elem in soup.body.descendants if soup.body else []:
-                    if isinstance(elem, Tag):
-                        text = cleaning.normalize_text(elem.get_text())
-                        if not text:
-                            continue
-                            
-                        # Determine type
-                        btype = BlockType.TEXT
-                        font_weight = "normal"
-                        
-                        if elem.name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
-                            # Heading
-                            # We treat it as text but maybe add feature
-                            font_weight = "bold"
-                        elif elem.name == "li":
-                            # List item
-                            pass
-                        elif elem.name == "p":
-                            pass
-                        elif elem.name in ["strong", "b"]:
-                             font_weight = "bold"
-                        
-                        # Avoid duplicates: descendants visits children too.
-                        # Strategy: Only emit leaf nodes or block-level elements that contain text directly?
-                        # Better strategy: soup.strings or stripped_strings but we lose tags.
-                        # Alternative: Recursively parse functions.
-                        pass
-                
-                # Let's use a simpler recursive extractor for the DOM
-                item_blocks = self._parse_soup_to_blocks(soup)
-                blocks.extend(item_blocks)
-                
-        except Exception as e:
-            logger.error(f"DocPack extraction failed: {e}")
-            raise
-            
+        return self._extract_docpack_with_zip(path)
+
+    def _extract_docpack_with_ebooklib(self, path: Path) -> List[Block]:
+        blocks: List[Block] = []
+        if epub is None:
+            raise RuntimeError("ebooklib is not available")
+
+        book = epub.read_epub(str(path), options={"ignore_ncx": True})
+        for item_id, _linear in book.spine:
+            item = book.get_item_with_id(item_id)
+            if not item:
+                continue
+            if ebooklib is not None and item.get_type() != ebooklib.ITEM_DOCUMENT:
+                continue
+            content = item.get_content()
+            soup = self._soup_from_bytes(content)
+            blocks.extend(self._parse_soup_to_blocks(soup))
         return blocks
+
+    def _extract_docpack_with_zip(self, path: Path) -> List[Block]:
+        blocks: List[Block] = []
+        _title, spine_items = self._read_epub_spine(path)
+        if not spine_items:
+            raise ValueError("No spine items found in EPUB")
+
+        with zipfile.ZipFile(path) as zip_handle:
+            for spine_path, media_type in spine_items:
+                if not spine_path:
+                    continue
+                if media_type and "html" not in media_type:
+                    continue
+                try:
+                    content = zip_handle.read(spine_path)
+                except KeyError:
+                    logger.warning(f"Missing spine item in EPUB: {spine_path}")
+                    continue
+                soup = self._soup_from_bytes(content)
+                blocks.extend(self._parse_soup_to_blocks(soup))
+        return blocks
+
+    def _soup_from_bytes(self, content: bytes) -> BeautifulSoup:
+        try:
+            return BeautifulSoup(content, "lxml")
+        except FeatureNotFound:
+            return BeautifulSoup(content, "html.parser")
+
+    def _read_epub_spine(self, path: Path) -> tuple[str | None, List[tuple[str, str]]]:
+        with zipfile.ZipFile(path) as zip_handle:
+            opf_path = self._find_opf_path(zip_handle)
+            opf_bytes = zip_handle.read(opf_path)
+
+        title = self._extract_opf_title(opf_bytes)
+        spine_items = self._extract_spine_items(opf_path, opf_bytes)
+        return title, spine_items
+
+    def _find_opf_path(self, zip_handle: zipfile.ZipFile) -> str:
+        try:
+            container_bytes = zip_handle.read("META-INF/container.xml")
+        except KeyError:
+            container_bytes = b""
+
+        if container_bytes:
+            root = ET.fromstring(container_bytes)
+            rootfile = root.find(".//{*}rootfile")
+            if rootfile is not None:
+                opf_path = rootfile.attrib.get("full-path")
+                if opf_path:
+                    return opf_path
+
+        for name in zip_handle.namelist():
+            if name.lower().endswith(".opf"):
+                return name
+
+        raise ValueError("EPUB is missing content.opf")
+
+    def _extract_opf_title(self, opf_bytes: bytes) -> str | None:
+        root = ET.fromstring(opf_bytes)
+        title_node = root.find(".//{*}metadata/{*}title")
+        if title_node is None:
+            title_node = root.find(".//{*}title")
+        if title_node is not None and title_node.text:
+            return title_node.text.strip()
+        return None
+
+    def _extract_spine_items(self, opf_path: str, opf_bytes: bytes) -> List[tuple[str, str]]:
+        root = ET.fromstring(opf_bytes)
+        manifest: dict[str, tuple[str, str]] = {}
+
+        for item in root.findall(".//{*}manifest/{*}item"):
+            item_id = item.attrib.get("id")
+            href = item.attrib.get("href")
+            if not item_id or not href:
+                continue
+            media_type = item.attrib.get("media-type", "")
+            clean_href = href.split("#", 1)[0]
+            manifest[item_id] = (clean_href, media_type)
+
+        base_dir = PurePosixPath(opf_path).parent
+        spine_items: List[tuple[str, str]] = []
+        for itemref in root.findall(".//{*}spine/{*}itemref"):
+            idref = itemref.attrib.get("idref")
+            if not idref:
+                continue
+            manifest_entry = manifest.get(idref)
+            if not manifest_entry:
+                continue
+            href, media_type = manifest_entry
+            if not href:
+                continue
+            full_path = str((base_dir / href).as_posix())
+            spine_items.append((full_path, media_type))
+
+        return spine_items
 
     def _parse_soup_to_blocks(self, soup: BeautifulSoup) -> List[Block]:
         blocks = []
@@ -259,84 +346,59 @@ class EpubImporter:
         """
         Segments blocks into recipes. Returns (start_idx, end_idx, score).
         """
-        candidates = []
-        current_start = -1
-        
-        # State machine
-        # LOOKING_FOR_START -> IN_RECIPE -> FINALIZE
-        
-        # Heuristics for Start:
-        # - Title-ish block (heading, short, bold)
-        # - Followed shortly by Ingredients header
-        
+        if not blocks:
+            return []
+
+        yield_indices = [i for i, b in enumerate(blocks) if b.features.get("is_yield")]
+        starts: List[int] = []
+        if yield_indices:
+            for idx in yield_indices:
+                title_idx = self._backtrack_for_title(blocks, idx, limit=8)
+                start_idx = title_idx if title_idx != -1 else idx
+                starts.append(start_idx)
+            starts = sorted(set(starts))
+            return self._build_candidates_from_starts(blocks, starts)
+
+        candidates: List[Tuple[int, int, float]] = []
         i = 0
         while i < len(blocks):
             block = blocks[i]
-            
-            # Check for recipe start signal
-            # Strongest signal: Ingredient Header
-            # If we find Ingredient Header, the recipe probably started earlier (at the Title).
-            
-            if block.features.get("is_ingredient_header"):
-                # Backtrack to find Title
+            if block.features.get("is_ingredient_header") or self._is_recipe_anchor(blocks, i):
                 title_idx = self._backtrack_for_title(blocks, i)
                 start_idx = title_idx if title_idx != -1 else i
-                
-                # Now scan forward for end
-                end_idx = self._find_recipe_end(blocks, i)
-                
-                score = 5.0 # High confidence
+                end_idx = self._find_recipe_end(blocks, start_idx, i)
+                score = self._score_candidate(blocks[start_idx:end_idx])
                 candidates.append((start_idx, end_idx, score))
-                
                 i = end_idx
                 continue
-                
             i += 1
-            
+
         return candidates
 
-    def _backtrack_for_title(self, blocks: List[Block], ingredient_idx: int) -> int:
+    def _backtrack_for_title(self, blocks: List[Block], anchor_idx: int, limit: int = 20) -> int:
         """
-        Look backwards from ingredients for a likely title.
-        Limit: 20 blocks.
+        Look backwards from an anchor to find a likely title.
         """
-        limit = 20
         best_idx = -1
-        
-        for i in range(ingredient_idx - 1, max(-1, ingredient_idx - limit), -1):
+        for i in range(anchor_idx - 1, max(-1, anchor_idx - limit), -1):
             b = blocks[i]
-            
-            # Stop if we hit end of previous recipe (e.g. another ingredient header? maybe not reliable if interleaved)
             if b.features.get("is_ingredient_header"):
                 break
-
-            # Check for title characteristics
-            # - Heading tag (h1-h3)
-            # - Short text
-            # - Title Case
-            
-            is_heading = b.features.get("is_heading")
-            is_short = len(b.text) < 100
-            
-            if is_heading and is_short:
+            if b.features.get("is_yield") or b.features.get("is_time"):
+                continue
+            if self._is_title_candidate(b):
                 return i
-            
-            # Fallback: Short bold line
-            if b.font_weight == "bold" and is_short:
-                best_idx = i # Keep looking for a better one (heading)
-                
-            # Fallback: Just short title case line
-            if is_short and b.text.istitle() and best_idx == -1:
-                best_idx = i
-                
+            if best_idx == -1 and len(b.text.strip()) <= 80:
+                if not self._is_ingredient_like(b) and not self._is_instruction_like(b):
+                    best_idx = i
         return best_idx
 
-    def _find_recipe_end(self, blocks: List[Block], ingredient_idx: int) -> int:
+    def _find_recipe_end(self, blocks: List[Block], start_idx: int, anchor_idx: int) -> int:
         """
         Scan forward to find end of recipe.
         Stop at next ingredient header (start of next recipe) or new chapter/major heading.
         """
-        for i in range(ingredient_idx + 1, len(blocks)):
+        for i in range(anchor_idx + 1, len(blocks)):
             b = blocks[i]
             
             if b.features.get("is_ingredient_header"):
@@ -358,58 +420,313 @@ class EpubImporter:
                      # Backtrack from i to find title of NEXT recipe, and end THIS recipe before that title.
                      
                      next_title = self._backtrack_for_title(blocks, i)
-                     if next_title != -1 and next_title > ingredient_idx:
+                     if next_title != -1 and next_title > anchor_idx:
                          return next_title
                      return i
             
             # Stop at huge headings that look like Chapter titles (h1)
             if b.features.get("is_heading") and b.features.get("heading_level") == 1:
                 return i
+
+            if self._is_title_candidate(b) and self._has_ingredient_run(blocks, i):
+                return i
                 
         return len(blocks)
 
     def _extract_fields(self, blocks: List[Block]) -> RecipeCandidate:
         name = "Untitled Recipe"
-        ingredients = []
-        instructions = []
-        description = []
-        
-        # 1. Title (First block usually)
-        if blocks:
-            name = blocks[0].text
-            
-        # 2. Sections
-        current_section = "description"
-        if blocks and blocks[0].features.get("is_heading"):
-             # First block is title, skip it for content
-             content_blocks = blocks[1:]
+        ingredients: List[str] = []
+        instructions: List[str] = []
+        description: List[str] = []
+        recipe_yield: str | None = None
+
+        if not blocks:
+            return RecipeCandidate(
+                name=name,
+                ingredients=ingredients,
+                instructions=instructions,
+                description=None,
+            )
+
+        name, consumed = self._extract_title(blocks)
+        content_blocks = blocks[consumed:]
+
+        has_ingredient_header = any(
+            b.features.get("is_ingredient_header") for b in content_blocks
+        )
+        has_instruction_header = any(
+            b.features.get("is_instruction_header") for b in content_blocks
+        )
+
+        if has_ingredient_header or has_instruction_header:
+            current_section = "description"
+            for b in content_blocks:
+                if b.features.get("is_yield") and recipe_yield is None:
+                    recipe_yield = self._yield_phrase(b.text)
+                    continue
+                if b.features.get("is_ingredient_header"):
+                    current_section = "ingredients"
+                    header_text = b.text.strip()
+                    if header_text.lower().rstrip(":") not in ("ingredients", "ingredient"):
+                        ingredients.append(header_text)
+                    continue
+                if b.features.get("is_instruction_header"):
+                    current_section = "instructions"
+                    continue
+
+                if current_section == "ingredients":
+                    if not has_instruction_header and self._is_instruction_like(b):
+                        current_section = "instructions"
+                        clean = re.sub(r"^\s*(?:\d+[.)]|\*|-)\s*", "", b.text)
+                        instructions.append(clean)
+                        continue
+                    clean = re.sub(r"^\s*[-*•]\s*", "", b.text)
+                    ingredients.append(clean)
+                elif current_section == "instructions":
+                    clean = re.sub(r"^\s*(?:\d+[.)]|\*|-)\s*", "", b.text)
+                    instructions.append(clean)
+                else:
+                    description.append(b.text)
         else:
-             content_blocks = blocks
-             
-        for b in content_blocks:
-            if b.features.get("is_ingredient_header"):
-                current_section = "ingredients"
-                continue
-            if b.features.get("is_instruction_header"):
-                current_section = "instructions"
-                continue
-                
-            if current_section == "ingredients":
-                # Cleaning
-                text = re.sub(r"^\s*[-*•]\s*", "", b.text)
-                ingredients.append(text)
-            elif current_section == "instructions":
-                # Cleaning
-                text = re.sub(r"^\s*(?:\d+[.)]|\*|-)\s*", "", b.text)
-                instructions.append(text)
-            elif current_section == "description":
-                description.append(b.text)
-                
+            lines: List[tuple[str, Block]] = []
+            for block in content_blocks:
+                text = block.text.strip()
+                if not text:
+                    continue
+                if block.features.get("is_yield") and recipe_yield is None:
+                    recipe_yield = self._yield_phrase(text)
+                lines.append((text, block))
+
+            ingredient_start = self._find_ingredient_start(lines)
+            instruction_start = self._find_instruction_start(lines, ingredient_start)
+            instruction_fallback = instruction_start is None and ingredient_start is not None
+
+            for idx, (text, block) in enumerate(lines):
+                if ingredient_start is not None and idx < ingredient_start:
+                    if not block.features.get("is_yield"):
+                        description.append(text)
+                    continue
+
+                if ingredient_start is None:
+                    if block.features.get("is_yield"):
+                        continue
+                    if self._is_instruction_like(block):
+                        instructions.append(text)
+                    else:
+                        description.append(text)
+                    continue
+
+                if instruction_start is not None and idx >= instruction_start:
+                    instructions.append(text)
+                    continue
+
+                if block.features.get("is_yield"):
+                    continue
+                if self._is_ingredient_like(block):
+                    ingredients.append(text)
+                elif not self._is_instruction_like(block) and len(text.split()) <= 6:
+                    ingredients.append(text)
+                elif instruction_fallback:
+                    instructions.append(text)
+                else:
+                    description.append(text)
+
+        instructions = self._merge_wrapped_lines(instructions)
+
         return RecipeCandidate(
             name=name,
             ingredients=ingredients,
             instructions=instructions,
-            description="\n".join(description) if description else None
+            description="\n".join(description) if description else None,
+            recipe_yield=recipe_yield,
         )
+
+    def _build_candidates_from_starts(
+        self,
+        blocks: List[Block],
+        starts: List[int],
+    ) -> List[Tuple[int, int, float]]:
+        candidates: List[Tuple[int, int, float]] = []
+        for idx, start in enumerate(starts):
+            end = starts[idx + 1] if idx + 1 < len(starts) else len(blocks)
+            score = self._score_candidate(blocks[start:end])
+            candidates.append((start, end, score))
+        return candidates
+
+    def _score_candidate(self, blocks: List[Block]) -> float:
+        if not blocks:
+            return 0.0
+        ingredient_count = sum(1 for b in blocks if self._is_ingredient_like(b))
+        instruction_count = sum(1 for b in blocks if self._is_instruction_like(b))
+        score = 0.0
+        if ingredient_count >= 3:
+            score += 3.0
+        if instruction_count >= 2:
+            score += 3.0
+        if any(b.features.get("is_yield") for b in blocks):
+            score += 1.0
+        return score
+
+    def _is_recipe_anchor(self, blocks: List[Block], idx: int) -> bool:
+        block = blocks[idx]
+        if block.features.get("is_ingredient_header"):
+            return True
+        if self._is_title_candidate(block) and self._has_ingredient_run(blocks, idx):
+            if self._has_ingredient_header_ahead(blocks, idx):
+                return False
+            return True
+        if block.features.get("is_yield") and self._has_ingredient_run(blocks, idx):
+            return True
+        return False
+
+    def _has_ingredient_run(
+        self,
+        blocks: List[Block],
+        start_idx: int,
+        window: int = 8,
+    ) -> bool:
+        count = 0
+        for idx in range(start_idx, min(len(blocks), start_idx + window)):
+            if self._is_ingredient_like(blocks[idx]):
+                count += 1
+            if count >= 2:
+                return True
+        return False
+
+    def _has_ingredient_header_ahead(
+        self,
+        blocks: List[Block],
+        start_idx: int,
+        window: int = 12,
+    ) -> bool:
+        for idx in range(start_idx, min(len(blocks), start_idx + window)):
+            if blocks[idx].features.get("is_ingredient_header"):
+                return True
+        return False
+
+    def _is_title_candidate(self, block: Block) -> bool:
+        text = block.text.strip()
+        if not text or len(text) > 80:
+            return False
+        if block.features.get("is_instruction_header"):
+            return False
+        if block.features.get("is_ingredient_header"):
+            if text.lower() in ("ingredients", "ingredient"):
+                return False
+            if block.features.get("is_heading") and text.isupper():
+                return True
+            return False
+        if block.features.get("is_ingredient_likely") or block.features.get("is_instruction_likely"):
+            return False
+        if block.features.get("is_yield") or block.features.get("is_time"):
+            return False
+        if text.endswith("."):
+            return False
+        if block.features.get("is_heading"):
+            return True
+        if block.font_weight == "bold" and len(text) <= 60:
+            return True
+        if text.isupper() or text.istitle():
+            return True
+        return False
+
+    def _extract_title(self, blocks: List[Block]) -> tuple[str, int]:
+        if not blocks:
+            return ("Untitled Recipe", 0)
+        title_parts: List[str] = []
+        idx = 0
+        while idx < len(blocks):
+            block = blocks[idx]
+            if not self._is_title_candidate(block):
+                break
+            title_parts.append(block.text.strip())
+            idx += 1
+            if len(title_parts) >= 3:
+                break
+        if title_parts:
+            return (" ".join(title_parts), idx)
+        return (blocks[0].text.strip(), 1)
+
+    def _is_ingredient_like(self, block: Block) -> bool:
+        text = block.text.strip()
+        if block.features.get("starts_with_quantity"):
+            return True
+        if block.features.get("has_unit") and re.match(r"^\s*[lI]\s+\w", text):
+            return True
+        if block.features.get("has_unit") and re.search(r"^\s*\d", text):
+            return True
+        if re.match(r"^\s*[-*•]\s+", text):
+            return True
+        return False
+
+    def _is_instruction_like(self, block: Block) -> bool:
+        if block.features.get("is_instruction_likely"):
+            return True
+        if block.features.get("is_ingredient_likely"):
+            return False
+        if re.match(
+            r"^\s*(preheat|heat|bring|make|mix|stir|whisk|crush|cook|bake|roast|fry|"
+            r"grill|blanch|season|serve|add|melt|place|put|pour|combine|fold|return|"
+            r"remove|drain|peel|chop|slice|cut|toss|leave|cool|refrigerate|strain|"
+            r"set|beat|whip|simmer|boil|reduce|cover|unwrap|sear|saute)\b",
+            block.text,
+            re.IGNORECASE,
+        ):
+            return True
+        word_count = len(block.text.split())
+        if word_count >= 8 and re.search(r"[.!?]$", block.text.strip()):
+            return True
+        if word_count >= 10 and "," in block.text:
+            return True
+        return False
+
+    def _find_ingredient_start(
+        self,
+        lines: List[tuple[str, Block]],
+    ) -> int | None:
+        blocks_only = [block for _, block in lines]
+        for idx in range(len(blocks_only)):
+            if self._is_ingredient_like(blocks_only[idx]):
+                if self._has_ingredient_run(blocks_only, idx):
+                    return idx
+        return None
+
+    def _find_instruction_start(
+        self,
+        lines: List[tuple[str, Block]],
+        ingredient_start: int | None,
+    ) -> int | None:
+        if ingredient_start is None:
+            return None
+        for idx in range(ingredient_start + 1, len(lines)):
+            _, block = lines[idx]
+            if self._is_instruction_like(block):
+                return idx
+        return None
+
+    def _merge_wrapped_lines(self, lines: List[str]) -> List[str]:
+        merged: List[str] = []
+        for line in lines:
+            cleaned = line.strip()
+            if not cleaned:
+                continue
+            if not merged:
+                merged.append(cleaned)
+                continue
+            if re.match(r"^\s*(\d+[.)]|[-*•])\s+", cleaned):
+                merged.append(cleaned)
+                continue
+            if re.search(r"[.!?]$", merged[-1]):
+                merged.append(cleaned)
+                continue
+            merged[-1] = f"{merged[-1]} {cleaned}"
+        return merged
+
+    def _yield_phrase(self, text: str) -> str | None:
+        match = re.match(r"^\s*(serves|yield|yields|makes)\b", text, re.IGNORECASE)
+        if not match:
+            return None
+        remainder = text[match.end():].strip(" :-")
+        return remainder or text.strip()
 
 registry.register(EpubImporter())

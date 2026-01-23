@@ -34,3 +34,4 @@ Always run tests inside a project-local virtual environment.
 Do not rely on system Python having pip or ensurepip.
 If pip is missing, bootstrap it inside the venv using get-pip.py.
 Never ask me to install system packages or enable pip globally.
+Before reporting "tests not run", activate `.venv` and install dev deps (`pip install -e .[dev]`).

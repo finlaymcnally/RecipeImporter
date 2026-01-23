@@ -187,6 +187,10 @@ def _is_ingredient_like(line: str, feats: dict[str, Any] | None = None) -> bool:
         feats = signals.classify_block(line)
     if feats.get("is_ingredient_likely"):
         return True
+    if feats.get("starts_with_quantity") and not feats.get("is_instruction_likely"):
+        word_count = len(line.split())
+        if word_count <= 5 and not feats.get("is_time"):
+            return True
     if feats.get("has_unit") and not feats.get("is_instruction_likely"):
         return True
     if re.match(r"^\s*[-*•]\s+", line):
