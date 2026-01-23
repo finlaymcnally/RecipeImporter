@@ -19,43 +19,52 @@ DEFAULT_INPUT = Path(__file__).parent.parent / "data" / "input"
 DEFAULT_OUTPUT = Path(__file__).parent.parent / "data" / "output"
 
 
-def _list_xlsx_files(folder: Path) -> list[Path]:
-    """List Excel files in a folder."""
+def _list_importable_files(folder: Path) -> list[Path]:
+    """List files in a folder that have a valid importer."""
     if not folder.exists():
         return []
-    return sorted(folder.glob("*.xlsx"))
+    files = []
+    for f in folder.glob("*"):
+        if f.is_file() and not f.name.startswith("."):
+            _, score = registry.best_importer_for_path(f)
+            if score > 0:
+                files.append(f)
+    return sorted(files)
 
 
 def _interactive_mode() -> None:
     """Run the interactive guided flow."""
     typer.secho("\n  Recipe Import Tool\n", fg=typer.colors.CYAN, bold=True)
 
+    input_folder = DEFAULT_INPUT
+    output_folder = DEFAULT_OUTPUT
+
+    # Scan for importable files first to know what context to show
+    importable_files = _list_importable_files(input_folder)
+
+    choices = []
+    if importable_files:
+        choices.append(questionary.Choice("Import files from data/input", value="import"))
+    choices.append(questionary.Choice("Inspect a single file (preview layout)", value="inspect"))
+
     action = questionary.select(
         "What would you like to do?",
-        choices=[
-            questionary.Choice("Convert Excel files to RecipeSage format", value="stage"),
-            questionary.Choice("Inspect a single file (preview layout)", value="inspect"),
-        ],
+        choices=choices,
     ).ask()
 
     if action is None:
         raise typer.Exit(0)
 
-    input_folder = DEFAULT_INPUT
-    output_folder = DEFAULT_OUTPUT
-
     if action == "inspect":
-        xlsx_files = _list_xlsx_files(input_folder)
-        if not xlsx_files:
+        if not importable_files:
             typer.secho(
-                f"\nNo .xlsx files found in {input_folder}",
+                f"\nNo supported files found in {input_folder}",
                 fg=typer.colors.YELLOW,
             )
-            typer.secho("Add Excel files to that folder and try again.", fg=typer.colors.YELLOW)
             raise typer.Exit(1)
 
         file_choices = [
-            questionary.Choice(f.name, value=f) for f in xlsx_files
+            questionary.Choice(f.name, value=f) for f in importable_files
         ]
         selected_file = questionary.select(
             "Select a file to inspect:",
@@ -76,30 +85,34 @@ def _interactive_mode() -> None:
         typer.echo()
         inspect(path=selected_file, out=output_folder, write_mapping=write_map)
 
-    elif action == "stage":
-        xlsx_files = _list_xlsx_files(input_folder)
-        if not xlsx_files:
+    elif action == "import":
+        if not importable_files:
+            # Should be unreachable given the check above, but safe to keep
             typer.secho(
-                f"\nNo .xlsx files found in {input_folder}",
+                f"\nNo supported files found in {input_folder}",
                 fg=typer.colors.YELLOW,
             )
-            typer.secho("Add Excel files to that folder and try again.", fg=typer.colors.YELLOW)
             raise typer.Exit(1)
 
-        typer.secho(f"\nFound {len(xlsx_files)} file(s) in {input_folder}:", fg=typer.colors.GREEN)
-        for f in xlsx_files:
-            typer.echo(f"  - {f.name}")
+        typer.secho(f"\nFound {len(importable_files)} importable file(s) in {input_folder}", fg=typer.colors.GREEN)
 
-        proceed = questionary.confirm(
-            "\nConvert all files?",
-            default=True,
+        selection = questionary.select(
+            "Which file(s) would you like to import?",
+            choices=[
+                questionary.Choice("Import All", value="all"),
+                *[questionary.Choice(f.name, value=f) for f in importable_files]
+            ]
         ).ask()
 
-        if not proceed:
+        if selection is None:
             raise typer.Exit(0)
 
         typer.echo()
-        stage(path=input_folder, out=output_folder, mapping=None)
+        
+        if selection == "all":
+            stage(path=input_folder, out=output_folder, mapping=None)
+        else:
+            stage(path=selection, out=output_folder, mapping=None)
 
         typer.secho(f"\nOutputs written to: {output_folder}", fg=typer.colors.CYAN)
 
@@ -124,8 +137,11 @@ def _require_importer(path: Path):
 
 
 def _iter_files(root: Path) -> Iterable[Path]:
+    if root.is_file():
+        yield root
+        return
     for path in root.rglob("*"):
-        if path.is_file():
+        if path.is_file() and not path.name.startswith("."):
             yield path
 
 
@@ -154,21 +170,19 @@ def _slugify_name(name: str) -> str:
 
 @app.command()
 def stage(
-    path: Path = typer.Argument(..., help="Folder containing source files."),
+    path: Path = typer.Argument(..., help="File or folder containing source files."),
     out: Path = typer.Option(Path("staging"), "--out", help="Output folder."),
     mapping: Path | None = typer.Option(None, "--mapping", help="Mapping file path."),
 ) -> None:
-    """Stage recipes from a folder of source files.
+    """Stage recipes from a source file or folder.
 
     Outputs are organized as:
-      {out}/{timestamp}/{workbook_name}/intermediate drafts/  - RecipeSage JSON-LD
-      {out}/{timestamp}/{workbook_name}/final drafts/         - RecipeDraftV1 format
-      {out}/{timestamp}/{workbook_name}/reports/              - Conversion reports
+      {out}/{timestamp}/intermediate drafts/{filename}/  - RecipeSage JSON-LD
+      {out}/{timestamp}/final drafts/{filename}/         - RecipeDraftV1 format
+      {out}/{timestamp}/reports/                         - Conversion reports
     """
     if not path.exists():
         _fail(f"Path not found: {path}")
-    if not path.is_dir():
-        _fail("Stage expects a folder path.")
     if mapping is not None and not mapping.exists():
         _fail(f"Mapping file not found: {mapping}")
 
@@ -183,19 +197,31 @@ def stage(
     out = out / timestamp
     out.mkdir(parents=True, exist_ok=True)
 
-    for file_path in _iter_files(path):
+    files_to_process = list(_iter_files(path))
+    
+    if not files_to_process:
+        typer.secho("No files found to process.", fg=typer.colors.YELLOW)
+        return
+
+    for file_path in files_to_process:
         importer, score = registry.best_importer_for_path(file_path)
         if importer is None or score <= 0:
+            typer.secho(f"Skipping {file_path.name}: No suitable importer found.", fg=typer.colors.YELLOW)
             continue
+            
         try:
-            # Create workbook-specific output folder
             workbook_slug = _slugify_name(file_path.stem)
-            workbook_out = out / workbook_slug
-            intermediate_dir = workbook_out / "intermediate drafts"
-            final_dir = workbook_out / "final drafts"
-            reports_dir = workbook_out / "reports"
+            
+            # New structure:
+            # out/timestamp/intermediate drafts/workbook_slug/
+            # out/timestamp/final drafts/workbook_slug/
+            # out/timestamp/reports/
+            
+            intermediate_dir = out / "intermediate drafts" / workbook_slug
+            final_dir = out / "final drafts" / workbook_slug
+            reports_dir = out / "reports"
 
-            mapping_path = _resolve_mapping_path(file_path, workbook_out, mapping)
+            mapping_path = _resolve_mapping_path(file_path, out, mapping) # Passed out for legacy compat
             mapping_config = mapping_override
             if mapping_config is None and mapping_path is not None:
                 mapping_config = load_mapping_config(mapping_path)
@@ -222,12 +248,12 @@ def stage(
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{file_path.name}: {exc}")
             workbook_slug = _slugify_name(file_path.stem)
-            reports_dir = out / workbook_slug / "reports"
+            reports_dir = out / "reports"
             report = ConversionReport(errors=[str(exc)])
             write_report(report, reports_dir, file_path.stem)
             continue
 
-    typer.secho(f"\nStaged {imported} workbook(s).", fg=typer.colors.GREEN)
+    typer.secho(f"\nStaged {imported} file(s).", fg=typer.colors.GREEN)
     if errors:
         typer.secho("Errors encountered:", fg=typer.colors.YELLOW)
         for message in errors:

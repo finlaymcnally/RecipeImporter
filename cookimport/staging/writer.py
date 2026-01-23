@@ -66,6 +66,14 @@ def _resolve_row_index(provenance: dict[str, Any]) -> int:
                 return int(provenance[key])
             except (TypeError, ValueError):
                 return 0
+    location = provenance.get("location")
+    if isinstance(location, dict):
+        for key in ("row_index", "rowIndex", "row", "chunk_index", "chunkIndex", "chunk"):
+            if key in location:
+                try:
+                    return int(location[key])
+                except (TypeError, ValueError):
+                    return 0
     return 0
 
 
@@ -95,9 +103,9 @@ def write_intermediate_outputs(results: ConversionResult, out_dir: Path) -> None
     """Write intermediate RecipeSage JSON-LD outputs.
 
     These are the raw extracted recipes before transformation to final format.
-    Output path: {out_dir}/{sheet_slug}/r{row_index}.jsonld
+    Output path: {out_dir}/r{index}.jsonld
     """
-    for candidate in results.recipes:
+    for index, candidate in enumerate(results.recipes):
         provenance = _ensure_provenance(candidate)
         sheet_name = _resolve_sheet_name(provenance)
         row_index = _resolve_row_index(provenance)
@@ -109,7 +117,7 @@ def write_intermediate_outputs(results: ConversionResult, out_dir: Path) -> None
 
         jsonld = recipe_candidate_to_jsonld(candidate)
 
-        out_path = out_dir / sheet_slug / f"r{row_index}.jsonld"
+        out_path = out_dir / f"r{index}.jsonld"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(jsonld, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -117,17 +125,12 @@ def write_intermediate_outputs(results: ConversionResult, out_dir: Path) -> None
 def write_draft_outputs(results: ConversionResult, out_dir: Path) -> None:
     """Write RecipeDraftV1 outputs (final format).
 
-    Output path: {out_dir}/{sheet_slug}/r{row_index}.json
+    Output path: {out_dir}/r{index}.json
     """
-    for candidate in results.recipes:
-        provenance = _ensure_provenance(candidate)
-        sheet_name = _resolve_sheet_name(provenance)
-        row_index = _resolve_row_index(provenance)
-        sheet_slug = _slugify(sheet_name)
-
+    for index, candidate in enumerate(results.recipes):
+        _ensure_provenance(candidate)
         draft = recipe_candidate_to_draft_v1(candidate)
-
-        out_path = out_dir / sheet_slug / f"r{row_index}.json"
+        out_path = out_dir / f"r{index}.json"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(draft, indent=2, sort_keys=True), encoding="utf-8")
 

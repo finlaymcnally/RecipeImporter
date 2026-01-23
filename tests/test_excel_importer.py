@@ -55,13 +55,10 @@ def test_excel_outputs_match_goldens(tmp_path: Path, workbook_name: str) -> None
     write_draft_outputs(result, tmp_path)
 
     expected_root = EXPECTED_DIR / workbook_path.stem
-    for expected_file in expected_root.rglob("*.json"):
-        # Expected structure: {sheet_slug}/{row}.json
-        # The expected files are stored under workbook/sheet/file structure
-        # but writer outputs directly to out_dir/sheet/file
-        relative = expected_file.relative_to(expected_root)
-        actual_file = tmp_path / relative
-        assert actual_file.exists(), f"Missing output {actual_file}"
+    expected_files = sorted(expected_root.rglob("*.json"))
+    actual_files = sorted(tmp_path.glob("*.json"))
+    assert len(actual_files) == len(expected_files)
+    for actual_file in actual_files:
         actual_payload = json.loads(actual_file.read_text(encoding="utf-8"))
         assert actual_payload.get("schema_v") == 1
 

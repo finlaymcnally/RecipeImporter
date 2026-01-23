@@ -14,15 +14,15 @@ The `cookimport` CLI now implements the two-phase pipeline as originally designe
 
 ### Output Structure
 ```
-data/output/{timestamp}/{workbook_name}/
+data/output/{timestamp}/
 ├── intermediate drafts/     # RecipeSage JSON-LD (.jsonld)
-│   └── {sheet_slug}/
-│       └── r{row}.jsonld
+│   └── {workbook_slug}/
+│       └── r{index}.jsonld
 ├── final drafts/            # RecipeDraftV1 (.json)
-│   └── {sheet_slug}/
-│       └── r{row}.json
+│   └── {workbook_slug}/
+│       └── r{index}.json
 └── reports/
-    └── {workbook}.excel_import_report.json
+    └── {workbook_slug}.excel_import_report.json
 ```
 
 Each run creates a new timestamped folder (e.g., `2026-01-22-182409`).
@@ -32,12 +32,12 @@ Each run creates a new timestamped folder (e.g., `2026-01-22-182409`).
 **Phase 1: Ingestion (Excel → Intermediate)**
 - **Input:** Source file (Excel)
 - **Action:** Extract raw content, detect layout, normalize fields
-- **Output:** RecipeSage JSON-LD files in `intermediate drafts/`
+- **Output:** RecipeSage JSON-LD files in `intermediate drafts/{workbook_slug}/r{index}.jsonld`
 
 **Phase 2: Transformation (Intermediate → Final)**
 - **Input:** RecipeCandidate objects (same data as JSON-LD)
 - **Action:** NLP ingredient parsing, step-ingredient linking, schema conversion
-- **Output:** RecipeDraftV1 JSON files in `final drafts/`
+- **Output:** RecipeDraftV1 JSON files in `final drafts/{workbook_slug}/r{index}.json`
 
 ### Data Flow
 
@@ -47,8 +47,8 @@ Excel File (.xlsx)
 [ExcelImporter.convert()]
     ↓
 RecipeCandidate (in-memory)
-    ├─→ [write_intermediate_outputs()] → intermediate drafts/*.jsonld
-    └─→ [write_draft_outputs()]        → final drafts/*.json
+    ├─→ [write_intermediate_outputs()] → intermediate drafts/{workbook_slug}/r{index}.jsonld
+    └─→ [write_draft_outputs()]        → final drafts/{workbook_slug}/r{index}.json
 ```
 
 ### File Formats

@@ -11,5 +11,14 @@ RecipeCandidate supports optional RecipeSage fields like `image`,
 
 Run `cookimport inspect <workbook> --write-mapping` to print layout guesses and
 write a mapping stub under `staging/mappings/`. Run `cookimport stage <folder>`
-to scan a folder and write JSON-LD under `staging/recipesage_jsonld/` plus
-reports under `staging/reports/`.
+to scan a folder and write JSON-LD under `staging/<timestamp>/intermediate drafts/`
+and DraftV1 under `staging/<timestamp>/final drafts/`, plus reports under
+`staging/<timestamp>/reports/`.
+
+The text importer treats .docx tables with recognized headers as structured
+recipe rows, so Word docs that store recipes in tables retain ingredients and
+instructions instead of flattening to plain text.
+
+For text/docx content without explicit "Ingredients" headers, the text importer
+can split on "Serves/Yield" lines and infer ingredient vs. instruction blocks
+using line-level heuristics.

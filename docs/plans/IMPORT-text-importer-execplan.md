@@ -20,10 +20,16 @@ After this change, a user can point the cookimport CLI at a folder containing te
 - [x] Implemented `TextImporter` in `cookimport/plugins/text.py`.
 - [x] Implemented `TextNormalizer` and `RecipeSplitter` logic.
 - [x] Verified with `tests/test_text_importer.py`.
+- [x] Added support for .docx (via python-docx) and .doc (limited).
+- [x] Added docx table extraction that maps header rows to recipe fields.
+- [x] (2026-01-23 19:10Z) Added "Serves/Yield" line splitting for headerless multi-recipe text/docx.
+- [x] (2026-01-23 19:10Z) Added heuristic ingredient/instruction inference when section headers are missing.
+- [x] (2026-01-23 19:10Z) Added a serves-based text fixture to validate multi-recipe splitting.
 
 ## Surprises & Discoveries
 
-(To be filled during implementation.)
+- Observation: The Hix written.docx recipes are plain paragraphs without "Ingredients" headers, and each recipe starts with a title line followed by a "Serves" line.
+  Evidence: Extracted docx paragraphs show repeated "Serves" lines following title-like lines, causing the importer to treat the entire file as one recipe before adding yield-based splitting.
 
 ## Decision Log
 
@@ -39,9 +45,33 @@ After this change, a user can point the cookimport CLI at a folder containing te
   Rationale: Allows users to easily add metadata (tags, servings, source) to their text notes in a standard way that the importer can pick up deterministically.
   Date/Author: 2026-01-21 / Initial Plan
 
+- Decision: Use `python-docx` for .docx files.
+  Rationale: It's a standard, pure-Python library for reading modern Word documents.
+  Date/Author: 2026-01-22 / Implemetation
+
+- Decision: Limited support for .doc files.
+  Rationale: Binary .doc files are hard to parse in pure Python. We will attempt basic text extraction or warn the user.
+  Date/Author: 2026-01-22 / Implementation
+
+- Decision: Add "Numbered Title List" splitting strategy.
+  Rationale: Some "cookbooks" are just simple lists of recipe ideas or links (e.g. "1. Recipe Name\nLink"). These should be split into stubs rather than one giant recipe.
+  Date/Author: 2026-01-22 / Implementation
+
+- Decision: When a .docx contains tables with recognizable headers, treat each data row as a recipe.
+  Rationale: Many Word exports store recipes in tables; parsing row-wise preserves structure and avoids losing ingredient/instruction fields.
+  Date/Author: 2026-01-23 / Implementation
+
+- Decision: When a text/docx file repeats "Serves/Yield" lines and each is preceded by a title-like line, split recipes at those title lines.
+  Rationale: Some cookbook exports are plain paragraphs without section headers; the yield line is the most reliable boundary signal.
+  Date/Author: 2026-01-23 / Implementation fix
+
+- Decision: Add a headerless fallback that infers ingredient vs. instruction blocks using line-level heuristics (quantities/units vs. sentence-like lines).
+  Rationale: Headerless recipes would otherwise funnel all content into descriptions, producing unusable outputs.
+  Date/Author: 2026-01-23 / Implementation fix
+
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+- (2026-01-23) The text importer now splits headerless cookbook-style files on repeated "Serves/Yield" lines and recovers ingredients/instructions without explicit headers. The Hix written.docx case produces multiple candidates instead of one monolithic recipe.
 
 ## Context and Orientation
 
@@ -59,7 +89,7 @@ Key terms:
 
 **Goal:** Turn any text file into a clean, normalized string.
 
-1.  **File Discovery:** Accept `.txt`, `.md`, `.markdown`.
+1.  **File Discovery:** Accept `.txt`, `.md`, `.markdown`, `.docx`, `.doc`.
 2.  **Normalization:**
     *   Use the shared **Text Normalization** module (see `docs/plans/PROCESS-common-parsing-and-normalization.md`).
     *   Decode bytes -> UTF-8.
@@ -77,8 +107,9 @@ Key terms:
 2.  **Splitting Strategy (Order of Operations):**
     1.  **Explicit Delimiter:** If `\n=== RECIPE ===\n` or similar is found, split there.
     2.  **Markdown Heading:** Split on `^#\s+` (and optionally `^##\s+`).
-    3.  **Repeated Patterns:** If "Ingredients" appears multiple times disjointly, split around them.
-    4.  **Fallback:** Detect title-ish lines (short, Title Case, surrounded by blank lines).
+    3.  **Yield Lines:** If repeated "Serves/Yield/Makes" lines are detected and each is preceded by a title-like line, split on those title lines.
+    4.  **Repeated Patterns:** If "Ingredients" appears multiple times disjointly, split around them.
+    5.  **Fallback:** Detect title-ish lines (short, Title Case, surrounded by blank lines).
 3.  **Output:** List of `RecipeCandidate` chunks (text + line number range).
 
 ### Phase 3: Structure Recovery (Milestone 3)
@@ -88,6 +119,7 @@ Key terms:
 1.  **Frontmatter:** If file/chunk starts with YAML frontmatter (`---`), parse it as metadata (tags, source, servings).
 2.  **Section Detection:**
     *   Use shared **Signal Detection** (see `docs/plans/PROCESS-common-parsing-and-normalization.md`) for headers, ingredients, and instructions.
+    *   If explicit headers are missing, infer ingredient vs. instruction blocks using line-level heuristics (quantities/units vs. sentence-like lines).
 3.  **Field Extraction:**
     *   **Ingredients:** Lines within the ingredients block.
     *   **Instructions:** Lines within directions block.
@@ -112,8 +144,8 @@ Key terms:
     *   `inspect`: Print split decision (single vs. multi) and detected sections for the first recipe.
     *   `convert`: Run full pipeline.
 3.  **Implement `TextNormalizer`:** Encoding handling and whitespace cleanup.
-4.  **Implement `RecipeSplitter`:** Logic for multi-recipe detection and slicing.
-5.  **Implement `TextParser`:** Logic for identifying headers and extracting lists.
+4.  **Implement `RecipeSplitter`:** Logic for multi-recipe detection and slicing, including yield-line splitting for headerless docx/text.
+5.  **Implement `TextParser`:** Logic for identifying headers and extracting lists, with a headerless fallback for ingredients/instructions.
 
 ## Validation and Acceptance
 
@@ -121,8 +153,12 @@ Key terms:
 *   `cookimport stage` correctly splits a multi-recipe Markdown file into separate JSON-LD files.
 *   YAML frontmatter is correctly parsed into metadata fields.
 *   Provenance data includes accurate line number ranges for tracing back to the source file.
+*   A headerless text file with repeated "Serves" lines produces one recipe per title and yields non-empty ingredients/instructions.
 
 ## Interfaces and Dependencies
 
 *   **PyYAML:** For parsing optional frontmatter.
 *   **Regex:** Heavy use for splitting and header detection.
+*   **python-docx:** For reading .docx files.
+
+Plan update note (2026-01-23): Added yield-line splitting and headerless parsing fallback to address docx files that store recipes as plain paragraphs without section headers. This prevents entire cookbooks from collapsing into a single recipe and restores ingredients/instructions extraction.
