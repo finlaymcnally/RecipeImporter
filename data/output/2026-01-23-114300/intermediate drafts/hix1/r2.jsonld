@@ -1,0 +1,43 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c2",
+  "@type": "Recipe",
+  "description": "Pl.cR.lecJ. vlCILV\\-v<.ts. cire o~ of Vios.e\nolcl fcis.ViLo~v!, cilw..os'- fol\"go'\"'-eV\\,\nBrLHsVi coV\\-vitV\\i\\.tV\\,ts. TViei.r '>Ne~ ,\nC!cLcJ.i.c tCl.:; e VIOYP...$ 1'.lr1.LL1.ClV\\. ... Lj L;I'.,\nCl Cl'.ressl.vcg. lVii.s o~ goe.s reci vi 1 \"\nwLtVi beetroo or cViePse-based. \"'C!':.Q.d,r,\ntViougVi DV\\..Ce !jN<'ve +-i;istecl .. '- v1r .A\npl'CbC!l:'.lltj WC!Vvt '-op..<. \"",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c2",
+  "name": "PICKLED WALNUT DRESSING",
+  "recipeIngredient": [
+    "2-3 good\u00b7quahty pickled walruts chopped P",
+    "2 tbsp of their JUiee",
+    "4 5 tbsp cold-pressed rapeseed 01",
+    "sail and freshly ground black pepper"
+  ],
+  "recipeInstructions": [
+    "Whisk all of the ingredients together 1n a bow shake in a screw-topped 1ar or bottle, seasor with salt and pepper to taste BRAMBLE DRESSING Tue loveltj c\\eep Vlil..C!uve colour &111\\,/} tVie coV1i1..bi.V\\,CltloV\\, of swee:: cillld cic ii ~ fLavoul'S Vlil..C!~es. tVi~s Cl'.Yesst~ -11e perfect Vlil..C!tcVi fot gctVlil..e scil.CletS.",
+    "1 Vicivell\\,'t us.eel w..ucVi LV\\. tV.e watJ c+ frult!j Cl'.ressi.~s stV\\.Ce Vie etgn t~, V\\Act~es cit eci:: ...{Se~ Clvt tJu tVii..s o~ .., cibuMCltA- suppLtj of w1.l et te.s.",
+    "L&ic Serves 4 6 6 8 blac~bemes I tbsp cider vrnegar 4 tbsp cold pres~ed rape,eed 011 ult and frt'~hl} ground blac~ pepp1\u2022r C111sh the hlackbt\u2022rr1es 111 a bowl ustng t1 tori--, thC'n wl11sk 111 thu cider v1neg.11.111d r,1pescC'd 011 Slw\u2022on with :;alt 11nd prp~wr to 1,1stt' LC'.IVt' to stand lor .il>oul 30 r111nutes, !hen push through n sieve with lite b.Kk of ,1 spoon into a bowl ,wd re se,1~011 the drt\u2022 sing 11 lll'lCSS llY"
+  ],
+  "recipeYield": "Serves 4-6",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c2",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:43:00.650200",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 2,
+      "end_block": 129,
+      "end_page": 3,
+      "start_block": 87,
+      "start_page": 3
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c31",
+  "@type": "Recipe",
+  "description": "First make the crab apple sauce. Remove the stalks\nfrom the apples and wash them well. Put them into a\nheavy-based saucepan with 1 tbsp sugar, cover and",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c31",
+  "name": "Serves 4",
+  "recipeIngredient": [
+    "l 50g minced pork (with about 20% fat)",
+    "lOOg black pudding, finely chopped",
+    "salt and freshly ground black pepper",
+    "200- 250g pork loin fillet or tenderloin",
+    "200- 250g shoulder or neck fillet of pork",
+    "2 pig's kidneys, trimmed",
+    "l 50g pig's liver",
+    "vegetable oil for brushing",
+    "a generous knob of butter",
+    "a few sprigs of rosemary",
+    "For the crab apple sauce",
+    "300- 350g crab apples",
+    "1 tbsp caster sugar, or more to taste"
+  ],
+  "recipeInstructions": [
+    "cook for 10- 15 minutes, stirring every so often until the apples are soft. If there's a lot of liquid, remove the lid and boil rapidly until 1t dries out enough, taking care that it doesn't splatter. Transfer to a bowl and taste for sweetness, adding a little more sugar if needed. Spoon into individual serving bowls and let cool to room temperature.",
+    "In a bowl, mix the minced pork with the black pudding and season well with salt and pepper.",
+    "Divide into 4 portions, flatten and shape into patties Cover and place in the fridge. Cut the pork loin into 4 similar-sized chunks; do the same with the pork shoulder, kidneys and liver. Season all of the meat.",
+    "Heat a ridged griddle pan or heavy-based frying pan and lightly oil it. Cook the pork patties and pieces of meat and offal in batches as necessary, for about 3-4 minutes on each side, keeping them slightly pink. The liver and kidney will need less time, iust 1-2 minutes.",
+    "Heat the butter and rosemary in a separate pan until foaming and remove from the heat. Thread the meat onto skewers or simply arrange on warmed plates.",
+    "Trickle the butter over the meat and serve, with the crab apple sauce."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c31",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:43:00.653361",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 31,
+      "end_block": 1178,
+      "end_page": 18,
+      "start_block": 1137,
+      "start_page": 18
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c17",
+  "@type": "Recipe",
+  "description": "on a plate\n..ct\"+\"IA. vil'ut fl..sViV1AD~et ~f (JOL;t ltlcic{\nas \\':ed. Lrr Vie vtA...\nServe 4\nabout l litre t1sh stock",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c17",
+  "name": "vv...a L.A +'1Clve C\\ct a S1..t.fi VitLtJ octet Looki",
+  "recipeIngredient": [
+    "2 fennel bulbs, trimmed",
+    "450 500g monkf1sh cheeks, trimmed and halved",
+    "f lar e",
+    "70g butter",
+    "60g plain flour",
+    "2 tbsp chopped parsley",
+    "2 tbsp double cream",
+    "For the topping",
+    "l-l .2kg potatoes (for mashing), peeled",
+    "and quartered",
+    "50-60g butter",
+    "a little milk",
+    "2-3 tbsp fresh white breadcrumbs"
+  ],
+  "recipeInstructions": [
+    "sea salt and freshly ground black pepper"
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c17",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:50:26.953169",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 17,
+      "end_block": 669,
+      "end_page": 11,
+      "start_block": 649,
+      "start_page": 11
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

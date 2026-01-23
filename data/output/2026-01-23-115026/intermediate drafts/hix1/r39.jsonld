@@ -1,0 +1,48 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c39",
+  "@type": "Recipe",
+  "description": "tVicit Lt's. ci s.Vici w..e to Vicive Lt OV\\-Ltj cis. ci\nwi..V\\-ter ~Ls.Vi. Here I 'l!Vl s.ervLIA-0 Lt wLtVi\ns.ul!Vlw.tr-pecis., beciV\\,s. ci~ carrots. to\n11\\A.Cl~ title -poLV\\-t, but tjOU CCl V\\, CVlCl IA-0e\ntitle vegetci bLes. to s.uLt tVie s.rns.oV\\,s..\nl.5kg oxtail , cut into 2-3cm thick pieces and\ntrimmed of excess fat\nsalt and freshly ground black pepper",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c39",
+  "name": "BRAISED OXTAIL WITH SUMMER VEGETABLES oxtciLL Vias. s.ucVi ci uV\\-Lque ~vour",
+  "recipeIngredient": [
+    "50g plain flour, plus extra for dusting",
+    "a little vegetable oil, for oiling",
+    "60g butter, plus an extra generous knob",
+    "l onion, peeled and finely chopped",
+    "2 garlic cloves, peeled and crushed",
+    "1 tsp thyme leaves",
+    "2 tsp tomato puree",
+    "lOOml red wine",
+    "2 litres beef stock",
+    "250g small carrots, such as Chantenay, trimmed",
+    "60g podded peas",
+    "90-1 OOg podded broad beans",
+    "112 tbsp chopped parsley",
+    "1 51"
+  ],
+  "recipeYield": "Serves 4",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c39",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:50:26.955928",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 39,
+      "end_block": 1480,
+      "end_page": 23,
+      "start_block": 1454,
+      "start_page": 23
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

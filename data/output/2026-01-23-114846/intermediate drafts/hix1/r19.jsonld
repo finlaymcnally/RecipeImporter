@@ -1,0 +1,45 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c19",
+  "@type": "Recipe",
+  "description": "l'Vti.s i.s rather Wu Cl V\\, 1te1 Ltci V\\, sci Lsci\nvero{e. It 1.-s ex.ceLLeV\\-t serveo{ wtth stvv.:pLe\ngri.LLec( w..eats, 1M.i.xeo{ grtLLs Cl~ robust\ngrtLLec( ~sh.\nsea salt and freshly ground black pepper",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c19",
+  "name": "GREEN SAUCE",
+  "recipeIngredient": [
+    "30g mint leaves",
+    "30g parsley leaves",
+    "30g basil leaves",
+    "30g capers, rinsed",
+    "1 garlic clove, peeled and crushed, or a few wild",
+    "garlic leaves",
+    "2 tsp Tewkesbury or English mustard",
+    "about 1 OOml cold-pressed rapeseed oil"
+  ],
+  "recipeInstructions": [
+    "Put the herb leaves, capers, garlic and mustard into a blender with most of the rapeseed oil and process to a fairly course puree Season with salt and pepper to taste and add a little more oil if the sauce seems a little dry."
+  ],
+  "recipeYield": "Serves 4",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c19",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:48:46.365097",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 19,
+      "end_block": 734,
+      "end_page": 12,
+      "start_block": 714,
+      "start_page": 12
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

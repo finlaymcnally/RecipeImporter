@@ -1,0 +1,51 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c21",
+  "@type": "Recipe",
+  "description": "custow..er wLLL as.~ for Lt.\na few sprigs of tarragon, leaves picked, stalks\na few sprigs of chervil, leaves picked, stalks reserved",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c21",
+  "name": "bet tjOur Lvfe Lf tjOU c<oV\\.'t s.erve Lt tVie",
+  "recipeIngredient": [
+    "1 tbsp white wine or cider vinegar",
+    "1 small shallot, peeled and roughly chopped",
+    "reserved",
+    "5 black peppercorns",
+    "200g unsalted butter",
+    "3 small egg yolks",
+    "salt and freshly ground white pepper",
+    "a little lemon 1uice (optional)"
+  ],
+  "recipeInstructions": [
+    "Put the vinegar, 2 tbsp water, the shallot, herb stalks and peppercorns in a saucepan and simmer for a minute or until the liquid has reduced to 2 tsp.",
+    "Strain through a sieve and leave to cool.",
+    "Melt the butter in a saucepan over a low heat and let bubble very gently for 3-4 minutes. Remove from the heat, leave to cool a little, then pour off the pure liquid butter into a bowl, leaving the milky whey behind. Discard the whey. (Clarifying the butter in this way helps to keep the sauce thick.) Put the egg yolks into a small heatproof bowl (or a double boiler if you have one) with half of the vinegar reduction and set over a pan of gently simmering water. Whisk the mixture until it begins to thicken and become frothy. Slowly trickle in two-thirds of the clarified butter, whisking continuously - preferably using an electric hand whisk. If the butter is added too quickly, the sauce is liable to separate.",
+    "Now taste the sauce and add a little more, or all, of the remaining vinegar reduction. Then whisk in the rest of the butter. The vinegar should just cut the oiliness of the butter sauce; don't add too much.",
+    "Season with salt and pepper to taste.",
+    "Cover the bowl and leave in a warm, not hot, place until needed, but no longer than 20 minutes.",
+    "To serve, chop the tarragon and chervil leaves and stir into the sauce Check the seasoning and add a squeeze of lemon juice, to taste. Whisk lightly"
+  ],
+  "recipeYield": "Serves 4- 6",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c21",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:50:26.953724",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 21,
+      "end_block": 812,
+      "end_page": 13,
+      "start_block": 771,
+      "start_page": 13
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

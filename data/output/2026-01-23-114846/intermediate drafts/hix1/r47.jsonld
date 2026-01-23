@@ -1,0 +1,41 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c47",
+  "@type": "Recipe",
+  "description": "usi.~ tVieVvt. tV\\..$C!LClc.l:; OY jus 0.Ul..CR.LtJ\ntossi.~ tVieVvt. i.Vv bv.\u00b7 er +-o ew\u00b7 ov .. +-V-ei.r\nowl/\\, or wi.tltl tVie pecis +-vieVv\\.SeLve.s.\na handful of mint sprigs, leaves stripped, stalks\na couple of handfuls of pea shoots",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c47",
+  "name": "teV\\,dvi.Ls cire of ell\\, overlco~ed, tie",
+  "recipeIngredient": [
+    "300 400g freshly podded peas (about 1 kg before",
+    "salt and freshly ground black pepper",
+    "11/2 tsp caster sugar"
+  ],
+  "recipeInstructions": [
+    "For the peas, bnng a pan of salted water to ttie boil with the sugar and mint stalks added Tip in the peas and simmer for 4-5 minutes or until tender, then drain and discard the mint stalks.",
+    "Melt the butter in a wide pan Add the pea shoots quickly season with salt and pepper and toss for a few seconds until they are just wilted.",
+    "Tip in the cooked peas, toss to combine and re-season if necessary before serving."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c47",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:48:46.368497",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 47,
+      "end_block": 1780,
+      "end_page": 27,
+      "start_block": 1762,
+      "start_page": 27
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

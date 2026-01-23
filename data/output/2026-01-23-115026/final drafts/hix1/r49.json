@@ -1,0 +1,185 @@
+{
+  "recipe": {
+    "description": "A Vierbtj, V'vUtttj bre1Ao!cruV1A.b crust\ngLves IA V'vLce coV'vtYIASt to sproutL~\nbYoccoLL IA V'vot Lt worR.s well wLtVi otVier\nvegetables too, es-pecL1ALltj wuLLfLower,\nV\\A.IAYYOW IAV'vo! squlAsVi.\na couple of generous knobs of butter",
+    "notes": null,
+    "title": "SPROUTING BROCCOLI WITH HERBS AND HAZELNUTS",
+    "yield_detail": null,
+    "yield_phrase": "Serves 4",
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 45.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "fresh white breadcrumbs",
+          "raw_text": "40-50g fresh white breadcrumbs",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 50.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "hazelnuts",
+          "raw_text": "50g hazelnuts, chopped",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cold-pressed rapeseed oil",
+          "raw_text": "1 tbsp cold-pressed rapeseed oil",
+          "raw_unit_text": "tbsp"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and finely chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "shallots",
+          "raw_text": "4 shallots, peeled and finely chopped",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and crushed",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "2 garlic cloves, peeled and crushed",
+          "raw_unit_text": "cloves"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "mixed herbs",
+          "raw_text": "2-3 tbsp finely chopped mixed herbs, such",
+          "raw_unit_text": "tbsp"
+        },
+        {
+          "confidence": 0.959,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "as parsley, chervil, tarragon and chives",
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": null,
+          "raw_text": "as parsley, chervil, tarragon and chives",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "salt",
+          "raw_text": "salt and freshly ground black pepper",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "For the crust, preheat the grill to medium. In a bowl, toss the breadcrumbs and chopped hazelnuts together with the rapeseed 011 and scatter on a baking tray. Toast under the grill for 3 5 minutes until golden, turning once or twice to ensure the mixture colours evenly."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 45.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "fresh white breadcrumbs",
+          "raw_text": "40-50g fresh white breadcrumbs",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and finely chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "shallots",
+          "raw_text": "4 shallots, peeled and finely chopped",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and crushed",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "2 garlic cloves, peeled and crushed",
+          "raw_unit_text": "cloves"
+        }
+      ],
+      "instruction": "Meanwhile, melt the butter in a pan and gently cook the shallots and garlic for a few minutes until softened. Stir in the breadcrumbs and herbs until well mixed and season with salt and pepper."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": 375.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "tender sprouting broccoli",
+          "raw_text": "350-400g tender sprouting broccoli",
+          "raw_unit_text": "g"
+        }
+      ],
+      "instruction": "When ready to serve, cook the broccoli in boiling salted water for about 4-5 minutes, so that 1t is still just a little firm to the bite. Drain thoroughly and transfer to a warmed serving dish. Scatter the breadcrumb mixture over the top and serve."
+    }
+  ]
+}

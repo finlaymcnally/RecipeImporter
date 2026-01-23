@@ -1,0 +1,46 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c36",
+  "@type": "Recipe",
+  "description": "odd, but Lt's reC!LLtj M dLffereV1-t to\ncooR.L~ courgettes or VIA.C!Yrow C!Vl-d\n1 recR.oll\\, tVietj ViC!ve VIA.ore {LC!vour.\na small handful of mint leaves, shredded",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c36",
+  "name": "LAMB CHOPS WITH CUCUMBER AND MINT CooR.L~ cucuV1A.bers VIA.Cl ti see VIA. Cl bLt",
+  "recipeIngredient": [
+    "2 cucumbers",
+    "8 lamb loin chops, about 120-150g each",
+    "salt and freshly ground black pepper",
+    "vegetable or corn oil for brushing",
+    "2 tbsp cold-pressed rapeseed oil",
+    "2 large shallots, peeled, halved and thinly sliced"
+  ],
+  "recipeInstructions": [
+    "Cut the cucumbers in half lengthways and scoop out the seeds with a teaspoon. Cut each half on an angle into l -2cm thick slices.",
+    "Heat a ridged griddle pan or heavy-based frying pan over a medium-high heat. Season the lamb chops with salt and pepper, brush with oil and cook for about 5 minutes on each side, keeping them pink.",
+    "Meanwhile, heat the rapeseed 011 in another frying pan and add the shallots. Fry, stirring, for a minute, then add the cucumber slices. Season with salt and pepper and saute over a fairly high heat for 2-3 minutes until tender. Take off the heat and stir in the shredded mint.",
+    "Divide the cucumber between warmed plates and place the lamb chops on top to serve"
+  ],
+  "recipeYield": "Serves 4",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c36",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:48:46.367287",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 36,
+      "end_block": 1398,
+      "end_page": 21,
+      "start_block": 1369,
+      "start_page": 21
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

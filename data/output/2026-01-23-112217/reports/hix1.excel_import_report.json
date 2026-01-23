@@ -1,0 +1,14 @@
+{
+  "errors": [],
+  "lowConfidenceSheets": [],
+  "missingFieldCounts": {},
+  "perSheetCounts": {},
+  "samples": [
+    {
+      "name": "TEWKESBURY MUSTARD"
+    }
+  ],
+  "skippedRows": [],
+  "totalRecipes": 1,
+  "warnings": []
+}

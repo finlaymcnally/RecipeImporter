@@ -20,10 +20,17 @@ After this change, a user can point the cookimport CLI at a folder containing PD
 - [x] Implemented `PdfImporter` in `cookimport/plugins/pdf.py`.
 - [x] Implemented Layout Analysis and Candidate Detection.
 - [x] Verified with `tests/test_pdf_importer.py`.
+- [x] (2026-01-23 19:20Z) Switched PDF extraction to line-level dict spans for font size/alignment signals.
+- [x] (2026-01-23 19:35Z) Added column clustering (x0 gap) and per-column ordering to avoid tiled page interleaving.
+- [x] (2026-01-23 19:50Z) Tightened OCR heuristics (ingredient anchors, yield capture, wrapped instruction merge).
+- [x] (2026-01-23 20:05Z) Ensured staging `@id` respects `RecipeCandidate.identifier` for non-Excel importers.
 
 ## Surprises & Discoveries
 
-(To be filled during implementation.)
+- Observation: PyMuPDF `get_text("blocks", sort=True)` interleaves left/right columns on tiled pages.
+  Evidence: Hix1.pdf page 4 shows alternating x0 ~55 and x0 ~288 blocks, mixing two recipes.
+- Observation: OCR frequently misreads "1" as "l", so ingredient anchors must treat `l tbsp` as quantity-like.
+  Evidence: Hix1.pdf dressing recipes show `l tbsp ...` lines without digits, but still valid ingredients.
 
 ## Decision Log
 
@@ -38,6 +45,18 @@ After this change, a user can point the cookimport CLI at a folder containing PD
 - Decision: Use deterministic heuristics for candidate detection (title signals, ingredient patterns) before any LLM use.
   Rationale: LLMs are slow and expensive for scanning entire books. Fast heuristics can identify likely recipe regions ("candidates") which can then be parsed more intensively if needed.
   Date/Author: 2026-01-21 / Initial Plan
+
+- Decision: Extract line-level blocks via `page.get_text("dict")` and derive font size/alignment from spans.
+  Rationale: OCR PDFs expose headings via font size/bold spans; line-level blocks reduce cross-column mixing.
+  Date/Author: 2026-01-23 / Codex
+
+- Decision: Detect columns by x0 gap clustering and order by (page, column, y).
+  Rationale: Tiled pages interleave blocks when sorted by y/x; column grouping preserves recipe boundaries.
+  Date/Author: 2026-01-23 / Codex
+
+- Decision: Treat `l`/`I` + unit as quantity-like for ingredient anchors in OCR PDFs.
+  Rationale: OCR often substitutes "1" with letter "l"; this preserves ingredient detection without LLM fallback.
+  Date/Author: 2026-01-23 / Codex
 
 ## Outcomes & Retrospective
 
@@ -62,8 +81,8 @@ Key terms:
     *   Input: `some_cookbook.pdf`
     *   Output: `work/<book_id>/` folder with `meta.json` (hash, title guess) and `pages/` (JSON block data).
 2.  **Layout-Aware Extraction (PyMuPDF):**
-    *   Extract blocks -> lines -> spans.
-    *   Normalize into `Block` objects: `{ page, block_id, bbox, text, style: { size, is_bold }, kind }`.
+    *   Extract line-level spans from `page.get_text("dict")` to retain font size and bold hints.
+    *   Normalize into `Block` objects: `{ page, bbox, text, style: { size, is_bold, alignment }, kind }`.
     *   *Why:* Downstream steps need to know "this block is in the left column" or "this is a margin sidebar".
 3.  **Cleaning (Deterministic):**
     *   **Header/Footer Removal:** Detect repeating text near top/bottom bands (e.g., y < 60px) and drop them.
@@ -105,6 +124,7 @@ Key terms:
     *   **Ingredients:** Ingredient-ish region until step-ish region. Detect subheaders ("For the sauce") to create groups.
     *   **Instructions:** Step-ish region until end.
     *   **Notes:** Sidebar blocks near the candidate.
+    *   **OCR Quirk:** Treat `l`/`I` as quantity-like when followed by a unit (`l tbsp`).
 2.  **LLM Escalation (Surgical):**
     *   Use the shared **LLM Repair** strategy (see `docs/plans/PROCESS-llm-repair.md`).
     *   *Trigger:* Interleaved ingredients/instructions, multi-column ordering confusion, no clear boundaries.
@@ -138,3 +158,5 @@ Key terms:
 *   **PyMuPDF (fitz):** Primary extraction engine.
 *   **Block Model:** Shared with EPUB importer (see `cookimport.core.models` or equivalent).
 *   **Clustering:** Simple 1D clustering for column detection (can be custom heuristic or `sklearn.cluster.KMeans` if deps allow).
+
+Change Note (2026-01-23): Updated this plan to reflect line-level extraction, column gap clustering, and OCR-aware ingredient anchors added during Hix1.pdf debugging; also recorded the non-Excel `@id` behavior so the plan matches current staging output. This keeps the plan self-contained with the new implementation details.

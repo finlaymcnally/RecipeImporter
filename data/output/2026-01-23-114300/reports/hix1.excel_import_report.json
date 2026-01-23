@@ -1,0 +1,20 @@
+{
+  "errors": [],
+  "lowConfidenceSheets": [],
+  "missingFieldCounts": {},
+  "perSheetCounts": {},
+  "samples": [
+    {
+      "name": "PORK CRACKLING WITH BRAMLEY APPLE SAUCE"
+    },
+    {
+      "name": "Serves 4"
+    },
+    {
+      "name": "PICKLED WALNUT DRESSING"
+    }
+  ],
+  "skippedRows": [],
+  "totalRecipes": 54,
+  "warnings": []
+}

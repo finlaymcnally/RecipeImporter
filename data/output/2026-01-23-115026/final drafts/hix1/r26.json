@@ -1,0 +1,93 @@
+{
+  "recipe": {
+    "description": "tltti..gVis. ratltier tltiaV\\, breast lllA.eat as.\n._ltie!:j s.ta l:j lllA.ore lllA.oi..s.t a~ s.uccuLeV\\,t.",
+    "notes": null,
+    "title": "title cleLt..cate flavour of clti~cReV\\, . For s.tow-cooReci clttt..cReV\\, cli..s.lties. 1 use",
+    "yield_detail": null,
+    "yield_phrase": "Serves 4",
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove the meat from the lobster tails and claws and cut roughly into l cm pieces. Reserve one lobster head (if making a large pie). Break the rest 30 minutes."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.994,
+          "ingredient_id": "",
+          "input_qty": 500.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "boned and skinned",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "free-range chicken thighs",
+          "raw_text": "500g boned and skinned free-range chicken thighs",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.907,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "reserved lobster shells",
+          "raw_text": "reserved lobster shells",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "of the shells up a bit, using a heavy knife. Cut the chicken thighs in half, or into thirds if large. Cover and refrigerate the lobster and chicken meat."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.907,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "reserved lobster shells",
+          "raw_text": "reserved lobster shells",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and roughly chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "shallots",
+          "raw_text": "4 shallots, peeled and roughly chopped",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "1 garlic clove, peeled and chopped",
+          "raw_unit_text": "clove"
+        }
+      ],
+      "instruction": "To make the sauce, heat the oil in a heavy-based saucepan and fry the lobster shells, shallots and garlic over a medium heat for about 5 minutes until"
+    }
+  ]
+}

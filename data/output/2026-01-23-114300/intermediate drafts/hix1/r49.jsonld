@@ -1,0 +1,49 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c49",
+  "@type": "Recipe",
+  "description": "A Vierbtj, V'vUtttj bre1Ao!cruV1A.b crust\ngLves IA V'vLce coV'vtYIASt to sproutL~\nbYoccoLL IA V'vot Lt worR.s well wLtVi otVier\nvegetables too, es-pecL1ALltj wuLLfLower,\nV\\A.IAYYOW IAV'vo! squlAsVi.\na couple of generous knobs of butter",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c49",
+  "name": "SPROUTING BROCCOLI WITH HERBS AND HAZELNUTS",
+  "recipeIngredient": [
+    "350-400g tender sprouting broccoli",
+    "For the crust",
+    "40-50g fresh white breadcrumbs",
+    "50g hazelnuts, chopped",
+    "1 tbsp cold-pressed rapeseed oil",
+    "4 shallots, peeled and finely chopped",
+    "2 garlic cloves, peeled and crushed",
+    "2-3 tbsp finely chopped mixed herbs, such",
+    "as parsley, chervil, tarragon and chives",
+    "salt and freshly ground black pepper"
+  ],
+  "recipeInstructions": [
+    "For the crust, preheat the grill to medium. In a bowl, toss the breadcrumbs and chopped hazelnuts together with the rapeseed 011 and scatter on a baking tray. Toast under the grill for 3 5 minutes until golden, turning once or twice to ensure the mixture colours evenly.",
+    "Meanwhile, melt the butter in a pan and gently cook the shallots and garlic for a few minutes until softened. Stir in the breadcrumbs and herbs until well mixed and season with salt and pepper.",
+    "When ready to serve, cook the broccoli in boiling salted water for about 4-5 minutes, so that 1t is still just a little firm to the bite. Drain thoroughly and transfer to a warmed serving dish. Scatter the breadcrumb mixture over the top and serve."
+  ],
+  "recipeYield": "Serves 4",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c49",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:43:00.655424",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 49,
+      "end_block": 1842,
+      "end_page": 28,
+      "start_block": 1807,
+      "start_page": 28
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "recipe": {
+    "description": "lViLs soup Vias beeV\\., appearLV1v9 OV\\.. VV..l:j\nV\\!\\.tV\\..US for l:jelilrs LV\\.. varLous gtALses.\nyou iA-tect to be ca refuL wLtVi tVie Vierbs\ntV\\ougV\\, as vv..ore pu~eV\\..t VlilrLetLes are\nLU~eLtj to be too overpowerL~ . PlilrsLel:j,\ncViervLL lilV\\d cViwes CCIV\\.. be useot LV\\..\nlilbuV\\-oililV\\-Ce, but V\\erbs LL~e Lovage,\ncorw V\\der Iii V\\d tcwrlilgoV\\.. sV\\ouLct be\nlilctctect LV\\.. w..octerlilhOV\\...\nFLV\\-LsVi tVie soup wLtVi golilt's curct or Iii\nvv..t.Lcter golilt's cV\\eese or creV\\!\\.t frlilfoV\\e,\nor serve t.tjust lils Lt Ls.\na good handful of parsley, washed\na good handful of chervil , washed\na good handful of basil, washed",
+    "notes": null,
+    "title": "CHILLED GARDEN HERB SOUP",
+    "yield_detail": null,
+    "yield_phrase": "Serves 4- 6",
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "1. 5 litres vegetable stock salt and freshly ground black pepper about 1 Og chives a few mint leaves To finish (opt10na/J goat's curd, soft goat's cheese or creme fralche finely chopped herbs, such as chervil, chives and parsley Break off the thicker stalks from the parsley, chervil and basil and set aside; keep the leaves separate."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.991,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "roughly chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "fennel",
+          "raw_text": "1 small fennel bulb, roughly chopped",
+          "raw_unit_text": "small bulb"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and roughly chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "onion",
+          "raw_text": "1 medium onion, peeled and roughly chopped",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "trimmed, roughly chopped and washed",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "leek",
+          "raw_text": "1 leek, trimmed , roughly chopped and washed",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "Heat the rapeseed oil 1n a large saucepan and add the fennel, onion and leek. Cover and cook gently for 4- 5 minutes until soft, stirring every so often."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "plain flour",
+          "raw_text": "1 tbsp plain flour",
+          "raw_unit_text": "tbsp"
+        }
+      ],
+      "instruction": "Add the flour and stir well, then gradually stir in the vegetable stock. Season to taste."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Bring to the boil, add the herb stalks and simmer gently for 20 minutes. Add the rest of the herbs, including the chives and mint leaves. Simmer for 2 minutes, no longer."
+    }
+  ]
+}

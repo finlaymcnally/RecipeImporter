@@ -1,0 +1,45 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c24",
+  "@type": "Recipe",
+  "description": "I LLIU to serve tV11 .. s wLth rocist cViLcR.eV'v\nwheV'v 11\\..tW secisoV'v's gcirLLc i..s civci LLcibLe\nc!urLV'v0 the sprt.V'v0 (see pcige 134).\n\"B.CIRe the gcirl!.C CILOV'v0SLc!e tVie cViLcR.eV\\...\n, tbsp D11on mustard, or more to taste\nsea salt and freshly ground black pepper",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c24",
+  "name": "BAKED NEW SEASON'S GARLIC SAUCE",
+  "recipeIngredient": [
+    "4 heads of new season's garlic",
+    "a few sprigs of curly parsley",
+    "2-3 tbsp duck fat, warmed (or pan juices from",
+    "a roasted chicken)",
+    "70g fresh white breadcrumbs",
+    "a little milk to mix"
+  ],
+  "recipeInstructions": [
+    "Preheat the oven to 200\u00b0C/gas mark 6. Wrap the garlic bulbs in foil and bake them in the oven for 1 hour. Unwrap and leave until cool enough to handle, then peel away any tough outer skin.",
+    "Put the garlic into a blender with the parsley, mustard, warm duck fat (or chicken pan juices) and breadcrumbs and blend until smooth. Add enough and mustard.",
+    "milk to give the sauce a thick pouring consistency and season with salt and pepper to taste."
+  ],
+  "recipeYield": "Serves 4",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c24",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:43:00.652642",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 24,
+      "end_block": 907,
+      "end_page": 15,
+      "start_block": 881,
+      "start_page": 15
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

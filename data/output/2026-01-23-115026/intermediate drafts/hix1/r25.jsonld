@@ -1,0 +1,44 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c25",
+  "@type": "Recipe",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c25",
+  "name": "1 small onion, peeled and finely chopped",
+  "recipeIngredient": [
+    "1 garlic clove, peeled and crushed",
+    "a good pinch of cayenne pepper",
+    "1 tsp plain flour",
+    "112 tsp tomato puree",
+    "1 tbsp cider vinegar",
+    "1 tsp redcurrant jelly",
+    "1 tsp English mustard",
+    "250ml hot beef stock",
+    "salt and freshly ground black pepper"
+  ],
+  "recipeInstructions": [
+    "1 large dill pickle or a few gherkins, finely diced Melt the butter in a heavy-based pan and add the onion, garlic and cayenne pepper. Cook gently for 2- 3 minutes to soften, then stir 1n the flour, followed by the tomato puree, cider vinegar, redcurrant 1elly Gradually whisk in the hot beef stock, bring to the boil and season lightly with salt and pepper. Simmer very gently for about 15 minutes (a simmer plate or heat-diffuser mat is useful here). Add the dill pickle and re-season if necessary. The sauce should be quite thick, if not continue simmering a little longer."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c25",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:50:26.954284",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 25,
+      "end_block": 934,
+      "end_page": 15,
+      "start_block": 913,
+      "start_page": 15
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

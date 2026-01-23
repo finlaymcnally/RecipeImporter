@@ -1,0 +1,94 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": null,
+    "title": "Makes 300g",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and finely chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "red onion",
+          "raw_text": "1 red onion, peeled and finely chopped",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and crushed",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "1 garlic clove, peeled and crushed",
+          "raw_unit_text": "clove"
+        },
+        {
+          "confidence": 0.991,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "coarsely ground",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "black pepper",
+          "raw_text": "1 tsp coarsely ground black pepper",
+          "raw_unit_text": "tsp"
+        }
+      ],
+      "instruction": "Heat the rapeseed oil in a pan and add the onion, garlic and pepper Cook gently for 2-3 minutes to soften, then tip into a bowl. Add all of the other ingredients and mix well."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 250.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "softened",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "butter",
+          "raw_text": "250g butter, softened",
+          "raw_unit_text": "g"
+        }
+      ],
+      "instruction": "Spoon the flavoured butter onto a sheet of cling film or greaseproof paper and shape into a cylinder, about 3cm in diameter, sealing it 1n the film or paper Refrigerate or freeze until required."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 250.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "softened",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "butter",
+          "raw_text": "250g butter, softened",
+          "raw_unit_text": "g"
+        }
+      ],
+      "instruction": "Just slice the chilled butter as you need 1t and serve directly on steaks and chops; or cut off as much frozen butter as you need and slice it before serving"
+    }
+  ]
+}

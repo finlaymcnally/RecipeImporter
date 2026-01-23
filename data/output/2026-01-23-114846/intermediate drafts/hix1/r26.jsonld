@@ -1,0 +1,63 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c26",
+  "@type": "Recipe",
+  "description": "tltti..gVis. ratltier tltiaV\\, breast lllA.eat as.\n._ltie!:j s.ta l:j lllA.ore lllA.oi..s.t a~ s.uccuLeV\\,t.",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c26",
+  "name": "title cleLt..cate flavour of clti~cReV\\, . For s.tow-cooReci clttt..cReV\\, cli..s.lties. 1 use",
+  "recipeIngredient": [
+    "2 cooked lobsters, about 500g each",
+    "500g boned and skinned free-range chicken thighs",
+    "1 tbsp chopped parsley",
+    "112 tbsp chopped tarragon leaves",
+    "3 50- 400g ready-made al l-butter puff pastry",
+    "plain flour for dusting",
+    "1 free-range egg, beaten",
+    "For the lobster sauce",
+    "1 tbsp vegetable 01 1",
+    "reserved lobster shells",
+    "4 shallots, peeled and roughly chopped",
+    "1 garlic clove, peeled and chopped",
+    "60g butter",
+    "60g plain flour",
+    "a good pinch of saffron strands",
+    "a few sprigs of tarragon",
+    "112 tbsp tomato puree",
+    "60ml white wine",
+    "500ml hot fish stock",
+    "500ml hot chicken stock",
+    "400ml double cream",
+    "the dish(es).",
+    "salt and freshly ground black pepper",
+    "1- 2 tsp cornflour (if needed)"
+  ],
+  "recipeInstructions": [
+    "Remove the meat from the lobster tails and claws and cut roughly into l cm pieces. Reserve one lobster head (if making a large pie). Break the rest 30 minutes.",
+    "of the shells up a bit, using a heavy knife. Cut the chicken thighs in half, or into thirds if large. Cover and refrigerate the lobster and chicken meat.",
+    "To make the sauce, heat the oil in a heavy-based saucepan and fry the lobster shells, shallots and garlic over a medium heat for about 5 minutes until"
+  ],
+  "recipeYield": "Serves 4",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c26",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:48:46.366035",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 26,
+      "end_block": 982,
+      "end_page": 16,
+      "start_block": 943,
+      "start_page": 16
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

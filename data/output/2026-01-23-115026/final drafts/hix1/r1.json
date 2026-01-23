@@ -1,0 +1,120 @@
+{
+  "recipe": {
+    "description": null,
+    "notes": null,
+    "title": "Serves 4",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.963,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "firm medium ceps",
+          "raw_text": "l kg firm medium ceps",
+          "raw_unit_text": "l kg"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 6.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and sliced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "6 8 garlic cloves, peeled and sliced",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "Preheat the oven to 2 20\u00b7 C/gas mark 7. Clean the ceps with a cloth and make about 5 1nc1sions in each one with the point of a k111fe. Push a slice of garlic into each incision."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.963,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "firm medium ceps",
+          "raw_text": "l kg firm medium ceps",
+          "raw_unit_text": "l kg"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 200.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "butter",
+          "raw_text": "200g butter",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "salt",
+          "raw_text": "salt and freshly ground black pepper",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "Melt half of the butter in a roasting tray Add the ceps, turn to coat them 1n the butter and season generously with salt and pepper. Roast in the oven for 20 30 minutes until the ceps are just tender, turning them every so often to ensure they cook and colour evenly."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 200.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "butter",
+          "raw_text": "200g butter",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "parsley",
+          "raw_text": "2 tbsp chopped parsley",
+          "raw_unit_text": "tbsps"
+        }
+      ],
+      "instruction": "Add the rest of the butter and the chopped parsley, stir well and return to the oven for 2 3 minutes Serve at once."
+    }
+  ]
+}

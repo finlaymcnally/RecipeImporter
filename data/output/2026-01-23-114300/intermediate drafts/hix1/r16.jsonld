@@ -1,0 +1,49 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c16",
+  "@type": "Recipe",
+  "description": "vee1L HoLsteLVv. TuorVvbC!cR rC!tj see~ct\nCl Vv obvLous cVioLce Cls, oVvCe fi,LLetect, Lt\nVie1s C!Vv uVvusuC!L ~C!ttj texture. Tue\nctLsVi stC!rtect LLfe Cit tVie Dtjster <\u00a7 Fl-sVi\nHouse LVv Ltj~ RegLs but we ofteVv\nserve Lt LVv LoVvdoVv.\nWarm the oven to its lowest setting. Season the ray",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c16",
+  "name": "cooRLVvg Cl fi,s Vi tj versLoVv of tVie cLe1ssLc",
+  "recipeIngredient": [
+    "4 fillets from a medium ray wing, about ! 70g each",
+    "salt and freshly ground black pepper",
+    "2-3 tbsp plain flour",
+    "1 free-range large egg, beaten",
+    "50-60g fresh white breadcrumbs",
+    "2-3 tbsp vegetable oil",
+    "1 OOg butter",
+    "4 free-range medium eggs",
+    "2 tbsp large capers",
+    "1 tbsp chopped parsley",
+    "8 anchovy fillets, halved lengthways"
+  ],
+  "recipeInstructions": [
+    "fillets with salt and pepper. Have 3 dishes ready, one with the flour, one with the beaten egg and the third with the breadcrumbs. One at a time, coat the fish fillets in the flour, shaking off any excess, then pass through the egg and finally coat in the breadcrumbs.",
+    "You will probably need to cook the fish in a couple of batches. Heat the oil in a large frying pan and fry the ray fillets for 2- 3 minutes on each side, adding a knob of butter once you've turned them over. Keep warm in a low oven.",
+    "Melt a little more butter in a non-stick frying pan and gently fry the eggs for a couple of minutes until the Heat the remaining butter in a pan until foaming, add the capers and chopped parsley and take off the heat. Lay a ray fillet on each warmed plate, place a fried egg on top and arrange the anchovy strips around the egg white. Spoon the butter and capers over the egg and serve."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c16",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:43:00.651772",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 16,
+      "end_block": 641,
+      "end_page": 10,
+      "start_block": 604,
+      "start_page": 10
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

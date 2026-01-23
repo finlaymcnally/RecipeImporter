@@ -1,0 +1,67 @@
+{
+  "recipe": {
+    "description": "feV1.V1.tL Ls CAI/\\, u~erusec{ veget<AbLe\nt,11\\, Hu.s coul/\\,h!:j, tViougVi Lt- Vi<As\nvv..CA 11\\,!:j -possLbLLLttes - bo+-Vi r<A\u202211 CA V\\,c\\\ncooR,ec(. TY!:j servL~ tV\\1-s sCALcicl .. 1ttl-1\nvv..<ArLVl,lAtec{ or s.vv..oR,ec{ ~s.Vi. y( u coulc{\n<Also cow b1-l/\\.-t Lt \"'11- Vi tViLIAl!:j sL1-cect\ncucuvv..ber ( i-t<At h<As beeV\\, Vio.L,;eG(\nLe~tViv1<AjjS O.vW. c{es.eed.ed) Ior o. LLgl-1\nsuvv..vv..tY!j go.rl/\\,LsVi to grLLLed t1,s\\.i .\nsea salt and freshly ground white pepper\nHalve the fennel bulbs and slice them as thinly as\npossible, using a mandolin or very sharp knife",
+    "notes": null,
+    "title": "FENNEL SALAD",
+    "yield_detail": null,
+    "yield_phrase": "Serves 4",
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cider vinegar",
+          "raw_text": "2-3 tbsp cider vinegar",
+          "raw_unit_text": "tbsp"
+        }
+      ],
+      "instruction": "Tip into a bowl, add the cider vinegar and season to taste Toss to mix and leave for about an hour."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.945,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "trimmed and green tops",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "young fennel",
+          "raw_text": "2 young fennel bulbs, trimmed and green tops",
+          "raw_unit_text": "bulbs"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cold-pressed rapeseed",
+          "raw_text": "2-3 tbsp cold-pressed rapeseed 011",
+          "raw_unit_text": "tbsp"
+        }
+      ],
+      "instruction": "stirring every so often Chop the green fennel tops and add to the fennel with the rapeseed oil Toss to combine, then taste and adjust the seasoning if necessary. Serve w1thtn a couple of hours."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "( Be 40) then coat \u2022"
+    }
+  ]
+}

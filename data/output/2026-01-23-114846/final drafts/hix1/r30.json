@@ -1,0 +1,151 @@
+{
+  "recipe": {
+    "description": "e~otj tVie pl.cR. of our wt.Le! VV\\.usVirooV\\l\\.S..\nvegetable or corn oil for brushing",
+    "notes": null,
+    "title": "use tVie s1Ac!c!Le ~LLets IA~ offiAL - IAv.d",
+    "yield_detail": null,
+    "yield_phrase": "Serves 4",
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.984,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "about l.5 cm thick",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "puffball",
+          "raw_text": "4 slices of puffball, about l.5cm thick",
+          "raw_unit_text": "slices"
+        }
+      ],
+      "instruction": "Heat a ridged griddle pan or heavy-based frying pan and lightly oil it. Cook the puffball for 2- 3 minutes on each side, then remove and keep warm."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.992,
+          "ingredient_id": "",
+          "input_qty": 8.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "rabbit saddle fillets",
+          "raw_text": "8 rabbit saddle fillets",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.986,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "lOOml red wine",
+          "raw_text": "lOOml red wine",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "butter",
+          "raw_text": "l 20g butter",
+          "raw_unit_text": "l"
+        }
+      ],
+      "instruction": "Meanwhile, season the rabbit fillets and offal Cook them in the same pan, adding a little more 01l 1f necessary, for 2- 3 minutes on each side, keeping them nice and pink. Remove and keep warm Add the wine to the pan to deglaze with about 30g of the butter, then pour off into a small jug."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.994,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "butter",
+          "raw_text": "l 20g butter",
+          "raw_unit_text": "l"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "parsley",
+          "raw_text": "2 tbsp chopped parsley",
+          "raw_unit_text": "tbsps"
+        }
+      ],
+      "instruction": "Heat the rest of the butter in a frying pan until foaming. Add the mushrooms and parsley, season and cook very briefly for about 30 seconds, turning them as they cook."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.984,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "about l.5 cm thick",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "puffball",
+          "raw_text": "4 slices of puffball, about l.5cm thick",
+          "raw_unit_text": "slices"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "butter",
+          "raw_text": "l 20g butter",
+          "raw_unit_text": "l"
+        },
+        {
+          "confidence": 0.995,
+          "ingredient_id": "",
+          "input_qty": 135.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "cleaned",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "girolles",
+          "raw_text": "120- 150g girolles or chanterelles, cleaned",
+          "raw_unit_text": "g"
+        }
+      ],
+      "instruction": "To serve, place a puffball slice on each warmed plate. Cut each saddle fillet into 3 or 4 slices and arrange on the puffball with t11e offal. Scatter the girolles and butter on top and spoon the pan juices around. Serve at once."
+    }
+  ]
+}

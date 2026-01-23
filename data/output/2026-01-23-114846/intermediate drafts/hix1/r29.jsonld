@@ -1,0 +1,34 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c29",
+  "@type": "Recipe",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c29",
+  "name": "RABBIT AND GIROLLES ON GRILLED PUFFBALL",
+  "recipeIngredient": [
+    "1f tjOU ltiave brat.sec! soll\\A.t rabbLt Legs or",
+    "11\\1\\.ac!e a pl.e, tVieV\\, tVil.s Ls a grelAt vJIAtj ~c,"
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c29",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:48:46.366284",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 29,
+      "end_block": 1084,
+      "end_page": 17,
+      "start_block": 1080,
+      "start_page": 17
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

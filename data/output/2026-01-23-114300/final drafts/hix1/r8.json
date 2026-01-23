@@ -1,0 +1,154 @@
+{
+  "recipe": {
+    "description": "as -pcirt of ci buffet salad seLectLoV\\-. yov.\ncould use otVier WClX!::j -potatoes, sue vi as\ncVicirLotte or PLV\\-lz FLr A-p-pLe.\nsea salt and freshly ground black pepper",
+    "notes": null,
+    "title": "of grLLled sCllV\\.A..OV\\- - or tjOu WV\\. s.er;e Lt",
+    "yield_detail": null,
+    "yield_phrase": "Serves 4 6",
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "Cook the potatoes in a pan of boiling salted water for 12-15 minutes until just tender. Drain and leave until cool enough to handle."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and finely chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "onion",
+          "raw_text": "1 medium onion, peeled and finely chopped",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.825,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "rind less streaky bacon",
+          "raw_text": "3 rashers of rind less streaky bacon finely chopped",
+          "raw_unit_text": "rashers"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cumin seeds",
+          "raw_text": "1 tsp cumin seeds",
+          "raw_unit_text": "tsp"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cider vinegar",
+          "raw_text": "3 tbsp cider vinegar",
+          "raw_unit_text": "tbsps"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 250.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "chicken stock",
+          "raw_text": "250ml chicken stock",
+          "raw_unit_text": "ml"
+        }
+      ],
+      "instruction": "Meanwhile, put the onion, bacon, cumin seeds, cider vinegar and chicken stock into a saucepan and simmer gently until the liquid has reduced by about two-thirds, then take off the heat."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Peel the potatoes and cut into 3mm thick slices."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and finely chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "onion",
+          "raw_text": "1 medium onion, peeled and finely chopped",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.825,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "rind less streaky bacon",
+          "raw_text": "3 rashers of rind less streaky bacon finely chopped",
+          "raw_unit_text": "rashers"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cold-pressed rapeseed",
+          "raw_text": "3-4 tbsp cold-pressed rapeseed 011",
+          "raw_unit_text": "tbsp"
+        }
+      ],
+      "instruction": "Add to the onion and bacon mixture, along with the rapeseed oil. Toss gently to mix and season with salt and pepper to taste."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "trimmed and finely chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "spring onions",
+          "raw_text": "4 spring onions, trimmed and finely chopped",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "Cover and leave to stand for up to an hour until ready to serve, giving an occasional stir to encourage the potatoes to absorb all the flavours. Just before serving, add the spring onions and toss gently"
+    }
+  ]
+}

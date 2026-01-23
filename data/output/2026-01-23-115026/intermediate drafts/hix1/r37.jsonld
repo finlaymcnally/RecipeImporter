@@ -1,0 +1,42 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c37",
+  "@type": "Recipe",
+  "description": "Cl LLttLe scrciggtj.",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c37",
+  "name": "tVi tJ ll\\A.US gLci V\\,c{s ~V\\, tVie ~CR CCIV\\, be",
+  "recipeIngredient": [
+    "300- 400g lamb's sweetbreads",
+    "salt and freshly ground black pepper",
+    "250-300g runner beans, trimmed",
+    "1 OOg butter",
+    "120g piece of unsmoked streaky bacon, cut into"
+  ],
+  "recipeInstructions": [
+    "5mm dice l 50g g1rolles or other seasonal wild mushrooms, cleaned 1 tbsp cold-pressed rapeseed oil For the dressing 1 small red onion, peeled and finely chopped 3 tbsp cider vinegar 1 tsp Tewkesbury mustard 4 tbsp cold-pressed rapeseed oil"
+  ],
+  "recipeYield": "Serves 4",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c37",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:50:26.955775",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 37,
+      "end_block": 1424,
+      "end_page": 22,
+      "start_block": 1407,
+      "start_page": 22
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c43",
+  "@type": "Recipe",
+  "description": "Cl4bbt11ge t11V\\-d greeV\\,s o~eV\\, beV\\,eft,t\nfrovi.t beLV\\,g s-pruced u-p wLtlti 14 V\\-OtVier\nL~redLeV\\,t. A sLV\\-guL14r or 14 vi.tLx of\nwLLd VV\\.USVlrOOVIA.$ does tVie trLc~.",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c43",
+  "name": "AUTUMN GREENS WITH WILD MUSHROOMS",
+  "recipeIngredient": [
+    "1 head of green cabbage, or a mixture of greens",
+    "salt and freshly ground black pepper",
+    "1 OOg butter",
+    "1 small onion, peeled and finely chopped",
+    "2 garlic cloves, peeled and crushed",
+    "120-150g wild mushrooms, cleaned"
+  ],
+  "recipeInstructions": [
+    "Cut the cabbage or greens roughly into 2-3cm chunks and wash well. Add to a pan of boiling salted water, bring back to the boil and cook for 3-5 minutes until just tender. Drain thoroughly in Meanwhile, melt half of the butter in a frying pan and gently cook the onion and garlic for 3-4 minutes Add the rest of the butter to the pan. Once melted, add the mushrooms and cook over a medium heat for 4-5 minutes until tender, turning frequently and seasoning after a couple of minutes.",
+    "Add the cabbage to the mushrooms and toss them together over the heat until hot. Check the seasoning and serve at once."
+  ],
+  "recipeYield": "Serves 4",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c43",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:43:00.654713",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 43,
+      "end_block": 1633,
+      "end_page": 25,
+      "start_block": 1607,
+      "start_page": 25
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

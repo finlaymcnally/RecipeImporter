@@ -93,6 +93,10 @@ def _ensure_candidate_id(
     existing = provenance.get("@id") or provenance.get("id")
     if existing:
         return str(existing)
+    if candidate.identifier:
+        provenance["@id"] = candidate.identifier
+        provenance.setdefault("converter_version", __version__)
+        return candidate.identifier
     stable_id = f"urn:recipeimport:excel:{file_hash}:{sheet_slug}:r{row_index}"
     provenance["@id"] = stable_id
     provenance.setdefault("converter_version", __version__)

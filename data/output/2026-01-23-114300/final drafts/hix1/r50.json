@@ -1,0 +1,191 @@
+{
+  "recipe": {
+    "description": "tVie able fo~ guests to Vielp tV\\eVV\\.Selves.\na good pinch of freshly grated nutmeg",
+    "notes": null,
+    "title": "sViarLIAij d~Vi to put Lii\\, tVie VV\\.Lddle of",
+    "yield_detail": null,
+    "yield_phrase": "Serves 4 6",
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 750.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "parsnips",
+          "raw_text": "750g parsnips, peeled",
+          "raw_unit_text": "g"
+        }
+      ],
+      "instruction": "Preheat the oven to l 60\u00b0C/gas mark 3. Cut the parsnips into rough 2-3cm chunks."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 400.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "double cream",
+          "raw_text": "400ml double cream",
+          "raw_unit_text": "ml"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 400.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "milk",
+          "raw_text": "400ml milk",
+          "raw_unit_text": "ml"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and crushed",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "2 garlic cloves, peeled and crushed",
+          "raw_unit_text": "cloves"
+        }
+      ],
+      "instruction": "Pour the cream and milk into a saucepan, add the nutmeg and garlic, and season generously with salt and pepper. Bring to the boil, then turn off the heat and leave to cool slightly."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 750.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "parsnips",
+          "raw_text": "750g parsnips, peeled",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 150.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "grated",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "Lancashire cheese",
+          "raw_text": "150g Lancashire cheese, grated",
+          "raw_unit_text": "g"
+        }
+      ],
+      "instruction": "Put the parsnips into a shallow oven proof (gratin- type) dish and mix with all but 1 tbsp of the cheese."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 400.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "double cream",
+          "raw_text": "400ml double cream",
+          "raw_unit_text": "ml"
+        }
+      ],
+      "instruction": "Pour the cream mixture over the top."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 750.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "parsnips",
+          "raw_text": "750g parsnips, peeled",
+          "raw_unit_text": "g"
+        }
+      ],
+      "instruction": "Stand the dish in a roasting tray and pour in enough boiling water to come halfway up the side of the dish (to create a bain-marie). Cook in the oven for about an hour until the parsnips are cooked through."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 150.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "grated",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "Lancashire cheese",
+          "raw_text": "150g Lancashire cheese, grated",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "fresh white breadcrumbs",
+          "raw_text": "2 tbsp fresh white breadcrumbs",
+          "raw_unit_text": "tbsps"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "parsley",
+          "raw_text": "1 tbsp chopped parsley",
+          "raw_unit_text": "tbsp"
+        }
+      ],
+      "instruction": "Preheat the grill to medium. Mix the breadcrumbs with the chopped parsley and remaining 1 tbsp grated cheese. Scatter over the parsnip bake and place under the grill for a few minutes until golden."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Serve at once, or cover with foil and leave in a low oven until ready to serve."
+    }
+  ]
+}

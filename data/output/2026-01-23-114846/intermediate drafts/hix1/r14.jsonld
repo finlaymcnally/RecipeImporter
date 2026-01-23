@@ -1,0 +1,45 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c14",
+  "@type": "Recipe",
+  "description": "1 fl,.rst V\\act tV\\Ls soup LV\\.. PoLcill'\\-0'.. rt w!As\nso good tV\\Clt 1 vowed to vv..Clfu VV..l:j ov1V1-\nversLoV\\., Iii V1-d put Lt OV\\.. tV\\e W-eV\\..tk we\nV\\C1ve LoC1ds of ViorserCldLsV\\ growL~ LV\\..\ntV\\e vtk but ctoV\\..'t seevv.. to vv..mu vv..v.cVi\nuse of Lt, crpCI rt frovv.. tV\\e ubLq uLtous.\nV\\orserlilctLsV\\ sCluce for rolilst beef C111\\.,(},\ntV\\e octet grC1tL~ for Cl bLoodtj MC!ytj.",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c14",
+  "name": "HORSERADISH SOUP",
+  "recipeIngredient": [
+    "50g butter",
+    "1 onion, peeled and roughly chopped",
+    "1 large leek, trimmed, roughly chopped and washed",
+    "1 tbsp pla1 n flou r"
+  ],
+  "recipeInstructions": [
+    "1.5 litres hot vegetable stock salt and freshly ground black pepper lOOg freshly grated horseradish, or more to taste 1- 2 tbsp double cream Melt the butter in a large saucepan. Add the onion and leek, cover and cook gently without colouring for 3- 4 minutes, stirring every so often, to soften Stir in the flour and cook over a low heat for 30 seconds.",
+    "then gradually stir in the vegetable stock. Bnng to the boil, season and simmer for 30 minutes.",
+    "Add about two-thirds of the horseradish to the soup and simmer for 5 minutes, then take off the heat.",
+    "Puree in a blender until smooth, then pass through a fine-meshed sieve into a clean saucepan.",
+    "Taste for seasoning and the horseradish, adding more to taste. You don't need to blend the soup again the extra horseradish gives a nice te lure. Add the cream, bring back to a simmer and serve."
+  ],
+  "recipeYield": "Serves 4",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c14",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:48:46.364516",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 14,
+      "end_block": 556,
+      "end_page": 9,
+      "start_block": 524,
+      "start_page": 9
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

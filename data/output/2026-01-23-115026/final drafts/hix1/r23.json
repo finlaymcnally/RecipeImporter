@@ -1,0 +1,255 @@
+{
+  "recipe": {
+    "description": "e u 1:j ya o! L Lol/\\,Cl LL!:j vea veo!\nuseo!.\no LLe!:j Pav\nVia ea II\\, a VvlClZL~ ga vv.t!:j {Wvouv.\nsea salt and fresh ly ground black pepper\na few sprigs each of thyme and rosemary",
+    "notes": null,
+    "title": "Yes ec L~ Vie qual[ 1:j L~Yeo!LeV\\, s",
+    "yield_detail": null,
+    "yield_phrase": "Serves 3-4",
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.917,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "about l.5 kg, with livers",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "free-ran ge chicken",
+          "raw_text": "1 free-ran ge chicken , about l.5kg, with livers",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "parsley",
+          "raw_text": "2 tbsp chopped parsley",
+          "raw_unit_text": "tbsps"
+        }
+      ],
+      "instruction": "To serve a little chopped parsley Baked new season's garlic sauce (page 133) Straw potatoes (page 164 l Preheat the oven to 200\u00b0C/gas mark 6. Season the chicken inside and out. Put the herbs into the cavity."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.761,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "a few generous knobs of butter",
+          "raw_text": "a few generous knobs of butter",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 60.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "butter",
+          "raw_text": "60g butter",
+          "raw_unit_text": "g"
+        }
+      ],
+      "instruction": "Rub butter all over the breast and legs."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 60.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "butter",
+          "raw_text": "60g butter",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and finely chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "onion",
+          "raw_text": "1 medium onion , peeled and finely chopped",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.988,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "lOOg chicken livers",
+          "raw_text": "lOOg chicken livers, chopped",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "thyme leaves",
+          "raw_text": "2 tsp thyme leaves",
+          "raw_unit_text": "tsps"
+        },
+        {
+          "confidence": 0.964,
+          "ingredient_id": "",
+          "input_qty": 41.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "OOg fresh white breadcrumbs",
+          "raw_text": "80- 1 OOg fresh white breadcrumbs",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "parsley",
+          "raw_text": "2 tbsp chopped parsley",
+          "raw_unit_text": "tbsps"
+        }
+      ],
+      "instruction": "For the stuffing, melt the butter in a pan. Add the onion, livers and thyme, season and cook over a medium heat for 2-3 minutes. Off the heat, mix in the breadcrumbs, parsley and seasoning. Either use to stuff your bird or cook separately in an oven proof dish or wrapped in foil for the last 30-40 minutes."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.917,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "about l.5 kg, with livers",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "free-ran ge chicken",
+          "raw_text": "1 free-ran ge chicken , about l.5kg, with livers",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 60.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "butter",
+          "raw_text": "60g butter",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and finely chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "onion",
+          "raw_text": "1 medium onion , peeled and finely chopped",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.988,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "lOOg chicken livers",
+          "raw_text": "lOOg chicken livers, chopped",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "thyme leaves",
+          "raw_text": "2 tsp thyme leaves",
+          "raw_unit_text": "tsps"
+        },
+        {
+          "confidence": 0.964,
+          "ingredient_id": "",
+          "input_qty": 41.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "OOg fresh white breadcrumbs",
+          "raw_text": "80- 1 OOg fresh white breadcrumbs",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.993,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "parsley",
+          "raw_text": "2 tbsp chopped parsley",
+          "raw_unit_text": "tbsps"
+        }
+      ],
+      "instruction": "Put the chicken into a large roasting tin and roast in the oven, basting regularly and adding the livers to the roasting tin for the last 6 minutes or so. Test the chicken after 1 /4 hours by inserting a skewer into the thickest part of the thigh. The juices should run clear; 1f not roast for a little longer Lift th chicken onto a warmed platter and rest in a warm place for 15 minut s Spnnkl with chopped par ley and serve with the roasted l1v rs, stuffing, garltc sauce and straw potatoes."
+    }
+  ]
+}

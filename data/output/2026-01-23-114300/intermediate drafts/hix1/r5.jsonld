@@ -1,0 +1,50 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c5",
+  "@type": "Recipe",
+  "description": "We cieveLapec{ tViLs ciressLvcg !:'.JeClrs cigo\nwLt Vi grciteci egg to gLve tVie LooR of\nCl VV\\.LVV\\.osci flowev. ver!:'.l rcireL!:'.l c{o we\nVV\\.ClRe tVie cictuciL DlLsVi but we use tVie",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c5",
+  "name": "MIMOSA DRESSING",
+  "recipeIngredient": [
+    "- for tVie cLcissLc sciLcici tVicit L.s tap-peci",
+    "cires.sL~ Lii\\, l/V\\.Clll\\,tj otVier .sciLciols..",
+    "1/2 tbsp cider vinegar",
+    "JU ice of 112 small lemon",
+    "1 garlic clove, peeled and halved",
+    "2 sprigs of tarragon",
+    "2 tbsp vegetable or corn 011",
+    "2- 3 tbsp cold-pressed rapeseed oil",
+    "salt and freshly ground black pepper"
+  ],
+  "recipeInstructions": [
+    "Whisk the cider vinegar, lemon Juice, garlic, tarragon and oils together or shake in a screw-topped jar or bottle. Season with salt and pepper to taste. Leave to infuse overnight and strain before using.",
+    "BLUE CHEESE DRESSING TuLs L.s ci useful WCltj to IA.Se u-p LLttLe bi.ts of blue cViee.se Cl M cci II\\, trci 11\\,sforl/V\\.",
+    "ci .sciLciol Lll\\,to SOV\\A..etViL~ rcitltier s-pecLciL.",
+    "1t Ls LoleciL wLtVi mbust Lecives LLRe LLttLe c;el/V\\. Lettuce ClM clttLcortl, btAt I wouLDlll\\,'t tl'tj Lt Oii\\, VV\\.or-e DleLLccite Lecive.s cis Lt wLLL overpower tViel/V\\..",
+    "Serves 4-6 1 tbsp cider vinegar 1 / 2 tsp Tewkesbury mustard 20g blue cheese 2 tbsp cold-pressed rapeseed oil 2 tbsp vegetable or corn oil salt and freshly ground black peppe1 Blend the cider vinegar, mustard, blue cheese and oils together in a blender and season with salt and pepper to taste. If the dressing is too thick, thin it with a little water."
+  ],
+  "recipeYield": "Serves 4- 6",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c5",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:43:00.650464",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 5,
+      "end_block": 202,
+      "end_page": 4,
+      "start_block": 163,
+      "start_page": 4
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

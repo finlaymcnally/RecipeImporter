@@ -1,0 +1,143 @@
+{
+  "recipe": {
+    "description": "Courgettes Cl V\\d otVier 111.Atvi.tbers of tVie\nsqucisVi fcivi.tLLtj -produce grecit flowers\ntVicit CCIV\\- be Vicirvested coV\\,tLV\\-uC!LLtj for\n.2 or 3 vi.tOV\\-tVis durL~ tVie suvi.tllU.tr\nCl V\\,d coo~ed cis Cl sll\\.C!c~, stci rter or\nciccovi.t-pC!~llU.tV\\-t. The flowers cire best\nVicirvested wVieV\\, tVie suV\\- Ls out CIV\\-d\nwVieV\\, tVietj ~cive fuLLtj o-peV\\-td. 1 Wze\ntVievi.t sLVVl-pLtj frLed LV\\, Cl LLgVit bcitter\nuV\\-tLL crLs-p. OV\\- 111.AtV\\,US ijOU ofteV\\, see\nstuffed courgette flowers, but tVie\nfi,LLL~ cidds vi.toLsture, wViLcVi teV\\,ds to\nvi.tel~ title bcitter go soggi::j.\na colander.\nCheck that the flowers are clean and free from",
+    "notes": null,
+    "title": "FRIED SQUASH OR COURGETTE FLOWERS",
+    "yield_detail": null,
+    "yield_phrase": "Serves 4",
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 120.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "plus extra for dusting",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "self-raising flour",
+          "raw_text": "120g self-raising flour, plus extra for dusting",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "",
+          "input_qty": 25.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "finely grated",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "mature Cheddar cheese",
+          "raw_text": "20-30g mature Cheddar cheese, finely grated",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "salt",
+          "raw_text": "salt and freshly ground black pepper",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "insects. To make the batter, place the flour in a bowl and slowly whisk in 200ml ice-cold water to form a thickish batter. Add the grated cheese, season with salt and pepper and give it a final whisk."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.994,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "vegetable oil",
+          "raw_text": "vegetable or corn oil for deep-frying",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "Heat an 8cm depth of oil in a deep-fat fryer or other suitable deep, heavy pan to 160-180\u00b0C, or until a little batter dropped into the oil turns golden brown after a minute or so."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 120.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "plus extra for dusting",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "self-raising flour",
+          "raw_text": "120g self-raising flour, plus extra for dusting",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.994,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "vegetable oil",
+          "raw_text": "vegetable or corn oil for deep-frying",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "Have a shallow bowl of flour ready. One at a time, dip the flowers into the flour, shaking off any excess, then dip into the batter to coat and drop into the hot oil. Deep-fry 3 or 4 flowers at a time, moving them around in the oil with a spoon, for a couple of minutes until they are crisp and light golden."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.912,
+          "ingredient_id": "",
+          "input_qty": 8.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "courgette",
+          "raw_text": "8 large courgette, squash or pumpkin flowers,",
+          "raw_unit_text": "medium"
+        }
+      ],
+      "instruction": "Remove the courgette flowers with a slotted spoon and put on a plate lined with kitchen paper to drain."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.997,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "freshly ground",
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "salt",
+          "raw_text": "salt and freshly ground black pepper",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "Season lightly with salt and serve."
+    }
+  ]
+}

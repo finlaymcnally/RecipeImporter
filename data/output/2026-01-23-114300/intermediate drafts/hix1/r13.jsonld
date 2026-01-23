@@ -1,0 +1,45 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c13",
+  "@type": "Recipe",
+  "description": "lViLs soup Vias beeV\\., appearLV1v9 OV\\.. VV..l:j\nV\\!\\.tV\\..US for l:jelilrs LV\\.. varLous gtALses.\nyou iA-tect to be ca refuL wLtVi tVie Vierbs\ntV\\ougV\\, as vv..ore pu~eV\\..t VlilrLetLes are\nLU~eLtj to be too overpowerL~ . PlilrsLel:j,\ncViervLL lilV\\d cViwes CCIV\\.. be useot LV\\..\nlilbuV\\-oililV\\-Ce, but V\\erbs LL~e Lovage,\ncorw V\\der Iii V\\d tcwrlilgoV\\.. sV\\ouLct be\nlilctctect LV\\.. w..octerlilhOV\\...\nFLV\\-LsVi tVie soup wLtVi golilt's curct or Iii\nvv..t.Lcter golilt's cV\\eese or creV\\!\\.t frlilfoV\\e,\nor serve t.tjust lils Lt Ls.\na good handful of parsley, washed\na good handful of chervil , washed\na good handful of basil, washed",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c13",
+  "name": "CHILLED GARDEN HERB SOUP",
+  "recipeIngredient": [
+    "1 tbsp cold-pressed rapeseed oil",
+    "1 small fennel bulb, roughly chopped",
+    "1 medium onion, peeled and roughly chopped",
+    "1 leek, trimmed , roughly chopped and washed",
+    "1 tbsp plain flour"
+  ],
+  "recipeInstructions": [
+    "1. 5 litres vegetable stock salt and freshly ground black pepper about 1 Og chives a few mint leaves To finish (opt10na/J goat's curd, soft goat's cheese or creme fralche finely chopped herbs, such as chervil, chives and parsley Break off the thicker stalks from the parsley, chervil and basil and set aside; keep the leaves separate.",
+    "Heat the rapeseed oil 1n a large saucepan and add the fennel, onion and leek. Cover and cook gently for 4- 5 minutes until soft, stirring every so often.",
+    "Add the flour and stir well, then gradually stir in the vegetable stock. Season to taste.",
+    "Bring to the boil, add the herb stalks and simmer gently for 20 minutes. Add the rest of the herbs, including the chives and mint leaves. Simmer for 2 minutes, no longer."
+  ],
+  "recipeYield": "Serves 4- 6",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c13",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:43:00.651351",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 13,
+      "end_block": 515,
+      "end_page": 9,
+      "start_block": 473,
+      "start_page": 9
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

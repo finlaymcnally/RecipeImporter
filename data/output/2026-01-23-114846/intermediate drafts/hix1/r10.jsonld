@@ -1,0 +1,43 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c10",
+  "@type": "Recipe",
+  "description": "cVieese. you cci\"\" serve tVi i.s scr Lcr d cis ci\nstcirter or si.d.e d.i.sVi, bui- becir LVI- VVlLV\\,d\ntVie i.\"\"te\"\"si.t '1 c{ tVie dress!.~ for tVie\nrest of tVie VIA.tC!L if tjOU ccrV\\,'t get Viold.\nof cobV1-uts, substi.tute v1crLV\\,uts er\nVicizeLV\\,uts. use Blue 1 -1ov.dcnA i.v ... tVie\ndress!.~, too, i.f tjOU cciv.. ge~ U\u00b7.",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c10",
+  "name": "becoVIA.t VVll::j f crvouri.te r\u00bbri.hsVi blue",
+  "recipeIngredient": [
+    "25- 30 cobnuts, shelled",
+    "'/1 tbsp cold pressed rapeseed 011",
+    "2- 3 tsp Cornish sea salt",
+    "4 small Little Gem lettuce, washed and dried",
+    "Blue cheese dressing (page 55)",
+    "50- 60g Blue Monday, or other blue cheese"
+  ],
+  "recipeInstructions": [
+    "Heat the grill to medium. Place the cobnuts on a grr tray and mix with the rapeseed oil and salt. Grill unt1 lightly toasted, then leave to cool Toss the salad leaves in the dressing and arrange on serving plates or bowls. Break the cheese into pieces and scatter over the top of the salad, along with the toasted cobnuts."
+  ],
+  "recipeYield": "Serves 4",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c10",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:48:46.363970",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 10,
+      "end_block": 397,
+      "end_page": 7,
+      "start_block": 375,
+      "start_page": 7
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

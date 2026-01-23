@@ -1,0 +1,38 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c32",
+  "@type": "Recipe",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c32",
+  "name": "base for a soup. V\\Se a V\\.kj Le~over vu.eat LV\\, saLClcls, soups a~",
+  "recipeIngredient": [
+    "4 small unsmoked ham hocks or knuckles, about",
+    "800g each, soaked overnight in cold water"
+  ],
+  "recipeInstructions": [
+    "to remove any excess salt 1 onion, peeled and roughly chopped 2 carrots, peeled and roughly chopped 1 bay leaf 5 cloves 1 tsp black peppercorns l 20g dried yellow split peas, soaked overnight in cold water a generous knob of butter salt and freshly ground white pepper For the mustard sauce 30g butter 2 large shallots, peeled and finely chopped 20g plain flour 1 tbsp Tewkesbury mustard, or more to taste 300ml ham cooking liquor 2 tbsp double cream 1 tbsp chopped parsley"
+  ],
+  "recipeYield": "Serves 4",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c32",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:43:00.653440",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 32,
+      "end_block": 1212,
+      "end_page": 19,
+      "start_block": 1189,
+      "start_page": 19
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

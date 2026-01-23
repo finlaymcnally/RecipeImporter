@@ -1,0 +1,145 @@
+{
+  "recipe": {
+    "description": "For the curry",
+    "notes": null,
+    "title": "Serves 4",
+    "yield_detail": null,
+    "yield_phrase": null,
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.873,
+          "ingredient_id": "",
+          "input_qty": 12.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "mutton chops",
+          "raw_text": "12 mutton chops or cutlets",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "natural yoghurt",
+          "raw_text": "2-3 tbsp natural yoghurt",
+          "raw_unit_text": "tbsp"
+        }
+      ],
+      "instruction": "a small piece of fresh root ginger, peeled and finely grated a good pinch of saffron strands a good handful of curry leaves 2 tbsp roasted curry spice mix (see left) 1 tbsp tomato puree 500ml lamb or beef stock salt and freshly ground black pepper a few sprigs of coriander, roughly chopped 1 tbsp vegetable oil Coat the mutton chops with the yoghurt and leave to marinate for a couple of hours."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.988,
+          "ingredient_id": "",
+          "input_qty": 75.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "(or half oil, half butter mix)",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "ghee",
+          "raw_text": "75g ghee (or half oil, half butter mix)",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 2.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and finely chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "red onions",
+          "raw_text": "2 medium red onions, peeled and finely chopped",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and crushed",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "3 garlic cloves, peeled and crushed",
+          "raw_unit_text": "cloves"
+        }
+      ],
+      "instruction": "Meanwhile, heat two-thirds of the ghee in a pan and gently cook the onions with the garlic, ginger, saffron and a few of the curry leaves for 3-4 minutes until softened. Add the roasted curry spice mix and tomato puree and stir well. Pour in the stock and bring to the boil, then lower the heat and let the sauce simmer for 20 minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Transfer the sauce to a blender and process until smooth, then strain through a fine-meshed sieve into a clean pan, pushing as much through as possible."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Return to a low heat and simmer until the sauce has reduced and thickened."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.873,
+          "ingredient_id": "",
+          "input_qty": 12.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "mutton chops",
+          "raw_text": "12 mutton chops or cutlets",
+          "raw_unit_text": "medium"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 3.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "natural yoghurt",
+          "raw_text": "2-3 tbsp natural yoghurt",
+          "raw_unit_text": "tbsp"
+        },
+        {
+          "confidence": 0.988,
+          "ingredient_id": "",
+          "input_qty": 75.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": "(or half oil, half butter mix)",
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "ghee",
+          "raw_text": "75g ghee (or half oil, half butter mix)",
+          "raw_unit_text": "g"
+        }
+      ],
+      "instruction": "Heat the remaining ghee in a frying pan. Remove excess yoghurt from the chops and season them, then fry until lightly coloured on both sides. Pour the sauce over the chops and simmer gently for 15-20 minutes, stirring occasionally. Add the coriander and simmer for another couple of minutes."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Meanwhile, heat the oil in a frying pan and briefly fry the rest of the curry leaves. Scatter over the curry and serve with basmati rice."
+    }
+  ]
+}

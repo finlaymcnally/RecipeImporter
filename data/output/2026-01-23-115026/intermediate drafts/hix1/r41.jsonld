@@ -1,0 +1,53 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c41",
+  "@type": "Recipe",
+  "description": "a couple of generous knobs of butter",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c41",
+  "name": "Serves 4",
+  "recipeIngredient": [
+    "12 16 cross-cut beef ribs (see page 112)",
+    "1-2 tbsp vegetable oil",
+    "For the barbecue sauce",
+    "4 large shallots, peeled and finely chopped",
+    "4 garlic cloves, peeled and crushed",
+    "200ml cider",
+    "200ml beef stock",
+    "60- 80g tomato ketchup",
+    "60- 80g HP sauce or Oxford sauce",
+    "1/2 tbsp Tewkesbury mustard",
+    "1 tbsp clear honey",
+    "1 small chilli, finely chopped",
+    "4 tbsp tomato puree",
+    "40ml Henderson's relish or Worcestershire sauce",
+    "salt and freshly ground black pepper"
+  ],
+  "recipeInstructions": [
+    "Preheat the oven to 150 C/gas mark 2 For the barbecue sauce, simply mix all the ingredients together in a bowl, seasoning with salt and pepper to taste.",
+    "Heat 1 tbsp oil in a large, heavy-based frying pan over a medium-high heat. When hot, fry the ribs in batches for 2-3 minutes on each side until they are nicely coloured, adding more oil to the pan as necessary. Once browned, transfer the ribs to a large oven proof dish.",
+    "Pour the barbecue sauce over the ribs and toss to coat all over. Cook in the oven for about an hour or until the ribs are tender and glazed, and the meat is just falling away from the bone."
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c41",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:50:26.956114",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 41,
+      "end_block": 1564,
+      "end_page": 24,
+      "start_block": 1533,
+      "start_page": 24
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

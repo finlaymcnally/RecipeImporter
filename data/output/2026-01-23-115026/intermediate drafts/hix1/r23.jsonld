@@ -1,0 +1,49 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c23",
+  "@type": "Recipe",
+  "description": "e u 1:j ya o! L Lol/\\,Cl LL!:j vea veo!\nuseo!.\no LLe!:j Pav\nVia ea II\\, a VvlClZL~ ga vv.t!:j {Wvouv.\nsea salt and fresh ly ground black pepper\na few sprigs each of thyme and rosemary",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c23",
+  "name": "Yes ec L~ Vie qual[ 1:j L~Yeo!LeV\\, s",
+  "recipeIngredient": [
+    "1 free-ran ge chicken , about l.5kg, with livers",
+    "a few generous knobs of butter",
+    "For the stuffing",
+    "60g butter",
+    "1 medium onion , peeled and finely chopped",
+    "lOOg chicken livers, chopped",
+    "2 tsp thyme leaves",
+    "80- 1 OOg fresh white breadcrumbs",
+    "2 tbsp chopped parsley"
+  ],
+  "recipeInstructions": [
+    "To serve a little chopped parsley Baked new season's garlic sauce (page 133) Straw potatoes (page 164 l Preheat the oven to 200\u00b0C/gas mark 6. Season the chicken inside and out. Put the herbs into the cavity.",
+    "Rub butter all over the breast and legs.",
+    "For the stuffing, melt the butter in a pan. Add the onion, livers and thyme, season and cook over a medium heat for 2-3 minutes. Off the heat, mix in the breadcrumbs, parsley and seasoning. Either use to stuff your bird or cook separately in an oven proof dish or wrapped in foil for the last 30-40 minutes.",
+    "Put the chicken into a large roasting tin and roast in the oven, basting regularly and adding the livers to the roasting tin for the last 6 minutes or so. Test the chicken after 1 /4 hours by inserting a skewer into the thickest part of the thigh. The juices should run clear; 1f not roast for a little longer Lift th chicken onto a warmed platter and rest in a warm place for 15 minut s Spnnkl with chopped par ley and serve with the roasted l1v rs, stuffing, garltc sauce and straw potatoes."
+  ],
+  "recipeYield": "Serves 3-4",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c23",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:50:26.954017",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 23,
+      "end_block": 879,
+      "end_page": 14,
+      "start_block": 839,
+      "start_page": 14
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

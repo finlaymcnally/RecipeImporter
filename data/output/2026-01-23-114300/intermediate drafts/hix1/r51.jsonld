@@ -1,0 +1,46 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c51",
+  "@type": "Recipe",
+  "description": "be prepared aViead. aV\\..d frLed. fortVie\nsecoV\\..d tLvu.e just before servL~. IV\\..\nbetweell\\, bLaV\\..CViL~ ClV\\..d. re-frtjL~\nplcice OV\\.. a tY'Cltj, cover ClV\\..d. refrLgerate\nuV\\..HL req uLred..\nyou cci II\\, serve tVie cViLps wLH1 just Cl bolA+-\nCl V\\..tjtViL~, froVV\\. grLLLed aV'ld rrcistect\nvu.eat, pouLfrtj a Vld ga vu.e to ~sJ-1 Cl Vi,(;{\n::.VieLL~sVi - especLaLLtj vv.usseLs.\nUsing a mandolin with a shredding attachment or a",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c51",
+  "name": "c OV\\..VeV\\..LeV\\..tltj, tViese fi.V\\..t cVILps ca II\\,",
+  "recipeIngredient": [
+    "4 large chipping potatoes, such as Yukon Gold,",
+    "Spunta or Mans Piper, peeled",
+    "vegetable or corn oil for deep-trying",
+    "10 garlic cloves, peeled and thinly sliced",
+    "sea salt"
+  ],
+  "recipeInstructions": [
+    "sharp knife, cut the potatoes into long matchsticks.",
+    "about 3mm thick. Wash them well in a couple of changes of cold water to remove excess starch, then drain and pat dry on a clean tea towel.",
+    "Heat an 8cm depth of oil 1n a deep-fat fryer or other suitable deep, heavy pan to 120 l 40\"C. Blanch the matchstick potatoes in manageable batches (a couple of handfuls at a time) for 2-3 minutes, then remove with a slotted spoon and drain 1n a colander.",
+    "Increase the temperature of the oil to l 60-180\u00b0C and re-fry the potatoes with the garlic slices in batches, moving them around in the pan, until golden and crisp. Remove with a slotted spoon and drain on kitchen paper. Sprinkle with sea salt and serve immediately.",
+    "Alternatively, you can keep the straw potatoes warm, uncovered, on a baking tray in a low oven until ready to serve. They should stay crisp but if not you can briefly re-fry them in hot oil to crisp them up again."
+  ],
+  "recipeYield": "Serves 4",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c51",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:43:00.655687",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 51,
+      "end_block": 1917,
+      "end_page": 29,
+      "start_block": 1881,
+      "start_page": 29
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}

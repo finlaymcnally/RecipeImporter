@@ -1,0 +1,155 @@
+{
+  "recipe": {
+    "description": "SUVV\\.VV\\tr. you CClV\\- VClrtj tVie beClV\\-S\nLf tjOU WLSVJ, -perVia-ps addL~ SOVV\\t\nYUV\\-~rs or bobbtj beaV\\-S.\na few sprigs of tarragon, leaves removed and stalks\nsea salt and freshly ground black pepper\na handful of pea shoots (if available)",
+    "notes": null,
+    "title": "salad - o~ of tViose dLsVies tViat tjOU just talze o~ Loolz at all\\d lzW>w Lt's",
+    "yield_detail": null,
+    "yield_phrase": "Serves 4",
+    "yield_unit_name": null,
+    "yield_units": 1
+  },
+  "schema_v": 1,
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": "peeled and sliced",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "garlic",
+          "raw_text": "1 garlic clove, peeled and sliced",
+          "raw_unit_text": "clove"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cold-pressed rapeseed oil",
+          "raw_text": "4 tbsp cold-pressed rapeseed oil",
+          "raw_unit_text": "tbsps"
+        }
+      ],
+      "instruction": "Put the garlic, rapeseed oil and tarragon stalks into a wide saucepan with about 3 tbsp water. Season well and bring to the boil. Add the girolles, cover with a lid and cook over a low heat for 3-4 minutes, turning them with a spoon every so often. Take off the heat, remove the lid and leave to cool a little."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.94,
+          "ingredient_id": "",
+          "input_qty": 200.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "podded peas",
+          "raw_text": "200g podded peas",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.852,
+          "ingredient_id": "",
+          "input_qty": 200.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "podded broad beans",
+          "raw_text": "200g podded broad beans",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.962,
+          "ingredient_id": "",
+          "input_qty": null,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "caster sugar",
+          "raw_text": "a pinch of caster sugar",
+          "raw_unit_text": "pinch"
+        }
+      ],
+      "instruction": "Cook the peas and broad beans separately in boiling salted water for a few minutes until just tender, adding a little caster sugar to the cooking water for the peas. Drain and remove the tough skins from any larger broad beans; leave small ones as they are."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "Remove the girolles from their liquid with a slotted spoon and set aside on a plate."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 1.0,
+          "ingredient_id": "",
+          "input_qty": 4.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cold-pressed rapeseed oil",
+          "raw_text": "4 tbsp cold-pressed rapeseed oil",
+          "raw_unit_text": "tbsps"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "",
+          "input_qty": 1.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cider vinegar",
+          "raw_text": "1 tbsp cider vinegar",
+          "raw_unit_text": "tbsp"
+        }
+      ],
+      "instruction": "To make the dressing, carefully pour off the oily part of the girolle cooking liquid into a bowl, leaving the watery liquid behind in the pan. Whisk the cider vinegar into the oil. Chop the tarragon leaves and stir these in, too. Check the seasoning."
+    },
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.94,
+          "ingredient_id": "",
+          "input_qty": 200.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "podded peas",
+          "raw_text": "200g podded peas",
+          "raw_unit_text": "g"
+        },
+        {
+          "confidence": 0.852,
+          "ingredient_id": "",
+          "input_qty": 200.0,
+          "input_unit_id": "",
+          "is_optional": false,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "podded broad beans",
+          "raw_text": "200g podded broad beans",
+          "raw_unit_text": "g"
+        }
+      ],
+      "instruction": "Toss the peas and broad beans in the dressing, then spoon onto serving plates. Scatter the girolles on top, along with a few pea shoots, if using. Spoon a little more dressing over the salad and serve."
+    }
+  ]
+}

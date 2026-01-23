@@ -1,0 +1,51 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c20",
+  "@type": "Recipe",
+  "identifier": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c20",
+  "name": "Makes 300g",
+  "recipeIngredient": [
+    "1 tbsp cold pressed rapeseed oil",
+    "1 red onion, peeled and finely chopped",
+    "1 garlic clove, peeled and crushed",
+    "1 tsp coarsely ground black pepper",
+    "\u2022Ii tbsp thyme leaves, chopped",
+    "1h tbsp freshly grated horseradish",
+    "lOOml red wine",
+    "250g butter, softened",
+    "1 tbsp Henderson's Relish or Worcestershire sauce",
+    "1 tbsp HP sauce",
+    "1 tbsp Tewkesbury or English mustard",
+    "1 tsp Gentleman's Relish",
+    "2 tbsp chopped parsley",
+    "1/2 tbsp chopped tarragon"
+  ],
+  "recipeInstructions": [
+    "Heat the rapeseed oil in a pan and add the onion, garlic and pepper Cook gently for 2-3 minutes to soften, then tip into a bowl. Add all of the other ingredients and mix well.",
+    "Spoon the flavoured butter onto a sheet of cling film or greaseproof paper and shape into a cylinder, about 3cm in diameter, sealing it 1n the film or paper Refrigerate or freeze until required.",
+    "Just slice the chilled butter as you need 1t and serve directly on steaks and chops; or cut off as much frozen butter as you need and slice it before serving"
+  ],
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:pdf:020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9:c20",
+    "confidence_score": 0.6,
+    "converter_version": "0.1.0",
+    "extraction_method": "heuristic_pdf",
+    "generated_at": "2026-01-23T11:48:46.365189",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 20,
+      "end_block": 766,
+      "end_page": 12,
+      "start_block": 740,
+      "start_page": 12
+    },
+    "processing_log": [],
+    "source_file": "Hix1.pdf",
+    "source_hash": "020e5142342e0bef5a211cd74199e35cae8dfbb1e66163f7856ffd071629ccb9"
+  }
+}
