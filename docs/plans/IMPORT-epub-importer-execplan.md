@@ -16,7 +16,10 @@ After this change, a user can point the cookimport CLI at a folder containing EP
 
 ## Progress
 
-- [ ] Initial ExecPlan drafted.
+- [x] Initial ExecPlan drafted.
+- [x] Implemented `EpubImporter` in `cookimport/plugins/epub.py`.
+- [x] Implemented DocPack extraction and Candidate segmentation.
+- [x] Verified with `tests/test_epub_importer.py`.
 
 ## Surprises & Discoveries
 

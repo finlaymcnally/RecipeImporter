@@ -16,7 +16,10 @@ After this change, a user can point the cookimport CLI at a folder containing PD
 
 ## Progress
 
-- [ ] Initial ExecPlan drafted.
+- [x] Initial ExecPlan drafted.
+- [x] Implemented `PdfImporter` in `cookimport/plugins/pdf.py`.
+- [x] Implemented Layout Analysis and Candidate Detection.
+- [x] Verified with `tests/test_pdf_importer.py`.
 
 ## Surprises & Discoveries
 

@@ -10,7 +10,7 @@ import typer
 from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
 from cookimport.core.models import ConversionReport, MappingConfig
 from cookimport.plugins import registry
-from cookimport.plugins import excel  # noqa: F401
+from cookimport.plugins import excel, text, epub, pdf  # noqa: F401
 from cookimport.staging.writer import write_draft_outputs, write_intermediate_outputs, write_report
 
 app = typer.Typer(add_completion=False, invoke_without_command=True)

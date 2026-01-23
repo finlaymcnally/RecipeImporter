@@ -37,17 +37,18 @@ def classify_block(block: Union[str, Block]) -> Dict[str, Any]:
 
     # 3. Structure Signals
     lower_text = text.lower().strip()
+    clean_text = lower_text.rstrip(":")
     
     # Header detection
     is_short = len(text) < 50
     is_title_case = text.istitle()
-    has_keyword = (lower_text in patterns.INGREDIENT_HEADERS or 
-                   lower_text in patterns.INSTRUCTION_HEADERS or 
+    has_keyword = (clean_text in patterns.INGREDIENT_HEADERS or 
+                   clean_text in patterns.INSTRUCTION_HEADERS or 
                    lower_text.endswith(":"))
                    
     features["is_header_likely"] = is_short and (is_title_case or has_keyword)
-    features["is_ingredient_header"] = lower_text in patterns.INGREDIENT_HEADERS
-    features["is_instruction_header"] = lower_text in patterns.INSTRUCTION_HEADERS
+    features["is_ingredient_header"] = clean_text in patterns.INGREDIENT_HEADERS
+    features["is_instruction_header"] = clean_text in patterns.INSTRUCTION_HEADERS
 
     # Metadata
     features["is_yield"] = bool(patterns.YIELD_RE.match(text))

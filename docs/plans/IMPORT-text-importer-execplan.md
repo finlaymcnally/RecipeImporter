@@ -16,7 +16,10 @@ After this change, a user can point the cookimport CLI at a folder containing te
 
 ## Progress
 
-- [ ] Initial ExecPlan drafted.
+- [x] Initial ExecPlan drafted.
+- [x] Implemented `TextImporter` in `cookimport/plugins/text.py`.
+- [x] Implemented `TextNormalizer` and `RecipeSplitter` logic.
+- [x] Verified with `tests/test_text_importer.py`.
 
 ## Surprises & Discoveries
 

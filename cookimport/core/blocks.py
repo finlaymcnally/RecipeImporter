@@ -22,6 +22,8 @@ class Block(BaseModel):
     bbox: Optional[List[float]] = None # [x0, y0, x1, y1]
     indent_level: int = 0
     
+    html: Optional[str] = None
+
     # Style info
     font_size: Optional[float] = None
     font_weight: Optional[str] = None # "bold", "normal"
