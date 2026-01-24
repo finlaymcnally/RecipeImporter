@@ -59,6 +59,14 @@
         "yield_detail": {
           "type": ["string", "null"],
           "description": "Additional yield details, e.g. 'Two generous bowls'"
+        },
+        "variants": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Variant or variation notes extracted from the source"
         }
       }
     },

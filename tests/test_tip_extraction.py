@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+from cookimport.core.models import RecipeCandidate
+from cookimport.parsing.tips import (
+    canonicalize_recipe_name,
+    extract_tips,
+    extract_tips_from_candidate,
+    guess_tags,
+)
+
+
+def test_canonicalize_recipe_name():
+    name = "Mom's Favorite Scrambled Eggs"
+    assert canonicalize_recipe_name(name) == "scrambled eggs"
+
+
+def test_extract_tips_from_description():
+    candidate = RecipeCandidate(
+        name="Mom's Favorite Scrambled Eggs",
+        description="Tip: Remove eggs from the pan just before they finish cooking.",
+    )
+    tips = extract_tips_from_candidate(candidate)
+    assert len(tips) == 1
+    assert tips[0].text.startswith("Remove eggs from the pan")
+    assert "scrambled eggs" in tips[0].tags.recipes
+
+
+def test_guess_tags_from_text():
+    text = "Sear steak in a cast iron skillet; rest before slicing."
+    tags = guess_tags(text, recipe_name="Perfect Steak")
+    assert "beef" in tags.meats
+    assert "sear" in tags.techniques
+    assert "cast iron" in tags.tools
+
+
+def test_extract_standalone_tip_with_advice_cue():
+    text = "Salting food regularly while cooking makes things taste better."
+    tips = extract_tips(text)
+    assert len(tips) == 1
+    assert "taste better" in tips[0].text
+    assert tips[0].scope == "general"
+
+
+def test_recipe_specific_header_is_skipped():
+    text = "Why this recipe works\nUse a small skillet to control heat."
+    tips = extract_tips(text)
+    assert tips == []
+
+
+def test_guess_tags_additional_categories():
+    text = "Finish pasta with basil, parmesan, olive oil, and a drizzle of honey."
+    tags = guess_tags(text, recipe_name="Pasta")
+    assert "basil" in tags.herbs
+    assert "cheese" in tags.dairy
+    assert "pasta" in tags.grains
+    assert "olive oil" in tags.oils_fats
+    assert "honey" in tags.sweeteners

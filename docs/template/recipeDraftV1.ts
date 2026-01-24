@@ -87,6 +87,7 @@ const RecipeSchema = z
     yield_phrase: z.string().optional().nullable(),
     yield_unit_name: z.string().optional().nullable(),
     yield_detail: z.string().optional().nullable(),
+    variants: z.array(z.string().trim().min(1)).optional().nullable(),
   })
   .strict();
 

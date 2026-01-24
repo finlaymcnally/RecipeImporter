@@ -1,12 +1,13 @@
 # Staging Module
 
-Handles output file generation in two formats:
+Handles output file generation in two formats plus tip snippets:
 
 - **Intermediate (JSON-LD):** `jsonld.py` converts `RecipeCandidate` to RecipeSage JSON-LD format with raw unparsed data
 - **Final (DraftV1):** `draft_v1.py` converts to structured format with parsed ingredients linked to steps
-- **Writer:** `writer.py` provides `write_intermediate_outputs()` and `write_draft_outputs()` functions
+- **Writer:** `writer.py` provides `write_intermediate_outputs()`, `write_draft_outputs()`, and `write_tip_outputs()` functions
   - Outputs are flattened under the per-file folder as `r{index}.json[ld]` (no sheet subfolders).
   - When a candidate lacks `row_index` provenance (text/PDF/EPUB), `writer.py` falls back to `location.chunk_index` for stable IDs.
+- **Tips:** `writer.py` writes `t{index}.json` for non-instruction tips/knowledge snippets under `tips/{workbook_slug}/`.
 
 ## Step-level ingredient linking
 
@@ -15,3 +16,11 @@ It matches ingredient names against instruction text with word-boundary token ch
 groups ingredients under section headers (for example, "Sauce"), and excludes headers
 from step output. Single-token matches are capped per step unless an "all ingredients"
 phrase is detected.
+
+## Variants extraction
+
+Draft V1 extracts instruction lines starting with "variant"/"variation" into `recipe.variants`
+and omits them from step instructions.
+
+Ingredient text fields (`raw_text`, `raw_ingredient_text`, `raw_unit_text`, `note`, `preparation`)
+are lowercased when writing Draft V1.

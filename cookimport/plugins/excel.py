@@ -20,6 +20,8 @@ from cookimport.core.models import (
     SkippedRow,
     WorkbookInspection,
 )
+from cookimport.core.reporting import compute_file_hash
+from cookimport.parsing.tips import extract_tips_from_candidate
 from cookimport.plugins import registry
 
 _HEADER_ALIASES = {
@@ -43,6 +45,7 @@ _SECTION_HEADER_RE = re.compile(
 )
 
 _ALIAS_LOOKUP: dict[str, str] = {}
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
 @dataclass
@@ -126,6 +129,7 @@ class ExcelImporter:
         wb_meta = load_workbook(path, read_only=False, data_only=False)
         report = ConversionReport(mappingUsed=mapping)
         recipes: list[RecipeCandidate] = []
+        file_hash = compute_file_hash(path)
         try:
             for name in wb_values.sheetnames:
                 values_sheet = wb_values[name]
@@ -182,13 +186,32 @@ class ExcelImporter:
                     sheet_recipes
                 )
 
+            for recipe in recipes:
+                if not recipe.identifier:
+                    provenance = recipe.provenance or {}
+                    sheet_name = str(provenance.get("sheet") or "sheet")
+                    row_index = _resolve_row_index(provenance)
+                    sheet_slug = _slugify(sheet_name)
+                    recipe_id = f"urn:recipeimport:excel:{file_hash}:{sheet_slug}:r{row_index}"
+                    recipe.identifier = recipe_id
+                    provenance.setdefault("@id", recipe_id)
+                    recipe.provenance = provenance
+
+            tips: list[Any] = []
+            for recipe in recipes:
+                tips.extend(extract_tips_from_candidate(recipe))
+
             report.total_recipes = len(recipes)
+            report.total_tips = len(tips)
             report.samples = [
                 {"name": recipe.name, "sheet": recipe.provenance.get("sheet")}
                 for recipe in recipes[:3]
             ]
+            if tips:
+                report.tip_samples = [{"text": tip.text[:80]} for tip in tips[:3]]
             return ConversionResult(
                 recipes=recipes,
+                tips=tips,
                 report=report,
                 workbook=path.stem,
                 workbookPath=str(path),
@@ -266,6 +289,30 @@ def _normalize_label(value: str) -> str:
     cleaned = cleaned.strip()
     cleaned = cleaned.rstrip(":")
     return cleaned
+
+
+def _slugify(value: str) -> str:
+    lowered = value.strip().lower()
+    slug = _SLUG_RE.sub("_", lowered).strip("_")
+    return slug or "unknown"
+
+
+def _resolve_row_index(provenance: dict[str, Any]) -> int:
+    for key in ("row_index", "rowIndex", "row"):
+        if key in provenance:
+            try:
+                return int(provenance[key])
+            except (TypeError, ValueError):
+                return 0
+    location = provenance.get("location")
+    if isinstance(location, dict):
+        for key in ("row_index", "rowIndex", "row", "chunk_index", "chunkIndex", "chunk"):
+            if key in location:
+                try:
+                    return int(location[key])
+                except (TypeError, ValueError):
+                    return 0
+    return 0
 
 
 def _cell_value(values_sheet, meta_sheet, row: int, col: int, merged_map: dict[tuple[int, int], Any]) -> Any:

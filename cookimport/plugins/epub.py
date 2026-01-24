@@ -32,6 +32,7 @@ from cookimport.core.reporting import (
 )
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning, signals
+from cookimport.parsing.tips import extract_tips, extract_tips_from_candidate
 from cookimport.plugins import registry
 
 # Suppress ebooklib warnings about future/deprecations if any
@@ -101,6 +102,7 @@ class EpubImporter:
     def convert(self, path: Path, mapping: MappingConfig | None) -> ConversionResult:
         report = ConversionReport()
         recipes: List[RecipeCandidate] = []
+        tips: List[Any] = []
         
         try:
             file_hash = compute_file_hash(path)
@@ -139,17 +141,24 @@ class EpubImporter:
                         )
                     
                     recipes.append(candidate)
+                    tips.extend(extract_tips_from_candidate(candidate))
                     
                 except Exception as e:
                     logger.warning(f"Failed to extract candidate {i} in {path}: {e}")
                     report.warnings.append(f"Failed to parse candidate {i}: {e}")
 
+            tips.extend(self._extract_standalone_tips(blocks, candidates_ranges, path, file_hash))
+
             report.total_recipes = len(recipes)
+            report.total_tips = len(tips)
             if recipes:
                 report.samples = [{"name": r.name} for r in recipes[:3]]
+            if tips:
+                report.tip_samples = [{"text": tip.text[:80]} for tip in tips[:3]]
 
             return ConversionResult(
                 recipes=recipes,
+                tips=tips,
                 report=report,
                 workbook=path.stem,
                 workbookPath=str(path),
@@ -160,10 +169,53 @@ class EpubImporter:
             report.errors.append(str(e))
             return ConversionResult(
                 recipes=[],
+                tips=[],
                 report=report,
                 workbook=path.stem,
                 workbookPath=str(path),
             )
+
+    def _extract_standalone_tips(
+        self,
+        blocks: List[Block],
+        candidate_ranges: List[Tuple[int, int, float]],
+        path: Path,
+        file_hash: str,
+    ) -> List[Any]:
+        covered: set[int] = set()
+        for start, end, _ in candidate_ranges:
+            covered.update(range(start, end))
+
+        tips: List[Any] = []
+        provenance_builder = ProvenanceBuilder(
+            source_file=path.name,
+            source_hash=file_hash,
+            extraction_method="heuristic_epub_tip",
+        )
+
+        for idx, block in enumerate(blocks):
+            if idx in covered:
+                continue
+            text = block.text.strip()
+            if not text:
+                continue
+            location: dict[str, Any] = {
+                "block_index": idx,
+                "chunk_index": idx,
+            }
+            provenance = provenance_builder.build(
+                confidence_score=0.6,
+                location=location,
+            )
+            tips.extend(
+                extract_tips(
+                    text,
+                    provenance=provenance,
+                    source_section="standalone_block",
+                )
+            )
+
+        return tips
 
     def _extract_docpack(self, path: Path) -> List[Block]:
         """
@@ -380,14 +432,27 @@ class EpubImporter:
         Look backwards from an anchor to find a likely title.
         """
         best_idx = -1
-        for i in range(anchor_idx - 1, max(-1, anchor_idx - limit), -1):
+        min_idx = max(-1, anchor_idx - limit)
+        for i in range(anchor_idx - 1, min_idx, -1):
             b = blocks[i]
             if b.features.get("is_ingredient_header"):
                 break
             if b.features.get("is_yield") or b.features.get("is_time"):
                 continue
             if self._is_title_candidate(b):
-                return i
+                start_idx = i
+                j = i - 1
+                while j > min_idx:
+                    prev = blocks[j]
+                    if prev.features.get("is_ingredient_header"):
+                        break
+                    if prev.features.get("is_yield") or prev.features.get("is_time"):
+                        break
+                    if not self._is_title_candidate(prev):
+                        break
+                    start_idx = j
+                    j -= 1
+                return start_idx
             if best_idx == -1 and len(b.text.strip()) <= 80:
                 if not self._is_ingredient_like(b) and not self._is_instruction_like(b):
                     best_idx = i

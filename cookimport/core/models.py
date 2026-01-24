@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -201,6 +201,72 @@ class RecipeCandidate(BaseModel):
         return list(value)
 
 
+class TipTags(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    recipes: list[str] = Field(default_factory=list)
+    meats: list[str] = Field(default_factory=list)
+    vegetables: list[str] = Field(default_factory=list)
+    herbs: list[str] = Field(default_factory=list)
+    spices: list[str] = Field(default_factory=list)
+    dairy: list[str] = Field(default_factory=list)
+    grains: list[str] = Field(default_factory=list)
+    legumes: list[str] = Field(default_factory=list)
+    fruits: list[str] = Field(default_factory=list)
+    sweeteners: list[str] = Field(default_factory=list)
+    oils_fats: list[str] = Field(default_factory=list)
+    techniques: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    other: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "recipes",
+        "meats",
+        "vegetables",
+        "herbs",
+        "spices",
+        "dairy",
+        "grains",
+        "legumes",
+        "fruits",
+        "sweeteners",
+        "oils_fats",
+        "techniques",
+        "tools",
+        "other",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_tag_lists(cls, value: Any) -> list[str]:
+        return _normalize_list(value)
+
+
+class TipCandidate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    identifier: str | None = Field(default=None, alias="id")
+    scope: Literal["general", "recipe_specific"] = "general"
+    text: str
+    tags: TipTags = Field(default_factory=TipTags)
+    source_recipe_id: str | None = Field(default=None, alias="sourceRecipeId")
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    confidence: float | None = None
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def _normalize_tip_text(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        return _normalize_text(str(value))
+
+    @field_validator("identifier", "source_recipe_id", mode="before")
+    @classmethod
+    def _normalize_source_recipe_id(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        return _normalize_text(str(value))
+
+
 class SheetMapping(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -268,6 +334,7 @@ class ConversionReport(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     total_recipes: int = Field(0, alias="totalRecipes")
+    total_tips: int = Field(0, alias="totalTips")
     per_sheet_counts: dict[str, int] = Field(default_factory=dict, alias="perSheetCounts")
     skipped_rows: list[SkippedRow] = Field(default_factory=list, alias="skippedRows")
     missing_field_counts: dict[str, int] = Field(
@@ -277,6 +344,7 @@ class ConversionReport(BaseModel):
         default_factory=list, alias="lowConfidenceSheets"
     )
     samples: list[dict[str, Any]] = Field(default_factory=list)
+    tip_samples: list[dict[str, Any]] = Field(default_factory=list, alias="tipSamples")
     mapping_used: MappingConfig | None = Field(default=None, alias="mappingUsed")
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
@@ -286,6 +354,7 @@ class ConversionResult(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     recipes: list[RecipeCandidate] = Field(default_factory=list)
+    tips: list[TipCandidate] = Field(default_factory=list)
     report: ConversionReport
     workbook: str | None = None
     workbook_path: str | None = Field(default=None, alias="workbookPath")

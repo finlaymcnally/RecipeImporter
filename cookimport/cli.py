@@ -11,7 +11,12 @@ from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
 from cookimport.core.models import ConversionReport, MappingConfig
 from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf  # noqa: F401
-from cookimport.staging.writer import write_draft_outputs, write_intermediate_outputs, write_report
+from cookimport.staging.writer import (
+    write_draft_outputs,
+    write_intermediate_outputs,
+    write_report,
+    write_tip_outputs,
+)
 
 app = typer.Typer(add_completion=False, invoke_without_command=True)
 
@@ -179,6 +184,7 @@ def stage(
     Outputs are organized as:
       {out}/{timestamp}/intermediate drafts/{filename}/  - RecipeSage JSON-LD
       {out}/{timestamp}/final drafts/{filename}/         - RecipeDraftV1 format
+      {out}/{timestamp}/tips/{filename}/                 - Tip/knowledge snippets
       {out}/{timestamp}/reports/                         - Conversion reports
     """
     if not path.exists():
@@ -219,6 +225,7 @@ def stage(
             
             intermediate_dir = out / "intermediate drafts" / workbook_slug
             final_dir = out / "final drafts" / workbook_slug
+            tips_dir = out / "tips" / workbook_slug
             reports_dir = out / "reports"
 
             mapping_path = _resolve_mapping_path(file_path, out, mapping) # Passed out for legacy compat
@@ -237,12 +244,15 @@ def stage(
             # Write final DraftV1 files
             write_draft_outputs(result, final_dir)
 
+            # Write tip outputs
+            write_tip_outputs(result, tips_dir)
+
             # Write conversion report
             write_report(result.report, reports_dir, file_path.stem)
 
             imported += 1
             typer.secho(
-                f"  {file_path.name}: {len(result.recipes)} recipes",
+                f"  {file_path.name}: {len(result.recipes)} recipes, {len(result.tips)} tips",
                 fg=typer.colors.GREEN,
             )
         except Exception as exc:  # noqa: BLE001

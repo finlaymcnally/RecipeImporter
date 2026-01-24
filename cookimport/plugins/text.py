@@ -29,6 +29,7 @@ from cookimport.core.reporting import (
     generate_recipe_id,
 )
 from cookimport.parsing import cleaning, signals
+from cookimport.parsing.tips import extract_tips_from_candidate
 from cookimport.plugins import registry
 
 logger = logging.getLogger(__name__)
@@ -384,8 +385,17 @@ class TextImporter:
             if path.suffix.lower() == ".docx" and docx is not None:
                 table_recipes, table_report = self._convert_docx_tables(path, mapping)
                 if table_recipes:
+                    tips: list[Any] = []
+                    for recipe in table_recipes:
+                        tips.extend(extract_tips_from_candidate(recipe))
+                    table_report.total_tips = len(tips)
+                    if tips:
+                        table_report.tip_samples = [
+                            {"text": tip.text[:80]} for tip in tips[:3]
+                        ]
                     return ConversionResult(
                         recipes=table_recipes,
+                        tips=tips,
                         report=table_report,
                         workbook=path.stem,
                         workbookPath=str(path),
@@ -432,12 +442,20 @@ class TextImporter:
                     logger.warning(f"Failed to parse chunk {i} in {path}: {e}")
                     report.warnings.append(f"Failed to parse chunk {i}: {e}")
             
+            tips: list[Any] = []
+            for recipe in recipes:
+                tips.extend(extract_tips_from_candidate(recipe))
+
             report.total_recipes = len(recipes)
+            report.total_tips = len(tips)
             if recipes:
                 report.samples = [{"name": r.name} for r in recipes[:3]]
+            if tips:
+                report.tip_samples = [{"text": tip.text[:80]} for tip in tips[:3]]
                 
             return ConversionResult(
                 recipes=recipes,
+                tips=tips,
                 report=report,
                 workbook=path.stem, # Using stem as "workbook" name
                 workbookPath=str(path),
@@ -448,6 +466,7 @@ class TextImporter:
             report.errors.append(str(e))
             return ConversionResult(
                 recipes=[],
+                tips=[],
                 report=report,
                 workbook=path.stem,
                 workbookPath=str(path),

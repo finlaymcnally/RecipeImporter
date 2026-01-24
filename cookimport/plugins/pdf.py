@@ -4,7 +4,7 @@ import logging
 import re
 import statistics
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 import fitz  # type: ignore
 
@@ -23,6 +23,7 @@ from cookimport.core.reporting import (
 )
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning, signals
+from cookimport.parsing.tips import extract_tips, extract_tips_from_candidate
 from cookimport.plugins import registry
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,7 @@ class PdfImporter:
     def convert(self, path: Path, mapping: MappingConfig | None) -> ConversionResult:
         report = ConversionReport()
         recipes: List[RecipeCandidate] = []
+        tips: List[Any] = []
         
         try:
             file_hash = compute_file_hash(path)
@@ -133,19 +135,26 @@ class PdfImporter:
                         candidate.identifier = generate_recipe_id(
                             "pdf", file_hash, f"c{i}"
                         )
-                    
+
                     recipes.append(candidate)
-                    
+                    tips.extend(extract_tips_from_candidate(candidate))
+
                 except Exception as e:
                     logger.warning(f"Failed to extract candidate {i} in {path}: {e}")
                     report.warnings.append(f"Failed to parse candidate {i}: {e}")
 
+            tips.extend(self._extract_standalone_tips(all_blocks, candidates_ranges, path, file_hash))
+
             report.total_recipes = len(recipes)
+            report.total_tips = len(tips)
             if recipes:
                 report.samples = [{"name": r.name} for r in recipes[:3]]
+            if tips:
+                report.tip_samples = [{"text": tip.text[:80]} for tip in tips[:3]]
 
             return ConversionResult(
                 recipes=recipes,
+                tips=tips,
                 report=report,
                 workbook=path.stem,
                 workbookPath=str(path),
@@ -156,10 +165,56 @@ class PdfImporter:
             report.errors.append(str(e))
             return ConversionResult(
                 recipes=[],
+                tips=[],
                 report=report,
                 workbook=path.stem,
                 workbookPath=str(path),
             )
+
+    def _extract_standalone_tips(
+        self,
+        blocks: List[Block],
+        candidate_ranges: List[Tuple[int, int, float]],
+        path: Path,
+        file_hash: str,
+    ) -> List[Any]:
+        covered: set[int] = set()
+        for start, end, _ in candidate_ranges:
+            covered.update(range(start, end))
+
+        tips: List[Any] = []
+        provenance_builder = ProvenanceBuilder(
+            source_file=path.name,
+            source_hash=file_hash,
+            extraction_method="heuristic_pdf_tip",
+        )
+
+        for idx, block in enumerate(blocks):
+            if idx in covered:
+                continue
+            text = block.text.strip()
+            if not text:
+                continue
+            location: dict[str, Any] = {
+                "block_index": idx,
+                "page": block.page,
+                "chunk_index": idx,
+            }
+            if block.bbox:
+                location["bbox"] = block.bbox
+            provenance = provenance_builder.build(
+                confidence_score=0.6,
+                location=location,
+            )
+            tips.extend(
+                extract_tips(
+                    text,
+                    provenance=provenance,
+                    source_section="standalone_block",
+                )
+            )
+
+        return tips
 
     def _extract_blocks_from_page(self, page: fitz.Page, page_num: int) -> List[Block]:
         """

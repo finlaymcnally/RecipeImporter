@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 from pathlib import Path
+from cookimport.core.blocks import Block
+from cookimport.parsing import signals
 from cookimport.plugins.epub import EpubImporter
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -42,3 +44,18 @@ def test_convert_epub():
     r2 = result.recipes[1]
     assert r2.name == "Simple Salad"
     assert "Lettuce" in r2.ingredients
+
+
+def test_backtrack_for_title_prefers_earliest_title_block():
+    importer = EpubImporter()
+    blocks = [
+        Block(text="Classic Rice Pilaf"),
+        Block(text="classic rice pilaf", font_weight="bold"),
+        Block(text="serves 2"),
+    ]
+
+    for block in blocks:
+        signals.enrich_block(block)
+
+    title_idx = importer._backtrack_for_title(blocks, anchor_idx=2, limit=4)
+    assert title_idx == 0

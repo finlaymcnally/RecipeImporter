@@ -54,3 +54,8 @@ def test_stage_output_structure(tmp_path):
     assert reports_dir.exists()
     assert (reports_dir / f"{file_slug}.excel_import_report.json").exists()
 
+    # Expected: output/timestamp/tips/simple_text/
+    tips_dir = timestamp_dir / "tips" / file_slug
+    assert tips_dir.exists()
+    tip_files = list(tips_dir.rglob("t*.json"))
+    assert len(tip_files) > 0

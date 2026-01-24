@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from cookimport import __version__
-from cookimport.core.models import ConversionReport, ConversionResult, RecipeCandidate
+from cookimport.core.models import ConversionReport, ConversionResult, RecipeCandidate, TipCandidate
 from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
 from cookimport.staging.jsonld import recipe_candidate_to_jsonld
 
@@ -103,6 +103,36 @@ def _ensure_candidate_id(
     return stable_id
 
 
+def _resolve_tip_index(provenance: dict[str, Any]) -> int | None:
+    for key in ("tip_index", "tipIndex", "tip"):
+        if key in provenance:
+            try:
+                return int(provenance[key])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _ensure_tip_id(
+    tip: TipCandidate,
+    file_hash: str,
+    sheet_slug: str,
+    row_index: int,
+    tip_index: int,
+) -> str:
+    provenance = tip.provenance or {}
+    existing = provenance.get("@id") or provenance.get("id") or tip.identifier
+    if existing:
+        tip.identifier = str(existing)
+        return tip.identifier
+    stable_id = f"urn:recipeimport:tip:{file_hash}:{sheet_slug}:t{row_index}:{tip_index}"
+    tip.identifier = stable_id
+    provenance["@id"] = stable_id
+    provenance.setdefault("converter_version", __version__)
+    tip.provenance = provenance
+    return stable_id
+
+
 def write_intermediate_outputs(results: ConversionResult, out_dir: Path) -> None:
     """Write intermediate RecipeSage JSON-LD outputs.
 
@@ -137,6 +167,31 @@ def write_draft_outputs(results: ConversionResult, out_dir: Path) -> None:
         out_path = out_dir / f"r{index}.json"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(draft, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def write_tip_outputs(results: ConversionResult, out_dir: Path) -> None:
+    """Write tip/knowledge outputs.
+
+    Output path: {out_dir}/t{index}.json
+    """
+    for index, tip in enumerate(results.tips):
+        if tip.scope != "general":
+            continue
+        provenance = tip.provenance or {}
+        sheet_name = _resolve_sheet_name(provenance)
+        row_index = _resolve_row_index(provenance)
+        tip_index = _resolve_tip_index(provenance)
+        if tip_index is None:
+            tip_index = index
+        sheet_slug = _slugify(sheet_name)
+        file_hash = _resolve_file_hash(results, provenance)
+
+        _ensure_tip_id(tip, file_hash, sheet_slug, row_index, tip_index)
+
+        payload = tip.model_dump(by_alias=True, exclude_none=True)
+        out_path = out_dir / f"t{index}.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def write_report(report: ConversionReport, out_dir: Path, workbook_name: str) -> Path:

@@ -21,6 +21,9 @@ data/output/{timestamp}/
 ├── final drafts/            # RecipeDraftV1 (.json)
 │   └── {workbook_slug}/
 │       └── r{index}.json
+├── tips/                    # Tip/knowledge snippets (.json)
+│   └── {workbook_slug}/
+│       └── t{index}.json
 └── reports/
     └── {workbook_slug}.excel_import_report.json
 ```
@@ -49,6 +52,7 @@ Excel File (.xlsx)
 RecipeCandidate (in-memory)
     ├─→ [write_intermediate_outputs()] → intermediate drafts/{workbook_slug}/r{index}.jsonld
     └─→ [write_draft_outputs()]        → final drafts/{workbook_slug}/r{index}.json
+    └─→ [write_tip_outputs()]          → tips/{workbook_slug}/t{index}.json
 ```
 
 ### File Formats
