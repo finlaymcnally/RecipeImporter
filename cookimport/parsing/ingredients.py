@@ -1,4 +1,4 @@
-"""Ingredient line parsing using ingredient-parser-nlp."""
+"""Ingredient line parsing using Ingredient Parser."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ _APPROXIMATE_PATTERNS = (
 def parse_ingredient_line(text: str) -> dict[str, Any]:
     """Parse an ingredient string into structured components.
 
-    Uses the ingredient-parser-nlp library for NLP-based parsing, then
+    Uses the Ingredient Parser library (https://github.com/strangetom/ingredient-parser, https://ingredient-parser.readthedocs.io/en/latest/) for NLP-based parsing, then
     normalizes the output for our schema.
 
     Args:
