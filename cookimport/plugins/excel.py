@@ -21,7 +21,10 @@ from cookimport.core.models import (
     WorkbookInspection,
 )
 from cookimport.core.reporting import compute_file_hash
-from cookimport.parsing.tips import extract_tips_from_candidate
+from cookimport.parsing.tips import (
+    extract_tip_candidates_from_candidate,
+    partition_tip_candidates,
+)
 from cookimport.plugins import registry
 
 _HEADER_ALIASES = {
@@ -197,12 +200,18 @@ class ExcelImporter:
                     provenance.setdefault("@id", recipe_id)
                     recipe.provenance = provenance
 
-            tips: list[Any] = []
+            tip_candidates: list[Any] = []
             for recipe in recipes:
-                tips.extend(extract_tips_from_candidate(recipe))
+                tip_candidates.extend(extract_tip_candidates_from_candidate(recipe))
+
+            tips, recipe_specific, not_tips = partition_tip_candidates(tip_candidates)
 
             report.total_recipes = len(recipes)
             report.total_tips = len(tips)
+            report.total_tip_candidates = len(tip_candidates)
+            report.total_general_tips = len(tips)
+            report.total_recipe_specific_tips = len(recipe_specific)
+            report.total_not_tips = len(not_tips)
             report.samples = [
                 {"name": recipe.name, "sheet": recipe.provenance.get("sheet")}
                 for recipe in recipes[:3]
@@ -212,6 +221,7 @@ class ExcelImporter:
             return ConversionResult(
                 recipes=recipes,
                 tips=tips,
+                tipCandidates=tip_candidates,
                 report=report,
                 workbook=path.stem,
                 workbookPath=str(path),

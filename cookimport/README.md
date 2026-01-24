@@ -4,6 +4,11 @@ This package provides the local CLI and shared pipeline modules for staging
 recipe sources into RecipeSage JSON-LD. CLI entrypoints live in
 `cookimport/cli.py`, core models live in `cookimport/core/`, and staging output
 helpers live in `cookimport/staging/`.
+CLI entrypoints include `cookimport` plus the short alias `C3imp` for interactive
+runs. `C3imp 30` preserves the interactive flow while limiting output to the first
+30 recipes and tips. Batch aliases `import` and `C3import` still run a full import
+from `data/input` to `data/output`. `cookimport stage --limit 30` also works in
+batch mode.
 
 RecipeCandidate supports optional RecipeSage fields like `image`,
 `recipeCategory`, `datePublished`, `creditText`, `isBasedOn`, `comment`, and
@@ -14,6 +19,7 @@ write a mapping stub under `staging/mappings/`. Run `cookimport stage <folder>`
 to scan a folder and write JSON-LD under `staging/<timestamp>/intermediate drafts/`
 and DraftV1 under `staging/<timestamp>/final drafts/`, plus tip snippets under
 `staging/<timestamp>/tips/` and reports under `staging/<timestamp>/reports/`.
+Tip outputs include `sourceRecipeTitle` when the tip is tied to a specific recipe.
 
 The text importer treats .docx tables with recognized headers as structured
 recipe rows, so Word docs that store recipes in tables retain ingredients and

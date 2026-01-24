@@ -174,9 +174,11 @@ def write_tip_outputs(results: ConversionResult, out_dir: Path) -> None:
 
     Output path: {out_dir}/t{index}.json
     """
-    for index, tip in enumerate(results.tips):
-        if tip.scope != "general":
-            continue
+    out_dir.mkdir(parents=True, exist_ok=True)
+    general_tips = [
+        tip for tip in results.tips if tip.scope == "general" and tip.standalone
+    ]
+    for index, tip in enumerate(general_tips):
         provenance = tip.provenance or {}
         sheet_name = _resolve_sheet_name(provenance)
         row_index = _resolve_row_index(provenance)

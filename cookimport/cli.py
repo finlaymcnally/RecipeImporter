@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 from pathlib import Path
+import os
 from typing import Iterable
 
 import questionary
@@ -9,6 +10,7 @@ import typer
 
 from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
 from cookimport.core.models import ConversionReport, MappingConfig
+from cookimport.core.reporting import enrich_report_with_stats
 from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf  # noqa: F401
 from cookimport.staging.writer import (
@@ -37,7 +39,7 @@ def _list_importable_files(folder: Path) -> list[Path]:
     return sorted(files)
 
 
-def _interactive_mode() -> None:
+def _interactive_mode(*, limit: int | None = None) -> None:
     """Run the interactive guided flow."""
     typer.secho("\n  Recipe Import Tool\n", fg=typer.colors.CYAN, bold=True)
 
@@ -115,9 +117,9 @@ def _interactive_mode() -> None:
         typer.echo()
         
         if selection == "all":
-            stage(path=input_folder, out=output_folder, mapping=None)
+            stage(path=input_folder, out=output_folder, mapping=None, limit=limit)
         else:
-            stage(path=selection, out=output_folder, mapping=None)
+            stage(path=selection, out=output_folder, mapping=None, limit=limit)
 
         typer.secho(f"\nOutputs written to: {output_folder}", fg=typer.colors.CYAN)
 
@@ -126,7 +128,14 @@ def _interactive_mode() -> None:
 def main(ctx: typer.Context) -> None:
     """Recipe Import - Convert Excel files to RecipeSage JSON-LD format."""
     if ctx.invoked_subcommand is None:
-        _interactive_mode()
+        limit_value = os.getenv("C3IMP_LIMIT")
+        limit = None
+        if limit_value:
+            try:
+                limit = int(limit_value)
+            except ValueError:
+                limit = None
+        _interactive_mode(limit=limit)
 
 
 def _fail(message: str) -> None:
@@ -173,11 +182,58 @@ def _slugify_name(name: str) -> str:
     return slug or "unknown"
 
 
+def _apply_result_limits(
+    result: ConversionResult,
+    recipe_limit: int | None,
+    tip_limit: int | None,
+    *,
+    limit_label: int | None = None,
+) -> tuple[int, int, bool]:
+    original_recipes = len(result.recipes)
+    original_tips = len(result.tips)
+
+    if recipe_limit is not None:
+        result.recipes = result.recipes[: max(recipe_limit, 0)]
+    if tip_limit is not None:
+        result.tips = result.tips[: max(tip_limit, 0)]
+
+    result.report.total_recipes = len(result.recipes)
+    result.report.total_tips = len(result.tips)
+    result.report.total_general_tips = len(result.tips)
+    if result.tip_candidates:
+        result.report.total_tip_candidates = len(result.tip_candidates)
+        result.report.total_recipe_specific_tips = len(
+            [tip for tip in result.tip_candidates if tip.scope == "recipe_specific"]
+        )
+        result.report.total_not_tips = len(
+            [tip for tip in result.tip_candidates if tip.scope == "not_tip"]
+        )
+
+    truncated = len(result.recipes) < original_recipes or len(result.tips) < original_tips
+    if truncated:
+        parts = []
+        if len(result.recipes) < original_recipes:
+            parts.append(f"{len(result.recipes)} of {original_recipes} recipes")
+        if len(result.tips) < original_tips:
+            parts.append(f"{len(result.tips)} of {original_tips} tips")
+        limit_prefix = f"Limit {limit_label} applied. " if limit_label is not None else "Limit applied. "
+        result.report.warnings.append(f"{limit_prefix}Output truncated to {', '.join(parts)}.")
+
+    return len(result.recipes), len(result.tips), truncated
+
+
 @app.command()
 def stage(
     path: Path = typer.Argument(..., help="File or folder containing source files."),
     out: Path = typer.Option(Path("staging"), "--out", help="Output folder."),
     mapping: Path | None = typer.Option(None, "--mapping", help="Mapping file path."),
+    limit: int | None = typer.Option(
+        None,
+        "--limit",
+        "-n",
+        min=1,
+        help="Process only the first N recipes and tips across all files.",
+    ),
 ) -> None:
     """Stage recipes from a source file or folder.
 
@@ -199,7 +255,8 @@ def stage(
         mapping_override = load_mapping_config(mapping)
 
     # Create timestamped output folder for this run
-    timestamp = dt.datetime.now().strftime("%Y-%m-%d-%H%M%S")
+    run_dt = dt.datetime.now()
+    timestamp = run_dt.strftime("%Y-%m-%d-%H%M%S")
     out = out / timestamp
     out.mkdir(parents=True, exist_ok=True)
 
@@ -209,7 +266,13 @@ def stage(
         typer.secho("No files found to process.", fg=typer.colors.YELLOW)
         return
 
+    remaining_recipes = limit
+    remaining_tips = limit
+
     for file_path in files_to_process:
+        if limit is not None and remaining_recipes <= 0 and remaining_tips <= 0:
+            typer.secho("Limit reached; stopping early.", fg=typer.colors.CYAN)
+            break
         importer, score = registry.best_importer_for_path(file_path)
         if importer is None or score <= 0:
             typer.secho(f"Skipping {file_path.name}: No suitable importer found.", fg=typer.colors.YELLOW)
@@ -226,7 +289,7 @@ def stage(
             intermediate_dir = out / "intermediate drafts" / workbook_slug
             final_dir = out / "final drafts" / workbook_slug
             tips_dir = out / "tips" / workbook_slug
-            reports_dir = out / "reports"
+            # reports_dir = out / "reports"  -- Removed per request
 
             mapping_path = _resolve_mapping_path(file_path, out, mapping) # Passed out for legacy compat
             mapping_config = mapping_override
@@ -238,6 +301,20 @@ def stage(
 
             result = importer.convert(file_path, mapping_config)
 
+            if limit is not None:
+                recipes_taken, tips_taken, _ = _apply_result_limits(
+                    result,
+                    remaining_recipes,
+                    remaining_tips,
+                    limit_label=limit,
+                )
+                remaining_recipes = max(0, remaining_recipes - recipes_taken)
+                remaining_tips = max(0, remaining_tips - tips_taken)
+
+            # Enrich report with extra stats
+            result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
+            enrich_report_with_stats(result.report, result, file_path)
+
             # Write intermediate JSON-LD files
             write_intermediate_outputs(result, intermediate_dir)
 
@@ -247,8 +324,8 @@ def stage(
             # Write tip outputs
             write_tip_outputs(result, tips_dir)
 
-            # Write conversion report
-            write_report(result.report, reports_dir, file_path.stem)
+            # Write conversion report to the root of the timestamped output
+            write_report(result.report, out, file_path.stem)
 
             imported += 1
             typer.secho(
@@ -258,9 +335,13 @@ def stage(
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{file_path.name}: {exc}")
             workbook_slug = _slugify_name(file_path.stem)
-            reports_dir = out / "reports"
-            report = ConversionReport(errors=[str(exc)])
-            write_report(report, reports_dir, file_path.stem)
+            # Write error report to the root of the timestamped output
+            report = ConversionReport(
+                errors=[str(exc)],
+                sourceFile=str(file_path),
+                runTimestamp=run_dt.isoformat(timespec="seconds"),
+            )
+            write_report(report, out, file_path.stem)
             continue
 
     typer.secho(f"\nStaged {imported} file(s).", fg=typer.colors.GREEN)

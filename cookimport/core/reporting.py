@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from cookimport import __version__ as IMPORTER_VERSION
+from cookimport.core.models import ConversionReport, ConversionResult
 
 logger = logging.getLogger(__name__)
 
@@ -146,3 +147,45 @@ class ReportBuilder:
             logger.info(f"Report written to {report_file}")
         except Exception as e:
             logger.error(f"Failed to write report: {e}")
+
+def enrich_report_with_stats(report: ConversionReport, result: ConversionResult, source_path: Path) -> None:
+    report.source_file = str(source_path)
+    
+    # Collect confidence scores
+    scores: List[float] = []
+    category_scores: Dict[str, List[float]] = {}
+    
+    for recipe in result.recipes:
+        # Check provenance for confidence score
+        conf = recipe.provenance.get("confidence_score")
+        if conf is not None:
+            try:
+                score = float(conf)
+                scores.append(score)
+                
+                # Group by category (first category if available)
+                if recipe.recipe_category:
+                    cat = recipe.recipe_category[0]
+                    if cat not in category_scores:
+                        category_scores[cat] = []
+                    category_scores[cat].append(score)
+                else:
+                    if "Uncategorized" not in category_scores:
+                        category_scores["Uncategorized"] = []
+                    category_scores["Uncategorized"].append(score)
+            except (ValueError, TypeError):
+                pass
+                
+    for tip in result.tips:
+        if tip.confidence is not None:
+            scores.append(tip.confidence)
+            if "Tips" not in category_scores:
+                category_scores["Tips"] = []
+            category_scores["Tips"].append(tip.confidence)
+
+    if scores:
+        report.average_confidence = sum(scores) / len(scores)
+        
+    for cat, cat_scores in category_scores.items():
+        if cat_scores:
+            report.category_confidence[cat] = sum(cat_scores) / len(cat_scores)

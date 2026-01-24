@@ -2,7 +2,9 @@ README.md
 pyproject.toml
 cookimport/README.md
 cookimport/__init__.py
+cookimport/c3imp_entrypoint.py
 cookimport/cli.py
+cookimport/entrypoint.py
 cookimport.egg-info/PKG-INFO
 cookimport.egg-info/SOURCES.txt
 cookimport.egg-info/dependency_links.txt
@@ -37,6 +39,7 @@ cookimport/staging/__init__.py
 cookimport/staging/draft_v1.py
 cookimport/staging/jsonld.py
 cookimport/staging/writer.py
+tests/test_cli_limits.py
 tests/test_cli_output_structure.py
 tests/test_draft_v1_lowercase.py
 tests/test_draft_v1_variants.py
@@ -48,4 +51,5 @@ tests/test_phase1_manual.py
 tests/test_step_ingredient_linking.py
 tests/test_text_importer.py
 tests/test_tip_extraction.py
+tests/test_tip_recipe_notes.py
 tests/test_tip_writer.py

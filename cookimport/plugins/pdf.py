@@ -23,7 +23,11 @@ from cookimport.core.reporting import (
 )
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning, signals
-from cookimport.parsing.tips import extract_tips, extract_tips_from_candidate
+from cookimport.parsing.tips import (
+    extract_tip_candidates,
+    extract_tip_candidates_from_candidate,
+    partition_tip_candidates,
+)
 from cookimport.plugins import registry
 
 logger = logging.getLogger(__name__)
@@ -85,7 +89,7 @@ class PdfImporter:
     def convert(self, path: Path, mapping: MappingConfig | None) -> ConversionResult:
         report = ConversionReport()
         recipes: List[RecipeCandidate] = []
-        tips: List[Any] = []
+        tip_candidates: List[Any] = []
         
         try:
             file_hash = compute_file_hash(path)
@@ -137,16 +141,23 @@ class PdfImporter:
                         )
 
                     recipes.append(candidate)
-                    tips.extend(extract_tips_from_candidate(candidate))
+                    tip_candidates.extend(extract_tip_candidates_from_candidate(candidate))
 
                 except Exception as e:
                     logger.warning(f"Failed to extract candidate {i} in {path}: {e}")
                     report.warnings.append(f"Failed to parse candidate {i}: {e}")
 
-            tips.extend(self._extract_standalone_tips(all_blocks, candidates_ranges, path, file_hash))
+            tip_candidates.extend(
+                self._extract_standalone_tips(all_blocks, candidates_ranges, path, file_hash)
+            )
 
+            tips, recipe_specific, not_tips = partition_tip_candidates(tip_candidates)
             report.total_recipes = len(recipes)
             report.total_tips = len(tips)
+            report.total_tip_candidates = len(tip_candidates)
+            report.total_general_tips = len(tips)
+            report.total_recipe_specific_tips = len(recipe_specific)
+            report.total_not_tips = len(not_tips)
             if recipes:
                 report.samples = [{"name": r.name} for r in recipes[:3]]
             if tips:
@@ -155,6 +166,7 @@ class PdfImporter:
             return ConversionResult(
                 recipes=recipes,
                 tips=tips,
+                tipCandidates=tip_candidates,
                 report=report,
                 workbook=path.stem,
                 workbookPath=str(path),
@@ -182,7 +194,7 @@ class PdfImporter:
         for start, end, _ in candidate_ranges:
             covered.update(range(start, end))
 
-        tips: List[Any] = []
+        tip_candidates: List[Any] = []
         provenance_builder = ProvenanceBuilder(
             source_file=path.name,
             source_hash=file_hash,
@@ -206,15 +218,15 @@ class PdfImporter:
                 confidence_score=0.6,
                 location=location,
             )
-            tips.extend(
-                extract_tips(
+            tip_candidates.extend(
+                extract_tip_candidates(
                     text,
                     provenance=provenance,
                     source_section="standalone_block",
                 )
             )
 
-        return tips
+        return tip_candidates
 
     def _extract_blocks_from_page(self, page: fitz.Page, page_num: int) -> List[Block]:
         """

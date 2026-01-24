@@ -23,6 +23,8 @@ After this change, running `cookimport stage <input>` will export not only recip
 - [x] (2026-01-24 01:10Z) Run tests (pytest passes).
 - [x] (2026-01-24 01:25Z) Add scope classification and skip recipe-specific notes from general tip export.
 - [x] (2026-01-24 01:35Z) Append recipe-specific notes into DraftV1 `recipe.notes`.
+- [x] (2026-01-24 18:30Z) Move tip extraction to block-first parsing with span repair, standalone/dependent classification, and generality scoring.
+- [x] (2026-01-24 18:40Z) Persist tip candidate taxonomy (`general`, `recipe_specific`, `not_tip`) and add `standalone`/`generalityScore` metadata.
 
 ## Surprises & Discoveries
 
@@ -50,12 +52,20 @@ After this change, running `cookimport stage <input>` will export not only recip
 - Decision: Classify tips as `general` or `recipe_specific` and exclude recipe-specific notes (for example “Why this recipe works”) from the general tips export.
   Rationale: Keeps the general tip/knowledge bank reusable across recipes while preserving recipe-specific context inside recipe descriptions.
   Date/Author: 2026-01-24 / Codex
+- Decision: Switch tip extraction to block-first parsing with span repair, then judge tip-ness and generality on repaired spans.
+  Rationale: Prevents chopped sentences and narrative fragments from becoming tips while keeping callout blocks intact.
+  Date/Author: 2026-01-24 / Codex
+- Decision: Track `standalone` and `not_tip` classifications on tip candidates, while only exporting standalone general tips to `tips/`.
+  Rationale: Keeps output high precision while preserving taxonomy labels for evaluation and future UI filters.
+  Date/Author: 2026-01-24 / Codex
 
 ## Outcomes & Retrospective
 
 Implementation is complete and verified by test coverage. The pipeline now emits tip JSON outputs and tags, with unit tests covering extraction, tagging, and tip writer outputs. A manual CLI stage run should now show `tips/` outputs alongside recipes.
 Recipe-specific notes (for example “Why this recipe works”) are now classified and excluded from the general tip export.
 Those recipe-specific notes are appended to DraftV1 `recipe.notes` so they remain attached to their recipe.
+Tip extraction now starts from paragraph/callout blocks, repairs dependent fragments with adjacent context, and labels tips with `standalone` and `generalityScore` metadata.
+Recipe-sourced tips default to `recipe_specific` unless they read as strongly general, so the exported tips are primarily drawn from non-recipe text.
 
 ## Context and Orientation
 

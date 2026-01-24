@@ -245,23 +245,27 @@ class TipCandidate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     identifier: str | None = Field(default=None, alias="id")
-    scope: Literal["general", "recipe_specific"] = "general"
+    scope: Literal["general", "recipe_specific", "not_tip"] = "general"
     text: str
+    source_text: str | None = Field(default=None, alias="sourceText")
+    standalone: bool = True
+    generality_score: float | None = Field(default=None, alias="generalityScore")
     tags: TipTags = Field(default_factory=TipTags)
     source_recipe_id: str | None = Field(default=None, alias="sourceRecipeId")
+    source_recipe_title: str | None = Field(default=None, alias="sourceRecipeTitle")
     provenance: dict[str, Any] = Field(default_factory=dict)
     confidence: float | None = None
 
-    @field_validator("text", mode="before")
+    @field_validator("text", "source_text", mode="before")
     @classmethod
     def _normalize_tip_text(cls, value: Any) -> Any:
         if value is None:
             return value
         return _normalize_text(str(value))
 
-    @field_validator("identifier", "source_recipe_id", mode="before")
+    @field_validator("identifier", "source_recipe_id", "source_recipe_title", mode="before")
     @classmethod
-    def _normalize_source_recipe_id(cls, value: Any) -> Any:
+    def _normalize_identifier_fields(cls, value: Any) -> Any:
         if value is None:
             return value
         return _normalize_text(str(value))
@@ -333,8 +337,18 @@ class SkippedRow(BaseModel):
 class ConversionReport(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
+    run_timestamp: str | None = Field(default=None, alias="runTimestamp")
+    source_file: str | None = Field(default=None, alias="sourceFile")
+    importer_name: str | None = Field(default=None, alias="importerName")
+    average_confidence: float | None = Field(default=None, alias="averageConfidence")
+    category_confidence: dict[str, float] = Field(default_factory=dict, alias="categoryConfidence")
+    
     total_recipes: int = Field(0, alias="totalRecipes")
     total_tips: int = Field(0, alias="totalTips")
+    total_tip_candidates: int = Field(0, alias="totalTipCandidates")
+    total_general_tips: int = Field(0, alias="totalGeneralTips")
+    total_recipe_specific_tips: int = Field(0, alias="totalRecipeSpecificTips")
+    total_not_tips: int = Field(0, alias="totalNotTips")
     per_sheet_counts: dict[str, int] = Field(default_factory=dict, alias="perSheetCounts")
     skipped_rows: list[SkippedRow] = Field(default_factory=list, alias="skippedRows")
     missing_field_counts: dict[str, int] = Field(
@@ -355,6 +369,7 @@ class ConversionResult(BaseModel):
 
     recipes: list[RecipeCandidate] = Field(default_factory=list)
     tips: list[TipCandidate] = Field(default_factory=list)
+    tip_candidates: list[TipCandidate] = Field(default_factory=list, alias="tipCandidates")
     report: ConversionReport
     workbook: str | None = None
     workbook_path: str | None = Field(default=None, alias="workbookPath")

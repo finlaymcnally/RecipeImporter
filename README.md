@@ -12,10 +12,16 @@ Copy `.xlsx` files into:
 ```bash
 cd /home/mcnal/projects/recipeimport
 . .venv/bin/activate
-cookimport
+C3imp
 ```
 
-The tool will guide you through the rest:
+Primary command: `C3imp`. It runs the interactive menu. Use `C3imp 30` to keep the
+interactive flow but limit output to the first 30 recipes and tips.
+
+For the batch-only aliases, `import` and `C3import` still run a full import from
+`data/input` into `data/output`.
+
+The interactive menu will guide you through the rest:
 
 1. Choose what to do (convert files or inspect a single file)
 2. Select which file(s) to process

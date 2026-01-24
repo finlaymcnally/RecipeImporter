@@ -29,7 +29,10 @@ from cookimport.core.reporting import (
     generate_recipe_id,
 )
 from cookimport.parsing import cleaning, signals
-from cookimport.parsing.tips import extract_tips_from_candidate
+from cookimport.parsing.tips import (
+    extract_tip_candidates_from_candidate,
+    partition_tip_candidates,
+)
 from cookimport.plugins import registry
 
 logger = logging.getLogger(__name__)
@@ -385,10 +388,19 @@ class TextImporter:
             if path.suffix.lower() == ".docx" and docx is not None:
                 table_recipes, table_report = self._convert_docx_tables(path, mapping)
                 if table_recipes:
-                    tips: list[Any] = []
+                    tip_candidates: list[Any] = []
                     for recipe in table_recipes:
-                        tips.extend(extract_tips_from_candidate(recipe))
+                        tip_candidates.extend(
+                            extract_tip_candidates_from_candidate(recipe)
+                        )
+                    tips, recipe_specific, not_tips = partition_tip_candidates(
+                        tip_candidates
+                    )
                     table_report.total_tips = len(tips)
+                    table_report.total_tip_candidates = len(tip_candidates)
+                    table_report.total_general_tips = len(tips)
+                    table_report.total_recipe_specific_tips = len(recipe_specific)
+                    table_report.total_not_tips = len(not_tips)
                     if tips:
                         table_report.tip_samples = [
                             {"text": tip.text[:80]} for tip in tips[:3]
@@ -396,6 +408,7 @@ class TextImporter:
                     return ConversionResult(
                         recipes=table_recipes,
                         tips=tips,
+                        tipCandidates=tip_candidates,
                         report=table_report,
                         workbook=path.stem,
                         workbookPath=str(path),
@@ -442,12 +455,18 @@ class TextImporter:
                     logger.warning(f"Failed to parse chunk {i} in {path}: {e}")
                     report.warnings.append(f"Failed to parse chunk {i}: {e}")
             
-            tips: list[Any] = []
+            tip_candidates: list[Any] = []
             for recipe in recipes:
-                tips.extend(extract_tips_from_candidate(recipe))
+                tip_candidates.extend(extract_tip_candidates_from_candidate(recipe))
+
+            tips, recipe_specific, not_tips = partition_tip_candidates(tip_candidates)
 
             report.total_recipes = len(recipes)
             report.total_tips = len(tips)
+            report.total_tip_candidates = len(tip_candidates)
+            report.total_general_tips = len(tips)
+            report.total_recipe_specific_tips = len(recipe_specific)
+            report.total_not_tips = len(not_tips)
             if recipes:
                 report.samples = [{"name": r.name} for r in recipes[:3]]
             if tips:
@@ -456,6 +475,7 @@ class TextImporter:
             return ConversionResult(
                 recipes=recipes,
                 tips=tips,
+                tipCandidates=tip_candidates,
                 report=report,
                 workbook=path.stem, # Using stem as "workbook" name
                 workbookPath=str(path),

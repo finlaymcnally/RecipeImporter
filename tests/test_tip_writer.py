@@ -11,6 +11,7 @@ def test_write_tip_outputs(tmp_path: Path):
     tip = TipCandidate(
         text="Use a hot skillet for best searing.",
         tags=TipTags(recipes=["steak"]),
+        source_recipe_title="Perfect Steak",
         provenance={"sheet": "tips"},
     )
     result = ConversionResult(
@@ -30,4 +31,5 @@ def test_write_tip_outputs(tmp_path: Path):
     payload = json.loads(tip_file.read_text(encoding="utf-8"))
     assert payload["text"] == "Use a hot skillet for best searing."
     assert payload["tags"]["recipes"] == ["steak"]
+    assert payload["sourceRecipeTitle"] == "Perfect Steak"
     assert "id" in payload

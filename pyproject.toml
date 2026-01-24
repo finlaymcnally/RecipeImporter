@@ -30,6 +30,9 @@ dev = [
 
 [project.scripts]
 cookimport = "cookimport.cli:app"
+import = "cookimport.entrypoint:main"
+C3import = "cookimport.entrypoint:main"
+C3imp = "cookimport.c3imp_entrypoint:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
