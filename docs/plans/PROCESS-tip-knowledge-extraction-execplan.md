@@ -166,6 +166,31 @@ Example tip JSON (shape, not exact content):
       }
     }
 
+## Future Enhancements (from Improving_Recipe_Import_Pipeline.md)
+
+The following ideas were extracted from the research document and may be valuable for future iterations:
+
+**Multi-Pass Heuristic Parsing:**
+- Consider a multi-pass approach where successive layers of rules refine extraction
+- First pass extracts obvious recipes, second pass processes remaining text for tips
+- Research shows rule-based multi-pass sieves achieved ~92.6% accuracy on mixed text segmentation
+
+**Lexical Classification Signals:**
+- General tips use generic language and avoid referencing the specific dish
+- Recipe-specific notes contain "this dish", recipe names, or unique ingredients
+- Length as a signal: short notes (1-2 sentences) are often recipe-specific, longer paragraphs explaining "why" are general knowledge
+- Explanatory keywords ("because", "in order to", "best way") suggest broader knowledge
+
+**ML-Assisted Classification (Future):**
+- Zero-shot classification with BART-large MNLI for tip vs recipe-note vs instruction
+- Weak supervision (Snorkel-style) using existing heuristics as labeling functions
+- Clustering/topic modeling to discover tip content vs recipe content patterns
+
+**Confidence-Based LLM Escalation:**
+- Mark extracted tips with confidence scores
+- Low-confidence cases can be reviewed or sent to LLM for final classification
+- Keep provenance of which rule/model made each decision for debugging
+
 ## Interfaces and Dependencies
 
 Add the following types and functions (names can be adjusted but should remain stable once implemented):

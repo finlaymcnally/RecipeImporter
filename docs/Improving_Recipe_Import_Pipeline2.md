@@ -1,3 +1,32 @@
+> **ExecPlan Integration Notes (2026-01-24):**
+>
+> Ideas from this document have been distributed to execplans as follows:
+>
+> **Added to PROCESS-llm-repair.md:**
+> - Token budget awareness (~30-40M tokens for 300 cookbooks)
+> - Output strategy options (A: indexing, B: structured JSON, C: verbatim—avoid C)
+> - Cost levers: batching, large context windows, caching, confidence thresholds
+> - Recommendation to use Option A for identification, Option B for final extraction
+>
+> **Added to IMPORT-epub-importer-execplan.md:**
+> - Unstructured.io as alternative extraction layer
+> - `partition_epub()` usage pattern
+> - When to consider vs keep current approach
+> - Privacy warning about hosted API
+>
+> **Added to IMPORT-pdf-importer-execplan.md:**
+> - Unstructured.io as alternative for tough PDFs/scans
+> - Layout/OCR strategy options (fast, hi_res, ocr_only)
+> - Integration pattern with partition()
+> - Privacy warning about hosted API
+>
+> **Already covered (no changes needed):**
+> - High-level pipeline structure (already in "Import engine OVERALL PLAN.md")
+> - Plugin-based architecture (already in Excel/EPUB/PDF execplans)
+> - Incremental processing via hashing (already in reporting/provenance plan)
+> - Artifact-first design (already in reporting/provenance plan)
+> - CLI structure (already implemented)
+
 High level structure
 The “shape” of the whole thing (holistically)
 Think of it as a local data-processing app with a plugin-based import pipeline:

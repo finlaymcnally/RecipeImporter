@@ -3,6 +3,9 @@ summary: "ExecPlan for the shared LLM escalation and repair strategy."
 read_when:
   - When implementing LLM-based fallback or repair logic for any importer
 ---
+# NOTE FROM THE PROGRAM AUTHOR
+I have been setting up an API backend program for this one to hook into, but it's not quote done yet. But all this program will have to do is pass my API backend a specific data format, which is to be determined.
+
 
 # LLM Escalation and Repair ExecPlan
 
@@ -70,6 +73,28 @@ To handle ambiguous, messy, or unstructured data that simpler code cannot parse,
 *   "LLM escalation scaffolding is repeated in all three."
 *   "Treat 'confidence + reasons' as a first-class output."
 *   "Deterministic first, 'AI' only when you must."
+
+## Cost Optimization Strategies (from Improving_Recipe_Import_Pipeline2.md)
+
+The following cost considerations were extracted from research and should guide LLM usage:
+
+**Token Budget Awareness:**
+- ~30-40M tokens estimated for 300 cookbooks (input + output)
+- Chunking adds overhead: ~250-600 tokens per prompt (instructions + schema)
+- Process whole cookbooks/chapters if context window allows (reduces overhead massively)
+
+**Output Strategy Options:**
+- **Option A (Indexing):** Model outputs pointers/IDs + metadata only (~80-200 tokens/chunk). Keep actual text outside model output.
+- **Option B (Structured JSON):** Full recipe JSON (~250-800 tokens/recipe). More expensive but complete.
+- **Option C (Verbatim):** Avoid having model reprint text you already have. Can push output to 20M-60M+ tokens.
+
+**Recommendation:** Use Option A for candidate identification, Option B only for final extraction of confirmed candidates. Never use Option C.
+
+**Cost Levers:**
+1. Reduce repeated prompt/schema overhead by batching multiple chunks
+2. Use large context windows to process sections/chapters in single calls
+3. Cache aggressively by (model, prompt_version, input_hash)
+4. Apply confidence thresholds: only escalate genuinely ambiguous cases
 
 ## Implementation Status
 

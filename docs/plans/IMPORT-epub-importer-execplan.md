@@ -183,3 +183,28 @@ Work from `/home/mcnal/projects/recipeimport` with the virtual environment activ
 
 *   **Libraries:** `beautifulsoup4`, `lxml`, `ebooklib`, `calibre` (CLI, optional).
 *   **Block Schema:** `spine_idx`, `block_idx`, `type`, `heading_level`, `text`, `html`, `features`, `source_path`.
+
+## Alternative: Unstructured.io Integration (from Improving_Recipe_Import_Pipeline2.md)
+
+The Unstructured library offers a potential simplification path for EPUB processing:
+
+**What Unstructured Provides:**
+- `partition_epub()`: EPUB → HTML (via Pandoc) → typed elements (Title, NarrativeText, ListItem, Table)
+- Elements include metadata: page number, hierarchy, coordinates, section/chapter info
+- Uniform block abstraction across formats (EPUB/PDF/HTML share same element schema)
+
+**When to Consider:**
+- If current ebooklib/BeautifulSoup approach struggles with specific EPUB variants
+- When Pandoc's HTML output preserves headings/sections well enough
+- Testing recommended on ~5 representative cookbooks before adoption
+
+**Practical Integration Pattern:**
+```python
+from unstructured.partition.epub import partition_epub
+elements = partition_epub(filename="cookbook.epub")
+# Elements are typed blocks with metadata (type/text/element_id/metadata)
+```
+
+**Caveat:** Requires Pandoc installed. Test that `partition_epub` preserves structure adequately for your cookbooks; if it flattens too much, keep the current Calibre/unzip approach and optionally run `partition_html` on extracted HTML for consistent element schema.
+
+**Privacy Note:** Use only local OSS/self-hosted Unstructured. Their hosted API collects documents for training.

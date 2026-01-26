@@ -73,6 +73,24 @@ dient` -> `ingredient`) based on dictionary lookups or heuristics.
 *   "Feature/signal logic is duplicated... centralize this."
 *   "Keep extraction deterministic first."
 
+## Future Enhancements (from Improving_Recipe_Import_Pipeline.md)
+
+**SpaCy NLP Integration:**
+- Rule-based Matcher for phrase patterns (e.g., "if you don't have X" for substitution notes)
+- Part-of-speech tagging to differentiate instructions (imperative verbs) from statements
+- Entity ruler for custom cooking terms/ingredients
+- TextCategorizer component for trainable tip vs non-tip classification
+
+**Cookbook-Specific Overrides:**
+- Allow per-cookbook parsing rules when consistent signals are discovered
+- Example: some books use italicized paragraphs for tips—capture italic markers if available
+- Hardcoded tweaks for specific book series are acceptable for personal use
+
+**Testing and Validation:**
+- Maintain "golden set" of pages with tricky formatting
+- Log all paragraphs classified as tips with decision reasons
+- Compare results cookbook-by-cookbook to spot systematic issues
+
 ## Implementation Status
 
 *   **2026-01-22:** Implemented Core Modules.

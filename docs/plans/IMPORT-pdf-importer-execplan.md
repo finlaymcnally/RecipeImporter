@@ -160,3 +160,29 @@ Key terms:
 *   **Clustering:** Simple 1D clustering for column detection (can be custom heuristic or `sklearn.cluster.KMeans` if deps allow).
 
 Change Note (2026-01-23): Updated this plan to reflect line-level extraction, column gap clustering, and OCR-aware ingredient anchors added during Hix1.pdf debugging; also recorded the non-Excel `@id` behavior so the plan matches current staging output. This keeps the plan self-contained with the new implementation details.
+
+## Alternative: Unstructured.io Integration (from Improving_Recipe_Import_Pipeline2.md)
+
+The Unstructured library may simplify PDF processing, especially for OCR/scans:
+
+**What Unstructured Provides:**
+- `partition()` or `partition_pdf()`: PDF → typed elements with bounding boxes
+- Layout/OCR strategy controls: `fast`, `hi_res`, `ocr_only`, `auto`
+- Multi-column ordering and table extraction behavior options
+- Element types: Title, NarrativeText, ListItem, Table, PageBreak
+
+**When to Consider:**
+- For PDFs/scans where DIY layout/OCR pipelines get painful
+- When PyMuPDF struggles with specific PDF layouts
+- As a "staging-layer accelerator" to produce clean blocks, not as a recipe parser
+
+**Practical Integration Pattern:**
+```python
+from unstructured.partition.auto import partition
+elements = partition(filename="cookbook.pdf", strategy="hi_res")
+# Use element metadata (type, bbox, parent_id) for recipe boundary detection
+```
+
+**Note:** Unstructured won't identify recipes or parse ingredients—that's still your logic/LLM. It just produces clean, labeled chunks with metadata.
+
+**Privacy Note:** Use only local OSS/self-hosted Unstructured. Their hosted API collects documents for training.

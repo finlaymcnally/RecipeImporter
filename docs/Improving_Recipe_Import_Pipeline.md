@@ -1,5 +1,32 @@
 # Improving Recipe Import Pipeline: Extracting Cooking Tips & Knowledge
 
+> **ExecPlan Integration Notes (2026-01-24):**
+>
+> Ideas from this document have been distributed to execplans as follows:
+>
+> **Added to PROCESS-tip-knowledge-extraction-execplan.md:**
+> - Multi-pass heuristic parsing (~92.6% accuracy research)
+> - Lexical classification signals (generic vs specific language, length as signal)
+> - Explanatory keywords as general knowledge indicators
+> - Confidence-based LLM escalation strategy
+>
+> **Added to PROCESS-common-parsing-and-normalization.md:**
+> - SpaCy NLP integration (Matcher, POS tagging, TextCategorizer)
+> - Cookbook-specific overrides approach
+> - Testing/validation with golden sets
+>
+> **Added to NEW PROCESS-ml-text-classification.md:**
+> - Zero-shot classification (BART-large-MNLI)
+> - Weak supervision (Snorkel-style labeling functions)
+> - Supervised classification (TF-IDF, DistilBERT)
+> - Clustering/topic modeling for discovery
+>
+> **Already covered (no changes needed):**
+> - Distinguishing general tips from recipe-specific notes (already in tip extraction plan)
+> - Hybrid pipeline with rules + LLM (already in PROCESS-llm-repair.md)
+> - Schema-constrained LLM output (already in PROCESS-llm-repair.md)
+> - Ingredient parser library recommendation (already using it: PROCESS-ingredient-parser-integration.md)
+
 ## Understanding the Challenge of Cookbook Knowledge Extraction
 
 Extracting general cooking **tips and knowledge** from cookbook text is
