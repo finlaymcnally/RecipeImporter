@@ -119,9 +119,9 @@ def _interactive_mode(*, limit: int | None = None) -> None:
         typer.echo()
         
         if selection == "all":
-            stage(path=input_folder, out=output_folder, mapping=None, limit=limit)
+            stage(path=input_folder, out=output_folder, mapping=None, overrides=None, limit=limit)
         else:
-            stage(path=selection, out=output_folder, mapping=None, limit=limit)
+            stage(path=selection, out=output_folder, mapping=None, overrides=None, limit=limit)
 
         typer.secho(f"\nOutputs written to: {output_folder}", fg=typer.colors.CYAN)
 

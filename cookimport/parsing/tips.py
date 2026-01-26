@@ -94,13 +94,24 @@ _END_PUNCT_RE = re.compile(r"[.!?]\s*$")
 _NARRATIVE_RE = re.compile(
     r"\b(i remember|i clearly remember|i'm a firm believer|i am a firm believer|"
     r"come over to my house|come over|i once|i accidentally|i decided|i always thought|"
-    r"in my opinion|if there is, i can't think of it|can't think of it)\b",
+    r"in my opinion|in my mind|for me|to me|as a kid|as a child|growing up|"
+    r"last week|years ago|when i|when we|i think|i believe|i like|i love|i prefer|"
+    r"if there is, i can't think of it|can't think of it)\b",
     re.IGNORECASE,
 )
 
+_FIRST_PERSON_RE = re.compile(
+    r"\b(i|i'm|i am|i've|i\u2019m|i\u2019ve|i'd|we|we're|we are|we've|"
+    r"we\u2019re|we\u2019ve|my|our|me|us)\b",
+    re.IGNORECASE,
+)
+
+_SECOND_PERSON_RE = re.compile(r"\b(you|your|you'll|you\u2019ll)\b", re.IGNORECASE)
+
 _TIP_ACTION_RE = re.compile(
-    r"\b(use|add|keep|avoid|don'?t|do not|never|always|make sure|be sure|aim to|"
-    r"remember|let|allow|stir|whisk|mix|cook|bake|roast|season|salt|sear|rest)\b",
+    r"\b(use|add|keep|avoid|don'?t|do not|never|always|make sure|be sure|"
+    r"remember|let|allow|stir|whisk|mix|cook|bake|roast|season|salt|sear|rest|"
+    r"preheat|chill|heat|simmer|reduce)\b",
     re.IGNORECASE,
 )
 
@@ -110,20 +121,39 @@ _DIAGNOSTIC_CUE_RE = re.compile(
 )
 
 _BENEFIT_CUE_RE = re.compile(
-    r"\bmakes\b.*\b(better|easier|tastier|more tender|more flavorful)\b",
+    r"\b(makes?|helps?|keeps?)\b.*\b(better|easier|tastier|more tender|more flavorful|"
+    r"crispier|juicier|moist|evenly)\b|\b(for|with)\s+(better|more)\b.*\b("
+    r"flavor|results|texture|browning|tenderness)\b",
     re.IGNORECASE,
 )
 
 _ADVICE_CUE_RE = re.compile(
-    r"\b(best|better|avoid|don't|do not|never|always|make sure|be sure|ensure|helps|prevent|"
-    r"for best results|for better results|should|recommend|remember|important|key)\b",
+    r"\b(avoid|don't|do not|never|always|make sure|be sure|ensure|helps|prevent|"
+    r"for best results|for better results|should|recommend|remember|important|key|"
+    r"best way|best to)\b",
     re.IGNORECASE,
 )
 
 _CONDITIONAL_CUE_RE = re.compile(r"\b(if|when|before|after|until|once)\b", re.IGNORECASE)
 
+_STRONG_ADVICE_RE = re.compile(
+    r"\b(should|must|need to|needs to|important|key|remember|make sure|be sure|"
+    r"ensure|avoid|never|always|for best results|for better results|recommend)\b",
+    re.IGNORECASE,
+)
+
+_GENERAL_CUE_RE = re.compile(
+    r"\b(in general|generally|always|never|when cooking|when baking|when roasting|"
+    r"when grilling|every time|whenever|for any|for all)\b",
+    re.IGNORECASE,
+)
+
+_AIM_TO_START_RE = re.compile(r"^\s*aim to\b", re.IGNORECASE)
+
 _STRONG_IMPERATIVE_RE = re.compile(
-    r"^(salt|season|rest|sear|whisk|stir|mix|use|add|keep|avoid|let|bake|roast|cook)\b",
+    r"^\s*(?:always\s+|never\s+)?"
+    r"(salt|season|rest|sear|whisk|stir|mix|use|add|keep|avoid|let|allow|bake|"
+    r"roast|cook|aim|chill|preheat|heat|simmer|reduce|grill|toast)\b",
     re.IGNORECASE,
 )
 
@@ -237,6 +267,29 @@ _CALLOUT_HEADERS = {
     "substitutions",
 } | _RECIPE_SPECIFIC_HEADERS
 
+_STRONG_TIP_PREFIXES = {
+    "tip",
+    "tips",
+    "pro tip",
+    "pro tips",
+}
+
+_WEAK_TIP_PREFIXES = {
+    "note",
+    "notes",
+    "hint",
+    "hints",
+}
+
+_WEAK_CALLOUT_HEADERS = {
+    "note",
+    "notes",
+    "hint",
+    "hints",
+    "chef's note",
+    "chef's notes",
+}
+
 
 def _normalize_header(header: str) -> str:
     cleaned = header.strip().lower()
@@ -253,6 +306,10 @@ class TipParsingProfile:
     header_prefix_re: re.Pattern
     callout_headers: set[str]
     recipe_specific_headers: set[str]
+    strong_prefixes: set[str]
+    weak_prefixes: set[str]
+    strong_headers: set[str]
+    weak_headers: set[str]
     overrides: ParsingOverrides | None
 
 
@@ -261,6 +318,9 @@ def _build_tip_profile(overrides: ParsingOverrides | None) -> TipParsingProfile:
     prefix_labels = list(_TIP_PREFIX_LABELS)
     callout_headers = set(_CALLOUT_HEADERS)
     recipe_specific_headers = set(_RECIPE_SPECIFIC_HEADERS)
+    weak_prefixes = {_normalize_header(label) for label in _WEAK_TIP_PREFIXES}
+    strong_prefixes = {_normalize_header(label) for label in _STRONG_TIP_PREFIXES}
+    weak_headers = {_normalize_header(label) for label in _WEAK_CALLOUT_HEADERS}
 
     if overrides:
         if overrides.tip_headers:
@@ -275,13 +335,22 @@ def _build_tip_profile(overrides: ParsingOverrides | None) -> TipParsingProfile:
     prefix_pattern = "|".join(
         sorted((re.escape(label) for label in prefix_labels), key=len, reverse=True)
     )
+    for label in prefix_labels:
+        normalized = _normalize_header(label)
+        if normalized in weak_prefixes:
+            continue
+        strong_prefixes.add(normalized)
+
+    normalized_callouts = {_normalize_header(h) for h in callout_headers}
+    normalized_recipe_specific = {_normalize_header(h) for h in recipe_specific_headers}
+    strong_headers = normalized_callouts - weak_headers - normalized_recipe_specific
 
     return TipParsingProfile(
         tip_prefix_re=re.compile(
-            rf"^\s*(?:{prefix_pattern})\s*[:\-]+\s*", re.IGNORECASE
+            rf"^\s*(?P<prefix>{prefix_pattern})\s*[:\-]+\s*", re.IGNORECASE
         ),
         tip_header_only_re=re.compile(
-            rf"^\s*(?:{prefix_pattern})\s*[:\-]*\s*$", re.IGNORECASE
+            rf"^\s*(?P<prefix>{prefix_pattern})\s*[:\-]*\s*$", re.IGNORECASE
         ),
         header_only_re=re.compile(
             rf"^\s*(?P<header>{header_pattern})\s*[:\-]*\s*$", re.IGNORECASE
@@ -290,8 +359,12 @@ def _build_tip_profile(overrides: ParsingOverrides | None) -> TipParsingProfile:
             rf"^\s*(?P<header>{header_pattern})\s*[:\-]+\s*(?P<content>.+)$",
             re.IGNORECASE,
         ),
-        callout_headers={_normalize_header(h) for h in callout_headers},
-        recipe_specific_headers={_normalize_header(h) for h in recipe_specific_headers},
+        callout_headers=normalized_callouts,
+        recipe_specific_headers=normalized_recipe_specific,
+        strong_prefixes=strong_prefixes,
+        weak_prefixes=weak_prefixes,
+        strong_headers=strong_headers,
+        weak_headers=weak_headers,
         overrides=overrides,
     )
 
@@ -377,7 +450,7 @@ def extract_tips(
                 prev_block=prev_block_text,
                 next_block=next_block_text,
             )
-            had_tip_prefix = bool(profile.tip_prefix_re.match(repaired_text))
+            tip_prefix_strength = _tip_prefix_strength(repaired_text, profile)
             normalized = _normalize_tip_text(repaired_text, profile)
             if not normalized:
                 continue
@@ -386,7 +459,7 @@ def extract_tips(
                 recipe_name=recipe_name,
                 ingredient_tokens=ingredient_tokens,
                 header_hint=span.header,
-                tip_prefix=had_tip_prefix,
+                tip_prefix_strength=tip_prefix_strength,
                 source_section=source_section,
                 profile=profile,
             )
@@ -583,6 +656,63 @@ def _header_implies_tip(header: str | None, profile: TipParsingProfile) -> bool:
     return _normalize_header(header) in profile.callout_headers
 
 
+def _header_strength(header: str | None, profile: TipParsingProfile) -> str | None:
+    if not header:
+        return None
+    normalized = _normalize_header(header)
+    if normalized in profile.recipe_specific_headers:
+        return "recipe_specific"
+    if normalized in profile.strong_headers:
+        return "strong"
+    if normalized in profile.weak_headers:
+        return "weak"
+    return None
+
+
+def _tip_prefix_strength(text: str, profile: TipParsingProfile) -> str | None:
+    match = profile.tip_prefix_re.match(text)
+    if not match:
+        return None
+    prefix = _normalize_header(match.group("prefix"))
+    if prefix in profile.weak_prefixes:
+        return "weak"
+    return "strong"
+
+
+def _explicit_tip_signal(
+    text: str,
+    *,
+    tip_prefix_strength: str | None,
+    header_strength: str | None,
+    profile: TipParsingProfile,
+) -> bool:
+    if tip_prefix_strength == "strong":
+        return True
+    if header_strength in {"strong", "recipe_specific"}:
+        return True
+    if _STRONG_ADVICE_RE.search(text):
+        return True
+    if _STRONG_IMPERATIVE_RE.match(text):
+        return True
+    if _AIM_TO_START_RE.match(text):
+        return True
+    if _DIAGNOSTIC_CUE_RE.search(text):
+        return True
+    if _BENEFIT_CUE_RE.search(text):
+        return True
+    if _SECOND_PERSON_RE.search(text) and _TIP_ACTION_RE.search(text):
+        return True
+    return False
+
+
+def _is_narrative_like(text: str) -> bool:
+    if _NARRATIVE_RE.search(text):
+        return True
+    if _FIRST_PERSON_RE.search(text):
+        return True
+    return False
+
+
 def _split_blocks(text: str, profile: TipParsingProfile) -> list[CandidateBlock]:
     lines = [line.rstrip() for line in str(text).splitlines()]
     blocks: list[CandidateBlock] = []
@@ -653,6 +783,7 @@ def _extract_spans_from_block(
     block_text = block.text.strip()
     if not block_text:
         return []
+    header_strength = _header_strength(block.header, profile)
 
     lines = [line.strip() for line in block_text.splitlines() if line.strip()]
     bullet_lines = [line for line in lines if _BULLET_PREFIX_RE.match(line)]
@@ -695,7 +826,9 @@ def _extract_spans_from_block(
     current_start: int | None = None
     current_end: int | None = None
     for idx, sentence in enumerate(sentences):
-        if _tipness_score(sentence, profile=profile) >= 0.45:
+        if (
+            _tipness_score(sentence, header_strength=header_strength, profile=profile) >= 0.45
+        ):
             if current_start is None:
                 current_start = idx
                 current_end = idx
@@ -739,7 +872,7 @@ def _extract_spans_from_block(
     if spans:
         return spans
 
-    if _tipness_score(block_text, profile=profile) >= 0.6:
+    if _tipness_score(block_text, header_strength=header_strength, profile=profile) >= 0.6:
         return [
             TipSpan(
                 text=block_text,
@@ -834,19 +967,27 @@ def _judge_tip(
     recipe_name: str | None,
     ingredient_tokens: set[str],
     header_hint: str | None,
-    tip_prefix: bool,
+    tip_prefix_strength: str | None,
     source_section: str | None,
     profile: TipParsingProfile,
 ) -> TipJudgment:
+    header_strength = _header_strength(header_hint, profile)
     tipness = _tipness_score(
         text,
-        tip_prefix=tip_prefix or _header_implies_tip(header_hint, profile),
+        tip_prefix_strength=tip_prefix_strength,
+        header_strength=header_strength,
         profile=profile,
     )
     standalone = _is_standalone(text)
     recipe_context = bool(recipe_name) and source_section != "standalone_block"
+    explicit_advice = _explicit_tip_signal(
+        text,
+        tip_prefix_strength=tip_prefix_strength,
+        header_strength=header_strength,
+        profile=profile,
+    )
 
-    if _hard_reject(text):
+    if _hard_reject(text, explicit_advice=explicit_advice, header_strength=header_strength):
         return TipJudgment(
             scope="not_tip",
             standalone=standalone,
@@ -855,7 +996,22 @@ def _judge_tip(
             normalized_text=text,
         )
 
-    if tipness < 0.45:
+    if source_section == "standalone_block" and not explicit_advice:
+        return TipJudgment(
+            scope="not_tip",
+            standalone=standalone,
+            confidence=tipness,
+            generality_score=None,
+            normalized_text=text,
+        )
+
+    threshold = 0.45
+    if source_section == "standalone_block" and tip_prefix_strength is None:
+        threshold = 0.55
+    if header_strength in {"strong", "recipe_specific"} or tip_prefix_strength == "strong":
+        threshold = 0.4
+
+    if tipness < threshold and header_strength != "recipe_specific":
         return TipJudgment(
             scope="not_tip",
             standalone=standalone,
@@ -869,26 +1025,48 @@ def _judge_tip(
         recipe_name=recipe_name,
         ingredient_tokens=ingredient_tokens,
     )
+    ingredient_overlap = _ingredient_overlap_count(text, ingredient_tokens)
 
     word_count = len(text.split())
     has_diagnostic = bool(_DIAGNOSTIC_CUE_RE.search(text))
+    has_general_cue = bool(_GENERAL_CUE_RE.search(text))
 
-    if _header_is_recipe_specific(header_hint, profile) or _RECIPE_SPECIFIC_HEADER_RE.match(text):
+    if (
+        header_strength == "recipe_specific"
+        or _RECIPE_SPECIFIC_HEADER_RE.match(text)
+        or _header_is_recipe_specific(header_hint, profile)
+    ):
         scope = "recipe_specific"
     elif _RECIPE_SPECIFIC_PHRASE_RE.search(text):
         scope = "recipe_specific"
     elif recipe_context:
-        if generality >= 0.75 and (has_diagnostic or word_count >= _MIN_GENERAL_WORDS):
+        if (
+            explicit_advice
+            and generality >= 0.85
+            and (has_general_cue or has_diagnostic or header_strength == "strong")
+            and word_count >= _MIN_GENERAL_WORDS
+        ):
             scope = "general"
         else:
             scope = "recipe_specific"
     else:
-        if generality < 0.5:
+        if not explicit_advice or generality < 0.6:
             scope = "not_tip"
         else:
             scope = "general"
 
-    if scope == "general" and word_count < _MIN_GENERAL_WORDS and not has_diagnostic:
+    if recipe_context and scope == "general" and ingredient_overlap >= 1 and generality < 0.9:
+        scope = "recipe_specific"
+
+    if (
+        scope == "general"
+        and word_count < _MIN_GENERAL_WORDS
+        and not has_diagnostic
+        and tip_prefix_strength != "strong"
+        and header_strength != "strong"
+        and not _BENEFIT_CUE_RE.search(text)
+        and not _STRONG_ADVICE_RE.search(text)
+    ):
         scope = "recipe_specific" if recipe_context else "not_tip"
 
     return TipJudgment(
@@ -903,7 +1081,8 @@ def _judge_tip(
 def _tipness_score(
     text: str,
     *,
-    tip_prefix: bool = False,
+    tip_prefix_strength: str | None = None,
+    header_strength: str | None = None,
     profile: TipParsingProfile,
 ) -> float:
     stripped = text.strip()
@@ -912,39 +1091,63 @@ def _tipness_score(
     feats = signals.classify_block(stripped, overrides=profile.overrides)
     score = 0.0
 
-    if tip_prefix or profile.tip_prefix_re.match(stripped):
+    if tip_prefix_strength == "strong":
         score += 0.6
-    if _TIP_ACTION_RE.search(stripped):
+    elif tip_prefix_strength == "weak":
         score += 0.35
-    if _ADVICE_CUE_RE.search(stripped):
-        score += 0.25
-    if _CONDITIONAL_CUE_RE.search(stripped):
+    if header_strength == "strong":
+        score += 0.4
+    elif header_strength == "weak":
         score += 0.2
+    elif header_strength == "recipe_specific":
+        score += 0.35
+
+    if _STRONG_IMPERATIVE_RE.match(stripped):
+        score += 0.35
+    elif _TIP_ACTION_RE.search(stripped):
+        score += 0.2
+    if _STRONG_ADVICE_RE.search(stripped):
+        score += 0.3
+    if _ADVICE_CUE_RE.search(stripped):
+        score += 0.2
+    if _CONDITIONAL_CUE_RE.search(stripped):
+        score += 0.1
     if _DIAGNOSTIC_CUE_RE.search(stripped):
         score += 0.35
     if _BENEFIT_CUE_RE.search(stripped):
-        score += 0.25
-    if feats.get("has_imperative_verb"):
-        score += 0.25
+        score += 0.3
+    if _AIM_TO_START_RE.match(stripped):
+        score += 0.2
+    if feats.get("has_imperative_verb") and not _STRONG_IMPERATIVE_RE.match(stripped):
+        score += 0.15
 
-    if feats.get("is_instruction_likely") and not profile.tip_prefix_re.match(stripped):
-        score -= 0.2
+    if feats.get("is_instruction_likely") and tip_prefix_strength != "strong":
+        score -= 0.15
     if feats.get("is_ingredient_likely"):
         score -= 0.4
     if feats.get("is_yield") or feats.get("is_time"):
         score -= 0.4
-    if _NARRATIVE_RE.search(stripped):
-        score -= 0.4
+    if _is_narrative_like(stripped) and not _STRONG_ADVICE_RE.search(stripped):
+        score -= 0.35
 
     return max(0.0, min(1.0, score))
 
 
-def _hard_reject(text: str) -> bool:
+def _hard_reject(
+    text: str,
+    *,
+    explicit_advice: bool,
+    header_strength: str | None,
+) -> bool:
     stripped = text.strip()
-    if _NARRATIVE_RE.search(stripped) and not _TIP_ACTION_RE.search(stripped):
+    if (
+        not explicit_advice
+        and header_strength not in {"strong", "recipe_specific"}
+        and _is_narrative_like(stripped)
+    ):
         return True
     words = stripped.split()
-    if len(words) < 6 and not _STRONG_IMPERATIVE_RE.match(stripped):
+    if len(words) < 6 and not _STRONG_IMPERATIVE_RE.match(stripped) and not explicit_advice:
         return True
     return False
 
@@ -962,8 +1165,14 @@ def _generality_score(
         score += 0.2
     if _ADVICE_CUE_RE.search(lowered):
         score += 0.1
-    if _TIP_ACTION_RE.search(lowered):
+    if _STRONG_ADVICE_RE.search(lowered):
+        score += 0.1
+    if _STRONG_IMPERATIVE_RE.match(lowered):
+        score += 0.15
+    elif _TIP_ACTION_RE.search(lowered):
         score += 0.05
+    if _BENEFIT_CUE_RE.search(lowered):
+        score += 0.1
 
     if _RECIPE_SPECIFIC_PHRASE_RE.search(lowered):
         score -= 0.25
@@ -991,6 +1200,13 @@ def _generality_score(
             score -= 0.15
 
     return max(0.0, min(1.0, score))
+
+
+def _ingredient_overlap_count(text: str, ingredient_tokens: set[str]) -> int:
+    if not ingredient_tokens:
+        return 0
+    lowered = text.lower()
+    return sum(1 for token in ingredient_tokens if token in lowered)
 
 
 def _extract_ingredient_tokens(

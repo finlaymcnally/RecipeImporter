@@ -40,9 +40,10 @@ def test_guess_tags_from_text():
 
 
 def test_extract_standalone_tip_with_advice_cue():
-    text = "Salting food regularly while cooking makes things taste better."
+    text = "Salt food regularly while cooking; it makes things taste better."
     tips = extract_tips(text)
-    assert tips == []
+    assert len(tips) == 1
+    assert tips[0].text.startswith("Salt food regularly")
 
 
 def test_recipe_specific_header_is_skipped():
@@ -53,6 +54,12 @@ def test_recipe_specific_header_is_skipped():
 
 def test_dependent_fragment_is_dropped():
     text = "With this in mind, salt early."
+    tips = extract_tips(text)
+    assert tips == []
+
+
+def test_narrative_sentence_is_rejected():
+    text = "In my mind, the two minimum qualifications for a cook are curiosity and patience."
     tips = extract_tips(text)
     assert tips == []
 
