@@ -7,7 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from cookimport import __version__
-from cookimport.core.models import ConversionReport, ConversionResult, RecipeCandidate, TipCandidate
+from cookimport.core.models import (
+    ConversionReport,
+    ConversionResult,
+    RawArtifact,
+    RecipeCandidate,
+    TipCandidate,
+)
 from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
 from cookimport.staging.jsonld import recipe_candidate_to_jsonld
 
@@ -18,6 +24,14 @@ def _slugify(value: str) -> str:
     lowered = value.strip().lower()
     slug = _SLUG_RE.sub("_", lowered).strip("_")
     return slug or "unknown"
+
+
+def _slugify_location(value: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        return "location"
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "_", cleaned).strip("_")
+    return slug or "location"
 
 
 def _hash_file(path: Path) -> str:
@@ -194,6 +208,42 @@ def write_tip_outputs(results: ConversionResult, out_dir: Path) -> None:
         out_path = out_dir / f"t{index}.json"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def write_raw_artifacts(results: ConversionResult, out_dir: Path) -> None:
+    """Write raw artifacts captured during conversion.
+
+    Output path: {out_dir}/raw/{importer}/{source_hash}/{location_id}.{ext}
+    """
+    if not results.raw_artifacts:
+        return
+
+    for artifact in results.raw_artifacts:
+        _write_raw_artifact(artifact, out_dir)
+
+
+def _write_raw_artifact(artifact: RawArtifact, out_dir: Path) -> None:
+    importer_slug = _slugify(artifact.importer)
+    source_hash = artifact.source_hash or "unknown"
+    location = _slugify_location(artifact.location_id)
+    ext = (artifact.extension or "txt").lstrip(".")
+
+    target_dir = out_dir / "raw" / importer_slug / source_hash
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / f"{location}.{ext}"
+
+    payload = artifact.content
+    if isinstance(payload, (dict, list)):
+        target_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding=artifact.encoding or "utf-8",
+        )
+        return
+    if isinstance(payload, bytes):
+        target_path.write_bytes(payload)
+        return
+    text_payload = "" if payload is None else str(payload)
+    target_path.write_text(text_payload, encoding=artifact.encoding or "utf-8")
 
 
 def write_report(report: ConversionReport, out_dir: Path, workbook_name: str) -> Path:

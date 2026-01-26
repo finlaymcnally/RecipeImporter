@@ -19,7 +19,7 @@ After this change, each step in the Draft V1 output will list only the ingredien
 - [x] (2026-01-22 04:07Z) Draft ExecPlan for step-level ingredient linking.
 - [x] (2026-01-22 04:30Z) Add step ingredient linking utilities with deterministic matching heuristics and unit tests.
 - [x] (2026-01-22 04:30Z) Integrate step mapping into `cookimport/staging/draft_v1.py` and document the heuristic.
-- [ ] Validate output against sample data and confirm acceptance criteria (completed: pytest coverage; remaining: run `cookimport stage` and inspect sample output).
+- [x] (2026-01-26 01:12Z) Validate output against sample data and confirm acceptance criteria (ran `cookimport stage` on data/input; inspected Draft V1 output for per-step ingredient assignments).
 
 ## Surprises & Discoveries
 
@@ -61,7 +61,7 @@ No surprises yet. Update this section if matching heuristics behave unexpectedly
 
 ## Outcomes & Retrospective
 
-Implemented token-based ingredient matching with section grouping, added unit tests, and integrated step assignment into Draft V1 output. Staging output inspection is still pending.
+Implemented token-based ingredient matching with section grouping, added unit tests, integrated step assignment into Draft V1 output, and validated staging output against sample data.
 
 ## Context and Orientation
 
@@ -137,6 +137,13 @@ Example of expected step mapping for a pancakes-style recipe:
 
 Include a short excerpt from a generated Draft V1 JSON in this section once implementation is complete.
 
+Excerpt from `data/output/2026-01-25-201009/final drafts/cookbook_cutdown/r0.json` (Jambalaya):
+
+    Step 1 instruction: "Finely dice the celery, onion, and bell pepper..."
+    Step 1 ingredient_lines includes: celery, garlic, pepper
+    Step 2 instruction: "Slice the smoked sausage... add them... along with the chicken thighs..."
+    Step 2 ingredient_lines includes: smoked sausage, boneless, skinless chicken thighs, dried oregano, smoked paprika, pepper
+
 Test evidence:
 
     tests/test_step_ingredient_linking.py::test_negative_matches_no_substrings PASSED
@@ -164,3 +171,4 @@ The function should treat `quantity_kind == "section_header"` as a group label r
 
 Plan revision note: Updated the plan to use a two-stage alias+scoring matcher, expand section grouping beyond dry/wet, add caps for weak matches, and align the interface with `HowToStep` inputs based on the documented risk spots. (2026-01-22 04:07Z)
 Plan revision note: Recorded implementation details, decisions, and test evidence; updated progress to reflect completed work and remaining staging validation. (2026-01-22 04:30Z)
+Plan revision note: Marked staging validation complete and added a Draft V1 excerpt from the latest staged output. (2026-01-26 01:12Z)

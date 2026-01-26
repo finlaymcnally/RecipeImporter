@@ -18,6 +18,8 @@ from cookimport.core.models import (
     ConversionReport,
     ConversionResult,
     MappingConfig,
+    ParsingOverrides,
+    RawArtifact,
     RecipeCandidate,
     SkippedRow,
     WorkbookInspection,
@@ -178,6 +180,10 @@ def _normalize_tags(value: Any) -> list[str]:
     return [tag for tag in tags if tag]
 
 
+def _raw_location_id(prefix: str, index: int) -> str:
+    return f"{prefix}_{index}"
+
+
 def _extract_yield_phrase(line: str) -> str | None:
     match = _YIELD_LINE_RE.match(line)
     if not match:
@@ -186,9 +192,13 @@ def _extract_yield_phrase(line: str) -> str | None:
     return remainder or line.strip()
 
 
-def _is_ingredient_like(line: str, feats: dict[str, Any] | None = None) -> bool:
+def _is_ingredient_like(
+    line: str,
+    feats: dict[str, Any] | None = None,
+    overrides: ParsingOverrides | None = None,
+) -> bool:
     if feats is None:
-        feats = signals.classify_block(line)
+        feats = signals.classify_block(line, overrides=overrides)
     if feats.get("is_ingredient_likely"):
         return True
     if feats.get("starts_with_quantity") and not feats.get("is_instruction_likely"):
@@ -202,9 +212,13 @@ def _is_ingredient_like(line: str, feats: dict[str, Any] | None = None) -> bool:
     return False
 
 
-def _is_instruction_like(line: str, feats: dict[str, Any] | None = None) -> bool:
+def _is_instruction_like(
+    line: str,
+    feats: dict[str, Any] | None = None,
+    overrides: ParsingOverrides | None = None,
+) -> bool:
     if feats is None:
-        feats = signals.classify_block(line)
+        feats = signals.classify_block(line, overrides=overrides)
     if feats.get("is_instruction_likely"):
         return True
     if feats.get("is_ingredient_likely"):
@@ -383,15 +397,19 @@ class TextImporter:
         """
         report = ConversionReport()
         recipes: List[RecipeCandidate] = []
+        raw_artifacts: list[RawArtifact] = []
+        overrides = mapping.parsing_overrides if mapping else None
         
         try:
             if path.suffix.lower() == ".docx" and docx is not None:
-                table_recipes, table_report = self._convert_docx_tables(path, mapping)
+                table_recipes, table_report, table_raw = self._convert_docx_tables(path, mapping)
                 if table_recipes:
                     tip_candidates: list[Any] = []
                     for recipe in table_recipes:
                         tip_candidates.extend(
-                            extract_tip_candidates_from_candidate(recipe)
+                            extract_tip_candidates_from_candidate(
+                                recipe, overrides=overrides
+                            )
                         )
                     tips, recipe_specific, not_tips = partition_tip_candidates(
                         tip_candidates
@@ -409,6 +427,7 @@ class TextImporter:
                         recipes=table_recipes,
                         tips=tips,
                         tipCandidates=tip_candidates,
+                        rawArtifacts=table_raw,
                         report=table_report,
                         workbook=path.stem,
                         workbookPath=str(path),
@@ -424,7 +443,7 @@ class TextImporter:
             # 2. Parse each chunk
             for i, (chunk_text, line_range) in enumerate(chunks):
                 try:
-                    candidate = self._parse_chunk(chunk_text)
+                    candidate = self._parse_chunk(chunk_text, overrides=overrides)
                     
                     # Add provenance
                     provenance_builder = ProvenanceBuilder(
@@ -450,6 +469,19 @@ class TextImporter:
                         )
                         
                     recipes.append(candidate)
+                    raw_artifacts.append(
+                        RawArtifact(
+                            importer="text",
+                            sourceHash=file_hash,
+                            locationId=_raw_location_id("chunk", i),
+                            extension="json",
+                            content={
+                                "text": chunk_text,
+                                "start_line": line_range[0],
+                                "end_line": line_range[1],
+                            },
+                        )
+                    )
                     
                 except Exception as e:
                     logger.warning(f"Failed to parse chunk {i} in {path}: {e}")
@@ -457,7 +489,9 @@ class TextImporter:
             
             tip_candidates: list[Any] = []
             for recipe in recipes:
-                tip_candidates.extend(extract_tip_candidates_from_candidate(recipe))
+                tip_candidates.extend(
+                    extract_tip_candidates_from_candidate(recipe, overrides=overrides)
+                )
 
             tips, recipe_specific, not_tips = partition_tip_candidates(tip_candidates)
 
@@ -476,6 +510,7 @@ class TextImporter:
                 recipes=recipes,
                 tips=tips,
                 tipCandidates=tip_candidates,
+                rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem, # Using stem as "workbook" name
                 workbookPath=str(path),
@@ -487,6 +522,7 @@ class TextImporter:
             return ConversionResult(
                 recipes=[],
                 tips=[],
+                rawArtifacts=[],
                 report=report,
                 workbook=path.stem,
                 workbookPath=str(path),
@@ -537,23 +573,24 @@ class TextImporter:
         self,
         path: Path,
         mapping: MappingConfig | None,
-    ) -> tuple[list[RecipeCandidate], ConversionReport]:
+    ) -> tuple[list[RecipeCandidate], ConversionReport, list[RawArtifact]]:
         report = ConversionReport()
         if docx is None:
-            return [], report
+            return [], report, []
 
         try:
             doc = docx.Document(path)
         except Exception as e:
             report.errors.append(f"Failed to read .docx file: {e}")
-            return [], report
+            return [], report, []
 
         tables = self._extract_docx_tables(doc)
         if not tables:
-            return [], report
+            return [], report, []
 
         file_hash = compute_file_hash(path)
         recipes: list[RecipeCandidate] = []
+        raw_artifacts: list[RawArtifact] = []
 
         for table_idx, rows in enumerate(tables):
             header_idx = _detect_docx_header_row(rows)
@@ -680,6 +717,20 @@ class TextImporter:
                         f"{table_name}_r{row_idx}",
                     )
                 recipes.append(recipe)
+                raw_artifacts.append(
+                    RawArtifact(
+                        importer="text",
+                        sourceHash=file_hash,
+                        locationId=f"{table_name}_r{row_idx}",
+                        extension="json",
+                        content={
+                            "table": table_name,
+                            "row_index": row_idx,
+                            "headers": headers,
+                            "row": row_payload,
+                        },
+                    )
+                )
                 table_recipe_count += 1
 
             report.per_sheet_counts[table_name] = report.per_sheet_counts.get(
@@ -690,7 +741,7 @@ class TextImporter:
         if recipes:
             report.samples = [{"name": r.name} for r in recipes[:3]]
 
-        return recipes, report
+        return recipes, report, raw_artifacts
 
     def _split_recipes(self, text: str) -> List[Tuple[str, Tuple[int, int]]]:
         """
@@ -788,7 +839,11 @@ class TextImporter:
                 chunks.append((chunk, (start_line + 1, end_line)))
         return chunks
 
-    def _parse_chunk(self, text: str) -> RecipeCandidate:
+    def _parse_chunk(
+        self,
+        text: str,
+        overrides: ParsingOverrides | None = None,
+    ) -> RecipeCandidate:
         """
         Parses a single recipe chunk into a candidate.
         """
@@ -846,7 +901,7 @@ class TextImporter:
             has_headers = False
             cleaned_lines: list[str] = []
             for line in remaining_lines:
-                block_feats = signals.classify_block(line)
+                block_feats = signals.classify_block(line, overrides=overrides)
                 if block_feats["is_ingredient_header"] or block_feats["is_instruction_header"]:
                     has_headers = True
                 if recipe_yield is None:
@@ -858,7 +913,7 @@ class TextImporter:
 
             if has_headers:
                 for line in cleaned_lines:
-                    block_feats = signals.classify_block(line)
+                    block_feats = signals.classify_block(line, overrides=overrides)
 
                     if block_feats["is_ingredient_header"]:
                         current_section = "ingredients"
@@ -879,14 +934,17 @@ class TextImporter:
                     else:
                         description_lines.append(line.strip())
             else:
-                feats_list = [signals.classify_block(line) for line in cleaned_lines]
+                feats_list = [
+                    signals.classify_block(line, overrides=overrides)
+                    for line in cleaned_lines
+                ]
                 ingredient_indices = [
                     i for i, line in enumerate(cleaned_lines)
-                    if _is_ingredient_like(line, feats_list[i])
+                    if _is_ingredient_like(line, feats_list[i], overrides=overrides)
                 ]
                 instruction_indices = [
                     i for i, line in enumerate(cleaned_lines)
-                    if _is_instruction_like(line, feats_list[i])
+                    if _is_instruction_like(line, feats_list[i], overrides=overrides)
                 ]
 
                 ingredient_start = ingredient_indices[0] if ingredient_indices else None
@@ -916,14 +974,13 @@ class TextImporter:
                     instruction_block = []
 
                 for idx, line in enumerate(ingredient_block):
-                    feats = signals.classify_block(line)
-                    if _is_instruction_like(line, feats) and not _is_ingredient_like(line, feats):
+                    feats = signals.classify_block(line, overrides=overrides)
+                    if _is_instruction_like(line, feats, overrides=overrides) and not _is_ingredient_like(line, feats, overrides=overrides):
                         instruction_block = ingredient_block[idx:] + instruction_block
                         ingredient_block = ingredient_block[:idx]
                         break
 
                 for line in ingredient_block:
-                    feats = signals.classify_block(line)
                     clean_line = re.sub(r"^\s*[-*•]\s*", "", line.strip())
                     if clean_line:
                         ingredients.append(clean_line)

@@ -113,6 +113,7 @@ Example files are available at `docs/template/examples/Broccoli Cheese Soup1.pap
 2.  **Assets:** If HTML export images exist, copy them to `staging/assets/paprika/<id>/...`.
 3.  **Reporting:**
     *   Write `reports/paprika_import_report.json` with counts, duplicates, and missing fields.
+4.  **Shared updates:** Emit raw artifacts via `ConversionResult.rawArtifacts` and honor any `parsingOverrides` (tip headers/prefixes, units, etc.) to match the shared importer standards.
 
 ## Concrete Steps
 
@@ -129,7 +130,9 @@ Example files are available at `docs/template/examples/Broccoli Cheese Soup1.pap
 
 *   `cookimport inspect` on a `.paprikarecipes` file prints recipe count and field summary.
 *   `cookimport stage` produces valid JSON-LD files with populated fields.
-*   Provenance data correctly links back to the source export.
+*   **Provenance:** Standard `recipeimport:provenance` block is present and links back to the source export.
+*   **Idempotence:** Re-running the import on the same `.paprikarecipes` file produces identical recipe URNs and output filenames.
+*   **Audit:** `staging/raw/paprika/` contains the raw decompressed JSON/HTML fragments.
 *   Merged output (if applicable) correctly prioritizes structured data from HTML while keeping notes from JSON.
 
 ## Interfaces and Dependencies

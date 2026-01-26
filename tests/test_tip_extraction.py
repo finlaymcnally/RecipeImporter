@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cookimport.core.models import RecipeCandidate
+from cookimport.core.models import ParsingOverrides, RecipeCandidate
 from cookimport.parsing.tips import (
     canonicalize_recipe_name,
     extract_tip_candidates_from_candidate,
@@ -65,6 +65,17 @@ def test_tip_header_block_is_extracted():
     tips = extract_tips(text)
     assert len(tips) == 1
     assert tips[0].text.startswith("Use a hot skillet")
+
+
+def test_tip_header_override_is_respected():
+    overrides = ParsingOverrides(tipHeaders=["chef's secret"])
+    text = (
+        "Chef's Secret:\n"
+        "Chill the dough overnight so the butter stays cold and the crust stays flaky."
+    )
+    tips = extract_tips(text, overrides=overrides)
+    assert len(tips) == 1
+    assert "Chill the dough overnight" in tips[0].text
 
 
 def test_guess_tags_additional_categories():

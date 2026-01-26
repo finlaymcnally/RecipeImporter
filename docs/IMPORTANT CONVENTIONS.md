@@ -16,3 +16,5 @@ read_when:
 - `ConversionResult.tipCandidates` stores all classified tip candidates (`general`, `recipe_specific`, `not_tip`), while `ConversionResult.tips` contains only standalone general tips for output.
 - Recipe-derived tips default to `recipe_specific`; exported tips primarily come from non-recipe text unless a tip reads strongly general.
 - Conversion reports include `runTimestamp` (local ISO-8601 time) for when the stage run started.
+- Raw artifacts are preserved under `staging/raw/<importer>/<source_hash>/<location_id>.<ext>` for auditing (JSON snippets for structured sources, text/blocks for unstructured sources).
+- Cookbook-specific parsing overrides live in the `parsingOverrides` section of mapping files or in `*.overrides.yaml` sidecars passed via `cookimport stage --overrides`.

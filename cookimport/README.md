@@ -18,7 +18,8 @@ Run `cookimport inspect <workbook> --write-mapping` to print layout guesses and
 write a mapping stub under `staging/mappings/`. Run `cookimport stage <folder>`
 to scan a folder and write JSON-LD under `staging/<timestamp>/intermediate drafts/`
 and DraftV1 under `staging/<timestamp>/final drafts/`, plus tip snippets under
-`staging/<timestamp>/tips/` and reports under `staging/<timestamp>/reports/`.
+`staging/<timestamp>/tips/`, raw artifacts under `staging/<timestamp>/raw/`, and
+reports under `staging/<timestamp>/reports/`.
 Tip outputs include `sourceRecipeTitle` when the tip is tied to a specific recipe.
 
 The text importer treats .docx tables with recognized headers as structured
@@ -28,3 +29,6 @@ instructions instead of flattening to plain text.
 For text/docx content without explicit "Ingredients" headers, the text importer
 can split on "Serves/Yield" lines and infer ingredient vs. instruction blocks
 using line-level heuristics.
+
+Parsing overrides can be supplied with `--overrides` or a `<workbook>.overrides.yaml`
+sidecar to extend header/tip detection and enable optional spaCy signals.

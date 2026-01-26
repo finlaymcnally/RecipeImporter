@@ -94,13 +94,16 @@ Key terms:
 
 ### Phase 4: Reporting & Provenance (Milestone 4)
 
-**Goal:** Emit structured JSON-LD and a report.
+**Goal:** Emit structured JSON-LD, standard reports, and audit artifacts.
 
 1.  **Emission:** Write `staging/recipesage_jsonld/...`.
 2.  **Provenance:**
-    *   Link parsed fields back to the original image bounding box.
+    *   Use `ProvenanceBuilder` to link parsed fields back to the original image bounding box.
     *   Report the OCR engine used and average confidence score.
-3.  **Comparison Mode (Optional):**
+3.  **Audit Artifacts:** Save the raw OCR text blocks to `staging/raw/image/...`.
+4.  **Reporting:** Use `ReportBuilder` to generate `staging/reports/<image_file>.image_import_report.json`.
+5.  **Shared updates:** Emit raw artifacts via `ConversionResult.rawArtifacts` (so staging writer persists them) and honor `parsingOverrides` for headers/verbs/units to keep behavior aligned with other importers.
+6.  **Comparison Mode (Optional):**
     *   Allow running multiple engines on the same image and logging the diffs/confidence scores to helping the user choose the best one.
 
 ## Concrete Steps
@@ -111,7 +114,7 @@ Key terms:
 4.  **Implement `ImageImporter`:**
     *   `detect`: Check image extensions.
     *   `inspect`: Run configured OCR on the image, print raw text and detected layout.
-    *   `convert`: Full pipeline.
+    *   `convert`: Full pipeline with `ReportBuilder` and `ProvenanceBuilder`.
 5.  **Implement Adapters:**
     *   `PaddleEngine`: Wraps PaddleOCR.
     *   `EasyOCREngine`: Wraps EasyOCR.
@@ -123,6 +126,8 @@ Key terms:
 *   `cookimport stage` produces valid JSON-LD for a standard recipe image.
 *   The system gracefully handles missing OCR dependencies (warns user and suggests installation).
 *   Layout analysis correctly orders a 2-column recipe image.
+*   **Idempotence:** Re-running on the same image produces identical URNs and file paths.
+*   **Audit:** `staging/raw/image/` contains the raw OCR output for verification.
 
 ## Interfaces and Dependencies
 

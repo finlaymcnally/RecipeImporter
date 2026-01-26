@@ -10,12 +10,14 @@ import typer
 
 from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
 from cookimport.core.models import ConversionReport, MappingConfig
+from cookimport.core.overrides_io import load_parsing_overrides
 from cookimport.core.reporting import enrich_report_with_stats
 from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf  # noqa: F401
 from cookimport.staging.writer import (
     write_draft_outputs,
     write_intermediate_outputs,
+    write_raw_artifacts,
     write_report,
     write_tip_outputs,
 )
@@ -174,6 +176,21 @@ def _resolve_mapping_path(workbook: Path, out: Path, override: Path | None) -> P
     return None
 
 
+def _resolve_overrides_path(workbook: Path, out: Path, override: Path | None) -> Path | None:
+    if override is not None:
+        return override
+    sidecar_yaml = workbook.with_suffix(".overrides.yaml")
+    sidecar_json = workbook.with_suffix(".overrides.json")
+    if sidecar_yaml.exists():
+        return sidecar_yaml
+    if sidecar_json.exists():
+        return sidecar_json
+    staged = out / "overrides" / f"{workbook.stem}.overrides.yaml"
+    if staged.exists():
+        return staged
+    return None
+
+
 def _slugify_name(name: str) -> str:
     """Convert a name to a filesystem-safe slug."""
     import re
@@ -227,6 +244,11 @@ def stage(
     path: Path = typer.Argument(..., help="File or folder containing source files."),
     out: Path = typer.Option(Path("staging"), "--out", help="Output folder."),
     mapping: Path | None = typer.Option(None, "--mapping", help="Mapping file path."),
+    overrides: Path | None = typer.Option(
+        None,
+        "--overrides",
+        help="Parsing overrides file path.",
+    ),
     limit: int | None = typer.Option(
         None,
         "--limit",
@@ -247,6 +269,8 @@ def stage(
         _fail(f"Path not found: {path}")
     if mapping is not None and not mapping.exists():
         _fail(f"Mapping file not found: {mapping}")
+    if overrides is not None and not overrides.exists():
+        _fail(f"Overrides file not found: {overrides}")
 
     imported = 0
     errors: list[str] = []
@@ -292,12 +316,20 @@ def stage(
             # reports_dir = out / "reports"  -- Removed per request
 
             mapping_path = _resolve_mapping_path(file_path, out, mapping) # Passed out for legacy compat
+            overrides_path = _resolve_overrides_path(file_path, out, overrides)
             mapping_config = mapping_override
             if mapping_config is None and mapping_path is not None:
                 mapping_config = load_mapping_config(mapping_path)
             if mapping_config is None:
                 inspection = importer.inspect(file_path)
                 mapping_config = inspection.mapping_stub
+
+            if overrides_path is not None:
+                parsing_overrides = load_parsing_overrides(overrides_path)
+                if mapping_config is None:
+                    mapping_config = MappingConfig(parsingOverrides=parsing_overrides)
+                else:
+                    mapping_config.parsing_overrides = parsing_overrides
 
             result = importer.convert(file_path, mapping_config)
 
@@ -323,6 +355,9 @@ def stage(
 
             # Write tip outputs
             write_tip_outputs(result, tips_dir)
+
+            # Write raw artifacts for auditing
+            write_raw_artifacts(result, out)
 
             # Write conversion report to the root of the timestamped output
             write_report(result.report, out, file_path.stem)

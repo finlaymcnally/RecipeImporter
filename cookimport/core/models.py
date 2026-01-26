@@ -284,6 +284,19 @@ class SheetMapping(BaseModel):
     tall_keys: dict[str, str] = Field(default_factory=dict, alias="tallKeys")
 
 
+class ParsingOverrides(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    name: str | None = None
+    ingredient_headers: list[str] = Field(default_factory=list, alias="ingredientHeaders")
+    instruction_headers: list[str] = Field(default_factory=list, alias="instructionHeaders")
+    tip_headers: list[str] = Field(default_factory=list, alias="tipHeaders")
+    tip_prefixes: list[str] = Field(default_factory=list, alias="tipPrefixes")
+    imperative_verbs: list[str] = Field(default_factory=list, alias="imperativeVerbs")
+    unit_terms: list[str] = Field(default_factory=list, alias="unitTerms")
+    enable_spacy: bool | None = Field(default=None, alias="enableSpacy")
+
+
 class MappingConfig(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -298,6 +311,7 @@ class MappingConfig(BaseModel):
     skip_rows: list[int] = Field(default_factory=list, alias="skipRows")
     row_skip_mode: str | None = Field(default=None, alias="rowSkipMode")
     default_layout: str | None = Field(default=None, alias="defaultLayout")
+    parsing_overrides: ParsingOverrides | None = Field(default=None, alias="parsingOverrides")
     sheets: list[SheetMapping] = Field(default_factory=list)
 
     @field_validator("ingredient_delimiters", "instruction_delimiters", mode="before")
@@ -364,12 +378,25 @@ class ConversionReport(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class RawArtifact(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    importer: str
+    source_hash: str = Field(alias="sourceHash")
+    location_id: str = Field(alias="locationId")
+    extension: str
+    content: Any
+    encoding: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ConversionResult(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     recipes: list[RecipeCandidate] = Field(default_factory=list)
     tips: list[TipCandidate] = Field(default_factory=list)
     tip_candidates: list[TipCandidate] = Field(default_factory=list, alias="tipCandidates")
+    raw_artifacts: list[RawArtifact] = Field(default_factory=list, alias="rawArtifacts")
     report: ConversionReport
     workbook: str | None = None
     workbook_path: str | None = Field(default=None, alias="workbookPath")

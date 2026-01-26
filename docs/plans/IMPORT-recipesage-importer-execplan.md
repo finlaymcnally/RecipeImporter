@@ -86,6 +86,7 @@ Key terms:
 2.  **Stable ID:** Ensure the `@id` field is set to `urn:recipeimport:recipesage:<uid>`.
 3.  **Write:** Save to `staging/recipesage_jsonld/<export_slug>/<recipe_uid>.json`.
 4.  **Report:** Generate `staging/reports/<export_slug>.recipesage_import_report.json` summarizing valid vs. invalid recipes.
+5.  **Shared updates:** Emit a `ConversionResult.rawArtifacts` entry for the validated input JSON and honor `parsingOverrides` when tip extraction/normalization is used, matching shared importer standards.
 
 ## Concrete Steps
 
@@ -104,7 +105,9 @@ Key terms:
 
 *   `cookimport stage` on a RecipeSage export file results in a folder of individual JSON files in the staging directory.
 *   The output files are valid JSON-LD.
-*   Provenance metadata is present in every output file.
+*   **Provenance:** Standard `recipeimport:provenance` block is present in every output file.
+*   **Idempotence:** Re-running the import on the same export file produces identical recipe URNs and output filenames.
+*   **Audit:** `staging/raw/recipesage/` contains a copy of the validated input JSON.
 *   The report accurately counts successful and failed recipes.
 
 ## Interfaces and Dependencies

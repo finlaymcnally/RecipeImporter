@@ -99,3 +99,9 @@ dient` -> `ingredient`) based on dictionary lookups or heuristics.
     *   `cookimport.parsing.patterns`: Centralized regex for quantities, units, headers, times, etc.
     *   `cookimport.parsing.signals`: Implemented `classify_block` using patterns.
     *   Verified via manual test script `tests/test_phase1_manual.py`.
+*   **2026-01-26:** Added cookbook-specific overrides and optional spaCy signals.
+    *   `ParsingOverrides` supports extra headers/verbs/units plus tip headers/prefixes and `enableSpacy`.
+    *   `signals.classify_block` and tip extraction accept overrides; CLI loads `.overrides.yaml` or `--overrides`.
+    *   Optional spaCy features are exposed via `COOKIMPORT_SPACY=1` or overrides.
+
+Plan revision note: Documented overrides + optional spaCy integration and how they are wired into signals/tip extraction. (2026-01-26 01:12Z)

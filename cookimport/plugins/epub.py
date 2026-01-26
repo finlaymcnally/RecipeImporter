@@ -21,6 +21,7 @@ from cookimport.core.models import (
     ConversionReport,
     ConversionResult,
     MappingConfig,
+    RawArtifact,
     RecipeCandidate,
     WorkbookInspection,
     SheetInspection,
@@ -45,6 +46,17 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="ebooklib")
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 logger = logging.getLogger(__name__)
+
+
+def _block_to_raw(block: Block, index: int) -> dict[str, Any]:
+    return {
+        "index": index,
+        "text": block.text,
+        "html": block.html,
+        "type": str(block.type),
+        "font_weight": block.font_weight,
+        "features": block.features,
+    }
 
 class EpubImporter:
     name = "epub"
@@ -107,6 +119,9 @@ class EpubImporter:
         report = ConversionReport()
         recipes: List[RecipeCandidate] = []
         tip_candidates: List[Any] = []
+        raw_artifacts: list[RawArtifact] = []
+        overrides = mapping.parsing_overrides if mapping else None
+        self._overrides = overrides
         
         try:
             file_hash = compute_file_hash(path)
@@ -145,7 +160,25 @@ class EpubImporter:
                         )
                     
                     recipes.append(candidate)
-                    tip_candidates.extend(extract_tip_candidates_from_candidate(candidate))
+                    raw_artifacts.append(
+                        RawArtifact(
+                            importer="epub",
+                            sourceHash=file_hash,
+                            locationId=f"c{i}",
+                            extension="json",
+                            content={
+                                "start_block": start,
+                                "end_block": end,
+                                "blocks": [
+                                    _block_to_raw(block, idx)
+                                    for idx, block in enumerate(candidate_blocks, start=start)
+                                ],
+                            },
+                        )
+                    )
+                    tip_candidates.extend(
+                        extract_tip_candidates_from_candidate(candidate, overrides=overrides)
+                    )
                     
                 except Exception as e:
                     logger.warning(f"Failed to extract candidate {i} in {path}: {e}")
@@ -172,6 +205,7 @@ class EpubImporter:
                 recipes=recipes,
                 tips=tips,
                 tipCandidates=tip_candidates,
+                rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem,
                 workbookPath=str(path),
@@ -183,10 +217,13 @@ class EpubImporter:
             return ConversionResult(
                 recipes=[],
                 tips=[],
+                rawArtifacts=[],
                 report=report,
                 workbook=path.stem,
                 workbookPath=str(path),
             )
+        finally:
+            self._overrides = None
 
     def _extract_standalone_tips(
         self,
@@ -225,6 +262,7 @@ class EpubImporter:
                     text,
                     provenance=provenance,
                     source_section="standalone_block",
+                    overrides=self._overrides,
                 )
             )
 
@@ -394,7 +432,7 @@ class EpubImporter:
             )
             
             # Signals
-            signals.enrich_block(block)
+            signals.enrich_block(block, overrides=self._overrides)
             
             # Extra EPUB specific signals
             if elem.name.startswith("h"):

@@ -47,18 +47,14 @@ To ensure that every importer, regardless of source (PDF, Excel, Web), produces 
     }
     ```
 
-### 3. The Import Report (`Manifest`)
+### 4. Raw Artifact Preservation (`staging/raw/`)
 
-**Goal:** A human-readable and machine-parseable summary of what happened.
+**Goal:** Keep a verbatim copy of what the importer "saw" before normalization, enabling later audits or re-parsing without the original source (e.g., if the original is a huge PDF or a remote URL).
 
-*   **File:** `staging/reports/<source_filename>.report.json`
-*   **Structure:**
-    *   `summary`: Total candidates, success count, low_confidence count, error count.
-    *   `candidates`: List of detected recipes with their IDs, confidence scores, and status ("valid", "needs_review").
-    *   `errors`: List of fatal errors or skipped blocks.
-    *   `llm_usage`: Token counts and costs (if applicable).
+*   **Structure:** `staging/raw/<importer_type>/<source_hash>/<location_id>.<ext>`
+*   **Requirement:** All structured importers (Excel, Paprika, RecipeSage) must save the raw JSON/HTML/XML snippet. Unstructured importers (Image, PDF) should save the text block or cropped image if feasible.
 
-### 4. Implementation (`cookimport.core.reporting`)
+## Implementation (`cookimport.core.reporting`)
 
 *   **`ReportBuilder` Class:** A context manager that accumulates events during the import process and writes the JSON report on exit.
 *   **`ProvenanceBuilder` Class:** Helper to construct the standardized provenance dictionary.
@@ -82,3 +78,9 @@ To ensure that every importer, regardless of source (PDF, Excel, Web), produces 
     *   `ReportBuilder`: Context manager implemented, producing JSON reports with summary, candidates, errors, and LLM usage.
     *   `generate_recipe_id`: Implemented stable URN generation.
     *   Verified via manual test script `tests/test_phase1_manual.py`.
+*   **2026-01-26:** Integrated raw artifact preservation into staging output.
+    *   Importers emit raw snippets (rows/blocks/chunks) via `ConversionResult.rawArtifacts`.
+    *   `writer.write_raw_artifacts` writes to `staging/raw/<importer>/<source_hash>/...` and CLI now calls it.
+    *   Verified via `pytest` and `cookimport stage data/input --out data/output`.
+
+Plan revision note: Recorded raw artifact preservation implementation details and validation. (2026-01-26 01:12Z)

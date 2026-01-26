@@ -15,6 +15,7 @@ cookimport/core/__init__.py
 cookimport/core/blocks.py
 cookimport/core/mapping_io.py
 cookimport/core/models.py
+cookimport/core/overrides_io.py
 cookimport/core/reporting.py
 cookimport/llm/__init__.py
 cookimport/llm/client.py
@@ -25,6 +26,7 @@ cookimport/parsing/cleaning.py
 cookimport/parsing/ingredients.py
 cookimport/parsing/patterns.py
 cookimport/parsing/signals.py
+cookimport/parsing/spacy_support.py
 cookimport/parsing/step_ingredients.py
 cookimport/parsing/tip_taxonomy.py
 cookimport/parsing/tips.py

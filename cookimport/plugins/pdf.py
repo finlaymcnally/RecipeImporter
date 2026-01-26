@@ -12,6 +12,7 @@ from cookimport.core.models import (
     ConversionReport,
     ConversionResult,
     MappingConfig,
+    RawArtifact,
     RecipeCandidate,
     WorkbookInspection,
     SheetInspection,
@@ -31,6 +32,20 @@ from cookimport.parsing.tips import (
 from cookimport.plugins import registry
 
 logger = logging.getLogger(__name__)
+
+
+def _block_to_raw(block: Block, index: int) -> dict[str, Any]:
+    return {
+        "index": index,
+        "text": block.text,
+        "page": block.page,
+        "bbox": block.bbox,
+        "type": str(block.type),
+        "font_size": block.font_size,
+        "font_weight": block.font_weight,
+        "alignment": block.alignment,
+        "features": block.features,
+    }
 
 _INSTRUCTION_LEAD_RE = re.compile(
     r"^\s*(preheat|heat|bring|make|mix|stir|whisk|crush|cook|bake|roast|fry|grill|"
@@ -90,6 +105,9 @@ class PdfImporter:
         report = ConversionReport()
         recipes: List[RecipeCandidate] = []
         tip_candidates: List[Any] = []
+        raw_artifacts: list[RawArtifact] = []
+        overrides = mapping.parsing_overrides if mapping else None
+        self._overrides = overrides
         
         try:
             file_hash = compute_file_hash(path)
@@ -141,7 +159,27 @@ class PdfImporter:
                         )
 
                     recipes.append(candidate)
-                    tip_candidates.extend(extract_tip_candidates_from_candidate(candidate))
+                    raw_artifacts.append(
+                        RawArtifact(
+                            importer="pdf",
+                            sourceHash=file_hash,
+                            locationId=f"c{i}",
+                            extension="json",
+                            content={
+                                "start_block": start,
+                                "end_block": end,
+                                "start_page": start_page,
+                                "end_page": end_page,
+                                "blocks": [
+                                    _block_to_raw(block, idx)
+                                    for idx, block in enumerate(candidate_blocks, start=start)
+                                ],
+                            },
+                        )
+                    )
+                    tip_candidates.extend(
+                        extract_tip_candidates_from_candidate(candidate, overrides=overrides)
+                    )
 
                 except Exception as e:
                     logger.warning(f"Failed to extract candidate {i} in {path}: {e}")
@@ -167,6 +205,7 @@ class PdfImporter:
                 recipes=recipes,
                 tips=tips,
                 tipCandidates=tip_candidates,
+                rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem,
                 workbookPath=str(path),
@@ -178,10 +217,13 @@ class PdfImporter:
             return ConversionResult(
                 recipes=[],
                 tips=[],
+                rawArtifacts=[],
                 report=report,
                 workbook=path.stem,
                 workbookPath=str(path),
             )
+        finally:
+            self._overrides = None
 
     def _extract_standalone_tips(
         self,
@@ -223,6 +265,7 @@ class PdfImporter:
                     text,
                     provenance=provenance,
                     source_section="standalone_block",
+                    overrides=self._overrides,
                 )
             )
 
@@ -282,7 +325,7 @@ class PdfImporter:
                     alignment=alignment,
                 )
 
-                signals.enrich_block(block)
+                signals.enrich_block(block, overrides=self._overrides)
                 blocks.append(block)
 
         return blocks
@@ -726,7 +769,7 @@ class PdfImporter:
             remainder = " ".join(parts[1:])
         if not remainder:
             return None
-        feats = signals.classify_block(remainder)
+        feats = signals.classify_block(remainder, overrides=self._overrides)
         if feats.get("has_unit"):
             return remainder
         if feats.get("starts_with_quantity") and len(remainder.split()) >= 3:

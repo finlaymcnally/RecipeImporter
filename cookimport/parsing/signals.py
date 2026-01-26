@@ -1,9 +1,19 @@
+import os
+import re
 from typing import Any, Dict, List, Union
 
 from cookimport.core.blocks import Block
+from cookimport.core.models import ParsingOverrides
 from cookimport.parsing import patterns
+from cookimport.parsing import spacy_support
 
-def classify_block(block: Union[str, Block]) -> Dict[str, Any]:
+def _should_use_spacy(overrides: ParsingOverrides | None) -> bool:
+    if overrides and overrides.enable_spacy is not None:
+        return overrides.enable_spacy
+    return os.getenv("COOKIMPORT_SPACY", "").strip().lower() in {"1", "true", "yes"}
+
+
+def classify_block(block: Union[str, Block], overrides: ParsingOverrides | None = None) -> Dict[str, Any]:
     """
     Analyzes a text block and returns a dictionary of signal features.
     Accepts either a raw string or a Block object.
@@ -11,9 +21,26 @@ def classify_block(block: Union[str, Block]) -> Dict[str, Any]:
     text = block.text if isinstance(block, Block) else str(block)
     features = {}
 
+    ingredient_headers = [h.lower() for h in patterns.INGREDIENT_HEADERS]
+    instruction_headers = [h.lower() for h in patterns.INSTRUCTION_HEADERS]
+    imperative_verbs = set(word.lower() for word in patterns.IMPERATIVE_VERBS)
+    unit_terms = list(patterns.UNITS)
+    if overrides:
+        ingredient_headers.extend(h.lower() for h in overrides.ingredient_headers)
+        instruction_headers.extend(h.lower() for h in overrides.instruction_headers)
+        imperative_verbs.update(word.lower() for word in overrides.imperative_verbs)
+        unit_terms.extend(overrides.unit_terms)
+
+    unit_re = patterns.UNIT_RE
+    if overrides and overrides.unit_terms:
+        unit_re = re.compile(
+            r"\b(" + "|".join(re.escape(u) for u in unit_terms) + r")\b",
+            re.IGNORECASE,
+        )
+
     # 1. Ingredient Signals
     features["starts_with_quantity"] = bool(patterns.QUANTITY_RE.match(text))
-    features["has_unit"] = bool(patterns.UNIT_RE.search(text))
+    features["has_unit"] = bool(unit_re.search(text))
     
     # Simple heuristic for ingredient likelihood
     # If it has quantity AND unit, it's very likely an ingredient
@@ -28,7 +55,7 @@ def classify_block(block: Union[str, Block]) -> Dict[str, Any]:
     found_verb = False
     for i in range(min(3, len(words))):
         clean_word = words[i].strip(".,:;")
-        if clean_word in patterns.IMPERATIVE_VERBS:
+        if clean_word in imperative_verbs:
             found_verb = True
             break
     features["has_imperative_verb"] = found_verb
@@ -42,24 +69,32 @@ def classify_block(block: Union[str, Block]) -> Dict[str, Any]:
     # Header detection
     is_short = len(text) < 50
     is_title_case = text.istitle()
-    has_keyword = (clean_text in patterns.INGREDIENT_HEADERS or 
-                   clean_text in patterns.INSTRUCTION_HEADERS or 
+    has_keyword = (clean_text in ingredient_headers or 
+                   clean_text in instruction_headers or 
                    lower_text.endswith(":"))
                    
     features["is_header_likely"] = is_short and (is_title_case or has_keyword)
-    features["is_ingredient_header"] = clean_text in patterns.INGREDIENT_HEADERS
-    features["is_instruction_header"] = clean_text in patterns.INSTRUCTION_HEADERS
+    features["is_ingredient_header"] = clean_text in ingredient_headers
+    features["is_instruction_header"] = clean_text in instruction_headers
 
     # Metadata
     features["is_yield"] = bool(patterns.YIELD_RE.match(text))
     features["is_time"] = bool(patterns.TIME_RE.match(text))
 
+    if _should_use_spacy(overrides) and spacy_support.spacy_available():
+        spacy_features = spacy_support.analyze_text(text)
+        if spacy_features:
+            features.update(spacy_features)
+            if spacy_features.get("spacy_imperative"):
+                features["has_imperative_verb"] = True
+                features["is_instruction_likely"] = True
+
     return features
 
-def enrich_block(block: Block):
+def enrich_block(block: Block, overrides: ParsingOverrides | None = None):
     """
     In-place update of a Block object with calculated features.
     """
-    feats = classify_block(block.text)
+    feats = classify_block(block.text, overrides=overrides)
     for k, v in feats.items():
         block.add_feature(k, v)

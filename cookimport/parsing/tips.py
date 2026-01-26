@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 
-from cookimport.core.models import RecipeCandidate, TipCandidate, TipTags
+from cookimport.core.models import ParsingOverrides, RecipeCandidate, TipCandidate, TipTags
 from cookimport.parsing import signals
 from cookimport.parsing.tip_taxonomy import (
     DAIRY_TERMS,
@@ -22,9 +22,17 @@ from cookimport.parsing.tip_taxonomy import (
     TOOL_TERMS,
 )
 
-_TIP_PREFIX_RE = re.compile(r"^\s*(tip|tips|note|notes|hint|pro tip)\s*[:\-]+\s*", re.IGNORECASE)
-_TIP_HEADER_ONLY_RE = re.compile(r"^\s*(tip|tips|note|notes|hints?)\s*[:\-]*\s*$", re.IGNORECASE)
 _BULLET_PREFIX_RE = re.compile(r"^\s*[-*\u2022]+\s+")
+
+_TIP_PREFIX_LABELS = [
+    "tip",
+    "tips",
+    "note",
+    "notes",
+    "hint",
+    "hints",
+    "pro tip",
+]
 
 _HEADER_LABELS = [
     "tip",
@@ -54,10 +62,6 @@ _HEADER_LABELS = [
     "chef's note",
     "chef's notes",
 ]
-
-_HEADER_PATTERN = "|".join(sorted((re.escape(label) for label in _HEADER_LABELS), key=len, reverse=True))
-_HEADER_ONLY_RE = re.compile(rf"^\s*(?P<header>{_HEADER_PATTERN})\s*[:\-]*\s*$", re.IGNORECASE)
-_HEADER_PREFIX_RE = re.compile(rf"^\s*(?P<header>{_HEADER_PATTERN})\s*[:\-]+\s*(?P<content>.+)$", re.IGNORECASE)
 
 _RECIPE_SPECIFIC_HEADER_RE = re.compile(
     r"^\s*(why (this|the) recipe works|why it works|why this works|test kitchen note|"
@@ -234,6 +238,66 @@ _CALLOUT_HEADERS = {
 } | _RECIPE_SPECIFIC_HEADERS
 
 
+def _normalize_header(header: str) -> str:
+    cleaned = header.strip().lower()
+    cleaned = cleaned.replace("-", " ")
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned
+
+
+@dataclass(frozen=True)
+class TipParsingProfile:
+    tip_prefix_re: re.Pattern
+    tip_header_only_re: re.Pattern
+    header_only_re: re.Pattern
+    header_prefix_re: re.Pattern
+    callout_headers: set[str]
+    recipe_specific_headers: set[str]
+    overrides: ParsingOverrides | None
+
+
+def _build_tip_profile(overrides: ParsingOverrides | None) -> TipParsingProfile:
+    header_labels = list(_HEADER_LABELS)
+    prefix_labels = list(_TIP_PREFIX_LABELS)
+    callout_headers = set(_CALLOUT_HEADERS)
+    recipe_specific_headers = set(_RECIPE_SPECIFIC_HEADERS)
+
+    if overrides:
+        if overrides.tip_headers:
+            header_labels.extend(overrides.tip_headers)
+            callout_headers.update(_normalize_header(label) for label in overrides.tip_headers)
+        if overrides.tip_prefixes:
+            prefix_labels.extend(overrides.tip_prefixes)
+
+    header_pattern = "|".join(
+        sorted((re.escape(label) for label in header_labels), key=len, reverse=True)
+    )
+    prefix_pattern = "|".join(
+        sorted((re.escape(label) for label in prefix_labels), key=len, reverse=True)
+    )
+
+    return TipParsingProfile(
+        tip_prefix_re=re.compile(
+            rf"^\s*(?:{prefix_pattern})\s*[:\-]+\s*", re.IGNORECASE
+        ),
+        tip_header_only_re=re.compile(
+            rf"^\s*(?:{prefix_pattern})\s*[:\-]*\s*$", re.IGNORECASE
+        ),
+        header_only_re=re.compile(
+            rf"^\s*(?P<header>{header_pattern})\s*[:\-]*\s*$", re.IGNORECASE
+        ),
+        header_prefix_re=re.compile(
+            rf"^\s*(?P<header>{header_pattern})\s*[:\-]+\s*(?P<content>.+)$",
+            re.IGNORECASE,
+        ),
+        callout_headers={_normalize_header(h) for h in callout_headers},
+        recipe_specific_headers={_normalize_header(h) for h in recipe_specific_headers},
+        overrides=overrides,
+    )
+
+
+_DEFAULT_TIP_PROFILE = _build_tip_profile(None)
+
 @dataclass(frozen=True)
 class CandidateBlock:
     index: int
@@ -292,17 +356,19 @@ def extract_tips(
     include_recipe_specific: bool = False,
     include_not_tips: bool = False,
     require_standalone: bool = True,
+    overrides: ParsingOverrides | None = None,
 ) -> list[TipCandidate]:
     tips: list[TipCandidate] = []
     tip_counter = 0
 
-    blocks = _split_blocks(text)
+    profile = _build_tip_profile(overrides)
+    blocks = _split_blocks(text, profile)
     ingredient_tokens = _extract_ingredient_tokens(recipe_ingredients)
 
     for block_idx, block in enumerate(blocks):
         prev_block_text = blocks[block_idx - 1].text if block_idx > 0 else None
         next_block_text = blocks[block_idx + 1].text if block_idx + 1 < len(blocks) else None
-        spans = _extract_spans_from_block(block)
+        spans = _extract_spans_from_block(block, profile)
         for span in spans:
             repaired_text, repair_flags = _repair_span(
                 span.text,
@@ -311,8 +377,8 @@ def extract_tips(
                 prev_block=prev_block_text,
                 next_block=next_block_text,
             )
-            had_tip_prefix = bool(_TIP_PREFIX_RE.match(repaired_text))
-            normalized = _normalize_tip_text(repaired_text)
+            had_tip_prefix = bool(profile.tip_prefix_re.match(repaired_text))
+            normalized = _normalize_tip_text(repaired_text, profile)
             if not normalized:
                 continue
             judgment = _judge_tip(
@@ -322,6 +388,7 @@ def extract_tips(
                 header_hint=span.header,
                 tip_prefix=had_tip_prefix,
                 source_section=source_section,
+                profile=profile,
             )
 
             if not judgment.standalone and require_standalone:
@@ -375,7 +442,10 @@ def extract_tips(
     return tips
 
 
-def extract_tips_from_candidate(candidate: RecipeCandidate) -> list[TipCandidate]:
+def extract_tips_from_candidate(
+    candidate: RecipeCandidate,
+    overrides: ParsingOverrides | None = None,
+) -> list[TipCandidate]:
     if not candidate.description:
         return []
     recipe_id = candidate.identifier or _recipe_id_from_provenance(candidate.provenance)
@@ -386,10 +456,14 @@ def extract_tips_from_candidate(candidate: RecipeCandidate) -> list[TipCandidate
         recipe_ingredients=candidate.ingredients,
         provenance=candidate.provenance,
         source_section="description",
+        overrides=overrides,
     )
 
 
-def extract_tip_candidates_from_candidate(candidate: RecipeCandidate) -> list[TipCandidate]:
+def extract_tip_candidates_from_candidate(
+    candidate: RecipeCandidate,
+    overrides: ParsingOverrides | None = None,
+) -> list[TipCandidate]:
     if not candidate.description:
         return []
     recipe_id = candidate.identifier or _recipe_id_from_provenance(candidate.provenance)
@@ -403,6 +477,7 @@ def extract_tip_candidates_from_candidate(candidate: RecipeCandidate) -> list[Ti
         include_recipe_specific=True,
         include_not_tips=True,
         require_standalone=False,
+        overrides=overrides,
     )
 
 
@@ -414,6 +489,7 @@ def extract_tip_candidates(
     recipe_ingredients: Sequence[str] | None = None,
     provenance: dict[str, Any] | None = None,
     source_section: str | None = None,
+    overrides: ParsingOverrides | None = None,
 ) -> list[TipCandidate]:
     return extract_tips(
         text,
@@ -425,10 +501,14 @@ def extract_tip_candidates(
         include_recipe_specific=True,
         include_not_tips=True,
         require_standalone=False,
+        overrides=overrides,
     )
 
 
-def extract_recipe_specific_notes(candidate: RecipeCandidate) -> list[str]:
+def extract_recipe_specific_notes(
+    candidate: RecipeCandidate,
+    overrides: ParsingOverrides | None = None,
+) -> list[str]:
     if not candidate.description:
         return []
     tips = extract_tips(
@@ -441,6 +521,7 @@ def extract_recipe_specific_notes(candidate: RecipeCandidate) -> list[str]:
         include_recipe_specific=True,
         include_not_tips=False,
         require_standalone=True,
+        overrides=overrides,
     )
     return [tip.text for tip in tips if tip.scope == "recipe_specific"]
 
@@ -490,26 +571,19 @@ def guess_tags(
     return tags
 
 
-def _normalize_header(header: str) -> str:
-    cleaned = header.strip().lower()
-    cleaned = cleaned.replace("-", " ")
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    return cleaned
-
-
-def _header_is_recipe_specific(header: str | None) -> bool:
+def _header_is_recipe_specific(header: str | None, profile: TipParsingProfile) -> bool:
     if not header:
         return False
-    return _normalize_header(header) in _RECIPE_SPECIFIC_HEADERS
+    return _normalize_header(header) in profile.recipe_specific_headers
 
 
-def _header_implies_tip(header: str | None) -> bool:
+def _header_implies_tip(header: str | None, profile: TipParsingProfile) -> bool:
     if not header:
         return False
-    return _normalize_header(header) in _CALLOUT_HEADERS
+    return _normalize_header(header) in profile.callout_headers
 
 
-def _split_blocks(text: str) -> list[CandidateBlock]:
+def _split_blocks(text: str, profile: TipParsingProfile) -> list[CandidateBlock]:
     lines = [line.rstrip() for line in str(text).splitlines()]
     blocks: list[CandidateBlock] = []
     buffer: list[str] = []
@@ -535,7 +609,7 @@ def _split_blocks(text: str) -> list[CandidateBlock]:
             flush_buffer()
             continue
 
-        prefix_match = _HEADER_PREFIX_RE.match(line)
+        prefix_match = profile.header_prefix_re.match(line)
         if prefix_match:
             flush_buffer()
             header = _normalize_header(prefix_match.group("header"))
@@ -548,7 +622,7 @@ def _split_blocks(text: str) -> list[CandidateBlock]:
                 pending_header = header
             continue
 
-        header_only_match = _HEADER_ONLY_RE.match(line)
+        header_only_match = profile.header_only_re.match(line)
         if header_only_match:
             flush_buffer()
             pending_header = _normalize_header(header_only_match.group("header"))
@@ -572,7 +646,10 @@ def _split_sentences(text: str) -> list[str]:
     return sentences or [cleaned]
 
 
-def _extract_spans_from_block(block: CandidateBlock) -> list[TipSpan]:
+def _extract_spans_from_block(
+    block: CandidateBlock,
+    profile: TipParsingProfile,
+) -> list[TipSpan]:
     block_text = block.text.strip()
     if not block_text:
         return []
@@ -597,7 +674,7 @@ def _extract_spans_from_block(block: CandidateBlock) -> list[TipSpan]:
             )
         return spans
 
-    if _header_implies_tip(block.header):
+    if _header_implies_tip(block.header, profile):
         return [
             TipSpan(
                 text=block_text,
@@ -618,7 +695,7 @@ def _extract_spans_from_block(block: CandidateBlock) -> list[TipSpan]:
     current_start: int | None = None
     current_end: int | None = None
     for idx, sentence in enumerate(sentences):
-        if _tipness_score(sentence) >= 0.45:
+        if _tipness_score(sentence, profile=profile) >= 0.45:
             if current_start is None:
                 current_start = idx
                 current_end = idx
@@ -662,7 +739,7 @@ def _extract_spans_from_block(block: CandidateBlock) -> list[TipSpan]:
     if spans:
         return spans
 
-    if _tipness_score(block_text) >= 0.6:
+    if _tipness_score(block_text, profile=profile) >= 0.6:
         return [
             TipSpan(
                 text=block_text,
@@ -744,8 +821,8 @@ def _is_standalone(text: str) -> bool:
     return True
 
 
-def _normalize_tip_text(text: str) -> str:
-    cleaned = _strip_tip_prefix(_strip_bullet_prefix(text.strip()))
+def _normalize_tip_text(text: str, profile: TipParsingProfile) -> str:
+    cleaned = _strip_tip_prefix(_strip_bullet_prefix(text.strip()), profile)
     cleaned = re.sub(r"^[\.,;:]+\s*", "", cleaned)
     cleaned = _DISCOURSE_PREFIX_RE.sub("", cleaned, count=1)
     return cleaned.strip()
@@ -759,8 +836,13 @@ def _judge_tip(
     header_hint: str | None,
     tip_prefix: bool,
     source_section: str | None,
+    profile: TipParsingProfile,
 ) -> TipJudgment:
-    tipness = _tipness_score(text, tip_prefix=tip_prefix or _header_implies_tip(header_hint))
+    tipness = _tipness_score(
+        text,
+        tip_prefix=tip_prefix or _header_implies_tip(header_hint, profile),
+        profile=profile,
+    )
     standalone = _is_standalone(text)
     recipe_context = bool(recipe_name) and source_section != "standalone_block"
 
@@ -791,7 +873,7 @@ def _judge_tip(
     word_count = len(text.split())
     has_diagnostic = bool(_DIAGNOSTIC_CUE_RE.search(text))
 
-    if _header_is_recipe_specific(header_hint) or _RECIPE_SPECIFIC_HEADER_RE.match(text):
+    if _header_is_recipe_specific(header_hint, profile) or _RECIPE_SPECIFIC_HEADER_RE.match(text):
         scope = "recipe_specific"
     elif _RECIPE_SPECIFIC_PHRASE_RE.search(text):
         scope = "recipe_specific"
@@ -818,14 +900,19 @@ def _judge_tip(
     )
 
 
-def _tipness_score(text: str, *, tip_prefix: bool = False) -> float:
+def _tipness_score(
+    text: str,
+    *,
+    tip_prefix: bool = False,
+    profile: TipParsingProfile,
+) -> float:
     stripped = text.strip()
     if not stripped:
         return 0.0
-    feats = signals.classify_block(stripped)
+    feats = signals.classify_block(stripped, overrides=profile.overrides)
     score = 0.0
 
-    if tip_prefix or _TIP_PREFIX_RE.match(stripped):
+    if tip_prefix or profile.tip_prefix_re.match(stripped):
         score += 0.6
     if _TIP_ACTION_RE.search(stripped):
         score += 0.35
@@ -840,7 +927,7 @@ def _tipness_score(text: str, *, tip_prefix: bool = False) -> float:
     if feats.get("has_imperative_verb"):
         score += 0.25
 
-    if feats.get("is_instruction_likely") and not _TIP_PREFIX_RE.match(stripped):
+    if feats.get("is_instruction_likely") and not profile.tip_prefix_re.match(stripped):
         score -= 0.2
     if feats.get("is_ingredient_likely"):
         score -= 0.4
@@ -941,10 +1028,10 @@ def _has_any_variant(text: str, variants: Iterable[str]) -> bool:
     return False
 
 
-def _strip_tip_prefix(text: str) -> str:
-    if _TIP_HEADER_ONLY_RE.match(text):
+def _strip_tip_prefix(text: str, profile: TipParsingProfile) -> str:
+    if profile.tip_header_only_re.match(text):
         return ""
-    return _TIP_PREFIX_RE.sub("", text).strip()
+    return profile.tip_prefix_re.sub("", text).strip()
 
 
 def _strip_bullet_prefix(text: str) -> str:

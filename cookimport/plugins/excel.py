@@ -14,6 +14,7 @@ from cookimport.core.models import (
     ConversionReport,
     ConversionResult,
     MappingConfig,
+    RawArtifact,
     RecipeCandidate,
     SheetInspection,
     SheetMapping,
@@ -132,7 +133,9 @@ class ExcelImporter:
         wb_meta = load_workbook(path, read_only=False, data_only=False)
         report = ConversionReport(mappingUsed=mapping)
         recipes: list[RecipeCandidate] = []
+        raw_artifacts: list[RawArtifact] = []
         file_hash = compute_file_hash(path)
+        overrides = mapping.parsing_overrides if mapping else None
         try:
             for name in wb_values.sheetnames:
                 values_sheet = wb_values[name]
@@ -200,9 +203,29 @@ class ExcelImporter:
                     provenance.setdefault("@id", recipe_id)
                     recipe.provenance = provenance
 
+                provenance = recipe.provenance or {}
+                original_row = provenance.get("original_row")
+                if original_row is not None:
+                    raw_artifacts.append(
+                        RawArtifact(
+                            importer="excel",
+                            sourceHash=file_hash,
+                            locationId=_raw_location_id(provenance),
+                            extension="json",
+                            content={
+                                "sheet": provenance.get("sheet"),
+                                "row_index": provenance.get("row_index"),
+                                "headers": provenance.get("original_headers") or [],
+                                "row": original_row,
+                            },
+                        )
+                    )
+
             tip_candidates: list[Any] = []
             for recipe in recipes:
-                tip_candidates.extend(extract_tip_candidates_from_candidate(recipe))
+                tip_candidates.extend(
+                    extract_tip_candidates_from_candidate(recipe, overrides=overrides)
+                )
 
             tips, recipe_specific, not_tips = partition_tip_candidates(tip_candidates)
 
@@ -222,6 +245,7 @@ class ExcelImporter:
                 recipes=recipes,
                 tips=tips,
                 tipCandidates=tip_candidates,
+                rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem,
                 workbookPath=str(path),
@@ -305,6 +329,12 @@ def _slugify(value: str) -> str:
     lowered = value.strip().lower()
     slug = _SLUG_RE.sub("_", lowered).strip("_")
     return slug or "unknown"
+
+
+def _raw_location_id(provenance: dict[str, Any]) -> str:
+    sheet_name = str(provenance.get("sheet") or "sheet")
+    row_index = _resolve_row_index(provenance)
+    return f"{_slugify(sheet_name)}_r{row_index}"
 
 
 def _resolve_row_index(provenance: dict[str, Any]) -> int:
