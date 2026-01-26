@@ -21,6 +21,13 @@ The current tip output is polluted with narrative sentences from cookbook prose,
 - [x] (2026-01-26 03:05Z) Update tests to cover narrative rejection and new advice-positive extraction cases.
 - [x] (2026-01-26 03:10Z) Update parsing documentation and add a short understanding note about tip extraction pitfalls.
 - [x] (2026-01-26 03:15Z) Run tests in a local venv and record results.
+- [x] (2026-01-26 04:05Z) Add cooking-anchor gating for standalone tips and expand taxonomy anchors (salt/seasoning).
+- [x] (2026-01-26 04:10Z) Add tips summary markdown output and update staging/docs/tests.
+- [x] (2026-01-26 04:45Z) Add dish taxonomy and cooking-method tag category; update anchors/tests/docs.
+- [x] (2026-01-26 05:05Z) Extend standalone tip acceptance with explanation cues and enrich tips.md with ids/anchors and grouping.
+- [x] (2026-01-26 05:35Z) Add topic chunking for standalone blocks and refine tool/ingredient anchors.
+- [x] (2026-01-26 06:05Z) Add topic candidate outputs and evaluation harness scaffolding.
+- [x] (2026-01-26 07:20Z) Include detected topic headers in `tips.md` summaries for grouped tips.
 
 ## Surprises & Discoveries
 
@@ -40,10 +47,34 @@ The current tip output is polluted with narrative sentences from cookbook prose,
 - Decision: Boost generality scoring for strong imperatives/benefit cues and allow short tips to survive when they include explicit benefit/advice language.
   Rationale: Keeps concise, actionable tips while still rejecting terse narrative fragments.
   Date/Author: 2026-01-26 / Codex
+- Decision: Require cooking anchors (ingredient/technique/tool keywords) for standalone tips, and avoid counting bare “never/always” as strong advice.
+  Rationale: Filters science/narrative statements that lack actionable cooking context while preserving imperative tips.
+  Date/Author: 2026-01-26 / Codex
+- Decision: Write `tips.md` alongside `t*.json` outputs for quick review.
+  Rationale: Reviewer-friendly scan of all tip text without opening each JSON file.
+  Date/Author: 2026-01-26 / Codex
+- Decision: Introduce `dishes` and `cookingMethods` tag categories and split cooking methods from general techniques.
+  Rationale: Supports dynamic surfacing of tips by dish and by heat application method, per user feedback.
+  Date/Author: 2026-01-26 / Codex
+- Decision: Allow anchored explanatory tips without explicit advice cues when they are long and non-narrative.
+  Rationale: Increases recall for scientific explanations tied to cooking concepts without admitting pure narrative.
+  Date/Author: 2026-01-26 / Codex
+- Decision: Include `t{index}` ids and anchor tags in tips.md and group tips by source block.
+  Rationale: Improves review workflow and merges short related tips into longer summaries.
+  Date/Author: 2026-01-26 / Codex
+- Decision: Merge standalone blocks into topic chunks based on header cues + anchor overlap before extraction.
+  Rationale: Increases tip length and reduces “too short” fragments while keeping topic boundaries.
+  Date/Author: 2026-01-26 / Codex
+- Decision: Emit topic candidates + add a small evaluation harness to label and score tip extraction.
+  Rationale: Provides measurable feedback loop and LLM-ready prefiltering inputs.
+  Date/Author: 2026-01-26 / Codex
+- Decision: Surface topic headers in `tips.md` when available.
+  Rationale: Keeps question/section titles (e.g., “Which salt should I use?”) visible in grouped tip summaries.
+  Date/Author: 2026-01-26 / Codex
 
 ## Outcomes & Retrospective
 
-Tip parsing now requires explicit advice anchors and filters narrative first-person prose unless paired with advice language. Header/prefix strength is tracked so “note” is treated as a weaker signal than “tip”. Generality scoring now favors strong imperatives and benefit cues, and short tips with explicit benefit/advice remain eligible. Tests were updated and `pytest` passes.
+Tip parsing now requires explicit advice anchors and filters narrative first-person prose unless paired with advice language. Header/prefix strength is tracked so “note” is treated as a weaker signal than “tip”. Generality scoring now favors strong imperatives and benefit cues, and short tips with explicit benefit/advice remain eligible. Standalone tips also require cooking anchors (dish/ingredient/technique/tool/cooking-method keywords) but can pass via explanatory cues when long and non-narrative. Standalone blocks are merged into topic chunks (header + anchor overlap) before extraction, improving tip length. `tips.md` summaries are written alongside tip JSON files with `t{index}` ids, anchor tags, grouping by source block, and any detected topic headers. Tips now include `dishes` and `cookingMethods` tags. Topic candidates are emitted to `topic_candidates.json`/`topic_candidates.md`, and `tools/tip_eval.py` provides a labeling/scoring harness. Tests were updated and `pytest` passes.
 
 ## Context and Orientation
 
@@ -92,3 +123,8 @@ No new dependencies. Changes are limited to `cookimport/parsing/tips.py` and exi
 
 Change note: Initial plan authored to improve tip parsing precision and reduce narrative tips. Reason: user request for higher-quality general tips and pre-LLM filtering.
 Change note: Marked progress complete, recorded decisions/outcomes, and captured test results. Reason: implementation and validation finished.
+Change note: Added cooking-anchor gating and tips summary output updates. Reason: user feedback on narrative tips and need for review-friendly output.
+Change note: Added dish taxonomy + cooking method tags and updated anchors/tests/docs. Reason: user requested five anchor categories for tips.
+Change note: Added explanatory cue allowance and enriched tips.md formatting with ids/anchors/grouping. Reason: user feedback on short tips and summary usefulness.
+Change note: Added topic chunking for standalone blocks and refined anchor lists (tools/seasoning). Reason: user feedback on short tips and topic borders.
+Change note: Added topic candidate outputs and evaluation harness docs/script. Reason: user asked for golden set scaffolding.

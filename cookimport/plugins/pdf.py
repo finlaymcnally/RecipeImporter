@@ -25,8 +25,10 @@ from cookimport.core.reporting import (
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning, signals
 from cookimport.parsing.tips import (
+    build_topic_candidate,
     extract_tip_candidates,
     extract_tip_candidates_from_candidate,
+    chunk_standalone_blocks,
     partition_tip_candidates,
 )
 from cookimport.plugins import registry
@@ -105,6 +107,7 @@ class PdfImporter:
         report = ConversionReport()
         recipes: List[RecipeCandidate] = []
         tip_candidates: List[Any] = []
+        topic_candidates: List[Any] = []
         raw_artifacts: list[RawArtifact] = []
         overrides = mapping.parsing_overrides if mapping else None
         self._overrides = overrides
@@ -185,14 +188,17 @@ class PdfImporter:
                     logger.warning(f"Failed to extract candidate {i} in {path}: {e}")
                     report.warnings.append(f"Failed to parse candidate {i}: {e}")
 
-            tip_candidates.extend(
-                self._extract_standalone_tips(all_blocks, candidates_ranges, path, file_hash)
+            standalone_tips, standalone_topics = self._extract_standalone_tips(
+                all_blocks, candidates_ranges, path, file_hash
             )
+            tip_candidates.extend(standalone_tips)
+            topic_candidates.extend(standalone_topics)
 
             tips, recipe_specific, not_tips = partition_tip_candidates(tip_candidates)
             report.total_recipes = len(recipes)
             report.total_tips = len(tips)
             report.total_tip_candidates = len(tip_candidates)
+            report.total_topic_candidates = len(topic_candidates)
             report.total_general_tips = len(tips)
             report.total_recipe_specific_tips = len(recipe_specific)
             report.total_not_tips = len(not_tips)
@@ -200,11 +206,16 @@ class PdfImporter:
                 report.samples = [{"name": r.name} for r in recipes[:3]]
             if tips:
                 report.tip_samples = [{"text": tip.text[:80]} for tip in tips[:3]]
+            if topic_candidates:
+                report.topic_samples = [
+                    {"text": topic.text[:80]} for topic in topic_candidates[:3]
+                ]
 
             return ConversionResult(
                 recipes=recipes,
                 tips=tips,
                 tipCandidates=tip_candidates,
+                topicCandidates=topic_candidates,
                 rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem,
@@ -217,6 +228,7 @@ class PdfImporter:
             return ConversionResult(
                 recipes=[],
                 tips=[],
+                topicCandidates=[],
                 rawArtifacts=[],
                 report=report,
                 workbook=path.stem,
@@ -231,45 +243,74 @@ class PdfImporter:
         candidate_ranges: List[Tuple[int, int, float]],
         path: Path,
         file_hash: str,
-    ) -> List[Any]:
+    ) -> tuple[List[Any], List[Any]]:
         covered: set[int] = set()
         for start, end, _ in candidate_ranges:
             covered.update(range(start, end))
 
         tip_candidates: List[Any] = []
+        topic_candidates: List[Any] = []
         provenance_builder = ProvenanceBuilder(
             source_file=path.name,
             source_hash=file_hash,
             extraction_method="heuristic_pdf_tip",
         )
 
+        standalone_blocks: list[tuple[int, str]] = []
+        page_lookup: dict[int, int | None] = {}
+        bbox_lookup: dict[int, list[float]] = {}
         for idx, block in enumerate(blocks):
             if idx in covered:
                 continue
             text = block.text.strip()
             if not text:
                 continue
-            location: dict[str, Any] = {
-                "block_index": idx,
-                "page": block.page,
-                "chunk_index": idx,
-            }
+            standalone_blocks.append((idx, text))
+            page_lookup[idx] = block.page
             if block.bbox:
-                location["bbox"] = block.bbox
+                bbox_lookup[idx] = block.bbox
+
+        for chunk in chunk_standalone_blocks(standalone_blocks, overrides=self._overrides):
+            if not chunk.text:
+                continue
+            start_block = min(chunk.indices)
+            end_block = max(chunk.indices)
+            location: dict[str, Any] = {
+                "start_block": start_block,
+                "end_block": end_block,
+                "chunk_index": start_block,
+            }
+            page = page_lookup.get(start_block)
+            if page is not None:
+                location["page"] = page
+            bbox = bbox_lookup.get(start_block)
+            if bbox:
+                location["bbox"] = bbox
             provenance = provenance_builder.build(
                 confidence_score=0.6,
                 location=location,
             )
+            if chunk.header:
+                provenance["topic_header"] = chunk.header
+            topic_candidates.append(
+                build_topic_candidate(
+                    chunk.text,
+                    provenance=provenance,
+                    source_section="standalone_topic",
+                    header=chunk.header,
+                    overrides=self._overrides,
+                )
+            )
             tip_candidates.extend(
                 extract_tip_candidates(
-                    text,
+                    chunk.text,
                     provenance=provenance,
-                    source_section="standalone_block",
+                    source_section="standalone_topic",
                     overrides=self._overrides,
                 )
             )
 
-        return tip_candidates
+        return tip_candidates, topic_candidates
 
     def _extract_blocks_from_page(self, page: fitz.Page, page_num: int) -> List[Block]:
         """

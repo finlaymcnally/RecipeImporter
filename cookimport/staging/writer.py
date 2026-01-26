@@ -13,6 +13,8 @@ from cookimport.core.models import (
     RawArtifact,
     RecipeCandidate,
     TipCandidate,
+    TipTags,
+    TopicCandidate,
 )
 from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
 from cookimport.staging.jsonld import recipe_candidate_to_jsonld
@@ -147,6 +149,26 @@ def _ensure_tip_id(
     return stable_id
 
 
+def _ensure_topic_id(
+    topic: TopicCandidate,
+    file_hash: str,
+    sheet_slug: str,
+    row_index: int,
+    topic_index: int,
+) -> str:
+    provenance = topic.provenance or {}
+    existing = provenance.get("@id") or provenance.get("id") or topic.identifier
+    if existing:
+        topic.identifier = str(existing)
+        return topic.identifier
+    stable_id = f"urn:recipeimport:topic:{file_hash}:{sheet_slug}:tc{row_index}:{topic_index}"
+    topic.identifier = stable_id
+    provenance["@id"] = stable_id
+    provenance.setdefault("converter_version", __version__)
+    topic.provenance = provenance
+    return stable_id
+
+
 def write_intermediate_outputs(results: ConversionResult, out_dir: Path) -> None:
     """Write intermediate RecipeSage JSON-LD outputs.
 
@@ -208,6 +230,187 @@ def write_tip_outputs(results: ConversionResult, out_dir: Path) -> None:
         out_path = out_dir / f"t{index}.json"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    summary_path = out_dir / "tips.md"
+    if general_tips:
+        lines = ["# Tip Summary", ""]
+        for group in _group_tip_summaries(general_tips):
+            indices = ", ".join(group["indices"])
+            anchor_text = _format_tip_anchors(
+                _collect_tip_anchors(group["tips"])  # type: ignore[arg-type]
+            )
+            header = f"- {indices}{anchor_text}"
+            lines.append(header)
+            group_header = group.get("header")
+            if group_header:
+                lines.append(f"  {group_header}")
+            for tip_text in group["texts"]:
+                lines.append(f"  {tip_text}")
+        summary_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+    else:
+        summary_path.write_text("# Tip Summary\n\n(No tips generated.)\n", encoding="utf-8")
+
+
+def write_topic_candidate_outputs(results: ConversionResult, out_dir: Path) -> None:
+    """Write topic-candidate outputs for evaluation and LLM prefiltering.
+
+    Output path: {out_dir}/topic_candidates.json, {out_dir}/topic_candidates.md
+    """
+    if not results.topic_candidates:
+        return
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payloads: list[dict[str, Any]] = []
+    for index, topic in enumerate(results.topic_candidates):
+        provenance = topic.provenance or {}
+        sheet_name = _resolve_sheet_name(provenance)
+        row_index = _resolve_row_index(provenance)
+        topic_index = _resolve_tip_index(provenance)
+        if topic_index is None:
+            topic_index = index
+        sheet_slug = _slugify(sheet_name)
+        file_hash = _resolve_file_hash(results, provenance)
+        _ensure_topic_id(topic, file_hash, sheet_slug, row_index, topic_index)
+        payloads.append(topic.model_dump(by_alias=True, exclude_none=True))
+
+    json_path = out_dir / "topic_candidates.json"
+    json_path.write_text(json.dumps(payloads, indent=2, sort_keys=True), encoding="utf-8")
+
+    lines = [
+        "# Topic Candidates",
+        "",
+        "_These are standalone topic chunks captured before tip classification. Use for evaluation/LLM prefiltering._",
+        "",
+    ]
+    for index, topic in enumerate(results.topic_candidates):
+        anchors = _format_tip_anchors(_collect_tip_anchors([topic]))
+        lines.append(f"- tc{index}{anchors}")
+        lines.append(f"  {topic.text}")
+    md_path = out_dir / "topic_candidates.md"
+    md_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+
+
+_GENERIC_TIP_HEADERS = {
+    "tip",
+    "tips",
+    "note",
+    "notes",
+    "hint",
+    "hints",
+    "pro tip",
+    "pro tips",
+}
+
+
+def _group_tip_summaries(tips: list[TipCandidate]) -> list[dict[str, object]]:
+    groups: list[dict[str, object]] = []
+    current: dict[str, object] | None = None
+    for index, tip in enumerate(tips):
+        key = _tip_summary_key(tip)
+        if current is None or current["key"] != key:
+            header = _tip_summary_header(tip)
+            current = {
+                "key": key,
+                "indices": [f"t{index}"],
+                "texts": [tip.text],
+                "tips": [tip],
+                "header": header,
+            }
+            groups.append(current)
+        else:
+            current["indices"].append(f"t{index}")
+            current["texts"].append(tip.text)
+            current["tips"].append(tip)
+    return groups
+
+
+def _tip_summary_key(tip: TipCandidate) -> tuple:
+    provenance = tip.provenance or {}
+    location = provenance.get("location", {}) if isinstance(provenance, dict) else {}
+    header = _tip_summary_header(tip)
+    block_index = location.get("block_index")
+    start_block = location.get("start_block")
+    end_block = location.get("end_block")
+    chunk_index = location.get("chunk_index")
+    return (
+        tip.source_recipe_id,
+        block_index,
+        start_block,
+        end_block,
+        chunk_index,
+        header,
+    )
+
+
+def _tip_summary_header(tip: TipCandidate) -> str | None:
+    provenance = tip.provenance or {}
+    header = (
+        provenance.get("topic_header")
+        or provenance.get("topicHeader")
+        or provenance.get("tip_header")
+        or provenance.get("tipHeader")
+    )
+    if not header:
+        return None
+    cleaned = str(header).strip()
+    if not cleaned:
+        return None
+    if cleaned.lower() in _GENERIC_TIP_HEADERS:
+        return None
+    return cleaned
+
+
+def _collect_tip_anchors(tips: list[TipCandidate | TopicCandidate]) -> dict[str, list[str]]:
+    anchors = {
+        "dishes": [],
+        "ingredients": [],
+        "techniques": [],
+        "cooking_methods": [],
+        "tools": [],
+    }
+
+    def add_unique(target: list[str], values: list[str]) -> None:
+        for value in values:
+            if value not in target:
+                target.append(value)
+
+    for tip in tips:
+        tags = tip.tags
+        add_unique(anchors["dishes"], list(tags.dishes))
+        ingredient_values = (
+            list(tags.meats)
+            + list(tags.vegetables)
+            + list(tags.herbs)
+            + list(tags.spices)
+            + list(tags.dairy)
+            + list(tags.grains)
+            + list(tags.legumes)
+            + list(tags.fruits)
+            + list(tags.sweeteners)
+            + list(tags.oils_fats)
+        )
+        add_unique(anchors["ingredients"], ingredient_values)
+        add_unique(anchors["techniques"], list(tags.techniques))
+        add_unique(anchors["cooking_methods"], list(tags.cooking_methods))
+        add_unique(anchors["tools"], list(tags.tools))
+
+    return anchors
+
+
+def _format_tip_anchors(anchors: dict[str, list[str]]) -> str:
+    parts: list[str] = []
+    if anchors.get("dishes"):
+        parts.append(f"dish: {', '.join(anchors['dishes'])}")
+    if anchors.get("ingredients"):
+        parts.append(f"ingredients: {', '.join(anchors['ingredients'])}")
+    if anchors.get("techniques"):
+        parts.append(f"techniques: {', '.join(anchors['techniques'])}")
+    if anchors.get("cooking_methods"):
+        parts.append(f"methods: {', '.join(anchors['cooking_methods'])}")
+    if anchors.get("tools"):
+        parts.append(f"tools: {', '.join(anchors['tools'])}")
+    if not parts:
+        return ""
+    return " [" + "; ".join(parts) + "]"
 
 
 def write_raw_artifacts(results: ConversionResult, out_dir: Path) -> None:

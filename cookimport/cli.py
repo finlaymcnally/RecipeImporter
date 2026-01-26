@@ -20,6 +20,7 @@ from cookimport.staging.writer import (
     write_raw_artifacts,
     write_report,
     write_tip_outputs,
+    write_topic_candidate_outputs,
 )
 
 app = typer.Typer(add_completion=False, invoke_without_command=True)
@@ -355,6 +356,7 @@ def stage(
 
             # Write tip outputs
             write_tip_outputs(result, tips_dir)
+            write_topic_candidate_outputs(result, tips_dir)
 
             # Write raw artifacts for auditing
             write_raw_artifacts(result, out)

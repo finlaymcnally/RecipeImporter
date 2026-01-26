@@ -3,6 +3,7 @@ from __future__ import annotations
 from cookimport.core.models import ParsingOverrides, RecipeCandidate
 from cookimport.parsing.tips import (
     canonicalize_recipe_name,
+    chunk_standalone_blocks,
     extract_tip_candidates_from_candidate,
     extract_tips,
     extract_tips_from_candidate,
@@ -35,7 +36,7 @@ def test_guess_tags_from_text():
     text = "Sear steak in a cast iron skillet; rest before slicing."
     tags = guess_tags(text, recipe_name="Perfect Steak")
     assert "beef" in tags.meats
-    assert "sear" in tags.techniques
+    assert "sear" in tags.cooking_methods
     assert "cast iron" in tags.tools
 
 
@@ -88,8 +89,35 @@ def test_tip_header_override_is_respected():
 def test_guess_tags_additional_categories():
     text = "Finish pasta with basil, parmesan, olive oil, and a drizzle of honey."
     tags = guess_tags(text, recipe_name="Pasta")
+    assert "pasta" in tags.dishes
     assert "basil" in tags.herbs
     assert "cheese" in tags.dairy
     assert "pasta" in tags.grains
     assert "olive oil" in tags.oils_fats
     assert "honey" in tags.sweeteners
+
+
+def test_guess_tags_cooking_methods():
+    text = "For best results, braise the beef and finish with a quick sear."
+    tags = guess_tags(text, recipe_name="Beef")
+    assert "braise" in tags.techniques
+    assert "braise" in tags.cooking_methods
+    assert "sear" in tags.cooking_methods
+
+
+def test_chunk_standalone_blocks_merges_headers():
+    blocks = [
+        (0, "WHICH SALT SHOULD I USE?"),
+        (1, "Kosher salt draws moisture efficiently."),
+        (2, "If you must use table salt, use less."),
+    ]
+    chunks = chunk_standalone_blocks(blocks)
+    assert len(chunks) == 1
+    assert "WHICH SALT SHOULD I USE?" in chunks[0].text
+    assert "table salt" in chunks[0].text
+
+
+def test_permissive_you_can_tip_is_kept():
+    text = "You can wash delicate items like berries and then dry them in a salad spinner."
+    tips = extract_tips(text)
+    assert len(tips) == 1

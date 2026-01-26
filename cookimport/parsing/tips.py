@@ -5,10 +5,12 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 
-from cookimport.core.models import ParsingOverrides, RecipeCandidate, TipCandidate, TipTags
+from cookimport.core.models import ParsingOverrides, RecipeCandidate, TipCandidate, TipTags, TopicCandidate
 from cookimport.parsing import signals
 from cookimport.parsing.tip_taxonomy import (
+    COOKING_METHOD_TERMS,
     DAIRY_TERMS,
+    DISH_TERMS,
     FRUIT_TERMS,
     GRAIN_TERMS,
     HERB_TERMS,
@@ -96,7 +98,8 @@ _NARRATIVE_RE = re.compile(
     r"come over to my house|come over|i once|i accidentally|i decided|i always thought|"
     r"in my opinion|in my mind|for me|to me|as a kid|as a child|growing up|"
     r"last week|years ago|when i|when we|i think|i believe|i like|i love|i prefer|"
-    r"if there is, i can't think of it|can't think of it)\b",
+    r"if there is, i can't think of it|can't think of it|you'd think|you would think|"
+    r"right\?|nope|of course|as it happens|let me tell you)\b",
     re.IGNORECASE,
 )
 
@@ -111,7 +114,7 @@ _SECOND_PERSON_RE = re.compile(r"\b(you|your|you'll|you\u2019ll)\b", re.IGNORECA
 _TIP_ACTION_RE = re.compile(
     r"\b(use|add|keep|avoid|don'?t|do not|never|always|make sure|be sure|"
     r"remember|let|allow|stir|whisk|mix|cook|bake|roast|season|salt|sear|rest|"
-    r"preheat|chill|heat|simmer|reduce)\b",
+    r"preheat|chill|heat|simmer|reduce|wash|dry|store)\b",
     re.IGNORECASE,
 )
 
@@ -137,8 +140,13 @@ _ADVICE_CUE_RE = re.compile(
 _CONDITIONAL_CUE_RE = re.compile(r"\b(if|when|before|after|until|once)\b", re.IGNORECASE)
 
 _STRONG_ADVICE_RE = re.compile(
-    r"\b(should|must|need to|needs to|important|key|remember|make sure|be sure|"
-    r"ensure|avoid|never|always|for best results|for better results|recommend)\b",
+    r"\b(should|must|need to|needs to|important|key|remember to|make sure|be sure|"
+    r"ensure|avoid|for best results|for better results|recommend)\b",
+    re.IGNORECASE,
+)
+
+_PERMISSIVE_ADVICE_RE = re.compile(
+    r"^\s*(you can|you could|you may|you might|feel free to)\b",
     re.IGNORECASE,
 )
 
@@ -149,6 +157,22 @@ _GENERAL_CUE_RE = re.compile(
 )
 
 _AIM_TO_START_RE = re.compile(r"^\s*aim to\b", re.IGNORECASE)
+
+_COOKING_ANCHOR_RE = re.compile(
+    r"\b(food|cook(?:ing)?|bake|roast|grill|fry|saute|simmer|braise|boil|steam|"
+    r"broil|sear|season|salt)\b",
+    re.IGNORECASE,
+)
+
+_EXPLANATION_CUE_RE = re.compile(
+    r"\b(because|so that|in order to|which means|that means|as a result|so you can)\b",
+    re.IGNORECASE,
+)
+
+_CROSSREF_CUE_RE = re.compile(
+    r"\b(see the tip|see tip|see page|see above|see below|as discussed)\b",
+    re.IGNORECASE,
+)
 
 _STRONG_IMPERATIVE_RE = re.compile(
     r"^\s*(?:always\s+|never\s+)?"
@@ -245,6 +269,8 @@ _RECIPE_SPECIFIC_HEADERS = {
     "test kitchen tip",
     "chef's note",
     "chef's notes",
+    "variation",
+    "variations",
 }
 
 _CALLOUT_HEADERS = {
@@ -266,6 +292,23 @@ _CALLOUT_HEADERS = {
     "substitution",
     "substitutions",
 } | _RECIPE_SPECIFIC_HEADERS
+
+_ANCHOR_VARIANT_GROUPS = [
+    [variant for variants in DISH_TERMS.values() for variant in variants],
+    [variant for variants in MEAT_TERMS.values() for variant in variants],
+    [variant for variants in VEGETABLE_TERMS.values() for variant in variants],
+    [variant for variants in HERB_TERMS.values() for variant in variants],
+    [variant for variants in SPICE_TERMS.values() for variant in variants],
+    [variant for variants in DAIRY_TERMS.values() for variant in variants],
+    [variant for variants in GRAIN_TERMS.values() for variant in variants],
+    [variant for variants in LEGUME_TERMS.values() for variant in variants],
+    [variant for variants in FRUIT_TERMS.values() for variant in variants],
+    [variant for variants in SWEETENER_TERMS.values() for variant in variants],
+    [variant for variants in OIL_FAT_TERMS.values() for variant in variants],
+    [variant for variants in TECHNIQUE_TERMS.values() for variant in variants],
+    [variant for variants in COOKING_METHOD_TERMS.values() for variant in variants],
+    [variant for variants in TOOL_TERMS.values() for variant in variants],
+]
 
 _STRONG_TIP_PREFIXES = {
     "tip",
@@ -289,6 +332,8 @@ _WEAK_CALLOUT_HEADERS = {
     "chef's note",
     "chef's notes",
 }
+
+_STANDALONE_SECTIONS = {"standalone_block", "standalone_topic"}
 
 
 def _normalize_header(header: str) -> str:
@@ -396,6 +441,31 @@ class TipJudgment:
     confidence: float
     generality_score: float | None
     normalized_text: str
+
+
+@dataclass(frozen=True)
+class TopicChunk:
+    text: str
+    indices: list[int]
+    header: str | None = None
+
+
+def build_topic_candidate(
+    text: str,
+    *,
+    provenance: dict[str, Any] | None = None,
+    source_section: str | None = None,
+    header: str | None = None,
+    overrides: ParsingOverrides | None = None,
+) -> TopicCandidate:
+    tags = guess_tags(text)
+    return TopicCandidate(
+        text=text,
+        tags=tags,
+        provenance=provenance or {},
+        source_section=source_section,
+        header=header,
+    )
 
 
 def canonicalize_recipe_name(name: str) -> str:
@@ -628,6 +698,7 @@ def guess_tags(
         if canonical:
             tags.recipes.append(canonical)
 
+    tags.dishes = _match_taxonomy(combined_text, DISH_TERMS)
     tags.meats = _match_taxonomy(combined_text, MEAT_TERMS)
     tags.vegetables = _match_taxonomy(combined_text, VEGETABLE_TERMS)
     tags.herbs = _match_taxonomy(combined_text, HERB_TERMS)
@@ -639,6 +710,7 @@ def guess_tags(
     tags.sweeteners = _match_taxonomy(combined_text, SWEETENER_TERMS)
     tags.oils_fats = _match_taxonomy(combined_text, OIL_FAT_TERMS)
     tags.techniques = _match_taxonomy(combined_text, TECHNIQUE_TERMS)
+    tags.cooking_methods = _match_taxonomy(combined_text, COOKING_METHOD_TERMS)
     tags.tools = _match_taxonomy(combined_text, TOOL_TERMS)
 
     return tags
@@ -669,6 +741,116 @@ def _header_strength(header: str | None, profile: TipParsingProfile) -> str | No
     return None
 
 
+def _anchor_set_from_tags(tags: TipTags) -> set[str]:
+    ingredient_values = (
+        list(tags.meats)
+        + list(tags.vegetables)
+        + list(tags.herbs)
+        + list(tags.spices)
+        + list(tags.dairy)
+        + list(tags.grains)
+        + list(tags.legumes)
+        + list(tags.fruits)
+        + list(tags.sweeteners)
+        + list(tags.oils_fats)
+    )
+    anchors = set(tags.dishes) | set(tags.techniques) | set(tags.cooking_methods) | set(tags.tools)
+    anchors.update(ingredient_values)
+    return {anchor for anchor in anchors if anchor}
+
+
+def _anchor_set_from_text(text: str) -> set[str]:
+    tags = guess_tags(text)
+    return _anchor_set_from_tags(tags)
+
+
+def _is_topic_header(text: str, profile: TipParsingProfile) -> bool:
+    cleaned = text.strip()
+    if not cleaned:
+        return False
+    if profile.header_only_re.match(cleaned):
+        return True
+    if cleaned.endswith(":") and len(cleaned.split()) <= 8:
+        return True
+    if cleaned.isupper() and len(cleaned.split()) <= 10:
+        return True
+    if cleaned.lower().startswith("q:"):
+        return True
+    if cleaned.endswith("?") and len(cleaned.split()) <= 10:
+        return True
+    return False
+
+
+def chunk_standalone_blocks(
+    blocks: Sequence[tuple[int, str]],
+    *,
+    overrides: ParsingOverrides | None = None,
+) -> list[TopicChunk]:
+    profile = _build_tip_profile(overrides)
+    chunks: list[TopicChunk] = []
+    current_texts: list[str] = []
+    current_indices: list[int] = []
+    current_anchors: set[str] = set()
+    current_header: str | None = None
+
+    def flush() -> None:
+        nonlocal current_texts, current_indices, current_anchors, current_header
+        if current_texts:
+            chunks.append(
+                TopicChunk(
+                    text="\n".join(current_texts).strip(),
+                    indices=current_indices[:],
+                    header=current_header,
+                )
+            )
+        current_texts = []
+        current_indices = []
+        current_anchors = set()
+        current_header = None
+
+    for idx, raw_text in blocks:
+        cleaned = str(raw_text).strip()
+        if not cleaned:
+            continue
+
+        if _is_topic_header(cleaned, profile):
+            if current_texts:
+                flush()
+            current_texts = [cleaned]
+            current_indices = [idx]
+            current_anchors = _anchor_set_from_text(cleaned)
+            current_header = cleaned
+            continue
+
+        anchors = _anchor_set_from_text(cleaned)
+        if not current_texts:
+            current_texts = [cleaned]
+            current_indices = [idx]
+            current_anchors = anchors
+            current_header = None
+            continue
+
+        should_break = False
+        if anchors and current_anchors and anchors.isdisjoint(current_anchors):
+            should_break = True
+        elif not anchors and current_anchors and len(cleaned.split()) > 25:
+            should_break = True
+
+        if should_break:
+            flush()
+            current_texts = [cleaned]
+            current_indices = [idx]
+            current_anchors = anchors
+            current_header = None
+        else:
+            current_texts.append(cleaned)
+            current_indices.append(idx)
+            current_anchors.update(anchors)
+
+    flush()
+    return chunks
+
+
 def _tip_prefix_strength(text: str, profile: TipParsingProfile) -> str | None:
     match = profile.tip_prefix_re.match(text)
     if not match:
@@ -692,6 +874,8 @@ def _explicit_tip_signal(
         return True
     if _STRONG_ADVICE_RE.search(text):
         return True
+    if _PERMISSIVE_ADVICE_RE.match(text):
+        return True
     if _STRONG_IMPERATIVE_RE.match(text):
         return True
     if _AIM_TO_START_RE.match(text):
@@ -700,7 +884,7 @@ def _explicit_tip_signal(
         return True
     if _BENEFIT_CUE_RE.search(text):
         return True
-    if _SECOND_PERSON_RE.search(text) and _TIP_ACTION_RE.search(text):
+    if _EXPLANATION_CUE_RE.search(text):
         return True
     return False
 
@@ -710,6 +894,15 @@ def _is_narrative_like(text: str) -> bool:
         return True
     if _FIRST_PERSON_RE.search(text):
         return True
+    return False
+
+
+def _has_cooking_anchor(text: str) -> bool:
+    if _COOKING_ANCHOR_RE.search(text):
+        return True
+    for variants in _ANCHOR_VARIANT_GROUPS:
+        if _has_any_variant(text, variants):
+            return True
     return False
 
 
@@ -979,13 +1172,21 @@ def _judge_tip(
         profile=profile,
     )
     standalone = _is_standalone(text)
-    recipe_context = bool(recipe_name) and source_section != "standalone_block"
+    recipe_context = bool(recipe_name) and source_section not in _STANDALONE_SECTIONS
     explicit_advice = _explicit_tip_signal(
         text,
         tip_prefix_strength=tip_prefix_strength,
         header_strength=header_strength,
         profile=profile,
     )
+    cooking_anchor = _has_cooking_anchor(text)
+    explanatory_ok = (
+        cooking_anchor
+        and not explicit_advice
+        and not _is_narrative_like(text)
+        and _EXPLANATION_CUE_RE.search(text)
+    )
+    explicit_or_explanatory = explicit_advice or explanatory_ok
 
     if _hard_reject(text, explicit_advice=explicit_advice, header_strength=header_strength):
         return TipJudgment(
@@ -996,7 +1197,15 @@ def _judge_tip(
             normalized_text=text,
         )
 
-    if source_section == "standalone_block" and not explicit_advice:
+    if source_section in _STANDALONE_SECTIONS and not explicit_or_explanatory:
+        return TipJudgment(
+            scope="not_tip",
+            standalone=standalone,
+            confidence=tipness,
+            generality_score=None,
+            normalized_text=text,
+        )
+    if source_section in _STANDALONE_SECTIONS and not cooking_anchor:
         return TipJudgment(
             scope="not_tip",
             standalone=standalone,
@@ -1006,10 +1215,12 @@ def _judge_tip(
         )
 
     threshold = 0.45
-    if source_section == "standalone_block" and tip_prefix_strength is None:
+    if source_section in _STANDALONE_SECTIONS and tip_prefix_strength is None:
         threshold = 0.55
     if header_strength in {"strong", "recipe_specific"} or tip_prefix_strength == "strong":
         threshold = 0.4
+    if explicit_or_explanatory and threshold > 0.5:
+        threshold = 0.5
 
     if tipness < threshold and header_strength != "recipe_specific":
         return TipJudgment(
@@ -1041,7 +1252,7 @@ def _judge_tip(
         scope = "recipe_specific"
     elif recipe_context:
         if (
-            explicit_advice
+            explicit_or_explanatory
             and generality >= 0.85
             and (has_general_cue or has_diagnostic or header_strength == "strong")
             and word_count >= _MIN_GENERAL_WORDS
@@ -1050,11 +1261,16 @@ def _judge_tip(
         else:
             scope = "recipe_specific"
     else:
-        if not explicit_advice or generality < 0.6:
+        min_generality = 0.6
+        if explicit_or_explanatory:
+            min_generality = 0.5
+        if not explicit_or_explanatory or generality < min_generality:
             scope = "not_tip"
         else:
             scope = "general"
 
+    if scope == "general" and not cooking_anchor:
+        scope = "recipe_specific" if recipe_context else "not_tip"
     if recipe_context and scope == "general" and ingredient_overlap >= 1 and generality < 0.9:
         scope = "recipe_specific"
 
@@ -1108,6 +1324,8 @@ def _tipness_score(
         score += 0.2
     if _STRONG_ADVICE_RE.search(stripped):
         score += 0.3
+    if _PERMISSIVE_ADVICE_RE.match(stripped):
+        score += 0.3
     if _ADVICE_CUE_RE.search(stripped):
         score += 0.2
     if _CONDITIONAL_CUE_RE.search(stripped):
@@ -1117,6 +1335,8 @@ def _tipness_score(
     if _BENEFIT_CUE_RE.search(stripped):
         score += 0.3
     if _AIM_TO_START_RE.match(stripped):
+        score += 0.2
+    if _EXPLANATION_CUE_RE.search(stripped):
         score += 0.2
     if feats.get("has_imperative_verb") and not _STRONG_IMPERATIVE_RE.match(stripped):
         score += 0.15
@@ -1140,6 +1360,8 @@ def _hard_reject(
     header_strength: str | None,
 ) -> bool:
     stripped = text.strip()
+    if _CROSSREF_CUE_RE.search(stripped) and not explicit_advice:
+        return True
     if (
         not explicit_advice
         and header_strength not in {"strong", "recipe_specific"}

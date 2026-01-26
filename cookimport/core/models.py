@@ -205,6 +205,7 @@ class TipTags(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     recipes: list[str] = Field(default_factory=list)
+    dishes: list[str] = Field(default_factory=list)
     meats: list[str] = Field(default_factory=list)
     vegetables: list[str] = Field(default_factory=list)
     herbs: list[str] = Field(default_factory=list)
@@ -216,11 +217,13 @@ class TipTags(BaseModel):
     sweeteners: list[str] = Field(default_factory=list)
     oils_fats: list[str] = Field(default_factory=list)
     techniques: list[str] = Field(default_factory=list)
+    cooking_methods: list[str] = Field(default_factory=list, alias="cookingMethods")
     tools: list[str] = Field(default_factory=list)
     other: list[str] = Field(default_factory=list)
 
     @field_validator(
         "recipes",
+        "dishes",
         "meats",
         "vegetables",
         "herbs",
@@ -232,6 +235,7 @@ class TipTags(BaseModel):
         "sweeteners",
         "oils_fats",
         "techniques",
+        "cooking_methods",
         "tools",
         "other",
         mode="before",
@@ -266,6 +270,31 @@ class TipCandidate(BaseModel):
     @field_validator("identifier", "source_recipe_id", "source_recipe_title", mode="before")
     @classmethod
     def _normalize_identifier_fields(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        return _normalize_text(str(value))
+
+
+class TopicCandidate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    identifier: str | None = Field(default=None, alias="id")
+    text: str
+    tags: TipTags = Field(default_factory=TipTags)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    source_section: str | None = Field(default=None, alias="sourceSection")
+    header: str | None = None
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def _normalize_topic_text(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        return _normalize_text(str(value))
+
+    @field_validator("identifier", "source_section", "header", mode="before")
+    @classmethod
+    def _normalize_topic_fields(cls, value: Any) -> Any:
         if value is None:
             return value
         return _normalize_text(str(value))
@@ -360,6 +389,7 @@ class ConversionReport(BaseModel):
     total_recipes: int = Field(0, alias="totalRecipes")
     total_tips: int = Field(0, alias="totalTips")
     total_tip_candidates: int = Field(0, alias="totalTipCandidates")
+    total_topic_candidates: int = Field(0, alias="totalTopicCandidates")
     total_general_tips: int = Field(0, alias="totalGeneralTips")
     total_recipe_specific_tips: int = Field(0, alias="totalRecipeSpecificTips")
     total_not_tips: int = Field(0, alias="totalNotTips")
@@ -373,6 +403,7 @@ class ConversionReport(BaseModel):
     )
     samples: list[dict[str, Any]] = Field(default_factory=list)
     tip_samples: list[dict[str, Any]] = Field(default_factory=list, alias="tipSamples")
+    topic_samples: list[dict[str, Any]] = Field(default_factory=list, alias="topicSamples")
     mapping_used: MappingConfig | None = Field(default=None, alias="mappingUsed")
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
@@ -396,6 +427,7 @@ class ConversionResult(BaseModel):
     recipes: list[RecipeCandidate] = Field(default_factory=list)
     tips: list[TipCandidate] = Field(default_factory=list)
     tip_candidates: list[TipCandidate] = Field(default_factory=list, alias="tipCandidates")
+    topic_candidates: list[TopicCandidate] = Field(default_factory=list, alias="topicCandidates")
     raw_artifacts: list[RawArtifact] = Field(default_factory=list, alias="rawArtifacts")
     report: ConversionReport
     workbook: str | None = None
