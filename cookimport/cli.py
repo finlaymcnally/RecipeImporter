@@ -12,6 +12,8 @@ from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
 from cookimport.core.models import ConversionReport, MappingConfig
 from cookimport.core.overrides_io import load_parsing_overrides
 from cookimport.core.reporting import enrich_report_with_stats
+from cookimport.labelstudio.export import run_labelstudio_export
+from cookimport.labelstudio.ingest import run_labelstudio_import
 from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf  # noqa: F401
 from cookimport.staging.writer import (
@@ -55,6 +57,9 @@ def _interactive_mode(*, limit: int | None = None) -> None:
     choices = []
     if importable_files:
         choices.append(questionary.Choice("Import files from data/input", value="import"))
+        choices.append(
+            questionary.Choice("Label Studio benchmark import", value="labelstudio")
+        )
     choices.append(questionary.Choice("Inspect a single file (preview layout)", value="inspect"))
 
     action = questionary.select(
@@ -126,6 +131,96 @@ def _interactive_mode(*, limit: int | None = None) -> None:
 
         typer.secho(f"\nOutputs written to: {output_folder}", fg=typer.colors.CYAN)
 
+    elif action == "labelstudio":
+        if not importable_files:
+            typer.secho(
+                f"\nNo supported files found in {input_folder}",
+                fg=typer.colors.YELLOW,
+            )
+            raise typer.Exit(1)
+
+        file_choices = [
+            questionary.Choice(f.name, value=f) for f in importable_files
+        ]
+        selected_file = questionary.select(
+            "Select a file to import into Label Studio:",
+            choices=file_choices,
+        ).ask()
+
+        if selected_file is None:
+            raise typer.Exit(0)
+
+        project_name = questionary.text(
+            "Project name (leave blank to auto-name):",
+            default="",
+        ).ask()
+        if project_name is not None:
+            project_name = project_name.strip() or None
+
+        chunk_level = questionary.select(
+            "Chunk level:",
+            choices=[
+                questionary.Choice("both (structural + atomic)", value="both"),
+                questionary.Choice("structural only", value="structural"),
+                questionary.Choice("atomic only", value="atomic"),
+            ],
+        ).ask()
+
+        if chunk_level is None:
+            raise typer.Exit(0)
+
+        overwrite = questionary.confirm(
+            "Overwrite existing project if it exists?",
+            default=False,
+        ).ask()
+
+        if overwrite is None:
+            raise typer.Exit(0)
+
+        label_studio_url = os.getenv("LABEL_STUDIO_URL")
+        label_studio_api_key = os.getenv("LABEL_STUDIO_API_KEY")
+
+        if not label_studio_url:
+            label_studio_url = questionary.text(
+                "Label Studio URL:",
+                default="http://localhost:8080",
+            ).ask()
+        if not label_studio_api_key:
+            label_studio_api_key = questionary.password(
+                "Label Studio API key:",
+            ).ask()
+
+        url, api_key = _resolve_labelstudio_settings(
+            label_studio_url, label_studio_api_key
+        )
+
+        try:
+            result = run_labelstudio_import(
+                path=selected_file,
+                output_dir=output_folder,
+                pipeline="auto",
+                project_name=project_name,
+                chunk_level=chunk_level,
+                overwrite=bool(overwrite),
+                resume=not overwrite,
+                label_studio_url=url,
+                label_studio_api_key=api_key,
+                limit=None,
+                sample=None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _fail(str(exc))
+
+        typer.secho(
+            f"Label Studio project: {result['project_name']} (id={result['project_id']})",
+            fg=typer.colors.GREEN,
+        )
+        typer.secho(
+            f"Tasks created: {result['tasks_total']} (uploaded {result['tasks_uploaded']})",
+            fg=typer.colors.CYAN,
+        )
+        typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
+
 
 @app.callback()
 def main(ctx: typer.Context) -> None:
@@ -144,6 +239,19 @@ def main(ctx: typer.Context) -> None:
 def _fail(message: str) -> None:
     typer.secho(message, err=True, fg=typer.colors.RED)
     raise typer.Exit(1)
+
+
+def _resolve_labelstudio_settings(
+    label_studio_url: str | None,
+    label_studio_api_key: str | None,
+) -> tuple[str, str]:
+    url = label_studio_url or os.getenv("LABEL_STUDIO_URL")
+    api_key = label_studio_api_key or os.getenv("LABEL_STUDIO_API_KEY")
+    if not url:
+        _fail("Label Studio URL missing. Use --label-studio-url or LABEL_STUDIO_URL.")
+    if not api_key:
+        _fail("Label Studio API key missing. Use --label-studio-api-key or LABEL_STUDIO_API_KEY.")
+    return url, api_key
 
 
 def _require_importer(path: Path):
@@ -417,6 +525,105 @@ def inspect(
         mapping_path = out / "mappings" / f"{path.stem}.mapping.yaml"
         save_mapping_config(mapping_path, inspection.mapping_stub)
         typer.secho(f"Wrote mapping stub to {mapping_path}", fg=typer.colors.GREEN)
+
+
+@app.command("labelstudio-import")
+def labelstudio_import(
+    path: Path = typer.Argument(..., help="Cookbook file to import for labeling."),
+    output_dir: Path = typer.Option(
+        DEFAULT_OUTPUT, "--output-dir", help="Output folder for artifacts."
+    ),
+    pipeline: str = typer.Option("auto", "--pipeline", help="Importer pipeline name or auto."),
+    project_name: str | None = typer.Option(
+        None, "--project-name", help="Label Studio project name."
+    ),
+    chunk_level: str = typer.Option(
+        "both",
+        "--chunk-level",
+        help="Chunk level: structural, atomic, or both.",
+    ),
+    overwrite: bool = typer.Option(
+        False, "--overwrite/--resume", help="Overwrite project or resume."
+    ),
+    label_studio_url: str | None = typer.Option(
+        None, "--label-studio-url", help="Label Studio base URL."
+    ),
+    label_studio_api_key: str | None = typer.Option(
+        None, "--label-studio-api-key", help="Label Studio API key."
+    ),
+    limit: int | None = typer.Option(
+        None, "--limit", "-n", min=1, help="Limit number of chunks."
+    ),
+    sample: int | None = typer.Option(
+        None, "--sample", min=1, help="Randomly sample N chunks."
+    ),
+) -> None:
+    """Import a cookbook into Label Studio for benchmarking."""
+    url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
+    try:
+        result = run_labelstudio_import(
+            path=path,
+            output_dir=output_dir,
+            pipeline=pipeline,
+            project_name=project_name,
+            chunk_level=chunk_level,
+            overwrite=overwrite,
+            resume=not overwrite,
+            label_studio_url=url,
+            label_studio_api_key=api_key,
+            limit=limit,
+            sample=sample,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _fail(str(exc))
+
+    typer.secho(
+        f"Label Studio project: {result['project_name']} (id={result['project_id']})",
+        fg=typer.colors.GREEN,
+    )
+    typer.secho(
+        f"Tasks created: {result['tasks_total']} (uploaded {result['tasks_uploaded']})",
+        fg=typer.colors.CYAN,
+    )
+    typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
+    typer.echo("\nTo export labels:\n")
+    typer.echo(
+        f'cookimport labelstudio-export --project-name "{result["project_name"]}" '
+        f'--label-studio-url {url} --label-studio-api-key $LABEL_STUDIO_API_KEY'
+    )
+
+
+@app.command("labelstudio-export")
+def labelstudio_export(
+    project_name: str = typer.Option(..., "--project-name", help="Label Studio project name."),
+    output_dir: Path = typer.Option(
+        DEFAULT_OUTPUT, "--output-dir", help="Output folder for manifests."
+    ),
+    run_dir: Path | None = typer.Option(
+        None, "--run-dir", help="Specific labelstudio run directory to export."
+    ),
+    label_studio_url: str | None = typer.Option(
+        None, "--label-studio-url", help="Label Studio base URL."
+    ),
+    label_studio_api_key: str | None = typer.Option(
+        None, "--label-studio-api-key", help="Label Studio API key."
+    ),
+) -> None:
+    """Export labeled chunks from Label Studio into golden set JSONL."""
+    url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
+    try:
+        result = run_labelstudio_export(
+            project_name=project_name,
+            output_dir=output_dir,
+            label_studio_url=url,
+            label_studio_api_key=api_key,
+            run_dir=run_dir,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _fail(str(exc))
+
+    summary_path = result["summary_path"]
+    typer.secho(f"Export complete. Summary: {summary_path}", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":

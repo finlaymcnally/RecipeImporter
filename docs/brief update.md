@@ -25,8 +25,8 @@ data/output/{timestamp}/
 │   └── {workbook_slug}/
 │       ├── t{index}.json
 │       └── tips.md           # Markdown summary with t{index} ids + anchor tags
-│       ├── topic_candidates.json  # Topic chunks for evaluation/LLM prefiltering
-│       └── topic_candidates.md    # Human-readable topic chunk list
+│       ├── topic_candidates.json  # Atom-level snippets for evaluation/LLM prefiltering
+│       └── topic_candidates.md    # Human-readable atom list
 └── reports/
     └── {workbook_slug}.excel_import_report.json
 ```

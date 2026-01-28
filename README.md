@@ -1,13 +1,27 @@
-# Recipe Import (Excel) Quick Start
+# Recipe Import + Label Studio Quick Start
 
-This tool reads Excel files and writes RecipeSage JSON-LD outputs plus a per-file report. You do not need to code.
+This repo lets you import cookbooks (Excel/PDF/EPUB/etc.) and optionally build Label Studio projects for human labeling. The normal and Label Studio flows both run through the **C3imp** interactive menu.
 
-## 1) Put your Excel files here
+## One-time setup
 
-Copy `.xlsx` files into:
-`/home/mcnal/projects/recipeimport/data/input`
+Copy/paste:
 
-## 2) Run the tool
+```bash
+cd /home/mcnal/projects/recipeimport
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e ".[dev]"
+```
+
+## Put your files here
+
+```
+/home/mcnal/projects/recipeimport/data/input
+```
+
+## Run (normal import or Label Studio) - one command
+
+Copy/paste:
 
 ```bash
 cd /home/mcnal/projects/recipeimport
@@ -15,42 +29,64 @@ cd /home/mcnal/projects/recipeimport
 C3imp
 ```
 
-Primary command: `C3imp`. It runs the interactive menu. Use `C3imp 30` to keep the
-interactive flow but limit output to the first 30 recipes and tips.
+In the menu, choose:
 
-For the batch-only aliases, `import` and `C3import` still run a full import from
-`data/input` into `data/output`.
+- **Import files from data/input** for normal recipe outputs, or
+- **Label Studio benchmark import** for labeling tasks.
 
-The interactive menu will guide you through the rest:
+## Label Studio (set variables once, then run C3imp)
 
-1. Choose what to do (convert files or inspect a single file)
-2. Select which file(s) to process
-3. Confirm and run
+Start Label Studio (Docker):
 
-## Where the outputs go
+```bash
+docker run -it -p 8080:8080 --name labelstudio heartexlabs/label-studio:latest
+```
 
-The tool creates a timestamped folder for each run (e.g., `2026-01-21-153000`) inside the output directory.
+In the Label Studio UI (http://localhost:8080), create an API key. Then set these once per terminal session:
 
-- **JSON recipes (Draft V1)**: `data/output/<timestamp>/drafts/<workbook>/<sheet>/r<row>.json`
-- **Reports**: `data/output/<timestamp>/reports/<workbook>.excel_import_report.json`
-- **Mapping files**: `data/output/mappings/<workbook>.mapping.yaml` (when using `inspect`)
+```bash
+export LABEL_STUDIO_URL=http://localhost:8080
+export LABEL_STUDIO_API_KEY=your_api_key_here
+```
+
+Now just run `C3imp` and choose **Label Studio benchmark import**.
+
+## Where outputs go
+
+Each run writes a timestamped folder under:
+
+```
+data/output/<timestamp>/
+```
+
+Normal imports:
+
+- `intermediate drafts/<workbook>/` (RecipeSage JSON-LD)
+- `final drafts/<workbook>/` (Draft V1)
+- `tips/<workbook>/` (tips + topic candidates)
+- `<workbook>.excel_import_report.json` (report at run root)
+
+Label Studio runs:
+
+```
+data/output/<timestamp>/labelstudio/<book_slug>/
+```
+
+Key files:
+
+- `extracted_archive.json` (full extracted text archive)
+- `label_studio_tasks.jsonl` (uploaded tasks)
+- `coverage.json` (coverage report)
+- `exports/labeled_chunks.jsonl` (full fidelity labels)
+- `exports/golden_set_tip_eval.jsonl` (tip eval harness input)
 
 ## Troubleshooting
 
-If `cookimport` is not found, activate the virtual environment:
+If `C3imp` is not found, activate the virtualenv first:
 
 ```bash
+cd /home/mcnal/projects/recipeimport
 . .venv/bin/activate
 ```
 
-## Advanced: Manual commands
-
-You can also run commands directly without the interactive menu:
-
-```bash
-# Inspect a single file (guesses layout and optionally writes a mapping stub)
-cookimport inspect data/input/yourfile.xlsx --write-mapping --out data/output
-
-# Convert all files in a folder into timestamped drafts
-cookimport stage data/input --out data/output
-```
+If Label Studio reports no text extracted, the PDF is likely scanned. Run OCR first, then re-import.

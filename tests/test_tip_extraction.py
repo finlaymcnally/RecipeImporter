@@ -111,10 +111,13 @@ def test_chunk_standalone_blocks_merges_headers():
         (1, "Kosher salt draws moisture efficiently."),
         (2, "If you must use table salt, use less."),
     ]
-    chunks = chunk_standalone_blocks(blocks)
-    assert len(chunks) == 1
-    assert "WHICH SALT SHOULD I USE?" in chunks[0].text
-    assert "table salt" in chunks[0].text
+    containers = chunk_standalone_blocks(blocks)
+    assert len(containers) == 1
+    container = containers[0]
+    assert container.header == "WHICH SALT SHOULD I USE?"
+    texts = [text for _, text in container.blocks]
+    assert "WHICH SALT SHOULD I USE?" in texts
+    assert any("table salt" in text for text in texts)
 
 
 def test_permissive_you_can_tip_is_kept():

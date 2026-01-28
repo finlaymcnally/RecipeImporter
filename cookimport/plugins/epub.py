@@ -33,6 +33,7 @@ from cookimport.core.reporting import (
 )
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning, signals
+from cookimport.parsing.atoms import Atom, contextualize_atoms, split_text_to_atoms
 from cookimport.parsing.tips import (
     build_topic_candidate,
     extract_tip_candidates,
@@ -132,6 +133,23 @@ class EpubImporter:
             # 1. Extract Blocks (DocPack)
             blocks = self._extract_docpack(path)
             
+            raw_artifacts.append(
+                RawArtifact(
+                    importer="epub",
+                    sourceHash=file_hash,
+                    locationId="full_text",
+                    extension="json",
+                    content={
+                        "blocks": [
+                            _block_to_raw(block, idx)
+                            for idx, block in enumerate(blocks)
+                        ],
+                        "block_count": len(blocks),
+                    },
+                    metadata={"artifact_type": "extracted_blocks"},
+                )
+            )
+
             # 2. Segment into Candidates
             candidates_ranges = self._detect_candidates(blocks)
             
@@ -265,37 +283,103 @@ class EpubImporter:
                 continue
             standalone_blocks.append((idx, text))
 
-        for chunk in chunk_standalone_blocks(standalone_blocks, overrides=self._overrides):
-            if not chunk.text:
+        for container in chunk_standalone_blocks(
+            standalone_blocks, overrides=self._overrides
+        ):
+            if not container.indices:
                 continue
-            location: dict[str, Any] = {
-                "start_block": min(chunk.indices),
-                "end_block": max(chunk.indices),
-                "chunk_index": min(chunk.indices),
+            start_block = min(container.indices)
+            end_block = max(container.indices)
+            base_location: dict[str, Any] = {
+                "start_block": start_block,
+                "end_block": end_block,
+                "chunk_index": start_block,
             }
-            provenance = provenance_builder.build(
-                confidence_score=0.6,
-                location=location,
-            )
-            if chunk.header:
-                provenance["topic_header"] = chunk.header
-            topic_candidates.append(
-                build_topic_candidate(
-                    chunk.text,
+
+            atoms: list[Atom] = []
+            sequence_offset = 0
+            header_block_index: int | None = None
+            if container.header:
+                for idx, text in container.blocks:
+                    if text == container.header:
+                        header_block_index = idx
+                        break
+                if header_block_index is None and container.blocks:
+                    header_block_index = container.blocks[0][0]
+                atoms.append(
+                    Atom(
+                        text=container.header,
+                        kind="header",
+                        source_block_index=(
+                            header_block_index if header_block_index is not None else start_block
+                        ),
+                        sequence=sequence_offset,
+                        container_start=start_block,
+                        container_end=end_block,
+                        container_header=container.header,
+                    )
+                )
+                sequence_offset += 1
+
+            for idx, text in container.blocks:
+                if container.header and text == container.header:
+                    continue
+                block_atoms = split_text_to_atoms(
+                    text,
+                    idx,
+                    sequence_offset=sequence_offset,
+                    container_start=start_block,
+                    container_end=end_block,
+                    container_header=container.header,
+                )
+                atoms.extend(block_atoms)
+                sequence_offset = len(atoms)
+
+            contextualize_atoms(atoms)
+
+            container_tip_index = 0
+            for atom in atoms:
+                location = dict(base_location)
+                location["block_index"] = atom.source_block_index
+                location["atom_index"] = atom.sequence
+                location["atom_kind"] = atom.kind
+
+                provenance = provenance_builder.build(
+                    confidence_score=0.6,
+                    location=location,
+                )
+                if container.header:
+                    provenance["topic_header"] = container.header
+                provenance["atom"] = {
+                    "index": atom.sequence,
+                    "kind": atom.kind,
+                    "block_index": atom.source_block_index,
+                    "context_prev": atom.context_prev,
+                    "context_next": atom.context_next,
+                }
+
+                topic_candidates.append(
+                    build_topic_candidate(
+                        atom.text,
+                        provenance=provenance,
+                        source_section="standalone_topic",
+                        header=container.header,
+                        overrides=self._overrides,
+                    )
+                )
+
+                if atom.kind == "header":
+                    continue
+                atom_tips = extract_tip_candidates(
+                    atom.text,
                     provenance=provenance,
                     source_section="standalone_topic",
-                    header=chunk.header,
                     overrides=self._overrides,
+                    tip_index_start=container_tip_index,
+                    header_hint=container.header,
                 )
-            )
-            tip_candidates.extend(
-                extract_tip_candidates(
-                    chunk.text,
-                    provenance=provenance,
-                    source_section="standalone_topic",
-                    overrides=self._overrides,
-                )
-            )
+                tip_candidates.extend(atom_tips)
+                container_tip_index += len(atom_tips)
 
         return tip_candidates, topic_candidates
 

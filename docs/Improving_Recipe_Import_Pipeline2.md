@@ -1,3 +1,10 @@
+---
+summary: "High-level architecture, tech stack, and token cost estimation for the cookimport project."
+read_when:
+  - When planning the overall system structure
+  - When evaluating Unstructured.io or LLM token budgets
+---
+
 > **ExecPlan Integration Notes (2026-01-24):**
 >
 > Ideas from this document have been distributed to execplans as follows:

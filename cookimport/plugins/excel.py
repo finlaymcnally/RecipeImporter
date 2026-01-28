@@ -221,6 +221,33 @@ class ExcelImporter:
                         )
                     )
 
+            extracted_rows: list[dict[str, Any]] = []
+            for artifact in raw_artifacts:
+                if not isinstance(artifact.content, dict):
+                    continue
+                if "row" not in artifact.content:
+                    continue
+                extracted_rows.append(
+                    {
+                        "sheet": artifact.content.get("sheet"),
+                        "row_index": artifact.content.get("row_index"),
+                        "headers": artifact.content.get("headers") or [],
+                        "row": artifact.content.get("row"),
+                    }
+                )
+
+            if extracted_rows:
+                raw_artifacts.append(
+                    RawArtifact(
+                        importer="excel",
+                        sourceHash=file_hash,
+                        locationId="full_rows",
+                        extension="json",
+                        content={"rows": extracted_rows},
+                        metadata={"artifact_type": "extracted_rows"},
+                    )
+                )
+
             tip_candidates: list[Any] = []
             for recipe in recipes:
                 tip_candidates.extend(

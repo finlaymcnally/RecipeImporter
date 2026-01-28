@@ -1,3 +1,9 @@
+---
+summary: "AI Onboarding & Project Summary for the cookimport project."
+read_when:
+  - When an AI agent or new developer needs a technical overview of the architecture, tech stack, and data flow
+---
+
 # AI Onboarding & Project Summary: Recipe Import Pipeline
 
 This document provides a technical overview of the `cookimport` project. It is designed to help AI developers understand the current architecture, data flow, and dependencies.

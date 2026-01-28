@@ -17,7 +17,7 @@ Tip extraction works like this:
 3) Sentences that look tip-like become candidates.
 4) Each candidate is classified as **general**, **recipe_specific**, or **not_tip**.
 5) Only **general + standalone** tips are written to `data/output/.../tips/...`, along with `tips.md` (a summary list that includes `t{index}` ids, anchor tags, any detected topic headers, and groups tips from the same source block).
-6) Topic candidates are written as `topic_candidates.json` and `topic_candidates.md` in the same tips folder; these are raw topic chunks meant for evaluation/LLM prefiltering. See `docs/Tip_Evaluation_Harness.md` for the labeling workflow.
+6) Topic candidates are written as `topic_candidates.json` and `topic_candidates.md` in the same tips folder; these are atom-level snippets meant for evaluation/LLM prefiltering. See `docs/Tip_Evaluation_Harness.md` for the labeling workflow.
 
 If you see narrative snippets in tips, it means the **tipness or generality gate is too permissive** for standalone blocks.
 
@@ -129,11 +129,14 @@ File: `cookimport/parsing/tips.py`, function `_has_cooking_anchor` and the stand
 
 Standalone tips now require at least one cooking anchor (dish/ingredient/technique/tool/cooking method, or a cooking keyword like “cook”/“bake”/“salt”). If science narration still leaks, tighten the anchor regex or add more anchor terms to `tip_taxonomy.py` so only real cooking concepts pass.
 
-### 3.5 Topic chunking (merge adjacent paragraphs)
+### 3.5 Atomic topic chunking (containers → atoms)
 
-File: `cookimport/parsing/tips.py`, function `chunk_standalone_blocks`, used by `cookimport/plugins/epub.py` and `cookimport/plugins/pdf.py`.
+Files:
+- `cookimport/parsing/tips.py`, function `chunk_standalone_blocks` (builds containers from standalone blocks).
+- `cookimport/parsing/atoms.py` (splits each container block into atoms).
+- `cookimport/plugins/epub.py` / `cookimport/plugins/pdf.py` (iterate atoms, attach context/provenance).
 
-Standalone blocks are now merged into **topic chunks** based on header cues and anchor overlap, so short consecutive tips (like cast‑iron care or stand‑mixer checklists) get grouped into longer text before extraction. If you want **more merging**, loosen the anchor overlap break in `chunk_standalone_blocks` or treat more lines as headers via `_is_topic_header`. If you want **less merging**, make the break conditions stricter.
+Standalone blocks are grouped into **containers** based on header cues and anchor overlap, then split into **atoms** (paragraphs/list items) before extraction. This keeps coverage while avoiding mixed chunks. If you want **more merging**, loosen the anchor overlap break in `chunk_standalone_blocks` or treat more lines as headers via `_is_topic_header`. If you want **less merging**, make the break conditions stricter. If you want **finer atoms**, adjust the paragraph/list splitting rules in `atoms.py`.
 
 ### 3.6 Expand narrative rejection
 

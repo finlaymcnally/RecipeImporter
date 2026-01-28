@@ -436,6 +436,23 @@ class TextImporter:
             raw_text = self._extract_text(path)
             file_hash = compute_file_hash(path)
             normalized = cleaning.normalize_text(raw_text)
+
+            raw_artifacts.append(
+                RawArtifact(
+                    importer="text",
+                    sourceHash=file_hash,
+                    locationId="full_text",
+                    extension="json",
+                    content={
+                        "lines": [
+                            {"index": idx, "text": line}
+                            for idx, line in enumerate(raw_text.splitlines())
+                        ],
+                        "text": raw_text,
+                    },
+                    metadata={"artifact_type": "extracted_text"},
+                )
+            )
             
             # 1. Split
             chunks = self._split_recipes(normalized)

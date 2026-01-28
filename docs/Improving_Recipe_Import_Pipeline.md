@@ -1,3 +1,10 @@
+---
+summary: "Research on improving tip and knowledge extraction from cookbooks using heuristics, ML, and LLMs."
+read_when:
+  - When implementing or tuning tip/knowledge extraction
+  - When considering ML or hybrid rule/LLM approaches for parsing
+---
+
 # Improving Recipe Import Pipeline: Extracting Cooking Tips & Knowledge
 
 > **ExecPlan Integration Notes (2026-01-24):**

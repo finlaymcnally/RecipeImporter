@@ -1,3 +1,9 @@
+---
+summary: "Guidelines for working with ExecPlans in the plans/ directory."
+read_when:
+  - When authoring or updating ExecPlans in docs/plans/
+---
+
 REMEMBER TO UPDATE THE EXECPLAN YOU ARE WORKING OUT OF. BY THE TIME IT IS FULLY IMPLEMENTED, THE EXECPLAN SHOULD JUST BE A DOCUMENT THAT EXPLAINS HOW IT WORKS AND KEY CHOICES/DESIGN.
 
 Dont rename files in this folder. I have been deviating from the naming convention for execplans on purpose.

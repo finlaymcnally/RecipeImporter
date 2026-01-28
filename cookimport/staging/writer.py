@@ -278,13 +278,29 @@ def write_topic_candidate_outputs(results: ConversionResult, out_dir: Path) -> N
     lines = [
         "# Topic Candidates",
         "",
-        "_These are standalone topic chunks captured before tip classification. Use for evaluation/LLM prefiltering._",
+        "_These are standalone atom-level snippets captured before tip classification. Use for evaluation/LLM prefiltering._",
         "",
     ]
     for index, topic in enumerate(results.topic_candidates):
         anchors = _format_tip_anchors(_collect_tip_anchors([topic]))
-        lines.append(f"- tc{index}{anchors}")
+        provenance = topic.provenance or {}
+        atom_meta = provenance.get("atom") if isinstance(provenance, dict) else None
+        atom_kind = None
+        if isinstance(atom_meta, dict):
+            atom_kind = atom_meta.get("kind")
+        kind_suffix = f" ({atom_kind})" if atom_kind else ""
+        lines.append(f"- tc{index}{anchors}{kind_suffix}")
+        header = _normalize_topic_header(topic.header or provenance.get("topic_header"))
+        if header and header != topic.text:
+            lines.append(f"  {header}")
         lines.append(f"  {topic.text}")
+        if isinstance(atom_meta, dict):
+            context_prev = _truncate_context(atom_meta.get("context_prev"))
+            context_next = _truncate_context(atom_meta.get("context_next"))
+            if context_prev:
+                lines.append(f"  prev: {context_prev}")
+            if context_next:
+                lines.append(f"  next: {context_next}")
     md_path = out_dir / "topic_candidates.md"
     md_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
 
@@ -299,6 +315,28 @@ _GENERIC_TIP_HEADERS = {
     "pro tip",
     "pro tips",
 }
+
+
+def _normalize_topic_header(header: Any) -> str | None:
+    if not header:
+        return None
+    cleaned = str(header).strip()
+    if not cleaned:
+        return None
+    if cleaned.lower() in _GENERIC_TIP_HEADERS:
+        return None
+    return cleaned
+
+
+def _truncate_context(value: Any, limit: int = 140) -> str | None:
+    if not value:
+        return None
+    cleaned = " ".join(str(value).split())
+    if not cleaned:
+        return None
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: max(limit - 3, 0)] + "..."
 
 
 def _group_tip_summaries(tips: list[TipCandidate]) -> list[dict[str, object]]:

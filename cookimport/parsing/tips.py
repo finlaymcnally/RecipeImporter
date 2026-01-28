@@ -444,9 +444,9 @@ class TipJudgment:
 
 
 @dataclass(frozen=True)
-class TopicChunk:
-    text: str
+class TopicContainer:
     indices: list[int]
+    blocks: list[tuple[int, str]]
     header: str | None = None
 
 
@@ -500,9 +500,11 @@ def extract_tips(
     include_not_tips: bool = False,
     require_standalone: bool = True,
     overrides: ParsingOverrides | None = None,
+    tip_index_start: int = 0,
+    header_hint: str | None = None,
 ) -> list[TipCandidate]:
     tips: list[TipCandidate] = []
-    tip_counter = 0
+    tip_counter = tip_index_start
 
     profile = _build_tip_profile(overrides)
     blocks = _split_blocks(text, profile)
@@ -524,11 +526,12 @@ def extract_tips(
             normalized = _normalize_tip_text(repaired_text, profile)
             if not normalized:
                 continue
+            effective_header = span.header or header_hint
             judgment = _judge_tip(
                 normalized,
                 recipe_name=recipe_name,
                 ingredient_tokens=ingredient_tokens,
-                header_hint=span.header,
+                header_hint=effective_header,
                 tip_prefix_strength=tip_prefix_strength,
                 source_section=source_section,
                 profile=profile,
@@ -576,7 +579,7 @@ def extract_tips(
                     sentence_start=span.sentence_start,
                     sentence_end=span.sentence_end,
                     span_repairs=repair_flags,
-                    header_hint=span.header,
+                    header_hint=effective_header,
                 ),
                 confidence=judgment.confidence,
             )
@@ -633,6 +636,8 @@ def extract_tip_candidates(
     provenance: dict[str, Any] | None = None,
     source_section: str | None = None,
     overrides: ParsingOverrides | None = None,
+    tip_index_start: int = 0,
+    header_hint: str | None = None,
 ) -> list[TipCandidate]:
     return extract_tips(
         text,
@@ -645,6 +650,8 @@ def extract_tip_candidates(
         include_not_tips=True,
         require_standalone=False,
         overrides=overrides,
+        tip_index_start=tip_index_start,
+        header_hint=header_hint,
     )
 
 
@@ -785,25 +792,25 @@ def chunk_standalone_blocks(
     blocks: Sequence[tuple[int, str]],
     *,
     overrides: ParsingOverrides | None = None,
-) -> list[TopicChunk]:
+) -> list[TopicContainer]:
     profile = _build_tip_profile(overrides)
-    chunks: list[TopicChunk] = []
-    current_texts: list[str] = []
+    containers: list[TopicContainer] = []
+    current_blocks: list[tuple[int, str]] = []
     current_indices: list[int] = []
     current_anchors: set[str] = set()
     current_header: str | None = None
 
     def flush() -> None:
-        nonlocal current_texts, current_indices, current_anchors, current_header
-        if current_texts:
-            chunks.append(
-                TopicChunk(
-                    text="\n".join(current_texts).strip(),
+        nonlocal current_blocks, current_indices, current_anchors, current_header
+        if current_blocks:
+            containers.append(
+                TopicContainer(
                     indices=current_indices[:],
+                    blocks=current_blocks[:],
                     header=current_header,
                 )
             )
-        current_texts = []
+        current_blocks = []
         current_indices = []
         current_anchors = set()
         current_header = None
@@ -814,17 +821,17 @@ def chunk_standalone_blocks(
             continue
 
         if _is_topic_header(cleaned, profile):
-            if current_texts:
+            if current_blocks:
                 flush()
-            current_texts = [cleaned]
+            current_blocks = [(idx, cleaned)]
             current_indices = [idx]
             current_anchors = _anchor_set_from_text(cleaned)
             current_header = cleaned
             continue
 
         anchors = _anchor_set_from_text(cleaned)
-        if not current_texts:
-            current_texts = [cleaned]
+        if not current_blocks:
+            current_blocks = [(idx, cleaned)]
             current_indices = [idx]
             current_anchors = anchors
             current_header = None
@@ -838,17 +845,17 @@ def chunk_standalone_blocks(
 
         if should_break:
             flush()
-            current_texts = [cleaned]
+            current_blocks = [(idx, cleaned)]
             current_indices = [idx]
             current_anchors = anchors
             current_header = None
         else:
-            current_texts.append(cleaned)
+            current_blocks.append((idx, cleaned))
             current_indices.append(idx)
             current_anchors.update(anchors)
 
     flush()
-    return chunks
+    return containers
 
 
 def _tip_prefix_strength(text: str, profile: TipParsingProfile) -> str | None:
