@@ -22,6 +22,7 @@ from cookimport.core.models import (
     WorkbookInspection,
 )
 from cookimport.core.reporting import compute_file_hash
+from cookimport.core.scoring import score_recipe_candidate
 from cookimport.parsing.tips import (
     extract_tip_candidates_from_candidate,
     partition_tip_candidates,
@@ -193,6 +194,9 @@ class ExcelImporter:
                 )
 
             for recipe in recipes:
+                if recipe.confidence is None:
+                    recipe.confidence = score_recipe_candidate(recipe)
+
                 if not recipe.identifier:
                     provenance = recipe.provenance or {}
                     sheet_name = str(provenance.get("sheet") or "sheet")

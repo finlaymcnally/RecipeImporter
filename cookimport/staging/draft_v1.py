@@ -69,6 +69,7 @@ def recipe_candidate_to_draft_v1(candidate: RecipeCandidate) -> dict[str, Any]:
         "yield_phrase": candidate.recipe_yield,
         "yield_unit_name": None,
         "yield_detail": None,
+        "confidence": candidate.confidence,
     }
 
     # 2. Prepare Steps & Ingredients

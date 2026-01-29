@@ -9,13 +9,13 @@ import questionary
 import typer
 
 from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
-from cookimport.core.models import ConversionReport, MappingConfig
+from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
 from cookimport.core.overrides_io import load_parsing_overrides
 from cookimport.core.reporting import enrich_report_with_stats
 from cookimport.labelstudio.export import run_labelstudio_export
 from cookimport.labelstudio.ingest import run_labelstudio_import
 from cookimport.plugins import registry
-from cookimport.plugins import excel, text, epub, pdf  # noqa: F401
+from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
 from cookimport.staging.writer import (
     write_draft_outputs,
     write_intermediate_outputs,
@@ -363,7 +363,7 @@ def stage(
         "--limit",
         "-n",
         min=1,
-        help="Process only the first N recipes and tips across all files.",
+        help="Limit output to the first N recipes and N tips per file.",
     ),
 ) -> None:
     """Stage recipes from a source file or folder.
@@ -394,18 +394,12 @@ def stage(
     out.mkdir(parents=True, exist_ok=True)
 
     files_to_process = list(_iter_files(path))
-    
+
     if not files_to_process:
         typer.secho("No files found to process.", fg=typer.colors.YELLOW)
         return
 
-    remaining_recipes = limit
-    remaining_tips = limit
-
     for file_path in files_to_process:
-        if limit is not None and remaining_recipes <= 0 and remaining_tips <= 0:
-            typer.secho("Limit reached; stopping early.", fg=typer.colors.CYAN)
-            break
         importer, score = registry.best_importer_for_path(file_path)
         if importer is None or score <= 0:
             typer.secho(f"Skipping {file_path.name}: No suitable importer found.", fg=typer.colors.YELLOW)
@@ -443,14 +437,12 @@ def stage(
             result = importer.convert(file_path, mapping_config)
 
             if limit is not None:
-                recipes_taken, tips_taken, _ = _apply_result_limits(
+                _apply_result_limits(
                     result,
-                    remaining_recipes,
-                    remaining_tips,
+                    limit,
+                    limit,
                     limit_label=limit,
                 )
-                remaining_recipes = max(0, remaining_recipes - recipes_taken)
-                remaining_tips = max(0, remaining_tips - tips_taken)
 
             # Enrich report with extra stats
             result.report.run_timestamp = run_dt.isoformat(timespec="seconds")

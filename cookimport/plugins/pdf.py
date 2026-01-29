@@ -22,6 +22,7 @@ from cookimport.core.reporting import (
     compute_file_hash,
     generate_recipe_id,
 )
+from cookimport.core.scoring import score_recipe_candidate
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning, signals
 from cookimport.parsing.atoms import Atom, contextualize_atoms, split_text_to_atoms
@@ -146,10 +147,11 @@ class PdfImporter:
             candidates_ranges = self._detect_candidates(all_blocks)
             
             # 3. Extract Fields
-            for i, (start, end, score) in enumerate(candidates_ranges):
+            for i, (start, end, segmentation_score) in enumerate(candidates_ranges):
                 try:
                     candidate_blocks = all_blocks[start:end]
                     candidate = self._extract_fields(candidate_blocks)
+                    candidate.confidence = score_recipe_candidate(candidate)
                     
                     # Provenance
                     provenance_builder = ProvenanceBuilder(
@@ -163,13 +165,14 @@ class PdfImporter:
                     end_page = candidate_blocks[-1].page if candidate_blocks else 0
                     
                     provenance = provenance_builder.build(
-                        confidence_score=score / 10.0,
+                        confidence_score=candidate.confidence,
                         location={
                             "start_block": start,
                             "end_block": end,
                             "start_page": start_page,
                             "end_page": end_page,
-                            "chunk_index": i
+                            "chunk_index": i,
+                            "segmentation_score": segmentation_score
                         }
                     )
                     candidate.provenance = provenance

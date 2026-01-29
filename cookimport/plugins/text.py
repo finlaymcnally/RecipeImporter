@@ -30,6 +30,7 @@ from cookimport.core.reporting import (
     compute_file_hash,
     generate_recipe_id,
 )
+from cookimport.core.scoring import score_recipe_candidate
 from cookimport.parsing import cleaning, signals
 from cookimport.parsing.tips import (
     extract_tip_candidates_from_candidate,
@@ -461,6 +462,7 @@ class TextImporter:
             for i, (chunk_text, line_range) in enumerate(chunks):
                 try:
                     candidate = self._parse_chunk(chunk_text, overrides=overrides)
+                    candidate.confidence = score_recipe_candidate(candidate)
                     
                     # Add provenance
                     provenance_builder = ProvenanceBuilder(
@@ -470,7 +472,7 @@ class TextImporter:
                     )
                     
                     provenance = provenance_builder.build(
-                        confidence_score=0.8, # TODO: Calculate based on signal strength
+                        confidence_score=candidate.confidence,
                         location={
                             "start_line": line_range[0],
                             "end_line": line_range[1],

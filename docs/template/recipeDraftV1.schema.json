@@ -67,6 +67,12 @@
             "minLength": 1
           },
           "description": "Variant or variation notes extracted from the source"
+        },
+        "confidence": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Confidence score of the recipe extraction (0.0 to 1.0)"
         }
       }
     },

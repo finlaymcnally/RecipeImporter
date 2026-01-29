@@ -110,6 +110,8 @@ InstructionItem = str | HowToStep
 class RecipeCandidate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
+    context: str | None = Field(default="http://schema.org", alias="@context")
+    type: str = Field(default="Recipe", alias="@type")
     name: str
     identifier: str | None = None
     date_published: str | None = Field(default=None, alias="datePublished")
@@ -125,22 +127,36 @@ class RecipeCandidate(BaseModel):
     tags: list[str] = Field(default_factory=list)
     image: list[str] = Field(default_factory=list)
     recipe_category: list[str] = Field(default_factory=list, alias="recipeCategory")
+    recipe_cuisine: list[str] = Field(default_factory=list, alias="recipeCuisine")
+    cooking_method: list[str] = Field(default_factory=list, alias="cookingMethod")
+    suitable_for_diet: list[str] = Field(default_factory=list, alias="suitableForDiet")
+    author: str | None = Field(default=None, alias="author")
+    publisher: str | None = Field(default=None, alias="publisher")
+    date_modified: str | None = Field(default=None, alias="dateModified")
     credit_text: str | None = Field(default=None, alias="creditText")
     source_url: str | None = Field(default=None, alias="sourceUrl")
     is_based_on: str | None = Field(default=None, alias="isBasedOn")
+    tools: list[str] = Field(default_factory=list, alias="tool")
+    supplies: list[str] = Field(default_factory=list, alias="supply")
+    nutrition: dict[str, Any] | None = Field(default=None, alias="nutrition")
+    video: dict[str, Any] | None = Field(default=None, alias="video")
     comments: list[RecipeComment] = Field(default_factory=list, alias="comment")
     aggregate_rating: AggregateRating | None = Field(default=None, alias="aggregateRating")
     provenance: dict[str, Any] = Field(default_factory=dict)
+    confidence: float | None = None
 
     @field_validator(
         "name",
         "identifier",
         "date_published",
+        "date_modified",
         "description",
         "recipe_yield",
         "prep_time",
         "cook_time",
         "total_time",
+        "author",
+        "publisher",
         "credit_text",
         "source_url",
         "is_based_on",
@@ -152,7 +168,17 @@ class RecipeCandidate(BaseModel):
             return value
         return _normalize_text(str(value))
 
-    @field_validator("ingredients", "tags", "recipe_category", mode="before")
+    @field_validator(
+        "ingredients",
+        "tags",
+        "recipe_category",
+        "recipe_cuisine",
+        "cooking_method",
+        "suitable_for_diet",
+        "tools",
+        "supplies",
+        mode="before",
+    )
     @classmethod
     def _normalize_list_fields(cls, value: Any) -> list[str]:
         return _normalize_list(value)
