@@ -63,6 +63,10 @@ class HowToStep(BaseModel):
 
     type: str = Field(default="HowToStep", alias="@type")
     text: str
+    # Extension fields for extracted instruction metadata (not in schema.org)
+    time_seconds: int | None = Field(default=None, alias="timeSeconds")
+    temperature: float | None = None
+    temperature_unit: str | None = Field(default=None, alias="temperatureUnit")
 
     @field_validator("text", mode="before")
     @classmethod
@@ -142,10 +146,12 @@ class RecipeCandidate(BaseModel):
     video: dict[str, Any] | None = Field(default=None, alias="video")
     comments: list[RecipeComment] = Field(default_factory=list, alias="comment")
     aggregate_rating: AggregateRating | None = Field(default=None, alias="aggregateRating")
+    source: str | None = None
     provenance: dict[str, Any] = Field(default_factory=dict)
     confidence: float | None = None
 
     @field_validator(
+        "source",
         "name",
         "identifier",
         "date_published",
@@ -283,10 +289,11 @@ class TipCandidate(BaseModel):
     tags: TipTags = Field(default_factory=TipTags)
     source_recipe_id: str | None = Field(default=None, alias="sourceRecipeId")
     source_recipe_title: str | None = Field(default=None, alias="sourceRecipeTitle")
+    source: str | None = None
     provenance: dict[str, Any] = Field(default_factory=dict)
     confidence: float | None = None
 
-    @field_validator("text", "source_text", mode="before")
+    @field_validator("source", "text", "source_text", mode="before")
     @classmethod
     def _normalize_tip_text(cls, value: Any) -> Any:
         if value is None:
@@ -307,11 +314,12 @@ class TopicCandidate(BaseModel):
     identifier: str | None = Field(default=None, alias="id")
     text: str
     tags: TipTags = Field(default_factory=TipTags)
+    source: str | None = None
     provenance: dict[str, Any] = Field(default_factory=dict)
     source_section: str | None = Field(default=None, alias="sourceSection")
     header: str | None = None
 
-    @field_validator("text", mode="before")
+    @field_validator("source", "text", mode="before")
     @classmethod
     def _normalize_topic_text(cls, value: Any) -> Any:
         if value is None:
@@ -450,6 +458,7 @@ class RawArtifact(BaseModel):
 class ConversionResult(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
+    source: str | None = None
     recipes: list[RecipeCandidate] = Field(default_factory=list)
     tips: list[TipCandidate] = Field(default_factory=list)
     tip_candidates: list[TipCandidate] = Field(default_factory=list, alias="tipCandidates")

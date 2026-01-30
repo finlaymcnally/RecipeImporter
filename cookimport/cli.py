@@ -123,13 +123,13 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             raise typer.Exit(0)
 
         typer.echo()
-        
-        if selection == "all":
-            stage(path=input_folder, out=output_folder, mapping=None, overrides=None, limit=limit)
-        else:
-            stage(path=selection, out=output_folder, mapping=None, overrides=None, limit=limit)
 
-        typer.secho(f"\nOutputs written to: {output_folder}", fg=typer.colors.CYAN)
+        if selection == "all":
+            run_folder = stage(path=input_folder, out=output_folder, mapping=None, overrides=None, limit=limit)
+        else:
+            run_folder = stage(path=selection, out=output_folder, mapping=None, overrides=None, limit=limit)
+
+        typer.secho(f"\nOutputs written to: {run_folder}", fg=typer.colors.CYAN)
 
     elif action == "labelstudio":
         if not importable_files:
@@ -365,7 +365,7 @@ def stage(
         min=1,
         help="Limit output to the first N recipes and N tips per file.",
     ),
-) -> None:
+) -> Path:
     """Stage recipes from a source file or folder.
 
     Outputs are organized as:
@@ -389,7 +389,7 @@ def stage(
 
     # Create timestamped output folder for this run
     run_dt = dt.datetime.now()
-    timestamp = run_dt.strftime("%Y-%m-%d-%H%M%S")
+    timestamp = run_dt.strftime("%Y-%m-%d-%H-%M-%S")
     out = out / timestamp
     out.mkdir(parents=True, exist_ok=True)
 
@@ -397,7 +397,7 @@ def stage(
 
     if not files_to_process:
         typer.secho("No files found to process.", fg=typer.colors.YELLOW)
-        return
+        return out
 
     for file_path in files_to_process:
         importer, score = registry.best_importer_for_path(file_path)
@@ -486,6 +486,8 @@ def stage(
         typer.secho("Errors encountered:", fg=typer.colors.YELLOW)
         for message in errors:
             typer.secho(f"- {message}", fg=typer.colors.YELLOW)
+
+    return out
 
 
 @app.command()

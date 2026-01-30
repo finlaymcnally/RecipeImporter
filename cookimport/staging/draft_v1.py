@@ -6,6 +6,7 @@ from typing import Any
 
 from cookimport.core.models import HowToStep, RecipeCandidate
 from cookimport.parsing.ingredients import parse_ingredient_line
+from cookimport.parsing.instruction_parser import parse_instruction
 from cookimport.parsing.tips import extract_recipe_specific_notes
 from cookimport.parsing.step_ingredients import assign_ingredient_lines_to_steps
 
@@ -101,18 +102,32 @@ def recipe_candidate_to_draft_v1(candidate: RecipeCandidate) -> dict[str, Any]:
         all_ingredient_lines,
     )
 
+    total_step_time_seconds = 0
     for idx, text in enumerate(instruction_texts):
         step_ingredients = step_ingredient_lines[idx] if idx < len(step_ingredient_lines) else []
 
-        steps_data.append(
-            {
-                "instruction": text,
-                "ingredient_lines": step_ingredients,
-            }
-        )
+        # Extract time/temperature metadata from instruction text
+        instr_meta = parse_instruction(text)
+        step_entry: dict[str, Any] = {
+            "instruction": text,
+            "ingredient_lines": step_ingredients,
+        }
+        if instr_meta.total_time_seconds is not None:
+            step_entry["time_seconds"] = instr_meta.total_time_seconds
+            total_step_time_seconds += instr_meta.total_time_seconds
+        if instr_meta.temperature is not None:
+            step_entry["temperature"] = instr_meta.temperature
+            step_entry["temperature_unit"] = instr_meta.temperature_unit
+
+        steps_data.append(step_entry)
+
+    # Compute cook_time from step times if not already present
+    if total_step_time_seconds > 0 and not candidate.cook_time:
+        recipe_meta["cook_time_seconds"] = total_step_time_seconds
 
     return {
         "schema_v": 1,
+        "source": candidate.source,
         "recipe": recipe_meta,
         "steps": steps_data,
     }
