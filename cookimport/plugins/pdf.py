@@ -4,7 +4,7 @@ import logging
 import re
 import statistics
 from pathlib import Path
-from typing import Any, List, Tuple
+from typing import Any, List, Literal, Tuple
 
 import fitz  # type: ignore
 
@@ -12,6 +12,7 @@ from cookimport.core.models import (
     ConversionReport,
     ConversionResult,
     MappingConfig,
+    ParsingOverrides,
     RawArtifact,
     RecipeCandidate,
     WorkbookInspection,
@@ -38,8 +39,18 @@ from cookimport.plugins import registry
 logger = logging.getLogger(__name__)
 
 
+def _ocr_available() -> bool:
+    """Check if OCR is available."""
+    try:
+        from cookimport.ocr.doctr_engine import ocr_available
+
+        return ocr_available()
+    except ImportError:
+        return False
+
+
 def _block_to_raw(block: Block, index: int) -> dict[str, Any]:
-    return {
+    raw: dict[str, Any] = {
         "index": index,
         "text": block.text,
         "page": block.page,
@@ -50,6 +61,12 @@ def _block_to_raw(block: Block, index: int) -> dict[str, Any]:
         "alignment": block.alignment,
         "features": block.features,
     }
+    # Include OCR-specific info if present
+    if block.features.get("ocr_source"):
+        raw["ocr_source"] = block.features["ocr_source"]
+        if "ocr_confidence" in block.features:
+            raw["ocr_confidence"] = block.features["ocr_confidence"]
+    return raw
 
 _INSTRUCTION_LEAD_RE = re.compile(
     r"^\s*(preheat|heat|bring|make|mix|stir|whisk|crush|cook|bake|roast|fry|grill|"
@@ -72,30 +89,63 @@ class PdfImporter:
             doc = fitz.open(path)
             page_count = len(doc)
             title = doc.metadata.get("title") or path.stem
-            
-            # Simple layout check on first page
+
+            # Check if PDF needs OCR by examining first few pages
             layout = "unknown"
-            if page_count > 0:
-                page = doc[0]
+            needs_ocr = False
+            text_pages = 0
+            image_pages = 0
+            pages_to_check = min(page_count, 5)
+
+            for i in range(pages_to_check):
+                page = doc[i]
                 text = page.get_text()
                 if text.strip():
-                    layout = "text-pdf"
+                    text_pages += 1
                 else:
-                    layout = "image-pdf" # OCR might be needed
-            
+                    image_pages += 1
+
+            if text_pages > 0 and image_pages == 0:
+                layout = "text-pdf"
+            elif image_pages > 0 and text_pages == 0:
+                layout = "image-pdf"
+                needs_ocr = True
+            elif image_pages > text_pages:
+                layout = "mixed-pdf"
+                needs_ocr = True
+            else:
+                layout = "text-pdf"
+
             doc.close()
-            
+
+            warnings = [f"Found {page_count} pages."]
+            ocr_engine: Literal["doctr", "none"] = "none"
+
+            if needs_ocr:
+                if _ocr_available():
+                    warnings.append("Scanned PDF detected. OCR will be used (docTR).")
+                    ocr_engine = "doctr"
+                else:
+                    warnings.append(
+                        "Scanned PDF detected but OCR not available. "
+                        "Install python-doctr[torch] for OCR support."
+                    )
+
             return WorkbookInspection(
                 path=str(path),
                 sheets=[
                     SheetInspection(
                         name=title,
                         layout=layout,
-                        confidence=0.8,
-                        warnings=[f"Found {page_count} pages."],
+                        confidence=0.8 if not needs_ocr else 0.6,
+                        warnings=warnings,
                     )
                 ],
-                mappingStub=MappingConfig(),
+                mappingStub=MappingConfig(
+                    parsing_overrides=ParsingOverrides(name=f"ocr_engine:{ocr_engine}")
+                    if needs_ocr
+                    else None
+                ),
             )
         except Exception as e:
             logger.warning(f"Failed to inspect PDF {path}: {e}")
@@ -113,18 +163,39 @@ class PdfImporter:
         raw_artifacts: list[RawArtifact] = []
         overrides = mapping.parsing_overrides if mapping else None
         self._overrides = overrides
-        
+        ocr_used = False
+
         try:
             file_hash = compute_file_hash(path)
             doc = fitz.open(path)
-            
+
+            # Check if PDF needs OCR
+            needs_ocr = self._needs_ocr(doc)
+
             # 1. Extract Blocks (Linear Stream)
             all_blocks: List[Block] = []
-            for page_num, page in enumerate(doc):
-                page_blocks = self._extract_blocks_from_page(page, page_num)
-                all_blocks.extend(page_blocks)
 
-            doc.close()
+            if needs_ocr and _ocr_available():
+                # Use OCR for scanned PDFs
+                doc.close()
+                all_blocks = self._extract_blocks_via_ocr(path)
+                ocr_used = True
+                logger.info(f"Extracted {len(all_blocks)} blocks via OCR from {path}")
+            else:
+                # Use standard text extraction
+                for page_num, page in enumerate(doc):
+                    page_blocks = self._extract_blocks_from_page(page, page_num)
+                    all_blocks.extend(page_blocks)
+                doc.close()
+                if needs_ocr and not _ocr_available():
+                    report.warnings.append(
+                        "Scanned PDF detected but OCR not available. "
+                        "Text extraction may be incomplete."
+                    )
+
+            artifact_metadata: dict[str, Any] = {"artifact_type": "extracted_blocks"}
+            if ocr_used:
+                artifact_metadata["ocr_engine"] = "doctr"
 
             raw_artifacts.append(
                 RawArtifact(
@@ -138,8 +209,9 @@ class PdfImporter:
                             for idx, block in enumerate(all_blocks)
                         ],
                         "block_count": len(all_blocks),
+                        "ocr_used": ocr_used,
                     },
-                    metadata={"artifact_type": "extracted_blocks"},
+                    metadata=artifact_metadata,
                 )
             )
             
@@ -154,26 +226,45 @@ class PdfImporter:
                     candidate.confidence = score_recipe_candidate(candidate)
                     
                     # Provenance
+                    extraction_method = "heuristic_pdf_ocr" if ocr_used else "heuristic_pdf"
                     provenance_builder = ProvenanceBuilder(
                         source_file=path.name,
                         source_hash=file_hash,
-                        extraction_method="heuristic_pdf",
+                        extraction_method=extraction_method,
                     )
-                    
+
                     # Determine page range
                     start_page = candidate_blocks[0].page if candidate_blocks else 0
                     end_page = candidate_blocks[-1].page if candidate_blocks else 0
-                    
+
+                    # Collect OCR confidence for blocks in this candidate
+                    ocr_confidences = [
+                        b.features.get("ocr_confidence")
+                        for b in candidate_blocks
+                        if b.features.get("ocr_confidence") is not None
+                    ]
+                    avg_ocr_confidence = (
+                        sum(ocr_confidences) / len(ocr_confidences)
+                        if ocr_confidences
+                        else None
+                    )
+
+                    location_info: dict[str, Any] = {
+                        "start_block": start,
+                        "end_block": end,
+                        "start_page": start_page,
+                        "end_page": end_page,
+                        "chunk_index": i,
+                        "segmentation_score": segmentation_score,
+                    }
+                    if ocr_used:
+                        location_info["ocr_engine"] = "doctr"
+                        if avg_ocr_confidence is not None:
+                            location_info["ocr_confidence"] = round(avg_ocr_confidence, 3)
+
                     provenance = provenance_builder.build(
                         confidence_score=candidate.confidence,
-                        location={
-                            "start_block": start,
-                            "end_block": end,
-                            "start_page": start_page,
-                            "end_page": end_page,
-                            "chunk_index": i,
-                            "segmentation_score": segmentation_score
-                        }
+                        location=location_info,
                     )
                     candidate.provenance = provenance
                     
@@ -396,6 +487,85 @@ class PdfImporter:
                 container_tip_index += len(atom_tips)
 
         return tip_candidates, topic_candidates
+
+    def _needs_ocr(self, doc: fitz.Document) -> bool:
+        """Check if the PDF needs OCR by examining first few pages."""
+        pages_to_check = min(len(doc), 3)
+        text_found = 0
+        for i in range(pages_to_check):
+            page = doc[i]
+            text = page.get_text()
+            if text.strip():
+                text_found += 1
+
+        # If less than half the pages have text, assume OCR is needed
+        return text_found < pages_to_check / 2
+
+    def _extract_blocks_via_ocr(self, path: Path) -> List[Block]:
+        """Extract blocks from a scanned PDF using OCR."""
+        from cookimport.ocr.doctr_engine import ocr_pdf
+
+        ocr_pages = ocr_pdf(path)
+        blocks: List[Block] = []
+
+        for page in ocr_pages:
+            for line in page.lines:
+                text = cleaning.normalize_text(line.text)
+                if not text:
+                    continue
+
+                # Convert relative bbox (0-1) to absolute-ish coords for consistency
+                # The bbox is stored in relative coords (0-1), we'll keep it that way
+                # but mark it as relative in features
+                bbox_list = [
+                    line.bbox[0],
+                    line.bbox[1],
+                    line.bbox[2],
+                    line.bbox[3],
+                ]
+
+                block = Block(
+                    text=text,
+                    type=BlockType.TEXT,
+                    bbox=bbox_list,
+                    page=page.page_num,
+                    font_size=None,  # OCR doesn't provide font info
+                    font_weight="normal",
+                    alignment=self._infer_ocr_alignment(line.bbox),
+                )
+
+                # Mark as OCR'd and store confidence
+                block.add_feature("ocr_source", "doctr")
+                block.add_feature("ocr_confidence", line.confidence)
+                block.add_feature("bbox_relative", True)
+
+                signals.enrich_block(block, overrides=self._overrides)
+                blocks.append(block)
+
+        # Since we don't have accurate column info from OCR, do simple sort by y then x
+        blocks.sort(key=lambda b: (b.page or 0, b.bbox[1] if b.bbox else 0, b.bbox[0] if b.bbox else 0))
+
+        return blocks
+
+    def _infer_ocr_alignment(self, bbox: tuple[float, float, float, float]) -> str:
+        """Infer alignment from OCR bounding box (relative coords 0-1)."""
+        x0, _, x1, _ = bbox
+        center = (x0 + x1) / 2
+        width = x1 - x0
+
+        # If the text spans most of the width, it's likely full-width (left aligned)
+        if width > 0.7:
+            return "left"
+        # If center is near middle, it's centered
+        if abs(center - 0.5) < 0.1:
+            return "center"
+        # If starts near left edge, left aligned
+        if x0 < 0.15:
+            return "left"
+        # If ends near right edge, right aligned
+        if x1 > 0.85:
+            return "right"
+        return "left"
 
     def _extract_blocks_from_page(self, page: fitz.Page, page_num: int) -> List[Block]:
         """
