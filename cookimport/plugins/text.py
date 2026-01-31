@@ -4,7 +4,7 @@ import datetime as dt
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -392,7 +392,12 @@ class TextImporter:
             mappingStub=MappingConfig(),
         )
 
-    def convert(self, path: Path, mapping: MappingConfig | None) -> ConversionResult:
+    def convert(
+        self,
+        path: Path,
+        mapping: MappingConfig | None,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> ConversionResult:
         """
         Converts the text file into RecipeCandidates.
         """
@@ -403,6 +408,8 @@ class TextImporter:
         
         try:
             if path.suffix.lower() == ".docx" and docx is not None:
+                if progress_callback:
+                    progress_callback("Processing DOCX tables...")
                 table_recipes, table_report, table_raw = self._convert_docx_tables(path, mapping)
                 if table_recipes:
                     tip_candidates: list[Any] = []
@@ -434,6 +441,8 @@ class TextImporter:
                         workbookPath=str(path),
                     )
 
+            if progress_callback:
+                progress_callback("Extracting text...")
             raw_text = self._extract_text(path)
             file_hash = compute_file_hash(path)
             normalized = cleaning.normalize_text(raw_text)
@@ -456,10 +465,15 @@ class TextImporter:
             )
             
             # 1. Split
+            if progress_callback:
+                progress_callback("Splitting recipes...")
             chunks = self._split_recipes(normalized)
             
             # 2. Parse each chunk
+            total_chunks = len(chunks)
             for i, (chunk_text, line_range) in enumerate(chunks):
+                if progress_callback:
+                    progress_callback(f"Parsing chunk {i + 1}/{total_chunks}...")
                 try:
                     candidate = self._parse_chunk(chunk_text, overrides=overrides)
                     candidate.confidence = score_recipe_candidate(candidate)

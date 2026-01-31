@@ -6,7 +6,7 @@ import logging
 import re
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 try:
     from bs4 import BeautifulSoup
@@ -127,7 +127,12 @@ class PaprikaImporter:
                 warnings=[f"Failed to inspect Paprika export: {e}"],
             )
 
-    def convert(self, path: Path, mapping: MappingConfig | None) -> ConversionResult:
+    def convert(
+        self,
+        path: Path,
+        mapping: MappingConfig | None,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> ConversionResult:
         """
         Converts Paprika export into RecipeCandidates.
         """
@@ -138,7 +143,7 @@ class PaprikaImporter:
 
         try:
             if path.suffix.lower() == ".paprikarecipes":
-                recipes, raw_artifacts = self._convert_paprikarecipes(path, file_hash, report)
+                recipes, raw_artifacts = self._convert_paprikarecipes(path, file_hash, report, progress_callback)
             elif path.is_dir():
                 # Merge Mode: check for .paprikarecipes files AND html exports in the dir
                 zip_files = list(path.glob("*.paprikarecipes"))
@@ -149,7 +154,7 @@ class PaprikaImporter:
                 
                 for zf in zip_files:
                     zf_hash = compute_file_hash(zf)
-                    z_recipes, z_artifacts = self._convert_paprikarecipes(zf, zf_hash, report)
+                    z_recipes, z_artifacts = self._convert_paprikarecipes(zf, zf_hash, report, progress_callback)
                     raw_artifacts.extend(z_artifacts)
                     for r in z_recipes:
                         # Use source_url or name as key for merging
@@ -157,7 +162,7 @@ class PaprikaImporter:
                         zip_recipes[key] = r
                 
                 if has_html:
-                    h_recipes, h_artifacts = self._convert_html_export(path, file_hash, report)
+                    h_recipes, h_artifacts = self._convert_html_export(path, file_hash, report, progress_callback)
                     raw_artifacts.extend(h_artifacts)
                     for r in h_recipes:
                         key = r.source_url or r.name
@@ -213,7 +218,11 @@ class PaprikaImporter:
             )
 
     def _convert_paprikarecipes(
-        self, path: Path, file_hash: str, report: ConversionReport
+        self,
+        path: Path,
+        file_hash: str,
+        report: ConversionReport,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> tuple[list[RecipeCandidate], list[RawArtifact]]:
         recipes: list[RecipeCandidate] = []
         raw_artifacts: list[RawArtifact] = []
@@ -225,9 +234,11 @@ class PaprikaImporter:
         )
 
         with zipfile.ZipFile(path, "r") as z:
-            for name in z.namelist():
-                if name.endswith("/"):
-                    continue
+            namelist = [n for n in z.namelist() if not n.endswith("/")]
+            total = len(namelist)
+            for i, name in enumerate(namelist):
+                if progress_callback and i % 5 == 0:
+                    progress_callback(f"Processing Paprika entry {i + 1}/{total}...")
                 
                 try:
                     with z.open(name) as f:
@@ -268,7 +279,11 @@ class PaprikaImporter:
         return recipes, raw_artifacts
 
     def _convert_html_export(
-        self, path: Path, file_hash: str, report: ConversionReport
+        self,
+        path: Path,
+        file_hash: str,
+        report: ConversionReport,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> tuple[list[RecipeCandidate], list[RawArtifact]]:
         if BeautifulSoup is None:
             report.errors.append("BeautifulSoup4 is required for Paprika HTML exports.")
@@ -283,9 +298,14 @@ class PaprikaImporter:
             extraction_method="paprika_html_folder",
         )
 
-        for html_file in path.glob("*.html"):
+        html_files = list(path.glob("*.html"))
+        total = len(html_files)
+        for i, html_file in enumerate(html_files):
             if html_file.name == "index.html":
                 continue
+            
+            if progress_callback and i % 5 == 0:
+                progress_callback(f"Processing Paprika HTML {i + 1}/{total}...")
                 
             try:
                 content = html_file.read_text(encoding="utf-8")

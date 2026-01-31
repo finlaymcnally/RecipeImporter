@@ -30,6 +30,7 @@ After this change, each step in the Draft V1 output will list only the ingredien
 - (2026-01-30) **Head Alias Needed**: Multi-word ingredients like "sage leaves" weren't matching partial mentions like "fry the sage". Added head alias (first token) in addition to tail alias.
 - (2026-01-30) **Cooking Verbs Misclassified**: Verbs like "fry", "saute", "sear" were in `_REFERENCE_VERBS` but they're actually active use of ingredients. Moved to `_USE_VERBS`.
 - (2026-01-30) **Earliest Use Wins**: When multiple steps have "use" verbs for the same ingredient, the later step could win due to stronger alias match. Added "earliest use verb wins" rule since the first mention is typically where the ingredient is introduced.
+- (2026-01-31) **Split Signal Too Greedy**: "remaining croutons, squash" was triggering split for squash because "remaining" was in the 3-token context. Fixed by requiring split words to be IMMEDIATELY before ingredient (1 token, or 2 tokens if token-1 is an article like "the").
 
 ## Decision Log
 
@@ -92,6 +93,10 @@ After this change, each step in the Draft V1 output will list only the ingredien
 - Decision: Split quantities when split language detected (e.g., "half" → divide by 2).
   Rationale: "Add half the croutons" + "remaining croutons" with 4 cups should show 2 cups in each step, making the recipe more accurate.
   Date/Author: 2026-01-30 / Agent
+
+- Decision: Split signal detection requires IMMEDIATE adjacency (1 token, or 2 if article).
+  Rationale: "remaining croutons, squash" should split croutons but NOT squash. The comma separator indicates different ingredients. Check token-1 directly, or token-2 if token-1 is "the/a/an".
+  Date/Author: 2026-01-31 / Agent
 
 ## Outcomes & Retrospective
 
@@ -222,6 +227,7 @@ Bug fix test evidence (2026-01-30):
     tests/test_step_ingredient_linking.py::test_earliest_use_verb_wins_over_stronger_alias PASSED
     tests/test_step_ingredient_linking.py::test_quantity_split_with_half PASSED
     tests/test_step_ingredient_linking.py::test_fry_is_use_verb PASSED
+    tests/test_step_ingredient_linking.py::test_split_only_applies_to_immediate_ingredient PASSED
 
 ## Interfaces and Dependencies
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, List
+from typing import Any, Callable, List
 
 from cookimport.core.models import (
     ConversionReport,
@@ -75,7 +75,12 @@ class RecipeSageImporter:
                 warnings=[f"Failed to read RecipeSage export: {e}"],
             )
 
-    def convert(self, path: Path, mapping: MappingConfig | None) -> ConversionResult:
+    def convert(
+        self,
+        path: Path,
+        mapping: MappingConfig | None,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> ConversionResult:
         """
         Converts RecipeSage export into RecipeCandidates.
         """
@@ -106,7 +111,11 @@ class RecipeSageImporter:
                 extraction_method="recipesage_import",
             )
 
+            total_recipes = len(raw_recipes)
             for i, raw_recipe in enumerate(raw_recipes):
+                if progress_callback and i % 10 == 0:
+                    name = raw_recipe.get("name", "Untitled")
+                    progress_callback(f"Processing recipe {i + 1}/{total_recipes}: {name}...")
                 try:
                     # Basic validation
                     name = raw_recipe.get("name")

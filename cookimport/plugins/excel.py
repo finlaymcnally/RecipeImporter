@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from openpyxl import load_workbook
 from openpyxl.utils.cell import range_boundaries
@@ -121,12 +121,21 @@ class ExcelImporter:
             wb_values.close()
             wb_meta.close()
 
-    def convert(self, path: Path, mapping: MappingConfig | None) -> ConversionResult:
+    def convert(
+        self,
+        path: Path,
+        mapping: MappingConfig | None,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> ConversionResult:
         if mapping is None:
+            if progress_callback:
+                progress_callback("Inspecting workbook...")
             inspection = self.inspect(path)
             mapping = inspection.mapping_stub
             inferred = {sheet.name: sheet for sheet in inspection.sheets}
         else:
+            if progress_callback:
+                progress_callback("Inspecting workbook...")
             inspection = self.inspect(path)
             inferred = {sheet.name: sheet for sheet in inspection.sheets}
 
@@ -139,6 +148,8 @@ class ExcelImporter:
         overrides = mapping.parsing_overrides if mapping else None
         try:
             for name in wb_values.sheetnames:
+                if progress_callback:
+                    progress_callback(f"Processing sheet '{name}'...")
                 values_sheet = wb_values[name]
                 meta_sheet = wb_meta[name]
                 merged_map = _merged_cell_map(meta_sheet, values_sheet)

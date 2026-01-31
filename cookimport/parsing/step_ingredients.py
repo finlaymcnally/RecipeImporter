@@ -177,33 +177,42 @@ def _classify_verb_context(
     context_start = max(0, match_start - 3)
     context_tokens = step_tokens[context_start:match_start]
 
-    # Also check tokens after for split signals (only certain words work after)
-    context_end = min(len(step_tokens), match_end + 3)
-    after_tokens = step_tokens[match_end:context_end]
+    # Detect split - only when split word DIRECTLY modifies this ingredient
+    # Pattern: "half the croutons" or "remaining croutons" but NOT "remaining croutons, squash"
+    # Check 1 token before, or 2 tokens before if token-1 is an article
+    _ARTICLES = {"the", "a", "an", "some", "any"}
 
-    all_context = context_tokens + after_tokens
-
-    # Detect split fraction
     split_fraction: float | None = None
-    for token in all_context:
-        if token in _FRACTION_WORDS:
-            split_fraction = _FRACTION_WORDS[token]
-            break
-        if token in _REMAINING_WORDS:
-            # Mark as "remaining" - we'll compute the actual fraction later
-            split_fraction = -1.0  # Sentinel for "remaining"
-            break
+    split_signal_found = False
 
-    # Check for split signals first (highest priority)
-    # Split signals before ingredient (any split word)
-    for token in context_tokens:
-        if token in _SPLIT_SIGNAL_WORDS:
-            return ("split", 8.0, split_fraction)
+    # Get tokens before match
+    token_1_before = step_tokens[match_start - 1] if match_start >= 1 else None
+    token_2_before = step_tokens[match_start - 2] if match_start >= 2 else None
 
-    # Split signals after ingredient (only clear noun forms like "remaining", "reserved")
-    for token in after_tokens:
-        if token in _SPLIT_SIGNAL_AFTER:
-            return ("split", 8.0, split_fraction)
+    # Check for split word at position -1 (immediately before)
+    if token_1_before in _SPLIT_SIGNAL_WORDS:
+        split_signal_found = True
+        if token_1_before in _FRACTION_WORDS:
+            split_fraction = _FRACTION_WORDS[token_1_before]
+        elif token_1_before in _REMAINING_WORDS:
+            split_fraction = -1.0
+    # Check for split word at position -2 if position -1 is an article
+    elif token_1_before in _ARTICLES and token_2_before in _SPLIT_SIGNAL_WORDS:
+        split_signal_found = True
+        if token_2_before in _FRACTION_WORDS:
+            split_fraction = _FRACTION_WORDS[token_2_before]
+        elif token_2_before in _REMAINING_WORDS:
+            split_fraction = -1.0
+
+    if split_signal_found:
+        return ("split", 8.0, split_fraction)
+
+    # Check split signals after ingredient (1 token)
+    token_1_after = step_tokens[match_end] if match_end < len(step_tokens) else None
+    if token_1_after in _SPLIT_SIGNAL_AFTER:
+        if token_1_after in _REMAINING_WORDS:
+            split_fraction = -1.0
+        return ("split", 8.0, split_fraction)
 
     # Check for use verbs (immediate context preferred)
     for token in context_tokens:

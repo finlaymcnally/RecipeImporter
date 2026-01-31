@@ -54,6 +54,15 @@ class TestFractions:
         assert result["input_qty"] == 1.5
         assert result["raw_unit_text"] in ("cup", "cups")
 
+    def test_split_fraction_with_newlines(self):
+        """Parse '3\\n/4\\ncup hazelnuts' where fraction is split across lines."""
+        result = parse_ingredient_line("3\n/4\ncup hazelnuts")
+        assert result["quantity_kind"] == "exact"
+        assert result["input_qty"] is not None
+        assert abs(result["input_qty"] - 0.75) < 0.01
+        assert result["raw_unit_text"] in ("cup", "cups")
+        assert result["raw_ingredient_text"] == "hazelnuts"
+
     def test_quarter_fraction(self):
         """Parse '¼ teaspoon salt'."""
         result = parse_ingredient_line("¼ teaspoon salt")

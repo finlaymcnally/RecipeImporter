@@ -500,10 +500,10 @@ def _write_raw_artifact(artifact: RawArtifact, out_dir: Path) -> None:
 def write_report(report: ConversionReport, out_dir: Path, workbook_name: str) -> Path:
     """Write a conversion report JSON file for a workbook.
 
-    Output path: {out_dir}/{workbook_slug}.import_report.json
+    Output path: {out_dir}/{workbook_slug}.excel_import_report.json
     """
     slug = _slugify(workbook_name)
-    out_path = out_dir / f"{slug}.import_report.json"
+    out_path = out_dir / f"{slug}.excel_import_report.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = report.model_dump(by_alias=True, exclude_none=True)
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")

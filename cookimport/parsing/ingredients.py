@@ -55,12 +55,14 @@ def parse_ingredient_line(text: str) -> dict[str, Any]:
     if not text:
         return _empty_result(text)
 
+    normalized_text = _normalize_ingredient_text(text)
+
     # Check for section header before parsing
     if _is_section_header_heuristic(text):
         return _section_header_result(text)
 
     try:
-        parsed = parse_ingredient(text, string_units=True)
+        parsed = parse_ingredient(normalized_text, string_units=True)
     except Exception:
         # If parsing fails completely, return unquantified with raw text
         return _fallback_result(text)
@@ -197,6 +199,12 @@ def _to_float(value: Any) -> float | None:
             except ValueError:
                 return None
     return None
+
+
+def _normalize_ingredient_text(text: str) -> str:
+    """Normalize whitespace and fix split fractions like '3 / 4' -> '3/4'."""
+    normalized = re.sub(r"\s+", " ", text).strip()
+    return re.sub(r"(\d)\s*/\s*(\d)", r"\1/\2", normalized)
 
 
 def _extract_unit(amount: IngredientAmount) -> str | None:

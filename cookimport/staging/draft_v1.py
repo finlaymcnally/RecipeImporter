@@ -10,7 +10,12 @@ from cookimport.parsing.instruction_parser import parse_instruction
 from cookimport.parsing.tips import extract_recipe_specific_notes
 from cookimport.parsing.step_ingredients import assign_ingredient_lines_to_steps
 
+_VARIANT_HEADER_RE = re.compile(r"^\s*variations?\s*:?\s*$|^\s*variants?\s*:?\s*$", re.IGNORECASE)
 _VARIANT_PREFIX_RE = re.compile(r"^\s*variations?\b|^\s*variants?\b", re.IGNORECASE)
+_SECTION_HEADER_RE = re.compile(
+    r"^\s*(ingredients?|instructions?|directions?|method|preparation|notes?|tips?|serving)\s*:?\s*$",
+    re.IGNORECASE,
+)
 _LOWERCASE_FIELDS = ("raw_text", "raw_ingredient_text", "raw_unit_text", "preparation", "note")
 
 
@@ -36,15 +41,47 @@ def _convert_instruction(instruction: str | HowToStep) -> str:
         return instruction.text
     return str(instruction)
 
+
 def _split_variants(instructions: list[str]) -> tuple[list[str], list[str]]:
+    """
+    Extract variant instructions from the instruction list.
+
+    Handles two patterns:
+    1. Single lines starting with "Variation:" or "Variant:"
+    2. Multi-block variations where a header (e.g., "Variation") is followed
+       by content lines (often with bullet points) until a new section starts.
+    """
     variants: list[str] = []
     remaining: list[str] = []
+    in_variant_section = False
+
     for instruction in instructions:
         text = instruction.strip()
+
+        # Check if this is a standalone variation header (header-only line)
+        if _VARIANT_HEADER_RE.match(text):
+            in_variant_section = True
+            # Don't add the header itself to variants, just start collecting
+            continue
+
+        # Check if we hit a new section header that ends the variant section
+        if in_variant_section and _SECTION_HEADER_RE.match(text):
+            in_variant_section = False
+            remaining.append(instruction)
+            continue
+
+        # If in variant section, add content to variants
+        if in_variant_section:
+            variants.append(text)
+            continue
+
+        # Check if line starts with variation prefix (inline variant)
         if _VARIANT_PREFIX_RE.match(text):
             variants.append(text)
-        else:
-            remaining.append(instruction)
+            continue
+
+        remaining.append(instruction)
+
     return variants, remaining
 
 

@@ -4,7 +4,7 @@ import logging
 import re
 import statistics
 from pathlib import Path
-from typing import Any, List, Literal, Tuple
+from typing import Any, Callable, List, Literal, Tuple
 
 import fitz  # type: ignore
 
@@ -155,7 +155,12 @@ class PdfImporter:
                 mappingStub=MappingConfig(),
             )
 
-    def convert(self, path: Path, mapping: MappingConfig | None) -> ConversionResult:
+    def convert(
+        self,
+        path: Path,
+        mapping: MappingConfig | None,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> ConversionResult:
         report = ConversionReport()
         recipes: List[RecipeCandidate] = []
         tip_candidates: List[Any] = []
@@ -166,6 +171,8 @@ class PdfImporter:
         ocr_used = False
 
         try:
+            if progress_callback:
+                progress_callback("Computing hash...")
             file_hash = compute_file_hash(path)
             doc = fitz.open(path)
 
@@ -177,13 +184,18 @@ class PdfImporter:
 
             if needs_ocr and _ocr_available():
                 # Use OCR for scanned PDFs
+                if progress_callback:
+                    progress_callback("Running OCR (this may take a while)...")
                 doc.close()
                 all_blocks = self._extract_blocks_via_ocr(path)
                 ocr_used = True
                 logger.info(f"Extracted {len(all_blocks)} blocks via OCR from {path}")
             else:
                 # Use standard text extraction
+                total_pages = len(doc)
                 for page_num, page in enumerate(doc):
+                    if progress_callback and page_num % 5 == 0:
+                        progress_callback(f"Extracting text from page {page_num + 1}/{total_pages}...")
                     page_blocks = self._extract_blocks_from_page(page, page_num)
                     all_blocks.extend(page_blocks)
                 doc.close()
@@ -216,10 +228,15 @@ class PdfImporter:
             )
             
             # 2. Segment into Candidates
+            if progress_callback:
+                progress_callback(f"Segmenting {len(all_blocks)} blocks...")
             candidates_ranges = self._detect_candidates(all_blocks)
             
             # 3. Extract Fields
+            total_candidates = len(candidates_ranges)
             for i, (start, end, segmentation_score) in enumerate(candidates_ranges):
+                if progress_callback:
+                    progress_callback(f"Extracting candidate {i + 1}/{total_candidates}...")
                 try:
                     candidate_blocks = all_blocks[start:end]
                     candidate = self._extract_fields(candidate_blocks)

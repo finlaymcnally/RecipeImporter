@@ -436,8 +436,11 @@ def stage(
                 else:
                     mapping_config.parsing_overrides = parsing_overrides
 
-            with console.status(f"[bold cyan]Importing {file_path.name}...[/bold cyan]", spinner="dots"):
-                result = importer.convert(file_path, mapping_config)
+            with console.status(f"[bold cyan]Importing {file_path.name}...[/bold cyan]", spinner="dots") as status:
+                def update_progress(msg: str) -> None:
+                    status.update(f"[bold cyan]Importing {file_path.name}: {msg}[/bold cyan]")
+                
+                result = importer.convert(file_path, mapping_config, progress_callback=update_progress)
 
             if limit is not None:
                 _apply_result_limits(
@@ -559,7 +562,10 @@ def labelstudio_import(
     """Import a cookbook into Label Studio for benchmarking."""
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     try:
-        with console.status(f"[bold cyan]Running Label Studio import for {path.name}...[/bold cyan]", spinner="dots"):
+        with console.status(f"[bold cyan]Running Label Studio import for {path.name}...[/bold cyan]", spinner="dots") as status:
+            def update_progress(msg: str) -> None:
+                status.update(f"[bold cyan]Label Studio import ({path.name}): {msg}[/bold cyan]")
+            
             result = run_labelstudio_import(
                 path=path,
                 output_dir=output_dir,
@@ -572,6 +578,7 @@ def labelstudio_import(
                 label_studio_api_key=api_key,
                 limit=limit,
                 sample=sample,
+                progress_callback=update_progress,
             )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))

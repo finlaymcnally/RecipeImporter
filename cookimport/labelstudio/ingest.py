@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from cookimport.core.reporting import compute_file_hash
 from cookimport.plugins import registry
@@ -63,6 +63,7 @@ def run_labelstudio_import(
     label_studio_api_key: str,
     limit: int | None,
     sample: int | None,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError(f"Path not found: {path}")
@@ -81,7 +82,7 @@ def run_labelstudio_import(
     if importer is None or score <= 0:
         raise RuntimeError("No importer available for this path.")
 
-    result = importer.convert(path, None)
+    result = importer.convert(path, None, progress_callback=progress_callback)
 
     archive = build_extracted_archive(result, result.raw_artifacts)
     file_hash = compute_file_hash(path)

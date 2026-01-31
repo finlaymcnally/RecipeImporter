@@ -345,3 +345,26 @@ def test_fry_is_use_verb():
     assert len(debug_info.candidates) == 1
     assert debug_info.candidates[0].verb_signal == "use"
     assert _names(result[0]) == ["onions"]
+
+
+def test_split_only_applies_to_immediate_ingredient():
+    """'remaining croutons, squash' should NOT split squash."""
+    ingredient_lines = [
+        _ingredient_line("butternut squash"),
+    ]
+    steps = [
+        "Roast the butternut squash.",
+        "Add the remaining croutons, squash, hazelnuts.",  # "remaining" is for croutons, not squash
+    ]
+
+    result, debug_info = assign_ingredient_lines_to_steps(
+        steps, ingredient_lines, debug=True
+    )
+
+    # Squash should only be in step 0 (roast), not step 1
+    assigned_steps = [i for i, lines in enumerate(result) if _names(lines)]
+    assert assigned_steps == [0], f"Expected [0], got {assigned_steps}"
+    # The step 1 candidate should NOT have split signal
+    step1_candidates = [c for c in debug_info.candidates if c.step_index == 1]
+    if step1_candidates:
+        assert step1_candidates[0].verb_signal != "split"

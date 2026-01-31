@@ -6,7 +6,7 @@ import warnings
 import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
-from typing import Any, List, Tuple
+from typing import Any, Callable, List, Tuple
 
 try:
     import ebooklib
@@ -119,7 +119,12 @@ class EpubImporter:
                 mappingStub=MappingConfig(),
             )
 
-    def convert(self, path: Path, mapping: MappingConfig | None) -> ConversionResult:
+    def convert(
+        self,
+        path: Path,
+        mapping: MappingConfig | None,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> ConversionResult:
         report = ConversionReport()
         recipes: List[RecipeCandidate] = []
         tip_candidates: List[Any] = []
@@ -129,9 +134,13 @@ class EpubImporter:
         self._overrides = overrides
         
         try:
+            if progress_callback:
+                progress_callback("Computing hash...")
             file_hash = compute_file_hash(path)
             
             # 1. Extract Blocks (DocPack)
+            if progress_callback:
+                progress_callback("Extracting blocks from EPUB...")
             blocks = self._extract_docpack(path)
             
             raw_artifacts.append(
@@ -152,10 +161,15 @@ class EpubImporter:
             )
 
             # 2. Segment into Candidates
+            if progress_callback:
+                progress_callback(f"Segmenting {len(blocks)} blocks...")
             candidates_ranges = self._detect_candidates(blocks)
             
             # 3. Extract Fields
+            total_candidates = len(candidates_ranges)
             for i, (start, end, segmentation_score) in enumerate(candidates_ranges):
+                if progress_callback:
+                    progress_callback(f"Extracting candidate {i + 1}/{total_candidates}...")
                 try:
                     candidate_blocks = blocks[start:end]
                     candidate = self._extract_fields(candidate_blocks)
@@ -645,9 +659,18 @@ class EpubImporter:
         """
         Scan forward to find end of recipe.
         Stop at next ingredient header (start of next recipe) or new chapter/major heading.
+        Include trailing Variation/Variant sections as part of the recipe.
         """
         for i in range(anchor_idx + 1, len(blocks)):
             b = blocks[i]
+            next_block = blocks[i + 1] if i + 1 < len(blocks) else None
+
+            # Check if this is a variation header - if so, continue (don't stop)
+            if self._is_variation_header(b):
+                continue
+
+            if self._is_section_heading(b, next_block):
+                return i
             
             if b.features.get("is_ingredient_header"):
                 # Likely start of next recipe.
@@ -683,6 +706,30 @@ class EpubImporter:
                 return i
 
         return len(blocks)
+
+    def _is_variation_header(self, block: Block) -> bool:
+        """Check if block is a Variation/Variant header that should stay with the recipe."""
+        text = block.text.strip().lower().rstrip(":")
+        return text in ("variation", "variations", "variant", "variants")
+
+    def _is_section_heading(self, block: Block, next_block: Block | None) -> bool:
+        if not block.features.get("is_heading"):
+            return False
+        text = block.text.strip()
+        if len(text) < 5 or not text.isupper():
+            return False
+        if block.features.get("is_ingredient_header") or block.features.get("is_instruction_header"):
+            return False
+        if self._is_variation_header(block):
+            return False
+        heading_level = block.features.get("heading_level")
+        if heading_level in (1, 2):
+            return True
+        if next_block and next_block.features.get("is_heading"):
+            return True
+        if next_block and not self._is_ingredient_like(next_block) and not self._is_instruction_like(next_block):
+            return True
+        return False
 
     def _looks_like_section_intro(self, block: Block) -> bool:
         text = block.text.strip()
