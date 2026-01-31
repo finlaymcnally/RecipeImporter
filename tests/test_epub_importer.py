@@ -59,3 +59,50 @@ def test_backtrack_for_title_prefers_earliest_title_block():
 
     title_idx = importer._backtrack_for_title(blocks, anchor_idx=2, limit=4)
     assert title_idx == 0
+
+
+def test_find_recipe_end_stops_on_all_caps_section_intro():
+    importer = EpubImporter()
+    blocks = [
+        Block(text="Grill Artichokes", font_weight="bold"),
+        Block(text="Ingredients"),
+        Block(text="6 artichokes"),
+        Block(text="Instructions"),
+        Block(text="Cook the artichokes."),
+        Block(
+            text=(
+                "STOCK AND SOUPS Stock With stock on hand, dinner is always within reach."
+            )
+        ),
+        Block(text="Every time you roast a chicken, save the bones for stock."),
+    ]
+
+    for block in blocks:
+        signals.enrich_block(block)
+
+    end_idx = importer._find_recipe_end(blocks, start_idx=0, anchor_idx=1)
+    assert end_idx == 5
+
+
+def test_find_recipe_end_stops_on_single_word_all_caps_section_intro():
+    importer = EpubImporter()
+    blocks = [
+        Block(text="Onion Salad", font_weight="bold"),
+        Block(text="Ingredients"),
+        Block(text="2 onions"),
+        Block(text="Instructions"),
+        Block(text="Slice onions."),
+        Block(
+            text=(
+                "VEGETABLES Cooking Onions The longer you cook onions, the deeper their "
+                "flavor will be."
+            )
+        ),
+        Block(text="Cook all onions until they lose their crunch."),
+    ]
+
+    for block in blocks:
+        signals.enrich_block(block)
+
+    end_idx = importer._find_recipe_end(blocks, start_idx=0, anchor_idx=1)
+    assert end_idx == 5

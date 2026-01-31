@@ -169,6 +169,14 @@ def _ensure_topic_id(
     return stable_id
 
 
+def _ensure_source(results: ConversionResult, candidate: RecipeCandidate) -> None:
+    if not candidate.source:
+        if results.workbook_path:
+            candidate.source = Path(results.workbook_path).name
+        elif results.workbook:
+            candidate.source = results.workbook
+
+
 def write_intermediate_outputs(results: ConversionResult, out_dir: Path) -> None:
     """Write intermediate RecipeSage JSON-LD outputs.
 
@@ -176,6 +184,7 @@ def write_intermediate_outputs(results: ConversionResult, out_dir: Path) -> None
     Output path: {out_dir}/r{index}.jsonld
     """
     for index, candidate in enumerate(results.recipes):
+        _ensure_source(results, candidate)
         provenance = _ensure_provenance(candidate)
         sheet_name = _resolve_sheet_name(provenance)
         row_index = _resolve_row_index(provenance)
@@ -198,6 +207,7 @@ def write_draft_outputs(results: ConversionResult, out_dir: Path) -> None:
     Output path: {out_dir}/r{index}.json
     """
     for index, candidate in enumerate(results.recipes):
+        _ensure_source(results, candidate)
         _ensure_provenance(candidate)
         draft = recipe_candidate_to_draft_v1(candidate)
         out_path = out_dir / f"r{index}.json"

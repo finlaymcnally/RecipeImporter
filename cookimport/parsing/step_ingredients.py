@@ -93,16 +93,504 @@ class IngredientGroup:
     indices: list[int]
 
 
+@dataclass(frozen=True)
+class StepCandidate:
+    """A candidate match between an ingredient and a step."""
+    ingredient_index: int
+    step_index: int
+    alias: Alias
+    match_strength: str           # "strong" or "weak"
+    verb_signal: str              # "use", "reference", "split", "neutral"
+    context_score: float
+    surrounding_tokens: tuple[str, ...]  # For debug
+    split_fraction: float | None = None  # e.g., 0.5 for "half"
+
+
+@dataclass
+class IngredientAssignment:
+    """Final assignment of an ingredient to one or more steps."""
+    ingredient_index: int
+    assigned_steps: list[int]
+    reason: str                   # For debug/explainability
+    step_fractions: dict[int, float] | None = None  # step_idx -> fraction (e.g., 0.5)
+
+
+# Verb classification constants
+_USE_VERBS = frozenset({
+    "add", "mix", "stir", "fold", "sprinkle", "pour", "whisk", "combine",
+    "toss", "season", "top", "drizzle", "incorporate", "blend", "beat",
+    "cream", "melt", "dissolve", "rub", "coat", "brush", "scatter",
+    "garnish", "finish", "place", "put", "drop", "spoon", "layer", "spread",
+    # Cooking verbs where you're adding ingredient to pan/pot - active use
+    "fry", "saute", "sear", "brown", "grill", "roast", "bake",
+})
+
+_REFERENCE_VERBS = frozenset({
+    "cook", "return", "remove", "transfer", "flip", "check", "pierce",
+    "set", "let", "allow", "cool", "rest", "heat", "reheat",
+    "simmer", "boil", "reduce", "caramelize", "crisp",
+})
+
+# Split signals that can appear before OR after the ingredient
+_SPLIT_SIGNAL_AFTER = frozenset({
+    "remaining", "reserved", "leftover", "divided", "aside",
+})
+
+# Split signals that should only be detected BEFORE the ingredient
+_SPLIT_SIGNAL_BEFORE = frozenset({
+    "reserve", "half", "portion", "divide", "save", "back",
+})
+
+# Combined for backward compatibility
+_SPLIT_SIGNAL_WORDS = _SPLIT_SIGNAL_AFTER | _SPLIT_SIGNAL_BEFORE
+
+# Fraction words for quantity splitting
+_FRACTION_WORDS: dict[str, float] = {
+    "half": 0.5,
+    "quarter": 0.25,
+    "third": 1/3,
+}
+
+# "remaining" gets the complement of previously assigned fractions
+_REMAINING_WORDS = frozenset({"remaining", "rest", "reserved", "leftover"})
+
+_MAX_STEPS_PER_INGREDIENT = 3  # Cap to prevent runaway
+
+
+def _classify_verb_context(
+    step_tokens: list[str],
+    match_start: int,
+    match_end: int,
+) -> tuple[str, float, float | None]:
+    """
+    Look at 1-3 tokens before ingredient match to determine verb context.
+
+    Returns (signal, score_adjustment, split_fraction) where signal is one of:
+    - "use": active use verb like "add", "mix", "stir"
+    - "reference": mention without active use like "cook", "let rest"
+    - "split": language indicating partial use like "reserve", "remaining"
+    - "neutral": no clear signal
+
+    split_fraction is the detected fraction (e.g., 0.5 for "half") or None.
+    """
+    # Look at up to 3 tokens before the match
+    context_start = max(0, match_start - 3)
+    context_tokens = step_tokens[context_start:match_start]
+
+    # Also check tokens after for split signals (only certain words work after)
+    context_end = min(len(step_tokens), match_end + 3)
+    after_tokens = step_tokens[match_end:context_end]
+
+    all_context = context_tokens + after_tokens
+
+    # Detect split fraction
+    split_fraction: float | None = None
+    for token in all_context:
+        if token in _FRACTION_WORDS:
+            split_fraction = _FRACTION_WORDS[token]
+            break
+        if token in _REMAINING_WORDS:
+            # Mark as "remaining" - we'll compute the actual fraction later
+            split_fraction = -1.0  # Sentinel for "remaining"
+            break
+
+    # Check for split signals first (highest priority)
+    # Split signals before ingredient (any split word)
+    for token in context_tokens:
+        if token in _SPLIT_SIGNAL_WORDS:
+            return ("split", 8.0, split_fraction)
+
+    # Split signals after ingredient (only clear noun forms like "remaining", "reserved")
+    for token in after_tokens:
+        if token in _SPLIT_SIGNAL_AFTER:
+            return ("split", 8.0, split_fraction)
+
+    # Check for use verbs (immediate context preferred)
+    for token in context_tokens:
+        if token in _USE_VERBS:
+            return ("use", 10.0, split_fraction)
+
+    # Check for reference verbs
+    for token in context_tokens:
+        if token in _REFERENCE_VERBS:
+            return ("reference", -5.0, split_fraction)
+
+    return ("neutral", 0.0, split_fraction)
+
+
+def _find_match_position(step_tokens: list[str], alias_tokens: tuple[str, ...]) -> tuple[int, int] | None:
+    """Find the start and end position of alias tokens in step tokens."""
+    if not alias_tokens or len(alias_tokens) > len(step_tokens):
+        return None
+    for start in range(len(step_tokens) - len(alias_tokens) + 1):
+        if step_tokens[start : start + len(alias_tokens)] == list(alias_tokens):
+            return (start, start + len(alias_tokens))
+    return None
+
+
+def _collect_all_candidates(
+    step_texts: list[str],
+    alias_map: dict[int, list[Alias]],
+) -> list[StepCandidate]:
+    """
+    Scan all steps × all ingredients and build StepCandidate for each match.
+
+    Returns flat list of all candidates with metadata for scoring.
+    """
+    candidates: list[StepCandidate] = []
+
+    for step_index, step_text in enumerate(step_texts):
+        step_tokens = _tokenize(step_text)
+        if not step_tokens:
+            continue
+
+        for ingredient_index, aliases in alias_map.items():
+            best_alias = _find_best_alias_match(step_tokens, aliases)
+            if best_alias is None:
+                continue
+
+            # Find match position for context analysis
+            match_pos = _find_match_position(step_tokens, best_alias.tokens)
+            if match_pos is None:
+                continue
+
+            match_start, match_end = match_pos
+            match_strength = "strong" if len(best_alias.tokens) > 1 else "weak"
+
+            # Classify verb context
+            verb_signal, context_score, split_fraction = _classify_verb_context(
+                step_tokens, match_start, match_end
+            )
+
+            # Capture surrounding tokens for debug
+            context_start = max(0, match_start - 3)
+            context_end = min(len(step_tokens), match_end + 3)
+            surrounding = tuple(step_tokens[context_start:context_end])
+
+            candidates.append(StepCandidate(
+                ingredient_index=ingredient_index,
+                step_index=step_index,
+                alias=best_alias,
+                match_strength=match_strength,
+                verb_signal=verb_signal,
+                context_score=context_score,
+                surrounding_tokens=surrounding,
+                split_fraction=split_fraction,
+            ))
+
+    return candidates
+
+
+def _score_candidate(candidate: StepCandidate) -> float:
+    """
+    Compute a score for a candidate to determine assignment priority.
+
+    Formula:
+    - Base: alias score (token count, char length, source preference)
+    - + verb signal bonus/penalty (already in context_score)
+    - + match strength bonus
+    - - step index tiebreaker (prefer earlier steps)
+    """
+    alias_score = candidate.alias.score
+    # Convert tuple score to float: weight by (100*tokens + chars + source_bonus)
+    base_score = alias_score[0] * 100 + alias_score[1] + alias_score[2] * 10
+
+    # Add context score (includes verb signal adjustment)
+    score = base_score + candidate.context_score
+
+    # Match strength bonus
+    if candidate.match_strength == "strong":
+        score += 5.0
+
+    # Step tiebreaker: prefer earlier steps
+    score -= candidate.step_index * 0.1
+
+    return score
+
+
+def _resolve_assignments(
+    candidates: list[StepCandidate],
+    ingredient_count: int,
+    ingredient_lines: list[dict[str, Any]],
+) -> list[IngredientAssignment]:
+    """
+    Resolve which steps each ingredient should be assigned to.
+
+    Default: Pick single best step ("best step wins")
+    Exception: Allow multi-step only if split/reserve language detected
+    """
+    from collections import defaultdict
+
+    # Group candidates by ingredient
+    by_ingredient: dict[int, list[StepCandidate]] = defaultdict(list)
+    for candidate in candidates:
+        by_ingredient[candidate.ingredient_index].append(candidate)
+
+    # First pass: determine best step for each ingredient, tracking fractions
+    preliminary_assignments: dict[int, tuple[list[int], str, dict[int, float] | None]] = {}
+
+    for ingredient_index in range(ingredient_count):
+        ingredient_candidates = by_ingredient.get(ingredient_index, [])
+
+        if not ingredient_candidates:
+            preliminary_assignments[ingredient_index] = ([], "no matches", None)
+            continue
+
+        if len(ingredient_candidates) == 1:
+            candidate = ingredient_candidates[0]
+            step_fractions = None
+            if candidate.split_fraction is not None and candidate.split_fraction > 0:
+                step_fractions = {candidate.step_index: candidate.split_fraction}
+            preliminary_assignments[ingredient_index] = (
+                [candidate.step_index],
+                "single match",
+                step_fractions,
+            )
+            continue
+
+        # Multiple candidates - check for multi-step eligibility
+        # Count candidates with use or split signals
+        use_or_split = [c for c in ingredient_candidates if c.verb_signal in ("use", "split")]
+        has_explicit_split = any(c.verb_signal == "split" for c in ingredient_candidates)
+
+        if len(use_or_split) >= 2 and has_explicit_split:
+            # Allow multi-step assignment
+            sorted_candidates = sorted(use_or_split, key=_score_candidate, reverse=True)
+            selected = sorted_candidates[:_MAX_STEPS_PER_INGREDIENT]
+            assigned_steps = sorted([c.step_index for c in selected])
+
+            # Calculate fractions for split ingredients
+            step_fractions = _calculate_split_fractions(selected, assigned_steps)
+
+            preliminary_assignments[ingredient_index] = (
+                assigned_steps,
+                f"multi-step (split language): {len(assigned_steps)} steps",
+                step_fractions,
+            )
+        else:
+            # Pick single best candidate
+            # But prefer earlier step when multiple "use" verb candidates exist
+            best = max(ingredient_candidates, key=_score_candidate)
+
+            # Check if there's an earlier candidate with "use" verb that should win
+            use_verb_candidates = [c for c in ingredient_candidates if c.verb_signal == "use"]
+            if len(use_verb_candidates) > 1 and best.verb_signal == "use":
+                # Multiple use verbs: prefer earliest (first introduction of ingredient)
+                earliest_use = min(use_verb_candidates, key=lambda c: c.step_index)
+                if earliest_use.step_index < best.step_index:
+                    best = earliest_use
+                    preliminary_assignments[ingredient_index] = (
+                        [best.step_index],
+                        f"earliest use verb wins (step {best.step_index})",
+                        None,
+                    )
+                    continue
+
+            preliminary_assignments[ingredient_index] = (
+                [best.step_index],
+                f"best step wins (score={_score_candidate(best):.1f})",
+                None,
+            )
+
+    # Second pass: filter out weak (single-token) matches that overlap with strong matches
+    # Group by step to find overlapping tokens
+    step_to_strong_tokens: dict[int, set[str]] = defaultdict(set)
+
+    for ingredient_index, (assigned_steps, reason, _fractions) in preliminary_assignments.items():
+        if not assigned_steps:
+            continue
+        ing_candidates = by_ingredient.get(ingredient_index, [])
+        for candidate in ing_candidates:
+            if candidate.step_index in assigned_steps and candidate.match_strength == "strong":
+                step_to_strong_tokens[candidate.step_index].update(candidate.alias.tokens)
+
+    # Now filter: weak matches whose tokens are covered by strong matches in same step
+    assignments: list[IngredientAssignment] = []
+    for ingredient_index in range(ingredient_count):
+        assigned_steps, reason, step_fractions = preliminary_assignments[ingredient_index]
+        if not assigned_steps:
+            assignments.append(IngredientAssignment(
+                ingredient_index=ingredient_index,
+                assigned_steps=[],
+                reason=reason,
+            ))
+            continue
+
+        # Check if this is a weak match that overlaps with a strong match
+        ing_candidates = by_ingredient.get(ingredient_index, [])
+        best_candidate = next(
+            (c for c in ing_candidates if c.step_index == assigned_steps[0]),
+            None
+        )
+        if best_candidate and best_candidate.match_strength == "weak":
+            # Check if tokens overlap with strong matches in same step
+            for step_idx in assigned_steps:
+                strong_tokens = step_to_strong_tokens.get(step_idx, set())
+                if set(best_candidate.alias.tokens) & strong_tokens:
+                    # This weak match overlaps with a strong match - exclude it
+                    assignments.append(IngredientAssignment(
+                        ingredient_index=ingredient_index,
+                        assigned_steps=[],
+                        reason="excluded: overlaps strong match",
+                    ))
+                    break
+            else:
+                # No overlap found, keep the assignment
+                assignments.append(IngredientAssignment(
+                    ingredient_index=ingredient_index,
+                    assigned_steps=assigned_steps,
+                    reason=reason,
+                    step_fractions=step_fractions,
+                ))
+        else:
+            assignments.append(IngredientAssignment(
+                ingredient_index=ingredient_index,
+                assigned_steps=assigned_steps,
+                reason=reason,
+                step_fractions=step_fractions,
+            ))
+
+    return assignments
+
+
+def _calculate_split_fractions(
+    candidates: list[StepCandidate],
+    assigned_steps: list[int],
+) -> dict[int, float] | None:
+    """
+    Calculate the fraction of ingredient to assign to each step.
+
+    For "half" + "remaining" pattern: 0.5 each
+    For explicit fractions: use those values
+    """
+    if len(assigned_steps) < 2:
+        return None
+
+    # Build step -> fraction map from candidates
+    step_to_candidate = {c.step_index: c for c in candidates}
+
+    # Collect known fractions
+    known_fractions: dict[int, float] = {}
+    remaining_steps: list[int] = []
+
+    for step_idx in assigned_steps:
+        candidate = step_to_candidate.get(step_idx)
+        if candidate and candidate.split_fraction is not None:
+            if candidate.split_fraction == -1.0:  # "remaining" sentinel
+                remaining_steps.append(step_idx)
+            else:
+                known_fractions[step_idx] = candidate.split_fraction
+
+    # If no fractions detected, return None (no quantity splitting)
+    if not known_fractions and not remaining_steps:
+        return None
+
+    # Calculate remaining fraction
+    used_fraction = sum(known_fractions.values())
+    leftover = 1.0 - used_fraction
+
+    # Distribute remaining among "remaining" steps
+    if remaining_steps:
+        per_remaining = leftover / len(remaining_steps)
+        for step_idx in remaining_steps:
+            known_fractions[step_idx] = per_remaining
+
+    # If we still don't have fractions for all steps, distribute evenly
+    if len(known_fractions) < len(assigned_steps):
+        missing_steps = [s for s in assigned_steps if s not in known_fractions]
+        if missing_steps:
+            # Recalculate to ensure fractions sum to 1.0
+            per_step = 1.0 / len(assigned_steps)
+            return {s: per_step for s in assigned_steps}
+
+    return known_fractions if known_fractions else None
+
+
+def _build_final_step_lines(
+    assignments: list[IngredientAssignment],
+    ingredient_lines: list[dict[str, Any]],
+    step_count: int,
+) -> list[list[dict[str, Any]]]:
+    """
+    Create per-step ingredient lists from assignments.
+
+    Deep-copies ingredients and maintains original ingredient order within each step.
+    When split fractions are detected, adjusts the quantity accordingly.
+    """
+    # Build step -> (ingredient_index, fraction) mapping
+    step_ingredients: dict[int, list[tuple[int, float | None]]] = {i: [] for i in range(step_count)}
+
+    for assignment in assignments:
+        for step_idx in assignment.assigned_steps:
+            if 0 <= step_idx < step_count:
+                fraction = None
+                if assignment.step_fractions:
+                    fraction = assignment.step_fractions.get(step_idx)
+                step_ingredients[step_idx].append((assignment.ingredient_index, fraction))
+
+    # Sort ingredient indices within each step to maintain original order
+    for step_idx in step_ingredients:
+        step_ingredients[step_idx].sort(key=lambda x: x[0])
+
+    # Build final result with deep copies and fraction-adjusted quantities
+    results: list[list[dict[str, Any]]] = []
+    for step_idx in range(step_count):
+        step_lines: list[dict[str, Any]] = []
+        for ing_idx, fraction in step_ingredients[step_idx]:
+            line = ingredient_lines[ing_idx]
+            if line.get("quantity_kind") != "section_header":
+                line_copy = copy.deepcopy(line)
+                # Apply fraction to quantity if detected
+                if fraction is not None and "input_qty" in line_copy:
+                    original_qty = line_copy.get("input_qty")
+                    if original_qty is not None and isinstance(original_qty, (int, float)):
+                        line_copy["input_qty"] = original_qty * fraction
+                step_lines.append(line_copy)
+        results.append(step_lines)
+
+    return results
+
+
+@dataclass
+class DebugInfo:
+    """Debug information from ingredient assignment."""
+    candidates: list[StepCandidate]
+    assignments: list[IngredientAssignment]
+    group_assignments: dict[int, list[int]]  # step_idx -> ingredient indices from groups
+    all_ingredients_steps: list[int]  # step indices with "all ingredients" phrase
+
+
 def assign_ingredient_lines_to_steps(
     steps: list[str | HowToStep],
     ingredient_lines: list[dict[str, Any]],
-) -> list[list[dict[str, Any]]]:
-    """Return a per-step list of ingredient lines in original order."""
+    *,
+    debug: bool = False,
+) -> list[list[dict[str, Any]]] | tuple[list[list[dict[str, Any]]], DebugInfo]:
+    """
+    Return a per-step list of ingredient lines in original order.
+
+    Uses a two-phase algorithm:
+    1. Candidate Detection: Scan all steps, collect all candidate matches with metadata
+    2. Global Resolution: For each ingredient, pick single best step (or multi-step if split language)
+
+    Args:
+        steps: List of step texts or HowToStep objects
+        ingredient_lines: List of ingredient dicts with raw_ingredient_text, quantity_kind, etc.
+        debug: If True, return (results, DebugInfo) tuple with assignment trace
+
+    Returns:
+        Per-step list of ingredient dicts, or (results, debug_info) if debug=True
+    """
     step_texts = [_coerce_step_text(step) for step in steps]
     if not step_texts:
+        if debug:
+            return [], DebugInfo([], [], {}, [])
         return []
     if not ingredient_lines:
-        return [[] for _ in step_texts]
+        empty_result = [[] for _ in step_texts]
+        if debug:
+            return empty_result, DebugInfo([], [], {}, [])
+        return empty_result
 
     groups = _build_groups(ingredient_lines)
     alias_map = _build_alias_map(ingredient_lines)
@@ -112,44 +600,70 @@ def assign_ingredient_lines_to_steps(
         if line.get("quantity_kind") != "section_header"
     ]
 
-    results: list[list[dict[str, Any]]] = []
-    for step_text in step_texts:
+    # Debug tracking
+    group_assignments: dict[int, list[int]] = {}
+    all_ingredients_steps: list[int] = []
+
+    # Phase 1: Collect all candidates using two-phase algorithm
+    candidates = _collect_all_candidates(step_texts, alias_map)
+
+    # Phase 2: Resolve assignments (best step wins, with multi-step exception for split language)
+    assignments = _resolve_assignments(candidates, len(ingredient_lines), ingredient_lines)
+
+    # Build initial results from two-phase assignments
+    results = _build_final_step_lines(assignments, ingredient_lines, len(step_texts))
+
+    # Now handle special cases: section header groups and "all ingredients" phrases
+    # These override/supplement the two-phase results
+    for step_idx, step_text in enumerate(step_texts):
         step_tokens = _tokenize(step_text)
         normalized_step = " ".join(step_tokens)
         if not step_tokens:
-            results.append([])
             continue
 
+        # "All ingredients" phrase overrides everything for this step
         if _has_all_ingredients_phrase(normalized_step):
-            results.append(_build_step_lines(non_header_indices, ingredient_lines))
+            all_ingredients_steps.append(step_idx)
+            results[step_idx] = _build_step_lines(non_header_indices, ingredient_lines)
             continue
 
-        include_indices: set[int] = set()
-
+        # Section header group matching adds to results (doesn't replace)
         for group in groups:
             if _step_mentions_group(step_tokens, group.aliases):
-                include_indices.update(group.indices)
+                if step_idx not in group_assignments:
+                    group_assignments[step_idx] = []
+                group_assignments[step_idx].extend(group.indices)
 
-        matches = _find_matches(step_tokens, alias_map)
-        strong_matches = [match for match in matches if match.strength == "strong"]
-        weak_matches = [match for match in matches if match.strength == "weak"]
+                # Merge group indices into this step's results
+                existing_indices = {
+                    idx for idx, line in enumerate(ingredient_lines)
+                    for result_line in results[step_idx]
+                    if line.get("raw_ingredient_text") == result_line.get("raw_ingredient_text")
+                }
+                for ing_idx in group.indices:
+                    if ing_idx not in existing_indices:
+                        line = ingredient_lines[ing_idx]
+                        if line.get("quantity_kind") != "section_header":
+                            results[step_idx].append(copy.deepcopy(line))
 
-        strong_tokens = {token for match in strong_matches for token in match.tokens}
-        weak_matches = [
-            match
-            for match in weak_matches
-            if not (set(match.tokens) & strong_tokens)
-        ]
+        # Re-sort by original ingredient order
+        results[step_idx] = sorted(
+            results[step_idx],
+            key=lambda line: next(
+                (i for i, orig in enumerate(ingredient_lines)
+                 if orig.get("raw_ingredient_text") == line.get("raw_ingredient_text")),
+                len(ingredient_lines)
+            )
+        )
 
-        if len(weak_matches) > _WEAK_MATCH_CAP:
-            weak_matches = sorted(weak_matches, key=lambda match: match.score, reverse=True)[
-                :_WEAK_MATCH_CAP
-            ]
-
-        include_indices.update(match.index for match in strong_matches)
-        include_indices.update(match.index for match in weak_matches)
-
-        results.append(_build_step_lines(include_indices, ingredient_lines))
+    if debug:
+        debug_info = DebugInfo(
+            candidates=candidates,
+            assignments=assignments,
+            group_assignments=group_assignments,
+            all_ingredients_steps=all_ingredients_steps,
+        )
+        return results, debug_info
 
     return results
 
@@ -209,6 +723,13 @@ def _build_aliases(line: dict[str, Any]) -> list[Alias]:
                 seen.add(alias_tokens)
 
     if len(input_tokens) > 1:
+        # Add head alias (first token) - e.g., "sage" for "sage leaves"
+        head = (input_tokens[0],)
+        if head not in seen:
+            aliases.append(Alias(tokens=head, source="head"))
+            seen.add(head)
+
+        # Add tail alias (last token) - e.g., "leaves" for "sage leaves"
         tail = (input_tokens[-1],)
         if tail not in seen:
             aliases.append(Alias(tokens=tail, source="tail"))

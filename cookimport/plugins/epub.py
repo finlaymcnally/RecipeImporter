@@ -571,14 +571,28 @@ class EpubImporter:
             return []
 
         yield_indices = [i for i, b in enumerate(blocks) if b.features.get("is_yield")]
-        starts: List[int] = []
         if yield_indices:
+            starts: List[Tuple[int, int]] = []
+            seen_starts: set[int] = set()
             for idx in yield_indices:
                 title_idx = self._backtrack_for_title(blocks, idx, limit=8)
                 start_idx = title_idx if title_idx != -1 else idx
-                starts.append(start_idx)
-            starts = sorted(set(starts))
-            return self._build_candidates_from_starts(blocks, starts)
+                if start_idx in seen_starts:
+                    continue
+                seen_starts.add(start_idx)
+                starts.append((start_idx, idx))
+            starts.sort()
+
+            candidates: List[Tuple[int, int, float]] = []
+            last_end = 0
+            for start_idx, anchor_idx in starts:
+                if start_idx < last_end:
+                    continue
+                end_idx = self._find_recipe_end(blocks, start_idx, anchor_idx)
+                score = self._score_candidate(blocks[start_idx:end_idx])
+                candidates.append((start_idx, end_idx, score))
+                last_end = end_idx
+            return candidates
 
         candidates: List[Tuple[int, int, float]] = []
         i = 0
@@ -662,10 +676,61 @@ class EpubImporter:
             if b.features.get("is_heading") and b.features.get("heading_level") == 1:
                 return i
 
+            if self._looks_like_section_intro(b):
+                return i
+
             if self._is_title_candidate(b) and self._has_ingredient_run(blocks, i):
                 return i
-                
+
         return len(blocks)
+
+    def _looks_like_section_intro(self, block: Block) -> bool:
+        text = block.text.strip()
+        if len(text) < 30:
+            return False
+
+        prefix_tokens, remainder = self._extract_all_caps_prefix(text)
+        if not prefix_tokens or not remainder:
+            return False
+
+        connectors = {"AND", "OR", "OF", "THE", "&"}
+        if len(prefix_tokens) == 1:
+            if len(prefix_tokens[0]) < 9:
+                return False
+        elif len(prefix_tokens) < 3 and not any(tok in connectors for tok in prefix_tokens):
+            return False
+
+        prefix_text = " ".join(prefix_tokens)
+        if len(prefix_text) < 12 and len(prefix_tokens) > 1:
+            return False
+
+        if len(remainder) < 20 or not re.search(r"[a-z]", remainder):
+            return False
+
+        first_word = remainder.split()[0]
+        if len(first_word) < 2 or not first_word[0].isupper() or not first_word[1:].islower():
+            return False
+
+        return True
+
+    def _extract_all_caps_prefix(self, text: str) -> tuple[List[str], str]:
+        tokens = text.split()
+        prefix_tokens: List[str] = []
+        idx = 0
+        for token in tokens:
+            cleaned = re.sub(r"[^A-Za-z&]", "", token)
+            if len(cleaned) < 2:
+                break
+            if cleaned.isupper():
+                prefix_tokens.append(cleaned)
+                idx += 1
+                continue
+            break
+
+        if not prefix_tokens:
+            return ([], "")
+        remainder = " ".join(tokens[idx:]).lstrip(" :.-")
+        return (prefix_tokens, remainder)
 
     def _extract_fields(self, blocks: List[Block]) -> RecipeCandidate:
         name = "Untitled Recipe"

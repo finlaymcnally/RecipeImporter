@@ -1,7 +1,7 @@
 """Tests for step-level ingredient linking."""
 
 from cookimport.core.models import HowToStep
-from cookimport.parsing.step_ingredients import assign_ingredient_lines_to_steps
+from cookimport.parsing.step_ingredients import assign_ingredient_lines_to_steps, DebugInfo
 
 
 def _ingredient_line(name: str, quantity_kind: str = "unquantified") -> dict[str, str]:
@@ -89,3 +89,259 @@ def test_howtostep_inputs():
 
     assert _names(result[0]) == ["sugar"]
     assert _names(result[1]) == ["flour"]
+
+
+# --- Tests for ingredient-step duplication fix ---
+
+
+def test_ingredient_assigned_to_single_best_step():
+    """Ingredient mentioned in multiple steps assigned only to best match."""
+    ingredient_lines = [
+        _ingredient_line("artichokes"),
+    ]
+    # Artichokes mentioned in multiple steps - should only go to the best match
+    steps = [
+        "Prepare the artichokes by trimming the stems.",  # reference (prepare)
+        "Add the artichokes to the pot.",                  # use (add) - BEST
+        "Check if the artichokes are tender.",            # reference (check)
+        "Serve the artichokes warm.",                      # reference (serve)
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    # Should only appear in step 2 (index 1) where "add" is used
+    assigned_steps = [i for i, step_lines in enumerate(result) if _names(step_lines)]
+    assert len(assigned_steps) == 1, f"Expected 1 step, got {len(assigned_steps)}: {assigned_steps}"
+    assert assigned_steps[0] == 1, f"Expected step 1, got {assigned_steps[0]}"
+
+
+def test_use_verb_beats_reference_verb():
+    """'Add butter' wins over 'cook butter'."""
+    ingredient_lines = [
+        _ingredient_line("butter"),
+    ]
+    steps = [
+        "Cook the butter until browned.",  # reference verb (cook)
+        "Add the butter to the sauce.",     # use verb (add) - should win
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    assigned_steps = [i for i, step_lines in enumerate(result) if _names(step_lines)]
+    assert len(assigned_steps) == 1
+    assert assigned_steps[0] == 1  # "add" step wins
+
+
+def test_split_language_allows_multi_step():
+    """'Add half parsley' + 'remaining parsley' = both steps get it."""
+    ingredient_lines = [
+        _ingredient_line("parsley"),
+    ]
+    steps = [
+        "Add half the parsley to the soup.",       # use + split (half)
+        "Garnish with remaining parsley.",         # use + split (remaining)
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    # Both steps should get parsley due to split language
+    assigned_steps = [i for i, step_lines in enumerate(result) if _names(step_lines)]
+    assert len(assigned_steps) == 2
+    assert 0 in assigned_steps
+    assert 1 in assigned_steps
+
+
+def test_reserve_language_detection():
+    """'reserving 2 tbsp' + 'add reserved' = both steps."""
+    ingredient_lines = [
+        _ingredient_line("olive oil"),
+    ]
+    steps = [
+        "Drizzle olive oil over vegetables, reserving 2 tbsp.",  # use + split
+        "Add the reserved olive oil at the end.",                 # use + split
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    assigned_steps = [i for i, step_lines in enumerate(result) if _names(step_lines)]
+    assert len(assigned_steps) == 2
+
+
+def test_reference_verbs_deprioritized():
+    """Steps with only reference verbs don't get ingredients when use verb exists."""
+    ingredient_lines = [
+        _ingredient_line("chicken"),
+    ]
+    steps = [
+        "Let the chicken rest for 10 minutes.",   # reference (let, rest)
+        "Stir in the chicken pieces.",             # use (stir)
+        "Check if chicken is cooked through.",     # reference (check)
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    assigned_steps = [i for i, step_lines in enumerate(result) if _names(step_lines)]
+    assert len(assigned_steps) == 1
+    assert assigned_steps[0] == 1  # "stir" step wins
+
+
+def test_debug_mode_returns_info():
+    """debug=True returns assignment trace."""
+    ingredient_lines = [
+        _ingredient_line("salt"),
+        _ingredient_line("pepper"),
+    ]
+    steps = ["Add salt and pepper."]
+
+    result, debug_info = assign_ingredient_lines_to_steps(
+        steps, ingredient_lines, debug=True
+    )
+
+    assert isinstance(debug_info, DebugInfo)
+    assert len(debug_info.candidates) >= 2  # At least one candidate per ingredient
+    assert len(debug_info.assignments) == 2  # One assignment per ingredient
+
+
+def test_section_header_grouping_preserved():
+    """Existing section header behavior unchanged."""
+    ingredient_lines = [
+        _section_header("Sauce"),
+        _ingredient_line("tomato paste"),
+        _ingredient_line("garlic"),
+        _section_header("Filling"),
+        _ingredient_line("cheese"),
+    ]
+    steps = ["Make the sauce.", "Stuff the filling."]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    assert _names(result[0]) == ["tomato paste", "garlic"]
+    assert _names(result[1]) == ["cheese"]
+
+
+def test_all_ingredients_phrase_preserved():
+    """'Combine all ingredients' still works."""
+    ingredient_lines = [
+        _ingredient_line("flour"),
+        _ingredient_line("sugar"),
+        _ingredient_line("eggs"),
+    ]
+    steps = [
+        "Sift the flour.",
+        "Combine all ingredients in a bowl.",
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    # Step 2 should have all ingredients
+    assert _names(result[1]) == ["flour", "sugar", "eggs"]
+
+
+def test_earlier_step_wins_tiebreaker():
+    """When scores are equal, earlier step wins."""
+    ingredient_lines = [
+        _ingredient_line("salt"),
+    ]
+    # Both steps use "add" - equal verb signal, earlier should win
+    steps = [
+        "Add salt to taste.",
+        "Add more salt if needed.",
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    assigned_steps = [i for i, step_lines in enumerate(result) if _names(step_lines)]
+    assert len(assigned_steps) == 1
+    assert assigned_steps[0] == 0  # Earlier step wins
+
+
+def test_multi_ingredient_single_step():
+    """Multiple ingredients can be assigned to the same step."""
+    ingredient_lines = [
+        _ingredient_line("onion"),
+        _ingredient_line("garlic"),
+        _ingredient_line("celery"),
+    ]
+    steps = [
+        "Dice the onion, garlic, and celery.",
+        "Cook the vegetables until soft.",
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    # All three should be in step 0 where they're mentioned with action
+    # Step 1 just says "vegetables" so shouldn't get them
+    assert "onion" in _names(result[0])
+    assert "garlic" in _names(result[0])
+    assert "celery" in _names(result[0])
+
+
+def test_head_alias_matches_partial_name():
+    """Head token of multi-word ingredient matches partial mentions."""
+    ingredient_lines = [
+        _ingredient_line("sage leaves"),
+    ]
+    steps = [
+        "Fry the sage in hot oil.",  # Uses "sage" not "sage leaves"
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    assert _names(result[0]) == ["sage leaves"]
+
+
+def test_earliest_use_verb_wins_over_stronger_alias():
+    """When multiple steps have use verbs, earliest wins even with weaker alias."""
+    ingredient_lines = [
+        _ingredient_line("sage leaves"),
+    ]
+    steps = [
+        "Fry the sage.",          # Earlier use verb, weaker alias
+        "Add the sage leaves.",   # Later use verb, stronger alias
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    # Step 0 should win because it's the earliest use verb
+    assert _names(result[0]) == ["sage leaves"]
+    assert _names(result[1]) == []
+
+
+def test_quantity_split_with_half():
+    """'half' splits quantity evenly between steps."""
+    ingredient_lines = [{
+        "quantity_kind": "exact",
+        "raw_ingredient_text": "croutons",
+        "raw_text": "4 cups croutons",
+        "input_qty": 4.0,
+    }]
+    steps = [
+        "Add half the croutons.",
+        "Add the remaining croutons.",
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    # Both steps should have croutons with halved quantity
+    assert len(result[0]) == 1
+    assert len(result[1]) == 1
+    assert result[0][0]["input_qty"] == 2.0
+    assert result[1][0]["input_qty"] == 2.0
+
+
+def test_fry_is_use_verb():
+    """'fry' is classified as a use verb, not reference."""
+    ingredient_lines = [
+        _ingredient_line("onions"),
+    ]
+    steps = [
+        "Fry the onions until golden.",
+    ]
+
+    result, debug_info = assign_ingredient_lines_to_steps(
+        steps, ingredient_lines, debug=True
+    )
+
+    assert len(debug_info.candidates) == 1
+    assert debug_info.candidates[0].verb_signal == "use"
+    assert _names(result[0]) == ["onions"]

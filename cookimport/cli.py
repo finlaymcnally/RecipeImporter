@@ -7,6 +7,7 @@ from typing import Iterable
 
 import questionary
 import typer
+from rich.console import Console
 
 from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
@@ -26,6 +27,7 @@ from cookimport.staging.writer import (
 )
 
 app = typer.Typer(add_completion=False, invoke_without_command=True)
+console = Console()
 
 DEFAULT_INPUT = Path(__file__).parent.parent / "data" / "input"
 DEFAULT_OUTPUT = Path(__file__).parent.parent / "data" / "output"
@@ -434,7 +436,8 @@ def stage(
                 else:
                     mapping_config.parsing_overrides = parsing_overrides
 
-            result = importer.convert(file_path, mapping_config)
+            with console.status(f"[bold cyan]Importing {file_path.name}...[/bold cyan]", spinner="dots"):
+                result = importer.convert(file_path, mapping_config)
 
             if limit is not None:
                 _apply_result_limits(
@@ -507,7 +510,8 @@ def inspect(
         _fail("Inspect expects a workbook file.")
 
     importer = _require_importer(path)
-    inspection = importer.inspect(path)
+    with console.status(f"[bold cyan]Inspecting {path.name}...[/bold cyan]", spinner="dots"):
+        inspection = importer.inspect(path)
     typer.secho(f"Workbook: {path.name}", fg=typer.colors.CYAN)
     for sheet in inspection.sheets:
         layout = sheet.layout or "unknown"
@@ -555,19 +559,20 @@ def labelstudio_import(
     """Import a cookbook into Label Studio for benchmarking."""
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     try:
-        result = run_labelstudio_import(
-            path=path,
-            output_dir=output_dir,
-            pipeline=pipeline,
-            project_name=project_name,
-            chunk_level=chunk_level,
-            overwrite=overwrite,
-            resume=not overwrite,
-            label_studio_url=url,
-            label_studio_api_key=api_key,
-            limit=limit,
-            sample=sample,
-        )
+        with console.status(f"[bold cyan]Running Label Studio import for {path.name}...[/bold cyan]", spinner="dots"):
+            result = run_labelstudio_import(
+                path=path,
+                output_dir=output_dir,
+                pipeline=pipeline,
+                project_name=project_name,
+                chunk_level=chunk_level,
+                overwrite=overwrite,
+                resume=not overwrite,
+                label_studio_url=url,
+                label_studio_api_key=api_key,
+                limit=limit,
+                sample=sample,
+            )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
 

@@ -32,3 +32,7 @@ using line-level heuristics.
 
 Parsing overrides can be supplied with `--overrides` or a `<workbook>.overrides.yaml`
 sidecar to extend header/tip detection and enable optional spaCy signals.
+
+EPUB segmentation treats all-caps section headers (including single-word chapter
+labels) embedded in intro paragraphs as hard recipe boundaries to avoid greedy
+spillover into chapter text.

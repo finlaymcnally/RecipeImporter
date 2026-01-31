@@ -20,10 +20,16 @@ After this change, each step in the Draft V1 output will list only the ingredien
 - [x] (2026-01-22 04:30Z) Add step ingredient linking utilities with deterministic matching heuristics and unit tests.
 - [x] (2026-01-22 04:30Z) Integrate step mapping into `cookimport/staging/draft_v1.py` and document the heuristic.
 - [x] (2026-01-26 01:12Z) Validate output against sample data and confirm acceptance criteria (ran `cookimport stage` on data/input; inspected Draft V1 output for per-step ingredient assignments).
+- [x] (2026-01-30 21:35Z) Fix ingredient-step duplication bug: refactor to two-phase algorithm with verb context classification.
+- [x] (2026-01-30 22:00Z) Fix sage/croutons issues: add head alias, move cooking verbs to USE, add "earliest use wins" rule, add quantity splitting.
 
 ## Surprises & Discoveries
 
-No surprises yet. Update this section if matching heuristics behave unexpectedly on real recipes.
+- (2026-01-30) **Ingredient Duplication Bug**: The original implementation assigned ingredients to **every step** that mentioned them, rather than picking the single best step. Example: "artichokes" appeared in 4 steps because the word was mentioned throughout. Root cause: per-step matching without global resolution.
+- (2026-01-30) **"rest" Ambiguity**: The word "rest" as in "let the chicken rest" was incorrectly triggering split-language detection (designed for "the rest of the parsley"). Fixed by limiting post-ingredient split signals to unambiguous noun forms like "remaining", "reserved".
+- (2026-01-30) **Head Alias Needed**: Multi-word ingredients like "sage leaves" weren't matching partial mentions like "fry the sage". Added head alias (first token) in addition to tail alias.
+- (2026-01-30) **Cooking Verbs Misclassified**: Verbs like "fry", "saute", "sear" were in `_REFERENCE_VERBS` but they're actually active use of ingredients. Moved to `_USE_VERBS`.
+- (2026-01-30) **Earliest Use Wins**: When multiple steps have "use" verbs for the same ingredient, the later step could win due to stronger alias match. Added "earliest use verb wins" rule since the first mention is typically where the ingredient is introduced.
 
 ## Decision Log
 
@@ -59,9 +65,54 @@ No surprises yet. Update this section if matching heuristics behave unexpectedly
   Rationale: Prevents tokens like "cup" or "optional" from matching instruction text.
   Date/Author: 2026-01-22 / Agent
 
+- Decision: Refactor to two-phase algorithm (Candidate Detection + Global Resolution) to fix duplication bug.
+  Rationale: Per-step matching assigned ingredients to every step mentioning them. Two-phase algorithm collects ALL candidates first, then globally resolves to pick single best step per ingredient.
+  Date/Author: 2026-01-30 / Agent
+
+- Decision: Use verb context classification to determine ingredient usage intent.
+  Rationale: "Add butter" (use verb) should win over "cook butter" (reference verb). Verbs like "add", "mix", "stir" indicate active ingredient use; verbs like "cook", "let rest", "check" indicate passive reference.
+  Date/Author: 2026-01-30 / Agent
+
+- Decision: Allow multi-step assignment only when explicit split language detected.
+  Rationale: "Add half the parsley" + "garnish with remaining parsley" legitimately uses the ingredient twice. Require both (a) split signal words and (b) use/split verb signals to allow multi-step. Max 3 steps per ingredient.
+  Date/Author: 2026-01-30 / Agent
+
+- Decision: Add head alias for multi-word ingredients.
+  Rationale: "fry the sage" should match "sage leaves" ingredient. Added first token as alias in addition to existing tail (last token) alias.
+  Date/Author: 2026-01-30 / Agent
+
+- Decision: Move cooking verbs (fry, saute, sear, brown, grill, roast, bake) to USE verbs.
+  Rationale: When you "fry the onions", you're actively using the ingredient by adding it to the pan. These are not passive references.
+  Date/Author: 2026-01-30 / Agent
+
+- Decision: When multiple steps have "use" verbs for same ingredient, earliest step wins.
+  Rationale: The first mention of an ingredient is typically where it's introduced. "Fry the sage" (step 6) should win over "Add the sage leaves in batches" (step 7) since step 6 is the main instruction.
+  Date/Author: 2026-01-30 / Agent
+
+- Decision: Split quantities when split language detected (e.g., "half" → divide by 2).
+  Rationale: "Add half the croutons" + "remaining croutons" with 4 cups should show 2 cups in each step, making the recipe more accurate.
+  Date/Author: 2026-01-30 / Agent
+
 ## Outcomes & Retrospective
 
 Implemented token-based ingredient matching with section grouping, added unit tests, integrated step assignment into Draft V1 output, and validated staging output against sample data.
+
+### Bug Fix (2026-01-30): Ingredient-Step Duplication
+
+**Problem**: Ingredients were assigned to every step mentioning them, not just where they're actually used. Example: "artichokes" appeared in 4 steps.
+
+**Solution**: Two-phase algorithm:
+1. **Candidate Detection**: Scan ALL steps, collect ALL candidate matches with metadata (verb signal, context score)
+2. **Global Resolution**: For each ingredient, pick single best step based on scoring; allow multi-step only with explicit split language
+
+**Key Changes**:
+- Added `StepCandidate` and `IngredientAssignment` dataclasses for structured candidate tracking
+- Added verb classification: `_USE_VERBS` (+10 score), `_REFERENCE_VERBS` (-5 score), `_SPLIT_SIGNAL_WORDS` (+8 score)
+- Added `_classify_verb_context()` to detect verb signals before/after ingredient match
+- Added `_collect_all_candidates()` for Phase 1 candidate detection
+- Added `_resolve_assignments()` for Phase 2 global resolution with "best step wins" default
+- Added optional `debug=True` parameter to return `DebugInfo` with assignment trace
+- Preserved existing section header grouping and "all ingredients" phrase handling
 
 ## Context and Orientation
 
@@ -155,6 +206,23 @@ Test evidence:
     tests/test_ingredient_parser.py::TestBasicParsing::test_simple_ingredient_with_unit PASSED
     tests/test_ingredient_parser.py::TestConfidence::test_section_header_zero_confidence PASSED
 
+Bug fix test evidence (2026-01-30):
+
+    tests/test_step_ingredient_linking.py::test_ingredient_assigned_to_single_best_step PASSED
+    tests/test_step_ingredient_linking.py::test_use_verb_beats_reference_verb PASSED
+    tests/test_step_ingredient_linking.py::test_split_language_allows_multi_step PASSED
+    tests/test_step_ingredient_linking.py::test_reserve_language_detection PASSED
+    tests/test_step_ingredient_linking.py::test_reference_verbs_deprioritized PASSED
+    tests/test_step_ingredient_linking.py::test_debug_mode_returns_info PASSED
+    tests/test_step_ingredient_linking.py::test_section_header_grouping_preserved PASSED
+    tests/test_step_ingredient_linking.py::test_all_ingredients_phrase_preserved PASSED
+    tests/test_step_ingredient_linking.py::test_earlier_step_wins_tiebreaker PASSED
+    tests/test_step_ingredient_linking.py::test_multi_ingredient_single_step PASSED
+    tests/test_step_ingredient_linking.py::test_head_alias_matches_partial_name PASSED
+    tests/test_step_ingredient_linking.py::test_earliest_use_verb_wins_over_stronger_alias PASSED
+    tests/test_step_ingredient_linking.py::test_quantity_split_with_half PASSED
+    tests/test_step_ingredient_linking.py::test_fry_is_use_verb PASSED
+
 ## Interfaces and Dependencies
 
 No new external dependencies are required. Implement the step-ingredient linker using standard library modules (re, string, dataclasses) and existing parsed ingredient data.
@@ -164,11 +232,20 @@ Define the following interface in `cookimport/parsing/step_ingredients.py`:
     def assign_ingredient_lines_to_steps(
         steps: list[str | HowToStep],
         ingredient_lines: list[dict[str, Any]],
-    ) -> list[list[dict[str, Any]]]:
+        *,
+        debug: bool = False,
+    ) -> list[list[dict[str, Any]]] | tuple[list[list[dict[str, Any]]], DebugInfo]:
         """Return a per-step list of ingredient lines in original order."""
 
 The function should treat `quantity_kind == "section_header"` as a group label rather than an ingredient, it should return deep-copied ingredient dicts when a line is used in multiple steps, and it should use word-boundary matching with a scoring threshold so that longer phrase matches win over single-token matches.
 
+With `debug=True`, the function returns a tuple of (results, DebugInfo) containing:
+- `candidates`: All StepCandidate objects collected in Phase 1
+- `assignments`: Final IngredientAssignment objects from Phase 2
+- `group_assignments`: Step indices with section header group matches
+- `all_ingredients_steps`: Step indices with "all ingredients" phrase
+
 Plan revision note: Updated the plan to use a two-stage alias+scoring matcher, expand section grouping beyond dry/wet, add caps for weak matches, and align the interface with `HowToStep` inputs based on the documented risk spots. (2026-01-22 04:07Z)
 Plan revision note: Recorded implementation details, decisions, and test evidence; updated progress to reflect completed work and remaining staging validation. (2026-01-22 04:30Z)
 Plan revision note: Marked staging validation complete and added a Draft V1 excerpt from the latest staged output. (2026-01-26 01:12Z)
+Plan revision note: Documented bug fix for ingredient-step duplication. Added two-phase algorithm with verb context classification. Updated interface to include optional debug parameter. Added 10 new test cases. (2026-01-30 21:35Z)
