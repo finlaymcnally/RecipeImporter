@@ -158,6 +158,26 @@ def recipe_candidate_to_draft_v1(candidate: RecipeCandidate) -> dict[str, Any]:
 
         steps_data.append(step_entry)
 
+    # Find any ingredients that weren't assigned to any step
+    assigned_texts: set[str] = set()
+    for step in steps_data:
+        for line in step.get("ingredient_lines", []):
+            assigned_texts.add(line.get("raw_ingredient_text", ""))
+
+    unassigned = [
+        line for line in all_ingredient_lines
+        if line.get("raw_ingredient_text", "") not in assigned_texts
+        and line.get("quantity_kind") != "section_header"
+    ]
+
+    # If there are unassigned ingredients, insert a prep step at the beginning
+    if unassigned:
+        prep_step: dict[str, Any] = {
+            "instruction": "Gather and prepare ingredients.",
+            "ingredient_lines": unassigned,
+        }
+        steps_data.insert(0, prep_step)
+
     # Compute cook_time from step times if not already present
     if total_step_time_seconds > 0 and not candidate.cook_time:
         recipe_meta["cook_time_seconds"] = total_step_time_seconds

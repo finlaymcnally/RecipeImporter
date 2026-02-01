@@ -172,3 +172,68 @@ def test_is_variation_header():
     for text in non_variation_texts:
         block = Block(text=text)
         assert not importer._is_variation_header(block), f"Should NOT identify '{text}' as variation header"
+
+
+def test_is_subsection_header():
+    """Test that sub-section headers like 'For the Frangipane' are correctly identified."""
+    importer = EpubImporter()
+
+    # Should be identified as subsection headers
+    subsection_texts = [
+        "For the Frangipane",
+        "For the Tart",
+        "For the Sauce",
+        "For the Crust",
+        "For Filling",
+        "FOR THE GLAZE",
+    ]
+    for text in subsection_texts:
+        block = Block(text=text)
+        assert importer._is_subsection_header(block), f"Should identify '{text}' as subsection header"
+
+    # Should NOT be identified as subsection headers
+    non_subsection_texts = [
+        "Apple and Frangipane Tart",  # Recipe title
+        "For best results, use fresh ingredients.",  # Instruction with "For"
+        "Ingredients",  # Standard header
+        "Instructions",
+        "For this recipe you will need a mixer.",  # Too long / instruction-like
+    ]
+    for text in non_subsection_texts:
+        block = Block(text=text)
+        assert not importer._is_subsection_header(block), f"Should NOT identify '{text}' as subsection header"
+
+
+def test_find_recipe_end_includes_subsection_headers():
+    """Test that 'For the X' subsection headers stay with the recipe instead of starting a new one."""
+    importer = EpubImporter()
+    blocks = [
+        Block(text="Apple and Frangipane Tart", font_weight="bold"),
+        Block(text="Makes one 14-inch tart"),
+        Block(text="For the Frangipane", font_weight="bold"),  # Should stay with recipe
+        Block(text="3/4 cup almonds"),
+        Block(text="3 tablespoons sugar"),
+        Block(text="For the Tart", font_weight="bold"),  # Should stay with recipe
+        Block(text="1 recipe Tart Dough"),
+        Block(text="Flour for rolling"),
+        Block(text="Place almonds in food processor."),
+        Block(text="Banana Bread", font_weight="bold"),  # Next recipe title
+        Block(text="Ingredients"),  # Ingredient header to trigger detection
+        Block(text="3 ripe bananas"),
+    ]
+
+    for block in blocks:
+        signals.enrich_block(block)
+    # Mark headings
+    blocks[2].add_feature("is_heading", True)
+    blocks[2].add_feature("heading_level", 3)
+    blocks[5].add_feature("is_heading", True)
+    blocks[5].add_feature("heading_level", 3)
+    blocks[9].add_feature("is_heading", True)
+    blocks[9].add_feature("heading_level", 2)
+    # Block 10 is ingredient header which will trigger recipe detection
+
+    end_idx = importer._find_recipe_end(blocks, start_idx=0, anchor_idx=1)
+    # Should include all blocks through the instructions (block 8), stopping at block 9 (next recipe title)
+    # The ingredient header at block 10 triggers backtracking to title at block 9
+    assert end_idx == 9, f"Expected end at block 9, got {end_idx}"

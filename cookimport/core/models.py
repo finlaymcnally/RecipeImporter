@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -334,6 +335,93 @@ class TopicCandidate(BaseModel):
         return _normalize_text(str(value))
 
 
+# --------------------------------------------------------------------------
+# Knowledge Chunking Models
+# --------------------------------------------------------------------------
+
+
+class ChunkLane(str, Enum):
+    """Classification lane for a knowledge chunk."""
+
+    KNOWLEDGE = "knowledge"
+    NARRATIVE = "narrative"
+    NOISE = "noise"
+
+
+class ChunkBoundaryReason(str, Enum):
+    """Reason why a chunk boundary was created."""
+
+    HEADING = "heading"
+    RECIPE_BOUNDARY = "recipe_boundary"
+    CALLOUT_SEED = "callout_seed"
+    FORMAT_MODE_CHANGE = "format_mode_change"
+    MAX_CHARS = "max_chars"
+    NOISE_BREAK = "noise_break"
+    TOPIC_PIVOT = "topic_pivot"
+    END_OF_INPUT = "end_of_input"
+    START_OF_INPUT = "start_of_input"
+
+
+class ChunkHighlight(BaseModel):
+    """A mined tip/highlight within a chunk."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    text: str
+    source_block_ids: list[int] = Field(default_factory=list, alias="sourceBlockIds")
+    offset_start: int | None = Field(default=None, alias="offsetStart")
+    offset_end: int | None = Field(default=None, alias="offsetEnd")
+    self_contained: bool = Field(default=True, alias="selfContained")
+    tags: TipTags = Field(default_factory=TipTags)
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def _normalize_highlight_text(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        return _normalize_text(str(value))
+
+
+class KnowledgeChunk(BaseModel):
+    """A coherent section of non-recipe text for knowledge extraction."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    identifier: str | None = Field(default=None, alias="id")
+    lane: ChunkLane = ChunkLane.KNOWLEDGE
+    title: str | None = None
+    section_path: list[str] = Field(default_factory=list, alias="sectionPath")
+    text: str
+    block_ids: list[int] = Field(default_factory=list, alias="blockIds")
+    aside_block_ids: list[int] = Field(default_factory=list, alias="asideBlockIds")
+    excluded_block_ids: list[int] = Field(default_factory=list, alias="excludedBlockIds")
+    distill_text: str | None = Field(default=None, alias="distillText")
+    boundary_start_reason: ChunkBoundaryReason = Field(
+        default=ChunkBoundaryReason.START_OF_INPUT, alias="boundaryStartReason"
+    )
+    boundary_end_reason: ChunkBoundaryReason = Field(
+        default=ChunkBoundaryReason.END_OF_INPUT, alias="boundaryEndReason"
+    )
+    tags: TipTags = Field(default_factory=TipTags)
+    tip_density: float = Field(default=0.0, alias="tipDensity")
+    highlight_count: int = Field(default=0, alias="highlightCount")
+    highlights: list[ChunkHighlight] = Field(default_factory=list)
+    source: str | None = None
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("text", "title", "distill_text", mode="before")
+    @classmethod
+    def _normalize_chunk_text(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        return _normalize_text(str(value))
+
+    @field_validator("section_path", mode="before")
+    @classmethod
+    def _normalize_section_path(cls, value: Any) -> list[str]:
+        return _normalize_str_list(value)
+
+
 class SheetMapping(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -463,6 +551,10 @@ class ConversionResult(BaseModel):
     tips: list[TipCandidate] = Field(default_factory=list)
     tip_candidates: list[TipCandidate] = Field(default_factory=list, alias="tipCandidates")
     topic_candidates: list[TopicCandidate] = Field(default_factory=list, alias="topicCandidates")
+    chunks: list["KnowledgeChunk"] = Field(default_factory=list)
+    non_recipe_blocks: list[dict[str, Any]] = Field(
+        default_factory=list, alias="nonRecipeBlocks"
+    )
     raw_artifacts: list[RawArtifact] = Field(default_factory=list, alias="rawArtifacts")
     report: ConversionReport
     workbook: str | None = None

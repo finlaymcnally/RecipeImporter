@@ -86,4 +86,5 @@ def test_multiblock_variants_with_multiple_bullets():
         "• Add feta cheese for richness.",
     ]
     step_texts = [step["instruction"] for step in draft["steps"]]
-    assert step_texts == ["Toss ingredients together."]
+    # Prep step is added for unassigned ingredients (lettuce, tomato not mentioned in instruction)
+    assert step_texts == ["Gather and prepare ingredients.", "Toss ingredients together."]

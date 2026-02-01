@@ -228,6 +228,16 @@ class EpubImporter:
             tip_candidates.extend(standalone_tips)
             topic_candidates.extend(standalone_topics)
 
+            # Collect non-recipe blocks for knowledge chunking
+            covered: set[int] = set()
+            for start, end, _ in candidates_ranges:
+                covered.update(range(start, end))
+            non_recipe_blocks = [
+                {"index": idx, "text": block.text, "features": block.features}
+                for idx, block in enumerate(blocks)
+                if idx not in covered and block.text.strip()
+            ]
+
             tips, recipe_specific, not_tips = partition_tip_candidates(tip_candidates)
 
             report.total_recipes = len(recipes)
@@ -251,6 +261,7 @@ class EpubImporter:
                 tips=tips,
                 tipCandidates=tip_candidates,
                 topicCandidates=topic_candidates,
+                nonRecipeBlocks=non_recipe_blocks,
                 rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem,
@@ -702,6 +713,10 @@ class EpubImporter:
             if self._looks_like_section_intro(b):
                 return i
 
+            # Skip sub-section headers like "For the Frangipane" - they're part of this recipe
+            if self._is_subsection_header(b):
+                continue
+
             if self._is_title_candidate(b) and self._has_ingredient_run(blocks, i):
                 return i
 
@@ -711,6 +726,33 @@ class EpubImporter:
         """Check if block is a Variation/Variant header that should stay with the recipe."""
         text = block.text.strip().lower().rstrip(":")
         return text in ("variation", "variations", "variant", "variants")
+
+    def _is_subsection_header(self, block: Block) -> bool:
+        """Check if block is a sub-section header like 'For the Frangipane' that stays with the recipe.
+
+        These headers indicate ingredient groupings within a single recipe, not new recipes.
+        Common patterns:
+        - "For the X" (e.g., "For the Frangipane", "For the Tart", "For the Sauce")
+        - "X:" where X is a component name (e.g., "Frangipane:", "Crust:")
+        """
+        text = block.text.strip()
+        if not text or len(text) > 60:
+            return False
+        # Avoid treating actual sentences as sub-headers
+        if text.endswith("."):
+            return False
+        lower = text.lower()
+        # "For the X" pattern
+        if lower.startswith("for the ") and len(text.split()) <= 6:
+            return True
+        # "For X" pattern (without "the")
+        if lower.startswith("for ") and len(text.split()) <= 4:
+            # Make sure it's not an instruction like "For best results..."
+            rest = lower[4:].strip()
+            # Check if it looks like a component name (short, no verb patterns)
+            if rest and not any(word in rest for word in ("best", "better", "optimal", "this", "that", "each")):
+                return True
+        return False
 
     def _is_section_heading(self, block: Block, next_block: Block | None) -> bool:
         if not block.features.get("is_heading"):

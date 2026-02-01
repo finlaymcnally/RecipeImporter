@@ -33,17 +33,17 @@ cookimport/ocr/__init__.py
 cookimport/ocr/doctr_engine.py
 cookimport/parsing/__init__.py
 cookimport/parsing/atoms.py
+cookimport/parsing/chunks.py
 cookimport/parsing/classifier.py
 cookimport/parsing/cleaning.py
 cookimport/parsing/ingredients.py
+cookimport/parsing/instruction_parser.py
 cookimport/parsing/patterns.py
 cookimport/parsing/signals.py
 cookimport/parsing/spacy_support.py
 cookimport/parsing/step_ingredients.py
 cookimport/parsing/tip_taxonomy.py
 cookimport/parsing/tips.py
-cookimport/parsing/classifier_model/model.json
-cookimport/parsing/classifier_model/weights.bin
 cookimport/plugins/__init__.py
 cookimport/plugins/base.py
 cookimport/plugins/epub.py
@@ -58,6 +58,8 @@ cookimport/staging/draft_v1.py
 cookimport/staging/jsonld.py
 cookimport/staging/writer.py
 tests/test_atoms.py
+tests/test_chunks.py
+tests/test_classifier.py
 tests/test_cli_limits.py
 tests/test_cli_output_structure.py
 tests/test_draft_v1_lowercase.py
@@ -65,6 +67,7 @@ tests/test_draft_v1_variants.py
 tests/test_epub_importer.py
 tests/test_excel_importer.py
 tests/test_ingredient_parser.py
+tests/test_instruction_parser.py
 tests/test_labelstudio_chunking.py
 tests/test_labelstudio_export.py
 tests/test_paprika_importer.py
@@ -72,6 +75,7 @@ tests/test_paprika_merge.py
 tests/test_pdf_importer.py
 tests/test_phase1_manual.py
 tests/test_recipesage_importer.py
+tests/test_source_field.py
 tests/test_step_ingredient_linking.py
 tests/test_text_importer.py
 tests/test_tip_extraction.py

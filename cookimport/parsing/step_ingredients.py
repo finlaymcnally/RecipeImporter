@@ -65,6 +65,33 @@ _RAW_DROP_TOKENS = {"optional"}
 
 _WEAK_MATCH_CAP = 3
 
+# Ingredient category definitions for collective term matching
+# Maps category name to (collective_terms, ingredient_keywords)
+_INGREDIENT_CATEGORIES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
+    "spices": (
+        frozenset({"spices", "spice"}),
+        frozenset({
+            "cinnamon", "ginger", "cloves", "clove", "nutmeg", "paprika", "cumin",
+            "coriander", "cardamom", "turmeric", "cayenne", "allspice", "saffron",
+            "anise", "fennel", "caraway", "fenugreek", "mace", "chili", "chilli",
+        }),
+    ),
+    "herbs": (
+        frozenset({"herbs", "herb", "fresh herbs"}),
+        frozenset({
+            "basil", "thyme", "oregano", "parsley", "cilantro", "dill", "mint",
+            "rosemary", "sage", "tarragon", "chives", "bay", "marjoram", "chervil",
+        }),
+    ),
+    "seasonings": (
+        frozenset({"seasonings", "seasoning"}),
+        frozenset({
+            "salt", "pepper", "cinnamon", "ginger", "cloves", "nutmeg", "paprika",
+            "cumin", "garlic", "onion",
+        }),
+    ),
+}
+
 _SECTION_DROP_LEADING = {"for", "the"}
 _SECTION_DROP_TRAILING = {"ingredients"}
 
@@ -104,6 +131,7 @@ class StepCandidate:
     context_score: float
     surrounding_tokens: tuple[str, ...]  # For debug
     split_fraction: float | None = None  # e.g., 0.5 for "half"
+    split_word: str | None = None
 
 
 @dataclass
@@ -121,6 +149,7 @@ _USE_VERBS = frozenset({
     "toss", "season", "top", "drizzle", "incorporate", "blend", "beat",
     "cream", "melt", "dissolve", "rub", "coat", "brush", "scatter",
     "garnish", "finish", "place", "put", "drop", "spoon", "layer", "spread",
+    "roll",
     # Cooking verbs where you're adding ingredient to pan/pot - active use
     "fry", "saute", "sear", "brown", "grill", "roast", "bake",
 })
@@ -155,23 +184,26 @@ _FRACTION_WORDS: dict[str, float] = {
 _REMAINING_WORDS = frozenset({"remaining", "rest", "reserved", "leftover"})
 
 _MAX_STEPS_PER_INGREDIENT = 3  # Cap to prevent runaway
+_SPLIT_CONFIDENCE_PENALTY = 0.05
+_STRONG_SPLIT_WORDS = frozenset(set(_FRACTION_WORDS.keys()) | set(_REMAINING_WORDS))
 
 
 def _classify_verb_context(
     step_tokens: list[str],
     match_start: int,
     match_end: int,
-) -> tuple[str, float, float | None]:
+) -> tuple[str, float, float | None, str | None]:
     """
     Look at 1-3 tokens before ingredient match to determine verb context.
 
-    Returns (signal, score_adjustment, split_fraction) where signal is one of:
+    Returns (signal, score_adjustment, split_fraction, split_word) where signal is one of:
     - "use": active use verb like "add", "mix", "stir"
     - "reference": mention without active use like "cook", "let rest"
     - "split": language indicating partial use like "reserve", "remaining"
     - "neutral": no clear signal
 
     split_fraction is the detected fraction (e.g., 0.5 for "half") or None.
+    split_word is the triggering token (e.g., "half", "remaining") or None.
     """
     # Look at up to 3 tokens before the match
     context_start = max(0, match_start - 3)
@@ -184,6 +216,7 @@ def _classify_verb_context(
 
     split_fraction: float | None = None
     split_signal_found = False
+    split_word: str | None = None
 
     # Get tokens before match
     token_1_before = step_tokens[match_start - 1] if match_start >= 1 else None
@@ -192,6 +225,7 @@ def _classify_verb_context(
     # Check for split word at position -1 (immediately before)
     if token_1_before in _SPLIT_SIGNAL_WORDS:
         split_signal_found = True
+        split_word = token_1_before
         if token_1_before in _FRACTION_WORDS:
             split_fraction = _FRACTION_WORDS[token_1_before]
         elif token_1_before in _REMAINING_WORDS:
@@ -199,32 +233,33 @@ def _classify_verb_context(
     # Check for split word at position -2 if position -1 is an article
     elif token_1_before in _ARTICLES and token_2_before in _SPLIT_SIGNAL_WORDS:
         split_signal_found = True
+        split_word = token_2_before
         if token_2_before in _FRACTION_WORDS:
             split_fraction = _FRACTION_WORDS[token_2_before]
         elif token_2_before in _REMAINING_WORDS:
             split_fraction = -1.0
 
     if split_signal_found:
-        return ("split", 8.0, split_fraction)
+        return ("split", 8.0, split_fraction, split_word)
 
     # Check split signals after ingredient (1 token)
     token_1_after = step_tokens[match_end] if match_end < len(step_tokens) else None
     if token_1_after in _SPLIT_SIGNAL_AFTER:
         if token_1_after in _REMAINING_WORDS:
             split_fraction = -1.0
-        return ("split", 8.0, split_fraction)
+        return ("split", 8.0, split_fraction, token_1_after)
 
     # Check for use verbs (immediate context preferred)
     for token in context_tokens:
         if token in _USE_VERBS:
-            return ("use", 10.0, split_fraction)
+            return ("use", 10.0, split_fraction, None)
 
     # Check for reference verbs
     for token in context_tokens:
         if token in _REFERENCE_VERBS:
-            return ("reference", -5.0, split_fraction)
+            return ("reference", -5.0, split_fraction, None)
 
-    return ("neutral", 0.0, split_fraction)
+    return ("neutral", 0.0, split_fraction, None)
 
 
 def _find_match_position(step_tokens: list[str], alias_tokens: tuple[str, ...]) -> tuple[int, int] | None:
@@ -267,7 +302,7 @@ def _collect_all_candidates(
             match_strength = "strong" if len(best_alias.tokens) > 1 else "weak"
 
             # Classify verb context
-            verb_signal, context_score, split_fraction = _classify_verb_context(
+            verb_signal, context_score, split_fraction, split_word = _classify_verb_context(
                 step_tokens, match_start, match_end
             )
 
@@ -285,6 +320,7 @@ def _collect_all_candidates(
                 context_score=context_score,
                 surrounding_tokens=surrounding,
                 split_fraction=split_fraction,
+                split_word=split_word,
             ))
 
     return candidates
@@ -360,9 +396,12 @@ def _resolve_assignments(
         # Multiple candidates - check for multi-step eligibility
         # Count candidates with use or split signals
         use_or_split = [c for c in ingredient_candidates if c.verb_signal in ("use", "split")]
-        has_explicit_split = any(c.verb_signal == "split" for c in ingredient_candidates)
+        has_strong_split = any(
+            c.verb_signal == "split" and c.split_word in _STRONG_SPLIT_WORDS
+            for c in ingredient_candidates
+        )
 
-        if len(use_or_split) >= 2 and has_explicit_split:
+        if len(use_or_split) >= 2 and has_strong_split:
             # Allow multi-step assignment
             sorted_candidates = sorted(use_or_split, key=_score_candidate, reverse=True)
             selected = sorted_candidates[:_MAX_STEPS_PER_INGREDIENT]
@@ -373,7 +412,7 @@ def _resolve_assignments(
 
             preliminary_assignments[ingredient_index] = (
                 assigned_steps,
-                f"multi-step (split language): {len(assigned_steps)} steps",
+                f"multi-step (strong split language): {len(assigned_steps)} steps",
                 step_fractions,
             )
         else:
@@ -526,16 +565,17 @@ def _build_final_step_lines(
     Deep-copies ingredients and maintains original ingredient order within each step.
     When split fractions are detected, adjusts the quantity accordingly.
     """
-    # Build step -> (ingredient_index, fraction) mapping
-    step_ingredients: dict[int, list[tuple[int, float | None]]] = {i: [] for i in range(step_count)}
+    # Build step -> (ingredient_index, fraction, split_penalty) mapping
+    step_ingredients: dict[int, list[tuple[int, float | None, bool]]] = {i: [] for i in range(step_count)}
 
     for assignment in assignments:
+        is_split = len(assignment.assigned_steps) > 1
         for step_idx in assignment.assigned_steps:
             if 0 <= step_idx < step_count:
                 fraction = None
                 if assignment.step_fractions:
                     fraction = assignment.step_fractions.get(step_idx)
-                step_ingredients[step_idx].append((assignment.ingredient_index, fraction))
+                step_ingredients[step_idx].append((assignment.ingredient_index, fraction, is_split))
 
     # Sort ingredient indices within each step to maintain original order
     for step_idx in step_ingredients:
@@ -545,7 +585,7 @@ def _build_final_step_lines(
     results: list[list[dict[str, Any]]] = []
     for step_idx in range(step_count):
         step_lines: list[dict[str, Any]] = []
-        for ing_idx, fraction in step_ingredients[step_idx]:
+        for ing_idx, fraction, is_split in step_ingredients[step_idx]:
             line = ingredient_lines[ing_idx]
             if line.get("quantity_kind") != "section_header":
                 line_copy = copy.deepcopy(line)
@@ -554,6 +594,13 @@ def _build_final_step_lines(
                     original_qty = line_copy.get("input_qty")
                     if original_qty is not None and isinstance(original_qty, (int, float)):
                         line_copy["input_qty"] = original_qty * fraction
+                if is_split:
+                    confidence = line_copy.get("confidence")
+                    if isinstance(confidence, (int, float)):
+                        line_copy["confidence"] = max(
+                            0.0,
+                            round(confidence - _SPLIT_CONFIDENCE_PENALTY, 3),
+                        )
                 step_lines.append(line_copy)
         results.append(step_lines)
 
@@ -656,6 +703,50 @@ def assign_ingredient_lines_to_steps(
                             results[step_idx].append(copy.deepcopy(line))
 
         # Re-sort by original ingredient order
+        results[step_idx] = sorted(
+            results[step_idx],
+            key=lambda line: next(
+                (i for i, orig in enumerate(ingredient_lines)
+                 if orig.get("raw_ingredient_text") == line.get("raw_ingredient_text")),
+                len(ingredient_lines)
+            )
+        )
+
+    # Fallback pass: assign unmatched ingredients via collective term matching
+    # Find which ingredients are not yet assigned to any step
+    assigned_indices: set[int] = set()
+    for step_lines in results:
+        for line in step_lines:
+            for idx, orig in enumerate(ingredient_lines):
+                if orig.get("raw_ingredient_text") == line.get("raw_ingredient_text"):
+                    assigned_indices.add(idx)
+                    break
+
+    unassigned_indices = [
+        idx for idx in non_header_indices
+        if idx not in assigned_indices
+    ]
+
+    # For each unassigned ingredient, check if it belongs to a category and
+    # if any step mentions that category's collective term
+    for ing_idx in unassigned_indices:
+        line = ingredient_lines[ing_idx]
+        raw_text = line.get("raw_ingredient_text") or line.get("raw_text") or ""
+        category = _get_ingredient_category(raw_text)
+        if not category:
+            continue
+
+        # Find the first step that mentions this category's collective term
+        for step_idx, step_text in enumerate(step_texts):
+            if _step_has_collective_term(step_text, category):
+                # Add ingredient to this step if not already there
+                existing_texts = {l.get("raw_ingredient_text") for l in results[step_idx]}
+                if raw_text not in existing_texts:
+                    results[step_idx].append(copy.deepcopy(line))
+                break
+
+    # Final re-sort for any steps that got new ingredients
+    for step_idx in range(len(results)):
         results[step_idx] = sorted(
             results[step_idx],
             key=lambda line: next(
@@ -797,6 +888,35 @@ def _step_mentions_group(step_tokens: list[str], aliases: tuple[tuple[str, ...],
 
 def _has_all_ingredients_phrase(normalized_step: str) -> bool:
     return any(pattern.search(normalized_step) for pattern in _ALL_INGREDIENTS_PATTERNS)
+
+
+def _get_ingredient_category(ingredient_text: str) -> str | None:
+    """Determine if an ingredient belongs to a category like 'spices' or 'herbs'.
+
+    Returns the category name if found, None otherwise.
+    """
+    lower = ingredient_text.lower()
+    tokens = set(_WORD_RE.findall(lower))
+    for category, (_, keywords) in _INGREDIENT_CATEGORIES.items():
+        if tokens & keywords:
+            return category
+    return None
+
+
+def _step_has_collective_term(step_text: str, category: str) -> bool:
+    """Check if a step mentions a collective term for an ingredient category.
+
+    E.g., for category 'spices', checks if step contains 'spices' or 'spice'.
+    """
+    if category not in _INGREDIENT_CATEGORIES:
+        return False
+    collective_terms, _ = _INGREDIENT_CATEGORIES[category]
+    lower = step_text.lower()
+    for term in collective_terms:
+        # Match as whole word
+        if re.search(rf"\b{re.escape(term)}\b", lower):
+            return True
+    return False
 
 
 def _contains_phrase_tokens(step_tokens: list[str], phrase_tokens: list[str]) -> bool:

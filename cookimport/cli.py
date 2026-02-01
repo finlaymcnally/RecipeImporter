@@ -17,7 +17,9 @@ from cookimport.labelstudio.export import run_labelstudio_export
 from cookimport.labelstudio.ingest import run_labelstudio_import
 from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
+from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
 from cookimport.staging.writer import (
+    write_chunk_outputs,
     write_draft_outputs,
     write_intermediate_outputs,
     write_raw_artifacts,
@@ -450,6 +452,23 @@ def stage(
                     limit_label=limit,
                 )
 
+            # Generate knowledge chunks from non-recipe blocks (preferred) or topic candidates
+            parsing_overrides = None
+            if mapping_config and mapping_config.parsing_overrides:
+                parsing_overrides = mapping_config.parsing_overrides
+            if result.non_recipe_blocks:
+                # Use raw blocks for better document structure preservation
+                result.chunks = chunks_from_non_recipe_blocks(
+                    result.non_recipe_blocks,
+                    overrides=parsing_overrides,
+                )
+            elif result.topic_candidates:
+                # Fallback to topic candidates if raw blocks unavailable
+                result.chunks = chunks_from_topic_candidates(
+                    result.topic_candidates,
+                    overrides=parsing_overrides,
+                )
+
             # Enrich report with extra stats
             result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
             enrich_report_with_stats(result.report, result, file_path)
@@ -463,6 +482,11 @@ def stage(
             # Write tip outputs
             write_tip_outputs(result, tips_dir)
             write_topic_candidate_outputs(result, tips_dir)
+
+            # Write chunk outputs if available
+            if result.chunks:
+                chunks_dir = out / "chunks" / workbook_slug
+                write_chunk_outputs(result.chunks, chunks_dir)
 
             # Write raw artifacts for auditing
             write_raw_artifacts(result, out)

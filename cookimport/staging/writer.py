@@ -8,8 +8,11 @@ from typing import Any
 
 from cookimport import __version__
 from cookimport.core.models import (
+    ChunkHighlight,
+    ChunkLane,
     ConversionReport,
     ConversionResult,
+    KnowledgeChunk,
     RawArtifact,
     RecipeCandidate,
     TipCandidate,
@@ -508,3 +511,162 @@ def write_report(report: ConversionReport, out_dir: Path, workbook_name: str) ->
     payload = report.model_dump(by_alias=True, exclude_none=True)
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return out_path
+
+
+# --------------------------------------------------------------------------
+# Knowledge Chunk Outputs
+# --------------------------------------------------------------------------
+
+
+def write_chunk_outputs(chunks: list[KnowledgeChunk], out_dir: Path) -> None:
+    """Write knowledge chunk outputs.
+
+    Output path: {out_dir}/c{index}.json and {out_dir}/chunks.md
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write individual chunk JSON files
+    for index, chunk in enumerate(chunks):
+        payload = chunk.model_dump(by_alias=True, exclude_none=True)
+        out_path = out_dir / f"c{index}.json"
+        out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    # Write chunks.md summary
+    summary_path = out_dir / "chunks.md"
+    lines = _format_chunks_md(chunks)
+    summary_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+
+
+def _format_chunks_md(chunks: list[KnowledgeChunk]) -> list[str]:
+    """Format chunks into markdown summary optimized for debugging."""
+    lines = [
+        "# Knowledge Chunks Summary",
+        "",
+        "_Structure-first chunking with lane classification and tip highlights._",
+        "",
+    ]
+
+    # Summary statistics
+    knowledge_count = sum(1 for c in chunks if c.lane == ChunkLane.KNOWLEDGE)
+    narrative_count = sum(1 for c in chunks if c.lane == ChunkLane.NARRATIVE)
+    noise_count = sum(1 for c in chunks if c.lane == ChunkLane.NOISE)
+    total_highlights = sum(c.highlight_count for c in chunks)
+
+    lines.append("## Statistics")
+    lines.append("")
+    lines.append(f"- Total chunks: {len(chunks)}")
+    lines.append(f"- Knowledge: {knowledge_count}")
+    lines.append(f"- Narrative: {narrative_count}")
+    lines.append(f"- Noise: {noise_count}")
+    lines.append(f"- Total highlights: {total_highlights}")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # Individual chunks
+    for chunk in chunks:
+        lines.extend(_format_chunk_entry(chunk))
+        lines.append("")
+
+    return lines
+
+
+def _format_chunk_entry(chunk: KnowledgeChunk) -> list[str]:
+    """Format a single chunk entry for chunks.md."""
+    lines = []
+
+    # Header with ID, lane, and title
+    lane_emoji = {
+        ChunkLane.KNOWLEDGE: "📚",
+        ChunkLane.NARRATIVE: "📖",
+        ChunkLane.NOISE: "🔇",
+    }.get(chunk.lane, "❓")
+
+    title_display = chunk.title or "(untitled)"
+    if len(title_display) > 60:
+        title_display = title_display[:57] + "..."
+
+    lines.append(f"### {chunk.identifier} {lane_emoji} {chunk.lane.value.upper()}")
+    lines.append(f"**{title_display}**")
+    lines.append("")
+
+    # Section path
+    if chunk.section_path:
+        path_str = " > ".join(chunk.section_path)
+        lines.append(f"Section: {path_str}")
+        lines.append("")
+
+    # Boundary reasons
+    lines.append(
+        f"Boundaries: {chunk.boundary_start_reason.value} → {chunk.boundary_end_reason.value}"
+    )
+
+    # Block IDs
+    if chunk.block_ids:
+        block_range = f"[{min(chunk.block_ids)}..{max(chunk.block_ids)}]"
+        lines.append(f"Blocks: {block_range} ({len(chunk.block_ids)} blocks)")
+
+    # Tip density and highlights
+    if chunk.lane == ChunkLane.KNOWLEDGE:
+        lines.append(f"Tip density: {chunk.tip_density:.2f} | Highlights: {chunk.highlight_count}")
+
+    lines.append("")
+
+    # Tags summary
+    tags = _format_chunk_tags(chunk.tags)
+    if tags:
+        lines.append(f"Tags: {tags}")
+        lines.append("")
+
+    # Text preview (first ~500 chars)
+    text_preview = chunk.text[:500]
+    if len(chunk.text) > 500:
+        text_preview += "..."
+    # Indent the preview
+    preview_lines = text_preview.split("\n")
+    lines.append("```")
+    for pl in preview_lines[:10]:  # Limit to 10 lines
+        lines.append(pl)
+    if len(preview_lines) > 10:
+        lines.append("...")
+    lines.append("```")
+
+    # Highlights summary (if any)
+    if chunk.highlights:
+        lines.append("")
+        lines.append(f"**Highlights ({len(chunk.highlights)}):**")
+        for i, hl in enumerate(chunk.highlights[:5]):  # Show first 5
+            self_mark = "✓" if hl.self_contained else "○"
+            hl_preview = hl.text[:100]
+            if len(hl.text) > 100:
+                hl_preview += "..."
+            lines.append(f"  {i+1}. {self_mark} {hl_preview}")
+        if len(chunk.highlights) > 5:
+            lines.append(f"  ... and {len(chunk.highlights) - 5} more")
+
+    return lines
+
+
+def _format_chunk_tags(tags: TipTags) -> str:
+    """Format chunk tags as a compact string."""
+    parts: list[str] = []
+
+    def add_if_present(name: str, values: list[str]) -> None:
+        if values:
+            parts.append(f"{name}: {', '.join(values[:3])}")
+            if len(values) > 3:
+                parts[-1] += f" (+{len(values) - 3})"
+
+    add_if_present("dishes", list(tags.dishes))
+    add_if_present("techniques", list(tags.techniques))
+    add_if_present("methods", list(tags.cooking_methods))
+    add_if_present("tools", list(tags.tools))
+
+    # Combine all ingredient categories
+    ingredients = (
+        list(tags.meats) + list(tags.vegetables) + list(tags.herbs) +
+        list(tags.spices) + list(tags.dairy) + list(tags.grains)
+    )
+    add_if_present("ingredients", ingredients)
+
+    return " | ".join(parts) if parts else ""

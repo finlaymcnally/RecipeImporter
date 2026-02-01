@@ -1,6 +1,7 @@
 """Tests for step-level ingredient linking."""
 
 from cookimport.core.models import HowToStep
+from cookimport.parsing import step_ingredients as step_ingredients_mod
 from cookimport.parsing.step_ingredients import assign_ingredient_lines_to_steps, DebugInfo
 
 
@@ -347,6 +348,24 @@ def test_fry_is_use_verb():
     assert _names(result[0]) == ["onions"]
 
 
+def test_roll_is_use_verb():
+    """'roll' is classified as a use verb (e.g., dough handling)."""
+    ingredient_lines = [
+        _ingredient_line("tart dough"),
+    ]
+    steps = [
+        "Roll the dough into a circle.",
+    ]
+
+    result, debug_info = assign_ingredient_lines_to_steps(
+        steps, ingredient_lines, debug=True
+    )
+
+    assert len(debug_info.candidates) == 1
+    assert debug_info.candidates[0].verb_signal == "use"
+    assert _names(result[0]) == ["tart dough"]
+
+
 def test_split_only_applies_to_immediate_ingredient():
     """'remaining croutons, squash' should NOT split squash."""
     ingredient_lines = [
@@ -368,3 +387,85 @@ def test_split_only_applies_to_immediate_ingredient():
     step1_candidates = [c for c in debug_info.candidates if c.step_index == 1]
     if step1_candidates:
         assert step1_candidates[0].verb_signal != "split"
+
+
+def test_reserve_without_remaining_does_not_split():
+    """Weak split words alone should not trigger multi-step assignment."""
+    ingredient_lines = [
+        _ingredient_line("olive oil"),
+    ]
+    steps = [
+        "Reserve the olive oil.",
+        "Add the olive oil to the pan.",
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    assigned_steps = [i for i, step_lines in enumerate(result) if _names(step_lines)]
+    assert assigned_steps == [1], f"Expected step 1 only, got {assigned_steps}"
+
+
+def test_split_penalty_lowers_confidence():
+    """Split assignments reduce confidence slightly for review triage."""
+    ingredient_lines = [{
+        "quantity_kind": "exact",
+        "raw_ingredient_text": "croutons",
+        "raw_text": "4 cups croutons",
+        "input_qty": 4.0,
+        "confidence": 0.9,
+    }]
+    steps = [
+        "Add half the croutons.",
+        "Add the remaining croutons.",
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    expected = round(0.9 - step_ingredients_mod._SPLIT_CONFIDENCE_PENALTY, 3)
+    assert result[0][0]["confidence"] == expected
+    assert result[1][0]["confidence"] == expected
+
+
+def test_collective_term_spices_assigns_unmatched():
+    """Collective term 'spices' assigns unmatched spice ingredients to that step."""
+    ingredient_lines = [
+        _ingredient_line("sugar"),
+        _ingredient_line("ground cinnamon"),
+        _ingredient_line("ground ginger"),
+        _ingredient_line("ground cloves"),
+    ]
+    steps = [
+        "Combine sugar and spices in a bowl.",  # "spices" should match cinnamon, ginger, cloves
+        "Stir to combine.",
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    # Sugar matched directly, spices should bring in cinnamon, ginger, cloves
+    step0_names = _names(result[0])
+    assert "sugar" in step0_names, "sugar should match directly"
+    assert "ground cinnamon" in step0_names, "cinnamon should match via 'spices'"
+    assert "ground ginger" in step0_names, "ginger should match via 'spices'"
+    assert "ground cloves" in step0_names, "cloves should match via 'spices'"
+
+
+def test_collective_term_herbs_assigns_unmatched():
+    """Collective term 'herbs' assigns unmatched herb ingredients to that step."""
+    ingredient_lines = [
+        _ingredient_line("olive oil"),
+        _ingredient_line("fresh basil"),
+        _ingredient_line("thyme"),
+    ]
+    steps = [
+        "Heat oil in pan.",
+        "Add fresh herbs and stir.",  # "herbs" should match basil and thyme
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    # Oil goes to step 0 (explicit match)
+    assert "olive oil" in _names(result[0])
+    # Herbs go to step 1 via collective term
+    step1_names = _names(result[1])
+    assert "fresh basil" in step1_names, "basil should match via 'herbs'"
+    assert "thyme" in step1_names, "thyme should match via 'herbs'"

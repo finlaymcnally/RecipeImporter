@@ -60,12 +60,12 @@ The 1-3 tokens before an ingredient match reveal usage intent:
 |-----------|-------|------------------|
 | **use** | add, mix, stir, fold, pour, whisk, combine, toss, season, drizzle, melt | +10 |
 | **reference** | cook, let, rest, simmer, reduce, return | -5 |
-| **split** | half, remaining, reserved, divided | +8 (enables multi-step) |
+| **split** | half, remaining, reserved, divided | +8 (enables multi-step when strong) |
 | **neutral** | (other) | 0 |
 
 ### Split Detection
 
-Split signals trigger multi-step assignment:
+Split signals trigger multi-step assignment when they include strong language (explicit fractions like "half" or remaining/reserved terms):
 
 ```
 Step 3: "Add half the butter and stir."
@@ -90,9 +90,11 @@ Each ingredient goes to exactly one step (highest-scoring candidate).
 
 Enabled only when:
 1. Multiple candidates have "use" or "split" signals
-2. At least one candidate has explicit split language
+2. At least one candidate has strong split language (fraction/remaining/reserved)
 
 Maximum 3 steps per ingredient (prevents runaway assignments).
+
+When a multi-step split is used, each split ingredient line has its confidence reduced slightly to flag it for later review.
 
 ### Exception: Section Header Groups
 
