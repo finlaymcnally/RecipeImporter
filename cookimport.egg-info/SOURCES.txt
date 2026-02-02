@@ -12,6 +12,8 @@ cookimport.egg-info/dependency_links.txt
 cookimport.egg-info/entry_points.txt
 cookimport.egg-info/requires.txt
 cookimport.egg-info/top_level.txt
+cookimport/analytics/__init__.py
+cookimport/analytics/perf_report.py
 cookimport/core/__init__.py
 cookimport/core/blocks.py
 cookimport/core/mapping_io.py
@@ -22,11 +24,15 @@ cookimport/core/scoring.py
 cookimport/core/slug.py
 cookimport/core/timing.py
 cookimport/labelstudio/__init__.py
+cookimport/labelstudio/block_tasks.py
+cookimport/labelstudio/canonical.py
 cookimport/labelstudio/chunking.py
 cookimport/labelstudio/client.py
+cookimport/labelstudio/eval_canonical.py
 cookimport/labelstudio/export.py
 cookimport/labelstudio/ingest.py
 cookimport/labelstudio/label_config.py
+cookimport/labelstudio/label_config_blocks.py
 cookimport/labelstudio/models.py
 cookimport/llm/__init__.py
 cookimport/llm/client.py
@@ -73,6 +79,7 @@ tests/test_epub_job_merge.py
 tests/test_excel_importer.py
 tests/test_ingredient_parser.py
 tests/test_instruction_parser.py
+tests/test_labelstudio_canonical.py
 tests/test_labelstudio_chunking.py
 tests/test_labelstudio_export.py
 tests/test_paprika_importer.py

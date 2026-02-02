@@ -680,27 +680,28 @@ def compute_coverage(archive: list[ArchiveBlock], chunks: list[ChunkRecord]) -> 
     )
 
 
-def chunk_records_to_tasks(chunks: Iterable[ChunkRecord]) -> list[dict[str, Any]]:
+def chunk_records_to_tasks(
+    chunks: Iterable[ChunkRecord], *, source_hash: str | None = None
+) -> list[dict[str, Any]]:
     tasks: list[dict[str, Any]] = []
     for chunk in chunks:
-        tasks.append(
-            {
-                "data": {
-                    "chunk_id": chunk.chunk_id,
-                    "text_display": chunk.text_display,
-                    "text_raw": chunk.text_raw,
-                    "chunk_level": chunk.chunk_level,
-                    "chunk_type": chunk.chunk_type,
-                    "chunk_type_hint": chunk.chunk_type_hint,
-                    "source_file": chunk.source_file,
-                    "book_id": chunk.book_id,
-                    "pipeline_used": chunk.pipeline_used,
-                    "location": chunk.location,
-                    "context_before": chunk.context_before,
-                    "context_after": chunk.context_after,
-                }
-            }
-        )
+        data = {
+            "chunk_id": chunk.chunk_id,
+            "text_display": chunk.text_display,
+            "text_raw": chunk.text_raw,
+            "chunk_level": chunk.chunk_level,
+            "chunk_type": chunk.chunk_type,
+            "chunk_type_hint": chunk.chunk_type_hint,
+            "source_file": chunk.source_file,
+            "book_id": chunk.book_id,
+            "pipeline_used": chunk.pipeline_used,
+            "location": chunk.location,
+            "context_before": chunk.context_before,
+            "context_after": chunk.context_after,
+        }
+        if source_hash:
+            data["source_hash"] = source_hash
+        tasks.append({"data": data})
     return tasks
 
 

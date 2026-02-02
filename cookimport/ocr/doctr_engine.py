@@ -7,6 +7,7 @@ text with bounding boxes from scanned PDFs.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,6 +16,8 @@ if TYPE_CHECKING:
     from doctr.models import OCRPredictor
 
 logger = logging.getLogger(__name__)
+
+_CACHE_FALLBACK = Path("/tmp/cookimport-cache")
 
 @dataclass
 class OcrLine:
@@ -68,6 +71,9 @@ def warm_ocr_model(device: str = "auto") -> None:
 def _get_model(device: str = "auto") -> "OCRPredictor":
     """Lazy-load the docTR model on first use for a given device."""
     global _model, _current_device
+
+    _configure_cache_dirs()
+    _configure_doctr_multiprocessing()
     
     resolved_device = resolve_ocr_device(device)
     
@@ -95,6 +101,64 @@ def _get_model(device: str = "auto") -> "OCRPredictor":
             logger.error(f"Failed to load docTR model on {resolved_device}: {e}")
             raise
     return _model
+
+
+def _configure_cache_dirs() -> None:
+    cache_root = _resolve_cache_root()
+    if not _ensure_writable_dir(cache_root):
+        cache_root = _CACHE_FALLBACK
+        _ensure_writable_dir(cache_root)
+
+    _set_cache_env("XDG_CACHE_HOME", cache_root)
+    _set_cache_env("TORCH_HOME", cache_root / "torch")
+    _set_cache_env("HF_HOME", cache_root / "huggingface")
+    _set_cache_env("DOCTR_CACHE_DIR", cache_root / "doctr")
+
+
+def _configure_doctr_multiprocessing() -> None:
+    if os.environ.get("DOCTR_MULTIPROCESSING_DISABLE"):
+        return
+    try:
+        import multiprocessing as mp
+
+        lock = mp.Lock()
+        lock.acquire()
+        lock.release()
+    except PermissionError:
+        os.environ["DOCTR_MULTIPROCESSING_DISABLE"] = "TRUE"
+        return
+    except Exception:
+        return
+    shm_path = Path("/dev/shm")
+    if not shm_path.exists() or not os.access(shm_path, os.W_OK):
+        os.environ["DOCTR_MULTIPROCESSING_DISABLE"] = "TRUE"
+
+
+def _resolve_cache_root() -> Path:
+    explicit = os.getenv("COOKIMPORT_CACHE_DIR")
+    if explicit:
+        return Path(explicit)
+    xdg = os.getenv("XDG_CACHE_HOME")
+    if xdg:
+        return Path(xdg)
+    return Path.home() / ".cache"
+
+
+def _set_cache_env(key: str, path: Path) -> None:
+    existing = os.getenv(key)
+    if existing:
+        if _ensure_writable_dir(Path(existing)):
+            return
+    os.environ[key] = str(path)
+    _ensure_writable_dir(path)
+
+
+def _ensure_writable_dir(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return False
+    return os.access(path, os.W_OK)
 
 
 def ocr_pdf(

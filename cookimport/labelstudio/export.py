@@ -7,6 +7,7 @@ from typing import Any
 import datetime as dt
 
 from cookimport.labelstudio.client import LabelStudioClient
+from cookimport.labelstudio.canonical import derive_gold_spans, BLOCK_LABELS
 
 
 def _find_latest_manifest(output_root: Path, project_name: str) -> Path | None:
@@ -62,6 +63,52 @@ def _extract_labels(annotation: dict[str, Any]) -> dict[str, Any]:
     return labels
 
 
+def _extract_block_label(annotation: dict[str, Any]) -> str | None:
+    results = annotation.get("result") or []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        if item.get("from_name") != "block_label":
+            continue
+        value = item.get("value") or {}
+        choices = value.get("choices") or []
+        if choices:
+            return choices[0]
+    return None
+
+
+def _resolve_annotator(annotation: dict[str, Any]) -> str | None:
+    for key in ("completed_by", "updated_by", "created_by", "annotator"):
+        value = annotation.get(key)
+        if isinstance(value, dict):
+            return value.get("email") or value.get("username") or str(value.get("id"))
+        if value:
+            return str(value)
+    return None
+
+
+def _resolve_annotation_time(annotation: dict[str, Any]) -> str | None:
+    for key in ("completed_at", "updated_at", "created_at"):
+        value = annotation.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def _parse_block_id(block_id: str) -> tuple[str | None, int | None]:
+    parts = block_id.split(":")
+    if len(parts) < 5:
+        return None, None
+    if parts[0] != "urn" or parts[1] != "cookimport" or parts[2] != "block":
+        return None, None
+    source_hash = parts[3]
+    try:
+        block_index = int(parts[4])
+    except ValueError:
+        block_index = None
+    return source_hash, block_index
+
+
 def _map_to_tip_label(labels: dict[str, Any]) -> str | None:
     content_type = labels.get("content_type")
     value_usefulness = labels.get("value_usefulness")
@@ -85,12 +132,17 @@ def run_labelstudio_export(
     label_studio_url: str,
     label_studio_api_key: str,
     run_dir: Path | None,
+    export_scope: str,
 ) -> dict[str, Any]:
     client = LabelStudioClient(label_studio_url, label_studio_api_key)
     manifest_path: Path | None = None
     manifest: dict[str, Any] | None = None
     project_id: int | None = None
     run_root = run_dir
+
+    scopes = {"pipeline", "canonical-blocks"}
+    if export_scope not in scopes:
+        raise ValueError("export_scope must be one of: pipeline, canonical-blocks")
 
     if run_dir is not None:
         manifest_path = run_dir / "manifest.json"
@@ -128,6 +180,78 @@ def run_labelstudio_export(
     export_path.write_text(
         json.dumps(export_payload, indent=2, sort_keys=True), encoding="utf-8"
     )
+
+    if export_scope == "canonical-blocks":
+        block_labels: list[dict[str, Any]] = []
+        counts = {"labeled": 0, "missing": 0, "skipped": 0}
+
+        for task in export_payload:
+            if not isinstance(task, dict):
+                continue
+            data = task.get("data", {})
+            block_id = data.get("block_id")
+            if not block_id:
+                continue
+            annotation = _select_annotation(task)
+            if annotation is None:
+                counts["missing"] += 1
+                continue
+            label = _extract_block_label(annotation)
+            if label not in BLOCK_LABELS:
+                counts["skipped"] += 1
+                continue
+            source_hash = data.get("source_hash")
+            block_index = data.get("block_index")
+            source_file = data.get("source_file")
+            parsed_hash, parsed_index = _parse_block_id(block_id)
+            if source_hash is None:
+                source_hash = parsed_hash
+            if block_index is None:
+                block_index = parsed_index
+            if source_hash is None or block_index is None or not source_file:
+                counts["skipped"] += 1
+                continue
+            block_labels.append(
+                {
+                    "block_id": block_id,
+                    "source_hash": str(source_hash),
+                    "source_file": str(source_file),
+                    "block_index": int(block_index),
+                    "label": label,
+                    "annotator": _resolve_annotator(annotation),
+                    "annotated_at": _resolve_annotation_time(annotation),
+                }
+            )
+            counts["labeled"] += 1
+
+        labels_path = export_root / "canonical_block_labels.jsonl"
+        _write_jsonl(labels_path, block_labels)
+
+        gold_spans = derive_gold_spans(block_labels)
+        spans_path = export_root / "canonical_gold_spans.jsonl"
+        _write_jsonl(spans_path, gold_spans)
+
+        summary = {
+            "project_name": project_name,
+            "project_id": project_id,
+            "manifest_path": str(manifest_path) if manifest_path else None,
+            "counts": counts,
+            "output": {
+                "canonical_block_labels": str(labels_path),
+                "canonical_gold_spans": str(spans_path),
+                "export_payload": str(export_path),
+            },
+        }
+        summary_path = export_root / "summary.json"
+        summary_path.write_text(
+            json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8"
+        )
+
+        return {
+            "export_root": export_root,
+            "summary": summary,
+            "summary_path": summary_path,
+        }
 
     labeled_chunks: list[dict[str, Any]] = []
     golden_set: list[dict[str, Any]] = []

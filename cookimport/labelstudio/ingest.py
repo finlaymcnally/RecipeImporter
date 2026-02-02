@@ -7,6 +7,11 @@ from typing import Any, Callable
 
 from cookimport.core.reporting import compute_file_hash
 from cookimport.plugins import registry
+from cookimport.labelstudio.block_tasks import (
+    build_block_tasks,
+    load_task_ids_from_jsonl,
+    sample_block_tasks,
+)
 from cookimport.labelstudio.chunking import (
     build_extracted_archive,
     chunk_atomic,
@@ -18,6 +23,7 @@ from cookimport.labelstudio.chunking import (
 )
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.label_config import LABEL_CONFIG_XML
+from cookimport.labelstudio.label_config_blocks import build_block_label_config
 
 
 def _slugify_name(name: str) -> str:
@@ -50,6 +56,29 @@ def _find_latest_manifest(output_root: Path, project_name: str) -> Path | None:
     return candidates[0][1]
 
 
+def _compute_block_task_coverage(
+    archive: list[Any], tasks: list[dict[str, Any]]
+) -> dict[str, Any]:
+    extracted_chars = sum(len(getattr(block, "text", "") or "") for block in archive)
+    chunked_chars = 0
+    for task in tasks:
+        data = task.get("data") if isinstance(task, dict) else {}
+        if isinstance(data, dict):
+            chunked_chars += len(str(data.get("block_text") or ""))
+    warnings: list[str] = []
+    if extracted_chars == 0:
+        warnings.append("No text extracted; OCR may be required for scanned documents.")
+    elif chunked_chars < extracted_chars * 0.9:
+        warnings.append(
+            f"Chunk coverage low: {chunked_chars} of {extracted_chars} characters represented."
+        )
+    return {
+        "extracted_chars": extracted_chars,
+        "chunked_chars": chunked_chars,
+        "warnings": warnings,
+    }
+
+
 def run_labelstudio_import(
     *,
     path: Path,
@@ -57,6 +86,8 @@ def run_labelstudio_import(
     pipeline: str,
     project_name: str | None,
     chunk_level: str,
+    task_scope: str,
+    context_window: int,
     overwrite: bool,
     resume: bool,
     label_studio_url: str,
@@ -88,48 +119,91 @@ def run_labelstudio_import(
     file_hash = compute_file_hash(path)
     book_id = result.workbook or path.stem
 
-    levels = {"structural", "atomic", "both"}
-    if chunk_level not in levels:
-        raise ValueError("chunk_level must be one of: structural, atomic, both")
+    scopes = {"pipeline", "canonical-blocks"}
+    if task_scope not in scopes:
+        raise ValueError("task_scope must be one of: pipeline, canonical-blocks")
 
-    chunks = []
-    if chunk_level in {"structural", "both"}:
-        chunks.extend(
-            chunk_structural(
-                result,
-                archive,
-                source_file=path.name,
-                book_id=book_id,
-                pipeline_used=importer.name,
-                file_hash=file_hash,
+    tasks: list[dict[str, Any]] = []
+    task_ids: list[str] = []
+    coverage_payload: dict[str, Any]
+    label_config = LABEL_CONFIG_XML
+    chunk_ids: list[str] | None = None
+    block_ids: list[str] | None = None
+
+    if task_scope == "pipeline":
+        levels = {"structural", "atomic", "both"}
+        if chunk_level not in levels:
+            raise ValueError("chunk_level must be one of: structural, atomic, both")
+
+        chunks = []
+        if chunk_level in {"structural", "both"}:
+            chunks.extend(
+                chunk_structural(
+                    result,
+                    archive,
+                    source_file=path.name,
+                    book_id=book_id,
+                    pipeline_used=importer.name,
+                    file_hash=file_hash,
+                )
             )
-        )
-    if chunk_level in {"atomic", "both"}:
-        chunks.extend(
-            chunk_atomic(
-                result,
-                archive,
-                source_file=path.name,
-                book_id=book_id,
-                pipeline_used=importer.name,
-                file_hash=file_hash,
+        if chunk_level in {"atomic", "both"}:
+            chunks.extend(
+                chunk_atomic(
+                    result,
+                    archive,
+                    source_file=path.name,
+                    book_id=book_id,
+                    pipeline_used=importer.name,
+                    file_hash=file_hash,
+                )
             )
+
+        if not chunks:
+            raise RuntimeError("No chunks generated for labeling.")
+
+        coverage = compute_coverage(archive, chunks)
+        coverage_payload = {
+            "extracted_chars": coverage.extracted_chars,
+            "chunked_chars": coverage.chunked_chars,
+            "warnings": coverage.warnings,
+        }
+        if coverage.extracted_chars == 0:
+            raise RuntimeError(
+                "No text extracted; this may be a scanned document that requires OCR."
+            )
+
+        chunks = sample_chunks(chunks, limit=limit, sample=sample)
+        if not chunks:
+            raise RuntimeError("No chunks generated after limit/sample filters.")
+
+        tasks = chunk_records_to_tasks(chunks, source_hash=file_hash)
+        chunk_ids = [chunk.chunk_id for chunk in chunks]
+        task_ids = list(chunk_ids)
+    else:
+        if chunk_level != "both" and progress_callback is not None:
+            progress_callback("canonical-blocks ignores --chunk-level")
+        if not archive:
+            raise RuntimeError("No extracted blocks available for canonical labeling.")
+        tasks_all = build_block_tasks(
+            archive,
+            source_hash=file_hash,
+            source_file=path.name,
+            context_window=context_window,
         )
-
-    if not chunks:
-        raise RuntimeError("No chunks generated for labeling.")
-
-    coverage = compute_coverage(archive, chunks)
-    if coverage.extracted_chars == 0:
-        raise RuntimeError(
-            "No text extracted; this may be a scanned document that requires OCR."
-        )
-
-    chunks = sample_chunks(chunks, limit=limit, sample=sample)
-    if not chunks:
-        raise RuntimeError("No chunks generated after limit/sample filters.")
-
-    tasks = chunk_records_to_tasks(chunks)
+        if not tasks_all:
+            raise RuntimeError("No block tasks generated for labeling.")
+        coverage_payload = _compute_block_task_coverage(archive, tasks_all)
+        if coverage_payload["extracted_chars"] == 0:
+            raise RuntimeError(
+                "No text extracted; this may be a scanned document that requires OCR."
+            )
+        tasks = sample_block_tasks(tasks_all, limit=limit, sample=sample)
+        if not tasks:
+            raise RuntimeError("No block tasks generated after limit/sample filters.")
+        label_config = build_block_label_config()
+        block_ids = [task.get("data", {}).get("block_id") for task in tasks if task]
+        task_ids = [block_id for block_id in block_ids if block_id]
 
     project_title = _resolve_project_name(book_slug, run_dt, project_name)
     client = LabelStudioClient(label_studio_url, label_studio_api_key)
@@ -143,7 +217,7 @@ def run_labelstudio_import(
     if project is None:
         project = client.create_project(
             project_title,
-            LABEL_CONFIG_XML,
+            label_config,
             description="Cookbook benchmarking project (auto-generated)",
         )
 
@@ -151,19 +225,35 @@ def run_labelstudio_import(
     if project_id is None:
         raise RuntimeError("Label Studio project creation failed (missing id).")
 
-    existing_chunk_ids: set[str] = set()
+    existing_task_ids: set[str] = set()
     resume_source: str | None = None
     if resume and not overwrite:
         manifest_path = _find_latest_manifest(output_dir, project_title)
         if manifest_path and manifest_path.exists():
             payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-            existing_chunk_ids = set(payload.get("chunk_ids", []))
+            resume_scope = payload.get("task_scope", "pipeline")
+            if resume_scope != task_scope:
+                raise RuntimeError(
+                    f"Existing project uses task_scope={resume_scope}; "
+                    "use a matching task_scope or a new project name."
+                )
             resume_source = str(manifest_path)
+            existing_task_ids = set(
+                payload.get("block_ids")
+                or payload.get("chunk_ids")
+                or payload.get("task_ids")
+                or []
+            )
+            tasks_path = manifest_path.parent / "label_studio_tasks.jsonl"
+            if not existing_task_ids and tasks_path.exists():
+                key = "block_id" if task_scope == "canonical-blocks" else "chunk_id"
+                existing_task_ids = load_task_ids_from_jsonl(tasks_path, key)
 
     upload_tasks: list[dict[str, Any]] = []
     for task in tasks:
-        chunk_id = task.get("data", {}).get("chunk_id")
-        if chunk_id and chunk_id in existing_chunk_ids:
+        task_id_key = "block_id" if task_scope == "canonical-blocks" else "chunk_id"
+        task_id = task.get("data", {}).get(task_id_key)
+        if task_id and task_id in existing_task_ids:
             continue
         upload_tasks.append(task)
 
@@ -203,11 +293,7 @@ def run_labelstudio_import(
     coverage_path = run_root / "coverage.json"
     coverage_path.write_text(
         json.dumps(
-            {
-                "extracted_chars": coverage.extracted_chars,
-                "chunked_chars": coverage.chunked_chars,
-                "warnings": coverage.warnings,
-            },
+            coverage_payload,
             indent=2,
             sort_keys=True,
         ),
@@ -221,15 +307,15 @@ def run_labelstudio_import(
         "source_file": str(path),
         "book_id": book_id,
         "run_timestamp": run_dt.isoformat(timespec="seconds"),
-        "chunk_level": chunk_level,
+        "chunk_level": chunk_level if task_scope == "pipeline" else None,
+        "task_scope": task_scope,
+        "context_window": context_window if task_scope == "canonical-blocks" else None,
         "task_count": len(tasks),
         "uploaded_task_count": uploaded_count,
-        "chunk_ids": [chunk.chunk_id for chunk in chunks],
-        "coverage": {
-            "extracted_chars": coverage.extracted_chars,
-            "chunked_chars": coverage.chunked_chars,
-            "warnings": coverage.warnings,
-        },
+        "task_ids": task_ids,
+        "chunk_ids": chunk_ids,
+        "block_ids": block_ids,
+        "coverage": coverage_payload,
         "resume_source": resume_source,
         "label_studio_url": label_studio_url,
     }

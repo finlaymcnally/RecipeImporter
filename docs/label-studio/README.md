@@ -34,6 +34,15 @@ cookimport labelstudio-import path/to/cookbook.epub \
   --chunk-level both
 ```
 
+Canonical block workflow (separate project):
+
+```bash
+cookimport labelstudio-import path/to/cookbook.epub \
+  --project-name "ATK Cookbook Canonical (blocks)" \
+  --task-scope canonical-blocks \
+  --context-window 1
+```
+
 ### Export Workflow
 
 ```bash
@@ -43,7 +52,29 @@ cookimport labelstudio-export \
   --output-dir data/golden/
 ```
 
+Canonical block export:
+
+```bash
+cookimport labelstudio-export \
+  --project-name "ATK Cookbook Canonical (blocks)" \
+  --export-scope canonical-blocks \
+  --output-dir data/golden/
+```
+
 ---
+
+## Two Golden Sets: Pipeline vs Canonical
+
+- **Pipeline golden set**: labels the chunker’s proposed structural/atomic chunks. Great for fast regression on current pipeline output.
+- **Canonical golden set**: labels every extracted block so missed recipes/tips are still captured. Gold spans are derived from block labels and stay stable across chunking changes.
+
+Keep these as **separate Label Studio projects** so each can use its own labeling config.
+
+Gotchas:
+
+- Keep canonical vs pipeline projects separate (label configs are different).
+- Preserve newlines in block text; the UI relies on them for context.
+- Rerun imports safely with resume mode; existing task IDs are skipped.
 
 ## Chunking Strategies
 
@@ -99,6 +130,21 @@ The Label Studio project uses a custom labeling config (`label_config.py`):
 
 ---
 
+## Canonical Block Labeling
+
+Canonical labeling uses a separate Label Studio config (`label_config_blocks.py`) and block-level tasks with context. Each block gets exactly one label:
+
+- `RECIPE_TITLE`
+- `INGREDIENT_LINE`
+- `INSTRUCTION_LINE`
+- `TIP`
+- `NARRATIVE`
+- `OTHER`
+
+Block IDs are stable: `urn:cookimport:block:{source_hash}:{block_index}`.
+
+---
+
 ## Golden Set Export
 
 Exported data format (JSONL):
@@ -117,6 +163,13 @@ Exported data format (JSONL):
   "annotated_at": "2026-01-31T10:30:00Z"
 }
 ```
+
+---
+
+Canonical export outputs:
+
+- `canonical_block_labels.jsonl`: one line per labeled block (block_id, label, annotator).
+- `canonical_gold_spans.jsonl`: derived recipe spans (start/end block indices).
 
 ---
 
@@ -164,6 +217,12 @@ data/output/{timestamp}/labelstudio/{book_slug}/
 └── coverage.json           # Extraction coverage stats
 ```
 
+Export artifacts (under `exports/`):
+
+- `labelstudio_export.json` (raw export)
+- `golden_set_tip_eval.jsonl` (pipeline)
+- `canonical_block_labels.jsonl` + `canonical_gold_spans.jsonl` (canonical)
+
 ---
 
 ## Resume Mode
@@ -180,6 +239,28 @@ cookimport labelstudio-import cookbook.epub --project-name "My Project"
 ```
 
 Use `--overwrite` to start fresh (deletes existing project).
+
+---
+
+## Evaluation (Canonical)
+
+Compare pipeline structural chunks to canonical gold spans:
+
+```bash
+cookimport labelstudio-eval canonical-blocks \
+  --pred-run data/output/<timestamp>/labelstudio/<book_slug>/ \
+  --gold-spans data/golden/<book_slug>/canonical_gold_spans.jsonl \
+  --output-dir data/golden/<book_slug>/eval/
+```
+
+Optional: add `--overlap-threshold 0.5` to tune the match threshold.
+
+Outputs:
+
+- `eval_report.json`
+- `eval_report.md`
+- `missed_gold_spans.jsonl`
+- `false_positive_preds.jsonl`
 
 ---
 

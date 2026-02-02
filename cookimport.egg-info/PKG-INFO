@@ -47,12 +47,18 @@ During `cookimport stage`, the CLI shows a per-worker status panel that refreshe
 about every 5 seconds with the latest progress message.
 
 Performance can be tuned with:
-- `--workers <N>`: Parallelize file processing (default: 4).
+- `--workers <N>`: Parallelize file processing (default: 7).
 - `--ocr-device <auto|cuda|mps|cpu>`: Select OCR hardware acceleration.
 - `--ocr-batch-size <N>`: Process N pages per OCR call.
 - `--pdf-pages-per-job <N>`: Target pages per PDF job when splitting large PDFs.
 - `--epub-spine-items-per-job <N>`: Target spine items per EPUB job when splitting large EPUBs.
+- `--pdf-split-workers <N>`: Cap PDF job splitting by worker count (default: 7).
+- `--epub-split-workers <N>`: Cap EPUB job splitting by worker count (default: 7).
 - `--warm-models`: Pre-load models to reduce per-file latency.
+
+When a run contains only EPUB files, the CLI will automatically raise the worker
+pool to `--epub-split-workers` if it is higher than `--workers`, so EPUB imports
+default to 6 concurrent workers unless you explicitly lower them.
 
 Tip outputs include `sourceRecipeTitle` when the tip is tied to a specific recipe.
 

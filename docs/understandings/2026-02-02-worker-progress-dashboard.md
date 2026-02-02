@@ -6,3 +6,5 @@ read_when:
 ---
 
 The stage CLI builds a list of `JobSpec` entries, splitting large EPUB/PDF inputs into spine/page-range jobs when configured. Each job runs in a ProcessPool worker (`stage_epub_job`, `stage_pdf_job`, or `stage_one_file`) and reports progress through a `multiprocessing.Manager().Queue()` to the live dashboard. The dashboard only knows what the workers last reported, so stale entries can appear if no updates arrive. After all split jobs for a file finish, the main process merges results; the progress bar tracks job completion, not merge time.
+
+During long merges, the main process now updates a `MainProcess` status line so the dashboard shows that work is still happening even when workers are idle. The job progress counter advances as soon as each job result is collected, before the merge work begins.

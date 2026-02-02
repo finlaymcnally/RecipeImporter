@@ -17,7 +17,8 @@ read_when:
 - Recipe-derived tips default to `recipe_specific`; exported tips primarily come from non-recipe text unless a tip reads strongly general.
 - Conversion reports include `runTimestamp` (local ISO-8601 time) for when the stage run started.
 - Conversion reports include `outputStats` with per-output file counts/bytes (and largest files) to help debug slow writes.
+- Performance summaries append one row per file to `data/output/.history/performance_history.csv` after each run.
 - Raw artifacts are preserved under `staging/raw/<importer>/<source_hash>/<location_id>.<ext>` for auditing (JSON snippets for structured sources, text/blocks for unstructured sources).
 - PDF page-range jobs and EPUB spine-range jobs (when a large source is split across workers) write raw artifacts to `staging/.job_parts/<workbook_slug>/job_<index>/raw/...` and the main process merges them back into `staging/raw/` after the merge completes. Temporary `.job_parts` folders may remain only if a merge fails.
 - Cookbook-specific parsing overrides live in the `parsingOverrides` section of mapping files or in `*.overrides.yaml` sidecars passed via `cookimport stage --overrides`.
-- Label Studio benchmark artifacts are written under `data/output/<timestamp>/labelstudio/<book_slug>/`, including `extracted_archive.json`, `label_studio_tasks.jsonl`, and `exports/golden_set_tip_eval.jsonl` after label export.
+- Label Studio benchmark artifacts are written under `data/output/<timestamp>/labelstudio/<book_slug>/`, including `extracted_archive.json`, `label_studio_tasks.jsonl`, and export outputs under `exports/` (pipeline `golden_set_tip_eval.jsonl`, canonical `canonical_block_labels.jsonl` + `canonical_gold_spans.jsonl`).

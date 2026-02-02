@@ -30,6 +30,13 @@ from cookimport.core.slug import slugify_name
 from cookimport.core.timing import TimingStats, measure
 from cookimport.labelstudio.export import run_labelstudio_export
 from cookimport.labelstudio.ingest import run_labelstudio_import
+from cookimport.labelstudio.eval_canonical import (
+    evaluate_structural_vs_gold,
+    format_eval_report_md,
+    load_gold_spans,
+    load_predicted_spans,
+    write_jsonl,
+)
 from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
@@ -55,7 +62,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_INPUT = Path(__file__).parent.parent / "data" / "input"
 DEFAULT_OUTPUT = Path(__file__).parent.parent / "data" / "output"
-DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "data" / "config.json"
+DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "cookimport.json"
 
 
 def _load_settings() -> Dict[str, Any]:
@@ -389,6 +396,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     pipeline="auto",
                     project_name=project_name,
                     chunk_level=chunk_level,
+                    task_scope="pipeline",
+                    context_window=1,
                     overwrite=bool(overwrite),
                     resume=not overwrite,
                     label_studio_url=url,
@@ -1017,6 +1026,25 @@ def stage(
     worker_render_cache: Text | None = None
     worker_render_last = 0.0
 
+    def _set_worker_status(
+        worker_label: str,
+        filename: str,
+        status: str,
+        *,
+        updated_at: float | None = None,
+    ) -> None:
+        nonlocal worker_render_cache, worker_render_last
+        if updated_at is None:
+            updated_at = time.time()
+        with worker_lock:
+            worker_status[str(worker_label)] = {
+                "file": str(filename),
+                "status": str(status),
+                "updated_at": float(updated_at),
+            }
+        worker_render_cache = None
+        worker_render_last = 0.0
+
     def _format_worker_lines() -> Text:
         nonlocal worker_render_cache, worker_render_last
         now = time.time()
@@ -1077,12 +1105,12 @@ def stage(
                     else:
                         continue
 
-                    with worker_lock:
-                        worker_status[str(worker_label)] = {
-                            "file": str(filename),
-                            "status": str(status),
-                            "updated_at": float(updated_at),
-                        }
+                    _set_worker_status(
+                        str(worker_label),
+                        str(filename),
+                        str(status),
+                        updated_at=float(updated_at),
+                    )
                 except Exception:
                     pass
 
@@ -1119,11 +1147,21 @@ def stage(
                         reasons = ["job failure"]
                     message = "; ".join(reasons)
                     errors.append(f"{job.file_path.name}: {message}")
+                    _set_worker_status(
+                        "MainProcess",
+                        job.file_path.name,
+                        "Merge skipped (job errors)",
+                    )
                     live.console.print(
                         f"[red]✘ Error {job.file_path.name}: {message}[/red]"
                     )
                     _write_error_report(out, job.file_path, run_dt, reasons)
                 else:
+                    _set_worker_status(
+                        "MainProcess",
+                        job.file_path.name,
+                        f"Merging {expected_count} job(s)...",
+                    )
                     live.console.print(
                         f"Merging {expected_count} jobs for {job.file_path.name}..."
                     )
@@ -1147,12 +1185,22 @@ def stage(
                                 run_dt,
                             )
                         imported += 1
+                        _set_worker_status(
+                            "MainProcess",
+                            job.file_path.name,
+                            f"Merge done ({merged['duration']:.2f}s)",
+                        )
                         live.console.print(
                             f"[green]✔ {merged['file']}: {merged['recipes']} recipes, "
                             f"{merged['tips']} tips (merge {merged['duration']:.2f}s)[/green]"
                         )
                     except Exception as exc:
                         errors.append(f"{job.file_path.name}: {exc}")
+                        _set_worker_status(
+                            "MainProcess",
+                            job.file_path.name,
+                            "Merge error",
+                        )
                         live.console.print(
                             f"[red]✘ Error {job.file_path.name}: {exc}[/red]"
                         )
@@ -1245,8 +1293,8 @@ def stage(
                             "end_spine": job.end_spine,
                         }
 
-                    handle_job_result(job, res, live)
                     progress_bar.update(overall_task, advance=1)
+                    handle_job_result(job, res, live)
         except PermissionError:
             live.console.print(
                 "[yellow]⚠ Multiprocessing unavailable; running jobs serially.[/yellow]"
@@ -1289,8 +1337,8 @@ def stage(
                         progress_queue,
                         job.display_name,
                     )
-                handle_job_result(job, res, live)
                 progress_bar.update(overall_task, advance=1)
+                handle_job_result(job, res, live)
 
     stop_event.set()
     if queue_thread is not None:
@@ -1302,6 +1350,62 @@ def stage(
         for message in errors:
             typer.secho(f"- {message}", fg=typer.colors.YELLOW)
 
+    try:
+        from cookimport.analytics.perf_report import (
+            append_history_csv,
+            build_perf_summary,
+            format_summary_line,
+            history_path,
+        )
+
+        summary = build_perf_summary(out)
+        if summary.rows:
+            typer.secho("\nPerformance summary:", fg=typer.colors.CYAN)
+            typer.echo(f"Run: {out}")
+            for row in summary.rows:
+                typer.echo(format_summary_line(row))
+
+            if summary.total_outliers:
+                outlier_names = ", ".join(row.file_name for row in summary.total_outliers)
+                typer.secho(
+                    f"Outliers (total time > 3x median): {outlier_names}",
+                    fg=typer.colors.YELLOW,
+                )
+            if summary.parsing_outliers:
+                outlier_names = ", ".join(row.file_name for row in summary.parsing_outliers)
+                typer.secho(
+                    f"Outliers (parsing time > 3x median): {outlier_names}",
+                    fg=typer.colors.YELLOW,
+                )
+            if summary.writing_outliers:
+                outlier_names = ", ".join(row.file_name for row in summary.writing_outliers)
+                typer.secho(
+                    f"Outliers (writing time > 3x median): {outlier_names}",
+                    fg=typer.colors.YELLOW,
+                )
+            if summary.per_unit_outliers:
+                outlier_names = ", ".join(row.file_name for row in summary.per_unit_outliers)
+                typer.secho(
+                    f"Outliers (per-unit > 3x median): {outlier_names}",
+                    fg=typer.colors.YELLOW,
+                )
+            if summary.per_recipe_outliers:
+                outlier_names = ", ".join(row.file_name for row in summary.per_recipe_outliers)
+                typer.secho(
+                    "Outliers (per-recipe > 3x median, recipe-heavy only): " + outlier_names,
+                    fg=typer.colors.YELLOW,
+                )
+            if summary.knowledge_heavy:
+                heavy_names = ", ".join(row.file_name for row in summary.knowledge_heavy)
+                typer.secho(
+                    "Knowledge-heavy runs (topic candidates dominate): " + heavy_names,
+                    fg=typer.colors.CYAN,
+                )
+
+            append_history_csv(summary.rows, history_path(DEFAULT_OUTPUT))
+    except Exception as exc:
+        logger.warning("Performance summary skipped: %s", exc)
+
     return out
 
     typer.secho(f"\nStaged {imported} file(s).", fg=typer.colors.GREEN)
@@ -1311,6 +1415,86 @@ def stage(
             typer.secho(f"- {message}", fg=typer.colors.YELLOW)
 
     return out
+
+
+@app.command("perf-report")
+def perf_report(
+    run_dir: Path | None = typer.Option(
+        None,
+        "--run-dir",
+        help="Run folder to summarize (defaults to latest under --out-dir).",
+    ),
+    out_dir: Path = typer.Option(
+        DEFAULT_OUTPUT,
+        "--out-dir",
+        help="Root output folder used to locate runs and history CSV.",
+    ),
+    write_csv: bool = typer.Option(
+        True,
+        "--write-csv/--no-csv",
+        help="Append results to the performance history CSV.",
+    ),
+) -> None:
+    """Summarize per-file performance metrics for a run."""
+    from cookimport.analytics.perf_report import (
+        append_history_csv,
+        build_perf_summary,
+        format_summary_line,
+        history_path,
+        resolve_run_dir,
+    )
+
+    resolved = resolve_run_dir(run_dir, out_dir)
+    if resolved is None or not resolved.exists():
+        _fail(f"No run folder found under {out_dir}.")
+
+    summary = build_perf_summary(resolved)
+    if not summary.rows:
+        _fail(f"No conversion reports found in {resolved}.")
+
+    typer.secho(f"Performance summary for {resolved}", fg=typer.colors.CYAN)
+    for row in summary.rows:
+        typer.echo(format_summary_line(row))
+
+    if summary.total_outliers:
+        outlier_names = ", ".join(row.file_name for row in summary.total_outliers)
+        typer.secho(
+            f"Outliers (total time > 3x median): {outlier_names}",
+            fg=typer.colors.YELLOW,
+        )
+    if summary.parsing_outliers:
+        outlier_names = ", ".join(row.file_name for row in summary.parsing_outliers)
+        typer.secho(
+            f"Outliers (parsing time > 3x median): {outlier_names}",
+            fg=typer.colors.YELLOW,
+        )
+    if summary.writing_outliers:
+        outlier_names = ", ".join(row.file_name for row in summary.writing_outliers)
+        typer.secho(
+            f"Outliers (writing time > 3x median): {outlier_names}",
+            fg=typer.colors.YELLOW,
+        )
+    if summary.per_unit_outliers:
+        outlier_names = ", ".join(row.file_name for row in summary.per_unit_outliers)
+        typer.secho(
+            f"Outliers (per-unit > 3x median): {outlier_names}",
+            fg=typer.colors.YELLOW,
+        )
+    if summary.per_recipe_outliers:
+        outlier_names = ", ".join(row.file_name for row in summary.per_recipe_outliers)
+        typer.secho(
+            "Outliers (per-recipe > 3x median, recipe-heavy only): " + outlier_names,
+            fg=typer.colors.YELLOW,
+        )
+    if summary.knowledge_heavy:
+        heavy_names = ", ".join(row.file_name for row in summary.knowledge_heavy)
+        typer.secho(
+            "Knowledge-heavy runs (topic candidates dominate): " + heavy_names,
+            fg=typer.colors.CYAN,
+        )
+
+    if write_csv:
+        append_history_csv(summary.rows, history_path(out_dir))
 
 
 @app.command()
@@ -1360,6 +1544,17 @@ def labelstudio_import(
         "--chunk-level",
         help="Chunk level: structural, atomic, or both.",
     ),
+    task_scope: str = typer.Option(
+        "pipeline",
+        "--task-scope",
+        help="Task scope: pipeline or canonical-blocks.",
+    ),
+    context_window: int = typer.Option(
+        1,
+        "--context-window",
+        min=0,
+        help="Block context window for canonical-blocks.",
+    ),
     overwrite: bool = typer.Option(
         False, "--overwrite/--resume", help="Overwrite project or resume."
     ),
@@ -1376,7 +1571,7 @@ def labelstudio_import(
         None, "--sample", min=1, help="Randomly sample N chunks."
     ),
 ) -> None:
-    """Import a cookbook into Label Studio for benchmarking."""
+    """Import a cookbook into Label Studio for benchmarking or canonical block labeling."""
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     try:
         with console.status(f"[bold cyan]Running Label Studio import for {path.name}...[/bold cyan]", spinner="dots") as status:
@@ -1389,6 +1584,8 @@ def labelstudio_import(
                 pipeline=pipeline,
                 project_name=project_name,
                 chunk_level=chunk_level,
+                task_scope=task_scope,
+                context_window=context_window,
                 overwrite=overwrite,
                 resume=not overwrite,
                 label_studio_url=url,
@@ -1425,6 +1622,11 @@ def labelstudio_export(
     run_dir: Path | None = typer.Option(
         None, "--run-dir", help="Specific labelstudio run directory to export."
     ),
+    export_scope: str = typer.Option(
+        "pipeline",
+        "--export-scope",
+        help="Export scope: pipeline or canonical-blocks.",
+    ),
     label_studio_url: str | None = typer.Option(
         None, "--label-studio-url", help="Label Studio base URL."
     ),
@@ -1432,7 +1634,7 @@ def labelstudio_export(
         None, "--label-studio-api-key", help="Label Studio API key."
     ),
 ) -> None:
-    """Export labeled chunks from Label Studio into golden set JSONL."""
+    """Export labeled tasks from Label Studio into golden set JSONL."""
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     try:
         result = run_labelstudio_export(
@@ -1441,12 +1643,68 @@ def labelstudio_export(
             label_studio_url=url,
             label_studio_api_key=api_key,
             run_dir=run_dir,
+            export_scope=export_scope,
         )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
 
     summary_path = result["summary_path"]
     typer.secho(f"Export complete. Summary: {summary_path}", fg=typer.colors.GREEN)
+
+
+@app.command("labelstudio-eval")
+def labelstudio_eval(
+    scope: str = typer.Argument(..., help="Evaluation scope (canonical-blocks)."),
+    pred_run: Path = typer.Option(
+        ..., "--pred-run", help="Label Studio run directory with label_studio_tasks.jsonl."
+    ),
+    gold_spans: Path = typer.Option(
+        ..., "--gold-spans", help="Path to canonical_gold_spans.jsonl."
+    ),
+    output_dir: Path = typer.Option(
+        ..., "--output-dir", help="Output folder for eval artifacts."
+    ),
+    overlap_threshold: float = typer.Option(
+        0.5,
+        "--overlap-threshold",
+        min=0.0,
+        max=1.0,
+        help="Jaccard overlap threshold for matching.",
+    ),
+) -> None:
+    """Evaluate pipeline structural chunks against canonical gold spans."""
+    if scope != "canonical-blocks":
+        _fail("Only canonical-blocks evaluation is supported right now.")
+    if not pred_run.exists():
+        _fail(f"Predicted run not found: {pred_run}")
+    if not gold_spans.exists():
+        _fail(f"Gold spans file not found: {gold_spans}")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    predicted = load_predicted_spans(pred_run)
+    gold = load_gold_spans(gold_spans)
+    result = evaluate_structural_vs_gold(
+        predicted, gold, overlap_threshold=overlap_threshold
+    )
+    report = result["report"]
+
+    report_json_path = output_dir / "eval_report.json"
+    report_json_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    report_md_path = output_dir / "eval_report.md"
+    report_md_path.write_text(format_eval_report_md(report), encoding="utf-8")
+
+    write_jsonl(output_dir / "missed_gold_spans.jsonl", result["missed_gold"])
+    write_jsonl(
+        output_dir / "false_positive_preds.jsonl", result["false_positive_preds"]
+    )
+
+    typer.secho(
+        f"Evaluation complete. Report: {report_md_path}",
+        fg=typer.colors.GREEN,
+    )
 
 
 if __name__ == "__main__":

@@ -245,6 +245,7 @@ tests/              # Comprehensive test suite
 |---------|---------|
 | `cookimport` | Interactive mode with guided prompts |
 | `cookimport stage <path>` | Stage recipes from file/folder |
+| `cookimport perf-report` | Summarize per-file timing and append to `data/output/.history/performance_history.csv` |
 | `cookimport inspect <path>` | Preview file structure and layout |
 | `cookimport labelstudio-import` | Upload to Label Studio |
 | `cookimport labelstudio-export` | Export labeled data |

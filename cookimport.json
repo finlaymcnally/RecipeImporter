@@ -1,0 +1,10 @@
+{
+  "workers": 10,
+  "pdf_split_workers": 10,
+  "epub_split_workers": 10,
+  "ocr_device": "auto",
+  "ocr_batch_size": 1,
+  "pdf_pages_per_job": 50,
+  "epub_spine_items_per_job": 10,
+  "warm_models": false
+}
