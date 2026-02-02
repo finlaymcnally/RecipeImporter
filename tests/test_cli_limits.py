@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cookimport.cli import _apply_result_limits
+from cookimport.cli_worker import apply_result_limits as _apply_result_limits
 from cookimport.core.models import ConversionReport, ConversionResult, RecipeCandidate, TipCandidate
 
 

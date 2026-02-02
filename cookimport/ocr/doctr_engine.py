@@ -79,9 +79,11 @@ def _get_model(device: str = "auto") -> "OCRPredictor":
             _model = ocr_predictor(
                 det_arch="db_resnet50",
                 reco_arch="crnn_vgg16_bn",
-                pretrained=True,
-                device=resolved_device
+                pretrained=True
             )
+            if resolved_device != "cpu":
+                _model = _model.to(resolved_device)
+            
             _current_device = resolved_device
             logger.info(f"docTR model loaded successfully on {resolved_device}")
         except ImportError as e:
