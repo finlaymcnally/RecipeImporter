@@ -1,28 +1,49 @@
 from __future__ import annotations
 
 import datetime as dt
-from pathlib import Path
+import json
+import logging
+import multiprocessing
 import os
-from typing import Iterable
+import queue
+import shutil
+import threading
+import time
+from collections import defaultdict
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable, Dict, Any
 
 import questionary
 import typer
-from rich.console import Console
+from rich.console import Console, Group
+from rich.live import Live
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+from rich.text import Text
 
 from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
 from cookimport.core.overrides_io import load_parsing_overrides
-from cookimport.core.reporting import enrich_report_with_stats
+from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
+from cookimport.core.slug import slugify_name
+from cookimport.core.timing import TimingStats, measure
 from cookimport.labelstudio.export import run_labelstudio_export
 from cookimport.labelstudio.ingest import run_labelstudio_import
 from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
+from cookimport.parsing.tips import partition_tip_candidates
+from cookimport.staging.pdf_jobs import (
+    plan_job_ranges,
+    plan_pdf_page_ranges,
+    reassign_recipe_ids,
+)
 from cookimport.staging.writer import (
+    OutputStats,
     write_chunk_outputs,
     write_draft_outputs,
     write_intermediate_outputs,
-    write_raw_artifacts,
     write_report,
     write_tip_outputs,
     write_topic_candidate_outputs,
@@ -30,9 +51,42 @@ from cookimport.staging.writer import (
 
 app = typer.Typer(add_completion=False, invoke_without_command=True)
 console = Console()
+logger = logging.getLogger(__name__)
 
 DEFAULT_INPUT = Path(__file__).parent.parent / "data" / "input"
 DEFAULT_OUTPUT = Path(__file__).parent.parent / "data" / "output"
+DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "data" / "config.json"
+
+
+def _load_settings() -> Dict[str, Any]:
+    """Load user settings from config file."""
+    defaults = {
+        "workers": 7,
+        "pdf_split_workers": 7,
+        "epub_split_workers": 7,
+        "ocr_device": "auto",
+        "ocr_batch_size": 1,
+        "pdf_pages_per_job": 50,
+        "epub_spine_items_per_job": 10,
+        "warm_models": False,
+    }
+    if not DEFAULT_CONFIG_PATH.exists():
+        return defaults
+    try:
+        with open(DEFAULT_CONFIG_PATH, "r") as f:
+            loaded = json.load(f)
+            if isinstance(loaded, dict):
+                return {**defaults, **loaded}
+            return defaults
+    except Exception:
+        return defaults
+
+
+def _save_settings(settings: Dict[str, Any]) -> None:
+    """Save user settings to config file."""
+    DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(DEFAULT_CONFIG_PATH, "w") as f:
+        json.dump(settings, f, indent=2)
 
 
 def _list_importable_files(folder: Path) -> list[Path]:
@@ -48,182 +102,313 @@ def _list_importable_files(folder: Path) -> list[Path]:
     return sorted(files)
 
 
+def _settings_menu(current_settings: Dict[str, Any]) -> None:
+    """Run the settings configuration menu."""
+    while True:
+        # Refresh values in display
+        choice = questionary.select(
+            "Settings Configuration",
+            choices=[
+                questionary.Choice(f"Workers: {current_settings.get('workers', 4)}", value="workers"),
+                questionary.Choice(
+                    f"PDF Split Workers: {current_settings.get('pdf_split_workers', 7)}",
+                    value="pdf_split_workers",
+                ),
+                questionary.Choice(
+                    f"EPUB Split Workers: {current_settings.get('epub_split_workers', 7)}",
+                    value="epub_split_workers",
+                ),
+                questionary.Choice(f"OCR Device: {current_settings.get('ocr_device', 'auto')}", value="ocr_device"),
+                questionary.Choice(f"OCR Batch Size: {current_settings.get('ocr_batch_size', 1)}", value="ocr_batch_size"),
+                questionary.Choice(
+                    f"PDF Pages/Job: {current_settings.get('pdf_pages_per_job', 50)}",
+                    value="pdf_pages_per_job",
+                ),
+                questionary.Choice(
+                    f"EPUB Spine Items/Job: {current_settings.get('epub_spine_items_per_job', 10)}",
+                    value="epub_spine_items_per_job",
+                ),
+                questionary.Choice(f"Warm Models: {'Yes' if current_settings.get('warm_models', False) else 'No'}", value="warm_models"),
+                questionary.Separator(),
+                questionary.Choice("Back to Main Menu", value="back"),
+            ]
+        ).ask()
+        
+        if choice == "back" or choice is None:
+            break
+            
+        if choice == "workers":
+            val = questionary.text("Enter number of workers:", default=str(current_settings.get("workers", 7))).ask()
+            if val and val.isdigit() and int(val) > 0:
+                current_settings["workers"] = int(val)
+                _save_settings(current_settings)
+
+        elif choice == "pdf_split_workers":
+            val = questionary.text(
+                "Enter PDF split workers:",
+                default=str(current_settings.get("pdf_split_workers", 7)),
+            ).ask()
+            if val and val.isdigit() and int(val) > 0:
+                current_settings["pdf_split_workers"] = int(val)
+                _save_settings(current_settings)
+
+        elif choice == "epub_split_workers":
+            val = questionary.text(
+                "Enter EPUB split workers:",
+                default=str(current_settings.get("epub_split_workers", 7)),
+            ).ask()
+            if val and val.isdigit() and int(val) > 0:
+                current_settings["epub_split_workers"] = int(val)
+                _save_settings(current_settings)
+
+        elif choice == "ocr_device":
+            val = questionary.select(
+                "Select OCR Device:",
+                choices=["auto", "cpu", "cuda", "mps"],
+                default=current_settings.get("ocr_device", "auto")
+            ).ask()
+            if val:
+                current_settings["ocr_device"] = val
+                _save_settings(current_settings)
+                
+        elif choice == "ocr_batch_size":
+            val = questionary.text("Enter OCR batch size:", default=str(current_settings.get("ocr_batch_size", 1))).ask()
+            if val and val.isdigit() and int(val) > 0:
+                current_settings["ocr_batch_size"] = int(val)
+                _save_settings(current_settings)
+
+        elif choice == "pdf_pages_per_job":
+            val = questionary.text(
+                "Enter PDF pages per job:",
+                default=str(current_settings.get("pdf_pages_per_job", 50)),
+            ).ask()
+            if val and val.isdigit() and int(val) > 0:
+                current_settings["pdf_pages_per_job"] = int(val)
+                _save_settings(current_settings)
+
+        elif choice == "epub_spine_items_per_job":
+            val = questionary.text(
+                "Enter EPUB spine items per job:",
+                default=str(current_settings.get("epub_spine_items_per_job", 10)),
+            ).ask()
+            if val and val.isdigit() and int(val) > 0:
+                current_settings["epub_spine_items_per_job"] = int(val)
+                _save_settings(current_settings)
+
+        elif choice == "warm_models":
+            val = questionary.confirm("Warm models on start?", default=current_settings.get("warm_models", False)).ask()
+            if val is not None:
+                current_settings["warm_models"] = val
+                _save_settings(current_settings)
+
+
 def _interactive_mode(*, limit: int | None = None) -> None:
     """Run the interactive guided flow."""
     typer.secho("\n  Recipe Import Tool\n", fg=typer.colors.CYAN, bold=True)
 
     input_folder = DEFAULT_INPUT
     output_folder = DEFAULT_OUTPUT
+    
+    settings = _load_settings()
 
-    # Scan for importable files first to know what context to show
-    importable_files = _list_importable_files(input_folder)
+    while True:
+        # Scan for importable files first to know what context to show
+        importable_files = _list_importable_files(input_folder)
 
-    choices = []
-    if importable_files:
-        choices.append(questionary.Choice("Import files from data/input", value="import"))
-        choices.append(
-            questionary.Choice("Label Studio benchmark import", value="labelstudio")
-        )
-    choices.append(questionary.Choice("Inspect a single file (preview layout)", value="inspect"))
-
-    action = questionary.select(
-        "What would you like to do?",
-        choices=choices,
-    ).ask()
-
-    if action is None:
-        raise typer.Exit(0)
-
-    if action == "inspect":
-        if not importable_files:
-            typer.secho(
-                f"\nNo supported files found in {input_folder}",
-                fg=typer.colors.YELLOW,
+        choices = []
+        if importable_files:
+            choices.append(questionary.Choice("Import files from data/input", value="import"))
+            choices.append(
+                questionary.Choice("Label Studio benchmark import", value="labelstudio")
             )
-            raise typer.Exit(1)
+        choices.append(questionary.Choice("Inspect a single file (preview layout)", value="inspect"))
+        choices.append(questionary.Choice("Settings", value="settings"))
+        choices.append(questionary.Choice("Exit", value="exit"))
 
-        file_choices = [
-            questionary.Choice(f.name, value=f) for f in importable_files
-        ]
-        selected_file = questionary.select(
-            "Select a file to inspect:",
-            choices=file_choices,
+        action = questionary.select(
+            "What would you like to do?",
+            choices=choices,
         ).ask()
 
-        if selected_file is None:
+        if action is None or action == "exit":
             raise typer.Exit(0)
+            
+        if action == "settings":
+            _settings_menu(settings)
+            continue
 
-        write_map = questionary.confirm(
-            "Write a mapping file? (useful for customizing column mappings)",
-            default=True,
-        ).ask()
+        if action == "inspect":
+            if not importable_files:
+                typer.secho(
+                    f"\nNo supported files found in {input_folder}",
+                    fg=typer.colors.YELLOW,
+                )
+                input("Press Enter to continue...")
+                continue
 
-        if write_map is None:
-            raise typer.Exit(0)
-
-        typer.echo()
-        inspect(path=selected_file, out=output_folder, write_mapping=write_map)
-
-    elif action == "import":
-        if not importable_files:
-            # Should be unreachable given the check above, but safe to keep
-            typer.secho(
-                f"\nNo supported files found in {input_folder}",
-                fg=typer.colors.YELLOW,
-            )
-            raise typer.Exit(1)
-
-        typer.secho(f"\nFound {len(importable_files)} importable file(s) in {input_folder}", fg=typer.colors.GREEN)
-
-        selection = questionary.select(
-            "Which file(s) would you like to import?",
-            choices=[
-                questionary.Choice("Import All", value="all"),
-                *[questionary.Choice(f.name, value=f) for f in importable_files]
+            file_choices = [
+                questionary.Choice(f.name, value=f) for f in importable_files
             ]
-        ).ask()
+            selected_file = questionary.select(
+                "Select a file to inspect:",
+                choices=file_choices,
+            ).ask()
 
-        if selection is None:
-            raise typer.Exit(0)
+            if selected_file is None:
+                continue
 
-        typer.echo()
+            write_map = questionary.confirm(
+                "Write a mapping file? (useful for customizing column mappings)",
+                default=True,
+            ).ask()
 
-        if selection == "all":
-            run_folder = stage(path=input_folder, out=output_folder, mapping=None, overrides=None, limit=limit)
-        else:
-            run_folder = stage(path=selection, out=output_folder, mapping=None, overrides=None, limit=limit)
+            if write_map is None:
+                continue
 
-        typer.secho(f"\nOutputs written to: {run_folder}", fg=typer.colors.CYAN)
+            typer.echo()
+            inspect(path=selected_file, out=output_folder, write_mapping=write_map)
+            input("Press Enter to continue...")
+            continue
 
-    elif action == "labelstudio":
-        if not importable_files:
+        elif action == "import":
+            if not importable_files:
+                # Should be unreachable given the check above, but safe to keep
+                typer.secho(
+                    f"\nNo supported files found in {input_folder}",
+                    fg=typer.colors.YELLOW,
+                )
+                input("Press Enter to continue...")
+                continue
+
+            typer.secho(f"\nFound {len(importable_files)} importable file(s) in {input_folder}", fg=typer.colors.GREEN)
+
+            selection = questionary.select(
+                "Which file(s) would you like to import?",
+                choices=[
+                    questionary.Choice("Import All", value="all"),
+                    *[questionary.Choice(f.name, value=f) for f in importable_files]
+                ]
+            ).ask()
+
+            if selection is None:
+                continue
+
+            typer.echo()
+            
+            common_args = {
+                "out": output_folder,
+                "mapping": None,
+                "overrides": None,
+                "limit": limit,
+                "workers": settings.get("workers", 7),
+                "pdf_split_workers": settings.get("pdf_split_workers", 7),
+                "epub_split_workers": settings.get("epub_split_workers", 7),
+                "ocr_device": settings.get("ocr_device", "auto"),
+                "ocr_batch_size": settings.get("ocr_batch_size", 1),
+                "pdf_pages_per_job": settings.get("pdf_pages_per_job", 50),
+                "epub_spine_items_per_job": settings.get("epub_spine_items_per_job", 10),
+                "warm_models": settings.get("warm_models", False),
+            }
+
+            if selection == "all":
+                run_folder = stage(path=input_folder, **common_args)
+            else:
+                run_folder = stage(path=selection, **common_args)
+
+            typer.secho(f"\nOutputs written to: {run_folder}", fg=typer.colors.CYAN)
+            break
+
+        elif action == "labelstudio":
+            if not importable_files:
+                typer.secho(
+                    f"\nNo supported files found in {input_folder}",
+                    fg=typer.colors.YELLOW,
+                )
+                input("Press Enter to continue...")
+                continue
+
+            file_choices = [
+                questionary.Choice(f.name, value=f) for f in importable_files
+            ]
+            selected_file = questionary.select(
+                "Select a file to import into Label Studio:",
+                choices=file_choices,
+            ).ask()
+
+            if selected_file is None:
+                continue
+
+            project_name = questionary.text(
+                "Project name (leave blank to auto-name):",
+                default="",
+            ).ask()
+            if project_name is not None:
+                project_name = project_name.strip() or None
+
+            chunk_level = questionary.select(
+                "Chunk level:",
+                choices=[
+                    questionary.Choice("both (structural + atomic)", value="both"),
+                    questionary.Choice("structural only", value="structural"),
+                    questionary.Choice("atomic only", value="atomic"),
+                ],
+            ).ask()
+
+            if chunk_level is None:
+                continue
+
+            overwrite = questionary.confirm(
+                "Overwrite existing project if it exists?",
+                default=False,
+            ).ask()
+
+            if overwrite is None:
+                continue
+
+            label_studio_url = os.getenv("LABEL_STUDIO_URL")
+            label_studio_api_key = os.getenv("LABEL_STUDIO_API_KEY")
+
+            if not label_studio_url:
+                label_studio_url = questionary.text(
+                    "Label Studio URL:",
+                    default="http://localhost:8080",
+                ).ask()
+            if not label_studio_api_key:
+                label_studio_api_key = questionary.password(
+                    "Label Studio API key:",
+                ).ask()
+
+            url, api_key = _resolve_labelstudio_settings(
+                label_studio_url, label_studio_api_key
+            )
+
+            try:
+                result = run_labelstudio_import(
+                    path=selected_file,
+                    output_dir=output_folder,
+                    pipeline="auto",
+                    project_name=project_name,
+                    chunk_level=chunk_level,
+                    overwrite=bool(overwrite),
+                    resume=not overwrite,
+                    label_studio_url=url,
+                    label_studio_api_key=api_key,
+                    limit=None,
+                    sample=None,
+                )
+            except Exception as exc:  # noqa: BLE001
+                _fail(str(exc))
+
             typer.secho(
-                f"\nNo supported files found in {input_folder}",
-                fg=typer.colors.YELLOW,
+                f"Label Studio project: {result['project_name']} (id={result['project_id']})",
+                fg=typer.colors.GREEN,
             )
-            raise typer.Exit(1)
-
-        file_choices = [
-            questionary.Choice(f.name, value=f) for f in importable_files
-        ]
-        selected_file = questionary.select(
-            "Select a file to import into Label Studio:",
-            choices=file_choices,
-        ).ask()
-
-        if selected_file is None:
-            raise typer.Exit(0)
-
-        project_name = questionary.text(
-            "Project name (leave blank to auto-name):",
-            default="",
-        ).ask()
-        if project_name is not None:
-            project_name = project_name.strip() or None
-
-        chunk_level = questionary.select(
-            "Chunk level:",
-            choices=[
-                questionary.Choice("both (structural + atomic)", value="both"),
-                questionary.Choice("structural only", value="structural"),
-                questionary.Choice("atomic only", value="atomic"),
-            ],
-        ).ask()
-
-        if chunk_level is None:
-            raise typer.Exit(0)
-
-        overwrite = questionary.confirm(
-            "Overwrite existing project if it exists?",
-            default=False,
-        ).ask()
-
-        if overwrite is None:
-            raise typer.Exit(0)
-
-        label_studio_url = os.getenv("LABEL_STUDIO_URL")
-        label_studio_api_key = os.getenv("LABEL_STUDIO_API_KEY")
-
-        if not label_studio_url:
-            label_studio_url = questionary.text(
-                "Label Studio URL:",
-                default="http://localhost:8080",
-            ).ask()
-        if not label_studio_api_key:
-            label_studio_api_key = questionary.password(
-                "Label Studio API key:",
-            ).ask()
-
-        url, api_key = _resolve_labelstudio_settings(
-            label_studio_url, label_studio_api_key
-        )
-
-        try:
-            result = run_labelstudio_import(
-                path=selected_file,
-                output_dir=output_folder,
-                pipeline="auto",
-                project_name=project_name,
-                chunk_level=chunk_level,
-                overwrite=bool(overwrite),
-                resume=not overwrite,
-                label_studio_url=url,
-                label_studio_api_key=api_key,
-                limit=None,
-                sample=None,
+            typer.secho(
+                f"Tasks created: {result['tasks_total']} (uploaded {result['tasks_uploaded']})",
+                fg=typer.colors.CYAN,
             )
-        except Exception as exc:  # noqa: BLE001
-            _fail(str(exc))
-
-        typer.secho(
-            f"Label Studio project: {result['project_name']} (id={result['project_id']})",
-            fg=typer.colors.GREEN,
-        )
-        typer.secho(
-            f"Tasks created: {result['tasks_total']} (uploaded {result['tasks_uploaded']})",
-            fg=typer.colors.CYAN,
-        )
-        typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
+            typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
+            break
 
 
 @app.callback()
@@ -243,6 +428,23 @@ def main(ctx: typer.Context) -> None:
 def _fail(message: str) -> None:
     typer.secho(message, err=True, fg=typer.colors.RED)
     raise typer.Exit(1)
+
+
+def _warm_all_models(ocr_device: str = "auto") -> None:
+    """Proactively load heavy models into memory."""
+    from cookimport.ocr.doctr_engine import warm_ocr_model
+    from cookimport.parsing.spacy_support import warm_spacy_model
+    from cookimport.parsing.ingredients import warm_ingredient_parser
+
+    # Warm SpaCy
+    warm_spacy_model()
+    # Warm Ingredient Parser
+    warm_ingredient_parser()
+    # Warm OCR
+    try:
+        warm_ocr_model(device=ocr_device)
+    except Exception as e:
+        logger.warning(f"Failed to warm OCR model: {e}")
 
 
 def _resolve_labelstudio_settings(
@@ -304,52 +506,361 @@ def _resolve_overrides_path(workbook: Path, out: Path, override: Path | None) ->
     return None
 
 
-def _slugify_name(name: str) -> str:
-    """Convert a name to a filesystem-safe slug."""
-    import re
-    lowered = name.strip().lower()
-    slug = re.sub(r"[^a-z0-9]+", "_", lowered).strip("_")
-    return slug or "unknown"
+@dataclass(frozen=True)
+class JobSpec:
+    file_path: Path
+    job_index: int
+    job_count: int
+    start_page: int | None = None
+    end_page: int | None = None
+    start_spine: int | None = None
+    end_spine: int | None = None
+
+    @property
+    def is_split(self) -> bool:
+        return self.split_kind is not None
+
+    @property
+    def split_kind(self) -> str | None:
+        if self.start_page is not None or self.end_page is not None:
+            return "pdf"
+        if self.start_spine is not None or self.end_spine is not None:
+            return "epub"
+        return None
+
+    @property
+    def display_name(self) -> str:
+        if not self.is_split:
+            return self.file_path.name
+        if self.split_kind == "epub":
+            start = (self.start_spine or 0) + 1
+            end = self.end_spine or start
+            return f"{self.file_path.name} [spine {start}-{end}]"
+        start = (self.start_page or 0) + 1
+        end = self.end_page or start
+        return f"{self.file_path.name} [pages {start}-{end}]"
 
 
-def _apply_result_limits(
-    result: ConversionResult,
-    recipe_limit: int | None,
-    tip_limit: int | None,
+def _resolve_pdf_page_count(path: Path) -> int | None:
+    importer = registry.get_importer("pdf")
+    if importer is None:
+        return None
+    try:
+        inspection = importer.inspect(path)
+    except Exception:
+        return None
+    if not inspection.sheets:
+        return None
+    page_count = inspection.sheets[0].page_count
+    if page_count is None:
+        return None
+    try:
+        return int(page_count)
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve_epub_spine_count(path: Path) -> int | None:
+    importer = registry.get_importer("epub")
+    if importer is None:
+        return None
+    try:
+        inspection = importer.inspect(path)
+    except Exception:
+        return None
+    if not inspection.sheets:
+        return None
+    spine_count = inspection.sheets[0].spine_count
+    if spine_count is None:
+        return None
+    try:
+        return int(spine_count)
+    except (TypeError, ValueError):
+        return None
+
+
+def _plan_jobs(
+    files: list[Path],
     *,
-    limit_label: int | None = None,
-) -> tuple[int, int, bool]:
-    original_recipes = len(result.recipes)
-    original_tips = len(result.tips)
+    workers: int,
+    pdf_pages_per_job: int,
+    epub_spine_items_per_job: int,
+    pdf_split_workers: int,
+    epub_split_workers: int,
+) -> list[JobSpec]:
+    jobs: list[JobSpec] = []
+    for file_path in files:
+        if (
+            pdf_split_workers > 1
+            and file_path.suffix.lower() == ".pdf"
+            and pdf_pages_per_job > 0
+        ):
+            page_count = _resolve_pdf_page_count(file_path)
+            if page_count:
+                ranges = plan_pdf_page_ranges(
+                    page_count,
+                    pdf_split_workers,
+                    pdf_pages_per_job,
+                )
+                if len(ranges) > 1:
+                    for idx, (start, end) in enumerate(ranges):
+                        jobs.append(
+                            JobSpec(
+                                file_path=file_path,
+                                job_index=idx,
+                                job_count=len(ranges),
+                                start_page=start,
+                                end_page=end,
+                            )
+                        )
+                    continue
+        if (
+            epub_split_workers > 1
+            and file_path.suffix.lower() == ".epub"
+            and epub_spine_items_per_job > 0
+        ):
+            spine_count = _resolve_epub_spine_count(file_path)
+            if spine_count:
+                ranges = plan_job_ranges(
+                    spine_count,
+                    epub_split_workers,
+                    epub_spine_items_per_job,
+                )
+                if len(ranges) > 1:
+                    for idx, (start, end) in enumerate(ranges):
+                        jobs.append(
+                            JobSpec(
+                                file_path=file_path,
+                                job_index=idx,
+                                job_count=len(ranges),
+                                start_spine=start,
+                                end_spine=end,
+                            )
+                        )
+                    continue
+        jobs.append(JobSpec(file_path=file_path, job_index=0, job_count=1))
+    return jobs
 
-    if recipe_limit is not None:
-        result.recipes = result.recipes[: max(recipe_limit, 0)]
-    if tip_limit is not None:
-        result.tips = result.tips[: max(tip_limit, 0)]
 
-    result.report.total_recipes = len(result.recipes)
-    result.report.total_tips = len(result.tips)
-    result.report.total_general_tips = len(result.tips)
-    if result.tip_candidates:
-        result.report.total_tip_candidates = len(result.tip_candidates)
-        result.report.total_recipe_specific_tips = len(
-            [tip for tip in result.tip_candidates if tip.scope == "recipe_specific"]
+def _merge_raw_artifacts(out: Path, workbook_slug: str, job_results: list[dict[str, Any]]) -> None:
+    job_parts_root = out / ".job_parts" / workbook_slug
+    if not job_parts_root.exists():
+        return
+
+    for job in job_results:
+        job_index = int(job.get("job_index", 0))
+        job_raw_root = job_parts_root / f"job_{job_index}" / "raw"
+        if not job_raw_root.exists():
+            continue
+        for raw_path in job_raw_root.rglob("*"):
+            if raw_path.is_dir():
+                continue
+            relative = raw_path.relative_to(job_raw_root)
+            target = out / "raw" / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                target = _prefix_collision(target, job_index)
+            shutil.move(str(raw_path), str(target))
+
+    shutil.rmtree(job_parts_root, ignore_errors=True)
+    job_parts_parent = out / ".job_parts"
+    try:
+        if job_parts_parent.exists() and not any(job_parts_parent.iterdir()):
+            job_parts_parent.rmdir()
+    except OSError:
+        pass
+
+
+def _prefix_collision(path: Path, job_index: int) -> Path:
+    prefix = f"job_{job_index}_"
+    candidate = path.with_name(f"{prefix}{path.name}")
+    counter = 1
+    while candidate.exists():
+        candidate = path.with_name(f"{prefix}{counter}_{path.name}")
+        counter += 1
+    return candidate
+
+
+def _write_error_report(out: Path, file_path: Path, run_dt: dt.datetime, errors: list[str]) -> None:
+    report = ConversionReport(
+        errors=errors,
+        sourceFile=str(file_path),
+        runTimestamp=run_dt.isoformat(timespec="seconds"),
+    )
+    write_report(report, out, file_path.stem)
+
+
+def _job_range_start(job: dict[str, Any]) -> int:
+    start_page = job.get("start_page")
+    if start_page is not None:
+        return int(start_page)
+    start_spine = job.get("start_spine")
+    if start_spine is not None:
+        return int(start_spine)
+    return 0
+
+
+def _merge_split_jobs(
+    file_path: Path,
+    job_results: list[dict[str, Any]],
+    out: Path,
+    mapping_config: MappingConfig | None,
+    limit: int | None,
+    run_dt: dt.datetime,
+    importer_name: str,
+) -> dict[str, Any]:
+    workbook_slug = slugify_name(file_path.stem)
+    merge_stats = TimingStats()
+    merge_start = time.monotonic()
+
+    ordered_jobs = sorted(job_results, key=_job_range_start)
+    merged_recipes: list[Any] = []
+    merged_tip_candidates: list[Any] = []
+    merged_topic_candidates: list[Any] = []
+    merged_non_recipe_blocks: list[Any] = []
+    warnings: list[str] = []
+
+    for job in ordered_jobs:
+        result = job.get("result")
+        if result is None:
+            continue
+        merged_recipes.extend(result.recipes)
+        merged_tip_candidates.extend(result.tip_candidates)
+        merged_topic_candidates.extend(result.topic_candidates)
+        merged_non_recipe_blocks.extend(result.non_recipe_blocks)
+        if result.report and result.report.warnings:
+            warnings.extend(result.report.warnings)
+        if result.report and result.report.errors:
+            for error in result.report.errors:
+                warnings.append(f"Job {job.get('job_index')}: {error}")
+
+    file_hash = compute_file_hash(file_path)
+    sorted_recipes, _ = reassign_recipe_ids(
+        merged_recipes,
+        merged_tip_candidates,
+        file_hash=file_hash,
+        importer_name=importer_name,
+    )
+    tips, _, _ = partition_tip_candidates(merged_tip_candidates)
+
+    report = ConversionReport(warnings=warnings)
+    merged_result = ConversionResult(
+        recipes=sorted_recipes,
+        tips=tips,
+        tip_candidates=merged_tip_candidates,
+        topic_candidates=merged_topic_candidates,
+        non_recipe_blocks=merged_non_recipe_blocks,
+        raw_artifacts=[],
+        report=report,
+        workbook=file_path.stem,
+        workbook_path=str(file_path),
+    )
+
+    from cookimport.cli_worker import apply_result_limits
+    apply_result_limits(merged_result, limit, limit, limit_label=limit)
+    report.total_topic_candidates = len(merged_result.topic_candidates)
+
+    parsing_overrides = (
+        mapping_config.parsing_overrides if mapping_config and mapping_config.parsing_overrides else None
+    )
+    if merged_result.non_recipe_blocks:
+        merged_result.chunks = chunks_from_non_recipe_blocks(
+            merged_result.non_recipe_blocks,
+            overrides=parsing_overrides,
         )
-        result.report.total_not_tips = len(
-            [tip for tip in result.tip_candidates if tip.scope == "not_tip"]
+    elif merged_result.topic_candidates:
+        merged_result.chunks = chunks_from_topic_candidates(
+            merged_result.topic_candidates,
+            overrides=parsing_overrides,
         )
 
-    truncated = len(result.recipes) < original_recipes or len(result.tips) < original_tips
-    if truncated:
-        parts = []
-        if len(result.recipes) < original_recipes:
-            parts.append(f"{len(result.recipes)} of {original_recipes} recipes")
-        if len(result.tips) < original_tips:
-            parts.append(f"{len(result.tips)} of {original_tips} tips")
-        limit_prefix = f"Limit {limit_label} applied. " if limit_label is not None else "Limit applied. "
-        result.report.warnings.append(f"{limit_prefix}Output truncated to {', '.join(parts)}.")
+    report.run_timestamp = run_dt.isoformat(timespec="seconds")
+    enrich_report_with_stats(report, merged_result, file_path)
 
-    return len(result.recipes), len(result.tips), truncated
+    output_stats = OutputStats(out)
+    with measure(merge_stats, "writing"):
+        intermediate_dir = out / "intermediate drafts" / workbook_slug
+        final_dir = out / "final drafts" / workbook_slug
+        tips_dir = out / "tips" / workbook_slug
+
+        with measure(merge_stats, "write_intermediate_seconds"):
+            write_intermediate_outputs(merged_result, intermediate_dir, output_stats=output_stats)
+        with measure(merge_stats, "write_final_seconds"):
+            write_draft_outputs(merged_result, final_dir, output_stats=output_stats)
+        with measure(merge_stats, "write_tips_seconds"):
+            write_tip_outputs(merged_result, tips_dir, output_stats=output_stats)
+        with measure(merge_stats, "write_topic_candidates_seconds"):
+            write_topic_candidate_outputs(merged_result, tips_dir, output_stats=output_stats)
+
+        if merged_result.chunks:
+            chunks_dir = out / "chunks" / workbook_slug
+            with measure(merge_stats, "write_chunks_seconds"):
+                write_chunk_outputs(merged_result.chunks, chunks_dir, output_stats=output_stats)
+
+    merge_stats.parsing_seconds = sum(
+        float(job.get("timing", {}).get("parsing_seconds", 0.0)) for job in job_results
+    )
+    merge_stats.ocr_seconds = sum(
+        float(job.get("timing", {}).get("ocr_seconds", 0.0)) for job in job_results
+    )
+    merge_overhead = max(0.0, time.monotonic() - merge_start - merge_stats.writing_seconds)
+    merge_stats.checkpoints["merge_seconds"] = merge_overhead
+    merge_stats.total_seconds = (
+        merge_stats.parsing_seconds + merge_stats.writing_seconds + merge_overhead
+    )
+
+    if output_stats.file_counts:
+        report.output_stats = output_stats.to_report()
+    report.timing = merge_stats.to_dict()
+    write_report(report, out, file_path.stem)
+
+    _merge_raw_artifacts(out, workbook_slug, job_results)
+
+    return {
+        "file": file_path.name,
+        "status": "success",
+        "recipes": len(merged_result.recipes),
+        "tips": len(merged_result.tips),
+        "duration": merge_stats.total_seconds,
+    }
+
+
+def _merge_pdf_jobs(
+    file_path: Path,
+    job_results: list[dict[str, Any]],
+    out: Path,
+    mapping_config: MappingConfig | None,
+    limit: int | None,
+    run_dt: dt.datetime,
+) -> dict[str, Any]:
+    return _merge_split_jobs(
+        file_path,
+        job_results,
+        out,
+        mapping_config,
+        limit,
+        run_dt,
+        importer_name="pdf",
+    )
+
+
+def _merge_epub_jobs(
+    file_path: Path,
+    job_results: list[dict[str, Any]],
+    out: Path,
+    mapping_config: MappingConfig | None,
+    limit: int | None,
+    run_dt: dt.datetime,
+) -> dict[str, Any]:
+    return _merge_split_jobs(
+        file_path,
+        job_results,
+        out,
+        mapping_config,
+        limit,
+        run_dt,
+        importer_name="epub",
+    )
 
 
 @app.command()
@@ -369,6 +880,53 @@ def stage(
         min=1,
         help="Limit output to the first N recipes and N tips per file.",
     ),
+    ocr_device: str = typer.Option(
+        "auto",
+        "--ocr-device",
+        help="OCR device to use (auto, cpu, cuda, mps).",
+    ),
+    ocr_batch_size: int = typer.Option(
+        1,
+        "--ocr-batch-size",
+        min=1,
+        help="Number of pages to process per OCR model call.",
+    ),
+    pdf_pages_per_job: int = typer.Option(
+        50,
+        "--pdf-pages-per-job",
+        min=1,
+        help="Target page count per PDF job when splitting large PDFs.",
+    ),
+    epub_spine_items_per_job: int = typer.Option(
+        10,
+        "--epub-spine-items-per-job",
+        min=1,
+        help="Target spine items per EPUB job when splitting large EPUBs.",
+    ),
+    warm_models: bool = typer.Option(
+        False,
+        "--warm-models",
+        help="Proactively load heavy models before processing.",
+    ),
+    workers: int = typer.Option(
+        7,
+        "--workers",
+        "-w",
+        min=1,
+        help="Number of parallel worker processes.",
+    ),
+    pdf_split_workers: int = typer.Option(
+        7,
+        "--pdf-split-workers",
+        min=1,
+        help="Max workers used to split a single PDF into jobs.",
+    ),
+    epub_split_workers: int = typer.Option(
+        7,
+        "--epub-split-workers",
+        min=1,
+        help="Max workers used to split a single EPUB into jobs.",
+    ),
 ) -> Path:
     """Stage recipes from a source file or folder.
 
@@ -385,11 +943,9 @@ def stage(
     if overrides is not None and not overrides.exists():
         _fail(f"Overrides file not found: {overrides}")
 
-    imported = 0
-    errors: list[str] = []
-    mapping_override: MappingConfig | None = None
-    if mapping is not None:
-        mapping_override = load_mapping_config(mapping)
+    if warm_models:
+        with console.status("[bold cyan]Warming models...[/bold cyan]", spinner="dots"):
+            _warm_all_models(ocr_device=ocr_device)
 
     # Create timestamped output folder for this run
     run_dt = dt.datetime.now()
@@ -403,113 +959,350 @@ def stage(
         typer.secho("No files found to process.", fg=typer.colors.YELLOW)
         return out
 
-    for file_path in files_to_process:
-        importer, score = registry.best_importer_for_path(file_path)
-        if importer is None or score <= 0:
-            typer.secho(f"Skipping {file_path.name}: No suitable importer found.", fg=typer.colors.YELLOW)
-            continue
-            
-        try:
-            workbook_slug = _slugify_name(file_path.stem)
-            
-            # New structure:
-            # out/timestamp/intermediate drafts/workbook_slug/
-            # out/timestamp/final drafts/workbook_slug/
-            # out/timestamp/reports/
-            
-            intermediate_dir = out / "intermediate drafts" / workbook_slug
-            final_dir = out / "final drafts" / workbook_slug
-            tips_dir = out / "tips" / workbook_slug
-            # reports_dir = out / "reports"  -- Removed per request
+    mapping_override: MappingConfig | None = None
+    if mapping is not None:
+        mapping_override = load_mapping_config(mapping)
+    
+    # Resolve mapping config once for parallel runs if provided
+    # or use it as a template for overrides
+    base_mapping = mapping_override or MappingConfig()
+    base_mapping.ocr_device = ocr_device
+    base_mapping.ocr_batch_size = ocr_batch_size
+    if overrides is not None:
+        base_mapping.parsing_overrides = load_parsing_overrides(overrides)
 
-            mapping_path = _resolve_mapping_path(file_path, out, mapping) # Passed out for legacy compat
-            overrides_path = _resolve_overrides_path(file_path, out, overrides)
-            mapping_config = mapping_override
-            if mapping_config is None and mapping_path is not None:
-                mapping_config = load_mapping_config(mapping_path)
-            if mapping_config is None:
-                inspection = importer.inspect(file_path)
-                mapping_config = inspection.mapping_stub
+    imported = 0
+    errors: list[str] = []
+    all_epub = all(f.suffix.lower() == ".epub" for f in files_to_process)
+    effective_workers = workers
+    if all_epub and epub_split_workers > workers:
+        effective_workers = epub_split_workers
 
-            if overrides_path is not None:
-                parsing_overrides = load_parsing_overrides(overrides_path)
-                if mapping_config is None:
-                    mapping_config = MappingConfig(parsingOverrides=parsing_overrides)
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from cookimport.cli_worker import stage_one_file, stage_pdf_job, stage_epub_job
+    progress_queue = None
+    try:
+        manager = multiprocessing.Manager()
+        progress_queue = manager.Queue()
+    except Exception:
+        progress_queue = None
+    
+    # UI State
+    worker_status: Dict[str, Dict[str, Any]] = {}
+    worker_lock = threading.Lock()
+    
+    job_specs = _plan_jobs(
+        files_to_process,
+        workers=workers,
+        pdf_pages_per_job=pdf_pages_per_job,
+        epub_spine_items_per_job=epub_spine_items_per_job,
+        pdf_split_workers=pdf_split_workers,
+        epub_split_workers=epub_split_workers,
+    )
+    total_jobs = len(job_specs)
+    expected_jobs: dict[Path, int] = {}
+    for job in job_specs:
+        if job.is_split and job.file_path not in expected_jobs:
+            expected_jobs[job.file_path] = job.job_count
+
+    progress_bar = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.percentage:>3.0f}%"),
+        TextColumn("{task.completed}/{task.total}"),
+    )
+    overall_task = progress_bar.add_task("Total Progress", total=total_jobs)
+
+    worker_render_cache: Text | None = None
+    worker_render_last = 0.0
+
+    def _format_worker_lines() -> Text:
+        nonlocal worker_render_cache, worker_render_last
+        now = time.time()
+        if worker_render_cache is not None and (now - worker_render_last) < 5:
+            return worker_render_cache
+
+        with worker_lock:
+            items = list(worker_status.items())
+
+        if not items:
+            worker_render_cache = Text("Waiting for worker updates...")
+            worker_render_last = now
+            return worker_render_cache
+
+        task = progress_bar.tasks[0] if progress_bar.tasks else None
+        run_complete = bool(task and task.completed >= task.total)
+
+        lines = []
+        for worker_label, entry in sorted(items, key=lambda item: item[0]):
+            age_seconds = max(0, int(now - entry["updated_at"]))
+            age_label = "just now" if age_seconds < 1 else f"{age_seconds}s ago"
+            status = entry["status"]
+            if not run_complete and status in {"Done", "skipped"}:
+                status = "Idle"
+            lines.append(
+                f"{worker_label}: {entry['file']} - {status} ({age_label})"
+            )
+        worker_render_cache = Text("\n".join(lines))
+        worker_render_last = now
+        return worker_render_cache
+
+    class WorkerDashboard:
+        def __rich__(self) -> Group:
+            return Group(
+                Panel(progress_bar),
+                Panel(_format_worker_lines(), title="Workers (updated every 5s)"),
+            )
+
+    # Background thread to consume queue
+    stop_event = threading.Event()
+    queue_thread = None
+    if progress_queue is not None:
+        def process_queue():
+            while not stop_event.is_set():
+                try:
+                    # Non-blocking get with short timeout
+                    try:
+                        record = progress_queue.get(timeout=0.05)
+                    except queue.Empty:
+                        continue
+                    
+                    if isinstance(record, (tuple, list)) and len(record) == 4:
+                        worker_label, filename, status, updated_at = record
+                    elif isinstance(record, (tuple, list)) and len(record) == 2:
+                        filename, status = record
+                        worker_label = "worker"
+                        updated_at = time.time()
+                    else:
+                        continue
+
+                    with worker_lock:
+                        worker_status[str(worker_label)] = {
+                            "file": str(filename),
+                            "status": str(status),
+                            "updated_at": float(updated_at),
+                        }
+                except Exception:
+                    pass
+
+        queue_thread = threading.Thread(target=process_queue, daemon=True)
+        queue_thread.start()
+
+    typer.secho(
+        f"Processing {len(files_to_process)} file(s) as {total_jobs} job(s) using {effective_workers} workers...",
+        fg=typer.colors.CYAN,
+    )
+
+    job_results_by_file: dict[Path, list[dict[str, Any]]] = defaultdict(list)
+
+    def handle_job_result(job: JobSpec, res: dict[str, Any], live: Live) -> None:
+        nonlocal imported
+
+        if job.is_split:
+            job_results_by_file[job.file_path].append(res)
+            if res.get("status") == "error":
+                live.console.print(
+                    f"[red]✘ Error {job.file_path.name} job {job.job_index}: {res.get('reason')}[/red]"
+                )
+
+            expected_count = expected_jobs.get(job.file_path, job.job_count)
+            if len(job_results_by_file[job.file_path]) == expected_count:
+                results = job_results_by_file.pop(job.file_path)
+                failed = [r for r in results if r.get("status") != "success"]
+                if failed:
+                    reasons = [
+                        f"job {r.get('job_index')}: {r.get('reason')}"
+                        for r in failed
+                    ]
+                    if not reasons:
+                        reasons = ["job failure"]
+                    message = "; ".join(reasons)
+                    errors.append(f"{job.file_path.name}: {message}")
+                    live.console.print(
+                        f"[red]✘ Error {job.file_path.name}: {message}[/red]"
+                    )
+                    _write_error_report(out, job.file_path, run_dt, reasons)
                 else:
-                    mapping_config.parsing_overrides = parsing_overrides
-
-            with console.status(f"[bold cyan]Importing {file_path.name}...[/bold cyan]", spinner="dots") as status:
-                def update_progress(msg: str) -> None:
-                    status.update(f"[bold cyan]Importing {file_path.name}: {msg}[/bold cyan]")
-                
-                result = importer.convert(file_path, mapping_config, progress_callback=update_progress)
-
-            if limit is not None:
-                _apply_result_limits(
-                    result,
-                    limit,
-                    limit,
-                    limit_label=limit,
+                    live.console.print(
+                        f"Merging {expected_count} jobs for {job.file_path.name}..."
+                    )
+                    try:
+                        if job.split_kind == "epub":
+                            merged = _merge_epub_jobs(
+                                job.file_path,
+                                results,
+                                out,
+                                base_mapping,
+                                limit,
+                                run_dt,
+                            )
+                        else:
+                            merged = _merge_pdf_jobs(
+                                job.file_path,
+                                results,
+                                out,
+                                base_mapping,
+                                limit,
+                                run_dt,
+                            )
+                        imported += 1
+                        live.console.print(
+                            f"[green]✔ {merged['file']}: {merged['recipes']} recipes, "
+                            f"{merged['tips']} tips (merge {merged['duration']:.2f}s)[/green]"
+                        )
+                    except Exception as exc:
+                        errors.append(f"{job.file_path.name}: {exc}")
+                        live.console.print(
+                            f"[red]✘ Error {job.file_path.name}: {exc}[/red]"
+                        )
+                        _write_error_report(
+                            out, job.file_path, run_dt, [str(exc)]
+                        )
+        else:
+            if res["status"] == "success":
+                imported += 1
+                live.console.print(
+                    f"[green]✔ {res['file']}: {res['recipes']} recipes, {res['tips']} tips ({res['duration']:.2f}s)[/green]"
+                )
+            elif res["status"] == "skipped":
+                live.console.print(
+                    f"[yellow]⚠ Skipping {res['file']}: {res['reason']}[/yellow]"
+                )
+            else:
+                errors.append(f"{res['file']}: {res['reason']}")
+                live.console.print(
+                    f"[red]✘ Error {res['file']}: {res['reason']}[/red]"
                 )
 
-            # Generate knowledge chunks from non-recipe blocks (preferred) or topic candidates
-            parsing_overrides = None
-            if mapping_config and mapping_config.parsing_overrides:
-                parsing_overrides = mapping_config.parsing_overrides
-            if result.non_recipe_blocks:
-                # Use raw blocks for better document structure preservation
-                result.chunks = chunks_from_non_recipe_blocks(
-                    result.non_recipe_blocks,
-                    overrides=parsing_overrides,
-                )
-            elif result.topic_candidates:
-                # Fallback to topic candidates if raw blocks unavailable
-                result.chunks = chunks_from_topic_candidates(
-                    result.topic_candidates,
-                    overrides=parsing_overrides,
-                )
+    dashboard = WorkerDashboard()
+    with Live(dashboard, refresh_per_second=10) as live:
+        try:
+            with ProcessPoolExecutor(max_workers=effective_workers) as executor:
+                futures: dict[Any, JobSpec] = {}
+                for job in job_specs:
+                    if job.is_split:
+                        if job.split_kind == "epub":
+                            futures[
+                                executor.submit(
+                                    stage_epub_job,
+                                    job.file_path,
+                                    out,
+                                    base_mapping,
+                                    run_dt,
+                                    job.start_spine,
+                                    job.end_spine,
+                                    job.job_index,
+                                    job.job_count,
+                                    progress_queue,
+                                    job.display_name,
+                                )
+                            ] = job
+                        else:
+                            futures[
+                                executor.submit(
+                                    stage_pdf_job,
+                                    job.file_path,
+                                    out,
+                                    base_mapping,
+                                    run_dt,
+                                    job.start_page,
+                                    job.end_page,
+                                    job.job_index,
+                                    job.job_count,
+                                    progress_queue,
+                                    job.display_name,
+                                )
+                            ] = job
+                    else:
+                        futures[
+                            executor.submit(
+                                stage_one_file,
+                                job.file_path,
+                                out,
+                                base_mapping,
+                                limit,
+                                run_dt,
+                                progress_queue,
+                                job.display_name,
+                            )
+                        ] = job
 
-            # Enrich report with extra stats
-            result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
-            enrich_report_with_stats(result.report, result, file_path)
+                for future in as_completed(futures):
+                    job = futures[future]
+                    try:
+                        res = future.result()
+                    except Exception as exc:
+                        res = {
+                            "file": job.file_path.name,
+                            "status": "error",
+                            "reason": str(exc),
+                            "job_index": job.job_index,
+                            "job_count": job.job_count,
+                            "start_page": job.start_page,
+                            "end_page": job.end_page,
+                            "start_spine": job.start_spine,
+                            "end_spine": job.end_spine,
+                        }
 
-            # Write intermediate JSON-LD files
-            write_intermediate_outputs(result, intermediate_dir)
-
-            # Write final DraftV1 files
-            write_draft_outputs(result, final_dir)
-
-            # Write tip outputs
-            write_tip_outputs(result, tips_dir)
-            write_topic_candidate_outputs(result, tips_dir)
-
-            # Write chunk outputs if available
-            if result.chunks:
-                chunks_dir = out / "chunks" / workbook_slug
-                write_chunk_outputs(result.chunks, chunks_dir)
-
-            # Write raw artifacts for auditing
-            write_raw_artifacts(result, out)
-
-            # Write conversion report to the root of the timestamped output
-            write_report(result.report, out, file_path.stem)
-
-            imported += 1
-            typer.secho(
-                f"  {file_path.name}: {len(result.recipes)} recipes, {len(result.tips)} tips",
-                fg=typer.colors.GREEN,
+                    handle_job_result(job, res, live)
+                    progress_bar.update(overall_task, advance=1)
+        except PermissionError:
+            live.console.print(
+                "[yellow]⚠ Multiprocessing unavailable; running jobs serially.[/yellow]"
             )
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"{file_path.name}: {exc}")
-            workbook_slug = _slugify_name(file_path.stem)
-            # Write error report to the root of the timestamped output
-            report = ConversionReport(
-                errors=[str(exc)],
-                sourceFile=str(file_path),
-                runTimestamp=run_dt.isoformat(timespec="seconds"),
-            )
-            write_report(report, out, file_path.stem)
-            continue
+            for job in job_specs:
+                if job.is_split:
+                    if job.split_kind == "epub":
+                        res = stage_epub_job(
+                            job.file_path,
+                            out,
+                            base_mapping,
+                            run_dt,
+                            job.start_spine,
+                            job.end_spine,
+                            job.job_index,
+                            job.job_count,
+                            progress_queue,
+                            job.display_name,
+                        )
+                    else:
+                        res = stage_pdf_job(
+                            job.file_path,
+                            out,
+                            base_mapping,
+                            run_dt,
+                            job.start_page,
+                            job.end_page,
+                            job.job_index,
+                            job.job_count,
+                            progress_queue,
+                            job.display_name,
+                        )
+                else:
+                    res = stage_one_file(
+                        job.file_path,
+                        out,
+                        base_mapping,
+                        limit,
+                        run_dt,
+                        progress_queue,
+                        job.display_name,
+                    )
+                handle_job_result(job, res, live)
+                progress_bar.update(overall_task, advance=1)
+
+    stop_event.set()
+    if queue_thread is not None:
+        queue_thread.join()
+
+    typer.secho(f"\nStaged {imported} file(s).", fg=typer.colors.GREEN)
+    if errors:
+        typer.secho("Errors encountered:", fg=typer.colors.YELLOW)
+        for message in errors:
+            typer.secho(f"- {message}", fg=typer.colors.YELLOW)
+
+    return out
 
     typer.secho(f"\nStaged {imported} file(s).", fg=typer.colors.GREEN)
     if errors:

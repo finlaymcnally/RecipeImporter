@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,97 @@ from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
 from cookimport.staging.jsonld import recipe_candidate_to_jsonld
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+_OUTPUT_CATEGORY_INTERMEDIATE = "intermediateDrafts"
+_OUTPUT_CATEGORY_FINAL = "finalDrafts"
+_OUTPUT_CATEGORY_TIPS = "tips"
+_OUTPUT_CATEGORY_TOPIC_CANDIDATES = "topicCandidates"
+_OUTPUT_CATEGORY_CHUNKS = "chunks"
+_OUTPUT_CATEGORY_RAW = "rawArtifacts"
+
+
+@dataclass
+class OutputStats:
+    base_dir: Path
+    max_largest_files: int = 5
+    file_counts: dict[str, int] = field(default_factory=dict)
+    byte_counts: dict[str, int] = field(default_factory=dict)
+    largest_files: list[dict[str, Any]] = field(default_factory=list)
+
+    def record_path(self, category: str, path: Path) -> None:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        self._record(category, path, size)
+
+    def _record(self, category: str, path: Path, size: int) -> None:
+        self.file_counts[category] = self.file_counts.get(category, 0) + 1
+        self.byte_counts[category] = self.byte_counts.get(category, 0) + size
+        rel_path = self._rel_path(path)
+        self._track_largest(rel_path, size, category)
+
+    def _rel_path(self, path: Path) -> str:
+        try:
+            return str(path.relative_to(self.base_dir))
+        except ValueError:
+            return str(path)
+
+    def _track_largest(self, rel_path: str, size: int, category: str) -> None:
+        entry = {"path": rel_path, "bytes": size, "category": category}
+        if len(self.largest_files) < self.max_largest_files:
+            self.largest_files.append(entry)
+            self.largest_files.sort(key=lambda item: item["bytes"], reverse=True)
+            return
+        if size <= self.largest_files[-1]["bytes"]:
+            return
+        self.largest_files.append(entry)
+        self.largest_files.sort(key=lambda item: item["bytes"], reverse=True)
+        if len(self.largest_files) > self.max_largest_files:
+            self.largest_files.pop()
+
+    def to_report(self) -> dict[str, Any]:
+        files: dict[str, dict[str, int]] = {}
+        total_count = 0
+        total_bytes = 0
+        for category in sorted(self.file_counts):
+            count = self.file_counts[category]
+            bytes_written = self.byte_counts.get(category, 0)
+            files[category] = {"count": count, "bytes": bytes_written}
+            total_count += count
+            total_bytes += bytes_written
+        files["total"] = {"count": total_count, "bytes": total_bytes}
+        report: dict[str, Any] = {"files": files}
+        if self.largest_files:
+            report["largestFiles"] = self.largest_files
+        return report
+
+
+def _write_json_payload(
+    payload: Any,
+    out_path: Path,
+    *,
+    output_stats: OutputStats | None,
+    category: str,
+) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    if output_stats:
+        output_stats.record_path(category, out_path)
+
+
+def _write_text_payload(
+    text: str,
+    out_path: Path,
+    *,
+    output_stats: OutputStats | None,
+    category: str,
+    encoding: str = "utf-8",
+) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(text, encoding=encoding)
+    if output_stats:
+        output_stats.record_path(category, out_path)
 
 
 def _slugify(value: str) -> str:
@@ -180,7 +272,12 @@ def _ensure_source(results: ConversionResult, candidate: RecipeCandidate) -> Non
             candidate.source = results.workbook
 
 
-def write_intermediate_outputs(results: ConversionResult, out_dir: Path) -> None:
+def write_intermediate_outputs(
+    results: ConversionResult,
+    out_dir: Path,
+    *,
+    output_stats: OutputStats | None = None,
+) -> None:
     """Write intermediate RecipeSage JSON-LD outputs.
 
     These are the raw extracted recipes before transformation to final format.
@@ -200,11 +297,20 @@ def write_intermediate_outputs(results: ConversionResult, out_dir: Path) -> None
         jsonld = recipe_candidate_to_jsonld(candidate)
 
         out_path = out_dir / f"r{index}.jsonld"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(jsonld, indent=2, sort_keys=True), encoding="utf-8")
+        _write_json_payload(
+            jsonld,
+            out_path,
+            output_stats=output_stats,
+            category=_OUTPUT_CATEGORY_INTERMEDIATE,
+        )
 
 
-def write_draft_outputs(results: ConversionResult, out_dir: Path) -> None:
+def write_draft_outputs(
+    results: ConversionResult,
+    out_dir: Path,
+    *,
+    output_stats: OutputStats | None = None,
+) -> None:
     """Write RecipeDraftV1 outputs (final format).
 
     Output path: {out_dir}/r{index}.json
@@ -214,11 +320,20 @@ def write_draft_outputs(results: ConversionResult, out_dir: Path) -> None:
         _ensure_provenance(candidate)
         draft = recipe_candidate_to_draft_v1(candidate)
         out_path = out_dir / f"r{index}.json"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(draft, indent=2, sort_keys=True), encoding="utf-8")
+        _write_json_payload(
+            draft,
+            out_path,
+            output_stats=output_stats,
+            category=_OUTPUT_CATEGORY_FINAL,
+        )
 
 
-def write_tip_outputs(results: ConversionResult, out_dir: Path) -> None:
+def write_tip_outputs(
+    results: ConversionResult,
+    out_dir: Path,
+    *,
+    output_stats: OutputStats | None = None,
+) -> None:
     """Write tip/knowledge outputs.
 
     Output path: {out_dir}/t{index}.json
@@ -241,8 +356,12 @@ def write_tip_outputs(results: ConversionResult, out_dir: Path) -> None:
 
         payload = tip.model_dump(by_alias=True, exclude_none=True)
         out_path = out_dir / f"t{index}.json"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        _write_json_payload(
+            payload,
+            out_path,
+            output_stats=output_stats,
+            category=_OUTPUT_CATEGORY_TIPS,
+        )
 
     summary_path = out_dir / "tips.md"
     if general_tips:
@@ -259,12 +378,27 @@ def write_tip_outputs(results: ConversionResult, out_dir: Path) -> None:
                 lines.append(f"  {group_header}")
             for tip_text in group["texts"]:
                 lines.append(f"  {tip_text}")
-        summary_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+        _write_text_payload(
+            "\n".join(lines).strip() + "\n",
+            summary_path,
+            output_stats=output_stats,
+            category=_OUTPUT_CATEGORY_TIPS,
+        )
     else:
-        summary_path.write_text("# Tip Summary\n\n(No tips generated.)\n", encoding="utf-8")
+        _write_text_payload(
+            "# Tip Summary\n\n(No tips generated.)\n",
+            summary_path,
+            output_stats=output_stats,
+            category=_OUTPUT_CATEGORY_TIPS,
+        )
 
 
-def write_topic_candidate_outputs(results: ConversionResult, out_dir: Path) -> None:
+def write_topic_candidate_outputs(
+    results: ConversionResult,
+    out_dir: Path,
+    *,
+    output_stats: OutputStats | None = None,
+) -> None:
     """Write topic-candidate outputs for evaluation and LLM prefiltering.
 
     Output path: {out_dir}/topic_candidates.json, {out_dir}/topic_candidates.md
@@ -286,7 +420,12 @@ def write_topic_candidate_outputs(results: ConversionResult, out_dir: Path) -> N
         payloads.append(topic.model_dump(by_alias=True, exclude_none=True))
 
     json_path = out_dir / "topic_candidates.json"
-    json_path.write_text(json.dumps(payloads, indent=2, sort_keys=True), encoding="utf-8")
+    _write_json_payload(
+        payloads,
+        json_path,
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_TOPIC_CANDIDATES,
+    )
 
     lines = [
         "# Topic Candidates",
@@ -315,7 +454,12 @@ def write_topic_candidate_outputs(results: ConversionResult, out_dir: Path) -> N
             if context_next:
                 lines.append(f"  next: {context_next}")
     md_path = out_dir / "topic_candidates.md"
-    md_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+    _write_text_payload(
+        "\n".join(lines).strip() + "\n",
+        md_path,
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_TOPIC_CANDIDATES,
+    )
 
 
 _GENERIC_TIP_HEADERS = {
@@ -464,7 +608,12 @@ def _format_tip_anchors(anchors: dict[str, list[str]]) -> str:
     return " [" + "; ".join(parts) + "]"
 
 
-def write_raw_artifacts(results: ConversionResult, out_dir: Path) -> None:
+def write_raw_artifacts(
+    results: ConversionResult,
+    out_dir: Path,
+    *,
+    output_stats: OutputStats | None = None,
+) -> None:
     """Write raw artifacts captured during conversion.
 
     Output path: {out_dir}/raw/{importer}/{source_hash}/{location_id}.{ext}
@@ -473,10 +622,15 @@ def write_raw_artifacts(results: ConversionResult, out_dir: Path) -> None:
         return
 
     for artifact in results.raw_artifacts:
-        _write_raw_artifact(artifact, out_dir)
+        _write_raw_artifact(artifact, out_dir, output_stats=output_stats)
 
 
-def _write_raw_artifact(artifact: RawArtifact, out_dir: Path) -> None:
+def _write_raw_artifact(
+    artifact: RawArtifact,
+    out_dir: Path,
+    *,
+    output_stats: OutputStats | None = None,
+) -> None:
     importer_slug = _slugify(artifact.importer)
     source_hash = artifact.source_hash or "unknown"
     location = _slugify_location(artifact.location_id)
@@ -488,16 +642,27 @@ def _write_raw_artifact(artifact: RawArtifact, out_dir: Path) -> None:
 
     payload = artifact.content
     if isinstance(payload, (dict, list)):
-        target_path.write_text(
+        _write_text_payload(
             json.dumps(payload, indent=2, sort_keys=True),
+            target_path,
+            output_stats=output_stats,
+            category=_OUTPUT_CATEGORY_RAW,
             encoding=artifact.encoding or "utf-8",
         )
         return
     if isinstance(payload, bytes):
         target_path.write_bytes(payload)
+        if output_stats:
+            output_stats.record_path(_OUTPUT_CATEGORY_RAW, target_path)
         return
     text_payload = "" if payload is None else str(payload)
-    target_path.write_text(text_payload, encoding=artifact.encoding or "utf-8")
+    _write_text_payload(
+        text_payload,
+        target_path,
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_RAW,
+        encoding=artifact.encoding or "utf-8",
+    )
 
 
 def write_report(report: ConversionReport, out_dir: Path, workbook_name: str) -> Path:
@@ -518,7 +683,12 @@ def write_report(report: ConversionReport, out_dir: Path, workbook_name: str) ->
 # --------------------------------------------------------------------------
 
 
-def write_chunk_outputs(chunks: list[KnowledgeChunk], out_dir: Path) -> None:
+def write_chunk_outputs(
+    chunks: list[KnowledgeChunk],
+    out_dir: Path,
+    *,
+    output_stats: OutputStats | None = None,
+) -> None:
     """Write knowledge chunk outputs.
 
     Output path: {out_dir}/c{index}.json and {out_dir}/chunks.md
@@ -529,12 +699,22 @@ def write_chunk_outputs(chunks: list[KnowledgeChunk], out_dir: Path) -> None:
     for index, chunk in enumerate(chunks):
         payload = chunk.model_dump(by_alias=True, exclude_none=True)
         out_path = out_dir / f"c{index}.json"
-        out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        _write_json_payload(
+            payload,
+            out_path,
+            output_stats=output_stats,
+            category=_OUTPUT_CATEGORY_CHUNKS,
+        )
 
     # Write chunks.md summary
     summary_path = out_dir / "chunks.md"
     lines = _format_chunks_md(chunks)
-    summary_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+    _write_text_payload(
+        "\n".join(lines).strip() + "\n",
+        summary_path,
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_CHUNKS,
+    )
 
 
 def _format_chunks_md(chunks: list[KnowledgeChunk]) -> list[str]:

@@ -50,6 +50,22 @@ Aliases are scored by:
 2. Character length
 3. Source preference (raw_ingredient_text > raw_text)
 
+### Semantic Fallback (Lemmatized)
+
+If an ingredient has **no exact alias match**, a lightweight lemmatized fallback runs:
+
+- Rule-based lemmatization (suffix stripping + small overrides)
+- No external dependencies
+- Curated synonym expansion for common ingredient names
+- Tagged as `match_kind="semantic"` and only used when exact matches are absent
+  - Note: "exact match" includes head/tail single-token aliases
+
+If the ingredient is still unmatched, a **fuzzy** rescue runs:
+
+- RapidFuzz partial ratio over lemmatized text
+- Only for unmatched ingredients, with generic-token guardrails
+- Tagged as `match_kind="fuzzy"`
+
 ---
 
 ## Verb Context Classification

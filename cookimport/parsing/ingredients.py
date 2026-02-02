@@ -30,6 +30,21 @@ _APPROXIMATE_PATTERNS = (
 
 def parse_ingredient_line(text: str) -> dict[str, Any]:
     """Parse an ingredient string into structured components.
+    # ...
+    """
+    text = text.strip()
+    # ...
+
+def warm_ingredient_parser() -> None:
+    """Proactively load the ingredient parser models."""
+    try:
+        parse_ingredient("1 cup water")
+    except Exception:
+        pass
+
+
+def parse_ingredient_line(text: str) -> dict[str, Any]:
+    """Parse an ingredient string into structured components.
 
     Uses the Ingredient Parser library (https://github.com/strangetom/ingredient-parser, https://ingredient-parser.readthedocs.io/en/latest/) for NLP-based parsing, then
     normalizes the output for our schema.

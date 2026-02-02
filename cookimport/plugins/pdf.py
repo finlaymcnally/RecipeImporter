@@ -137,6 +137,7 @@ class PdfImporter:
                     SheetInspection(
                         name=title,
                         layout=layout,
+                        pageCount=page_count,
                         confidence=0.8 if not needs_ocr else 0.6,
                         warnings=warnings,
                     )
@@ -160,6 +161,8 @@ class PdfImporter:
         path: Path,
         mapping: MappingConfig | None,
         progress_callback: Callable[[str], None] | None = None,
+        start_page: int | None = None,
+        end_page: int | None = None,
     ) -> ConversionResult:
         report = ConversionReport()
         recipes: List[RecipeCandidate] = []
@@ -175,6 +178,26 @@ class PdfImporter:
                 progress_callback("Computing hash...")
             file_hash = compute_file_hash(path)
             doc = fitz.open(path)
+            total_pages = len(doc)
+
+            slice_start = 0 if start_page is None else max(start_page, 0)
+            slice_end = total_pages if end_page is None else min(end_page, total_pages)
+
+            if slice_start >= slice_end:
+                report.warnings.append(
+                    f"Requested page range is empty (start_page={slice_start}, end_page={slice_end})."
+                )
+                doc.close()
+                return ConversionResult(
+                    recipes=[],
+                    tips=[],
+                    tipCandidates=[],
+                    topicCandidates=[],
+                    rawArtifacts=[],
+                    report=report,
+                    workbook=path.stem,
+                    workbookPath=str(path),
+                )
 
             # Check if PDF needs OCR
             needs_ocr = self._needs_ocr(doc)
@@ -187,16 +210,27 @@ class PdfImporter:
                 if progress_callback:
                     progress_callback("Running OCR (this may take a while)...")
                 doc.close()
-                all_blocks = self._extract_blocks_via_ocr(path)
+                ocr_device = mapping.ocr_device if mapping else "auto"
+                ocr_batch_size = mapping.ocr_batch_size if mapping else 1
+                all_blocks = self._extract_blocks_via_ocr(
+                    path,
+                    device=ocr_device,
+                    batch_size=ocr_batch_size,
+                    start_page=slice_start,
+                    end_page=slice_end,
+                )
                 ocr_used = True
-                logger.info(f"Extracted {len(all_blocks)} blocks via OCR from {path}")
+                logger.info(f"Extracted {len(all_blocks)} blocks via OCR from {path} (device={ocr_device}, batch_size={ocr_batch_size})")
             else:
                 # Use standard text extraction
-                total_pages = len(doc)
-                for page_num, page in enumerate(doc):
+                slice_total = slice_end - slice_start
+                for page_num, abs_page in enumerate(range(slice_start, slice_end)):
+                    page = doc[abs_page]
                     if progress_callback and page_num % 5 == 0:
-                        progress_callback(f"Extracting text from page {page_num + 1}/{total_pages}...")
-                    page_blocks = self._extract_blocks_from_page(page, page_num)
+                        progress_callback(
+                            f"Extracting text from page {page_num + 1}/{slice_total}..."
+                        )
+                    page_blocks = self._extract_blocks_from_page(page, abs_page)
                     all_blocks.extend(page_blocks)
                 doc.close()
                 if needs_ocr and not _ocr_available():
@@ -518,11 +552,24 @@ class PdfImporter:
         # If less than half the pages have text, assume OCR is needed
         return text_found < pages_to_check / 2
 
-    def _extract_blocks_via_ocr(self, path: Path) -> List[Block]:
+    def _extract_blocks_via_ocr(
+        self,
+        path: Path,
+        device: str = "auto",
+        batch_size: int = 1,
+        start_page: int = 0,
+        end_page: int | None = None,
+    ) -> List[Block]:
         """Extract blocks from a scanned PDF using OCR."""
         from cookimport.ocr.doctr_engine import ocr_pdf
 
-        ocr_pages = ocr_pdf(path)
+        ocr_pages = ocr_pdf(
+            path,
+            device=device,
+            batch_size=batch_size,
+            start_page=start_page,
+            end_page=end_page,
+        )
         blocks: List[Block] = []
 
         for page in ocr_pages:

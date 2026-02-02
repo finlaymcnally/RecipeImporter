@@ -20,7 +20,28 @@ to scan a folder and write JSON-LD under `staging/<timestamp>/intermediate draft
 and DraftV1 under `staging/<timestamp>/final drafts/`, plus tip snippets under
 `staging/<timestamp>/tips/`, raw artifacts under `staging/<timestamp>/raw/`, and
 reports under `staging/<timestamp>/reports/`.
+During `cookimport stage`, the CLI shows a per-worker status panel that refreshes
+about every 5 seconds with the latest progress message.
+
+Performance can be tuned with:
+- `--workers <N>`: Parallelize file processing (default: 7).
+- `--ocr-device <auto|cuda|mps|cpu>`: Select OCR hardware acceleration.
+- `--ocr-batch-size <N>`: Process N pages per OCR call.
+- `--pdf-pages-per-job <N>`: Target pages per PDF job when splitting large PDFs.
+- `--epub-spine-items-per-job <N>`: Target spine items per EPUB job when splitting large EPUBs.
+- `--pdf-split-workers <N>`: Cap PDF job splitting by worker count (default: 7).
+- `--epub-split-workers <N>`: Cap EPUB job splitting by worker count (default: 7).
+- `--warm-models`: Pre-load models to reduce per-file latency.
+
+When a run contains only EPUB files, the CLI will automatically raise the worker
+pool to `--epub-split-workers` if it is higher than `--workers`, so EPUB imports
+default to 6 concurrent workers unless you explicitly lower them.
+
 Tip outputs include `sourceRecipeTitle` when the tip is tied to a specific recipe.
+
+Large PDFs can be split into page-range jobs when `--workers > 1`, then merged into a
+single workbook output with sequential recipe IDs and unified tips. Large EPUBs can be
+split into spine-range jobs with `--epub-spine-items-per-job` and merged the same way.
 
 The text importer treats .docx tables with recognized headers as structured
 recipe rows, so Word docs that store recipes in tables retain ingredients and

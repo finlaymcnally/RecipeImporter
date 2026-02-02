@@ -13,6 +13,11 @@ def spacy_available() -> bool:
     return spacy is not None
 
 
+def warm_spacy_model() -> None:
+    """Proactively load the spaCy pipeline."""
+    _load_pipeline()
+
+
 @lru_cache
 def _load_pipeline() -> Any:
     if spacy is None:

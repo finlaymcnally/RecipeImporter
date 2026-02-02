@@ -51,6 +51,27 @@ export LABEL_STUDIO_API_KEY=your_api_key_here
 
 Now just run `C3imp` and choose **Label Studio benchmark import**.
 
+## Performance & Settings
+
+You can configure performance settings via the **Settings** menu in `C3imp` or via CLI flags.
+
+**Key Features:**
+*   **Parallel Processing:** Process multiple files at once (`--workers 4`).
+*   **OCR Optimization:** Choose between `auto`, `cuda` (GPU), `mps` (Mac), or `cpu`.
+*   **Batching:** Process multiple pages per OCR call (`--ocr-batch-size`).
+*   **Model Warming:** Pre-load heavy AI models (`--warm-models`) to speed up processing.
+
+**Interactive Configuration:**
+1.  Run `C3imp`.
+2.  Select **Settings**.
+3.  Adjust workers, OCR device, etc.
+4.  Settings are saved to `data/config.json`.
+
+**CLI Usage:**
+```bash
+cookimport stage data/input --workers 8 --ocr-device cuda --warm-models
+```
+
 ## Where outputs go
 
 Each run writes a timestamped folder under:

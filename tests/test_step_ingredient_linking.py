@@ -291,6 +291,91 @@ def test_head_alias_matches_partial_name():
     assert _names(result[0]) == ["sage leaves"]
 
 
+def test_lemmatized_plural_match():
+    """Plural forms in steps should match singular ingredients via lemmatization."""
+    ingredient_lines = [
+        _ingredient_line("onion"),
+    ]
+    steps = [
+        "Add the onions to the pan.",
+    ]
+
+    result, debug_info = assign_ingredient_lines_to_steps(
+        steps, ingredient_lines, debug=True
+    )
+
+    assert _names(result[0]) == ["onion"]
+    assert debug_info.candidates[0].match_kind == "semantic"
+
+
+def test_lemmatized_floured_match():
+    """Adjectival forms like 'floured' should match flour ingredients."""
+    ingredient_lines = [
+        _ingredient_line("all-purpose flour"),
+    ]
+    steps = [
+        "On a well-floured board, roll the dough.",
+    ]
+
+    result, debug_info = assign_ingredient_lines_to_steps(
+        steps, ingredient_lines, debug=True
+    )
+
+    assert _names(result[0]) == ["all-purpose flour"]
+    assert debug_info.candidates[0].match_kind == "semantic"
+
+
+def test_synonym_green_onion_match():
+    """Synonym expansion should match scallions to green onions."""
+    ingredient_lines = [
+        _ingredient_line("scallions"),
+    ]
+    steps = [
+        "Add the green onions to the bowl.",
+    ]
+
+    result, debug_info = assign_ingredient_lines_to_steps(
+        steps, ingredient_lines, debug=True
+    )
+
+    assert _names(result[0]) == ["scallions"]
+    assert debug_info.candidates[0].match_kind == "semantic"
+
+
+def test_synonym_chickpea_match():
+    """Synonym expansion should match chickpeas to garbanzo beans."""
+    ingredient_lines = [
+        _ingredient_line("chickpeas"),
+    ]
+    steps = [
+        "Add the garbanzo beans and stir.",
+    ]
+
+    result, debug_info = assign_ingredient_lines_to_steps(
+        steps, ingredient_lines, debug=True
+    )
+
+    assert _names(result[0]) == ["chickpeas"]
+    assert debug_info.candidates[0].match_kind == "semantic"
+
+
+def test_fuzzy_typo_match():
+    """Fuzzy fallback should rescue near-miss typos when exact/semantic fail."""
+    ingredient_lines = [
+        _ingredient_line("coriander"),
+    ]
+    steps = [
+        "Add the corriander to the pan.",
+    ]
+
+    result, debug_info = assign_ingredient_lines_to_steps(
+        steps, ingredient_lines, debug=True
+    )
+
+    assert _names(result[0]) == ["coriander"]
+    assert debug_info.candidates[0].match_kind == "fuzzy"
+
+
 def test_earliest_use_verb_wins_over_stronger_alias():
     """When multiple steps have use verbs, earliest wins even with weaker alias."""
     ingredient_lines = [

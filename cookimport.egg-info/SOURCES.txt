@@ -4,6 +4,7 @@ cookimport/README.md
 cookimport/__init__.py
 cookimport/c3imp_entrypoint.py
 cookimport/cli.py
+cookimport/cli_worker.py
 cookimport/entrypoint.py
 cookimport.egg-info/PKG-INFO
 cookimport.egg-info/SOURCES.txt
@@ -18,6 +19,8 @@ cookimport/core/models.py
 cookimport/core/overrides_io.py
 cookimport/core/reporting.py
 cookimport/core/scoring.py
+cookimport/core/slug.py
+cookimport/core/timing.py
 cookimport/labelstudio/__init__.py
 cookimport/labelstudio/chunking.py
 cookimport/labelstudio/client.py
@@ -56,6 +59,7 @@ cookimport/plugins/text.py
 cookimport/staging/__init__.py
 cookimport/staging/draft_v1.py
 cookimport/staging/jsonld.py
+cookimport/staging/pdf_jobs.py
 cookimport/staging/writer.py
 tests/test_atoms.py
 tests/test_chunks.py
@@ -65,6 +69,7 @@ tests/test_cli_output_structure.py
 tests/test_draft_v1_lowercase.py
 tests/test_draft_v1_variants.py
 tests/test_epub_importer.py
+tests/test_epub_job_merge.py
 tests/test_excel_importer.py
 tests/test_ingredient_parser.py
 tests/test_instruction_parser.py
@@ -73,6 +78,8 @@ tests/test_labelstudio_export.py
 tests/test_paprika_importer.py
 tests/test_paprika_merge.py
 tests/test_pdf_importer.py
+tests/test_pdf_job_merge.py
+tests/test_performance_features.py
 tests/test_phase1_manual.py
 tests/test_recipesage_importer.py
 tests/test_source_field.py

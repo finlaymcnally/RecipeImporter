@@ -464,6 +464,8 @@ class MappingConfig(BaseModel):
     default_layout: str | None = Field(default=None, alias="defaultLayout")
     parsing_overrides: ParsingOverrides | None = Field(default=None, alias="parsingOverrides")
     sheets: list[SheetMapping] = Field(default_factory=list)
+    ocr_device: str = Field(default="auto", alias="ocrDevice")
+    ocr_batch_size: int = Field(default=1, alias="ocrBatchSize")
 
     @field_validator("ingredient_delimiters", "instruction_delimiters", mode="before")
     @classmethod
@@ -477,6 +479,8 @@ class SheetInspection(BaseModel):
     name: str
     layout: str | None = None
     header_row: int | None = Field(default=None, alias="headerRow")
+    page_count: int | None = Field(default=None, alias="pageCount")
+    spine_count: int | None = Field(default=None, alias="spineCount")
     inferred_mapping: SheetMapping | None = Field(default=None, alias="inferredMapping")
     confidence: float | None = None
     low_confidence: bool = Field(default=False, alias="lowConfidence")
@@ -529,6 +533,8 @@ class ConversionReport(BaseModel):
     mapping_used: MappingConfig | None = Field(default=None, alias="mappingUsed")
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+    timing: dict[str, Any] | None = None
+    output_stats: dict[str, Any] | None = Field(default=None, alias="outputStats")
 
 
 class RawArtifact(BaseModel):

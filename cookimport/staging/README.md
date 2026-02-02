@@ -7,6 +7,7 @@ Handles output file generation in two formats plus tip snippets:
 - **Writer:** `writer.py` provides `write_intermediate_outputs()`, `write_draft_outputs()`, and `write_tip_outputs()` functions
   - Outputs are flattened under the per-file folder as `r{index}.json[ld]` (no sheet subfolders).
   - When a candidate lacks `row_index` provenance (text/PDF/EPUB), `writer.py` falls back to `location.chunk_index` for stable IDs.
+  - Writer helpers can optionally collect per-output file counts/bytes for inclusion in conversion reports (`outputStats`).
 - **Tips:** `writer.py` writes `t{index}.json` for non-instruction tips/knowledge snippets under `tips/{workbook_slug}/`, plus `tips.md` listing tip text with their `t{index}` ids, anchor tags, and any detected topic headers for quick review.
   - Tips derived from recipes include `sourceRecipeId` and `sourceRecipeTitle` for quick lookup, plus `scope`, `standalone`, `generalityScore`, `sourceText`, and tag categories (`dishes`, ingredient groups, `techniques`, `cookingMethods`, `tools`) for filtering and traceability.
   - `topic_candidates.json` and `topic_candidates.md` capture atom-level standalone snippets (paragraphs/list items) before tip classification, with container headers and adjacent-atom context in provenance for evaluation and LLM prefiltering.

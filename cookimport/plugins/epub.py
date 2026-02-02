@@ -88,6 +88,7 @@ class EpubImporter:
                             name=title_str,
                             layout="epub-book",
                             confidence=0.9,
+                            spine_count=spine_count,
                             warnings=[f"Found {spine_count} spine items."],
                         )
                     ],
@@ -106,6 +107,7 @@ class EpubImporter:
                         name=title_str,
                         layout="epub-book",
                         confidence=0.8,
+                        spine_count=len(spine_items),
                         warnings=[f"Found {len(spine_items)} spine items (zip fallback)."],
                     )
                 ],
@@ -124,6 +126,8 @@ class EpubImporter:
         path: Path,
         mapping: MappingConfig | None,
         progress_callback: Callable[[str], None] | None = None,
+        start_spine: int | None = None,
+        end_spine: int | None = None,
     ) -> ConversionResult:
         report = ConversionReport()
         recipes: List[RecipeCandidate] = []
@@ -141,7 +145,7 @@ class EpubImporter:
             # 1. Extract Blocks (DocPack)
             if progress_callback:
                 progress_callback("Extracting blocks from EPUB...")
-            blocks = self._extract_docpack(path)
+            blocks = self._extract_docpack(path, start_spine=start_spine, end_spine=end_spine)
             
             raw_artifacts.append(
                 RawArtifact(
@@ -181,14 +185,24 @@ class EpubImporter:
                         source_hash=file_hash,
                         extraction_method="heuristic_epub",
                     )
+                    spine_values = [
+                        b.features.get("spine_index")
+                        for b in candidate_blocks
+                        if isinstance(b.features, dict)
+                        and b.features.get("spine_index") is not None
+                    ]
+                    location_info: dict[str, Any] = {
+                        "start_block": start,
+                        "end_block": end,
+                        "chunk_index": i,
+                        "segmentation_score": segmentation_score,
+                    }
+                    if spine_values:
+                        location_info["start_spine"] = min(spine_values)
+                        location_info["end_spine"] = max(spine_values)
                     provenance = provenance_builder.build(
                         confidence_score=candidate.confidence,
-                        location={
-                            "start_block": start,
-                            "end_block": end,
-                            "chunk_index": i,
-                            "segmentation_score": segmentation_score
-                        }
+                        location=location_info,
                     )
                     candidate.provenance = provenance
                     
@@ -411,25 +425,47 @@ class EpubImporter:
 
         return tip_candidates, topic_candidates
 
-    def _extract_docpack(self, path: Path) -> List[Block]:
+    def _extract_docpack(
+        self,
+        path: Path,
+        start_spine: int | None = None,
+        end_spine: int | None = None,
+    ) -> List[Block]:
         """
         Reads EPUB and converts spine items to a linear list of Blocks.
         """
         if epub is not None:
             try:
-                return self._extract_docpack_with_ebooklib(path)
+                return self._extract_docpack_with_ebooklib(
+                    path,
+                    start_spine=start_spine,
+                    end_spine=end_spine,
+                )
             except Exception as e:
                 logger.warning(f"Ebooklib extraction failed for EPUB {path}: {e}")
 
-        return self._extract_docpack_with_zip(path)
+        return self._extract_docpack_with_zip(
+            path,
+            start_spine=start_spine,
+            end_spine=end_spine,
+        )
 
-    def _extract_docpack_with_ebooklib(self, path: Path) -> List[Block]:
+    def _extract_docpack_with_ebooklib(
+        self,
+        path: Path,
+        start_spine: int | None = None,
+        end_spine: int | None = None,
+    ) -> List[Block]:
         blocks: List[Block] = []
         if epub is None:
             raise RuntimeError("ebooklib is not available")
 
         book = epub.read_epub(str(path), options={"ignore_ncx": True})
-        for item_id, _linear in book.spine:
+        for spine_index, (item_id, _linear) in enumerate(book.spine):
+            if start_spine is not None and spine_index < start_spine:
+                continue
+            if end_spine is not None and spine_index >= end_spine:
+                continue
             item = book.get_item_with_id(item_id)
             if not item:
                 continue
@@ -437,17 +473,26 @@ class EpubImporter:
                 continue
             content = item.get_content()
             soup = self._soup_from_bytes(content)
-            blocks.extend(self._parse_soup_to_blocks(soup))
+            blocks.extend(self._parse_soup_to_blocks(soup, spine_index=spine_index))
         return blocks
 
-    def _extract_docpack_with_zip(self, path: Path) -> List[Block]:
+    def _extract_docpack_with_zip(
+        self,
+        path: Path,
+        start_spine: int | None = None,
+        end_spine: int | None = None,
+    ) -> List[Block]:
         blocks: List[Block] = []
         _title, spine_items = self._read_epub_spine(path)
         if not spine_items:
             raise ValueError("No spine items found in EPUB")
 
         with zipfile.ZipFile(path) as zip_handle:
-            for spine_path, media_type in spine_items:
+            for spine_index, (spine_path, media_type) in enumerate(spine_items):
+                if start_spine is not None and spine_index < start_spine:
+                    continue
+                if end_spine is not None and spine_index >= end_spine:
+                    continue
                 if not spine_path:
                     continue
                 if media_type and "html" not in media_type:
@@ -458,7 +503,7 @@ class EpubImporter:
                     logger.warning(f"Missing spine item in EPUB: {spine_path}")
                     continue
                 soup = self._soup_from_bytes(content)
-                blocks.extend(self._parse_soup_to_blocks(soup))
+                blocks.extend(self._parse_soup_to_blocks(soup, spine_index=spine_index))
         return blocks
 
     def _soup_from_bytes(self, content: bytes) -> BeautifulSoup:
@@ -535,7 +580,11 @@ class EpubImporter:
 
         return spine_items
 
-    def _parse_soup_to_blocks(self, soup: BeautifulSoup) -> List[Block]:
+    def _parse_soup_to_blocks(
+        self,
+        soup: BeautifulSoup,
+        spine_index: int | None = None,
+    ) -> List[Block]:
         blocks = []
         
         # We want to capture block-level elements
@@ -573,6 +622,9 @@ class EpubImporter:
                 html=str(elem),
                 font_weight="bold" if elem.name.startswith("h") or elem.find("strong") or elem.find("b") else "normal"
             )
+
+            if spine_index is not None:
+                block.add_feature("spine_index", spine_index)
             
             # Signals
             signals.enrich_block(block, overrides=self._overrides)

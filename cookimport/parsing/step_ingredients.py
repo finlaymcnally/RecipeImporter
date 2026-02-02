@@ -5,9 +5,102 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from rapidfuzz import fuzz
+
 from cookimport.core.models import HowToStep
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
+
+_LEMMA_OVERRIDES = {
+    "floured": "flour",
+    "flouring": "flour",
+    "flours": "flour",
+    "baked": "bake",
+    "baking": "baking",
+    "boiled": "boil",
+    "boiling": "boil",
+    "braised": "braise",
+    "braising": "braise",
+    "fried": "fry",
+    "frying": "fry",
+    "minced": "mince",
+    "mincing": "mince",
+    "diced": "dice",
+    "dicing": "dice",
+    "chopped": "chop",
+    "chopping": "chop",
+    "sliced": "slice",
+    "slicing": "slice",
+    "grated": "grate",
+    "grating": "grate",
+    "grilled": "grill",
+    "grilling": "grill",
+    "roasted": "roast",
+    "roasting": "roast",
+    "seared": "sear",
+    "searing": "sear",
+    "smoked": "smoke",
+    "smoking": "smoke",
+    "steamed": "steam",
+    "steaming": "steam",
+    "toasted": "toast",
+    "toasting": "toast",
+    "shredded": "shred",
+    "shredding": "shred",
+    "peeled": "peel",
+    "peeling": "peel",
+    "crushed": "crush",
+    "crushing": "crush",
+    "zested": "zest",
+    "zesting": "zest",
+    "juiced": "juice",
+    "juicing": "juice",
+    "ground": "grind",
+    "beaten": "beat",
+    "beating": "beat",
+    "icing": "icing",
+    "seasoned": "season",
+    "seasoning": "seasoning",
+    "spring": "spring",
+    "stuffing": "stuffing",
+    "topping": "topping",
+    "frosting": "frosting",
+    "pudding": "pudding",
+}
+
+# Synonyms should use lemmatized tokens (singular, base forms).
+_SYNONYM_GROUPS: tuple[tuple[tuple[str, ...], ...], ...] = (
+    (("scallion",), ("green", "onion"), ("spring", "onion")),
+    (("powder", "sugar"), ("confectioner", "sugar"), ("icing", "sugar")),
+    (("baking", "soda"), ("bicarbonate", "of", "soda")),
+    (("eggplant",), ("aubergine",)),
+    (("zucchini",), ("courgette",)),
+    (("arugula",), ("rocket",)),
+    (("bell", "pepper"), ("capsicum",)),
+    (("chickpea",), ("garbanzo", "bean")),
+)
+
+_SYNONYM_MAP: dict[tuple[str, ...], tuple[tuple[str, ...], ...]] = {}
+for _group in _SYNONYM_GROUPS:
+    for _phrase in _group:
+        _SYNONYM_MAP[_phrase] = tuple(p for p in _group if p != _phrase)
+
+_MAX_SYNONYM_VARIANTS = 6
+
+_FUZZY_MIN_SCORE = 85
+_FUZZY_MIN_TOKEN_LEN = 5
+_GENERIC_FUZZY_TOKENS = {
+    "oil",
+    "salt",
+    "pepper",
+    "water",
+    "sugar",
+    "flour",
+    "butter",
+    "egg",
+    "eggs",
+    "milk",
+}
 
 _ALL_INGREDIENTS_PATTERNS = (
     re.compile(r"\ball ingredients\b"),
@@ -126,6 +219,8 @@ class StepCandidate:
     ingredient_index: int
     step_index: int
     alias: Alias
+    match_kind: str              # "exact", "semantic", or "fuzzy"
+    similarity_score: float      # 0-1.0 similarity (1.0 for exact/semantic)
     match_strength: str           # "strong" or "weak"
     verb_signal: str              # "use", "reference", "split", "neutral"
     context_score: float
@@ -275,6 +370,9 @@ def _find_match_position(step_tokens: list[str], alias_tokens: tuple[str, ...]) 
 def _collect_all_candidates(
     step_texts: list[str],
     alias_map: dict[int, list[Alias]],
+    *,
+    lemmatize: bool = False,
+    match_kind: str = "exact",
 ) -> list[StepCandidate]:
     """
     Scan all steps × all ingredients and build StepCandidate for each match.
@@ -284,7 +382,7 @@ def _collect_all_candidates(
     candidates: list[StepCandidate] = []
 
     for step_index, step_text in enumerate(step_texts):
-        step_tokens = _tokenize(step_text)
+        step_tokens = _tokenize(step_text, lemmatize=lemmatize)
         if not step_tokens:
             continue
 
@@ -315,12 +413,84 @@ def _collect_all_candidates(
                 ingredient_index=ingredient_index,
                 step_index=step_index,
                 alias=best_alias,
+                match_kind=match_kind,
+                similarity_score=1.0,
                 match_strength=match_strength,
                 verb_signal=verb_signal,
                 context_score=context_score,
                 surrounding_tokens=surrounding,
                 split_fraction=split_fraction,
                 split_word=split_word,
+            ))
+
+    return candidates
+
+
+def _classify_step_verb_context(step_tokens: list[str]) -> tuple[str, float]:
+    if any(token in _USE_VERBS for token in step_tokens):
+        return ("use", 10.0)
+    if any(token in _REFERENCE_VERBS for token in step_tokens):
+        return ("reference", -5.0)
+    return ("neutral", 0.0)
+
+
+def _is_fuzzy_eligible(tokens: tuple[str, ...]) -> bool:
+    if not tokens:
+        return False
+    if all(token in _GENERIC_FUZZY_TOKENS for token in tokens):
+        return False
+    if len(tokens) == 1 and len(tokens[0]) < _FUZZY_MIN_TOKEN_LEN:
+        return False
+    return True
+
+
+def _collect_fuzzy_candidates(
+    step_texts: list[str],
+    alias_map: dict[int, list[Alias]],
+) -> list[StepCandidate]:
+    candidates: list[StepCandidate] = []
+
+    for step_index, step_text in enumerate(step_texts):
+        step_tokens = _tokenize(step_text, lemmatize=True)
+        if not step_tokens:
+            continue
+        normalized_step = " ".join(step_tokens)
+        verb_signal, context_score = _classify_step_verb_context(step_tokens)
+        surrounding = tuple(step_tokens)
+
+        for ingredient_index, aliases in alias_map.items():
+            best_alias: Alias | None = None
+            best_score = 0.0
+            for alias in aliases:
+                if not _is_fuzzy_eligible(alias.tokens):
+                    continue
+                alias_text = " ".join(alias.tokens)
+                score = fuzz.partial_ratio(
+                    alias_text,
+                    normalized_step,
+                    score_cutoff=_FUZZY_MIN_SCORE,
+                )
+                if score > best_score:
+                    best_score = score
+                    best_alias = alias
+
+            if best_alias is None:
+                continue
+
+            match_strength = "strong" if len(best_alias.tokens) > 1 else "weak"
+
+            candidates.append(StepCandidate(
+                ingredient_index=ingredient_index,
+                step_index=step_index,
+                alias=best_alias,
+                match_kind="fuzzy",
+                similarity_score=best_score / 100.0,
+                match_strength=match_strength,
+                verb_signal=verb_signal,
+                context_score=context_score,
+                surrounding_tokens=surrounding,
+                split_fraction=None,
+                split_word=None,
             ))
 
     return candidates
@@ -342,6 +512,9 @@ def _score_candidate(candidate: StepCandidate) -> float:
 
     # Add context score (includes verb signal adjustment)
     score = base_score + candidate.context_score
+
+    # Similarity bonus (fuzzy uses real score; exact/semantic are constant)
+    score += candidate.similarity_score * 50.0
 
     # Match strength bonus
     if candidate.match_strength == "strong":
@@ -376,6 +549,13 @@ def _resolve_assignments(
 
     for ingredient_index in range(ingredient_count):
         ingredient_candidates = by_ingredient.get(ingredient_index, [])
+        exact_candidates = [c for c in ingredient_candidates if c.match_kind == "exact"]
+        if exact_candidates:
+            ingredient_candidates = exact_candidates
+        else:
+            semantic_candidates = [c for c in ingredient_candidates if c.match_kind == "semantic"]
+            if semantic_candidates:
+                ingredient_candidates = semantic_candidates
 
         if not ingredient_candidates:
             preliminary_assignments[ingredient_index] = ([], "no matches", None)
@@ -661,7 +841,36 @@ def assign_ingredient_lines_to_steps(
     all_ingredients_steps: list[int] = []
 
     # Phase 1: Collect all candidates using two-phase algorithm
-    candidates = _collect_all_candidates(step_texts, alias_map)
+    candidates = _collect_all_candidates(step_texts, alias_map, match_kind="exact")
+
+    matched_indices = {candidate.ingredient_index for candidate in candidates}
+    semantic_targets = set(alias_map.keys()) - matched_indices
+    if semantic_targets:
+        semantic_alias_map = _build_alias_map(
+            ingredient_lines,
+            lemmatize=True,
+            apply_synonyms=True,
+            include_indices=semantic_targets,
+        )
+        semantic_candidates = _collect_all_candidates(
+            step_texts,
+            semantic_alias_map,
+            lemmatize=True,
+            match_kind="semantic",
+        )
+        candidates.extend(semantic_candidates)
+
+    matched_indices = {candidate.ingredient_index for candidate in candidates}
+    fuzzy_targets = set(alias_map.keys()) - matched_indices
+    if fuzzy_targets:
+        fuzzy_alias_map = _build_alias_map(
+            ingredient_lines,
+            lemmatize=True,
+            apply_synonyms=True,
+            include_indices=fuzzy_targets,
+        )
+        fuzzy_candidates = _collect_fuzzy_candidates(step_texts, fuzzy_alias_map)
+        candidates.extend(fuzzy_candidates)
 
     # Phase 2: Resolve assignments (best step wins, with multi-step exception for split language)
     assignments = _resolve_assignments(candidates, len(ingredient_lines), ingredient_lines)
@@ -774,10 +983,93 @@ def _coerce_step_text(step: str | HowToStep) -> str:
     return str(step) if step is not None else ""
 
 
-def _tokenize(text: str) -> list[str]:
+def _undouble_consonant(token: str) -> str:
+    if len(token) >= 2 and token[-1] == token[-2] and token[-1] not in "aeiou":
+        return token[:-1]
+    return token
+
+
+def _lemmatize_token(token: str) -> str:
+    if not token or token.isdigit() or len(token) <= 3:
+        return token
+    override = _LEMMA_OVERRIDES.get(token)
+    if override:
+        return override
+    if token.endswith("ies") and len(token) > 4:
+        return f"{token[:-3]}y"
+    if token.endswith("ing") and len(token) > 5:
+        return _undouble_consonant(token[:-3])
+    if token.endswith("ed") and len(token) > 4:
+        return _undouble_consonant(token[:-2])
+    if token.endswith("es") and len(token) > 4 and token.endswith(("ches", "shes")):
+        return token[:-2]
+    if token.endswith("s") and len(token) > 3 and not token.endswith(("ss", "us", "is")):
+        return token[:-1]
+    return token
+
+
+def _lemmatize_tokens(tokens: Iterable[str]) -> list[str]:
+    return [_lemmatize_token(token) for token in tokens]
+
+
+def _expand_synonym_variants(tokens: tuple[str, ...]) -> list[tuple[str, ...]]:
+    if not tokens or not _SYNONYM_MAP:
+        return [tokens]
+    variants: set[tuple[str, ...]] = {tokens}
+    queue: list[tuple[str, ...]] = [tokens]
+    while queue and len(variants) < _MAX_SYNONYM_VARIANTS:
+        current = queue.pop()
+        for phrase, replacements in _SYNONYM_MAP.items():
+            phrase_len = len(phrase)
+            if phrase_len == 0 or phrase_len > len(current):
+                continue
+            for start in range(len(current) - phrase_len + 1):
+                if current[start : start + phrase_len] != phrase:
+                    continue
+                for replacement in replacements:
+                    candidate = current[:start] + replacement + current[start + phrase_len :]
+                    if candidate in variants:
+                        continue
+                    variants.add(candidate)
+                    if len(variants) >= _MAX_SYNONYM_VARIANTS:
+                        break
+                    queue.append(candidate)
+                if len(variants) >= _MAX_SYNONYM_VARIANTS:
+                    break
+            if len(variants) >= _MAX_SYNONYM_VARIANTS:
+                break
+    return list(variants)
+
+
+def _add_alias_variants(
+    aliases: list[Alias],
+    seen: set[tuple[str, ...]],
+    tokens: tuple[str, ...],
+    source: str,
+    *,
+    apply_synonyms: bool = False,
+) -> None:
+    if not tokens:
+        return
+    if tokens not in seen:
+        aliases.append(Alias(tokens=tokens, source=source))
+        seen.add(tokens)
+    if not apply_synonyms:
+        return
+    for variant in _expand_synonym_variants(tokens):
+        if variant in seen:
+            continue
+        aliases.append(Alias(tokens=variant, source=f"{source}_synonym"))
+        seen.add(variant)
+
+
+def _tokenize(text: str, *, lemmatize: bool = False) -> list[str]:
     if not text:
         return []
-    return _WORD_RE.findall(text.lower())
+    tokens = _WORD_RE.findall(text.lower())
+    if lemmatize:
+        return _lemmatize_tokens(tokens)
+    return tokens
 
 
 def _clean_raw_text(text: str) -> str:
@@ -799,16 +1091,28 @@ def _filter_alias_tokens(tokens: Iterable[str], drop_units: bool) -> list[str]:
     return filtered
 
 
-def _build_aliases(line: dict[str, Any]) -> list[Alias]:
+def _build_aliases(
+    line: dict[str, Any],
+    *,
+    lemmatize: bool = False,
+    apply_synonyms: bool = False,
+) -> list[Alias]:
     aliases: list[Alias] = []
     seen: set[tuple[str, ...]] = set()
 
     raw_ingredient_text = line.get("raw_ingredient_text") or ""
     input_tokens = _filter_alias_tokens(_tokenize(raw_ingredient_text), drop_units=False)
+    if lemmatize:
+        input_tokens = _lemmatize_tokens(input_tokens)
     if input_tokens:
         alias_tokens = tuple(input_tokens)
-        aliases.append(Alias(tokens=alias_tokens, source="raw_ingredient_text"))
-        seen.add(alias_tokens)
+        _add_alias_variants(
+            aliases,
+            seen,
+            alias_tokens,
+            "raw_ingredient_text",
+            apply_synonyms=apply_synonyms,
+        )
 
     raw_text = line.get("raw_text") or ""
     if raw_text:
@@ -816,34 +1120,60 @@ def _build_aliases(line: dict[str, Any]) -> list[Alias]:
             _tokenize(_clean_raw_text(raw_text)),
             drop_units=True,
         )
+        if lemmatize:
+            raw_tokens = _lemmatize_tokens(raw_tokens)
         if raw_tokens:
             alias_tokens = tuple(raw_tokens)
-            if alias_tokens not in seen:
-                aliases.append(Alias(tokens=alias_tokens, source="raw_text"))
-                seen.add(alias_tokens)
+            _add_alias_variants(
+                aliases,
+                seen,
+                alias_tokens,
+                "raw_text",
+                apply_synonyms=apply_synonyms,
+            )
 
     if len(input_tokens) > 1:
         # Add head alias (first token) - e.g., "sage" for "sage leaves"
         head = (input_tokens[0],)
-        if head not in seen:
-            aliases.append(Alias(tokens=head, source="head"))
-            seen.add(head)
+        _add_alias_variants(
+            aliases,
+            seen,
+            head,
+            "head",
+            apply_synonyms=apply_synonyms,
+        )
 
         # Add tail alias (last token) - e.g., "leaves" for "sage leaves"
         tail = (input_tokens[-1],)
-        if tail not in seen:
-            aliases.append(Alias(tokens=tail, source="tail"))
-            seen.add(tail)
+        _add_alias_variants(
+            aliases,
+            seen,
+            tail,
+            "tail",
+            apply_synonyms=apply_synonyms,
+        )
 
     return aliases
 
 
-def _build_alias_map(ingredient_lines: list[dict[str, Any]]) -> dict[int, list[Alias]]:
+def _build_alias_map(
+    ingredient_lines: list[dict[str, Any]],
+    *,
+    lemmatize: bool = False,
+    apply_synonyms: bool = False,
+    include_indices: set[int] | None = None,
+) -> dict[int, list[Alias]]:
     alias_map: dict[int, list[Alias]] = {}
     for idx, line in enumerate(ingredient_lines):
         if line.get("quantity_kind") == "section_header":
             continue
-        alias_map[idx] = _build_aliases(line)
+        if include_indices is not None and idx not in include_indices:
+            continue
+        alias_map[idx] = _build_aliases(
+            line,
+            lemmatize=lemmatize,
+            apply_synonyms=apply_synonyms,
+        )
     return alias_map
 
 

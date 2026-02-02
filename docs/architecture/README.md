@@ -45,8 +45,9 @@ data/output/{YYYY-MM-DD-HH-MM-SS}/
 ├── intermediate drafts/{workbook_slug}/   # RecipeSage JSON-LD per recipe
 ├── final drafts/{workbook_slug}/          # RecipeDraftV1 per recipe
 ├── tips/{workbook_slug}/                  # Tips and topic candidates
-├── raw/{workbook_slug}/                   # Raw extracted artifacts
-└── {workbook_slug}.report.json            # Conversion report
+├── chunks/{workbook_slug}/                # Knowledge chunks (optional)
+├── raw/{importer}/{source_hash}/          # Raw extracted artifacts
+└── {workbook_slug}.excel_import_report.json  # Conversion report
 ```
 
 ---
@@ -63,6 +64,21 @@ data/output/{YYYY-MM-DD-HH-MM-SS}/
 Stable IDs use URN format: `urn:cookimport:{importer}:{file_hash}:{location_id}`
 
 Example: `urn:cookimport:epub:abc123:c5` (chunk 5 from EPUB with hash abc123)
+
+---
+
+## PDF & EPUB Job Splitting
+
+When `cookimport stage` runs with `--workers > 1`, large PDFs can be split into
+page-range jobs (`--pdf-pages-per-job` controls the target pages per job). Each
+job parses a slice in parallel, then the main process merges results into a
+single workbook output with sequential recipe IDs. During a split run, raw
+artifacts are written to a temporary `.job_parts/` folder under the run output
+and merged into `raw/` after the merge completes.
+
+Large EPUBs can also be split into spine-range jobs with
+`--epub-spine-items-per-job`. Each job parses a subset of spine items, and the
+merge step rewrites recipe IDs to a single global sequence.
 
 ### Field Normalization
 - `raw_text`, `raw_ingredient_text`, `raw_unit_text`, `preparation`, `note` → **lowercase**

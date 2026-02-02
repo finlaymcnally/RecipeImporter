@@ -16,10 +16,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Lazy-loaded model singleton
-_model: "OCRPredictor | None" = None
-
-
 @dataclass
 class OcrLine:
     """A line of OCR'd text with position and confidence."""
@@ -39,11 +35,44 @@ class OcrPage:
     height: int | None = None
 
 
-def _get_model() -> "OCRPredictor":
-    """Lazy-load the docTR model on first use."""
-    global _model
-    if _model is None:
-        logger.info("Loading docTR OCR model (first use)...")
+# Lazy-loaded model singleton
+_model: "OCRPredictor | None" = None
+_current_device: str | None = None
+
+
+def resolve_ocr_device(device: str = "auto") -> str:
+    """Resolve 'auto' or validate explicit device selection."""
+    import torch
+    if device == "auto":
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+        return "cpu"
+    
+    if device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA requested but not available.")
+    if device == "mps" and not torch.backends.mps.is_available():
+        raise RuntimeError("MPS requested but not available.")
+    if device not in ("cpu", "cuda", "mps"):
+        raise ValueError(f"Unsupported OCR device: {device}. Use auto, cpu, cuda, or mps.")
+    
+    return device
+
+
+def warm_ocr_model(device: str = "auto") -> None:
+    """Proactively load the OCR model into memory."""
+    _get_model(device=device)
+
+
+def _get_model(device: str = "auto") -> "OCRPredictor":
+    """Lazy-load the docTR model on first use for a given device."""
+    global _model, _current_device
+    
+    resolved_device = resolve_ocr_device(device)
+    
+    if _model is None or _current_device != resolved_device:
+        logger.info(f"Loading docTR OCR model on {resolved_device}...")
         try:
             from doctr.models import ocr_predictor
 
@@ -51,21 +80,36 @@ def _get_model() -> "OCRPredictor":
                 det_arch="db_resnet50",
                 reco_arch="crnn_vgg16_bn",
                 pretrained=True,
+                device=resolved_device
             )
-            logger.info("docTR model loaded successfully")
+            _current_device = resolved_device
+            logger.info(f"docTR model loaded successfully on {resolved_device}")
         except ImportError as e:
             logger.error(f"Failed to import docTR: {e}")
             raise ImportError(
                 "docTR is required for OCR. Install with: pip install python-doctr[torch]"
             ) from e
+        except Exception as e:
+            logger.error(f"Failed to load docTR model on {resolved_device}: {e}")
+            raise
     return _model
 
 
-def ocr_pdf(path: Path) -> list[OcrPage]:
+def ocr_pdf(
+    path: Path,
+    device: str = "auto",
+    batch_size: int = 1,
+    start_page: int = 0,
+    end_page: int | None = None,
+) -> list[OcrPage]:
     """Run OCR on a PDF file, returning text with bounding boxes.
 
     Args:
         path: Path to the PDF file to process.
+        device: Device to use for OCR ('auto', 'cpu', 'cuda', 'mps').
+        batch_size: Number of pages to process per model call.
+        start_page: Index of the first page to process (0-based).
+        end_page: Index of the last page to process (exclusive). If None, process to end.
 
     Returns:
         List of OcrPage objects, one per page, containing recognized text lines
@@ -79,30 +123,79 @@ def ocr_pdf(path: Path) -> list[OcrPage]:
     if not path.exists():
         raise FileNotFoundError(f"PDF file not found: {path}")
 
-    logger.info(f"Starting OCR on {path}")
+    logger.info(
+        f"Starting OCR on {path} (pages {start_page}-{end_page or 'end'}) "
+        f"using {device} (batch_size={batch_size})"
+    )
 
     try:
         from doctr.io import DocumentFile
+        import numpy as np
     except ImportError as e:
         raise ImportError(
             "docTR is required for OCR. Install with: pip install python-doctr[torch]"
         ) from e
 
-    model = _get_model()
+    model = _get_model(device=device)
 
-    # Load PDF as images
+    # Load content
+    # If a specific range is requested, use fitz to render only those pages to save memory
+    doc_images = []
+    
     try:
-        doc = DocumentFile.from_pdf(str(path))
-    except Exception as e:
-        raise ValueError(f"Failed to load PDF for OCR: {e}") from e
+        import fitz
+        with fitz.open(path) as pdf:
+            total_pages = len(pdf)
+            actual_end = end_page if end_page is not None else total_pages
+            actual_end = min(actual_end, total_pages)
+            
+            if start_page >= actual_end:
+                return []
 
-    # Run OCR
-    result = model(doc)
+            # Efficiently render just the requested pages
+            for i in range(start_page, actual_end):
+                page = pdf[i]
+                # Render at 300 DPI for OCR quality
+                pix = page.get_pixmap(dpi=300)
+                # Convert to numpy (Height, Width, Channels)
+                # Note: pix.samples is a bytes object
+                img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+                    (pix.h, pix.w, pix.n)
+                )
+                # Ensure RGB
+                if pix.n == 4:  # RGBA
+                    img = img[..., :3]
+                elif pix.n == 1:  # Gray
+                    img = np.stack([img.squeeze()] * 3, axis=-1)
+                
+                doc_images.append(img)
+                
+    except ImportError:
+        # Fallback if fitz not available (though it is a project dep)
+        logger.warning("PyMuPDF (fitz) not found, falling back to full load for OCR.")
+        try:
+            full_doc = DocumentFile.from_pdf(str(path))
+            actual_end = end_page if end_page is not None else len(full_doc)
+            doc_images = full_doc[start_page:actual_end]
+        except Exception as e:
+            raise ValueError(f"Failed to load PDF for OCR: {e}") from e
+    except Exception as e:
+        raise ValueError(f"Failed to extract pages for OCR: {e}") from e
+
+    # Run OCR in batches
+    result_pages = []
+    for i in range(0, len(doc_images), batch_size):
+        batch = doc_images[i : i + batch_size]
+        batch_res = model(batch)
+        result_pages.extend(batch_res.pages)
 
     # Convert to our data structures
     pages: list[OcrPage] = []
 
-    for page_idx, page in enumerate(result.pages):
+    for idx, page in enumerate(result_pages):
+        # Calculate actual page number (1-based) including offset
+        current_page_num = start_page + idx + 1
+        
         ocr_lines: list[OcrLine] = []
 
         for block in page.blocks:
@@ -121,7 +214,6 @@ def ocr_pdf(path: Path) -> list[OcrPage]:
                 )
 
                 # Get line bounding box (relative coordinates 0-1)
-                # docTR provides geometry as ((x_min, y_min), (x_max, y_max))
                 geom = line.geometry
                 bbox = (geom[0][0], geom[0][1], geom[1][0], geom[1][1])
 
@@ -149,14 +241,14 @@ def ocr_pdf(path: Path) -> list[OcrPage]:
 
         pages.append(
             OcrPage(
-                page_num=page_idx + 1,  # 1-indexed to match PyMuPDF convention
+                page_num=current_page_num,
                 lines=ocr_lines,
                 width=page_width,
                 height=page_height,
             )
         )
 
-    logger.info(f"OCR complete: {len(pages)} pages, {sum(len(p.lines) for p in pages)} lines")
+    logger.info(f"OCR complete: {len(pages)} pages processed.")
     return pages
 
 

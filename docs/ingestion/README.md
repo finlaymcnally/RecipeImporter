@@ -61,6 +61,10 @@ The ingestion phase extracts content from source files and normalizes to `Recipe
 - ATK-style cookbooks need yield-based segmentation
 - Variation/Variant sections should stay with parent recipe
 
+**Job splitting:**
+- Large EPUBs can be split into spine-range jobs when `cookimport stage` runs
+  with `--workers > 1`; tune with `--epub-spine-items-per-job`.
+
 **Location:** `cookimport/plugins/epub.py`
 
 ---
@@ -81,6 +85,11 @@ The ingestion phase extracts content from source files and normalizes to `Recipe
 - Uses docTR (CRNN + ResNet) for scanned pages
 - Triggered when text extraction yields minimal content
 - Returns lines with bounding boxes and confidence scores
+
+**Job splitting:**
+- Large PDFs can be split into page-range jobs when `cookimport stage` runs with multiple workers.
+- Use `--pdf-pages-per-job` to control the target number of pages per job; results are merged back into a single workbook output.
+- OCR and text extraction both honor page ranges, so each job only processes its assigned slice.
 
 **Key discoveries:**
 - PyMuPDF default ordering is "tiled" (left-to-right across page)
