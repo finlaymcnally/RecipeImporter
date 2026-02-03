@@ -516,6 +516,11 @@ class ConversionReport(BaseModel):
     total_tips: int = Field(0, alias="totalTips")
     total_tip_candidates: int = Field(0, alias="totalTipCandidates")
     total_topic_candidates: int = Field(0, alias="totalTopicCandidates")
+    total_standalone_blocks: int = Field(0, alias="totalStandaloneBlocks")
+    total_standalone_topic_blocks: int = Field(0, alias="totalStandaloneTopicBlocks")
+    standalone_topic_coverage: float | None = Field(
+        default=None, alias="standaloneTopicCoverage"
+    )
     total_general_tips: int = Field(0, alias="totalGeneralTips")
     total_recipe_specific_tips: int = Field(0, alias="totalRecipeSpecificTips")
     total_not_tips: int = Field(0, alias="totalNotTips")

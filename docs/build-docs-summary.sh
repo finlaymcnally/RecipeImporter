@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# How to run:
+#   bash docs/build-docs-summary.sh
+# Output:
+#   docs/<timestamp>_importer-docs-summary.md
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -236,9 +236,12 @@ class EpubImporter:
                     logger.warning(f"Failed to extract candidate {i} in {path}: {e}")
                     report.warnings.append(f"Failed to parse candidate {i}: {e}")
 
-            standalone_tips, standalone_topics = self._extract_standalone_tips(
-                blocks, candidates_ranges, path, file_hash
-            )
+            (
+                standalone_tips,
+                standalone_topics,
+                standalone_block_count,
+                topic_block_count,
+            ) = self._extract_standalone_tips(blocks, candidates_ranges, path, file_hash)
             tip_candidates.extend(standalone_tips)
             topic_candidates.extend(standalone_topics)
 
@@ -269,6 +272,17 @@ class EpubImporter:
                 report.topic_samples = [
                     {"text": topic.text[:80]} for topic in topic_candidates[:3]
                 ]
+            report.total_standalone_blocks = standalone_block_count
+            report.total_standalone_topic_blocks = topic_block_count
+            if standalone_block_count:
+                standalone_coverage = topic_block_count / standalone_block_count
+                report.standalone_topic_coverage = standalone_coverage
+                if standalone_coverage < 0.9:
+                    report.warnings.append(
+                        "Standalone topic coverage low: "
+                        f"{topic_block_count} of {standalone_block_count} blocks "
+                        f"represented ({standalone_coverage:.0%})."
+                    )
 
             return ConversionResult(
                 recipes=recipes,
@@ -303,7 +317,7 @@ class EpubImporter:
         candidate_ranges: List[Tuple[int, int, float]],
         path: Path,
         file_hash: str,
-    ) -> tuple[List[Any], List[Any]]:
+    ) -> tuple[List[Any], List[Any], int, int]:
         covered: set[int] = set()
         for start, end, _ in candidate_ranges:
             covered.update(range(start, end))
@@ -325,6 +339,7 @@ class EpubImporter:
                 continue
             standalone_blocks.append((idx, text))
 
+        topic_block_indices: set[int] = set()
         for container in chunk_standalone_blocks(
             standalone_blocks, overrides=self._overrides
         ):
@@ -409,6 +424,7 @@ class EpubImporter:
                         overrides=self._overrides,
                     )
                 )
+                topic_block_indices.add(atom.source_block_index)
 
                 if atom.kind == "header":
                     continue
@@ -423,7 +439,12 @@ class EpubImporter:
                 tip_candidates.extend(atom_tips)
                 container_tip_index += len(atom_tips)
 
-        return tip_candidates, topic_candidates
+        return (
+            tip_candidates,
+            topic_candidates,
+            len(standalone_blocks),
+            len(topic_block_indices),
+        )
 
     def _extract_docpack(
         self,

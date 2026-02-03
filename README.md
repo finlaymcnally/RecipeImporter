@@ -4,24 +4,8 @@ Note to future AI editors: write for a non-technical, step-by-step audience. Use
 
 This repo lets you import cookbooks (Excel/PDF/EPUB/etc.) and optionally build Label Studio projects for human labeling. The normal and Label Studio flows both run through the **C3imp** interactive menu.
 
-## One-time setup (do this once)
 
-Copy/paste each line, in order:
-
-```bash
-cd /home/mcnal/projects/recipeimport
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -e ".[dev]"
-```
-
-## Put your files here (input folder)
-
-```
-/home/mcnal/projects/recipeimport/data/input
-```
-
-## Run the app (normal import or Label Studio) - one command
+## Run the app (normal import) - one command
 
 Copy/paste:
 
@@ -31,37 +15,18 @@ cd /home/mcnal/projects/recipeimport
 C3imp
 ```
 
+You can also run `C3imp X` to only do X recipes/tips.
+
 In the menu, choose:
 
 - **Import files from data/input** for normal recipe outputs, or
 - **Label Studio benchmark import** for labeling tasks.
 
-## Label Studio (set variables once, then run C3imp)
+## Label Studio setup (do this before any Label Studio workflow)
 
-Start Label Studio (Docker):
+Do these steps once per terminal session.
 
-```bash
-docker run -it -p 8080:8080 --name labelstudio heartexlabs/label-studio:latest
-```
-
-In the Label Studio UI (http://localhost:8080), create an API key. Then set these once per terminal session:
-
-```bash
-export LABEL_STUDIO_URL=http://localhost:8080
-export LABEL_STUDIO_API_KEY=your_api_key_here
-```
-
-Now just run `C3imp` and choose **Label Studio benchmark import**.
-
----
-
-# Canonical Label Studio Workflow (block-based, step-by-step)
-
-This is the **new** workflow that labels every extracted block (so you can measure recall and missed recipes). Follow these steps exactly.
-
-## 1) Start Label Studio (Docker)
-
-Open a terminal and run:
+### 1) Start Label Studio (Docker)
 
 ```bash
 docker run -it -p 8080:8080 --name labelstudio heartexlabs/label-studio:latest
@@ -69,25 +34,45 @@ docker run -it -p 8080:8080 --name labelstudio heartexlabs/label-studio:latest
 
 Leave this running.
 
-## 2) Create a Label Studio API key
+### 2) Create a Label Studio API key
 
-1. Open your browser to http://localhost:8080
+1. Open http://localhost:8080
 2. Create an account (if asked).
 3. Go to the user menu → **Account & Settings** → **Access Token**.
 4. Copy the token.
 
-## 3) Set the Label Studio environment variables (every new terminal)
+### 3) Set the environment variables
 
-Open a **new** terminal and copy/paste:
+Copy/paste (replace the token):
 
 ```bash
 export LABEL_STUDIO_URL=http://localhost:8080
 export LABEL_STUDIO_API_KEY=your_api_key_here
 ```
 
-Replace `your_api_key_here` with the token you copied.
+## Label Studio (simple pipeline flow using C3imp)
 
-## 4) Put a book in the input folder
+After setup above, run:
+
+```bash
+cd /home/mcnal/projects/recipeimport
+. .venv/bin/activate
+C3imp
+```
+
+Then choose **Label Studio benchmark import**.
+
+---
+
+# Canonical Label Studio Workflow (block-based, step-by-step)
+
+This is the **new** workflow that labels every extracted block (so you can measure recall and missed recipes). Follow these steps exactly.
+
+## 1) Make sure Label Studio setup is done
+
+If you have not done it yet, complete **Label Studio setup** above first.
+
+## 2) Put a book in the input folder
 
 Copy your file into:
 
@@ -97,7 +82,7 @@ Copy your file into:
 
 Example file: `sample.epub` or `sample.pdf`.
 
-## 5) Create the **pipeline** Label Studio project (old, chunk-based)
+## 3) Create the **pipeline** Label Studio project (old, chunk-based)
 
 This keeps the existing benchmark flow for fast regression tests.
 
@@ -111,7 +96,7 @@ cookimport labelstudio-import data/input/sample.epub \
   --chunk-level both
 ```
 
-## 6) Create the **canonical** Label Studio project (new, block-based)
+## 4) Create the **canonical** Label Studio project (new, block-based)
 
 Copy/paste:
 
@@ -124,7 +109,7 @@ cookimport labelstudio-import data/input/sample.epub \
   --context-window 1
 ```
 
-## 7) Label some blocks in the browser
+## 5) Label some blocks in the browser
 
 1. In Label Studio, open the project **Sample Canonical (blocks)**.
 2. Label ~20 blocks with a mix of:
@@ -135,7 +120,7 @@ cookimport labelstudio-import data/input/sample.epub \
    - NARRATIVE
    - OTHER
 
-## 8) Export the canonical labels
+## 6) Export the canonical labels
 
 Copy/paste:
 
@@ -155,7 +140,7 @@ data/golden/sample/canonical/canonical_block_labels.jsonl
 data/golden/sample/canonical/canonical_gold_spans.jsonl
 ```
 
-## 9) Run the evaluation (pipeline vs canonical)
+## 7) Run the evaluation (pipeline vs canonical)
 
 First, find your latest Label Studio run folder in:
 
@@ -251,3 +236,20 @@ cd /home/mcnal/projects/recipeimport
 ```
 
 If Label Studio reports no text extracted, the PDF is likely scanned. Run OCR first, then re-import.
+
+## One-time setup (if needed)
+
+Copy/paste each line, in order:
+
+```bash
+cd /home/mcnal/projects/recipeimport
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e ".[dev]"
+```
+
+Put your files here (input folder):
+
+```
+/home/mcnal/projects/recipeimport/data/input
+```

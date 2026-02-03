@@ -728,6 +728,8 @@ def _merge_split_jobs(
     merged_topic_candidates: list[Any] = []
     merged_non_recipe_blocks: list[Any] = []
     warnings: list[str] = []
+    standalone_block_total = 0
+    standalone_topic_block_total = 0
 
     for job in ordered_jobs:
         result = job.get("result")
@@ -742,6 +744,9 @@ def _merge_split_jobs(
         if result.report and result.report.errors:
             for error in result.report.errors:
                 warnings.append(f"Job {job.get('job_index')}: {error}")
+        if result.report:
+            standalone_block_total += result.report.total_standalone_blocks
+            standalone_topic_block_total += result.report.total_standalone_topic_blocks
 
     file_hash = compute_file_hash(file_path)
     sorted_recipes, _ = reassign_recipe_ids(
@@ -768,6 +773,19 @@ def _merge_split_jobs(
     from cookimport.cli_worker import apply_result_limits
     apply_result_limits(merged_result, limit, limit, limit_label=limit)
     report.total_topic_candidates = len(merged_result.topic_candidates)
+    report.total_standalone_blocks = standalone_block_total
+    report.total_standalone_topic_blocks = standalone_topic_block_total
+    if standalone_block_total:
+        standalone_coverage = standalone_topic_block_total / standalone_block_total
+        report.standalone_topic_coverage = standalone_coverage
+        if standalone_coverage < 0.9 and not any(
+            warning.startswith("Standalone topic coverage low:") for warning in warnings
+        ):
+            report.warnings.append(
+                "Standalone topic coverage low: "
+                f"{standalone_topic_block_total} of {standalone_block_total} blocks "
+                f"represented ({standalone_coverage:.0%})."
+            )
 
     parsing_overrides = (
         mapping_config.parsing_overrides if mapping_config and mapping_config.parsing_overrides else None

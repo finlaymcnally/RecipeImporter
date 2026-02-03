@@ -27,6 +27,9 @@ class PerfRow:
     tips: int
     tip_candidates: int
     topic_candidates: int
+    standalone_blocks: int | None
+    standalone_topic_blocks: int | None
+    standalone_topic_coverage: float | None
     output_files: int | None
     output_bytes: int | None
     checkpoints: dict[str, float]
@@ -187,6 +190,26 @@ def format_summary_line(row: PerfRow) -> str:
         parts.append(f"dominant {dominant}")
     if row.is_knowledge_heavy:
         parts.append(f"knowledge-heavy {row.knowledge_share:.0%} topics")
+    if (
+        row.standalone_blocks is not None
+        and row.standalone_topic_blocks is not None
+        and (row.standalone_blocks > 0 or row.standalone_topic_blocks > 0)
+    ):
+        coverage = row.standalone_topic_coverage
+        if coverage is None and row.standalone_blocks:
+            coverage = row.standalone_topic_blocks / row.standalone_blocks
+        if coverage is not None:
+            parts.append(
+                "standalone {topic}/{total} ({coverage:.0%})".format(
+                    topic=row.standalone_topic_blocks,
+                    total=row.standalone_blocks,
+                    coverage=coverage,
+                )
+            )
+        else:
+            parts.append(
+                f"standalone {row.standalone_topic_blocks}/{row.standalone_blocks}"
+            )
     return " | ".join(parts)
 
 
@@ -220,6 +243,17 @@ def _row_from_report(run_dir: Path, report_path: Path, data: dict[str, Any]) -> 
     tips = _safe_int(data.get("totalTips"))
     tip_candidates = _safe_int(data.get("totalTipCandidates"))
     topic_candidates = _safe_int(data.get("totalTopicCandidates"))
+    standalone_blocks = _safe_int(data.get("totalStandaloneBlocks"), allow_none=True)
+    standalone_topic_blocks = _safe_int(
+        data.get("totalStandaloneTopicBlocks"), allow_none=True
+    )
+    standalone_topic_coverage = _safe_float_or_none(data.get("standaloneTopicCoverage"))
+    if (
+        standalone_topic_coverage is None
+        and standalone_blocks
+        and standalone_topic_blocks is not None
+    ):
+        standalone_topic_coverage = standalone_topic_blocks / standalone_blocks
 
     output_files, output_bytes = _extract_output_totals(data.get("outputStats"))
 
@@ -243,6 +277,9 @@ def _row_from_report(run_dir: Path, report_path: Path, data: dict[str, Any]) -> 
         tips=tips,
         tip_candidates=tip_candidates,
         topic_candidates=topic_candidates,
+        standalone_blocks=standalone_blocks,
+        standalone_topic_blocks=standalone_topic_blocks,
+        standalone_topic_coverage=standalone_topic_coverage,
         output_files=output_files,
         output_bytes=output_bytes,
         checkpoints=checkpoints,
@@ -322,6 +359,15 @@ def _safe_float(value: Any) -> float:
         return 0.0
 
 
+def _safe_float_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _safe_int(value: Any, *, allow_none: bool = False) -> int | None:
     if value is None:
         return None if allow_none else 0
@@ -357,6 +403,9 @@ _CSV_FIELDS = [
     "tips",
     "tip_candidates",
     "topic_candidates",
+    "standalone_blocks",
+    "standalone_topic_blocks",
+    "standalone_topic_coverage",
     "total_units",
     "per_recipe_seconds",
     "per_tip_seconds",
@@ -396,6 +445,15 @@ def _row_to_csv(row: PerfRow) -> dict[str, Any]:
         "tips": row.tips,
         "tip_candidates": row.tip_candidates,
         "topic_candidates": row.topic_candidates,
+        "standalone_blocks": (
+            row.standalone_blocks if row.standalone_blocks is not None else ""
+        ),
+        "standalone_topic_blocks": (
+            row.standalone_topic_blocks if row.standalone_topic_blocks is not None else ""
+        ),
+        "standalone_topic_coverage": (
+            row.standalone_topic_coverage if row.standalone_topic_coverage is not None else ""
+        ),
         "total_units": row.total_units,
         "per_recipe_seconds": row.per_recipe_seconds if row.per_recipe_seconds is not None else "",
         "per_tip_seconds": row.per_tip_seconds if row.per_tip_seconds is not None else "",

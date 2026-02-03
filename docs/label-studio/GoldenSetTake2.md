@@ -1,3 +1,10 @@
+---
+summary: "ExecPlan for adding canonical block-based Label Studio tasks and evaluation."
+read_when:
+  - When extending Label Studio import/export workflows
+  - When reviewing canonical block-based golden set design
+---
+
 # Add a canonical, block-based Label Studio workflow alongside the existing chunk-based benchmark
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
