@@ -12,6 +12,11 @@ from cookimport.labelstudio.block_tasks import (
     load_task_ids_from_jsonl,
     sample_block_tasks,
 )
+from cookimport.labelstudio.freeform_tasks import (
+    build_freeform_span_tasks,
+    compute_freeform_task_coverage,
+    sample_freeform_tasks,
+)
 from cookimport.labelstudio.chunking import (
     build_extracted_archive,
     chunk_atomic,
@@ -24,6 +29,7 @@ from cookimport.labelstudio.chunking import (
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.label_config import LABEL_CONFIG_XML
 from cookimport.labelstudio.label_config_blocks import build_block_label_config
+from cookimport.labelstudio.label_config_freeform import build_freeform_label_config
 
 
 def _slugify_name(name: str) -> str:
@@ -34,10 +40,26 @@ def _slugify_name(name: str) -> str:
     return slug or "unknown"
 
 
-def _resolve_project_name(book_slug: str, run_dt: dt.datetime, project_name: str | None) -> str:
+def _dedupe_project_name(base_name: str, existing_titles: set[str]) -> str:
+    candidate = base_name
+    suffix = 1
+    while candidate in existing_titles:
+        candidate = f"{base_name}-{suffix}"
+        suffix += 1
+    return candidate
+
+
+def _resolve_project_name(path: Path, project_name: str | None, client: LabelStudioClient) -> str:
     if project_name:
         return project_name
-    return f"{book_slug}-{run_dt.strftime('%Y%m%d')}"
+
+    base_name = path.stem.strip() or _slugify_name(path.stem)
+    existing_titles = {
+        str(project.get("title", ""))
+        for project in client.list_projects()
+        if isinstance(project, dict) and project.get("title")
+    }
+    return _dedupe_project_name(base_name, existing_titles)
 
 
 def _find_latest_manifest(output_root: Path, project_name: str) -> Path | None:
@@ -79,6 +101,14 @@ def _compute_block_task_coverage(
     }
 
 
+def _task_id_key(task_scope: str) -> str:
+    if task_scope == "canonical-blocks":
+        return "block_id"
+    if task_scope == "freeform-spans":
+        return "segment_id"
+    return "chunk_id"
+
+
 def run_labelstudio_import(
     *,
     path: Path,
@@ -88,6 +118,8 @@ def run_labelstudio_import(
     chunk_level: str,
     task_scope: str,
     context_window: int,
+    segment_blocks: int = 40,
+    segment_overlap: int = 5,
     overwrite: bool,
     resume: bool,
     label_studio_url: str,
@@ -119,9 +151,11 @@ def run_labelstudio_import(
     file_hash = compute_file_hash(path)
     book_id = result.workbook or path.stem
 
-    scopes = {"pipeline", "canonical-blocks"}
+    scopes = {"pipeline", "canonical-blocks", "freeform-spans"}
     if task_scope not in scopes:
-        raise ValueError("task_scope must be one of: pipeline, canonical-blocks")
+        raise ValueError(
+            "task_scope must be one of: pipeline, canonical-blocks, freeform-spans"
+        )
 
     tasks: list[dict[str, Any]] = []
     task_ids: list[str] = []
@@ -129,6 +163,7 @@ def run_labelstudio_import(
     label_config = LABEL_CONFIG_XML
     chunk_ids: list[str] | None = None
     block_ids: list[str] | None = None
+    segment_ids: list[str] | None = None
 
     if task_scope == "pipeline":
         levels = {"structural", "atomic", "both"}
@@ -180,7 +215,7 @@ def run_labelstudio_import(
         tasks = chunk_records_to_tasks(chunks, source_hash=file_hash)
         chunk_ids = [chunk.chunk_id for chunk in chunks]
         task_ids = list(chunk_ids)
-    else:
+    elif task_scope == "canonical-blocks":
         if chunk_level != "both" and progress_callback is not None:
             progress_callback("canonical-blocks ignores --chunk-level")
         if not archive:
@@ -204,9 +239,37 @@ def run_labelstudio_import(
         label_config = build_block_label_config()
         block_ids = [task.get("data", {}).get("block_id") for task in tasks if task]
         task_ids = [block_id for block_id in block_ids if block_id]
+    else:
+        if chunk_level != "both" and progress_callback is not None:
+            progress_callback("freeform-spans ignores --chunk-level")
+        if not archive:
+            raise RuntimeError("No extracted blocks available for freeform labeling.")
+        tasks_all = build_freeform_span_tasks(
+            archive=archive,
+            source_hash=file_hash,
+            source_file=path.name,
+            book_id=book_id,
+            segment_blocks=segment_blocks,
+            segment_overlap=segment_overlap,
+        )
+        if not tasks_all:
+            raise RuntimeError("No freeform span tasks generated for labeling.")
+        coverage_payload = compute_freeform_task_coverage(archive, tasks_all)
+        if coverage_payload["extracted_chars"] == 0:
+            raise RuntimeError(
+                "No text extracted; this may be a scanned document that requires OCR."
+            )
+        tasks = sample_freeform_tasks(tasks_all, limit=limit, sample=sample)
+        if not tasks:
+            raise RuntimeError(
+                "No freeform span tasks generated after limit/sample filters."
+            )
+        label_config = build_freeform_label_config()
+        segment_ids = [task.get("data", {}).get("segment_id") for task in tasks if task]
+        task_ids = [segment_id for segment_id in segment_ids if segment_id]
 
-    project_title = _resolve_project_name(book_slug, run_dt, project_name)
     client = LabelStudioClient(label_studio_url, label_studio_api_key)
+    project_title = _resolve_project_name(path, project_name, client)
 
     existing_project = client.find_project_by_title(project_title)
     if overwrite and existing_project:
@@ -239,6 +302,9 @@ def run_labelstudio_import(
                 )
             resume_source = str(manifest_path)
             existing_task_ids = set(
+                payload.get("segment_ids")
+                or []
+            ) or set(
                 payload.get("block_ids")
                 or payload.get("chunk_ids")
                 or payload.get("task_ids")
@@ -246,12 +312,13 @@ def run_labelstudio_import(
             )
             tasks_path = manifest_path.parent / "label_studio_tasks.jsonl"
             if not existing_task_ids and tasks_path.exists():
-                key = "block_id" if task_scope == "canonical-blocks" else "chunk_id"
-                existing_task_ids = load_task_ids_from_jsonl(tasks_path, key)
+                existing_task_ids = load_task_ids_from_jsonl(
+                    tasks_path, _task_id_key(task_scope)
+                )
 
     upload_tasks: list[dict[str, Any]] = []
     for task in tasks:
-        task_id_key = "block_id" if task_scope == "canonical-blocks" else "chunk_id"
+        task_id_key = _task_id_key(task_scope)
         task_id = task.get("data", {}).get(task_id_key)
         if task_id and task_id in existing_task_ids:
             continue
@@ -310,11 +377,14 @@ def run_labelstudio_import(
         "chunk_level": chunk_level if task_scope == "pipeline" else None,
         "task_scope": task_scope,
         "context_window": context_window if task_scope == "canonical-blocks" else None,
+        "segment_blocks": segment_blocks if task_scope == "freeform-spans" else None,
+        "segment_overlap": segment_overlap if task_scope == "freeform-spans" else None,
         "task_count": len(tasks),
         "uploaded_task_count": uploaded_count,
         "task_ids": task_ids,
         "chunk_ids": chunk_ids,
         "block_ids": block_ids,
+        "segment_ids": segment_ids,
         "coverage": coverage_payload,
         "resume_source": resume_source,
         "label_studio_url": label_studio_url,

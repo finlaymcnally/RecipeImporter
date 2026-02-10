@@ -30,9 +30,10 @@ export LABEL_STUDIO_API_KEY=your_api_key_here
 ```bash
 # Import a cookbook for labeling
 cookimport labelstudio-import path/to/cookbook.epub \
-  --project-name "ATK Cookbook Benchmark" \
   --chunk-level both
 ```
+
+If `--project-name` is omitted, the CLI now defaults to the input filename stem (for example `the_food_lab`) and appends `-1`, `-2`, etc. when that title already exists in Label Studio.
 
 Canonical block workflow (separate project):
 
@@ -41,6 +42,16 @@ cookimport labelstudio-import path/to/cookbook.epub \
   --project-name "ATK Cookbook Canonical (blocks)" \
   --task-scope canonical-blocks \
   --context-window 1
+```
+
+Freeform span workflow (separate project):
+
+```bash
+cookimport labelstudio-import path/to/cookbook.epub \
+  --project-name "ATK Cookbook Freeform (spans)" \
+  --task-scope freeform-spans \
+  --segment-blocks 40 \
+  --segment-overlap 5
 ```
 
 ### Export Workflow
@@ -61,20 +72,43 @@ cookimport labelstudio-export \
   --output-dir data/golden/
 ```
 
+Freeform span export:
+
+```bash
+cookimport labelstudio-export \
+  --project-name "ATK Cookbook Freeform (spans)" \
+  --export-scope freeform-spans \
+  --output-dir data/golden/
+```
+
 ---
 
-## Two Golden Sets: Pipeline vs Canonical
+## Three Golden Sets: Pipeline vs Canonical vs Freeform
 
 - **Pipeline golden set**: labels the chunker’s proposed structural/atomic chunks. Great for fast regression on current pipeline output.
 - **Canonical golden set**: labels every extracted block so missed recipes/tips are still captured. Gold spans are derived from block labels and stay stable across chunking changes.
+- **Freeform span golden set**: label arbitrary text spans in segment text using offsets. Exports preserve start/end offsets plus block mapping for downstream evaluation.
 
-Keep these as **separate Label Studio projects** so each can use its own labeling config.
+Keep these as **separate Label Studio projects** so each can use its own labeling config and stable contract.
 
 Gotchas:
 
 - Keep canonical vs pipeline projects separate (label configs are different).
+- Keep freeform projects separate from canonical/pipeline projects.
 - Preserve newlines in block text; the UI relies on them for context.
+- Freeform offsets depend on exact text; the freeform config uses `white-space: pre-wrap` and segment text should not be manually edited.
 - Rerun imports safely with resume mode; existing task IDs are skipped.
+
+Freeform span label set (`label_config_freeform.py`):
+
+- `RECIPE_TITLE`
+- `INGREDIENT_LINE`
+- `INSTRUCTION_LINE`
+- `TIP` (broad reusable guidance)
+- `NOTES` (recipe-specific notes; intended to map into recipe JSON notes)
+- `VARIANT` (recipe/step variation)
+- `NARRATIVE`
+- `OTHER`
 
 ## Chunking Strategies
 
@@ -222,6 +256,7 @@ Export artifacts (under `exports/`):
 - `labelstudio_export.json` (raw export)
 - `golden_set_tip_eval.jsonl` (pipeline)
 - `canonical_block_labels.jsonl` + `canonical_gold_spans.jsonl` (canonical)
+- `freeform_span_labels.jsonl` + `freeform_segment_manifest.jsonl` (freeform spans)
 
 ---
 
@@ -261,6 +296,34 @@ Outputs:
 - `eval_report.md`
 - `missed_gold_spans.jsonl`
 - `false_positive_preds.jsonl`
+
+## Evaluation (Freeform Spans)
+
+Compare pipeline chunk predictions to freeform span labels (mapped to block ranges):
+
+```bash
+cookimport labelstudio-eval freeform-spans \
+  --pred-run data/output/<timestamp>/labelstudio/<book_slug>/ \
+  --gold-spans data/golden/<book_slug>/freeform_span_labels.jsonl \
+  --output-dir data/golden/<book_slug>/eval-freeform/
+```
+
+Outputs:
+
+- `eval_report.json`
+- `eval_report.md`
+- `missed_gold_spans.jsonl`
+- `false_positive_preds.jsonl`
+
+### Guided benchmark flow (single command)
+
+Run an end-to-end guided benchmark (choose gold export, choose source file, generate predictions, score):
+
+```bash
+cookimport labelstudio-benchmark
+```
+
+The command discovers `freeform_span_labels.jsonl`, prompts for selection, runs a pipeline prediction import for the chosen source file, and writes eval artifacts under `eval-vs-pipeline/<timestamp>/`.
 
 ---
 

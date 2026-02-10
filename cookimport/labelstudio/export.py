@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,7 @@ import datetime as dt
 
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.canonical import derive_gold_spans, BLOCK_LABELS
+from cookimport.labelstudio.freeform_tasks import map_span_offsets_to_blocks
 
 
 def _find_latest_manifest(output_root: Path, project_name: str) -> Path | None:
@@ -125,6 +127,59 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
 
+def _extract_freeform_spans(annotation: dict[str, Any]) -> list[dict[str, Any]]:
+    spans: list[dict[str, Any]] = []
+    for item in annotation.get("result") or []:
+        if not isinstance(item, dict):
+            continue
+        value = item.get("value")
+        if not isinstance(value, dict):
+            continue
+        labels = value.get("labels")
+        if not isinstance(labels, list) or not labels:
+            continue
+        start = value.get("start")
+        end = value.get("end")
+        if start is None or end is None:
+            continue
+        try:
+            start_offset = int(start)
+            end_offset = int(end)
+        except (TypeError, ValueError):
+            continue
+        selected_text = value.get("text") or ""
+        to_name = item.get("to_name")
+        result_id = item.get("id")
+        for label in labels:
+            spans.append(
+                {
+                    "label": str(label),
+                    "start_offset": start_offset,
+                    "end_offset": end_offset,
+                    "selected_text": str(selected_text),
+                    "to_name": str(to_name) if to_name else None,
+                    "result_id": str(result_id) if result_id else None,
+                }
+            )
+    return spans
+
+
+def _build_freeform_span_id(
+    *,
+    source_hash: str,
+    segment_id: str,
+    label: str,
+    start_offset: int,
+    end_offset: int,
+    selected_text: str,
+) -> str:
+    digest_input = (
+        f"{source_hash}|{segment_id}|{label}|{start_offset}|{end_offset}|{selected_text}"
+    )
+    digest = hashlib.sha256(digest_input.encode("utf-8")).hexdigest()[:16]
+    return f"urn:cookimport:freeform_span:{source_hash}:{digest}"
+
+
 def run_labelstudio_export(
     *,
     project_name: str,
@@ -140,9 +195,11 @@ def run_labelstudio_export(
     project_id: int | None = None
     run_root = run_dir
 
-    scopes = {"pipeline", "canonical-blocks"}
+    scopes = {"pipeline", "canonical-blocks", "freeform-spans"}
     if export_scope not in scopes:
-        raise ValueError("export_scope must be one of: pipeline, canonical-blocks")
+        raise ValueError(
+            "export_scope must be one of: pipeline, canonical-blocks, freeform-spans"
+        )
 
     if run_dir is not None:
         manifest_path = run_dir / "manifest.json"
@@ -156,6 +213,14 @@ def run_labelstudio_export(
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             project_id = manifest.get("project_id")
             run_root = manifest_path.parent
+
+    if manifest and manifest.get("task_scope"):
+        task_scope = manifest.get("task_scope")
+        if task_scope != export_scope:
+            raise RuntimeError(
+                f"Run manifest uses task_scope={task_scope}; "
+                f"use --export-scope {task_scope} or point to a matching --run-dir."
+            )
 
     project = None
     if project_id is None:
@@ -180,6 +245,143 @@ def run_labelstudio_export(
     export_path.write_text(
         json.dumps(export_payload, indent=2, sort_keys=True), encoding="utf-8"
     )
+
+    if export_scope == "freeform-spans":
+        span_rows: list[dict[str, Any]] = []
+        segment_rows: dict[str, dict[str, Any]] = {}
+        counts = {"labeled": 0, "missing": 0, "skipped": 0}
+
+        for task in export_payload:
+            if not isinstance(task, dict):
+                continue
+            data = task.get("data")
+            if not isinstance(data, dict):
+                continue
+            segment_id = data.get("segment_id")
+            if not segment_id:
+                continue
+            source_hash = str(data.get("source_hash") or "unknown")
+            source_file = str(data.get("source_file") or "unknown")
+            book_id = str(data.get("book_id") or "unknown")
+            segment_text = str(data.get("segment_text") or "")
+            source_map = data.get("source_map")
+            if not isinstance(source_map, dict):
+                source_map = {}
+
+            segment_rows[str(segment_id)] = {
+                "segment_id": str(segment_id),
+                "source_hash": source_hash,
+                "source_file": source_file,
+                "book_id": book_id,
+                "segment_index": data.get("segment_index"),
+                "segment_text_length": len(segment_text),
+                "source_map": source_map,
+            }
+
+            annotation = _select_annotation(task)
+            if annotation is None:
+                counts["missing"] += 1
+                continue
+            freeform_spans = _extract_freeform_spans(annotation)
+            if not freeform_spans:
+                counts["skipped"] += 1
+                continue
+
+            for span in freeform_spans:
+                start_offset = int(span["start_offset"])
+                end_offset = int(span["end_offset"])
+                label = str(span["label"])
+                if start_offset < 0 or end_offset <= start_offset:
+                    counts["skipped"] += 1
+                    continue
+                if end_offset > len(segment_text):
+                    counts["skipped"] += 1
+                    continue
+                touched_blocks = map_span_offsets_to_blocks(
+                    source_map, start_offset, end_offset
+                )
+                touched_block_ids = [
+                    block.get("block_id")
+                    for block in touched_blocks
+                    if isinstance(block, dict) and block.get("block_id")
+                ]
+                touched_block_indices = [
+                    int(block.get("block_index"))
+                    for block in touched_blocks
+                    if isinstance(block, dict) and block.get("block_index") is not None
+                ]
+                selected_text = str(span.get("selected_text") or "")
+                span_rows.append(
+                    {
+                        "span_id": _build_freeform_span_id(
+                            source_hash=source_hash,
+                            segment_id=str(segment_id),
+                            label=label,
+                            start_offset=start_offset,
+                            end_offset=end_offset,
+                            selected_text=selected_text,
+                        ),
+                        "segment_id": str(segment_id),
+                        "source_hash": source_hash,
+                        "source_file": source_file,
+                        "book_id": book_id,
+                        "label": label,
+                        "start_offset": start_offset,
+                        "end_offset": end_offset,
+                        "selected_text": selected_text,
+                        "segment_text_length": len(segment_text),
+                        "touched_block_ids": touched_block_ids,
+                        "touched_block_indices": touched_block_indices,
+                        "touched_blocks": touched_blocks,
+                        "annotator": _resolve_annotator(annotation),
+                        "annotated_at": _resolve_annotation_time(annotation),
+                        "annotation_id": annotation.get("id"),
+                        "result_id": span.get("result_id"),
+                    }
+                )
+                counts["labeled"] += 1
+
+        span_rows.sort(
+            key=lambda item: (
+                item.get("source_hash") or "",
+                item.get("segment_id") or "",
+                int(item.get("start_offset") or 0),
+                int(item.get("end_offset") or 0),
+                item.get("label") or "",
+                item.get("span_id") or "",
+            )
+        )
+        segment_manifest_rows = [
+            segment_rows[key] for key in sorted(segment_rows.keys())
+        ]
+
+        spans_path = export_root / "freeform_span_labels.jsonl"
+        _write_jsonl(spans_path, span_rows)
+
+        segment_manifest_path = export_root / "freeform_segment_manifest.jsonl"
+        _write_jsonl(segment_manifest_path, segment_manifest_rows)
+
+        summary = {
+            "project_name": project_name,
+            "project_id": project_id,
+            "manifest_path": str(manifest_path) if manifest_path else None,
+            "counts": counts,
+            "output": {
+                "freeform_span_labels": str(spans_path),
+                "freeform_segment_manifest": str(segment_manifest_path),
+                "export_payload": str(export_path),
+            },
+        }
+        summary_path = export_root / "summary.json"
+        summary_path.write_text(
+            json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8"
+        )
+
+        return {
+            "export_root": export_root,
+            "summary": summary,
+            "summary_path": summary_path,
+        }
 
     if export_scope == "canonical-blocks":
         block_labels: list[dict[str, Any]] = []

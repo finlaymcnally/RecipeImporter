@@ -174,6 +174,139 @@ data/golden/sample/eval/false_positive_preds.jsonl
 - Re-running imports is safe; existing tasks are skipped.
 - If you see “No text extracted,” the PDF likely needs OCR first.
 
+---
+
+# Freeform Label Studio Workflow (text span highlighting, step-by-step)
+
+Use this when you want to highlight any text span (not fixed chunks/blocks) and save offset-based labels.
+
+## 1) Make sure Label Studio setup is done
+
+Complete **Label Studio setup** above first.
+
+## 2) Put a book in the input folder
+
+Put your file in:
+
+```
+/home/mcnal/projects/recipeimport/data/input
+```
+
+Example: `sample.epub`
+
+## 3) Create a freeform project and import tasks
+
+Copy/paste:
+
+```bash
+cd /home/mcnal/projects/recipeimport
+. .venv/bin/activate
+cookimport labelstudio-import data/input/sample.epub \
+  --task-scope freeform-spans \
+  --segment-blocks 250 \
+  --segment-overlap 5
+```
+
+`--project-name` is optional. If omitted, the importer uses the input filename stem (for example `sample`) and appends `-1`, `-2`, etc. if needed.
+
+What this does:
+
+- Splits extracted text into segment tasks.
+- Uses a freeform Label Studio UI where you can highlight any span.
+- Creates stable `segment_id` values so re-runs can skip duplicates.
+
+## 4) Label spans in the browser
+
+1. Open http://localhost:8080
+2. Open the project name printed by the import command (for example `sample` or `sample-1`)
+3. Highlight text spans and assign one label per highlight:
+   - RECIPE_TITLE
+   - INGREDIENT_LINE
+   - INSTRUCTION_LINE
+   - TIP
+   - NOTES
+   - VARIANT
+   - NARRATIVE
+   - OTHER
+
+Freeform label guidance:
+- `TIP`: broad reusable guidance that applies beyond one specific recipe.
+- `NOTES`: recipe-specific notes that should flow into recipe JSON notes.
+- `VARIANT`: alternate version/variation of a recipe or step.
+
+## 5) Export freeform labels
+
+Copy/paste:
+
+```bash
+cd /home/mcnal/projects/recipeimport
+. .venv/bin/activate
+cookimport labelstudio-export \
+  --project-name "<PROJECT_NAME_FROM_IMPORT_OUTPUT>" \
+  --export-scope freeform-spans \
+  --output-dir data/golden/sample/freeform
+```
+
+You should now have:
+
+```
+data/golden/sample/freeform/<timestamp>/labelstudio/<project_slug>/exports/freeform_span_labels.jsonl
+data/golden/sample/freeform/<timestamp>/labelstudio/<project_slug>/exports/freeform_segment_manifest.jsonl
+```
+
+Tip: if you want a stable path, pass `--run-dir` from the import output folder when exporting.
+
+## 6) Run evaluation (pipeline predictions vs freeform gold)
+
+Find your pipeline import run folder:
+
+```
+data/output/<timestamp>/labelstudio/<book_slug>/
+```
+
+Then run:
+
+```bash
+cd /home/mcnal/projects/recipeimport
+. .venv/bin/activate
+cookimport labelstudio-eval freeform-spans \
+  --pred-run data/output/<timestamp>/labelstudio/<book_slug>/ \
+  --gold-spans data/golden/sample/freeform/<timestamp>/labelstudio/<project_slug>/exports/freeform_span_labels.jsonl \
+  --output-dir data/golden/sample/freeform/eval
+```
+
+You should now have:
+
+```
+data/golden/sample/freeform/eval/eval_report.json
+data/golden/sample/freeform/eval/eval_report.md
+data/golden/sample/freeform/eval/missed_gold_spans.jsonl
+data/golden/sample/freeform/eval/false_positive_preds.jsonl
+```
+
+## 7) One-command benchmark mode (guided)
+
+If you already finished labeling in Label Studio and exported freeform spans, run:
+
+```bash
+cd /home/mcnal/projects/recipeimport
+. .venv/bin/activate
+cookimport labelstudio-benchmark
+```
+
+This guided mode will:
+- Ask you to pick a `freeform_span_labels.jsonl` export (latest shown first).
+- Infer/select the source file to benchmark.
+- Run pipeline prediction import for that file.
+- Write benchmark outputs (`eval_report.json`, `eval_report.md`, misses/false-positives) in an `eval-vs-pipeline` folder next to the selected export run.
+
+## Freeform notes
+
+- Keep the **freeform** project separate from **pipeline** and **canonical** projects.
+- Re-running freeform import is safe; existing `segment_id` tasks are skipped.
+- Offsets depend on exact text display, so do not manually alter segment text in Label Studio config.
+- If you see “No text extracted,” the source likely needs OCR first.
+
 ## Performance & Settings
 
 You can configure performance settings via the **Settings** menu in `C3imp` or via CLI flags.
@@ -225,6 +358,8 @@ Key files:
 - `exports/golden_set_tip_eval.jsonl` (tip eval harness input)
 - `exports/canonical_block_labels.jsonl` (canonical block labels)
 - `exports/canonical_gold_spans.jsonl` (derived recipe spans)
+- `exports/freeform_span_labels.jsonl` (freeform labeled spans with offsets)
+- `exports/freeform_segment_manifest.jsonl` (segment-to-block mapping used by freeform spans)
 
 ## Troubleshooting
 

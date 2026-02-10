@@ -29,10 +29,13 @@ cookimport/labelstudio/canonical.py
 cookimport/labelstudio/chunking.py
 cookimport/labelstudio/client.py
 cookimport/labelstudio/eval_canonical.py
+cookimport/labelstudio/eval_freeform.py
 cookimport/labelstudio/export.py
+cookimport/labelstudio/freeform_tasks.py
 cookimport/labelstudio/ingest.py
 cookimport/labelstudio/label_config.py
 cookimport/labelstudio/label_config_blocks.py
+cookimport/labelstudio/label_config_freeform.py
 cookimport/labelstudio/models.py
 cookimport/llm/__init__.py
 cookimport/llm/client.py
@@ -82,6 +85,8 @@ tests/test_instruction_parser.py
 tests/test_labelstudio_canonical.py
 tests/test_labelstudio_chunking.py
 tests/test_labelstudio_export.py
+tests/test_labelstudio_freeform.py
+tests/test_labelstudio_import_naming.py
 tests/test_paprika_importer.py
 tests/test_paprika_merge.py
 tests/test_pdf_importer.py

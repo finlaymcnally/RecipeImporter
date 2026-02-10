@@ -37,6 +37,12 @@ from cookimport.labelstudio.eval_canonical import (
     load_predicted_spans,
     write_jsonl,
 )
+from cookimport.labelstudio.eval_freeform import (
+    evaluate_predicted_vs_freeform,
+    format_freeform_eval_report_md,
+    load_gold_freeform_ranges,
+    load_predicted_labeled_ranges,
+)
 from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
@@ -228,6 +234,12 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             choices.append(
                 questionary.Choice("Label Studio benchmark import", value="labelstudio")
             )
+        choices.append(
+            questionary.Choice(
+                "Benchmark against labeled freeform export",
+                value="labelstudio_benchmark",
+            )
+        )
         choices.append(questionary.Choice("Inspect a single file (preview layout)", value="inspect"))
         choices.append(questionary.Choice("Settings", value="settings"))
         choices.append(questionary.Choice("Exit", value="exit"))
@@ -398,6 +410,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     chunk_level=chunk_level,
                     task_scope="pipeline",
                     context_window=1,
+                    segment_blocks=40,
+                    segment_overlap=5,
                     overwrite=bool(overwrite),
                     resume=not overwrite,
                     label_studio_url=url,
@@ -417,6 +431,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 fg=typer.colors.CYAN,
             )
             typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
+            break
+
+        elif action == "labelstudio_benchmark":
+            labelstudio_benchmark()
             break
 
 
@@ -467,6 +485,53 @@ def _resolve_labelstudio_settings(
     if not api_key:
         _fail("Label Studio API key missing. Use --label-studio-api-key or LABEL_STUDIO_API_KEY.")
     return url, api_key
+
+
+def _discover_freeform_gold_exports(output_dir: Path) -> list[Path]:
+    exports = list(output_dir.glob("**/exports/freeform_span_labels.jsonl"))
+    def _sort_key(path: Path) -> tuple[str, float, str]:
+        try:
+            run_prefix = path.relative_to(output_dir).parts[0]
+        except Exception:  # noqa: BLE001
+            run_prefix = ""
+        return (run_prefix, path.stat().st_mtime, str(path))
+
+    exports.sort(key=_sort_key, reverse=True)
+    return exports
+
+
+def _infer_source_file_from_freeform_gold(gold_spans: Path) -> Path | None:
+    run_root = gold_spans.parent.parent
+    manifest_path = run_root / "manifest.json"
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            manifest = None
+        if isinstance(manifest, dict):
+            source_file = manifest.get("source_file")
+            if source_file:
+                candidate = Path(str(source_file))
+                if candidate.exists() and candidate.is_file():
+                    return candidate
+
+    try:
+        first_line = next(
+            line for line in gold_spans.read_text(encoding="utf-8").splitlines() if line.strip()
+        )
+        payload = json.loads(first_line)
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(payload, dict):
+        return None
+    source_file = payload.get("source_file")
+    if not source_file:
+        return None
+    source_name = Path(str(source_file)).name
+    input_candidate = DEFAULT_INPUT / source_name
+    if input_candidate.exists() and input_candidate.is_file():
+        return input_candidate
+    return None
 
 
 def _require_importer(path: Path):
@@ -1565,13 +1630,25 @@ def labelstudio_import(
     task_scope: str = typer.Option(
         "pipeline",
         "--task-scope",
-        help="Task scope: pipeline or canonical-blocks.",
+        help="Task scope: pipeline, canonical-blocks, or freeform-spans.",
     ),
     context_window: int = typer.Option(
         1,
         "--context-window",
         min=0,
         help="Block context window for canonical-blocks.",
+    ),
+    segment_blocks: int = typer.Option(
+        40,
+        "--segment-blocks",
+        min=1,
+        help="Blocks per task for freeform-spans.",
+    ),
+    segment_overlap: int = typer.Option(
+        5,
+        "--segment-overlap",
+        min=0,
+        help="Overlapping blocks between freeform-spans segments.",
     ),
     overwrite: bool = typer.Option(
         False, "--overwrite/--resume", help="Overwrite project or resume."
@@ -1589,13 +1666,13 @@ def labelstudio_import(
         None, "--sample", min=1, help="Randomly sample N chunks."
     ),
 ) -> None:
-    """Import a cookbook into Label Studio for benchmarking or canonical block labeling."""
+    """Import a cookbook into Label Studio for pipeline, canonical, or freeform labeling."""
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     try:
         with console.status(f"[bold cyan]Running Label Studio import for {path.name}...[/bold cyan]", spinner="dots") as status:
             def update_progress(msg: str) -> None:
                 status.update(f"[bold cyan]Label Studio import ({path.name}): {msg}[/bold cyan]")
-            
+
             result = run_labelstudio_import(
                 path=path,
                 output_dir=output_dir,
@@ -1604,6 +1681,8 @@ def labelstudio_import(
                 chunk_level=chunk_level,
                 task_scope=task_scope,
                 context_window=context_window,
+                segment_blocks=segment_blocks,
+                segment_overlap=segment_overlap,
                 overwrite=overwrite,
                 resume=not overwrite,
                 label_studio_url=url,
@@ -1643,7 +1722,7 @@ def labelstudio_export(
     export_scope: str = typer.Option(
         "pipeline",
         "--export-scope",
-        help="Export scope: pipeline or canonical-blocks.",
+        help="Export scope: pipeline, canonical-blocks, or freeform-spans.",
     ),
     label_studio_url: str | None = typer.Option(
         None, "--label-studio-url", help="Label Studio base URL."
@@ -1672,12 +1751,14 @@ def labelstudio_export(
 
 @app.command("labelstudio-eval")
 def labelstudio_eval(
-    scope: str = typer.Argument(..., help="Evaluation scope (canonical-blocks)."),
+    scope: str = typer.Argument(
+        ..., help="Evaluation scope (canonical-blocks, freeform-spans)."
+    ),
     pred_run: Path = typer.Option(
         ..., "--pred-run", help="Label Studio run directory with label_studio_tasks.jsonl."
     ),
     gold_spans: Path = typer.Option(
-        ..., "--gold-spans", help="Path to canonical_gold_spans.jsonl."
+        ..., "--gold-spans", help="Path to canonical or freeform gold JSONL."
     ),
     output_dir: Path = typer.Option(
         ..., "--output-dir", help="Output folder for eval artifacts."
@@ -1690,9 +1771,9 @@ def labelstudio_eval(
         help="Jaccard overlap threshold for matching.",
     ),
 ) -> None:
-    """Evaluate pipeline structural chunks against canonical gold spans."""
-    if scope != "canonical-blocks":
-        _fail("Only canonical-blocks evaluation is supported right now.")
+    """Evaluate pipeline predictions against canonical or freeform gold sets."""
+    if scope not in {"canonical-blocks", "freeform-spans"}:
+        _fail("Supported scopes: canonical-blocks, freeform-spans.")
     if not pred_run.exists():
         _fail(f"Predicted run not found: {pred_run}")
     if not gold_spans.exists():
@@ -1700,19 +1781,29 @@ def labelstudio_eval(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    predicted = load_predicted_spans(pred_run)
-    gold = load_gold_spans(gold_spans)
-    result = evaluate_structural_vs_gold(
-        predicted, gold, overlap_threshold=overlap_threshold
-    )
-    report = result["report"]
+    if scope == "canonical-blocks":
+        predicted = load_predicted_spans(pred_run)
+        gold = load_gold_spans(gold_spans)
+        result = evaluate_structural_vs_gold(
+            predicted, gold, overlap_threshold=overlap_threshold
+        )
+        report = result["report"]
+        report_md = format_eval_report_md(report)
+    else:
+        predicted = load_predicted_labeled_ranges(pred_run)
+        gold = load_gold_freeform_ranges(gold_spans)
+        result = evaluate_predicted_vs_freeform(
+            predicted, gold, overlap_threshold=overlap_threshold
+        )
+        report = result["report"]
+        report_md = format_freeform_eval_report_md(report)
 
     report_json_path = output_dir / "eval_report.json"
     report_json_path.write_text(
         json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
     )
     report_md_path = output_dir / "eval_report.md"
-    report_md_path.write_text(format_eval_report_md(report), encoding="utf-8")
+    report_md_path.write_text(report_md, encoding="utf-8")
 
     write_jsonl(output_dir / "missed_gold_spans.jsonl", result["missed_gold"])
     write_jsonl(
@@ -1723,6 +1814,179 @@ def labelstudio_eval(
         f"Evaluation complete. Report: {report_md_path}",
         fg=typer.colors.GREEN,
     )
+
+
+@app.command("labelstudio-benchmark")
+def labelstudio_benchmark(
+    gold_spans: Path | None = typer.Option(
+        None,
+        "--gold-spans",
+        help="Path to freeform_span_labels.jsonl (prompts if omitted).",
+    ),
+    source_file: Path | None = typer.Option(
+        None,
+        "--source-file",
+        help="Source file to import and benchmark (prompts if omitted).",
+    ),
+    output_dir: Path = typer.Option(
+        DEFAULT_OUTPUT, "--output-dir", help="Output folder for prediction run artifacts."
+    ),
+    eval_output_dir: Path | None = typer.Option(
+        None, "--eval-output-dir", help="Output folder for benchmark report artifacts."
+    ),
+    overlap_threshold: float = typer.Option(
+        0.5,
+        "--overlap-threshold",
+        min=0.0,
+        max=1.0,
+        help="Jaccard overlap threshold for matching.",
+    ),
+    pipeline: str = typer.Option("auto", "--pipeline", help="Importer pipeline name or auto."),
+    chunk_level: str = typer.Option(
+        "both",
+        "--chunk-level",
+        help="Chunk level for predictions: structural, atomic, or both.",
+    ),
+    project_name: str | None = typer.Option(
+        None,
+        "--project-name",
+        help="Optional Label Studio project name for prediction import.",
+    ),
+    overwrite: bool = typer.Option(
+        False, "--overwrite/--resume", help="Overwrite prediction project or resume."
+    ),
+    label_studio_url: str | None = typer.Option(
+        None, "--label-studio-url", help="Label Studio base URL."
+    ),
+    label_studio_api_key: str | None = typer.Option(
+        None, "--label-studio-api-key", help="Label Studio API key."
+    ),
+) -> None:
+    """Run one-shot benchmark: pipeline predictions vs freeform labeled gold spans."""
+    url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
+
+    selected_gold = gold_spans
+    if selected_gold is None:
+        candidates = _discover_freeform_gold_exports(output_dir)
+        if not candidates:
+            _fail(
+                "No freeform gold exports found. Run `cookimport labelstudio-export --export-scope freeform-spans` first."
+            )
+        selected_gold = questionary.select(
+            "Select a freeform gold export:",
+            choices=[
+                questionary.Choice(
+                    f"{path.relative_to(output_dir)}",
+                    value=path,
+                )
+                for path in candidates[:30]
+            ],
+        ).ask()
+        if selected_gold is None:
+            _fail("Benchmark cancelled.")
+    if not selected_gold.exists():
+        _fail(f"Gold spans file not found: {selected_gold}")
+
+    selected_source = source_file
+    inferred_source = None
+    if selected_source is None:
+        inferred_source = _infer_source_file_from_freeform_gold(selected_gold)
+    if selected_source is None and inferred_source is not None:
+        use_inferred = questionary.confirm(
+            f"Use inferred source file `{inferred_source}`?",
+            default=True,
+        ).ask()
+        if use_inferred:
+            selected_source = inferred_source
+    if selected_source is None:
+        importable_files = _list_importable_files(DEFAULT_INPUT)
+        if importable_files:
+            source_choice = questionary.select(
+                "Select source file to benchmark:",
+                choices=[
+                    *[questionary.Choice(path.name, value=path) for path in importable_files],
+                    questionary.Choice("Enter a custom path", value="custom"),
+                ],
+            ).ask()
+            if source_choice is None:
+                _fail("Benchmark cancelled.")
+            if source_choice == "custom":
+                source_path = questionary.text("Enter source file path:").ask()
+                if not source_path:
+                    _fail("Benchmark cancelled.")
+                selected_source = Path(source_path)
+            else:
+                selected_source = source_choice
+        else:
+            source_path = questionary.text("Enter source file path:").ask()
+            if not source_path:
+                _fail("Benchmark cancelled.")
+            selected_source = Path(source_path)
+    if not selected_source.exists() or not selected_source.is_file():
+        _fail(f"Source file not found: {selected_source}")
+    _require_importer(selected_source)
+
+    if eval_output_dir is None:
+        timestamp = dt.datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        eval_output_dir = selected_gold.parent.parent / "eval-vs-pipeline" / timestamp
+    eval_output_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with console.status(
+            f"[bold cyan]Generating prediction tasks for {selected_source.name}...[/bold cyan]",
+            spinner="dots",
+        ) as status:
+            def update_progress(msg: str) -> None:
+                status.update(
+                    f"[bold cyan]Benchmark import ({selected_source.name}): {msg}[/bold cyan]"
+                )
+
+            import_result = run_labelstudio_import(
+                path=selected_source,
+                output_dir=output_dir,
+                pipeline=pipeline,
+                project_name=project_name,
+                chunk_level=chunk_level,
+                task_scope="pipeline",
+                context_window=1,
+                segment_blocks=40,
+                segment_overlap=5,
+                overwrite=overwrite,
+                resume=not overwrite,
+                label_studio_url=url,
+                label_studio_api_key=api_key,
+                limit=None,
+                sample=None,
+                progress_callback=update_progress,
+            )
+    except Exception as exc:  # noqa: BLE001
+        _fail(str(exc))
+
+    pred_run = Path(import_result["run_root"])
+    predicted = load_predicted_labeled_ranges(pred_run)
+    gold = load_gold_freeform_ranges(selected_gold)
+    eval_result = evaluate_predicted_vs_freeform(
+        predicted, gold, overlap_threshold=overlap_threshold
+    )
+    report = eval_result["report"]
+    report_md = format_freeform_eval_report_md(report)
+
+    report_json_path = eval_output_dir / "eval_report.json"
+    report_json_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    report_md_path = eval_output_dir / "eval_report.md"
+    report_md_path.write_text(report_md, encoding="utf-8")
+    write_jsonl(eval_output_dir / "missed_gold_spans.jsonl", eval_result["missed_gold"])
+    write_jsonl(
+        eval_output_dir / "false_positive_preds.jsonl",
+        eval_result["false_positive_preds"],
+    )
+
+    typer.secho("Benchmark complete.", fg=typer.colors.GREEN)
+    typer.secho(f"Gold spans: {selected_gold}", fg=typer.colors.CYAN)
+    typer.secho(f"Prediction run: {pred_run}", fg=typer.colors.CYAN)
+    typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
 
 
 if __name__ == "__main__":
