@@ -1,13 +1,8 @@
-# Recipe Import + Label Studio Quick Start
+# Recipe Import
 
-Note to future AI editors: write for a non-technical, step-by-step audience. Use simple words, numbered steps, and “copy/paste this” instructions. Assume the reader has never used Python or Docker.
+This project is now interactive-first.
 
-This repo lets you import cookbooks (Excel/PDF/EPUB/etc.) and optionally build Label Studio projects for human labeling. The normal and Label Studio flows both run through the **C3imp** interactive menu.
-
-
-## Run the app (normal import) - one command
-
-Copy/paste:
+## Quick Start (Interactive)
 
 ```bash
 cd /home/mcnal/projects/recipeimport
@@ -15,376 +10,215 @@ cd /home/mcnal/projects/recipeimport
 C3imp
 ```
 
-You can also run `C3imp X` to only do X recipes/tips.
-
-In the menu, choose:
-
-- **Import files from data/input** for normal recipe outputs, or
-- **Label Studio benchmark import** for labeling tasks.
-
-## Label Studio setup (do this before any Label Studio workflow)
-
-Do these steps once per terminal session.
-
-### 1) Start Label Studio (Docker)
+Optional: limit output during interactive runs:
 
 ```bash
-docker run -it -p 8080:8080 --name labelstudio heartexlabs/label-studio:latest
+C3imp 10
 ```
 
-Leave this running.
+`10` means: at most 10 recipes and 10 tips per imported file.
 
-### 2) Create a Label Studio API key
+## Non-Interactive CLI (Agent Reference)
 
-1. Open http://localhost:8080
-2. Create an account (if asked).
-3. Go to the user menu → **Account & Settings** → **Access Token**.
-4. Copy the token.
+Main command:
 
-### 3) Set the environment variables
+```bash
+cookimport <command> [options]
+```
 
-Copy/paste (replace the token):
+If you need Label Studio commands, set auth first (or pass flags each time):
 
 ```bash
 export LABEL_STUDIO_URL=http://localhost:8080
-export LABEL_STUDIO_API_KEY=your_api_key_here
+export LABEL_STUDIO_API_KEY=<your_token>
 ```
 
-## Label Studio (simple pipeline flow using C3imp)
+### Commands
 
-After setup above, run:
-
-```bash
-cd /home/mcnal/projects/recipeimport
-. .venv/bin/activate
-C3imp
-```
-
-Then choose **Label Studio benchmark import**.
+1. `stage` - Run import pipeline directly (no interactive menu)
+2. `perf-report` - Summarize run timing/perf
+3. `inspect` - Inspect one input file and guessed layout
+4. `labelstudio-import` - Create/import labeling tasks
+5. `labelstudio-export` - Export labels into JSONL artifacts
+6. `labelstudio-eval` - Evaluate predictions vs gold labels
+7. `labelstudio-benchmark` - One-shot benchmark flow for freeform labels
 
 ---
 
-# Canonical Label Studio Workflow (block-based, step-by-step)
+## `cookimport stage`
 
-This is the **new** workflow that labels every extracted block (so you can measure recall and missed recipes). Follow these steps exactly.
-
-## 1) Make sure Label Studio setup is done
-
-If you have not done it yet, complete **Label Studio setup** above first.
-
-## 2) Put a book in the input folder
-
-Copy your file into:
-
-```
-/home/mcnal/projects/recipeimport/data/input
-```
-
-Example file: `sample.epub` or `sample.pdf`.
-
-## 3) Create the **pipeline** Label Studio project (old, chunk-based)
-
-This keeps the existing benchmark flow for fast regression tests.
-
-Copy/paste:
+Usage:
 
 ```bash
-cd /home/mcnal/projects/recipeimport
-. .venv/bin/activate
-cookimport labelstudio-import data/input/sample.epub \
-  --project-name "Sample Benchmark (pipeline)" \
-  --chunk-level both
+cookimport stage [OPTIONS] PATH
 ```
 
-## 4) Create the **canonical** Label Studio project (new, block-based)
+Arguments:
 
-Copy/paste:
+- `PATH` (required): file or folder containing source files.
 
-```bash
-cd /home/mcnal/projects/recipeimport
-. .venv/bin/activate
-cookimport labelstudio-import data/input/sample.epub \
-  --project-name "Sample Canonical (blocks)" \
-  --task-scope canonical-blocks \
-  --context-window 1
-```
+Options:
 
-## 5) Label some blocks in the browser
-
-1. In Label Studio, open the project **Sample Canonical (blocks)**.
-2. Label ~20 blocks with a mix of:
-   - RECIPE_TITLE
-   - INGREDIENT_LINE
-   - INSTRUCTION_LINE
-   - TIP
-   - NARRATIVE
-   - OTHER
-
-## 6) Export the canonical labels
-
-Copy/paste:
-
-```bash
-cd /home/mcnal/projects/recipeimport
-. .venv/bin/activate
-cookimport labelstudio-export \
-  --project-name "Sample Canonical (blocks)" \
-  --export-scope canonical-blocks \
-  --output-dir data/golden/sample/canonical
-```
-
-You should now have:
-
-```
-data/golden/sample/canonical/canonical_block_labels.jsonl
-data/golden/sample/canonical/canonical_gold_spans.jsonl
-```
-
-## 7) Run the evaluation (pipeline vs canonical)
-
-First, find your latest Label Studio run folder in:
-
-```
-data/output/<timestamp>/labelstudio/<book_slug>/
-```
-
-Then run:
-
-```bash
-cd /home/mcnal/projects/recipeimport
-. .venv/bin/activate
-cookimport labelstudio-eval canonical-blocks \
-  --pred-run data/output/<timestamp>/labelstudio/<book_slug>/ \
-  --gold-spans data/golden/sample/canonical/canonical_gold_spans.jsonl \
-  --output-dir data/golden/sample/eval
-```
-
-You should now have:
-
-```
-data/golden/sample/eval/eval_report.json
-data/golden/sample/eval/eval_report.md
-data/golden/sample/eval/missed_gold_spans.jsonl
-data/golden/sample/eval/false_positive_preds.jsonl
-```
-
-## Important notes
-
-- Keep the **pipeline** project and **canonical** project separate.
-- Re-running imports is safe; existing tasks are skipped.
-- If you see “No text extracted,” the PDF likely needs OCR first.
+- `--out PATH` (default: `data/output`)
+- `--mapping PATH`
+- `--overrides PATH`
+- `--limit, -n INTEGER` (min 1)
+- `--ocr-device TEXT` (default: `auto`; values used by tool: `auto`, `cpu`, `cuda`, `mps`)
+- `--ocr-batch-size INTEGER` (min 1, default: `1`)
+- `--pdf-pages-per-job INTEGER` (min 1, default: `50`)
+- `--epub-spine-items-per-job INTEGER` (min 1, default: `10`)
+- `--warm-models`
+- `--workers, -w INTEGER` (min 1, default: `7`)
+- `--pdf-split-workers INTEGER` (min 1, default: `7`)
+- `--epub-split-workers INTEGER` (min 1, default: `7`)
 
 ---
 
-# Freeform Label Studio Workflow (text span highlighting, step-by-step)
+## `cookimport perf-report`
 
-Use this when you want to highlight any text span (not fixed chunks/blocks) and save offset-based labels.
-
-## 1) Make sure Label Studio setup is done
-
-Complete **Label Studio setup** above first.
-
-## 2) Put a book in the input folder
-
-Put your file in:
-
-```
-/home/mcnal/projects/recipeimport/data/input
-```
-
-Example: `sample.epub`
-
-## 3) Create a freeform project and import tasks
-
-Copy/paste:
+Usage:
 
 ```bash
-cd /home/mcnal/projects/recipeimport
-. .venv/bin/activate
-cookimport labelstudio-import data/input/sample.epub \
-  --task-scope freeform-spans \
-  --segment-blocks 250 \
-  --segment-overlap 5
+cookimport perf-report [OPTIONS]
 ```
 
-`--project-name` is optional. If omitted, the importer uses the input filename stem (for example `sample`) and appends `-1`, `-2`, etc. if needed.
+Options:
 
-What this does:
+- `--run-dir PATH`
+- `--out-dir PATH` (default: `data/output`)
+- `--write-csv` / `--no-csv` (default: `--write-csv`)
 
-- Splits extracted text into segment tasks.
-- Uses a freeform Label Studio UI where you can highlight any span.
-- Creates stable `segment_id` values so re-runs can skip duplicates.
+---
 
-## 4) Label spans in the browser
+## `cookimport inspect`
 
-1. Open http://localhost:8080
-2. Open the project name printed by the import command (for example `sample` or `sample-1`)
-3. Highlight text spans and assign one label per highlight:
-   - RECIPE_TITLE
-   - INGREDIENT_LINE
-   - INSTRUCTION_LINE
-   - TIP
-   - NOTES
-   - VARIANT
-   - NARRATIVE
-   - OTHER
-
-Freeform label guidance:
-- `TIP`: broad reusable guidance that applies beyond one specific recipe.
-- `NOTES`: recipe-specific notes that should flow into recipe JSON notes.
-- `VARIANT`: alternate version/variation of a recipe or step.
-
-## 5) Export freeform labels
-
-Copy/paste:
+Usage:
 
 ```bash
-cd /home/mcnal/projects/recipeimport
-. .venv/bin/activate
-cookimport labelstudio-export \
-  --project-name "<PROJECT_NAME_FROM_IMPORT_OUTPUT>" \
-  --export-scope freeform-spans \
-  --output-dir data/golden/sample/freeform
+cookimport inspect [OPTIONS] PATH
 ```
 
-You should now have:
+Arguments:
 
-```
-data/golden/sample/freeform/<timestamp>/labelstudio/<project_slug>/exports/freeform_span_labels.jsonl
-data/golden/sample/freeform/<timestamp>/labelstudio/<project_slug>/exports/freeform_segment_manifest.jsonl
-```
+- `PATH` (required): file to inspect.
 
-Tip: if you want a stable path, pass `--run-dir` from the import output folder when exporting.
+Options:
 
-## 6) Run evaluation (pipeline predictions vs freeform gold)
+- `--out PATH` (default: `data/output`)
+- `--write-mapping`
 
-Find your pipeline import run folder:
+---
 
-```
-data/output/<timestamp>/labelstudio/<book_slug>/
-```
+## `cookimport labelstudio-import`
 
-Then run:
+Usage:
 
 ```bash
-cd /home/mcnal/projects/recipeimport
-. .venv/bin/activate
-cookimport labelstudio-eval freeform-spans \
-  --pred-run data/output/<timestamp>/labelstudio/<book_slug>/ \
-  --gold-spans data/golden/sample/freeform/<timestamp>/labelstudio/<project_slug>/exports/freeform_span_labels.jsonl \
-  --output-dir data/golden/sample/freeform/eval
+cookimport labelstudio-import [OPTIONS] PATH
 ```
 
-You should now have:
+Arguments:
 
-```
-data/golden/sample/freeform/eval/eval_report.json
-data/golden/sample/freeform/eval/eval_report.md
-data/golden/sample/freeform/eval/missed_gold_spans.jsonl
-data/golden/sample/freeform/eval/false_positive_preds.jsonl
-```
+- `PATH` (required): cookbook file to import for labeling.
 
-## 7) One-command benchmark mode (guided)
+Options:
 
-If you already finished labeling in Label Studio and exported freeform spans, run:
+- `--output-dir PATH` (default: `data/golden`)
+- `--pipeline TEXT` (default: `auto`)
+- `--project-name TEXT`
+- `--chunk-level TEXT` (default: `both`; expected: `structural`, `atomic`, `both`)
+- `--task-scope TEXT` (default: `pipeline`; expected: `pipeline`, `canonical-blocks`, `freeform-spans`)
+- `--context-window INTEGER` (min 0, default: `1`)
+- `--segment-blocks INTEGER` (min 1, default: `40`)
+- `--segment-overlap INTEGER` (min 0, default: `5`)
+- `--overwrite` / `--resume` (default: `--resume`)
+- `--label-studio-url TEXT`
+- `--label-studio-api-key TEXT`
+- `--limit, -n INTEGER` (min 1)
+- `--sample INTEGER` (min 1)
+
+---
+
+## `cookimport labelstudio-export`
+
+Usage:
 
 ```bash
-cd /home/mcnal/projects/recipeimport
-. .venv/bin/activate
-cookimport labelstudio-benchmark
+cookimport labelstudio-export [OPTIONS]
 ```
 
-This guided mode will:
-- Ask you to pick a `freeform_span_labels.jsonl` export (latest shown first).
-- Infer/select the source file to benchmark.
-- Run pipeline prediction import for that file.
-- Write benchmark outputs (`eval_report.json`, `eval_report.md`, misses/false-positives) in an `eval-vs-pipeline` folder next to the selected export run.
+Options:
 
-## Freeform notes
+- `--project-name TEXT` (required)
+- `--output-dir PATH` (default: `data/golden`)
+- `--run-dir PATH`
+- `--export-scope TEXT` (default: `pipeline`; expected: `pipeline`, `canonical-blocks`, `freeform-spans`)
+- `--label-studio-url TEXT`
+- `--label-studio-api-key TEXT`
 
-- Keep the **freeform** project separate from **pipeline** and **canonical** projects.
-- Re-running freeform import is safe; existing `segment_id` tasks are skipped.
-- Offsets depend on exact text display, so do not manually alter segment text in Label Studio config.
-- If you see “No text extracted,” the source likely needs OCR first.
+---
 
-## Performance & Settings
+## `cookimport labelstudio-eval`
 
-You can configure performance settings via the **Settings** menu in `C3imp` or via CLI flags.
-
-**Key Features:**
-*   **Parallel Processing:** Process multiple files at once (`--workers 4`).
-*   **OCR Optimization:** Choose between `auto`, `cuda` (GPU), `mps` (Mac), or `cpu`.
-*   **Batching:** Process multiple pages per OCR call (`--ocr-batch-size`).
-*   **Model Warming:** Pre-load heavy AI models (`--warm-models`) to speed up processing.
-
-**Interactive Configuration:**
-1.  Run `C3imp`.
-2.  Select **Settings**.
-3.  Adjust workers, OCR device, etc.
-4.  Settings are saved to `data/config.json`.
-
-**CLI Usage:**
-```bash
-cookimport stage data/input --workers 8 --ocr-device cuda --warm-models
-```
-
-## Where outputs go
-
-Each run writes a timestamped folder under:
-
-```
-data/output/<timestamp>/
-```
-
-Normal imports:
-
-- `intermediate drafts/<workbook>/` (RecipeSage JSON-LD)
-- `final drafts/<workbook>/` (Draft V1)
-- `tips/<workbook>/` (tips + topic candidates)
-- `<workbook>.excel_import_report.json` (report at run root)
-
-Label Studio runs:
-
-```
-data/output/<timestamp>/labelstudio/<book_slug>/
-```
-
-Key files:
-
-- `extracted_archive.json` (full extracted text archive)
-- `label_studio_tasks.jsonl` (uploaded tasks)
-- `coverage.json` (coverage report)
-- `exports/labeled_chunks.jsonl` (full fidelity labels)
-- `exports/golden_set_tip_eval.jsonl` (tip eval harness input)
-- `exports/canonical_block_labels.jsonl` (canonical block labels)
-- `exports/canonical_gold_spans.jsonl` (derived recipe spans)
-- `exports/freeform_span_labels.jsonl` (freeform labeled spans with offsets)
-- `exports/freeform_segment_manifest.jsonl` (segment-to-block mapping used by freeform spans)
-
-## Troubleshooting
-
-If `C3imp` is not found, activate the virtualenv first:
+Usage:
 
 ```bash
-cd /home/mcnal/projects/recipeimport
-. .venv/bin/activate
+cookimport labelstudio-eval [OPTIONS] SCOPE
 ```
 
-If Label Studio reports no text extracted, the PDF is likely scanned. Run OCR first, then re-import.
+Arguments:
 
-## One-time setup (if needed)
+- `SCOPE` (required): `canonical-blocks` or `freeform-spans`.
 
-Copy/paste each line, in order:
+Options:
+
+- `--pred-run PATH` (required)
+- `--gold-spans PATH` (required)
+- `--output-dir PATH` (required)
+- `--overlap-threshold FLOAT` (`0.0` to `1.0`, default: `0.5`)
+
+---
+
+## `cookimport labelstudio-benchmark`
+
+Usage:
 
 ```bash
-cd /home/mcnal/projects/recipeimport
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -e ".[dev]"
+cookimport labelstudio-benchmark [OPTIONS]
 ```
 
-Put your files here (input folder):
+Options:
 
-```
-/home/mcnal/projects/recipeimport/data/input
+- `--gold-spans PATH` (prompts if omitted)
+- `--source-file PATH` (prompts if omitted)
+- `--output-dir PATH` (default: `data/golden`)
+- `--eval-output-dir PATH`
+- `--overlap-threshold FLOAT` (`0.0` to `1.0`, default: `0.5`)
+- `--pipeline TEXT` (default: `auto`)
+- `--chunk-level TEXT` (default: `both`; expected: `structural`, `atomic`, `both`)
+- `--project-name TEXT`
+- `--overwrite` / `--resume` (default: `--resume`)
+- `--label-studio-url TEXT`
+- `--label-studio-api-key TEXT`
+- `--workers INTEGER` (min 1, default: `7`)
+- `--pdf-split-workers INTEGER` (min 1, default: `7`)
+- `--epub-split-workers INTEGER` (min 1, default: `7`)
+- `--pdf-pages-per-job INTEGER` (min 1, default: `50`)
+- `--epub-spine-items-per-job INTEGER` (min 1, default: `10`)
+
+---
+
+## CLI Help Shortcuts
+
+Use these to get current help text directly from the installed version:
+
+```bash
+cookimport --help
+cookimport stage --help
+cookimport perf-report --help
+cookimport inspect --help
+cookimport labelstudio-import --help
+cookimport labelstudio-export --help
+cookimport labelstudio-eval --help
+cookimport labelstudio-benchmark --help
 ```

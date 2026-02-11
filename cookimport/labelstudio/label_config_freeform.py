@@ -19,7 +19,6 @@ def build_freeform_label_config() -> str:
     <Label value="TIP"/>
     <Label value="NOTES"/>
     <Label value="VARIANT"/>
-    <Label value="NARRATIVE"/>
     <Label value="OTHER"/>
   </Labels>
 </View>

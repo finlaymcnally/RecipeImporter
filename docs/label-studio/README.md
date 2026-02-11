@@ -33,6 +33,11 @@ cookimport labelstudio-import path/to/cookbook.epub \
   --chunk-level both
 ```
 
+Interactive mode note: `cookimport` (menu mode) uses `cookimport.json` key `output_dir`
+for stage/inspect artifacts (default `data/output/`).
+CLI note: `cookimport labelstudio-import`, `cookimport labelstudio-export`, and
+`cookimport labelstudio-benchmark` default `--output-dir` to `data/golden/`.
+
 If `--project-name` is omitted, the CLI now defaults to the input filename stem (for example `the_food_lab`) and appends `-1`, `-2`, etc. when that title already exists in Label Studio.
 
 Canonical block workflow (separate project):
@@ -62,6 +67,8 @@ cookimport labelstudio-export \
   --project-name "ATK Cookbook Benchmark" \
   --output-dir data/golden/
 ```
+
+Interactive CLI note: running `cookimport` with no subcommand now includes a `Label Studio export` menu option so you can export completed annotations without typing the command manually.
 
 Canonical block export:
 
@@ -107,8 +114,9 @@ Freeform span label set (`label_config_freeform.py`):
 - `TIP` (broad reusable guidance)
 - `NOTES` (recipe-specific notes; intended to map into recipe JSON notes)
 - `VARIANT` (recipe/step variation)
-- `NARRATIVE`
 - `OTHER`
+
+Legacy compatibility in freeform eval: `KNOWLEDGE` -> `TIP`, `NOTE` -> `NOTES`, and `NARRATIVE` -> `OTHER`.
 
 ## Chunking Strategies
 
@@ -161,6 +169,10 @@ The Label Studio project uses a custom labeling config (`label_config.py`):
 - Field-by-field correctness
 - Quantity kind accuracy
 - Section header detection
+
+Pipeline optional tags now include cookbook-DB-oriented metadata tags:
+- `servings`
+- `pairs_well_with` (for "goes well with" pairings)
 
 ---
 
@@ -323,7 +335,8 @@ Run an end-to-end guided benchmark (choose gold export, choose source file, gene
 cookimport labelstudio-benchmark
 ```
 
-The command discovers `freeform_span_labels.jsonl`, prompts for selection, runs a pipeline prediction import for the chosen source file, and writes eval artifacts under `eval-vs-pipeline/<timestamp>/`.
+The command discovers `freeform_span_labels.jsonl` under both `data/output/**/exports/` and `data/golden/**/exports/`, prompts for selection, runs a pipeline prediction import for the chosen source file, and writes benchmark artifacts under `data/golden/eval-vs-pipeline/<timestamp>/` by default (including `prediction-run/` plus eval report files).
+For large PDF/EPUB sources, prediction imports in benchmark mode use split-job multiprocessing (`--workers`, `--pdf-split-workers`, `--epub-split-workers`, `--pdf-pages-per-job`, `--epub-spine-items-per-job`).
 
 ---
 

@@ -71,7 +71,7 @@ class TestHeadingDetection:
 
 
 class TestLaneAssignment:
-    """Test lane classification (knowledge/narrative/noise)."""
+    """Test lane classification (knowledge/noise)."""
 
     def test_knowledge_lane_for_technique_content(self):
         """Technique/instruction content should be classified as knowledge."""
@@ -84,8 +84,8 @@ class TestLaneAssignment:
         assign_lanes([chunk])
         assert chunk.lane == ChunkLane.KNOWLEDGE
 
-    def test_narrative_lane_for_personal_story(self):
-        """Personal anecdotes should be classified as narrative."""
+    def test_personal_story_routed_to_noise(self):
+        """Personal anecdotes should be routed to noise."""
         chunk = KnowledgeChunk(
             identifier="c0",
             text="I remember when my grandmother taught me to make bread. Growing up, "
@@ -94,7 +94,7 @@ class TestLaneAssignment:
             block_ids=[0],
         )
         assign_lanes([chunk])
-        assert chunk.lane == ChunkLane.NARRATIVE
+        assert chunk.lane == ChunkLane.NOISE
 
     def test_noise_lane_for_praise_blurb(self):
         """Promotional/praise content should be classified as noise."""
@@ -141,17 +141,17 @@ class TestHighlightExtraction:
         assert len(chunk.highlights) >= 1
         assert chunk.tip_density > 0
 
-    def test_no_highlights_for_narrative_chunks(self):
-        """Narrative chunks should not have highlights extracted."""
+    def test_no_highlights_for_noise_chunks(self):
+        """Noise chunks should not have highlights extracted."""
         chunk = KnowledgeChunk(
             identifier="c0",
-            lane=ChunkLane.NARRATIVE,
+            lane=ChunkLane.NOISE,
             text="I remember learning to cook from my mother.",
             block_ids=[0],
         )
         extract_highlights([chunk])
 
-        # Should have no highlights (narrative lane skipped)
+        # Should have no highlights (non-knowledge lane skipped)
         assert chunk.highlight_count == 0
 
     def test_tags_aggregated_from_highlights(self):
@@ -279,10 +279,10 @@ class TestFullPipeline:
 
         chunks = process_blocks_to_chunks(blocks)
 
-        # First chunk (blurb) should be noise or narrative
+        # First chunk (blurb) should be noise
         blurb_chunks = [c for c in chunks if "beautiful" in c.text.lower()]
         for c in blurb_chunks:
-            assert c.lane in (ChunkLane.NOISE, ChunkLane.NARRATIVE)
+            assert c.lane == ChunkLane.NOISE
 
         # Pasta section should be knowledge
         pasta_chunks = [c for c in chunks if "salt your pasta" in c.text.lower()]

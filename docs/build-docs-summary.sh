@@ -3,6 +3,8 @@
 #   bash docs/build-docs-summary.sh
 # Output:
 #   docs/<timestamp>_importer-docs-summary.md
+# Note:
+#   Image files are skipped from the generated summary.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,11 +37,23 @@ EOF
       continue
     fi
 
+    ext="${file##*.}"
+    ext_lower="$(printf "%s" "$ext" | tr '[:upper:]' '[:lower:]')"
+    case "$ext_lower" in
+      png|jpg|jpeg|gif|bmp|webp|tiff|tif|svg|ico|avif|heic|heif)
+        continue
+        ;;
+    esac
+
+    mime_info="$(file --mime "$file" 2>/dev/null || true)"
+    if [[ "$mime_info" == *"image/"* ]]; then
+      continue
+    fi
+
     rel="${file#$repo_root/}"
     echo "## ${rel}"
     echo ""
 
-    mime_info="$(file --mime "$file" 2>/dev/null || true)"
     if [[ "$mime_info" == *"charset=binary"* ]]; then
       echo "_Binary file; base64-encoded below._"
       echo ""
@@ -50,8 +64,6 @@ EOF
       continue
     fi
 
-    ext="${file##*.}"
-    ext_lower="$(printf "%s" "$ext" | tr '[:upper:]' '[:lower:]')"
     case "$ext_lower" in
       md) lang="markdown" ;;
       json) lang="json" ;;

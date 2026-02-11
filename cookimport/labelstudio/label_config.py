@@ -30,6 +30,8 @@ LABEL_CONFIG_XML = """
     <Choice value="equipment"/>
     <Choice value="food_safety"/>
     <Choice value="measurement"/>
+    <Choice value="servings"/>
+    <Choice value="pairs_well_with"/>
     <Choice value="science"/>
     <Choice value="make_ahead"/>
   </Choices>

@@ -180,7 +180,7 @@ def _map_chunk_to_label(data: dict[str, Any]) -> str | None:
     ):
         return "TIP"
     if chunk_type in {"recipe_description"}:
-        return "NARRATIVE"
+        return "OTHER"
     if chunk_type.startswith("atom_"):
         atom_kind = chunk_type[5:]
         if atom_kind in {"ingredient_like"}:
@@ -188,7 +188,7 @@ def _map_chunk_to_label(data: dict[str, Any]) -> str | None:
         if atom_kind in {"step", "list_item"}:
             return "INSTRUCTION_LINE"
         if atom_kind in {"paragraph", "sentence"}:
-            return "NARRATIVE"
+            return "OTHER"
     return "OTHER"
 
 
@@ -198,6 +198,8 @@ def _normalize_freeform_label(label: str) -> str:
         return "TIP"
     if normalized == "NOTE":
         return "NOTES"
+    if normalized == "NARRATIVE":
+        return "OTHER"
     return normalized
 
 

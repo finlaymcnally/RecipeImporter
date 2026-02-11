@@ -1,4 +1,5 @@
 from cookimport.labelstudio.export import _extract_labels, _map_to_tip_label, _select_annotation
+from cookimport.labelstudio.label_config import LABEL_CONFIG_XML
 
 
 def test_extract_labels_and_mapping() -> None:
@@ -30,3 +31,8 @@ def test_select_annotation_latest() -> None:
     assert selected is not None
     labels = _extract_labels(selected)
     assert labels["content_type"] == "fluff"
+
+
+def test_pipeline_label_config_includes_servings_and_pairings_tags() -> None:
+    assert '<Choice value="servings"/>' in LABEL_CONFIG_XML
+    assert '<Choice value="pairs_well_with"/>' in LABEL_CONFIG_XML

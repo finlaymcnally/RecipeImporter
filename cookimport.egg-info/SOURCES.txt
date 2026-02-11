@@ -82,11 +82,13 @@ tests/test_epub_job_merge.py
 tests/test_excel_importer.py
 tests/test_ingredient_parser.py
 tests/test_instruction_parser.py
+tests/test_labelstudio_benchmark_helpers.py
 tests/test_labelstudio_canonical.py
 tests/test_labelstudio_chunking.py
 tests/test_labelstudio_export.py
 tests/test_labelstudio_freeform.py
 tests/test_labelstudio_import_naming.py
+tests/test_labelstudio_ingest_parallel.py
 tests/test_paprika_importer.py
 tests/test_paprika_merge.py
 tests/test_pdf_importer.py

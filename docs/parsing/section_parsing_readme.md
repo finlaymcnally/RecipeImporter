@@ -188,7 +188,7 @@ Chunking creates **coherent, section-aligned** knowledge blocks from non-recipe 
 Current behavior (implemented):
 
 - Deterministic, heading-driven chunking of non-recipe blocks
-- Lane assignment: `knowledge`, `narrative`, `noise`
+- Lane assignment: `knowledge`, `noise` (narrative-like prose is routed to `noise`)
 - Tip miner is reused to create **highlights** inside each chunk
 - Chunk boundaries include hard/medium/soft types (headings, callouts, formatting shifts)
 - Small chunks are merged to keep outputs coherent
@@ -201,7 +201,7 @@ Outputs are written to:
 ### Known Issues / Future Options
 
 - Optional chunk **distillation** via mocked LLM layer is not implemented unless explicitly enabled; chunk outputs remain deterministic.
-- Lane assignment is heuristic-based; false positives/negatives are possible for borderline narrative vs knowledge content.
+- Lane assignment is heuristic-based; false positives/negatives are possible for borderline knowledge vs noise content.
 
 ## Tests and Validation
 

@@ -15,13 +15,20 @@ RecipeCandidate supports optional RecipeSage fields like `image`,
 `aggregateRating`, plus `recipeInstructions` as strings or HowToStep objects.
 
 Run `cookimport inspect <workbook> --write-mapping` to print layout guesses and
-write a mapping stub under `staging/mappings/`. Run `cookimport stage <folder>`
-to scan a folder and write JSON-LD under `staging/<timestamp>/intermediate drafts/`
-and DraftV1 under `staging/<timestamp>/final drafts/`, plus tip snippets under
-`staging/<timestamp>/tips/`, raw artifacts under `staging/<timestamp>/raw/`, and
-reports under `staging/<timestamp>/reports/`.
+write a mapping stub under `data/output/mappings/`. Run `cookimport stage <folder>`
+to scan a folder and write JSON-LD under `data/output/<timestamp>/intermediate drafts/`
+and DraftV1 under `data/output/<timestamp>/final drafts/`, plus tip snippets under
+`data/output/<timestamp>/tips/`, raw artifacts under `data/output/<timestamp>/raw/`, and
+reports under `data/output/<timestamp>/reports/`.
 During `cookimport stage`, the CLI shows a per-worker status panel that refreshes
 about every 5 seconds with the latest progress message.
+Interactive `C3imp`/`cookimport` menu `select` prompts now support Backspace as a
+quick "go back one menu level" action.
+Interactive Label Studio import now supports all task scopes (`pipeline`,
+`canonical-blocks`, `freeform-spans`) and asks for scope-specific settings
+(chunk level, canonical context window, or freeform segment sizing).
+Interactive menus now print short purpose blurbs and include concise per-option
+descriptions to make each branch easier to choose without external docs.
 
 Performance can be tuned with:
 - `--workers <N>`: Parallelize file processing (default: 7).

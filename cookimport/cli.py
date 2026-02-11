@@ -12,10 +12,11 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Dict, Any
+from typing import Iterable, Dict, Any, Annotated
 
 import questionary
 import typer
+from prompt_toolkit.keys import Keys
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
@@ -68,7 +69,34 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_INPUT = Path(__file__).parent.parent / "data" / "input"
 DEFAULT_OUTPUT = Path(__file__).parent.parent / "data" / "output"
+DEFAULT_INTERACTIVE_OUTPUT = DEFAULT_OUTPUT
+DEFAULT_GOLDEN = Path(__file__).parent.parent / "data" / "golden"
 DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "cookimport.json"
+BACK_ACTION = "__back__"
+
+
+def _menu_select(
+    message: str,
+    *,
+    choices: list[Any],
+    menu_help: str | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Select helper with Backspace support for one-level menu back navigation."""
+    if menu_help:
+        typer.secho(menu_help, fg=typer.colors.BRIGHT_BLACK)
+    question = questionary.select(
+        message,
+        choices=choices,
+        instruction="(Enter to select, Backspace to go back)",
+        **kwargs,
+    )
+
+    @question.application.key_bindings.add(Keys.Backspace, eager=True)
+    def _go_back(event: Any) -> None:
+        event.app.exit(result=BACK_ACTION)
+
+    return question.ask()
 
 
 def _load_settings() -> Dict[str, Any]:
@@ -82,6 +110,7 @@ def _load_settings() -> Dict[str, Any]:
         "pdf_pages_per_job": 50,
         "epub_spine_items_per_job": 10,
         "warm_models": False,
+        "output_dir": str(DEFAULT_INTERACTIVE_OUTPUT),
     }
     if not DEFAULT_CONFIG_PATH.exists():
         return defaults
@@ -119,35 +148,55 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
     """Run the settings configuration menu."""
     while True:
         # Refresh values in display
-        choice = questionary.select(
+        choice = _menu_select(
             "Settings Configuration",
+            menu_help=(
+                "Tune defaults used by stage/benchmark jobs. "
+                "These settings are saved to cookimport.json."
+            ),
             choices=[
-                questionary.Choice(f"Workers: {current_settings.get('workers', 4)}", value="workers"),
                 questionary.Choice(
-                    f"PDF Split Workers: {current_settings.get('pdf_split_workers', 7)}",
+                    f"Workers: {current_settings.get('workers', 4)} - max parallel file jobs",
+                    value="workers",
+                ),
+                questionary.Choice(
+                    f"PDF Split Workers: {current_settings.get('pdf_split_workers', 7)} - max PDF shard jobs",
                     value="pdf_split_workers",
                 ),
                 questionary.Choice(
-                    f"EPUB Split Workers: {current_settings.get('epub_split_workers', 7)}",
+                    f"EPUB Split Workers: {current_settings.get('epub_split_workers', 7)} - max EPUB shard jobs",
                     value="epub_split_workers",
                 ),
-                questionary.Choice(f"OCR Device: {current_settings.get('ocr_device', 'auto')}", value="ocr_device"),
-                questionary.Choice(f"OCR Batch Size: {current_settings.get('ocr_batch_size', 1)}", value="ocr_batch_size"),
                 questionary.Choice(
-                    f"PDF Pages/Job: {current_settings.get('pdf_pages_per_job', 50)}",
+                    f"OCR Device: {current_settings.get('ocr_device', 'auto')} - auto/cpu/cuda/mps",
+                    value="ocr_device",
+                ),
+                questionary.Choice(
+                    f"OCR Batch Size: {current_settings.get('ocr_batch_size', 1)} - pages per OCR call",
+                    value="ocr_batch_size",
+                ),
+                questionary.Choice(
+                    f"Output Folder: {current_settings.get('output_dir', str(DEFAULT_INTERACTIVE_OUTPUT))} - stage/inspect artifacts",
+                    value="output_dir",
+                ),
+                questionary.Choice(
+                    f"PDF Pages/Job: {current_settings.get('pdf_pages_per_job', 50)} - split size per PDF task",
                     value="pdf_pages_per_job",
                 ),
                 questionary.Choice(
-                    f"EPUB Spine Items/Job: {current_settings.get('epub_spine_items_per_job', 10)}",
+                    f"EPUB Spine Items/Job: {current_settings.get('epub_spine_items_per_job', 10)} - split size per EPUB task",
                     value="epub_spine_items_per_job",
                 ),
-                questionary.Choice(f"Warm Models: {'Yes' if current_settings.get('warm_models', False) else 'No'}", value="warm_models"),
+                questionary.Choice(
+                    f"Warm Models: {'Yes' if current_settings.get('warm_models', False) else 'No'} - preload heavy models",
+                    value="warm_models",
+                ),
                 questionary.Separator(),
-                questionary.Choice("Back to Main Menu", value="back"),
+                questionary.Choice("Back to Main Menu - return without changing anything", value="back"),
             ]
-        ).ask()
+        )
         
-        if choice == "back" or choice is None:
+        if choice in {"back", BACK_ACTION} or choice is None:
             break
             
         if choice == "workers":
@@ -175,12 +224,13 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 _save_settings(current_settings)
 
         elif choice == "ocr_device":
-            val = questionary.select(
+            val = _menu_select(
                 "Select OCR Device:",
                 choices=["auto", "cpu", "cuda", "mps"],
-                default=current_settings.get("ocr_device", "auto")
-            ).ask()
-            if val:
+                default=current_settings.get("ocr_device", "auto"),
+                menu_help="Choose OCR hardware. Use auto unless you need to force a device.",
+            )
+            if val and val != BACK_ACTION:
                 current_settings["ocr_device"] = val
                 _save_settings(current_settings)
                 
@@ -188,6 +238,15 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
             val = questionary.text("Enter OCR batch size:", default=str(current_settings.get("ocr_batch_size", 1))).ask()
             if val and val.isdigit() and int(val) > 0:
                 current_settings["ocr_batch_size"] = int(val)
+                _save_settings(current_settings)
+
+        elif choice == "output_dir":
+            val = questionary.text(
+                "Enter output folder for interactive runs:",
+                default=str(current_settings.get("output_dir", str(DEFAULT_INTERACTIVE_OUTPUT))),
+            ).ask()
+            if val:
+                current_settings["output_dir"] = str(Path(val).expanduser())
                 _save_settings(current_settings)
 
         elif choice == "pdf_pages_per_job":
@@ -220,34 +279,64 @@ def _interactive_mode(*, limit: int | None = None) -> None:
     typer.secho("\n  Recipe Import Tool\n", fg=typer.colors.CYAN, bold=True)
 
     input_folder = DEFAULT_INPUT
-    output_folder = DEFAULT_OUTPUT
-    
     settings = _load_settings()
 
     while True:
+        output_folder = Path(str(settings.get("output_dir") or DEFAULT_INTERACTIVE_OUTPUT)).expanduser()
         # Scan for importable files first to know what context to show
         importable_files = _list_importable_files(input_folder)
 
         choices = []
         if importable_files:
-            choices.append(questionary.Choice("Import files from data/input", value="import"))
             choices.append(
-                questionary.Choice("Label Studio benchmark import", value="labelstudio")
+                questionary.Choice(
+                    "Import files from data/input - convert to RecipeSage outputs",
+                    value="import",
+                )
+            )
+            choices.append(
+                questionary.Choice(
+                    "Label Studio benchmark import - create labeling tasks from one source",
+                    value="labelstudio",
+                )
             )
         choices.append(
             questionary.Choice(
-                "Benchmark against labeled freeform export",
+                "Label Studio export - pull finished labels into golden artifacts",
+                value="labelstudio_export",
+            )
+        )
+        choices.append(
+            questionary.Choice(
+                "Benchmark against labeled freeform export - run predictions + scoring",
                 value="labelstudio_benchmark",
             )
         )
-        choices.append(questionary.Choice("Inspect a single file (preview layout)", value="inspect"))
-        choices.append(questionary.Choice("Settings", value="settings"))
-        choices.append(questionary.Choice("Exit", value="exit"))
+        choices.append(
+            questionary.Choice(
+                "Inspect a single file - preview inferred layout and confidence",
+                value="inspect",
+            )
+        )
+        choices.append(
+            questionary.Choice(
+                "Settings - tune worker/OCR/output defaults",
+                value="settings",
+            )
+        )
+        choices.append(questionary.Choice("Exit - close the tool", value="exit"))
 
-        action = questionary.select(
+        action = _menu_select(
             "What would you like to do?",
             choices=choices,
-        ).ask()
+            menu_help=(
+                "Choose a workflow. Import converts source files, Label Studio creates "
+                "annotation tasks, Benchmark scores pipeline predictions against gold."
+            ),
+        )
+
+        if action == BACK_ACTION:
+            continue
 
         if action is None or action == "exit":
             raise typer.Exit(0)
@@ -268,12 +357,13 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             file_choices = [
                 questionary.Choice(f.name, value=f) for f in importable_files
             ]
-            selected_file = questionary.select(
+            selected_file = _menu_select(
                 "Select a file to inspect:",
                 choices=file_choices,
-            ).ask()
+                menu_help="Pick one source file to inspect parser layout guesses.",
+            )
 
-            if selected_file is None:
+            if selected_file in {None, BACK_ACTION}:
                 continue
 
             write_map = questionary.confirm(
@@ -301,15 +391,19 @@ def _interactive_mode(*, limit: int | None = None) -> None:
 
             typer.secho(f"\nFound {len(importable_files)} importable file(s) in {input_folder}", fg=typer.colors.GREEN)
 
-            selection = questionary.select(
+            selection = _menu_select(
                 "Which file(s) would you like to import?",
+                menu_help=(
+                    "Import All processes every supported file in data/input. "
+                    "Choosing one file runs conversion only for that file."
+                ),
                 choices=[
-                    questionary.Choice("Import All", value="all"),
+                    questionary.Choice("Import All - process every supported file", value="all"),
                     *[questionary.Choice(f.name, value=f) for f in importable_files]
                 ]
-            ).ask()
+            )
 
-            if selection is None:
+            if selection in {None, BACK_ACTION}:
                 continue
 
             typer.echo()
@@ -349,12 +443,13 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             file_choices = [
                 questionary.Choice(f.name, value=f) for f in importable_files
             ]
-            selected_file = questionary.select(
+            selected_file = _menu_select(
                 "Select a file to import into Label Studio:",
                 choices=file_choices,
-            ).ask()
+                menu_help="Pick the source file to turn into Label Studio tasks.",
+            )
 
-            if selected_file is None:
+            if selected_file in {None, BACK_ACTION}:
                 continue
 
             project_name = questionary.text(
@@ -364,17 +459,96 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             if project_name is not None:
                 project_name = project_name.strip() or None
 
-            chunk_level = questionary.select(
-                "Chunk level:",
+            task_scope = _menu_select(
+                "Task scope:",
+                menu_help=(
+                    "Scope controls labeling style. Pipeline labels chunk outputs, canonical "
+                    "labels every block, and freeform labels arbitrary spans."
+                ),
                 choices=[
-                    questionary.Choice("both (structural + atomic)", value="both"),
-                    questionary.Choice("structural only", value="structural"),
-                    questionary.Choice("atomic only", value="atomic"),
+                    questionary.Choice(
+                        "pipeline chunks - label structural/atomic pipeline chunks",
+                        value="pipeline",
+                    ),
+                    questionary.Choice(
+                        "canonical blocks - one label per extracted block",
+                        value="canonical-blocks",
+                    ),
+                    questionary.Choice(
+                        "freeform spans - highlight arbitrary text spans",
+                        value="freeform-spans",
+                    ),
                 ],
-            ).ask()
+            )
 
-            if chunk_level is None:
+            if task_scope in {None, BACK_ACTION}:
                 continue
+
+            chunk_level = "both"
+            context_window = 1
+            segment_blocks = 40
+            segment_overlap = 5
+
+            if task_scope == "pipeline":
+                chunk_level = _menu_select(
+                    "Chunk level:",
+                    menu_help=(
+                        "Choose which pipeline chunk types to upload for annotation."
+                    ),
+                    choices=[
+                        questionary.Choice(
+                            "both - include structural recipe chunks and atomic line chunks",
+                            value="both",
+                        ),
+                        questionary.Choice(
+                            "structural only - recipe-level chunk boundaries",
+                            value="structural",
+                        ),
+                        questionary.Choice(
+                            "atomic only - line-level ingredient/instruction chunks",
+                            value="atomic",
+                        ),
+                    ],
+                )
+                if chunk_level in {None, BACK_ACTION}:
+                    continue
+            elif task_scope == "canonical-blocks":
+                context_window_raw = questionary.text(
+                    "Canonical context window (blocks):",
+                    default="1",
+                ).ask()
+                if context_window_raw is None:
+                    continue
+                try:
+                    context_window = max(0, int(context_window_raw.strip()))
+                except ValueError:
+                    typer.secho("Context window must be an integer >= 0.", fg=typer.colors.RED)
+                    continue
+            elif task_scope == "freeform-spans":
+                segment_blocks_raw = questionary.text(
+                    "Freeform segment size (blocks per task):",
+                    default="40",
+                ).ask()
+                if segment_blocks_raw is None:
+                    continue
+                segment_overlap_raw = questionary.text(
+                    "Freeform overlap (blocks):",
+                    default="5",
+                ).ask()
+                if segment_overlap_raw is None:
+                    continue
+                try:
+                    segment_blocks = int(segment_blocks_raw.strip())
+                    segment_overlap = int(segment_overlap_raw.strip())
+                except ValueError:
+                    typer.secho("Segment settings must be integers.", fg=typer.colors.RED)
+                    continue
+                if segment_blocks < 1:
+                    typer.secho("Segment size must be >= 1.", fg=typer.colors.RED)
+                    continue
+                if segment_overlap < 0:
+                    typer.secho("Segment overlap must be >= 0.", fg=typer.colors.RED)
+                    continue
 
             overwrite = questionary.confirm(
                 "Overwrite existing project if it exists?",
@@ -404,14 +578,14 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             try:
                 result = run_labelstudio_import(
                     path=selected_file,
-                    output_dir=output_folder,
+                    output_dir=DEFAULT_GOLDEN,
                     pipeline="auto",
                     project_name=project_name,
                     chunk_level=chunk_level,
-                    task_scope="pipeline",
-                    context_window=1,
-                    segment_blocks=40,
-                    segment_overlap=5,
+                    task_scope=task_scope,
+                    context_window=context_window,
+                    segment_blocks=segment_blocks,
+                    segment_overlap=segment_overlap,
                     overwrite=bool(overwrite),
                     resume=not overwrite,
                     label_studio_url=url,
@@ -433,8 +607,91 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
             break
 
+        elif action == "labelstudio_export":
+            project_name_raw = questionary.text(
+                "Label Studio project name to export:",
+                default="",
+            ).ask()
+            if project_name_raw is None:
+                continue
+            project_name = project_name_raw.strip()
+            if not project_name:
+                typer.secho("Project name is required for export.", fg=typer.colors.RED)
+                continue
+
+            export_scope = _menu_select(
+                "Export scope:",
+                menu_help="Choose the task type used by the project you already labeled.",
+                choices=[
+                    questionary.Choice(
+                        "pipeline chunks - chunk-level labels",
+                        value="pipeline",
+                    ),
+                    questionary.Choice(
+                        "canonical blocks - block-level labels and derived spans",
+                        value="canonical-blocks",
+                    ),
+                    questionary.Choice(
+                        "freeform spans - offset-based highlighted spans",
+                        value="freeform-spans",
+                    ),
+                ],
+            )
+            if export_scope in {None, BACK_ACTION}:
+                continue
+
+            target_output_dir = DEFAULT_GOLDEN
+
+            label_studio_url = os.getenv("LABEL_STUDIO_URL")
+            label_studio_api_key = os.getenv("LABEL_STUDIO_API_KEY")
+
+            if not label_studio_url:
+                label_studio_url = questionary.text(
+                    "Label Studio URL:",
+                    default="http://localhost:8080",
+                ).ask()
+            if not label_studio_api_key:
+                label_studio_api_key = questionary.password(
+                    "Label Studio API key:",
+                ).ask()
+
+            url, api_key = _resolve_labelstudio_settings(
+                label_studio_url, label_studio_api_key
+            )
+
+            try:
+                result = run_labelstudio_export(
+                    project_name=project_name,
+                    output_dir=target_output_dir,
+                    label_studio_url=url,
+                    label_studio_api_key=api_key,
+                    run_dir=None,
+                    export_scope=export_scope,
+                )
+            except Exception as exc:  # noqa: BLE001
+                _fail(str(exc))
+
+            typer.secho(
+                f"Export complete. Summary: {result['summary_path']}",
+                fg=typer.colors.GREEN,
+            )
+            break
+
         elif action == "labelstudio_benchmark":
-            labelstudio_benchmark()
+            benchmark_eval_output = (
+                DEFAULT_GOLDEN
+                / "eval-vs-pipeline"
+                / dt.datetime.now().strftime("%Y-%m-%d-%H%M%S")
+            )
+            labelstudio_benchmark(
+                output_dir=DEFAULT_GOLDEN,
+                eval_output_dir=benchmark_eval_output,
+                workers=settings.get("workers", 7),
+                pdf_split_workers=settings.get("pdf_split_workers", 7),
+                epub_split_workers=settings.get("epub_split_workers", 7),
+                pdf_pages_per_job=settings.get("pdf_pages_per_job", 50),
+                epub_spine_items_per_job=settings.get("epub_spine_items_per_job", 10),
+            )
             break
 
 
@@ -488,13 +745,30 @@ def _resolve_labelstudio_settings(
 
 
 def _discover_freeform_gold_exports(output_dir: Path) -> list[Path]:
-    exports = list(output_dir.glob("**/exports/freeform_span_labels.jsonl"))
-    def _sort_key(path: Path) -> tuple[str, float, str]:
+    roots: list[Path] = [output_dir]
+    if DEFAULT_OUTPUT not in roots:
+        roots.append(DEFAULT_OUTPUT)
+    if DEFAULT_GOLDEN not in roots:
+        roots.append(DEFAULT_GOLDEN)
+
+    seen: set[Path] = set()
+    exports: list[Path] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in root.glob("**/exports/freeform_span_labels.jsonl"):
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            exports.append(path)
+
+    def _sort_key(path: Path) -> tuple[float, str]:
         try:
-            run_prefix = path.relative_to(output_dir).parts[0]
+            mtime = path.stat().st_mtime
         except Exception:  # noqa: BLE001
-            run_prefix = ""
-        return (run_prefix, path.stat().st_mtime, str(path))
+            mtime = 0.0
+        return (mtime, str(path))
 
     exports.sort(key=_sort_key, reverse=True)
     return exports
@@ -532,6 +806,45 @@ def _infer_source_file_from_freeform_gold(gold_spans: Path) -> Path | None:
     if input_candidate.exists() and input_candidate.is_file():
         return input_candidate
     return None
+
+
+def _co_locate_prediction_run_for_benchmark(pred_run: Path, eval_output_dir: Path) -> Path:
+    """Move benchmark prediction artifacts under the eval run directory."""
+    if not pred_run.exists() or not pred_run.is_dir():
+        _fail(f"Prediction run directory not found: {pred_run}")
+    original_parent = pred_run.parent
+    stop_exclusive = pred_run.parents[2] if len(pred_run.parents) > 2 else None
+    target = eval_output_dir / "prediction-run"
+    if target.exists():
+        shutil.rmtree(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(pred_run), str(target))
+    _prune_empty_dirs(original_parent, stop_exclusive=stop_exclusive)
+    return target
+
+
+def _prune_empty_dirs(start: Path, *, stop_exclusive: Path | None = None) -> None:
+    """Best-effort cleanup of empty directories after moving benchmark artifacts."""
+    current = start
+    while True:
+        if stop_exclusive is not None and current == stop_exclusive:
+            break
+        try:
+            current.rmdir()
+        except OSError:
+            break
+        if current.parent == current:
+            break
+        current = current.parent
+
+
+def _display_gold_export_path(path: Path, output_dir: Path) -> str:
+    for root in (output_dir, DEFAULT_GOLDEN):
+        try:
+            return str(path.relative_to(root))
+        except ValueError:
+            continue
+    return str(path)
 
 
 def _require_importer(path: Path):
@@ -958,7 +1271,7 @@ def _merge_epub_jobs(
 @app.command()
 def stage(
     path: Path = typer.Argument(..., help="File or folder containing source files."),
-    out: Path = typer.Option(Path("staging"), "--out", help="Output folder."),
+    out: Path = typer.Option(DEFAULT_OUTPUT, "--out", help="Output folder."),
     mapping: Path | None = typer.Option(None, "--mapping", help="Mapping file path."),
     overrides: Path | None = typer.Option(
         None,
@@ -1583,7 +1896,7 @@ def perf_report(
 @app.command()
 def inspect(
     path: Path = typer.Argument(..., help="Workbook file to inspect."),
-    out: Path = typer.Option(Path("staging"), "--out", help="Output folder."),
+    out: Path = typer.Option(DEFAULT_OUTPUT, "--out", help="Output folder."),
     write_mapping: bool = typer.Option(
         False,
         "--write-mapping",
@@ -1616,7 +1929,7 @@ def inspect(
 def labelstudio_import(
     path: Path = typer.Argument(..., help="Cookbook file to import for labeling."),
     output_dir: Path = typer.Option(
-        DEFAULT_OUTPUT, "--output-dir", help="Output folder for artifacts."
+        DEFAULT_GOLDEN, "--output-dir", help="Output folder for artifacts."
     ),
     pipeline: str = typer.Option("auto", "--pipeline", help="Importer pipeline name or auto."),
     project_name: str | None = typer.Option(
@@ -1714,7 +2027,7 @@ def labelstudio_import(
 def labelstudio_export(
     project_name: str = typer.Option(..., "--project-name", help="Label Studio project name."),
     output_dir: Path = typer.Option(
-        DEFAULT_OUTPUT, "--output-dir", help="Output folder for manifests."
+        DEFAULT_GOLDEN, "--output-dir", help="Output folder for manifests."
     ),
     run_dir: Path | None = typer.Option(
         None, "--run-dir", help="Specific labelstudio run directory to export."
@@ -1818,49 +2131,44 @@ def labelstudio_eval(
 
 @app.command("labelstudio-benchmark")
 def labelstudio_benchmark(
-    gold_spans: Path | None = typer.Option(
-        None,
+    gold_spans: Annotated[Path | None, typer.Option(
         "--gold-spans",
         help="Path to freeform_span_labels.jsonl (prompts if omitted).",
-    ),
-    source_file: Path | None = typer.Option(
-        None,
+    )] = None,
+    source_file: Annotated[Path | None, typer.Option(
         "--source-file",
         help="Source file to import and benchmark (prompts if omitted).",
-    ),
-    output_dir: Path = typer.Option(
-        DEFAULT_OUTPUT, "--output-dir", help="Output folder for prediction run artifacts."
-    ),
-    eval_output_dir: Path | None = typer.Option(
-        None, "--eval-output-dir", help="Output folder for benchmark report artifacts."
-    ),
-    overlap_threshold: float = typer.Option(
-        0.5,
+    )] = None,
+    output_dir: Annotated[Path, typer.Option(
+        "--output-dir",
+        help="Scratch output root used while generating prediction tasks before co-locating under eval output.",
+    )] = DEFAULT_GOLDEN,
+    eval_output_dir: Annotated[Path | None, typer.Option(
+        "--eval-output-dir", help="Output folder for benchmark report artifacts."
+    )] = None,
+    overlap_threshold: Annotated[float, typer.Option(
         "--overlap-threshold",
         min=0.0,
         max=1.0,
         help="Jaccard overlap threshold for matching.",
-    ),
-    pipeline: str = typer.Option("auto", "--pipeline", help="Importer pipeline name or auto."),
-    chunk_level: str = typer.Option(
-        "both",
+    )] = 0.5,
+    pipeline: Annotated[str, typer.Option("--pipeline", help="Importer pipeline name or auto.")] = "auto",
+    chunk_level: Annotated[str, typer.Option(
         "--chunk-level",
         help="Chunk level for predictions: structural, atomic, or both.",
-    ),
-    project_name: str | None = typer.Option(
-        None,
+    )] = "both",
+    project_name: Annotated[str | None, typer.Option(
         "--project-name",
         help="Optional Label Studio project name for prediction import.",
-    ),
-    overwrite: bool = typer.Option(
-        False, "--overwrite/--resume", help="Overwrite prediction project or resume."
-    ),
-    label_studio_url: str | None = typer.Option(
-        None, "--label-studio-url", help="Label Studio base URL."
-    ),
-    label_studio_api_key: str | None = typer.Option(
-        None, "--label-studio-api-key", help="Label Studio API key."
-    ),
+    )] = None,
+    overwrite: Annotated[bool, typer.Option("--overwrite/--resume", help="Overwrite prediction project or resume.")] = False,
+    label_studio_url: Annotated[str | None, typer.Option("--label-studio-url", help="Label Studio base URL.")] = None,
+    label_studio_api_key: Annotated[str | None, typer.Option("--label-studio-api-key", help="Label Studio API key.")] = None,
+    workers: Annotated[int, typer.Option("--workers", min=1, help="Number of parallel worker processes for prediction import.")] = 7,
+    pdf_split_workers: Annotated[int, typer.Option("--pdf-split-workers", min=1, help="Max workers used when splitting a PDF prediction import.")] = 7,
+    epub_split_workers: Annotated[int, typer.Option("--epub-split-workers", min=1, help="Max workers used when splitting an EPUB prediction import.")] = 7,
+    pdf_pages_per_job: Annotated[int, typer.Option("--pdf-pages-per-job", min=1, help="Target page count per PDF split job.")] = 50,
+    epub_spine_items_per_job: Annotated[int, typer.Option("--epub-spine-items-per-job", min=1, help="Target spine items per EPUB split job.")] = 10,
 ) -> None:
     """Run one-shot benchmark: pipeline predictions vs freeform labeled gold spans."""
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
@@ -1872,17 +2180,21 @@ def labelstudio_benchmark(
             _fail(
                 "No freeform gold exports found. Run `cookimport labelstudio-export --export-scope freeform-spans` first."
             )
-        selected_gold = questionary.select(
+        selected_gold = _menu_select(
             "Select a freeform gold export:",
+            menu_help=(
+                "Choose the labeled freeform export to benchmark against. "
+                "Newest exports are listed first."
+            ),
             choices=[
                 questionary.Choice(
-                    f"{path.relative_to(output_dir)}",
+                    _display_gold_export_path(path, output_dir),
                     value=path,
                 )
                 for path in candidates[:30]
             ],
-        ).ask()
-        if selected_gold is None:
+        )
+        if selected_gold in {None, BACK_ACTION}:
             _fail("Benchmark cancelled.")
     if not selected_gold.exists():
         _fail(f"Gold spans file not found: {selected_gold}")
@@ -1901,14 +2213,18 @@ def labelstudio_benchmark(
     if selected_source is None:
         importable_files = _list_importable_files(DEFAULT_INPUT)
         if importable_files:
-            source_choice = questionary.select(
+            source_choice = _menu_select(
                 "Select source file to benchmark:",
+                menu_help=(
+                    "Choose the source file used to generate prediction tasks "
+                    "for comparison to the selected gold export."
+                ),
                 choices=[
                     *[questionary.Choice(path.name, value=path) for path in importable_files],
                     questionary.Choice("Enter a custom path", value="custom"),
                 ],
-            ).ask()
-            if source_choice is None:
+            )
+            if source_choice in {None, BACK_ACTION}:
                 _fail("Benchmark cancelled.")
             if source_choice == "custom":
                 source_path = questionary.text("Enter source file path:").ask()
@@ -1958,11 +2274,19 @@ def labelstudio_benchmark(
                 limit=None,
                 sample=None,
                 progress_callback=update_progress,
+                workers=workers,
+                pdf_split_workers=pdf_split_workers,
+                epub_split_workers=epub_split_workers,
+                pdf_pages_per_job=pdf_pages_per_job,
+                epub_spine_items_per_job=epub_spine_items_per_job,
             )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
 
-    pred_run = Path(import_result["run_root"])
+    pred_run = _co_locate_prediction_run_for_benchmark(
+        Path(import_result["run_root"]),
+        eval_output_dir,
+    )
     predicted = load_predicted_labeled_ranges(pred_run)
     gold = load_gold_freeform_ranges(selected_gold)
     eval_result = evaluate_predicted_vs_freeform(

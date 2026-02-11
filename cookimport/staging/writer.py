@@ -728,15 +728,16 @@ def _format_chunks_md(chunks: list[KnowledgeChunk]) -> list[str]:
 
     # Summary statistics
     knowledge_count = sum(1 for c in chunks if c.lane == ChunkLane.KNOWLEDGE)
-    narrative_count = sum(1 for c in chunks if c.lane == ChunkLane.NARRATIVE)
-    noise_count = sum(1 for c in chunks if c.lane == ChunkLane.NOISE)
+    # Treat legacy narrative lane as noise for reporting.
+    noise_count = sum(
+        1 for c in chunks if c.lane in (ChunkLane.NOISE, ChunkLane.NARRATIVE)
+    )
     total_highlights = sum(c.highlight_count for c in chunks)
 
     lines.append("## Statistics")
     lines.append("")
     lines.append(f"- Total chunks: {len(chunks)}")
     lines.append(f"- Knowledge: {knowledge_count}")
-    lines.append(f"- Narrative: {narrative_count}")
     lines.append(f"- Noise: {noise_count}")
     lines.append(f"- Total highlights: {total_highlights}")
     lines.append("")
@@ -758,7 +759,7 @@ def _format_chunk_entry(chunk: KnowledgeChunk) -> list[str]:
     # Header with ID, lane, and title
     lane_emoji = {
         ChunkLane.KNOWLEDGE: "📚",
-        ChunkLane.NARRATIVE: "📖",
+        ChunkLane.NARRATIVE: "🔇",
         ChunkLane.NOISE: "🔇",
     }.get(chunk.lane, "❓")
 

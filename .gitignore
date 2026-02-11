@@ -57,6 +57,3 @@ coverage.xml
 *.swp
 *.swo
 .DS_Store
-
-# Local staging/outputs
-staging/[0-9][0-9][0-9][0-9]-*

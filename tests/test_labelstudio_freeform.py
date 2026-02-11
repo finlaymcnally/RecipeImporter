@@ -53,11 +53,13 @@ def test_build_freeform_tasks_offsets_are_deterministic() -> None:
     assert [item["block_index"] for item in touched] == [0]
 
 
-def test_freeform_label_config_includes_knowledge_note_variant() -> None:
+def test_freeform_label_config_uses_tip_notes_variant_without_narrative() -> None:
     config = build_freeform_label_config()
     assert '<Label value="TIP"/>' in config
     assert '<Label value="NOTES"/>' in config
     assert '<Label value="VARIANT"/>' in config
+    assert '<Label value="OTHER"/>' in config
+    assert '<Label value="NARRATIVE"/>' not in config
     assert '<Label value="KNOWLEDGE"/>' not in config
     assert '<Label value="NOTE"/>' not in config
 
@@ -268,6 +270,15 @@ def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
                         "touched_block_indices": [11],
                     }
                 ),
+                json.dumps(
+                    {
+                        "span_id": "gold-narrative",
+                        "source_hash": "h1",
+                        "source_file": "book.epub",
+                        "label": "NARRATIVE",
+                        "touched_block_indices": [12],
+                    }
+                ),
             ]
         )
         + "\n",
@@ -275,6 +286,7 @@ def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
     )
 
     gold = load_gold_freeform_ranges(gold_path)
-    assert len(gold) == 2
+    assert len(gold) == 3
     assert gold[0].label == "TIP"
     assert gold[1].label == "NOTES"
+    assert gold[2].label == "OTHER"

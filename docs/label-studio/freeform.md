@@ -201,21 +201,21 @@ All commands below are examples of the user-visible workflow that must work when
 
 4. Export using the new export scope. Ensure the output directory contains a JSONL of spans.
 
-   Example:
+	   Example:
 
-      cookimport labelstudio-export \
-        --project-name "Sample Freeform (spans)" \
-        --export-scope freeform-spans \
-        --output-dir data/output/
+	      cookimport labelstudio-export \
+	        --project-name "Sample Freeform (spans)" \
+	        --export-scope freeform-spans \
+	        --output-dir data/golden/
 
 5. Run the evaluation command (new or adapted) and confirm it emits a small report and at least one “examples of mismatches” artifact.
 
-   Example:
+	   Example:
 
-      cookimport labelstudio-eval freeform-spans \
-        --pred-run data/output/<timestamp>/labelstudio/<book_slug>/ \
-        --gold-spans data/output/<timestamp>/labelstudio/<book_slug>/exports/freeform_span_labels.jsonl \
-        --output-dir data/output/<timestamp>/labelstudio/<book_slug>/eval-freeform/
+	      cookimport labelstudio-eval freeform-spans \
+	        --pred-run data/golden/<timestamp>/labelstudio/<book_slug>/ \
+	        --gold-spans data/golden/<timestamp>/labelstudio/<book_slug>/exports/freeform_span_labels.jsonl \
+	        --output-dir data/golden/<timestamp>/labelstudio/<book_slug>/eval-freeform/
 
 As you implement, add short example transcripts here as indented blocks (not fenced blocks) showing what success looks like (created project name, number of tasks uploaded, number of spans exported, and a one-line summary from the evaluator).
 

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable
 
+from cookimport.core.models import ConversionReport, ConversionResult
 from cookimport.core.reporting import compute_file_hash
+from cookimport.parsing.tips import partition_tip_candidates
 from cookimport.plugins import registry
 from cookimport.labelstudio.block_tasks import (
     build_block_tasks,
@@ -30,6 +33,11 @@ from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.label_config import LABEL_CONFIG_XML
 from cookimport.labelstudio.label_config_blocks import build_block_label_config
 from cookimport.labelstudio.label_config_freeform import build_freeform_label_config
+from cookimport.staging.pdf_jobs import (
+    plan_job_ranges,
+    plan_pdf_page_ranges,
+    reassign_recipe_ids,
+)
 
 
 def _slugify_name(name: str) -> str:
@@ -109,6 +117,190 @@ def _task_id_key(task_scope: str) -> str:
     return "chunk_id"
 
 
+def _resolve_pdf_page_count(path: Path) -> int | None:
+    importer = registry.get_importer("pdf")
+    if importer is None:
+        return None
+    try:
+        inspection = importer.inspect(path)
+    except Exception:
+        return None
+    if not inspection.sheets:
+        return None
+    page_count = inspection.sheets[0].page_count
+    if page_count is None:
+        return None
+    try:
+        return int(page_count)
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve_epub_spine_count(path: Path) -> int | None:
+    importer = registry.get_importer("epub")
+    if importer is None:
+        return None
+    try:
+        inspection = importer.inspect(path)
+    except Exception:
+        return None
+    if not inspection.sheets:
+        return None
+    spine_count = inspection.sheets[0].spine_count
+    if spine_count is None:
+        return None
+    try:
+        return int(spine_count)
+    except (TypeError, ValueError):
+        return None
+
+
+def _plan_parallel_convert_jobs(
+    path: Path,
+    *,
+    workers: int,
+    pdf_split_workers: int,
+    epub_split_workers: int,
+    pdf_pages_per_job: int,
+    epub_spine_items_per_job: int,
+) -> list[dict[str, int | None]]:
+    suffix = path.suffix.lower()
+    if suffix == ".pdf" and pdf_split_workers > 1 and pdf_pages_per_job > 0:
+        page_count = _resolve_pdf_page_count(path)
+        if page_count:
+            ranges = plan_pdf_page_ranges(
+                page_count,
+                pdf_split_workers,
+                pdf_pages_per_job,
+            )
+            if len(ranges) > 1:
+                return [
+                    {
+                        "job_index": idx,
+                        "start_page": start,
+                        "end_page": end,
+                        "start_spine": None,
+                        "end_spine": None,
+                    }
+                    for idx, (start, end) in enumerate(ranges)
+                ]
+    if suffix == ".epub" and epub_split_workers > 1 and epub_spine_items_per_job > 0:
+        spine_count = _resolve_epub_spine_count(path)
+        if spine_count:
+            ranges = plan_job_ranges(
+                spine_count,
+                epub_split_workers,
+                epub_spine_items_per_job,
+            )
+            if len(ranges) > 1:
+                return [
+                    {
+                        "job_index": idx,
+                        "start_page": None,
+                        "end_page": None,
+                        "start_spine": start,
+                        "end_spine": end,
+                    }
+                    for idx, (start, end) in enumerate(ranges)
+                ]
+    return [
+        {
+            "job_index": 0,
+            "start_page": None,
+            "end_page": None,
+            "start_spine": None,
+            "end_spine": None,
+        }
+    ]
+
+
+def _parallel_convert_worker(
+    path: Path,
+    pipeline: str,
+    *,
+    start_page: int | None = None,
+    end_page: int | None = None,
+    start_spine: int | None = None,
+    end_spine: int | None = None,
+) -> tuple[str, ConversionResult]:
+    if pipeline == "auto":
+        importer, score = registry.best_importer_for_path(path)
+    else:
+        importer = registry.get_importer(pipeline)
+        score = 1.0 if importer else 0.0
+    if importer is None or score <= 0:
+        raise RuntimeError("No importer available for this path.")
+
+    kwargs: dict[str, Any] = {"progress_callback": None}
+    if start_page is not None or end_page is not None:
+        kwargs["start_page"] = start_page
+        kwargs["end_page"] = end_page
+    if start_spine is not None or end_spine is not None:
+        kwargs["start_spine"] = start_spine
+        kwargs["end_spine"] = end_spine
+
+    result = importer.convert(path, None, **kwargs)
+    return importer.name, result
+
+
+def _job_sort_key(job: dict[str, Any]) -> tuple[int, int]:
+    if job.get("start_page") is not None:
+        return (0, int(job.get("start_page") or 0))
+    if job.get("start_spine") is not None:
+        return (1, int(job.get("start_spine") or 0))
+    return (2, int(job.get("job_index") or 0))
+
+
+def _merge_parallel_results(
+    path: Path,
+    importer_name: str,
+    job_results: list[dict[str, Any]],
+) -> ConversionResult:
+    ordered_jobs = sorted(job_results, key=_job_sort_key)
+    merged_recipes: list[Any] = []
+    merged_tip_candidates: list[Any] = []
+    merged_topic_candidates: list[Any] = []
+    merged_non_recipe_blocks: list[Any] = []
+    merged_raw_artifacts: list[Any] = []
+    warnings: list[str] = []
+
+    for job in ordered_jobs:
+        result = job["result"]
+        merged_recipes.extend(result.recipes)
+        merged_tip_candidates.extend(result.tip_candidates)
+        merged_topic_candidates.extend(result.topic_candidates)
+        merged_non_recipe_blocks.extend(result.non_recipe_blocks)
+        merged_raw_artifacts.extend(result.raw_artifacts)
+        if result.report and result.report.warnings:
+            warnings.extend(result.report.warnings)
+        if result.report and result.report.errors:
+            warnings.extend(
+                f"Job {job.get('job_index')}: {error}" for error in result.report.errors
+            )
+
+    file_hash = compute_file_hash(path)
+    sorted_recipes, _ = reassign_recipe_ids(
+        merged_recipes,
+        merged_tip_candidates,
+        file_hash=file_hash,
+        importer_name=importer_name,
+    )
+    tips, _, _ = partition_tip_candidates(merged_tip_candidates)
+    report = ConversionReport(warnings=warnings)
+
+    return ConversionResult(
+        recipes=sorted_recipes,
+        tips=tips,
+        tip_candidates=merged_tip_candidates,
+        topic_candidates=merged_topic_candidates,
+        non_recipe_blocks=merged_non_recipe_blocks,
+        raw_artifacts=merged_raw_artifacts,
+        report=report,
+        workbook=path.stem,
+        workbook_path=str(path),
+    )
+
+
 def run_labelstudio_import(
     *,
     path: Path,
@@ -127,6 +319,11 @@ def run_labelstudio_import(
     limit: int | None,
     sample: int | None,
     progress_callback: Callable[[str], None] | None = None,
+    workers: int = 1,
+    pdf_split_workers: int = 1,
+    epub_split_workers: int = 1,
+    pdf_pages_per_job: int = 50,
+    epub_spine_items_per_job: int = 10,
 ) -> dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError(f"Path not found: {path}")
@@ -145,7 +342,95 @@ def run_labelstudio_import(
     if importer is None or score <= 0:
         raise RuntimeError("No importer available for this path.")
 
-    result = importer.convert(path, None, progress_callback=progress_callback)
+    job_specs = _plan_parallel_convert_jobs(
+        path,
+        workers=workers,
+        pdf_split_workers=pdf_split_workers,
+        epub_split_workers=epub_split_workers,
+        pdf_pages_per_job=pdf_pages_per_job,
+        epub_spine_items_per_job=epub_spine_items_per_job,
+    )
+    if len(job_specs) == 1:
+        result = importer.convert(path, None, progress_callback=progress_callback)
+    else:
+        if progress_callback is not None:
+            progress_callback(
+                f"Running {len(job_specs)} split job(s) with up to {max(1, workers)} workers..."
+            )
+        effective_workers = max(1, workers)
+        if path.suffix.lower() == ".epub":
+            effective_workers = max(effective_workers, epub_split_workers)
+        if path.suffix.lower() == ".pdf":
+            effective_workers = max(effective_workers, pdf_split_workers)
+        max_workers = min(effective_workers, len(job_specs))
+        job_results: list[dict[str, Any]] = []
+        job_errors: list[str] = []
+
+        def _run_job_serial(spec: dict[str, int | None]) -> None:
+            importer_name, job_result = _parallel_convert_worker(
+                path,
+                pipeline,
+                start_page=spec.get("start_page"),
+                end_page=spec.get("end_page"),
+                start_spine=spec.get("start_spine"),
+                end_spine=spec.get("end_spine"),
+            )
+            job_results.append({**spec, "result": job_result, "importer_name": importer_name})
+
+        try:
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(
+                        _parallel_convert_worker,
+                        path,
+                        pipeline,
+                        start_page=spec.get("start_page"),
+                        end_page=spec.get("end_page"),
+                        start_spine=spec.get("start_spine"),
+                        end_spine=spec.get("end_spine"),
+                    ): spec
+                    for spec in job_specs
+                }
+                completed = 0
+                for future in as_completed(futures):
+                    spec = futures[future]
+                    try:
+                        importer_name, job_result = future.result()
+                    except Exception as exc:
+                        job_errors.append(
+                            f"job {spec.get('job_index', '?')}: {exc}"
+                        )
+                        continue
+                    job_results.append(
+                        {**spec, "result": job_result, "importer_name": importer_name}
+                    )
+                    completed += 1
+                    if progress_callback is not None:
+                        progress_callback(
+                            f"Completed split job {completed}/{len(job_specs)}"
+                        )
+        except PermissionError:
+            for spec in job_specs:
+                try:
+                    _run_job_serial(spec)
+                except Exception as exc:  # noqa: BLE001
+                    job_errors.append(
+                        f"job {spec.get('job_index', '?')}: {exc}"
+                    )
+                if progress_callback is not None:
+                    progress_callback(
+                        f"Completed split job {len(job_results)}/{len(job_specs)}"
+                    )
+
+        if job_errors:
+            raise RuntimeError("Split conversion failed: " + "; ".join(job_errors))
+        if not job_results:
+            raise RuntimeError("Split conversion produced no results.")
+
+        importer_name = str(job_results[0].get("importer_name") or importer.name)
+        result = _merge_parallel_results(path, importer_name, job_results)
+        if progress_callback is not None:
+            progress_callback("Merged split job results.")
 
     archive = build_extracted_archive(result, result.raw_artifacts)
     file_hash = compute_file_hash(path)

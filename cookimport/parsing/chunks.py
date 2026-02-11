@@ -457,7 +457,7 @@ _NOISE_INTRO_PHRASES = frozenset({
 
 
 def assign_lanes(chunks: list[KnowledgeChunk]) -> list[KnowledgeChunk]:
-    """Assign lane (knowledge/narrative/noise) to each chunk.
+    """Assign lane (knowledge/noise) to each chunk.
 
     Modifies chunks in place and returns the same list.
     """
@@ -486,11 +486,11 @@ def _score_lane(chunk: KnowledgeChunk) -> ChunkLane:
     if knowledge_score >= 0.5 and knowledge_score > narrative_score:
         return ChunkLane.KNOWLEDGE
     elif narrative_score >= 0.4 and narrative_score > knowledge_score:
-        return ChunkLane.NARRATIVE
+        return ChunkLane.NOISE
     elif knowledge_score >= 0.3:
         return ChunkLane.KNOWLEDGE
     elif narrative_score >= 0.2:
-        return ChunkLane.NARRATIVE
+        return ChunkLane.NOISE
     else:
         # Default to knowledge if no strong signal
         return ChunkLane.KNOWLEDGE
@@ -734,7 +734,7 @@ def process_blocks_to_chunks(
     # Step 2: Merge small chunks
     chunks = merge_small_chunks(chunks, min_chars=min_merge_chars)
 
-    # Step 3: Assign lanes (knowledge/narrative/noise)
+    # Step 3: Assign lanes (knowledge/noise)
     chunks = assign_lanes(chunks)
 
     # Step 4: Extract highlights from knowledge chunks
