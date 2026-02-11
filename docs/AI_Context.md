@@ -168,15 +168,6 @@ Tips are classified by scope (`cookimport/parsing/tips.py`):
 - **recipe_specific**: Notes tied to a particular recipe
 - **not_tip**: Content that looks like a tip but isn't (copyright notices, ads)
 
-### 4.5 Knowledge Chunking (Non-Recipe Content)
-
-The system processes non-recipe content (sidebars, introductions, technique sections) into **Knowledge Chunks** (`cookimport/parsing/chunks.py`):
-
-1. **Structural Segmentation**: Boundaries are created based on major headings (H1/H2), callout markers (e.g., "TIP:"), and format mode changes (e.g., prose to list).
-2. **Lane Assignment**: Chunks are heuristically scored and assigned to **Knowledge** (actionable) or **Noise** (narrative/marketing) lanes based on imperative density, first-person usage, and praise/marketing keywords.
-3. **Highlight Extraction**: Knowledge chunks are scanned for specific "highlights" (tips) using the NLP-based tip miner.
-4. **Context Preservation**: Chunks maintain a `section_path` (e.g., `["Chapter 1", "Techniques"]`) to preserve document hierarchy even when extracted.
-
 ## 5. Data Flow & Processing Stages
 
 ### Stage 1: Ingestion (`cookimport stage` command)
@@ -197,98 +188,20 @@ The system processes non-recipe content (sidebars, introductions, technique sect
 - **Tips**: Extracted tips in `{timestamp}/tips/`
 - **Reports**: Conversion summary with stats and warnings
 
-## 6. Chunking & Label Studio Integration
+## 6. Label Studio Integration
 
-The project includes deep integration with Label Studio for building ground-truth datasets and validating extraction accuracy.
+The project includes deep integration with Label Studio for building ground-truth datasets:
 
-### 6.1 Chunking Strategies
+### Chunking Strategies
+- **Structural Chunks**: Recipe-level units for validating segmentation
+- **Atomic Chunks**: Line-level units for validating ingredient parsing
 
-The system employs three distinct chunking strategies depending on the validation goal:
+### Workflow
+1. `cookimport labelstudio-import`: Upload chunks to Label Studio project
+2. Annotate in Label Studio UI
+3. `cookimport labelstudio-export`: Export labeled data as JSONL golden set
 
-#### 1. Pipeline Chunking (Regression Testing)
-Validated against the current pipeline's output (`cookimport/labelstudio/chunking.py`).
-- **Structural Chunks**: Recipe-level units used to validate segmentation (did we correctly identify recipe boundaries?).
-- **Atomic Chunks**: Line-level units (individual ingredients/steps) used to validate parsing accuracy.
-
-#### 2. Canonical Block Labeling (Stable Truth)
-Every extracted block is treated as a task. This creates a "Source Truth" that remains stable even if the pipeline's chunking logic changes. Each block is labeled as `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `TIP`, etc.
-
-#### 3. Freeform Span Labeling (High-Fidelity)
-Large segments (e.g., 40 blocks) are presented to annotators who highlight arbitrary spans of text. This is the highest fidelity ground truth, capturing nested or overlapping entities.
-
-### 6.2 Traceability & URNs
-
-Every chunk or block has a unique, deterministic identifier (URN) ensuring 100% traceability:
-`urn:recipeimport:chunk:{pipeline}:{file_hash}:{level}:{location}:{text_hash}`
-
-### 6.3 Coverage Auditing
-
-During the chunking process, the system calculates **Chunk Coverage**:
-- `extracted_chars`: Total characters found in the source document.
-- `chunked_chars`: Characters successfully represented in tasks.
-- **Alerting**: The system warns if coverage falls below 90%, identifying potential data loss in the extraction pipeline.
-
-### 6.4 Workflow
-1. `cookimport labelstudio-import`: Upload chunks to Label Studio project.
-2. Annotate in Label Studio UI.
-3. `cookimport labelstudio-export`: Export labeled data as JSONL golden set.
-4. `cookimport labelstudio-benchmark`: Run automated evaluation of the pipeline against the golden set.
-
-## 7. Benchmarking & Evaluation
-
-The benchmarking system provides an automated way to measure the accuracy of the extraction pipeline against ground-truth "Golden Sets."
-
-### 7.1 The Benchmark Workflow (`labelstudio-benchmark`)
-
-The `cookimport labelstudio-benchmark` command implements a guided, end-to-end evaluation flow:
-
-1. **Gold Discovery**: The system automatically searches for `freeform_span_labels.jsonl` or `canonical_block_labels.jsonl` exports in `data/golden/` and `data/output/`.
-2. **Prediction Generation**: It runs a fresh pipeline extraction for the source file associated with the golden set, generating "Prediction Tasks" (tasks that look like Label Studio tasks but contain the pipeline's current best guesses).
-3. **Comparative Scoring**: It compares the predicted chunks against the golden spans/labels and generates detailed reports.
-
-### 7.2 Evaluation Methodologies
-
-- **Freeform Evaluation**: Compares predicted structural/atomic chunks to human-highlighted spans using block-index overlaps (Intersection over Union / IoU). It is highly effective for measuring segmentation and parsing accuracy on unstructured text.
-- **Canonical Evaluation**: Compares block-by-block classification. This is used for stable, long-term regression testing where block IDs remain the same across pipeline iterations.
-
-### 7.3 Key Metrics & Diagnostics
-
-The benchmark output (found in `data/golden/eval-vs-pipeline/<timestamp>/`) includes:
-
-- **Recall**: Percentage of golden spans successfully identified by the pipeline.
-- **Precision**: Percentage of pipeline predictions that correctly matched a golden span.
-- **Boundary Diagnostics**: Each match is classified as:
-    - `correct`: Exact block range match.
-    - `over`: Prediction covers more blocks than the golden span.
-    - `under`: Prediction covers fewer blocks than the golden span.
-    - `partial`: Overlapping but missing both start/end boundaries.
-- **App-Aligned Metrics**: Relaxed scoring that focuses on the core labels used by the downstream recipe database (e.g., ignoring narrative "Noise" and focusing on Title, Ingredients, and Instructions).
-
-### 7.4 Benchmark Artifacts
-
-- `eval_report.md`: A human-readable summary of the run, including per-label Precision/Recall and boundary diagnostics.
-- `eval_report.json`: Full machine-readable metrics for automated tracking.
-- `missed_gold_spans.jsonl`: A list of every item the pipeline failed to find.
-- `false_positive_preds.jsonl`: A list of items the pipeline claimed to find that were not in the golden set.
-- `prediction-run/`: A snapshot of the full pipeline output used for this specific benchmark.
-
-### 7.5 Advanced Options
-
-- `--allow-labelstudio-write`: Enables the benchmark to push fresh prediction tasks to Label Studio for visual side-by-side comparison.
-- `--force-source-match`: Allows benchmarking across renamed or truncated files (e.g., comparing a full cookbook against a gold set created from a 10-page sample).
-- `--workers`: Controls parallelization during the prediction phase for large documents.
-
-### 7.6 Current Benchmark Performance (Overall)
-
-As of February 11, 2026, the pipeline shows the following performance trends based on the latest golden set evaluations:
-
-- **Core Content Identification (High Coverage)**: The pipeline is highly effective at finding core recipe elements. "Classification-only" metrics (any-overlap) show **90-100% coverage** for `RECIPE_TITLE`, `INGREDIENT_LINE`, and `INSTRUCTION_LINE`.
-- **Boundary Precision (Low Strict Recall)**: While the content is found, precise boundary alignment remains a challenge. Strict Recall (at 0.5 IoU) typically sits around **6-8%**. The pipeline often over-segments or generates "Over" matches (covering more blocks than the gold span).
-- **False Positive Volume**: There is significant "noise" in the predictions, with the pipeline generating thousands of predicted spans (often over 10,000) against a few hundred gold spans. This indicates a high rate of over-segmentation or misclassification of narrative text as recipe content.
-- **Missed Specialized Labels**: The system currently shows **0% recall** for `TIP`, `NOTES`, and `VARIANT` labels. This suggests these specific content types are either not being extracted by the current pipeline configuration or are being misclassified into other categories (like `OTHER`).
-- **Recent Progress**: Benchmarks have improved significantly from early February runs (which often showed 0% recall across the board). The introduction of relaxed "App-Aligned" scoring now provides a more useful signal for downstream integration readiness.
-
-## 8. Current Status
+## 7. Current Status
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -302,7 +215,7 @@ As of February 11, 2026, the pipeline shows the following performance trends bas
 | Label Studio | **Active** | Benchmarking and dataset export |
 | LLM Repair | **Mocked** | Structure exists, calls return mock data |
 
-## 9. Directory Map
+## 8. Directory Map
 
 ```
 cookimport/
@@ -326,7 +239,7 @@ data/
 tests/              # Comprehensive test suite
 ```
 
-## 10. CLI Commands
+## 9. CLI Commands
 
 | Command | Purpose |
 |---------|---------|

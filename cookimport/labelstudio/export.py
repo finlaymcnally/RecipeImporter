@@ -234,7 +234,7 @@ def run_labelstudio_export(
             raise RuntimeError("Label Studio project lookup missing id.")
 
     if run_root is None:
-        timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+        timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
         run_root = output_dir / timestamp / "labelstudio" / _slugify_name(project_name)
         run_root.mkdir(parents=True, exist_ok=True)
 

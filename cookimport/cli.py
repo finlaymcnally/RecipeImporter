@@ -690,7 +690,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             benchmark_eval_output = (
                 DEFAULT_GOLDEN
                 / "eval-vs-pipeline"
-                / dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+                / dt.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
             )
             gold_candidates = _discover_freeform_gold_exports(DEFAULT_GOLDEN)
             prediction_runs = _discover_prediction_runs(DEFAULT_GOLDEN)
@@ -1490,7 +1490,7 @@ def stage(
 
     # Create timestamped output folder for this run
     run_dt = dt.datetime.now()
-    timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
+    timestamp = run_dt.strftime("%Y-%m-%d_%H:%M:%S")
     out = out / timestamp
     out.mkdir(parents=True, exist_ok=True)
 
@@ -2413,7 +2413,7 @@ def labelstudio_benchmark(
     _require_importer(selected_source)
 
     if eval_output_dir is None:
-        timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+        timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
         eval_output_dir = selected_gold.parent.parent / "eval-vs-pipeline" / timestamp
     eval_output_dir.mkdir(parents=True, exist_ok=True)
 
