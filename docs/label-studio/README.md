@@ -30,13 +30,17 @@ export LABEL_STUDIO_API_KEY=your_api_key_here
 ```bash
 # Import a cookbook for labeling
 cookimport labelstudio-import path/to/cookbook.epub \
-  --chunk-level both
+  --chunk-level both \
+  --allow-labelstudio-write
 ```
 
 Interactive mode note: `cookimport` (menu mode) uses `cookimport.json` key `output_dir`
 for stage/inspect artifacts (default `data/output/`).
 CLI note: `cookimport labelstudio-import`, `cookimport labelstudio-export`, and
 `cookimport labelstudio-benchmark` default `--output-dir` to `data/golden/`.
+Benchmark note: `cookimport labelstudio-benchmark` also writes stage-style processed
+outputs to `data/output/` by default (override with `--processed-output-dir`).
+Safety note: task uploads are gated; pass `--allow-labelstudio-write` (or confirm in interactive mode) for import/benchmark commands that push tasks.
 
 If `--project-name` is omitted, the CLI now defaults to the input filename stem (for example `the_food_lab`) and appends `-1`, `-2`, etc. when that title already exists in Label Studio.
 
@@ -46,7 +50,8 @@ Canonical block workflow (separate project):
 cookimport labelstudio-import path/to/cookbook.epub \
   --project-name "ATK Cookbook Canonical (blocks)" \
   --task-scope canonical-blocks \
-  --context-window 1
+  --context-window 1 \
+  --allow-labelstudio-write
 ```
 
 Freeform span workflow (separate project):
@@ -56,7 +61,8 @@ cookimport labelstudio-import path/to/cookbook.epub \
   --project-name "ATK Cookbook Freeform (spans)" \
   --task-scope freeform-spans \
   --segment-blocks 40 \
-  --segment-overlap 5
+  --segment-overlap 5 \
+  --allow-labelstudio-write
 ```
 
 ### Export Workflow
@@ -320,6 +326,8 @@ cookimport labelstudio-eval freeform-spans \
   --output-dir data/golden/<book_slug>/eval-freeform/
 ```
 
+Optional: add `--force-source-match` to ignore source hash/file identity mismatches (useful when comparing a full file vs a cutdown/renamed variant).
+
 Outputs:
 
 - `eval_report.json`
@@ -332,11 +340,13 @@ Outputs:
 Run an end-to-end guided benchmark (choose gold export, choose source file, generate predictions, score):
 
 ```bash
-cookimport labelstudio-benchmark
+cookimport labelstudio-benchmark --allow-labelstudio-write
 ```
 
-The command discovers `freeform_span_labels.jsonl` under both `data/output/**/exports/` and `data/golden/**/exports/`, prompts for selection, runs a pipeline prediction import for the chosen source file, and writes benchmark artifacts under `data/golden/eval-vs-pipeline/<timestamp>/` by default (including `prediction-run/` plus eval report files).
+The command discovers `freeform_span_labels.jsonl` under both `data/output/**/exports/` and `data/golden/**/exports/`, prompts for selection, runs a pipeline prediction import for the chosen source file, and writes benchmark artifacts under `data/golden/eval-vs-pipeline/<timestamp>/` by default (including `prediction-run/` plus eval report files). Timestamp format is standardized as `YYYY-MM-DD_HH:MM:SS`.
+Optional: add `--force-source-match` to score even when prediction and gold source identities differ (for example `thefoodlab.epub` vs `thefoodlabCUTDOWN.epub`).
 For large PDF/EPUB sources, prediction imports in benchmark mode use split-job multiprocessing (`--workers`, `--pdf-split-workers`, `--epub-split-workers`, `--pdf-pages-per-job`, `--epub-spine-items-per-job`).
+Progress note: after split-job merge, benchmark/import status now reports post-merge phases (`archive`, `processed outputs`, `chunk/task generation`, and upload batch counts) so long runs do not appear stalled on a stale spinner message.
 
 ---
 

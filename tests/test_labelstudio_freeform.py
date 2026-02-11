@@ -2,6 +2,7 @@ import json
 
 from cookimport.labelstudio.eval_freeform import (
     evaluate_predicted_vs_freeform,
+    format_freeform_eval_report_md,
     load_gold_freeform_ranges,
     load_predicted_labeled_ranges,
 )
@@ -245,6 +246,138 @@ def test_eval_freeform_ranges_smoke(tmp_path) -> None:
     assert report["counts"]["pred_matched"] == 2
     assert report["counts"]["gold_missed"] == 1
     assert report["counts"]["pred_false_positive"] == 1
+    assert "app_aligned" in report
+    assert "classification_only" in report
+
+
+def test_eval_freeform_app_aligned_summary_and_md_section(tmp_path) -> None:
+    predicted = [
+        # Duplicate ingredient span (same range/label) should dedupe in app-aligned metrics.
+        {
+            "data": {
+                "chunk_id": "urn:recipeimport:chunk:text:deadbeef:atomic:loc:block_index=10:a",
+                "chunk_level": "atomic",
+                "chunk_type": "ingredient_line",
+                "chunk_type_hint": "ingredient",
+                "source_hash": "deadbeefcafebabe",
+                "source_file": "book.epub",
+                "location": {"start_block": 10, "end_block": 13},
+            }
+        },
+        {
+            "data": {
+                "chunk_id": "urn:recipeimport:chunk:text:deadbeef:atomic:loc:block_index=10:b",
+                "chunk_level": "atomic",
+                "chunk_type": "ingredient_line",
+                "chunk_type_hint": "ingredient",
+                "source_hash": "deadbeefcafebabe",
+                "source_file": "book.epub",
+                "location": {"start_block": 10, "end_block": 13},
+            }
+        },
+        # Broader title span overlaps gold title but fails strict IoU >= 0.5.
+        {
+            "data": {
+                "chunk_id": "urn:recipeimport:chunk:text:deadbeef:structural:loc:block_index=20:c",
+                "chunk_level": "structural",
+                "chunk_type": "recipe_block",
+                "chunk_type_hint": "recipe",
+                "source_hash": "deadbeefcafebabe",
+                "source_file": "book.epub",
+                "location": {"start_block": 20, "end_block": 25},
+            }
+        },
+        # Overlaps TIP span but with wrong label (OTHER), so classification-only can surface mismatch.
+        {
+            "data": {
+                "chunk_id": "urn:recipeimport:chunk:text:deadbeef:atomic:loc:block_index=30:d",
+                "chunk_level": "atomic",
+                "chunk_type": "recipe_description",
+                "chunk_type_hint": "paragraph",
+                "source_hash": "deadbeefcafebabe",
+                "source_file": "book.epub",
+                "location": {"start_block": 30, "end_block": 31},
+            }
+        },
+    ]
+    pred_run = tmp_path / "pred_run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "label_studio_tasks.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in predicted) + "\n",
+        encoding="utf-8",
+    )
+
+    gold_rows = [
+        {
+            "span_id": "gold-ing",
+            "source_hash": "deadbeefcafebabe",
+            "source_file": "book.epub",
+            "label": "INGREDIENT_LINE",
+            "touched_block_indices": [11, 12],
+        },
+        {
+            "span_id": "gold-title",
+            "source_hash": "deadbeefcafebabe",
+            "source_file": "book.epub",
+            "label": "RECIPE_TITLE",
+            "touched_block_indices": [22],
+        },
+        {
+            "span_id": "gold-tip",
+            "source_hash": "deadbeefcafebabe",
+            "source_file": "book.epub",
+            "label": "TIP",
+            "touched_block_indices": [30],
+        },
+    ]
+    gold_path = tmp_path / "gold.jsonl"
+    gold_path.write_text(
+        "\n".join(json.dumps(row) for row in gold_rows) + "\n",
+        encoding="utf-8",
+    )
+
+    result = evaluate_predicted_vs_freeform(
+        load_predicted_labeled_ranges(pred_run),
+        load_gold_freeform_ranges(gold_path),
+        overlap_threshold=0.5,
+    )
+    report = result["report"]
+    app = report["app_aligned"]
+
+    deduped = app["deduped_predictions"]
+    assert deduped["counts"]["pred_total"] == 3
+    assert deduped["counts"]["gold_total"] == 3
+
+    supported_strict = app["supported_labels_strict"]
+    assert supported_strict["counts"]["gold_total"] == 2
+    assert supported_strict["counts"]["gold_matched"] == 1
+
+    supported_relaxed = app["supported_labels_relaxed"]
+    assert supported_relaxed["counts"]["gold_matched"] == 2
+    assert supported_relaxed["overlap_threshold"] == 0.1
+
+    any_overlap = app["any_overlap_coverage"]
+    assert any_overlap["RECIPE_TITLE"]["gold_with_any_overlap"] == 1
+    assert any_overlap["INGREDIENT_LINE"]["gold_with_any_overlap"] == 1
+
+    classification_only = report["classification_only"]
+    assert classification_only["gold_total"] == 3
+    assert classification_only["gold_with_any_overlap"] == 3
+    assert classification_only["gold_with_same_label_any_overlap"] == 2
+    assert classification_only["gold_best_label_match"] == 2
+    assert classification_only["same_label_any_overlap_rate"] == (2 / 3)
+    assert classification_only["supported_gold_total"] == 2
+    assert classification_only["supported_gold_with_same_label_any_overlap"] == 2
+    assert classification_only["supported_same_label_any_overlap_rate"] == 1.0
+    assert classification_only["confusion_by_gold_label"]["TIP"]["OTHER"] == 1
+
+    report_md = format_freeform_eval_report_md(report)
+    assert "App-aligned diagnostics:" in report_md
+    assert "Supported labels only (relaxed)" in report_md
+    assert "Any-overlap coverage (same label, IoU>0):" in report_md
+    assert "Classification-only diagnostics (boundary-insensitive):" in report_md
+    assert "Same-label any-overlap:" in report_md
+    assert "Supported-label same-label any-overlap:" in report_md
 
 
 def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
@@ -290,3 +423,59 @@ def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
     assert gold[0].label == "TIP"
     assert gold[1].label == "NOTES"
     assert gold[2].label == "OTHER"
+
+
+def test_eval_freeform_force_source_match_allows_mismatched_source_identity(tmp_path) -> None:
+    pred_run = tmp_path / "pred_run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "label_studio_tasks.jsonl").write_text(
+        json.dumps(
+            {
+                "data": {
+                    "chunk_id": "urn:recipeimport:chunk:epub:short_hash:atomic:loc:block_index=10:a",
+                    "chunk_level": "atomic",
+                    "chunk_type": "ingredient_line",
+                    "chunk_type_hint": "ingredient",
+                    "source_hash": "short_hash",
+                    "source_file": "thefoodlabCUTDOWN.epub",
+                    "location": {"block_index": 10},
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    gold_path = tmp_path / "gold.jsonl"
+    gold_path.write_text(
+        json.dumps(
+            {
+                "span_id": "gold-1",
+                "source_hash": "full_hash",
+                "source_file": "thefoodlab.epub",
+                "label": "INGREDIENT_LINE",
+                "touched_block_indices": [10],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    predicted = load_predicted_labeled_ranges(pred_run)
+    gold = load_gold_freeform_ranges(gold_path)
+
+    strict_result = evaluate_predicted_vs_freeform(
+        predicted,
+        gold,
+        overlap_threshold=0.5,
+    )
+    assert strict_result["report"]["counts"]["gold_matched"] == 0
+    assert strict_result["report"]["source_matching_mode"] == "strict"
+
+    forced_result = evaluate_predicted_vs_freeform(
+        predicted,
+        gold,
+        overlap_threshold=0.5,
+        force_source_match=True,
+    )
+    assert forced_result["report"]["counts"]["gold_matched"] == 1
+    assert forced_result["report"]["source_matching_mode"] == "forced"

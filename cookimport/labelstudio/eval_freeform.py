@@ -38,6 +38,21 @@ class LabeledMatch:
     classification: str
 
 
+_APP_SUPPORTED_LABELS = (
+    "RECIPE_TITLE",
+    "INGREDIENT_LINE",
+    "INSTRUCTION_LINE",
+    "OTHER",
+)
+_APP_OVERLAP_LABELS = (
+    "RECIPE_TITLE",
+    "INGREDIENT_LINE",
+    "INSTRUCTION_LINE",
+)
+_APP_RELAXED_OVERLAP_THRESHOLD = 0.1
+_NO_OVERLAP_LABEL = "__NO_OVERLAP__"
+
+
 def load_gold_freeform_ranges(path: Path) -> list[LabeledRange]:
     spans: list[LabeledRange] = []
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -250,7 +265,14 @@ def _overlap_ratio(a: LabeledRange, b: LabeledRange) -> float:
     return intersection / union
 
 
-def _compatible_source(pred: LabeledRange, gold: LabeledRange) -> bool:
+def _compatible_source(
+    pred: LabeledRange,
+    gold: LabeledRange,
+    *,
+    force_source_match: bool = False,
+) -> bool:
+    if force_source_match:
+        return True
     if pred.source_hash and gold.source_hash:
         if pred.source_hash == gold.source_hash:
             return True
@@ -283,11 +305,12 @@ def _classify_boundary(pred: LabeledRange, gold: LabeledRange) -> str:
     return "partial"
 
 
-def evaluate_predicted_vs_freeform(
+def _evaluate_ranges(
     predicted: list[LabeledRange],
     gold: list[LabeledRange],
     *,
     overlap_threshold: float = 0.5,
+    force_source_match: bool = False,
 ) -> dict[str, Any]:
     matches: list[LabeledMatch] = []
     missed_gold: list[LabeledRange] = []
@@ -298,7 +321,11 @@ def evaluate_predicted_vs_freeform(
         for pred_span in predicted:
             if pred_span.label != gold_span.label:
                 continue
-            if not _compatible_source(pred_span, gold_span):
+            if not _compatible_source(
+                pred_span,
+                gold_span,
+                force_source_match=force_source_match,
+            ):
                 continue
             overlap = _overlap_ratio(pred_span, gold_span)
             if best_match is None or overlap > best_match.overlap:
@@ -375,8 +402,325 @@ def evaluate_predicted_vs_freeform(
 
     return {
         "report": report,
-        "missed_gold": [asdict(span) for span in missed_gold],
-        "false_positive_preds": [asdict(span) for span in false_positive_preds],
+        "missed_gold": missed_gold,
+        "false_positive_preds": false_positive_preds,
+    }
+
+
+def _dedupe_predicted_ranges(predicted: list[LabeledRange]) -> list[LabeledRange]:
+    deduped: list[LabeledRange] = []
+    seen: set[tuple[str, str, str, int, int]] = set()
+    for span in predicted:
+        key = (
+            str(span.source_hash or ""),
+            span.source_file,
+            span.label,
+            span.start_block_index,
+            span.end_block_index,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(span)
+    return deduped
+
+
+def _count_gold_any_overlap(
+    predicted: list[LabeledRange],
+    gold: list[LabeledRange],
+    *,
+    label: str,
+    force_source_match: bool = False,
+) -> dict[str, Any]:
+    label_gold = [span for span in gold if span.label == label]
+    label_pred = [span for span in predicted if span.label == label]
+    gold_with_overlap = 0
+    for gold_span in label_gold:
+        found = False
+        for pred_span in label_pred:
+            if not _compatible_source(
+                pred_span,
+                gold_span,
+                force_source_match=force_source_match,
+            ):
+                continue
+            if _overlap_ratio(pred_span, gold_span) > 0:
+                found = True
+                break
+        if found:
+            gold_with_overlap += 1
+    gold_total = len(label_gold)
+    coverage = (gold_with_overlap / gold_total) if gold_total else 0.0
+    return {
+        "gold_total": gold_total,
+        "gold_with_any_overlap": gold_with_overlap,
+        "coverage": coverage,
+    }
+
+
+def _best_overlap_match(
+    gold_span: LabeledRange,
+    predicted: list[LabeledRange],
+    *,
+    force_source_match: bool = False,
+) -> tuple[LabeledRange | None, float]:
+    best_span: LabeledRange | None = None
+    best_overlap = 0.0
+    for pred_span in predicted:
+        if not _compatible_source(
+            pred_span,
+            gold_span,
+            force_source_match=force_source_match,
+        ):
+            continue
+        overlap = _overlap_ratio(pred_span, gold_span)
+        if overlap <= 0:
+            continue
+        if overlap > best_overlap:
+            best_span = pred_span
+            best_overlap = overlap
+    return best_span, best_overlap
+
+
+def _build_classification_only_report(
+    predicted: list[LabeledRange],
+    gold: list[LabeledRange],
+    *,
+    force_source_match: bool = False,
+) -> dict[str, Any]:
+    deduped_pred = _dedupe_predicted_ranges(predicted)
+    label_set = sorted({span.label for span in gold} | {span.label for span in deduped_pred})
+
+    per_label_counts: dict[str, dict[str, int]] = {
+        label: {
+            "gold_total": 0,
+            "gold_with_any_overlap": 0,
+            "gold_with_same_label_any_overlap": 0,
+            "gold_best_label_match": 0,
+        }
+        for label in label_set
+    }
+    confusion: dict[str, dict[str, int]] = {
+        label: {pred_label: 0 for pred_label in (*label_set, _NO_OVERLAP_LABEL)}
+        for label in label_set
+    }
+
+    gold_with_any_overlap = 0
+    gold_with_same_label_any_overlap = 0
+    gold_best_label_match = 0
+
+    for gold_span in gold:
+        if gold_span.label not in per_label_counts:
+            per_label_counts[gold_span.label] = {
+                "gold_total": 0,
+                "gold_with_any_overlap": 0,
+                "gold_with_same_label_any_overlap": 0,
+                "gold_best_label_match": 0,
+            }
+            confusion[gold_span.label] = {
+                pred_label: 0 for pred_label in (*label_set, _NO_OVERLAP_LABEL)
+            }
+        per_label_counts[gold_span.label]["gold_total"] += 1
+
+        best_pred, _best_overlap = _best_overlap_match(
+            gold_span,
+            deduped_pred,
+            force_source_match=force_source_match,
+        )
+        if best_pred is None:
+            confusion[gold_span.label][_NO_OVERLAP_LABEL] += 1
+            continue
+
+        gold_with_any_overlap += 1
+        per_label_counts[gold_span.label]["gold_with_any_overlap"] += 1
+
+        any_same_label_overlap = False
+        for pred_span in deduped_pred:
+            if pred_span.label != gold_span.label:
+                continue
+            if not _compatible_source(
+                pred_span,
+                gold_span,
+                force_source_match=force_source_match,
+            ):
+                continue
+            if _overlap_ratio(pred_span, gold_span) > 0:
+                any_same_label_overlap = True
+                break
+        if any_same_label_overlap:
+            gold_with_same_label_any_overlap += 1
+            per_label_counts[gold_span.label]["gold_with_same_label_any_overlap"] += 1
+
+        confusion_row = confusion[gold_span.label]
+        confusion_row.setdefault(best_pred.label, 0)
+        confusion_row[best_pred.label] += 1
+        if best_pred.label == gold_span.label:
+            gold_best_label_match += 1
+            per_label_counts[gold_span.label]["gold_best_label_match"] += 1
+
+    gold_total = len(gold)
+    same_label_any_overlap_rate = (
+        gold_with_same_label_any_overlap / gold_total if gold_total else 0.0
+    )
+    best_label_match_rate = (gold_best_label_match / gold_total) if gold_total else 0.0
+    any_overlap_rate = (gold_with_any_overlap / gold_total) if gold_total else 0.0
+
+    per_label: dict[str, dict[str, Any]] = {}
+    for label, counts in per_label_counts.items():
+        label_total = counts["gold_total"]
+        per_label[label] = {
+            **counts,
+            "any_overlap_rate": (
+                counts["gold_with_any_overlap"] / label_total if label_total else 0.0
+            ),
+            "same_label_any_overlap_rate": (
+                counts["gold_with_same_label_any_overlap"] / label_total
+                if label_total
+                else 0.0
+            ),
+            "best_label_match_rate": (
+                counts["gold_best_label_match"] / label_total if label_total else 0.0
+            ),
+        }
+
+    supported_gold_total = sum(
+        counts["gold_total"]
+        for label, counts in per_label_counts.items()
+        if label in _APP_SUPPORTED_LABELS
+    )
+    supported_same_label_any_overlap = sum(
+        counts["gold_with_same_label_any_overlap"]
+        for label, counts in per_label_counts.items()
+        if label in _APP_SUPPORTED_LABELS
+    )
+    supported_same_label_any_overlap_rate = (
+        supported_same_label_any_overlap / supported_gold_total
+        if supported_gold_total
+        else 0.0
+    )
+
+    return {
+        "deduped_pred_total": len(deduped_pred),
+        "gold_total": gold_total,
+        "gold_with_any_overlap": gold_with_any_overlap,
+        "gold_with_same_label_any_overlap": gold_with_same_label_any_overlap,
+        "gold_best_label_match": gold_best_label_match,
+        "any_overlap_rate": any_overlap_rate,
+        "same_label_any_overlap_rate": same_label_any_overlap_rate,
+        "best_label_match_rate": best_label_match_rate,
+        "supported_labels": list(_APP_SUPPORTED_LABELS),
+        "supported_gold_total": supported_gold_total,
+        "supported_gold_with_same_label_any_overlap": supported_same_label_any_overlap,
+        "supported_same_label_any_overlap_rate": supported_same_label_any_overlap_rate,
+        "per_label": per_label,
+        "confusion_by_gold_label": confusion,
+        "dedupe_key": "source_hash+source_file+label+start_block_index+end_block_index",
+    }
+
+
+def _build_app_aligned_report(
+    predicted: list[LabeledRange],
+    gold: list[LabeledRange],
+    *,
+    overlap_threshold: float,
+    force_source_match: bool = False,
+) -> dict[str, Any]:
+    deduped_pred = _dedupe_predicted_ranges(predicted)
+
+    deduped_strict = _evaluate_ranges(
+        deduped_pred,
+        gold,
+        overlap_threshold=overlap_threshold,
+        force_source_match=force_source_match,
+    )["report"]
+
+    supported_gold = [
+        span for span in gold if span.label in _APP_SUPPORTED_LABELS
+    ]
+    supported_pred = [
+        span for span in deduped_pred if span.label in _APP_SUPPORTED_LABELS
+    ]
+
+    supported_strict = _evaluate_ranges(
+        supported_pred,
+        supported_gold,
+        overlap_threshold=overlap_threshold,
+        force_source_match=force_source_match,
+    )["report"]
+
+    supported_relaxed = _evaluate_ranges(
+        supported_pred,
+        supported_gold,
+        overlap_threshold=_APP_RELAXED_OVERLAP_THRESHOLD,
+        force_source_match=force_source_match,
+    )["report"]
+
+    any_overlap_coverage = {
+        label: _count_gold_any_overlap(
+            supported_pred,
+            supported_gold,
+            label=label,
+            force_source_match=force_source_match,
+        )
+        for label in _APP_OVERLAP_LABELS
+    }
+
+    return {
+        "supported_labels": list(_APP_SUPPORTED_LABELS),
+        "deduped_predictions": {
+            "overlap_threshold": overlap_threshold,
+            "counts": deduped_strict["counts"],
+            "recall": deduped_strict["recall"],
+            "precision": deduped_strict["precision"],
+        },
+        "supported_labels_strict": {
+            "overlap_threshold": overlap_threshold,
+            "counts": supported_strict["counts"],
+            "recall": supported_strict["recall"],
+            "precision": supported_strict["precision"],
+        },
+        "supported_labels_relaxed": {
+            "overlap_threshold": _APP_RELAXED_OVERLAP_THRESHOLD,
+            "counts": supported_relaxed["counts"],
+            "recall": supported_relaxed["recall"],
+            "precision": supported_relaxed["precision"],
+        },
+        "any_overlap_coverage": any_overlap_coverage,
+    }
+
+
+def evaluate_predicted_vs_freeform(
+    predicted: list[LabeledRange],
+    gold: list[LabeledRange],
+    *,
+    overlap_threshold: float = 0.5,
+    force_source_match: bool = False,
+) -> dict[str, Any]:
+    strict = _evaluate_ranges(
+        predicted,
+        gold,
+        overlap_threshold=overlap_threshold,
+        force_source_match=force_source_match,
+    )
+    app_aligned = _build_app_aligned_report(
+        predicted,
+        gold,
+        overlap_threshold=overlap_threshold,
+        force_source_match=force_source_match,
+    )
+    strict["report"]["app_aligned"] = app_aligned
+    strict["report"]["source_matching_mode"] = (
+        "forced" if force_source_match else "strict"
+    )
+    strict["report"]["classification_only"] = _build_classification_only_report(
+        predicted,
+        gold,
+        force_source_match=force_source_match,
+    )
+    return {
+        "report": strict["report"],
+        "missed_gold": [asdict(span) for span in strict["missed_gold"]],
+        "false_positive_preds": [asdict(span) for span in strict["false_positive_preds"]],
     }
 
 
@@ -409,9 +753,102 @@ def format_freeform_eval_report_md(report: dict[str, Any]) -> str:
             + f"precision={row.get('precision', 0):.3f} "
             + f"({row.get('pred_matched', 0)}/{row.get('pred_total', 0)})"
         )
+    app_aligned = report.get("app_aligned")
+    if isinstance(app_aligned, dict):
+        deduped = app_aligned.get("deduped_predictions", {})
+        supported_strict = app_aligned.get("supported_labels_strict", {})
+        supported_relaxed = app_aligned.get("supported_labels_relaxed", {})
+        supported_labels = app_aligned.get("supported_labels", [])
+        labels_text = ", ".join(str(label) for label in supported_labels)
+        dedup_counts = deduped.get("counts", {})
+        strict_counts = supported_strict.get("counts", {})
+        relaxed_counts = supported_relaxed.get("counts", {})
+        lines.extend(
+            [
+                "",
+                "App-aligned diagnostics:",
+                (
+                    "- Deduped predictions (strict): "
+                    + f"recall={deduped.get('recall', 0):.3f} "
+                    + f"({dedup_counts.get('gold_matched', 0)}/{dedup_counts.get('gold_total', 0)}), "
+                    + f"precision={deduped.get('precision', 0):.3f} "
+                    + f"({dedup_counts.get('pred_matched', 0)}/{dedup_counts.get('pred_total', 0)}), "
+                    + f"overlap>={deduped.get('overlap_threshold', 0)}"
+                ),
+                (
+                    "- Supported labels only (strict): "
+                    + f"recall={supported_strict.get('recall', 0):.3f} "
+                    + f"({strict_counts.get('gold_matched', 0)}/{strict_counts.get('gold_total', 0)}), "
+                    + f"precision={supported_strict.get('precision', 0):.3f} "
+                    + f"({strict_counts.get('pred_matched', 0)}/{strict_counts.get('pred_total', 0)}), "
+                    + f"overlap>={supported_strict.get('overlap_threshold', 0)}, labels=[{labels_text}]"
+                ),
+                (
+                    "- Supported labels only (relaxed): "
+                    + f"recall={supported_relaxed.get('recall', 0):.3f} "
+                    + f"({relaxed_counts.get('gold_matched', 0)}/{relaxed_counts.get('gold_total', 0)}), "
+                    + f"precision={supported_relaxed.get('precision', 0):.3f} "
+                    + f"({relaxed_counts.get('pred_matched', 0)}/{relaxed_counts.get('pred_total', 0)}), "
+                    + f"overlap>={supported_relaxed.get('overlap_threshold', 0)}"
+                ),
+                "- Any-overlap coverage (same label, IoU>0):",
+            ]
+        )
+        any_overlap = app_aligned.get("any_overlap_coverage", {})
+        for label in _APP_OVERLAP_LABELS:
+            row = any_overlap.get(label, {})
+            lines.append(
+                f"  {label}: coverage={row.get('coverage', 0):.3f} "
+                f"({row.get('gold_with_any_overlap', 0)}/{row.get('gold_total', 0)})"
+            )
+    classification_only = report.get("classification_only")
+    if isinstance(classification_only, dict):
+        supported_labels = classification_only.get("supported_labels", [])
+        labels_text = ", ".join(str(label) for label in supported_labels)
+        lines.extend(
+            [
+                "",
+                "Classification-only diagnostics (boundary-insensitive):",
+                (
+                    "- Same-label any-overlap: "
+                    + f"rate={classification_only.get('same_label_any_overlap_rate', 0):.3f} "
+                    + f"({classification_only.get('gold_with_same_label_any_overlap', 0)}/"
+                    + f"{classification_only.get('gold_total', 0)})"
+                ),
+                (
+                    "- Best-overlap label match: "
+                    + f"rate={classification_only.get('best_label_match_rate', 0):.3f} "
+                    + f"({classification_only.get('gold_best_label_match', 0)}/"
+                    + f"{classification_only.get('gold_total', 0)})"
+                ),
+                (
+                    "- Any-overlap coverage (label-agnostic): "
+                    + f"rate={classification_only.get('any_overlap_rate', 0):.3f} "
+                    + f"({classification_only.get('gold_with_any_overlap', 0)}/"
+                    + f"{classification_only.get('gold_total', 0)}), "
+                    + f"deduped_pred_total={classification_only.get('deduped_pred_total', 0)}"
+                ),
+                (
+                    "- Supported-label same-label any-overlap: "
+                    + f"rate={classification_only.get('supported_same_label_any_overlap_rate', 0):.3f} "
+                    + f"({classification_only.get('supported_gold_with_same_label_any_overlap', 0)}/"
+                    + f"{classification_only.get('supported_gold_total', 0)}), "
+                    + f"labels=[{labels_text}]"
+                ),
+                "- Per-label same-label any-overlap:",
+            ]
+        )
+        per_label = classification_only.get("per_label", {})
+        for label in sorted(per_label):
+            row = per_label[label]
+            lines.append(
+                f"  {label}: rate={row.get('same_label_any_overlap_rate', 0):.3f} "
+                f"({row.get('gold_with_same_label_any_overlap', 0)}/{row.get('gold_total', 0)})"
+            )
     lines.extend(
         [
             "",
+            f"Source matching mode: {report.get('source_matching_mode', 'strict')}",
             f"Overlap threshold: {report.get('overlap_threshold', 0)}",
             f"Missed gold spans: {counts.get('gold_missed', 0)}",
             f"False-positive predictions: {counts.get('pred_false_positive', 0)}",

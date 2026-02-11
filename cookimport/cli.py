@@ -558,6 +558,14 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             if overwrite is None:
                 continue
 
+            allow_upload = questionary.confirm(
+                "Upload tasks to Label Studio now?",
+                default=False,
+            ).ask()
+            if allow_upload is not True:
+                typer.secho("Label Studio upload cancelled.", fg=typer.colors.YELLOW)
+                continue
+
             label_studio_url = os.getenv("LABEL_STUDIO_URL")
             label_studio_api_key = os.getenv("LABEL_STUDIO_API_KEY")
 
@@ -592,6 +600,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     label_studio_api_key=api_key,
                     limit=None,
                     sample=None,
+                    allow_labelstudio_write=True,
                 )
             except Exception as exc:  # noqa: BLE001
                 _fail(str(exc))
@@ -681,11 +690,88 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             benchmark_eval_output = (
                 DEFAULT_GOLDEN
                 / "eval-vs-pipeline"
-                / dt.datetime.now().strftime("%Y-%m-%d-%H%M%S")
+                / dt.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
             )
+            gold_candidates = _discover_freeform_gold_exports(DEFAULT_GOLDEN)
+            prediction_runs = _discover_prediction_runs(DEFAULT_GOLDEN)
+            benchmark_mode = "upload"
+            if gold_candidates and prediction_runs:
+                selected_mode = _menu_select(
+                    "How would you like to benchmark?",
+                    menu_help=(
+                        "Use eval-only when you already have prediction tasks. "
+                        "Use upload only when you need to generate fresh predictions."
+                    ),
+                    choices=[
+                        questionary.Choice(
+                            "Score existing prediction run (no upload)",
+                            value="eval-only",
+                        ),
+                        questionary.Choice(
+                            "Generate fresh predictions + score (uploads to Label Studio)",
+                            value="upload",
+                        ),
+                    ],
+                )
+                if selected_mode in {None, BACK_ACTION}:
+                    continue
+                benchmark_mode = str(selected_mode)
+
+            if benchmark_mode == "eval-only":
+                selected_gold = _menu_select(
+                    "Select a freeform gold export:",
+                    menu_help="Choose the labeled freeform export to score against.",
+                    choices=[
+                        questionary.Choice(
+                            _display_gold_export_path(path, DEFAULT_GOLDEN),
+                            value=path,
+                        )
+                        for path in gold_candidates[:30]
+                    ],
+                )
+                if selected_gold in {None, BACK_ACTION}:
+                    typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
+                    continue
+
+                selected_pred_run = _menu_select(
+                    "Select a prediction run:",
+                    menu_help=(
+                        "Choose the existing prediction task run to compare against the selected gold export."
+                    ),
+                    choices=[
+                        questionary.Choice(
+                            _display_prediction_run_path(path, DEFAULT_GOLDEN),
+                            value=path,
+                        )
+                        for path in prediction_runs[:30]
+                    ],
+                )
+                if selected_pred_run in {None, BACK_ACTION}:
+                    typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
+                    continue
+
+                labelstudio_eval(
+                    scope="freeform-spans",
+                    pred_run=Path(selected_pred_run),
+                    gold_spans=Path(selected_gold),
+                    output_dir=benchmark_eval_output,
+                )
+                break
+
+            allow_upload = questionary.confirm(
+                "Upload benchmark prediction tasks to Label Studio now?",
+                default=False,
+            ).ask()
+            if allow_upload is not True:
+                typer.secho(
+                    "Benchmark upload cancelled. Select eval-only mode if you already have prediction runs.",
+                    fg=typer.colors.YELLOW,
+                )
+                continue
             labelstudio_benchmark(
                 output_dir=DEFAULT_GOLDEN,
                 eval_output_dir=benchmark_eval_output,
+                allow_labelstudio_write=True,
                 workers=settings.get("workers", 7),
                 pdf_split_workers=settings.get("pdf_split_workers", 7),
                 epub_split_workers=settings.get("epub_split_workers", 7),
@@ -744,6 +830,14 @@ def _resolve_labelstudio_settings(
     return url, api_key
 
 
+def _require_labelstudio_write_consent(allow_labelstudio_write: bool) -> None:
+    if not allow_labelstudio_write:
+        _fail(
+            "Label Studio uploads are blocked by default. "
+            "Re-run with --allow-labelstudio-write to push tasks."
+        )
+
+
 def _discover_freeform_gold_exports(output_dir: Path) -> list[Path]:
     roots: list[Path] = [output_dir]
     if DEFAULT_OUTPUT not in roots:
@@ -772,6 +866,39 @@ def _discover_freeform_gold_exports(output_dir: Path) -> list[Path]:
 
     exports.sort(key=_sort_key, reverse=True)
     return exports
+
+
+def _discover_prediction_runs(output_dir: Path) -> list[Path]:
+    roots: list[Path] = [output_dir]
+    if DEFAULT_OUTPUT not in roots:
+        roots.append(DEFAULT_OUTPUT)
+    if DEFAULT_GOLDEN not in roots:
+        roots.append(DEFAULT_GOLDEN)
+
+    seen: set[Path] = set()
+    runs: list[Path] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for marker in root.glob("**/label_studio_tasks.jsonl"):
+            run_dir = marker.parent
+            if not run_dir.exists() or not run_dir.is_dir():
+                continue
+            resolved = run_dir.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            runs.append(run_dir)
+
+    def _sort_key(path: Path) -> tuple[float, str]:
+        try:
+            mtime = (path / "label_studio_tasks.jsonl").stat().st_mtime
+        except Exception:  # noqa: BLE001
+            mtime = 0.0
+        return (mtime, str(path))
+
+    runs.sort(key=_sort_key, reverse=True)
+    return runs
 
 
 def _infer_source_file_from_freeform_gold(gold_spans: Path) -> Path | None:
@@ -839,6 +966,15 @@ def _prune_empty_dirs(start: Path, *, stop_exclusive: Path | None = None) -> Non
 
 
 def _display_gold_export_path(path: Path, output_dir: Path) -> str:
+    for root in (output_dir, DEFAULT_GOLDEN):
+        try:
+            return str(path.relative_to(root))
+        except ValueError:
+            continue
+    return str(path)
+
+
+def _display_prediction_run_path(path: Path, output_dir: Path) -> str:
     for root in (output_dir, DEFAULT_GOLDEN):
         try:
             return str(path.relative_to(root))
@@ -1354,7 +1490,7 @@ def stage(
 
     # Create timestamped output folder for this run
     run_dt = dt.datetime.now()
-    timestamp = run_dt.strftime("%Y-%m-%d-%H-%M-%S")
+    timestamp = run_dt.strftime("%Y-%m-%d_%H:%M:%S")
     out = out / timestamp
     out.mkdir(parents=True, exist_ok=True)
 
@@ -1972,6 +2108,11 @@ def labelstudio_import(
     label_studio_api_key: str | None = typer.Option(
         None, "--label-studio-api-key", help="Label Studio API key."
     ),
+    allow_labelstudio_write: bool = typer.Option(
+        False,
+        "--allow-labelstudio-write/--no-allow-labelstudio-write",
+        help="Explicitly allow writing tasks to Label Studio.",
+    ),
     limit: int | None = typer.Option(
         None, "--limit", "-n", min=1, help="Limit number of chunks."
     ),
@@ -1980,6 +2121,7 @@ def labelstudio_import(
     ),
 ) -> None:
     """Import a cookbook into Label Studio for pipeline, canonical, or freeform labeling."""
+    _require_labelstudio_write_consent(allow_labelstudio_write)
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     try:
         with console.status(f"[bold cyan]Running Label Studio import for {path.name}...[/bold cyan]", spinner="dots") as status:
@@ -2003,6 +2145,7 @@ def labelstudio_import(
                 limit=limit,
                 sample=sample,
                 progress_callback=update_progress,
+                allow_labelstudio_write=True,
             )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
@@ -2083,6 +2226,14 @@ def labelstudio_eval(
         max=1.0,
         help="Jaccard overlap threshold for matching.",
     ),
+    force_source_match: bool = typer.Option(
+        False,
+        "--force-source-match",
+        help=(
+            "Ignore source hash/file identity when matching spans. "
+            "Useful for comparing renamed/truncated source variants."
+        ),
+    ),
 ) -> None:
     """Evaluate pipeline predictions against canonical or freeform gold sets."""
     if scope not in {"canonical-blocks", "freeform-spans"}:
@@ -2106,7 +2257,10 @@ def labelstudio_eval(
         predicted = load_predicted_labeled_ranges(pred_run)
         gold = load_gold_freeform_ranges(gold_spans)
         result = evaluate_predicted_vs_freeform(
-            predicted, gold, overlap_threshold=overlap_threshold
+            predicted,
+            gold,
+            overlap_threshold=overlap_threshold,
+            force_source_match=force_source_match,
         )
         report = result["report"]
         report_md = format_freeform_eval_report_md(report)
@@ -2143,6 +2297,10 @@ def labelstudio_benchmark(
         "--output-dir",
         help="Scratch output root used while generating prediction tasks before co-locating under eval output.",
     )] = DEFAULT_GOLDEN,
+    processed_output_dir: Annotated[Path, typer.Option(
+        "--processed-output-dir",
+        help="Output root for staged cookbook outputs generated during benchmark (for upload/review).",
+    )] = DEFAULT_OUTPUT,
     eval_output_dir: Annotated[Path | None, typer.Option(
         "--eval-output-dir", help="Output folder for benchmark report artifacts."
     )] = None,
@@ -2152,6 +2310,13 @@ def labelstudio_benchmark(
         max=1.0,
         help="Jaccard overlap threshold for matching.",
     )] = 0.5,
+    force_source_match: Annotated[bool, typer.Option(
+        "--force-source-match",
+        help=(
+            "Ignore source hash/file identity when matching spans. "
+            "Useful for comparing renamed/truncated source variants."
+        ),
+    )] = False,
     pipeline: Annotated[str, typer.Option("--pipeline", help="Importer pipeline name or auto.")] = "auto",
     chunk_level: Annotated[str, typer.Option(
         "--chunk-level",
@@ -2161,6 +2326,10 @@ def labelstudio_benchmark(
         "--project-name",
         help="Optional Label Studio project name for prediction import.",
     )] = None,
+    allow_labelstudio_write: Annotated[bool, typer.Option(
+        "--allow-labelstudio-write/--no-allow-labelstudio-write",
+        help="Explicitly allow writing prediction tasks to Label Studio.",
+    )] = False,
     overwrite: Annotated[bool, typer.Option("--overwrite/--resume", help="Overwrite prediction project or resume.")] = False,
     label_studio_url: Annotated[str | None, typer.Option("--label-studio-url", help="Label Studio base URL.")] = None,
     label_studio_api_key: Annotated[str | None, typer.Option("--label-studio-api-key", help="Label Studio API key.")] = None,
@@ -2171,6 +2340,7 @@ def labelstudio_benchmark(
     epub_spine_items_per_job: Annotated[int, typer.Option("--epub-spine-items-per-job", min=1, help="Target spine items per EPUB split job.")] = 10,
 ) -> None:
     """Run one-shot benchmark: pipeline predictions vs freeform labeled gold spans."""
+    _require_labelstudio_write_consent(allow_labelstudio_write)
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
 
     selected_gold = gold_spans
@@ -2243,7 +2413,7 @@ def labelstudio_benchmark(
     _require_importer(selected_source)
 
     if eval_output_dir is None:
-        timestamp = dt.datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
         eval_output_dir = selected_gold.parent.parent / "eval-vs-pipeline" / timestamp
     eval_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2279,6 +2449,8 @@ def labelstudio_benchmark(
                 epub_split_workers=epub_split_workers,
                 pdf_pages_per_job=pdf_pages_per_job,
                 epub_spine_items_per_job=epub_spine_items_per_job,
+                processed_output_root=processed_output_dir,
+                allow_labelstudio_write=True,
             )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
@@ -2290,7 +2462,10 @@ def labelstudio_benchmark(
     predicted = load_predicted_labeled_ranges(pred_run)
     gold = load_gold_freeform_ranges(selected_gold)
     eval_result = evaluate_predicted_vs_freeform(
-        predicted, gold, overlap_threshold=overlap_threshold
+        predicted,
+        gold,
+        overlap_threshold=overlap_threshold,
+        force_source_match=force_source_match,
     )
     report = eval_result["report"]
     report_md = format_freeform_eval_report_md(report)
@@ -2310,6 +2485,9 @@ def labelstudio_benchmark(
     typer.secho("Benchmark complete.", fg=typer.colors.GREEN)
     typer.secho(f"Gold spans: {selected_gold}", fg=typer.colors.CYAN)
     typer.secho(f"Prediction run: {pred_run}", fg=typer.colors.CYAN)
+    processed_run_root = import_result.get("processed_run_root")
+    if processed_run_root:
+        typer.secho(f"Processed output: {processed_run_root}", fg=typer.colors.CYAN)
     typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
 
 

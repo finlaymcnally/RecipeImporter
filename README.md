@@ -134,6 +134,7 @@ Options:
 - `--overwrite` / `--resume` (default: `--resume`)
 - `--label-studio-url TEXT`
 - `--label-studio-api-key TEXT`
+- `--allow-labelstudio-write` (required to upload tasks)
 - `--limit, -n INTEGER` (min 1)
 - `--sample INTEGER` (min 1)
 
@@ -197,6 +198,7 @@ Options:
 - `--pipeline TEXT` (default: `auto`)
 - `--chunk-level TEXT` (default: `both`; expected: `structural`, `atomic`, `both`)
 - `--project-name TEXT`
+- `--allow-labelstudio-write` (required to upload prediction tasks)
 - `--overwrite` / `--resume` (default: `--resume`)
 - `--label-studio-url TEXT`
 - `--label-studio-api-key TEXT`

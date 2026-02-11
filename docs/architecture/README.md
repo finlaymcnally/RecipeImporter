@@ -41,7 +41,7 @@ Converts intermediate format to final output:
 Each run creates a timestamped folder:
 
 ```
-data/output/{YYYY-MM-DD-HH-MM-SS}/
+data/output/{YYYY-MM-DD_HH:MM:SS}/
 ├── intermediate drafts/{workbook_slug}/   # RecipeSage JSON-LD per recipe
 ├── final drafts/{workbook_slug}/          # RecipeDraftV1 per recipe
 ├── tips/{workbook_slug}/                  # Tips and topic candidates

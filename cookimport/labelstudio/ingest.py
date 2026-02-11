@@ -7,8 +7,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from cookimport.core.models import ConversionReport, ConversionResult
-from cookimport.core.reporting import compute_file_hash
+from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
 from cookimport.parsing.tips import partition_tip_candidates
+from cookimport.parsing.chunks import (
+    chunks_from_non_recipe_blocks,
+    chunks_from_topic_candidates,
+)
 from cookimport.plugins import registry
 from cookimport.labelstudio.block_tasks import (
     build_block_tasks,
@@ -33,6 +37,16 @@ from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.label_config import LABEL_CONFIG_XML
 from cookimport.labelstudio.label_config_blocks import build_block_label_config
 from cookimport.labelstudio.label_config_freeform import build_freeform_label_config
+from cookimport.staging.writer import (
+    OutputStats,
+    write_chunk_outputs,
+    write_draft_outputs,
+    write_intermediate_outputs,
+    write_raw_artifacts,
+    write_report,
+    write_tip_outputs,
+    write_topic_candidate_outputs,
+)
 from cookimport.staging.pdf_jobs import (
     plan_job_ranges,
     plan_pdf_page_ranges,
@@ -115,6 +129,48 @@ def _task_id_key(task_scope: str) -> str:
     if task_scope == "freeform-spans":
         return "segment_id"
     return "chunk_id"
+
+
+def _write_processed_outputs(
+    *,
+    result: ConversionResult,
+    path: Path,
+    run_dt: dt.datetime,
+    output_root: Path,
+) -> Path:
+    timestamp = run_dt.strftime("%Y-%m-%d_%H:%M:%S")
+    run_root = output_root / timestamp
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    workbook_name = path.stem
+    intermediate_dir = run_root / "intermediate drafts" / workbook_name
+    final_dir = run_root / "final drafts" / workbook_name
+    tips_dir = run_root / "tips" / workbook_name
+
+    if result.non_recipe_blocks:
+        result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
+    elif result.topic_candidates:
+        result.chunks = chunks_from_topic_candidates(result.topic_candidates)
+
+    if result.report is None:
+        result.report = ConversionReport()
+    result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
+    enrich_report_with_stats(result.report, result, path)
+
+    output_stats = OutputStats(run_root)
+    write_intermediate_outputs(result, intermediate_dir, output_stats=output_stats)
+    write_draft_outputs(result, final_dir, output_stats=output_stats)
+    write_tip_outputs(result, tips_dir, output_stats=output_stats)
+    write_topic_candidate_outputs(result, tips_dir, output_stats=output_stats)
+    if result.chunks:
+        chunks_dir = run_root / "chunks" / workbook_name
+        write_chunk_outputs(result.chunks, chunks_dir, output_stats=output_stats)
+    write_raw_artifacts(result, run_root, output_stats=output_stats)
+
+    if output_stats.file_counts:
+        result.report.output_stats = output_stats.to_report()
+    write_report(result.report, run_root, workbook_name)
+    return run_root
 
 
 def _resolve_pdf_page_count(path: Path) -> int | None:
@@ -251,6 +307,140 @@ def _job_sort_key(job: dict[str, Any]) -> tuple[int, int]:
     return (2, int(job.get("job_index") or 0))
 
 
+def _coerce_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _offset_mapping_int(payload: dict[str, Any], key: str, offset: int) -> None:
+    value = _coerce_int(payload.get(key))
+    if value is None:
+        return
+    payload[key] = value + offset
+
+
+def _offset_location_fields(location: dict[str, Any], offset: int) -> None:
+    for key in (
+        "start_block",
+        "end_block",
+        "block_index",
+        "startBlock",
+        "endBlock",
+        "blockIndex",
+        "tip_block_index",
+        "tipBlockIndex",
+    ):
+        _offset_mapping_int(location, key, offset)
+
+
+def _offset_provenance_block_indices(provenance: dict[str, Any], offset: int) -> None:
+    location = provenance.get("location")
+    if isinstance(location, dict):
+        _offset_location_fields(location, offset)
+
+    atom = provenance.get("atom")
+    if isinstance(atom, dict):
+        _offset_mapping_int(atom, "block_index", offset)
+        _offset_mapping_int(atom, "blockIndex", offset)
+
+    _offset_mapping_int(provenance, "tip_block_index", offset)
+    _offset_mapping_int(provenance, "tipBlockIndex", offset)
+
+
+def _offset_result_block_indices(result: ConversionResult, offset: int) -> None:
+    if offset <= 0:
+        return
+
+    for recipe in result.recipes:
+        if isinstance(recipe.provenance, dict):
+            _offset_provenance_block_indices(recipe.provenance, offset)
+
+    for tip in result.tip_candidates:
+        if isinstance(tip.provenance, dict):
+            _offset_provenance_block_indices(tip.provenance, offset)
+
+    for topic in result.topic_candidates:
+        if isinstance(topic.provenance, dict):
+            _offset_provenance_block_indices(topic.provenance, offset)
+
+    for block in result.non_recipe_blocks:
+        if isinstance(block, dict):
+            _offset_mapping_int(block, "index", offset)
+            location = block.get("location")
+            if isinstance(location, dict):
+                _offset_location_fields(location, offset)
+
+    for artifact in result.raw_artifacts:
+        content = artifact.content
+        if not isinstance(content, dict):
+            continue
+        _offset_location_fields(content, offset)
+        blocks = content.get("blocks")
+        if isinstance(blocks, list):
+            for block in blocks:
+                if not isinstance(block, dict):
+                    continue
+                _offset_mapping_int(block, "index", offset)
+                _offset_location_fields(block, offset)
+
+
+def _extract_result_block_count(result: ConversionResult) -> int:
+    for artifact in result.raw_artifacts:
+        metadata = artifact.metadata if isinstance(artifact.metadata, dict) else {}
+        if metadata.get("artifact_type") != "extracted_blocks":
+            continue
+        content = artifact.content
+        if not isinstance(content, dict):
+            continue
+        block_count = _coerce_int(content.get("block_count"))
+        if block_count is not None and block_count > 0:
+            return block_count
+        blocks = content.get("blocks")
+        if isinstance(blocks, list) and blocks:
+            return len(blocks)
+
+    max_block_index = -1
+
+    for artifact in result.raw_artifacts:
+        content = artifact.content
+        if not isinstance(content, dict):
+            continue
+        blocks = content.get("blocks")
+        if not isinstance(blocks, list):
+            continue
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            index = _coerce_int(block.get("index"))
+            if index is not None:
+                max_block_index = max(max_block_index, index)
+
+    for recipe in result.recipes:
+        provenance = recipe.provenance if isinstance(recipe.provenance, dict) else {}
+        location = provenance.get("location")
+        if not isinstance(location, dict):
+            continue
+        start = _coerce_int(location.get("start_block"))
+        end = _coerce_int(location.get("end_block"))
+        if start is not None:
+            max_block_index = max(max_block_index, start)
+        if end is not None:
+            max_block_index = max(max_block_index, end)
+
+    for block in result.non_recipe_blocks:
+        if not isinstance(block, dict):
+            continue
+        index = _coerce_int(block.get("index"))
+        if index is not None:
+            max_block_index = max(max_block_index, index)
+
+    return max_block_index + 1 if max_block_index >= 0 else 0
+
+
 def _merge_parallel_results(
     path: Path,
     importer_name: str,
@@ -263,14 +453,17 @@ def _merge_parallel_results(
     merged_non_recipe_blocks: list[Any] = []
     merged_raw_artifacts: list[Any] = []
     warnings: list[str] = []
+    block_offset = 0
 
     for job in ordered_jobs:
         result = job["result"]
+        _offset_result_block_indices(result, block_offset)
         merged_recipes.extend(result.recipes)
         merged_tip_candidates.extend(result.tip_candidates)
         merged_topic_candidates.extend(result.topic_candidates)
         merged_non_recipe_blocks.extend(result.non_recipe_blocks)
         merged_raw_artifacts.extend(result.raw_artifacts)
+        block_offset += _extract_result_block_count(result)
         if result.report and result.report.warnings:
             warnings.extend(result.report.warnings)
         if result.report and result.report.errors:
@@ -324,12 +517,18 @@ def run_labelstudio_import(
     epub_split_workers: int = 1,
     pdf_pages_per_job: int = 50,
     epub_spine_items_per_job: int = 10,
+    processed_output_root: Path | None = None,
+    allow_labelstudio_write: bool = False,
 ) -> dict[str, Any]:
+    def _notify(message: str) -> None:
+        if progress_callback is not None:
+            progress_callback(message)
+
     if not path.exists():
         raise FileNotFoundError(f"Path not found: {path}")
 
     run_dt = dt.datetime.now()
-    timestamp = run_dt.strftime("%Y-%m-%d-%H%M%S")
+    timestamp = run_dt.strftime("%Y-%m-%d_%H:%M:%S")
     book_slug = _slugify_name(path.stem)
     run_root = output_dir / timestamp / "labelstudio" / book_slug
     run_root.mkdir(parents=True, exist_ok=True)
@@ -353,10 +552,9 @@ def run_labelstudio_import(
     if len(job_specs) == 1:
         result = importer.convert(path, None, progress_callback=progress_callback)
     else:
-        if progress_callback is not None:
-            progress_callback(
-                f"Running {len(job_specs)} split job(s) with up to {max(1, workers)} workers..."
-            )
+        _notify(
+            f"Running {len(job_specs)} split job(s) with up to {max(1, workers)} workers..."
+        )
         effective_workers = max(1, workers)
         if path.suffix.lower() == ".epub":
             effective_workers = max(effective_workers, epub_split_workers)
@@ -405,10 +603,7 @@ def run_labelstudio_import(
                         {**spec, "result": job_result, "importer_name": importer_name}
                     )
                     completed += 1
-                    if progress_callback is not None:
-                        progress_callback(
-                            f"Completed split job {completed}/{len(job_specs)}"
-                        )
+                    _notify(f"Completed split job {completed}/{len(job_specs)}")
         except PermissionError:
             for spec in job_specs:
                 try:
@@ -417,10 +612,7 @@ def run_labelstudio_import(
                     job_errors.append(
                         f"job {spec.get('job_index', '?')}: {exc}"
                     )
-                if progress_callback is not None:
-                    progress_callback(
-                        f"Completed split job {len(job_results)}/{len(job_specs)}"
-                    )
+                _notify(f"Completed split job {len(job_results)}/{len(job_specs)}")
 
         if job_errors:
             raise RuntimeError("Split conversion failed: " + "; ".join(job_errors))
@@ -429,12 +621,23 @@ def run_labelstudio_import(
 
         importer_name = str(job_results[0].get("importer_name") or importer.name)
         result = _merge_parallel_results(path, importer_name, job_results)
-        if progress_callback is not None:
-            progress_callback("Merged split job results.")
+        _notify("Merged split job results.")
 
+    _notify("Building extracted archive...")
     archive = build_extracted_archive(result, result.raw_artifacts)
+    _notify("Computing source file hash...")
     file_hash = compute_file_hash(path)
     book_id = result.workbook or path.stem
+    processed_run_root: Path | None = None
+    if processed_output_root is not None:
+        _notify("Writing processed cookbook outputs...")
+        processed_run_root = _write_processed_outputs(
+            result=result,
+            path=path,
+            run_dt=run_dt,
+            output_root=processed_output_root,
+        )
+        _notify("Processed cookbook outputs complete.")
 
     scopes = {"pipeline", "canonical-blocks", "freeform-spans"}
     if task_scope not in scopes:
@@ -455,6 +658,7 @@ def run_labelstudio_import(
         if chunk_level not in levels:
             raise ValueError("chunk_level must be one of: structural, atomic, both")
 
+        _notify("Generating pipeline chunk candidates...")
         chunks = []
         if chunk_level in {"structural", "both"}:
             chunks.extend(
@@ -482,6 +686,7 @@ def run_labelstudio_import(
         if not chunks:
             raise RuntimeError("No chunks generated for labeling.")
 
+        _notify("Computing pipeline chunk coverage...")
         coverage = compute_coverage(archive, chunks)
         coverage_payload = {
             "extracted_chars": coverage.extracted_chars,
@@ -493,18 +698,21 @@ def run_labelstudio_import(
                 "No text extracted; this may be a scanned document that requires OCR."
             )
 
+        _notify("Sampling chunk candidates...")
         chunks = sample_chunks(chunks, limit=limit, sample=sample)
         if not chunks:
             raise RuntimeError("No chunks generated after limit/sample filters.")
 
+        _notify("Building Label Studio pipeline tasks...")
         tasks = chunk_records_to_tasks(chunks, source_hash=file_hash)
         chunk_ids = [chunk.chunk_id for chunk in chunks]
         task_ids = list(chunk_ids)
     elif task_scope == "canonical-blocks":
-        if chunk_level != "both" and progress_callback is not None:
-            progress_callback("canonical-blocks ignores --chunk-level")
+        if chunk_level != "both":
+            _notify("canonical-blocks ignores --chunk-level")
         if not archive:
             raise RuntimeError("No extracted blocks available for canonical labeling.")
+        _notify("Building canonical block tasks...")
         tasks_all = build_block_tasks(
             archive,
             source_hash=file_hash,
@@ -518,6 +726,7 @@ def run_labelstudio_import(
             raise RuntimeError(
                 "No text extracted; this may be a scanned document that requires OCR."
             )
+        _notify("Sampling canonical block tasks...")
         tasks = sample_block_tasks(tasks_all, limit=limit, sample=sample)
         if not tasks:
             raise RuntimeError("No block tasks generated after limit/sample filters.")
@@ -525,10 +734,11 @@ def run_labelstudio_import(
         block_ids = [task.get("data", {}).get("block_id") for task in tasks if task]
         task_ids = [block_id for block_id in block_ids if block_id]
     else:
-        if chunk_level != "both" and progress_callback is not None:
-            progress_callback("freeform-spans ignores --chunk-level")
+        if chunk_level != "both":
+            _notify("freeform-spans ignores --chunk-level")
         if not archive:
             raise RuntimeError("No extracted blocks available for freeform labeling.")
+        _notify("Building freeform span tasks...")
         tasks_all = build_freeform_span_tasks(
             archive=archive,
             source_hash=file_hash,
@@ -544,6 +754,7 @@ def run_labelstudio_import(
             raise RuntimeError(
                 "No text extracted; this may be a scanned document that requires OCR."
             )
+        _notify("Sampling freeform span tasks...")
         tasks = sample_freeform_tasks(tasks_all, limit=limit, sample=sample)
         if not tasks:
             raise RuntimeError(
@@ -553,7 +764,14 @@ def run_labelstudio_import(
         segment_ids = [task.get("data", {}).get("segment_id") for task in tasks if task]
         task_ids = [segment_id for segment_id in segment_ids if segment_id]
 
+    if not allow_labelstudio_write:
+        raise RuntimeError(
+            "Label Studio write blocked. Re-run with explicit upload consent "
+            "(allow_labelstudio_write=True)."
+        )
+
     client = LabelStudioClient(label_studio_url, label_studio_api_key)
+    _notify("Resolving Label Studio project...")
     project_title = _resolve_project_name(path, project_name, client)
 
     existing_project = client.find_project_by_title(project_title)
@@ -576,6 +794,7 @@ def run_labelstudio_import(
     existing_task_ids: set[str] = set()
     resume_source: str | None = None
     if resume and not overwrite:
+        _notify("Checking resume metadata for existing tasks...")
         manifest_path = _find_latest_manifest(output_dir, project_title)
         if manifest_path and manifest_path.exists():
             payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -611,13 +830,20 @@ def run_labelstudio_import(
 
     batch_size = 200
     uploaded_count = 0
+    if upload_tasks:
+        total_batches = (len(upload_tasks) + batch_size - 1) // batch_size
+        _notify(f"Uploading {len(upload_tasks)} task(s) in {total_batches} batch(es)...")
+    else:
+        _notify("No new tasks to upload (resume skipped existing tasks).")
     for start in range(0, len(upload_tasks), batch_size):
         batch = upload_tasks[start : start + batch_size]
         if not batch:
             continue
         client.import_tasks(project_id, batch)
         uploaded_count += len(batch)
+        _notify(f"Uploaded {uploaded_count}/{len(upload_tasks)} task(s).")
 
+    _notify("Writing Label Studio run artifacts...")
     archive_path = run_root / "extracted_archive.json"
     archive_payload = [
         {
@@ -684,12 +910,14 @@ def run_labelstudio_import(
     project_path.write_text(
         json.dumps(project, indent=2, sort_keys=True), encoding="utf-8"
     )
+    _notify("Label Studio import artifacts complete.")
 
     return {
         "project": project,
         "project_name": project_title,
         "project_id": project_id,
         "run_root": run_root,
+        "processed_run_root": processed_run_root,
         "tasks_total": len(tasks),
         "tasks_uploaded": uploaded_count,
         "manifest_path": manifest_path,

@@ -8,3 +8,6 @@ Label Studio benchmark mode helpers.
 - `export.py` pulls annotations back and converts them into JSONL (pipeline tip eval + canonical block labels + freeform spans).
 - `eval_canonical.py` compares pipeline structural chunks to canonical gold spans.
 - `eval_freeform.py` compares pipeline chunk predictions to freeform span gold labels via block-range overlap.
+- `eval_freeform.py` now also emits an `app_aligned` summary (deduped predictions, supported-label-only metrics, relaxed overlap, and any-overlap coverage) alongside strict span metrics.
+- `eval_freeform.py` also emits `classification_only` diagnostics focused on label agreement/coverage with boundary-insensitive overlap.
+- `labelstudio-benchmark` now also writes stage-style processed cookbook output to `data/output` (override via `--processed-output-dir`) while still writing benchmark artifacts to `data/golden`.

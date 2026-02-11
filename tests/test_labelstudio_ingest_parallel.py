@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from cookimport.core.models import (
     ConversionReport,
@@ -11,6 +12,7 @@ from cookimport.core.models import (
 from cookimport.labelstudio.ingest import (
     _merge_parallel_results,
     _plan_parallel_convert_jobs,
+    run_labelstudio_import,
 )
 
 
@@ -59,8 +61,15 @@ def test_merge_parallel_results_combines_and_reorders(tmp_path: Path) -> None:
                 source_hash="hash-a",
                 location_id="loc-a",
                 extension="json",
-                content={"x": 1},
-                metadata={},
+                content={
+                    "block_count": 3,
+                    "blocks": [
+                        {"index": 0, "text": "a"},
+                        {"index": 1, "text": "b"},
+                        {"index": 2, "text": "c"},
+                    ],
+                },
+                metadata={"artifact_type": "extracted_blocks"},
             )
         ],
         report=ConversionReport(),
@@ -85,8 +94,14 @@ def test_merge_parallel_results_combines_and_reorders(tmp_path: Path) -> None:
                 source_hash="hash-b",
                 location_id="loc-b",
                 extension="json",
-                content={"x": 2},
-                metadata={},
+                content={
+                    "block_count": 2,
+                    "blocks": [
+                        {"index": 0, "text": "x"},
+                        {"index": 1, "text": "y"},
+                    ],
+                },
+                metadata={"artifact_type": "extracted_blocks"},
             )
         ],
         report=ConversionReport(),
@@ -108,4 +123,125 @@ def test_merge_parallel_results_combines_and_reorders(tmp_path: Path) -> None:
     assert merged.recipes[1].name == "Later"
     assert merged.recipes[0].identifier != "old-earlier"
     assert merged.recipes[1].identifier != "old-later"
+    assert merged.recipes[1].provenance["location"]["start_block"] == 22
     assert len(merged.raw_artifacts) == 2
+    shifted = next(artifact for artifact in merged.raw_artifacts if artifact.source_hash == "hash-a")
+    shifted_indices = [block["index"] for block in shifted.content["blocks"]]
+    assert shifted_indices == [2, 3, 4]
+
+
+def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+    processed_root = tmp_path / "processed"
+
+    fake_result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    class FakeLabelStudioClient:
+        uploaded_batches: list[int] = []
+
+        def __init__(self, _url: str, _key: str) -> None:
+            pass
+
+        def list_projects(self):
+            return []
+
+        def find_project_by_title(self, _title: str):
+            return None
+
+        def create_project(self, title: str, _label_config: str, description: str | None = None):
+            return {"id": 123, "title": title, "description": description}
+
+        def import_tasks(self, _project_id: int, tasks):
+            self.uploaded_batches.append(len(tasks))
+
+    monkeypatch.setattr("cookimport.labelstudio.ingest.registry.get_importer", lambda _name: FakeImporter())
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._plan_parallel_convert_jobs",
+        lambda *_args, **_kwargs: [{"job_index": 0, "start_page": None, "end_page": None, "start_spine": None, "end_spine": None}],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            SimpleNamespace(index=0, text="hello", location={"block_index": 0}, source_kind="raw")
+        ],
+    )
+    monkeypatch.setattr("cookimport.labelstudio.ingest.compute_file_hash", lambda _path: "hash")
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._write_processed_outputs",
+        lambda **_kwargs: processed_root / "2026-02-11_00:00:00",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.chunk_structural",
+        lambda *_args, **_kwargs: [SimpleNamespace(chunk_id=f"c{i}") for i in range(401)],
+    )
+    monkeypatch.setattr("cookimport.labelstudio.ingest.chunk_atomic", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_coverage",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            extracted_chars=1000,
+            chunked_chars=950,
+            warnings=[],
+        ),
+    )
+    monkeypatch.setattr("cookimport.labelstudio.ingest.sample_chunks", lambda chunks, **_kwargs: chunks)
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.chunk_records_to_tasks",
+        lambda chunks, source_hash: [
+            {"data": {"chunk_id": f"{source_hash}:{chunk.chunk_id}"}} for chunk in chunks
+        ],
+    )
+    monkeypatch.setattr("cookimport.labelstudio.ingest.LabelStudioClient", FakeLabelStudioClient)
+
+    progress_messages: list[str] = []
+    run_labelstudio_import(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        project_name="benchmark project",
+        chunk_level="both",
+        task_scope="pipeline",
+        context_window=1,
+        segment_blocks=40,
+        segment_overlap=5,
+        overwrite=False,
+        resume=False,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="test",
+        limit=None,
+        sample=None,
+        progress_callback=progress_messages.append,
+        workers=2,
+        pdf_split_workers=1,
+        epub_split_workers=1,
+        pdf_pages_per_job=50,
+        epub_spine_items_per_job=10,
+        processed_output_root=processed_root,
+        allow_labelstudio_write=True,
+    )
+
+    assert "Building extracted archive..." in progress_messages
+    assert "Writing processed cookbook outputs..." in progress_messages
+    assert "Generating pipeline chunk candidates..." in progress_messages
+    assert "Uploading 401 task(s) in 3 batch(es)..." in progress_messages
+    assert "Uploaded 401/401 task(s)." in progress_messages
+    assert progress_messages[-1] == "Label Studio import artifacts complete."

@@ -29,7 +29,7 @@ def test_discover_freeform_gold_exports_includes_golden_root(
 ) -> None:
     output_root = tmp_path / "output"
     golden_root = tmp_path / "golden"
-    exports = golden_root / "sample" / "freeform" / "2026-02-10-203641" / "labelstudio" / "book" / "exports"
+    exports = golden_root / "sample" / "freeform" / "2026-02-10_20:36:41" / "labelstudio" / "book" / "exports"
     exports.mkdir(parents=True, exist_ok=True)
     golden_path = exports / "freeform_span_labels.jsonl"
     golden_path.write_text("{}\n", encoding="utf-8")
@@ -49,6 +49,21 @@ def test_display_gold_export_path_relative_to_golden_root(
 
     display = cli._display_gold_export_path(path, output_root)
     assert display == "sample/freeform/exports/freeform_span_labels.jsonl"
+
+
+def test_discover_prediction_runs_orders_newest_first(tmp_path: Path) -> None:
+    older = tmp_path / "2026-01-01-000000" / "labelstudio" / "book-a"
+    newer = tmp_path / "2026-01-02-000000" / "labelstudio" / "book-b"
+    older.mkdir(parents=True, exist_ok=True)
+    newer.mkdir(parents=True, exist_ok=True)
+    older_marker = older / "label_studio_tasks.jsonl"
+    newer_marker = newer / "label_studio_tasks.jsonl"
+    older_marker.write_text("{}\n", encoding="utf-8")
+    newer_marker.write_text("{}\n", encoding="utf-8")
+
+    discovered = cli._discover_prediction_runs(tmp_path)
+    assert discovered[0] == newer
+    assert discovered[1] == older
 
 
 def test_infer_source_file_from_manifest_path(tmp_path: Path) -> None:
@@ -110,12 +125,12 @@ def test_labelstudio_commands_default_output_roots() -> None:
 
 
 def test_co_locate_prediction_run_for_benchmark_moves_into_eval_dir(tmp_path: Path) -> None:
-    timestamp_root = tmp_path / "output" / "2026-02-10-210952"
+    timestamp_root = tmp_path / "output" / "2026-02-10_21:09:52"
     pred_run = timestamp_root / "labelstudio" / "book"
     pred_run.mkdir(parents=True, exist_ok=True)
     marker = pred_run / "label_studio_tasks.jsonl"
     marker.write_text("{}\n", encoding="utf-8")
-    eval_output_dir = tmp_path / "golden" / "sample" / "freeform" / "eval-vs-pipeline" / "2026-02-10-210952"
+    eval_output_dir = tmp_path / "golden" / "sample" / "freeform" / "eval-vs-pipeline" / "2026-02-10_21:09:52"
     eval_output_dir.mkdir(parents=True, exist_ok=True)
 
     moved = cli._co_locate_prediction_run_for_benchmark(pred_run, eval_output_dir)
@@ -129,11 +144,11 @@ def test_co_locate_prediction_run_for_benchmark_moves_into_eval_dir(tmp_path: Pa
 
 
 def test_co_locate_prediction_run_for_benchmark_overwrites_existing_target(tmp_path: Path) -> None:
-    pred_run = tmp_path / "output" / "2026-02-10-210952" / "labelstudio" / "book"
+    pred_run = tmp_path / "output" / "2026-02-10_21:09:52" / "labelstudio" / "book"
     pred_run.mkdir(parents=True, exist_ok=True)
     (pred_run / "new.txt").write_text("new\n", encoding="utf-8")
 
-    eval_output_dir = tmp_path / "golden" / "sample" / "freeform" / "eval-vs-pipeline" / "2026-02-10-210952"
+    eval_output_dir = tmp_path / "golden" / "sample" / "freeform" / "eval-vs-pipeline" / "2026-02-10_21:09:52"
     existing_target = eval_output_dir / "prediction-run"
     existing_target.mkdir(parents=True, exist_ok=True)
     (existing_target / "old.txt").write_text("old\n", encoding="utf-8")
@@ -177,10 +192,11 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
         "text",
         lambda *args, **kwargs: _Prompt(next(text_answers)),
     )
+    confirm_answers = iter([False, True])
     monkeypatch.setattr(
         cli.questionary,
         "confirm",
-        lambda *args, **kwargs: _Prompt(False),
+        lambda *args, **kwargs: _Prompt(next(confirm_answers)),
     )
 
     captured: dict[str, object] = {}
@@ -217,6 +233,11 @@ def test_interactive_benchmark_uses_golden_output_roots(
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
     monkeypatch.setattr(cli, "_load_settings", lambda: {"output_dir": str(configured_output)})
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
+    monkeypatch.setattr(
+        cli.questionary,
+        "confirm",
+        lambda *args, **kwargs: type("_Prompt", (), {"ask": lambda self: True})(),
+    )
 
     captured: dict[str, object] = {}
 
@@ -229,6 +250,47 @@ def test_interactive_benchmark_uses_golden_output_roots(
 
     assert captured["output_dir"] == golden_root
     eval_output_dir = captured["eval_output_dir"]
+    assert isinstance(eval_output_dir, Path)
+    assert eval_output_dir.parent == golden_root / "eval-vs-pipeline"
+
+
+def test_interactive_benchmark_eval_only_uses_existing_prediction_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    golden_root = tmp_path / "golden"
+    pred_run = golden_root / "some-run" / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+    gold_spans = golden_root / "some-run" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    menu_answers = iter(["labelstudio_benchmark", "eval-only", gold_spans, pred_run])
+    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
+    monkeypatch.setattr(cli, "_load_settings", lambda: {})
+    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
+
+    def _unexpected_confirm(*_args, **_kwargs):
+        raise AssertionError("Upload confirm should not be shown in eval-only mode")
+
+    monkeypatch.setattr(cli.questionary, "confirm", _unexpected_confirm)
+    monkeypatch.setattr(cli, "_discover_freeform_gold_exports", lambda *_: [gold_spans])
+    monkeypatch.setattr(cli, "_discover_prediction_runs", lambda *_: [pred_run])
+
+    captured: dict[str, object] = {}
+
+    def fake_labelstudio_eval(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(cli, "labelstudio_eval", fake_labelstudio_eval)
+
+    cli._interactive_mode()
+
+    assert captured["scope"] == "freeform-spans"
+    assert captured["pred_run"] == pred_run
+    assert captured["gold_spans"] == gold_spans
+    eval_output_dir = captured["output_dir"]
     assert isinstance(eval_output_dir, Path)
     assert eval_output_dir.parent == golden_root / "eval-vs-pipeline"
 
@@ -275,3 +337,78 @@ def test_interactive_labelstudio_export_routes_to_export_command(
     assert captured["project_name"] == "Bench Project"
     assert captured["export_scope"] == "freeform-spans"
     assert captured["output_dir"] == selected_output
+
+
+def test_labelstudio_benchmark_passes_processed_output_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key")
+    )
+    monkeypatch.setattr(
+        cli,
+        "_co_locate_prediction_run_for_benchmark",
+        lambda _pred_run, _eval_dir: prediction_run,
+    )
+    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
+    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
+    monkeypatch.setattr(
+        cli,
+        "evaluate_predicted_vs_freeform",
+        lambda *_args, **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 0,
+                    "pred_total": 0,
+                    "gold_matched": 0,
+                    "pred_matched": 0,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "recall": 0.0,
+                "precision": 0.0,
+                "boundary": {"correct": 0, "over": 0, "under": 0, "partial": 0},
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(cli, "write_jsonl", lambda *_: None)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_labelstudio_import(**kwargs):
+        captured.update(kwargs)
+        return {
+            "project_name": "book",
+            "project_id": 1,
+            "tasks_total": 1,
+            "tasks_uploaded": 1,
+            "run_root": prediction_run,
+            "processed_run_root": tmp_path / "processed" / "2026-02-11-00-00-00",
+        }
+
+    monkeypatch.setattr(cli, "run_labelstudio_import", fake_run_labelstudio_import)
+
+    processed_root = tmp_path / "output"
+    eval_root = tmp_path / "eval"
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=processed_root,
+        eval_output_dir=eval_root,
+        allow_labelstudio_write=True,
+    )
+
+    assert captured["processed_output_root"] == processed_root
