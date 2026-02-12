@@ -1,3 +1,1 @@
-{
-  "contextFileName": "AGENTS.md"
-}
+AGENTS.md

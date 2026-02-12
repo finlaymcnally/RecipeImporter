@@ -1,3 +1,10 @@
+---
+summary: "ExecPlan for concurrency, OCR optimization, and staging performance improvements."
+read_when:
+  - When tracing why performance/timing scaffolding exists
+  - When planning additional throughput improvements
+---
+
 # Accelerate cookimport by scaling CPU concurrency and explicitly optimizing OCR compute
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.

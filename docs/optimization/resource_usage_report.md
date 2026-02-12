@@ -1,3 +1,10 @@
+---
+summary: "Resource usage analysis with practical throughput-improvement strategies."
+read_when:
+  - When tuning stage throughput (CPU/GPU/RAM) for larger imports
+  - When reviewing performance bottlenecks and optimization options
+---
+
 # Resource Usage and Performance Report: cookimport
 
 This report provides an analysis of how `cookimport` utilizes system resources and outlines strategies for increasing its share of available compute to accelerate processing.

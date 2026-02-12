@@ -366,3 +366,90 @@ Environment variables:
 - `C3IMP_LIMIT`: Limit recipes per file (for testing)
 - `LABEL_STUDIO_URL`: Label Studio server URL
 - `LABEL_STUDIO_API_KEY`: Label Studio API key
+
+## 10. Metrics & Observability
+
+The pipeline tracks metrics in a few different places, each for a different purpose: conversion health, performance trending, and labeling/evaluation quality.
+
+### 10.1 Per-file conversion report (`*.excel_import_report.json`)
+
+Each staged source file writes one report at:
+- `data/output/<YYYY-MM-DD_HH.MM.SS>/<workbook_slug>.excel_import_report.json`
+
+Primary fields (from `ConversionReport`):
+- Volume counts: `totalRecipes`, `totalTips`, `totalTipCandidates`, `totalTopicCandidates`
+- Standalone/chunk coverage: `totalStandaloneBlocks`, `totalStandaloneTopicBlocks`, `standaloneTopicCoverage`
+- Data quality: `missingFieldCounts`, `skippedRows`, `lowConfidenceSheets`, `warnings`, `errors`
+- Confidence aggregates: `averageConfidence`, `categoryConfidence`
+- Runtime timing: `timing.total_seconds`, `timing.parsing_seconds`, `timing.writing_seconds`, `timing.ocr_seconds`, and `timing.checkpoints`
+- Output footprint: `outputStats.files` and `outputStats.largestFiles`
+
+Why these are tracked:
+- Counts and missing-field stats catch extraction regressions quickly.
+- Confidence and warnings/errors support triage without opening every recipe output.
+- Timing and output size stats show where runtime and disk usage are going.
+
+How `outputStats` is structured:
+- Per-category file/byte totals for:
+  - `intermediateDrafts`
+  - `finalDrafts`
+  - `tips`
+  - `topicCandidates`
+  - `chunks`
+  - `rawArtifacts`
+- `files.total` aggregates all categories.
+- `largestFiles` keeps the top 5 largest written files with `{path, bytes, category}`.
+
+Split job note (PDF/EPUB):
+- For merged split runs, report timing is aggregated from job timings and adds `timing.checkpoints.merge_seconds` for merge overhead.
+
+### 10.2 Performance summary + history CSV
+
+`cookimport stage` auto-runs a performance summary, and `cookimport perf-report` can be run manually.
+
+Storage:
+- History CSV: `data/output/.history/performance_history.csv`
+- Source data: per-file `*.excel_import_report.json` files from each run folder.
+
+Tracked/derived metrics include:
+- Base timing: total/parsing/writing/OCR seconds
+- Volume: recipes, tips, tip candidates, topic candidates
+- Derived rates: per-recipe, per-tip, per-tip-candidate, per-topic-candidate, and per-unit seconds
+- Knowledge skew: `knowledge_share` and `knowledge_heavy`
+- Standalone-topic coverage carry-through
+- Dominant stage/checkpoint indicators
+
+Why:
+- Gives trendable performance data across runs.
+- Flags outliers (`>3x` median) for total/parsing/writing/per-unit and recipe-heavy per-recipe cases.
+
+### 10.3 Label Studio ingestion coverage metrics
+
+Label Studio ingest workflows write coverage artifacts to the Label Studio run folder (for example `.../coverage.json` and `manifest.json`):
+- `extracted_chars`
+- `chunked_chars`
+- `warnings`
+- plus task upload counts in manifest (`task_count`, `uploaded_task_count`)
+
+Why:
+- Verifies how much extracted text is actually represented in labeling tasks.
+- Detects sampling/chunking gaps before annotation effort is spent.
+
+### 10.4 Label Studio evaluation metrics (canonical + freeform)
+
+Evaluation commands emit:
+- `eval_report.json`
+- `eval_report.md`
+
+Canonical block eval tracks:
+- `counts` (gold/pred totals, matched, missed, false positives)
+- `recall`, `precision`
+- boundary classifications (`correct`, `over`, `under`, `partial`)
+
+Freeform eval tracks all of the above plus:
+- per-label metrics
+- `app_aligned` diagnostics (deduped and supported-label strict/relaxed views)
+- `classification_only` diagnostics (label-match and overlap-focused views)
+
+Why:
+- Separates strict benchmark metrics from diagnostic metrics, so model/pipeline changes can be evaluated without losing root-cause visibility.

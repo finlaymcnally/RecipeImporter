@@ -1,3 +1,10 @@
+---
+summary: "Code-verified architecture overview and historical architecture-note reconciliation."
+read_when:
+  - When you need the current end-to-end architecture and module boundaries
+  - When reconciling historical architecture notes against current behavior
+---
+
 # Architecture Readme
 
 This file consolidates the old `docs/architecture/` docs and revalidates them against current code.
