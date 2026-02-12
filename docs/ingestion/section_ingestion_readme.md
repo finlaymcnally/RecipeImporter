@@ -144,7 +144,7 @@ Extraction:
 ### RecipeSage (`cookimport/plugins/recipesage.py`)
 
 Format:
-- JSON export matching a schema.org Recipe-like intermediate format.
+- JSON export where recipes already follow schema.org Recipe JSON closely.
 
 Behavior:
 - Mostly pass-through with schema validation, provenance injection, and normalization.

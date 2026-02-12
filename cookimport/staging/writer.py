@@ -278,7 +278,7 @@ def write_intermediate_outputs(
     *,
     output_stats: OutputStats | None = None,
 ) -> None:
-    """Write intermediate RecipeSage JSON-LD outputs.
+    """Write intermediate schema.org Recipe JSON outputs.
 
     These are the raw extracted recipes before transformation to final format.
     Output path: {out_dir}/r{index}.jsonld
@@ -311,7 +311,7 @@ def write_draft_outputs(
     *,
     output_stats: OutputStats | None = None,
 ) -> None:
-    """Write RecipeDraftV1 outputs (final format).
+    """Write cookbook3 outputs (internal model name: RecipeDraftV1).
 
     Output path: {out_dir}/r{index}.json
     """

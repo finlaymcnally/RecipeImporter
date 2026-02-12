@@ -290,7 +290,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
         if importable_files:
             choices.append(
                 questionary.Choice(
-                    "Import files from data/input - convert to RecipeSage outputs",
+                    "Import files from data/input - convert to schema.org + cookbook3 outputs",
                     value="import",
                 )
             )
@@ -783,7 +783,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
 
 @app.callback()
 def main(ctx: typer.Context) -> None:
-    """Recipe Import - Convert Excel files to RecipeSage JSON-LD format."""
+    """Recipe Import - Convert source files to schema.org Recipe JSON and cookbook3 outputs."""
     if ctx.invoked_subcommand is None:
         limit_value = os.getenv("C3IMP_LIMIT")
         limit = None
@@ -1472,10 +1472,10 @@ def stage(
     """Stage recipes from a source file or folder.
 
     Outputs are organized as:
-      {out}/{timestamp}/intermediate drafts/{filename}/  - RecipeSage JSON-LD
-      {out}/{timestamp}/final drafts/{filename}/         - RecipeDraftV1 format
+      {out}/{timestamp}/intermediate drafts/{filename}/  - schema.org Recipe JSON
+      {out}/{timestamp}/final drafts/{filename}/         - cookbook3 format
       {out}/{timestamp}/tips/{filename}/                 - Tip/knowledge snippets
-      {out}/{timestamp}/reports/                         - Conversion reports
+      {out}/{timestamp}/<workbook>.excel_import_report.json - Conversion report
     """
     if not path.exists():
         _fail(f"Path not found: {path}")

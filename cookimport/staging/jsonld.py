@@ -16,7 +16,7 @@ def _serialize_instructions(instructions: list[object]) -> list[object]:
 
 
 def recipe_candidate_to_jsonld(candidate: RecipeCandidate) -> dict[str, Any]:
-    """Convert a RecipeCandidate into RecipeSage JSON-LD."""
+    """Convert a RecipeCandidate into schema.org Recipe JSON (+ recipeimport metadata)."""
     payload: dict[str, Any] = {
         "@context": ["https://schema.org", {"recipeimport": "https://recipeimport.local/ns#"}],
         "@type": "Recipe",

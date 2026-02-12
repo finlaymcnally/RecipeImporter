@@ -6,7 +6,7 @@ This plan must be maintained in accordance with `PLANS.md` at the repository roo
 
 ## Purpose / Big Picture
 
-After this change, a user can run `cookimport stage` on a folder of many files and have `cookimport` automatically use more of the machine: multiple CPU cores will process multiple input files at once, and OCR will explicitly select and use the best available compute device (GPU when present, otherwise CPU). The observable result is that bulk imports complete significantly faster while producing the same staged outputs (intermediate drafts, final drafts, tips, and reports) as before.
+After this change, a user can run `cookimport stage` on a folder of many files and have `cookimport` automatically use more of the machine: multiple CPU cores will process multiple input files at once, and OCR will explicitly select and use the best available compute device (GPU when present, otherwise CPU). The observable result is that bulk imports complete significantly faster while producing the same staged outputs (intermediate schema.org Recipe JSON, final cookbook3, tips, and reports) as before.
 
 A user should be able to verify it is working by running `cookimport stage <folder> --workers 4 --ocr-device auto --ocr-batch-size 8 --warm-models`, observing that multiple files advance concurrently, and seeing log output that states which OCR device is being used (e.g., `cuda`, `mps`, or `cpu`). They should also be able to rerun the same command with `--workers 1 --ocr-device cpu` and observe that the produced recipe drafts are equivalent, but runtime is slower.
 
@@ -45,7 +45,7 @@ A user should be able to verify it is working by running `cookimport stage <fold
 
 ## Context and Orientation
 
-`cookimport` is a Python 3.12 recipe ingestion and normalization pipeline. It supports multiple source formats (Excel, EPUB, PDF, app archives, text/Word) via a registry-based plugin system under `cookimport/plugins/`, where each plugin detects whether it can handle a path and converts it into staged candidates. The primary “bulk import” workflow is `cookimport stage <path>`, which performs Phase 1 ingestion and then downstream transformations to produce intermediate JSON-LD drafts and final `RecipeDraftV1` outputs.
+`cookimport` is a Python 3.12 recipe ingestion and normalization pipeline. It supports multiple source formats (Excel, EPUB, PDF, app archives, text/Word) via a registry-based plugin system under `cookimport/plugins/`, where each plugin detects whether it can handle a path and converts it into staged candidates. The primary “bulk import” workflow is `cookimport stage <path>`, which performs Phase 1 ingestion and then downstream transformations to produce intermediate schema.org Recipe JSON drafts and final cookbook3 outputs (internal model name: `RecipeDraftV1`).
 
 The performance report for this work states that CPU is underutilized because `cookimport` processes files sequentially in a single loop within `cookimport/cli.py`, and that GPU acceleration for OCR is “potentially utilized but unmanaged” because `docTR` relies on PyTorch but the code does not explicitly choose an OCR device. The report proposes four concrete strategies: parallel file processing via multiprocessing, explicit GPU acceleration, batch OCR processing, and model warming/caching. This ExecPlan turns those goals into concrete, testable code changes.
 
@@ -270,4 +270,3 @@ New or modified interfaces must be explicit and stable:
   - `--warm-models`
   Each must have a help string that explains what it does and what the default means.
 - Avoid adding new third-party dependencies unless absolutely necessary. If you choose to add one (for example for RAM detection), record the decision and rationale in the Decision Log and include exact installation/update steps and why standard library options were insufficient.
-

@@ -129,8 +129,8 @@ class RecipeSageImporter:
                     candidate = RecipeCandidate.model_validate(raw_recipe)
                     
                     # Ensure context
-                    # (Pydantic model doesn't have @context by default in extra="forbid", 
-                    # but RecipeSage JSON-LD usually has it. We might need to pop it or allow it.)
+                    # (Pydantic model doesn't have @context by default in extra="forbid",
+                    # but schema.org-style exports usually have it. We might need to pop it or allow it.)
                     
                     # Add provenance
                     candidate.provenance = provenance_builder.build(

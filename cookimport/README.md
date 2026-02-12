@@ -1,7 +1,8 @@
 # cookimport
 
 This package provides the local CLI and shared pipeline modules for staging
-recipe sources into RecipeSage JSON-LD. CLI entrypoints live in
+recipe sources into schema.org Recipe JSON (intermediate) and cookbook3 (final).
+CLI entrypoints live in
 `cookimport/cli.py`, core models live in `cookimport/core/`, and staging output
 helpers live in `cookimport/staging/`.
 CLI entrypoints include `cookimport` plus the short alias `C3imp` for interactive
@@ -10,16 +11,17 @@ runs. `C3imp 30` preserves the interactive flow while limiting output to the fir
 from `data/input` to `data/output`. `cookimport stage --limit 30` also works in
 batch mode.
 
-RecipeCandidate supports optional RecipeSage fields like `image`,
+RecipeCandidate supports optional schema.org Recipe fields like `image`,
 `recipeCategory`, `datePublished`, `creditText`, `isBasedOn`, `comment`, and
 `aggregateRating`, plus `recipeInstructions` as strings or HowToStep objects.
 
 Run `cookimport inspect <workbook> --write-mapping` to print layout guesses and
 write a mapping stub under `data/output/mappings/`. Run `cookimport stage <folder>`
-to scan a folder and write JSON-LD under `data/output/<timestamp>/intermediate drafts/`
-and DraftV1 under `data/output/<timestamp>/final drafts/`, plus tip snippets under
+to scan a folder and write schema.org Recipe JSON under
+`data/output/<timestamp>/intermediate drafts/` and cookbook3 under
+`data/output/<timestamp>/final drafts/`, plus tip snippets under
 `data/output/<timestamp>/tips/`, raw artifacts under `data/output/<timestamp>/raw/`, and
-reports under `data/output/<timestamp>/reports/`.
+report JSON files at the run root (`data/output/<timestamp>/<workbook>.excel_import_report.json`).
 During `cookimport stage`, the CLI shows a per-worker status panel that refreshes
 about every 5 seconds with the latest progress message.
 Interactive `C3imp`/`cookimport` menu `select` prompts now support Backspace as a

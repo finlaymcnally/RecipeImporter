@@ -76,6 +76,7 @@ tests/test_classifier.py
 tests/test_cli_limits.py
 tests/test_cli_output_structure.py
 tests/test_draft_v1_lowercase.py
+tests/test_draft_v1_staging_alignment.py
 tests/test_draft_v1_variants.py
 tests/test_epub_importer.py
 tests/test_epub_job_merge.py

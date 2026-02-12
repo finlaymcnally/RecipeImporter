@@ -20,7 +20,7 @@ This report provides an analysis of how `cookimport` utilizes system resources a
 
 ### Disk I/O
 *   **Status**: Low.
-*   **Behavior**: Reading source files (PDF, EPUB, Excel) and writing JSON-LD drafts is generally fast and not a bottleneck compared to the compute-heavy parsing stages.
+*   **Behavior**: Reading source files (PDF, EPUB, Excel) and writing intermediate schema.org Recipe JSON drafts is generally fast and not a bottleneck compared to the compute-heavy parsing stages.
 
 ---
 

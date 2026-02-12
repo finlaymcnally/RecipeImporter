@@ -24,8 +24,8 @@ The `cookimport` project is a **recipe ingestion and normalization pipeline** th
 1. **Universal Ingestion**: Handle diverse formats and layouts through a plugin-based architecture where each source type has a dedicated importer.
 
 2. **Two-Phase Pipeline**:
-   - **Phase 1 (Ingestion)**: Extract raw content and normalize to an intermediate JSON-LD format based on schema.org Recipe.
-   - **Phase 2 (Transformation)**: Parse ingredients into structured fields, link ingredients to instruction steps, and produce the final `RecipeDraftV1` format.
+   - **Phase 1 (Ingestion)**: Extract raw content and normalize to an intermediate **schema.org Recipe JSON** format.
+   - **Phase 2 (Transformation)**: Parse ingredients into structured fields, link ingredients to instruction steps, and produce the final **cookbook3** format (internal model name: `RecipeDraftV1`).
 
 3. **100% Traceability**: Every output field is traceable back to its source via a `provenance` metadata system that records file hashes, block indices, and extraction methods.
 
@@ -87,29 +87,49 @@ The system uses Pydantic models for type-safe data flow (see `cookimport/core/mo
 
 | Model | Purpose |
 |-------|---------|
-| `RecipeCandidate` | Intermediate format (schema.org JSON-LD compatible) with name, ingredients, instructions, metadata |
+| `RecipeCandidate` | Intermediate format (schema.org Recipe JSON-compatible) with name, ingredients, instructions, metadata |
 | `TipCandidate` | Extracted kitchen tip with scope (general, recipe_specific, not_tip) and taxonomy tags |
 | `TopicCandidate` | Topical content block (sections about techniques, ingredient guides, etc.) |
 | `ConversionResult` | Container for recipes, tips, topics, raw artifacts, and conversion report |
 | `Block` | Low-level text block with type, HTML source, font weight, and feature flags |
 
-### 3.3 Block & Signals Architecture
+### 3.3 Block, Candidate, and Chunk Vocabulary
 
-For unstructured sources (EPUB, PDF, text), the pipeline uses a **Block-based extraction model**:
+These three terms are easy to confuse, so this is the practical definition used in code:
 
-1. **Block Extraction**: Source content is converted to a linear sequence of `Block` objects, each representing a paragraph, heading, or list item.
+- `Block` (`cookimport/core/blocks.py`):
+  - The shared low-level text unit used during extraction from unstructured sources.
+  - Typical fields: `text`, `type`, `page`, `bbox`, `font_size`, `font_weight`, `alignment`, `features`.
+  - Think: one paragraph/list/header line plus layout/style metadata.
 
-2. **Signal Enrichment** (`cookimport/parsing/signals.py`): Each block is analyzed for features:
-   - `is_heading`, `heading_level` - Typography signals
-   - `is_ingredient_header`, `is_instruction_header` - Section markers
-   - `is_yield`, `is_time` - Metadata phrases
-   - `starts_with_quantity`, `has_unit` - Ingredient signals
-   - `is_instruction_likely`, `is_ingredient_likely` - Content classification
+- `RecipeCandidate` (`cookimport/core/models.py`):
+  - A segmented recipe record in schema-like form (`name`, `recipeIngredient`, `recipeInstructions`, `provenance`, etc.).
+  - Produced by importers after they decide which block ranges are recipes.
 
-3. **Candidate Detection**: Blocks are segmented into recipe candidates using heuristics:
-   - Backtracking from anchor points (yield phrases, ingredient headers)
-   - Forward scanning with section boundary detection
-   - Scoring based on ingredient/instruction density
+- `KnowledgeChunk` (`cookimport/core/models.py`, created by `cookimport/parsing/chunks.py`):
+  - A coherent non-recipe text region used for knowledge extraction.
+  - Built from `nonRecipeBlocks` after recipe ranges are removed.
+  - Contains lane (`knowledge`/`noise`), `sectionPath`, boundary reasons, highlights, and tags.
+
+### 3.4 Block & Signals Architecture
+
+For EPUB/PDF (and line-based text heuristics), extraction relies on a linear content stream + signal enrichment:
+
+1. **Block extraction**
+   - EPUB: HTML spine documents -> block tags (`h1..h6`, `p`, `li`, etc.) -> `Block`.
+   - PDF: PyMuPDF line extraction (or docTR OCR) -> `Block` with page/bbox/style metadata.
+
+2. **Signal enrichment** (`cookimport/parsing/signals.py`)
+   - Each block is annotated with features used by segmentation/parsing:
+   - `is_heading`, `heading_level`
+   - `is_ingredient_header`, `is_instruction_header`
+   - `is_yield`, `is_time`
+   - `starts_with_quantity`, `has_unit`
+   - `is_instruction_likely`, `is_ingredient_likely`
+
+3. **Recipe segmentation**
+   - Importers compute candidate ranges (`start_block`, `end_block`, `segmentation_score`) over the block stream.
+   - Each range becomes one `RecipeCandidate` after field extraction.
 
 ## 4. Key Algorithms
 
@@ -168,25 +188,117 @@ Tips are classified by scope (`cookimport/parsing/tips.py`):
 - **recipe_specific**: Notes tied to a particular recipe
 - **not_tip**: Content that looks like a tip but isn't (copyright notices, ads)
 
-## 5. Data Flow & Processing Stages
+## 5. Data Flow & Processing Stages (Detailed)
 
-### Stage 1: Ingestion (`cookimport stage` command)
-1. **Detection**: Plugins score confidence for handling the file
-2. **Inspection**: Analyze internal structure (layout, headers, sections)
-3. **Extraction**: Convert to `RecipeCandidate` objects with provenance
-4. **Raw Artifacts**: Store extracted blocks as JSON for auditing
+### 5.1 End-to-end walkthrough: importing one EPUB
 
-### Stage 2: Transformation
-1. **Ingredient Parsing**: Lines parsed into structured components
-2. **Instruction Parsing**: Extract time/temperature metadata
-3. **Step Linking**: Assign ingredients to steps
-4. **Tip Extraction**: Identify standalone tips and topics
+When you run `cookimport stage data/input/book.epub`, the concrete flow is:
 
-### Stage 3: Output
-- **Intermediate Drafts**: JSON-LD format in `{timestamp}/intermediate drafts/`
-- **Final Drafts**: RecipeDraftV1 format in `{timestamp}/final drafts/`
-- **Tips**: Extracted tips in `{timestamp}/tips/`
-- **Reports**: Conversion summary with stats and warnings
+1. **Importer selection**
+   - `registry.best_importer_for_path()` picks `EpubImporter` based on `detect()` score.
+
+2. **Inspect (optional)**
+   - `EpubImporter.inspect()` reads spine metadata and returns `WorkbookInspection` + mapping stub.
+
+3. **Convert**
+   - `EpubImporter.convert()` computes file hash and extracts a linear block stream via `_extract_docpack(...)`.
+   - Each block gets normalized text + signal features.
+   - Raw artifact `full_text` is recorded as extracted blocks JSON.
+
+4. **Recipe candidate segmentation**
+   - `_detect_candidates(blocks)` returns candidate ranges over block indices.
+   - For each range, `_extract_fields(...)` builds a `RecipeCandidate` and provenance.
+   - Stable IDs are assigned if missing (based on source hash + chunk index semantics).
+
+5. **Tip/topic candidate extraction**
+   - Recipe-local tip candidates come from `extract_tip_candidates_from_candidate(...)`.
+   - Standalone (non-recipe) text is atomized and mined for tip/topic candidates.
+
+6. **Non-recipe block capture**
+   - Blocks not covered by recipe ranges are collected as `nonRecipeBlocks`.
+   - This is the main input to chunking later.
+
+7. **Return unified conversion payload**
+   - Importer returns one `ConversionResult` containing recipes, tip candidates, topic candidates, non-recipe blocks, raw artifacts, and report metrics.
+
+8. **Shared post-import stage path (all formats)**
+   - In `cli_worker.stage_one_file(...)`, chunking runs from `nonRecipeBlocks` when present.
+   - Writers emit:
+   - intermediate schema.org Recipe JSON (`intermediate drafts/<workbook>/r{index}.jsonld`)
+   - final cookbook3 (`final drafts/<workbook>/r{index}.json`)
+   - tips/topics/chunks/raw/report
+
+### 5.2 What determines blocks, candidates, and chunks
+
+- **Blocks** are determined by importer-specific extraction rules:
+  - EPUB uses HTML structure.
+  - PDF uses visual text lines (or OCR lines) plus layout reordering.
+  - Text importer mostly works line/chunk-first and does not build the same persisted `nonRecipeBlocks` stream.
+
+- **Recipe candidates** are determined by segmentation heuristics over ordered content:
+  - Yield anchors, ingredient/instruction headers, title backtracking, and boundary checks.
+  - Candidate quality is scored (`score_recipe_candidate`), and provenance captures location ranges.
+
+- **Chunks** are determined after recipe segmentation:
+  - Input: only non-recipe content (`nonRecipeBlocks`) or fallback topic candidates.
+  - Engine: `cookimport/parsing/chunks.py`.
+  - Boundary drivers: heading levels, callout starts (`TIP:`, `NOTE:`), format-mode changes (prose/list), max-char limits, and stop headings (index/credits/etc.).
+  - Lane assignment: chunk lanes are classified and written as `knowledge` or `noise` behavior in outputs.
+  - Highlights inside chunks are mined with tip extraction logic and stored with offsets/block IDs.
+
+### 5.3 Where file-type behavior differs
+
+Before convergence, importer behavior is format-specific:
+
+- **EPUB (`plugins/epub.py`)**
+  - Parses EPUB spine documents and HTML blocks.
+  - Carries `spine_index` features for deterministic ordering and split-job merges.
+
+- **PDF (`plugins/pdf.py`)**
+  - Uses PyMuPDF text extraction and column ordering.
+  - Falls back to docTR OCR for scanned pages.
+  - Preserves `page`, `bbox`, and OCR confidence metadata in blocks/provenance.
+
+- **Text/Markdown/Word (`plugins/text.py`)**
+  - Splits by markdown headers, yield lines, or table layouts (DOCX tables).
+  - Produces `RecipeCandidate` records directly from text chunks/rows.
+
+- **Excel (`plugins/excel.py`)**
+  - Layout detection (`wide-table`, `tall`, `template`) then row/cell normalization.
+  - Provenance is row/sheet-centric, not block-centric.
+
+- **Paprika/RecipeSage (`plugins/paprika.py`, `plugins/recipesage.py`)**
+  - Parse structured exports (ZIP/GZIP JSON or JSON objects).
+  - Less segmentation work because source is already near recipe schema.
+
+### 5.4 Where all file types converge
+
+Convergence happens in two major places:
+
+1. **Common conversion contract**
+   - Every importer returns the same `ConversionResult` model.
+   - This lets stage orchestration and writers treat all importers uniformly.
+
+2. **Common writer/transform path**
+   - `write_intermediate_outputs(...)`: recipe candidates -> JSON-LD.
+   - `write_draft_outputs(...)`: each `RecipeCandidate` -> `recipe_candidate_to_draft_v1(...)`.
+   - During cookbook3 conversion, all sources go through the same:
+   - ingredient parsing (`parse_ingredient_line`)
+   - instruction metadata extraction (`parse_instruction`)
+   - ingredient-step linking (`assign_ingredient_lines_to_steps`)
+   - variant extraction and draft shaping
+
+So: EPUB/PDF are very different early (block extraction + segmentation), but once they emit `RecipeCandidate`, they follow the same downstream transformation and output contracts as Excel/text/app exports.
+
+### 5.5 Split-job behavior (PDF/EPUB only)
+
+For large sources, PDF/EPUB can be split into page/spine jobs:
+
+- workers convert ranges in parallel and emit mergeable results,
+- main process merges candidates, rebases IDs/order, merges raw artifacts, then writes once,
+- chunk generation happens after merge on the unified non-recipe stream.
+
+This preserves one global coordinate space (`start_page`/`start_spine` + block ordering) across the final run outputs.
 
 ## 6. Label Studio Integration
 
@@ -227,7 +339,7 @@ cookimport/
 │   ├── signals.py          # Block feature enrichment
 │   ├── tips.py             # Tip extraction and classification
 │   └── atoms.py            # Atomic text unit handling
-├── staging/        # Output: Writers, JSON-LD, Draft V1
+├── staging/        # Output: Writers, schema.org intermediate, cookbook3 final
 ├── labelstudio/    # Benchmarking: Chunking, client, export
 ├── llm/            # (Mocked) LLM integration layer
 └── ocr/            # docTR OCR engine for scanned documents

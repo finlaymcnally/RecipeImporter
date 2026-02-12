@@ -205,9 +205,9 @@ Outputs are written to:
 - Optional chunk **distillation** via mocked LLM layer is not implemented unless explicitly enabled; chunk outputs remain deterministic.
 - Lane assignment is heuristic-based; false positives/negatives are possible for borderline knowledge vs noise content.
 
-## Tip and Draft Conventions
+## Tip and Cookbook3 Conventions
 
-- Draft V1 ingredient text fields are lowercased in output for consistency:
+- cookbook3 ingredient text fields are lowercased in output for consistency:
 - `raw_text`
 - `raw_ingredient_text`
 - `raw_unit_text`

@@ -36,7 +36,7 @@ Two-phase pipeline:
 - Registry and selection: `cookimport/plugins/registry.py`.
 
 2. Staging/transformation/output phase
-- Writes intermediate JSON-LD, final draft JSON, tips/topic candidates, optional knowledge chunks, raw artifacts, and report JSON.
+- Writes intermediate schema.org Recipe JSON, final cookbook3 JSON, tips/topic candidates, optional knowledge chunks, raw artifacts, and report JSON.
 - Output writers: `cookimport/staging/writer.py`.
 - Orchestration: `cookimport/cli.py` and worker helpers in `cookimport/cli_worker.py`.
 
