@@ -1,5 +1,6 @@
 Please note that some subfolders have a file "Agents.md" if you encounter one, read it first, and incorporate its instructions into the ones in this file, the sub folders override this file in any conflict.
 
+All timestamps for files and such should be: YYYY-MM-DD_HH.MM.SS
 
 ## DOCUMENTATION
 Update Agents.md files (at any level) only when ABSOLUTELY NEEDED ONLY. Agents.md precious, instructions only.

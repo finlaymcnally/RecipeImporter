@@ -138,7 +138,7 @@ def _write_processed_outputs(
     run_dt: dt.datetime,
     output_root: Path,
 ) -> Path:
-    timestamp = run_dt.strftime("%Y-%m-%d_%H:%M:%S")
+    timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
     run_root = output_root / timestamp
     run_root.mkdir(parents=True, exist_ok=True)
 
@@ -528,7 +528,7 @@ def run_labelstudio_import(
         raise FileNotFoundError(f"Path not found: {path}")
 
     run_dt = dt.datetime.now()
-    timestamp = run_dt.strftime("%Y-%m-%d_%H:%M:%S")
+    timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
     book_slug = _slugify_name(path.stem)
     run_root = output_dir / timestamp / "labelstudio" / book_slug
     run_root.mkdir(parents=True, exist_ok=True)
