@@ -195,6 +195,15 @@ Manifest includes:
 
 - project metadata, task scope settings, uploaded count, IDs, source file, URL, and coverage.
 
+### 1.11 Additional operational conventions
+
+- Freeform source matching is strict by default (source identity must align). Use `--force-source-match` only when intentionally comparing renamed/cutdown variants.
+- Benchmark gold discovery checks both:
+- `data/output/**/exports/freeform_span_labels.jsonl`
+- `data/golden/**/exports/freeform_span_labels.jsonl`
+- Split-job `labelstudio-import` and `labelstudio-benchmark` support the same PDF/EPUB split controls as stage imports (`workers`, split workers, pages/spine per job).
+- Progress callbacks include post-merge phases (archive/hash, processed-output writes, chunk/task generation, upload batching) so long runs continue surfacing advancing status.
+
 ## 2) Known-Bad / High-Risk / Common Confusion
 
 ### 2.1 Timestamp format mismatch in prior docs

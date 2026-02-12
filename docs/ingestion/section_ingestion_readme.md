@@ -166,6 +166,28 @@ Signals (`signals.py`): block-level feature detection.
 
 Patterns (`patterns.py`): shared regexes for quantities, units, time phrases, and yield phrases.
 
+## Additional Ingestion/Output Conventions
+
+- Core shared models are in `cookimport/core/models.py`; staging JSON-LD and writer helpers are under `cookimport/staging/`.
+- Stage run folders use workbook stems (no extension) for:
+- `intermediate drafts/<workbook>/...`
+- `final drafts/<workbook>/...`
+- report name `<workbook_slug>.excel_import_report.json`
+- Provenance still records the original source filename (including extension).
+- Recipe outputs are flattened per source file (no sheet subfolders):
+- `intermediate drafts/<workbook>/r{index}.jsonld`
+- `final drafts/<workbook>/r{index}.json`
+- Stable IDs are provenance-derived:
+- Excel paths use `row_index`/`rowIndex`
+- non-tabular paths use `location.chunk_index`
+- Stage conversion reports are written at run root (not `reports/`) and include:
+- `runTimestamp` (local ISO-8601 run start time)
+- `outputStats` (counts/bytes and largest-output diagnostics)
+- Performance summaries append one row per imported file to `data/output/.history/performance_history.csv`.
+- Raw artifacts are preserved at `<output_root>/<timestamp>/raw/<importer>/<source_hash>/<location_id>.<ext>`.
+- For split PDF/EPUB jobs, workers write temporary raw artifacts under `<output_root>/.job_parts/<workbook_slug>/job_<index>/raw/...`; merge moves them into the main run root, and `.job_parts` should remain only if merge fails.
+- Cookbook-specific parsing overrides come from mapping `parsingOverrides` or `*.overrides.yaml` sidecars passed via `cookimport stage --overrides`.
+
 ## Job Splitting and Merge (PDF + EPUB)
 
 Large PDFs and EPUBs can be split into range-based jobs when staging with `--workers > 1`. The worker pool processes slices in parallel, then the main process merges results into a single workbook output per file.

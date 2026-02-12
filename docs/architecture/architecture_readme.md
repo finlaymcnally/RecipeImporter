@@ -204,6 +204,13 @@ Current architecture is still deterministic-first:
 - `labelstudio-benchmark` is not eval-only in CLI mode.
 - It performs import/upload unless you use alternate flows.
 
+## Cross-cutting Conventions
+
+- The import tooling is the Python package `cookimport/`, with CLI entrypoint exposed as `cookimport` via `pyproject.toml`.
+- Interactive menu navigation (`C3imp` / `cookimport` with no subcommands) treats `Backspace` as one-level "back" in select prompts.
+- Typer command functions that are also called from interactive helpers must use real Python defaults (for example `typing.Annotated[..., typer.Option(...)]`) so direct helper calls do not receive `OptionInfo` placeholders.
+- Output timestamp format is standardized in current code as `YYYY-MM-DD_HH.MM.SS` across stage outputs, Label Studio run folders, and benchmark eval folders.
+
 ## What We Know Was Tried Before (and status)
 
 From the archived architecture docs:
@@ -220,7 +227,7 @@ From the archived architecture docs:
 ## If You Need to Change Architecture Safely
 
 1. Update code and docs atomically
-- At minimum: `architecture_readme.md` + `docs/IMPORTANT CONVENTIONS.md`.
+- At minimum: update the relevant section readmes (`docs/architecture/architecture_readme.md`, `docs/ingestion/section_ingestion_readme.md`, `docs/parsing/section_parsing_readme.md`, `docs/label-studio/label_studio_readme.md`).
 
 2. For output path or timestamp changes
 - check stage (`cookimport/cli.py`)

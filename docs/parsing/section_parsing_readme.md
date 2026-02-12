@@ -173,6 +173,8 @@ Outputs are written to:
 
 - `data/output/<timestamp>/tips/<workbook_stem>/t{index}.json`
 - `data/output/<timestamp>/tips/<workbook_stem>/tips.md`
+- `data/output/<timestamp>/tips/<workbook_stem>/topic_candidates.json`
+- `data/output/<timestamp>/tips/<workbook_stem>/topic_candidates.md`
 
 Known tradeoffs:
 
@@ -202,6 +204,20 @@ Outputs are written to:
 
 - Optional chunk **distillation** via mocked LLM layer is not implemented unless explicitly enabled; chunk outputs remain deterministic.
 - Lane assignment is heuristic-based; false positives/negatives are possible for borderline knowledge vs noise content.
+
+## Tip and Draft Conventions
+
+- Draft V1 ingredient text fields are lowercased in output for consistency:
+- `raw_text`
+- `raw_ingredient_text`
+- `raw_unit_text`
+- `note`
+- `preparation`
+- `ConversionResult.tipCandidates` stores all classified tip candidates (`general`, `recipe_specific`, `not_tip`).
+- `ConversionResult.tips` contains only standalone general tips selected for output.
+- Recipe-derived tips default to `recipe_specific`; exported standalone tips are primarily from non-recipe text unless a recipe tip is strongly general.
+- `tips.md` is a reviewer-oriented list of tip `text` values grouped by source block, annotated with `t{index}` IDs and anchor tags, and prefixed by detected topic headers when present.
+- Topic candidate artifacts are atom-level snippets with container headers and adjacency context preserved in `provenance.atom` and `provenance.location`.
 
 ## Tests and Validation
 
