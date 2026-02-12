@@ -7,3 +7,20 @@ Performance reporting utilities live here.
 
 Outliers are flagged across multiple metrics (total, parsing, writing, per-unit) and
 per-recipe only when the run is recipe-heavy (to avoid knowledge-heavy false positives).
+
+## Stats Dashboard
+
+`cookimport stats-dashboard` generates a static HTML dashboard summarizing lifetime
+import/stage throughput and golden-set benchmark trends.
+
+Modules:
+- `dashboard_schema.py` – Pydantic v2 models (`DashboardData`, `StageRecord`, `BenchmarkRecord`)
+- `dashboard_collect.py` – Read-only collectors for CSV history + eval_report.json
+- `dashboard_render.py` – Writes `index.html` + local JS/CSS/JSON assets
+
+Data sources (read-only):
+- `data/output/.history/performance_history.csv` (primary for stage records)
+- `data/output/<timestamp>/*.excel_import_report.json` (fallback with `--scan-reports`)
+- `data/golden/eval-vs-pipeline/*/eval_report.json` (benchmarks)
+
+Output: `data/output/.history/dashboard/` (configurable via `--out-dir`)

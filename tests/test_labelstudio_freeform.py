@@ -59,6 +59,8 @@ def test_freeform_label_config_uses_tip_notes_variant_without_narrative() -> Non
     assert '<Label value="TIP"/>' in config
     assert '<Label value="NOTES"/>' in config
     assert '<Label value="VARIANT"/>' in config
+    assert '<Label value="YIELD_LINE"/>' in config
+    assert '<Label value="TIME_LINE"/>' in config
     assert '<Label value="OTHER"/>' in config
     assert '<Label value="NARRATIVE"/>' not in config
     assert '<Label value="KNOWLEDGE"/>' not in config
@@ -162,6 +164,134 @@ def test_export_freeform_spans_jsonl(tmp_path, monkeypatch) -> None:
     ]
     assert len(manifest_rows) == 1
     assert manifest_rows[0]["segment_id"] == "urn:cookimport:segment:hash123:0:1"
+
+
+def test_export_freeform_spans_with_yield_and_time_labels(tmp_path, monkeypatch) -> None:
+    """Export correctly handles YIELD_LINE and TIME_LINE span labels."""
+
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def find_project_by_title(self, title: str) -> dict[str, object]:
+            return {"id": 10, "title": title}
+
+        def export_tasks(self, _project_id: int) -> list[dict[str, object]]:
+            return [
+                {
+                    "id": 20,
+                    "data": {
+                        "segment_id": "urn:cookimport:segment:hash456:0:2",
+                        "source_hash": "hash456",
+                        "source_file": "book2.epub",
+                        "book_id": "book2",
+                        "segment_index": 0,
+                        "segment_text": "Serves 4\n\nPrep: 10 min\n\n1 cup flour",
+                        "source_map": {
+                            "separator": "\n\n",
+                            "start_block_index": 0,
+                            "end_block_index": 2,
+                            "blocks": [
+                                {
+                                    "block_id": "urn:cookimport:block:hash456:0",
+                                    "block_index": 0,
+                                    "segment_start": 0,
+                                    "segment_end": 8,
+                                },
+                                {
+                                    "block_id": "urn:cookimport:block:hash456:1",
+                                    "block_index": 1,
+                                    "segment_start": 10,
+                                    "segment_end": 22,
+                                },
+                                {
+                                    "block_id": "urn:cookimport:block:hash456:2",
+                                    "block_index": 2,
+                                    "segment_start": 24,
+                                    "segment_end": 35,
+                                },
+                            ],
+                        },
+                    },
+                    "annotations": [
+                        {
+                            "id": 5,
+                            "completed_by": "annotator@example.com",
+                            "completed_at": "2026-02-12T00:00:00Z",
+                            "result": [
+                                {
+                                    "id": "r1",
+                                    "from_name": "span_labels",
+                                    "to_name": "segment_text",
+                                    "type": "labels",
+                                    "value": {
+                                        "start": 0,
+                                        "end": 8,
+                                        "text": "Serves 4",
+                                        "labels": ["YIELD_LINE"],
+                                    },
+                                },
+                                {
+                                    "id": "r2",
+                                    "from_name": "span_labels",
+                                    "to_name": "segment_text",
+                                    "type": "labels",
+                                    "value": {
+                                        "start": 10,
+                                        "end": 22,
+                                        "text": "Prep: 10 min",
+                                        "labels": ["TIME_LINE"],
+                                    },
+                                },
+                                {
+                                    "id": "r3",
+                                    "from_name": "span_labels",
+                                    "to_name": "segment_text",
+                                    "type": "labels",
+                                    "value": {
+                                        "start": 24,
+                                        "end": 35,
+                                        "text": "1 cup flour",
+                                        "labels": ["INGREDIENT_LINE"],
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                }
+            ]
+
+    monkeypatch.setattr("cookimport.labelstudio.export.LabelStudioClient", FakeClient)
+
+    result = run_labelstudio_export(
+        project_name="Freeform Yield Time Test",
+        output_dir=tmp_path,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="token",
+        run_dir=None,
+        export_scope="freeform-spans",
+    )
+    summary = result["summary"]
+    assert summary["counts"]["labeled"] == 3
+
+    spans_path = result["export_root"] / "freeform_span_labels.jsonl"
+    rows = [
+        json.loads(line)
+        for line in spans_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    labels_found = {row["label"] for row in rows}
+    assert "YIELD_LINE" in labels_found
+    assert "TIME_LINE" in labels_found
+    assert "INGREDIENT_LINE" in labels_found
+
+    yield_row = next(r for r in rows if r["label"] == "YIELD_LINE")
+    assert yield_row["selected_text"] == "Serves 4"
+    assert yield_row["touched_block_indices"] == [0]
+
+    time_row = next(r for r in rows if r["label"] == "TIME_LINE")
+    assert time_row["selected_text"] == "Prep: 10 min"
+    assert time_row["touched_block_indices"] == [1]
 
 
 def test_eval_freeform_ranges_smoke(tmp_path) -> None:
@@ -412,6 +542,24 @@ def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
                         "touched_block_indices": [12],
                     }
                 ),
+                json.dumps(
+                    {
+                        "span_id": "gold-yield",
+                        "source_hash": "h1",
+                        "source_file": "book.epub",
+                        "label": "YIELD",
+                        "touched_block_indices": [13],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "span_id": "gold-time",
+                        "source_hash": "h1",
+                        "source_file": "book.epub",
+                        "label": "TIME",
+                        "touched_block_indices": [14],
+                    }
+                ),
             ]
         )
         + "\n",
@@ -419,10 +567,119 @@ def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
     )
 
     gold = load_gold_freeform_ranges(gold_path)
-    assert len(gold) == 3
+    assert len(gold) == 5
     assert gold[0].label == "TIP"
     assert gold[1].label == "NOTES"
     assert gold[2].label == "OTHER"
+    assert gold[3].label == "YIELD_LINE"
+    assert gold[4].label == "TIME_LINE"
+
+
+def test_eval_freeform_yield_time_are_additive_diagnostics(tmp_path) -> None:
+    """YIELD_LINE and TIME_LINE appear in per-label metrics but not in app-aligned supported labels."""
+    pred_run = tmp_path / "pred_run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    pred_tasks = [
+        {
+            "data": {
+                "chunk_id": "urn:recipeimport:chunk:text:abc123:atomic:loc:block_index=1:a",
+                "chunk_level": "atomic",
+                "chunk_type": "ingredient_line",
+                "chunk_type_hint": "ingredient",
+                "source_hash": "abc123",
+                "source_file": "book.epub",
+                "location": {"block_index": 1},
+            }
+        },
+        {
+            "data": {
+                "chunk_id": "urn:recipeimport:chunk:text:abc123:atomic:loc:block_index=5:b",
+                "chunk_level": "atomic",
+                "chunk_type": "yield_line",
+                "chunk_type_hint": "yield",
+                "source_hash": "abc123",
+                "source_file": "book.epub",
+                "location": {"block_index": 5},
+            }
+        },
+        {
+            "data": {
+                "chunk_id": "urn:recipeimport:chunk:text:abc123:atomic:loc:block_index=6:c",
+                "chunk_level": "atomic",
+                "chunk_type": "time_line",
+                "chunk_type_hint": "time_line",
+                "source_hash": "abc123",
+                "source_file": "book.epub",
+                "location": {"block_index": 6},
+            }
+        },
+    ]
+    (pred_run / "label_studio_tasks.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in pred_tasks) + "\n",
+        encoding="utf-8",
+    )
+
+    gold_rows = [
+        {
+            "span_id": "gold-ing",
+            "source_hash": "abc123",
+            "source_file": "book.epub",
+            "label": "INGREDIENT_LINE",
+            "touched_block_indices": [1],
+        },
+        {
+            "span_id": "gold-yield",
+            "source_hash": "abc123",
+            "source_file": "book.epub",
+            "label": "YIELD_LINE",
+            "touched_block_indices": [5],
+        },
+        {
+            "span_id": "gold-time",
+            "source_hash": "abc123",
+            "source_file": "book.epub",
+            "label": "TIME_LINE",
+            "touched_block_indices": [6],
+        },
+    ]
+    gold_path = tmp_path / "gold.jsonl"
+    gold_path.write_text(
+        "\n".join(json.dumps(row) for row in gold_rows) + "\n",
+        encoding="utf-8",
+    )
+
+    predicted = load_predicted_labeled_ranges(pred_run)
+    gold = load_gold_freeform_ranges(gold_path)
+    result = evaluate_predicted_vs_freeform(predicted, gold, overlap_threshold=0.5)
+    report = result["report"]
+
+    # All three labels matched
+    assert report["counts"]["gold_matched"] == 3
+    assert report["counts"]["gold_total"] == 3
+
+    # Per-label includes yield/time
+    assert "YIELD_LINE" in report["per_label"]
+    assert "TIME_LINE" in report["per_label"]
+    assert report["per_label"]["YIELD_LINE"]["recall"] == 1.0
+    assert report["per_label"]["TIME_LINE"]["recall"] == 1.0
+
+    # App-aligned supported labels do NOT include yield/time
+    app = report["app_aligned"]
+    assert "YIELD_LINE" not in app["supported_labels"]
+    assert "TIME_LINE" not in app["supported_labels"]
+    # Supported strict only counts INGREDIENT_LINE (1 gold, 1 match)
+    assert app["supported_labels_strict"]["counts"]["gold_total"] == 1
+    assert app["supported_labels_strict"]["counts"]["gold_matched"] == 1
+
+    # Classification-only still reports yield/time in per-label
+    cls = report["classification_only"]
+    assert "YIELD_LINE" in cls["per_label"]
+    assert "TIME_LINE" in cls["per_label"]
+
+    # Markdown report renders without error
+    md = format_freeform_eval_report_md(report)
+    assert "YIELD_LINE" in md
+    assert "TIME_LINE" in md
 
 
 def test_eval_freeform_force_source_match_allows_mismatched_source_identity(tmp_path) -> None:

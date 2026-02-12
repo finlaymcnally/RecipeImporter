@@ -322,6 +322,7 @@ def chunk_structural(
     book_id: str,
     pipeline_used: str,
     file_hash: str,
+    trace_collector: Any | None = None,
 ) -> list[ChunkRecord]:
     chunks: list[ChunkRecord] = []
 
@@ -336,6 +337,13 @@ def chunk_structural(
             location=location,
             text=text_raw,
         )
+        start_block = location.get("start_block", 0)
+        if trace_collector is not None:
+            trace_collector.record(
+                "structural_span",
+                start_block,
+                {"chunk_type": "recipe_block", "recipe_index": idx},
+            )
         chunks.append(
             ChunkRecord(
                 chunk_id=chunk_id,
@@ -517,6 +525,7 @@ def chunk_atomic(
     book_id: str,
     pipeline_used: str,
     file_hash: str,
+    trace_collector: Any | None = None,
 ) -> list[ChunkRecord]:
     chunks: list[ChunkRecord] = []
 

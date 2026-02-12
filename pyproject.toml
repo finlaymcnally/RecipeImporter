@@ -23,11 +23,16 @@ dependencies = [
   "typer>=0.12",
   "python-docx>=1.1.0",
   "python-doctr[torch]>=0.9",
+  "unstructured>=0.18.32,<0.19",
 ]
 
 [project.optional-dependencies]
+db = [
+  "psycopg[binary]>=3.1",
+]
 dev = [
   "pytest>=7.4",
+  "psycopg[binary]>=3.1",
 ]
 
 [project.scripts]

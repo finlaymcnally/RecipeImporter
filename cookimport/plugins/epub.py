@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
 import warnings
 import zipfile
@@ -34,6 +36,7 @@ from cookimport.core.reporting import (
 from cookimport.core.scoring import score_recipe_candidate
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning, signals
+from cookimport.parsing.block_roles import assign_block_roles
 from cookimport.parsing.atoms import Atom, contextualize_atoms, split_text_to_atoms
 from cookimport.parsing.tips import (
     build_topic_candidate,
@@ -43,6 +46,14 @@ from cookimport.parsing.tips import (
     partition_tip_candidates,
 )
 from cookimport.plugins import registry
+
+# ---------------------------------------------------------------------------
+# Extractor switch: C3IMP_EPUB_EXTRACTOR = legacy | unstructured
+# Default: unstructured
+# Read at call time (not import time) so interactive settings take effect.
+# ---------------------------------------------------------------------------
+def _get_epub_extractor() -> str:
+    return os.environ.get("C3IMP_EPUB_EXTRACTOR", "unstructured").strip().lower()
 
 # Suppress ebooklib warnings about future/deprecations if any
 warnings.filterwarnings("ignore", category=UserWarning, module="ebooklib")
@@ -163,6 +174,32 @@ class EpubImporter:
                     metadata={"artifact_type": "extracted_blocks"},
                 )
             )
+
+            # Assign deterministic block roles for chunk lane selection
+            assign_block_roles(blocks)
+
+            # Emit Unstructured diagnostics JSONL when using the Unstructured extractor
+            if _get_epub_extractor() == "unstructured" and self._unstructured_diagnostics:
+                import unstructured as _unstructured_pkg
+                jsonl_lines = "\n".join(
+                    json.dumps(row, ensure_ascii=False)
+                    for row in self._unstructured_diagnostics
+                )
+                raw_artifacts.append(
+                    RawArtifact(
+                        importer="epub",
+                        sourceHash=file_hash,
+                        locationId="unstructured_elements",
+                        extension="jsonl",
+                        content=jsonl_lines,
+                        metadata={
+                            "artifact_type": "unstructured_diagnostics",
+                            "extractor": "unstructured",
+                            "unstructured_version": getattr(_unstructured_pkg, "__version__", "unknown"),
+                            "element_count": len(self._unstructured_diagnostics),
+                        },
+                    )
+                )
 
             # 2. Segment into Candidates
             if progress_callback:
@@ -454,7 +491,13 @@ class EpubImporter:
     ) -> List[Block]:
         """
         Reads EPUB and converts spine items to a linear list of Blocks.
+
+        When C3IMP_EPUB_EXTRACTOR=unstructured, uses Unstructured's HTML
+        partitioner for richer semantic extraction with traceability.
+        Diagnostics rows are accumulated in self._unstructured_diagnostics.
         """
+        self._unstructured_diagnostics: list[dict[str, Any]] = []
+
         if epub is not None:
             try:
                 return self._extract_docpack_with_ebooklib(
@@ -481,6 +524,12 @@ class EpubImporter:
         if epub is None:
             raise RuntimeError("ebooklib is not available")
 
+        use_unstructured = _get_epub_extractor() == "unstructured"
+        if use_unstructured:
+            from cookimport.parsing.unstructured_adapter import partition_html_to_blocks
+
+        source_location_id = path.stem
+
         book = epub.read_epub(str(path), options={"ignore_ncx": True})
         for spine_index, (item_id, _linear) in enumerate(book.spine):
             if start_spine is not None and spine_index < start_spine:
@@ -493,8 +542,22 @@ class EpubImporter:
             if ebooklib is not None and item.get_type() != ebooklib.ITEM_DOCUMENT:
                 continue
             content = item.get_content()
-            soup = self._soup_from_bytes(content)
-            blocks.extend(self._parse_soup_to_blocks(soup, spine_index=spine_index))
+
+            if use_unstructured:
+                html_str = content.decode("utf-8", errors="replace")
+                spine_blocks, diag_rows = partition_html_to_blocks(
+                    html_str,
+                    spine_index=spine_index,
+                    source_location_id=source_location_id,
+                )
+                # Enrich with shared signals (ingredient/instruction detection)
+                for b in spine_blocks:
+                    signals.enrich_block(b, overrides=self._overrides)
+                blocks.extend(spine_blocks)
+                self._unstructured_diagnostics.extend(diag_rows)
+            else:
+                soup = self._soup_from_bytes(content)
+                blocks.extend(self._parse_soup_to_blocks(soup, spine_index=spine_index))
         return blocks
 
     def _extract_docpack_with_zip(
@@ -507,6 +570,12 @@ class EpubImporter:
         _title, spine_items = self._read_epub_spine(path)
         if not spine_items:
             raise ValueError("No spine items found in EPUB")
+
+        use_unstructured = _get_epub_extractor() == "unstructured"
+        if use_unstructured:
+            from cookimport.parsing.unstructured_adapter import partition_html_to_blocks
+
+        source_location_id = path.stem
 
         with zipfile.ZipFile(path) as zip_handle:
             for spine_index, (spine_path, media_type) in enumerate(spine_items):
@@ -523,8 +592,21 @@ class EpubImporter:
                 except KeyError:
                     logger.warning(f"Missing spine item in EPUB: {spine_path}")
                     continue
-                soup = self._soup_from_bytes(content)
-                blocks.extend(self._parse_soup_to_blocks(soup, spine_index=spine_index))
+
+                if use_unstructured:
+                    html_str = content.decode("utf-8", errors="replace")
+                    spine_blocks, diag_rows = partition_html_to_blocks(
+                        html_str,
+                        spine_index=spine_index,
+                        source_location_id=source_location_id,
+                    )
+                    for b in spine_blocks:
+                        signals.enrich_block(b, overrides=self._overrides)
+                    blocks.extend(spine_blocks)
+                    self._unstructured_diagnostics.extend(diag_rows)
+                else:
+                    soup = self._soup_from_bytes(content)
+                    blocks.extend(self._parse_soup_to_blocks(soup, spine_index=spine_index))
         return blocks
 
     def _soup_from_bytes(self, content: bytes) -> BeautifulSoup:

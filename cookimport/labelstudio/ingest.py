@@ -494,32 +494,31 @@ def _merge_parallel_results(
     )
 
 
-def run_labelstudio_import(
+def generate_pred_run_artifacts(
     *,
     path: Path,
     output_dir: Path,
-    pipeline: str,
-    project_name: str | None,
-    chunk_level: str,
-    task_scope: str,
-    context_window: int,
+    pipeline: str = "auto",
+    chunk_level: str = "both",
+    task_scope: str = "pipeline",
+    context_window: int = 1,
     segment_blocks: int = 40,
     segment_overlap: int = 5,
-    overwrite: bool,
-    resume: bool,
-    label_studio_url: str,
-    label_studio_api_key: str,
-    limit: int | None,
-    sample: int | None,
-    progress_callback: Callable[[str], None] | None = None,
+    limit: int | None = None,
+    sample: int | None = None,
     workers: int = 1,
     pdf_split_workers: int = 1,
     epub_split_workers: int = 1,
     pdf_pages_per_job: int = 50,
     epub_spine_items_per_job: int = 10,
     processed_output_root: Path | None = None,
-    allow_labelstudio_write: bool = False,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
+    """Generate prediction-run artifacts offline (no Label Studio credentials needed).
+
+    Performs extraction, conversion, task generation and writes all artifacts to disk.
+    Returns metadata dict with run_root, tasks_total, manifest_path, etc.
+    """
     def _notify(message: str) -> None:
         if progress_callback is not None:
             progress_callback(message)
@@ -764,12 +763,145 @@ def run_labelstudio_import(
         segment_ids = [task.get("data", {}).get("segment_id") for task in tasks if task]
         task_ids = [segment_id for segment_id in segment_ids if segment_id]
 
+    _notify("Writing prediction run artifacts...")
+    archive_path = run_root / "extracted_archive.json"
+    archive_payload = [
+        {
+            "index": block.index,
+            "text": block.text,
+            "location": block.location,
+            "source_kind": block.source_kind,
+        }
+        for block in archive
+    ]
+    archive_path.write_text(
+        json.dumps(archive_payload, indent=2, sort_keys=True), encoding="utf-8"
+    )
+
+    extracted_text = "\n\n".join(block.text for block in archive if block.text)
+    (run_root / "extracted_text.txt").write_text(
+        normalize_display_text(extracted_text) + "\n", encoding="utf-8"
+    )
+
+    tasks_path = run_root / "label_studio_tasks.jsonl"
+    tasks_path.write_text(
+        "\n".join(json.dumps(task) for task in tasks) + "\n", encoding="utf-8"
+    )
+
+    coverage_path = run_root / "coverage.json"
+    coverage_path.write_text(
+        json.dumps(
+            coverage_payload,
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = {
+        "pipeline": importer.name,
+        "source_file": str(path),
+        "book_id": book_id,
+        "run_timestamp": run_dt.isoformat(timespec="seconds"),
+        "chunk_level": chunk_level if task_scope == "pipeline" else None,
+        "task_scope": task_scope,
+        "context_window": context_window if task_scope == "canonical-blocks" else None,
+        "segment_blocks": segment_blocks if task_scope == "freeform-spans" else None,
+        "segment_overlap": segment_overlap if task_scope == "freeform-spans" else None,
+        "task_count": len(tasks),
+        "task_ids": task_ids,
+        "chunk_ids": chunk_ids,
+        "block_ids": block_ids,
+        "segment_ids": segment_ids,
+        "coverage": coverage_payload,
+    }
+
+    manifest_path = run_root / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    _notify("Prediction run artifacts complete.")
+
+    return {
+        "run_root": run_root,
+        "processed_run_root": processed_run_root,
+        "tasks_total": len(tasks),
+        "manifest_path": manifest_path,
+        "tasks": tasks,
+        "task_ids": task_ids,
+        "chunk_ids": chunk_ids,
+        "block_ids": block_ids,
+        "segment_ids": segment_ids,
+        "coverage": coverage_payload,
+        "label_config": label_config,
+        "importer_name": importer.name,
+        "book_id": book_id,
+        "file_hash": file_hash,
+    }
+
+
+def run_labelstudio_import(
+    *,
+    path: Path,
+    output_dir: Path,
+    pipeline: str,
+    project_name: str | None,
+    chunk_level: str,
+    task_scope: str,
+    context_window: int,
+    segment_blocks: int = 40,
+    segment_overlap: int = 5,
+    overwrite: bool,
+    resume: bool,
+    label_studio_url: str,
+    label_studio_api_key: str,
+    limit: int | None,
+    sample: int | None,
+    progress_callback: Callable[[str], None] | None = None,
+    workers: int = 1,
+    pdf_split_workers: int = 1,
+    epub_split_workers: int = 1,
+    pdf_pages_per_job: int = 50,
+    epub_spine_items_per_job: int = 10,
+    processed_output_root: Path | None = None,
+    allow_labelstudio_write: bool = False,
+) -> dict[str, Any]:
+    def _notify(message: str) -> None:
+        if progress_callback is not None:
+            progress_callback(message)
+
     if not allow_labelstudio_write:
         raise RuntimeError(
             "Label Studio write blocked. Re-run with explicit upload consent "
             "(allow_labelstudio_write=True)."
         )
 
+    # Generate all artifacts offline first
+    pred = generate_pred_run_artifacts(
+        path=path,
+        output_dir=output_dir,
+        pipeline=pipeline,
+        chunk_level=chunk_level,
+        task_scope=task_scope,
+        context_window=context_window,
+        segment_blocks=segment_blocks,
+        segment_overlap=segment_overlap,
+        limit=limit,
+        sample=sample,
+        workers=workers,
+        pdf_split_workers=pdf_split_workers,
+        epub_split_workers=epub_split_workers,
+        pdf_pages_per_job=pdf_pages_per_job,
+        epub_spine_items_per_job=epub_spine_items_per_job,
+        processed_output_root=processed_output_root,
+        progress_callback=progress_callback,
+    )
+
+    run_root = pred["run_root"]
+    tasks = pred["tasks"]
+    label_config = pred["label_config"]
+
+    # Label Studio upload
     client = LabelStudioClient(label_studio_url, label_studio_api_key)
     _notify("Resolving Label Studio project...")
     project_title = _resolve_project_name(path, project_name, client)
@@ -843,65 +975,16 @@ def run_labelstudio_import(
         uploaded_count += len(batch)
         _notify(f"Uploaded {uploaded_count}/{len(upload_tasks)} task(s).")
 
-    _notify("Writing Label Studio run artifacts...")
-    archive_path = run_root / "extracted_archive.json"
-    archive_payload = [
-        {
-            "index": block.index,
-            "text": block.text,
-            "location": block.location,
-            "source_kind": block.source_kind,
-        }
-        for block in archive
-    ]
-    archive_path.write_text(
-        json.dumps(archive_payload, indent=2, sort_keys=True), encoding="utf-8"
-    )
-
-    extracted_text = "\n\n".join(block.text for block in archive if block.text)
-    (run_root / "extracted_text.txt").write_text(
-        normalize_display_text(extracted_text) + "\n", encoding="utf-8"
-    )
-
-    tasks_path = run_root / "label_studio_tasks.jsonl"
-    tasks_path.write_text(
-        "\n".join(json.dumps(task) for task in tasks) + "\n", encoding="utf-8"
-    )
-
-    coverage_path = run_root / "coverage.json"
-    coverage_path.write_text(
-        json.dumps(
-            coverage_payload,
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-
-    manifest = {
+    # Update manifest with LS-specific fields
+    manifest_path = pred["manifest_path"]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update({
         "project_name": project_title,
         "project_id": project_id,
-        "pipeline": importer.name,
-        "source_file": str(path),
-        "book_id": book_id,
-        "run_timestamp": run_dt.isoformat(timespec="seconds"),
-        "chunk_level": chunk_level if task_scope == "pipeline" else None,
-        "task_scope": task_scope,
-        "context_window": context_window if task_scope == "canonical-blocks" else None,
-        "segment_blocks": segment_blocks if task_scope == "freeform-spans" else None,
-        "segment_overlap": segment_overlap if task_scope == "freeform-spans" else None,
-        "task_count": len(tasks),
         "uploaded_task_count": uploaded_count,
-        "task_ids": task_ids,
-        "chunk_ids": chunk_ids,
-        "block_ids": block_ids,
-        "segment_ids": segment_ids,
-        "coverage": coverage_payload,
         "resume_source": resume_source,
         "label_studio_url": label_studio_url,
-    }
-
-    manifest_path = run_root / "manifest.json"
+    })
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
     )
@@ -917,8 +1000,8 @@ def run_labelstudio_import(
         "project_name": project_title,
         "project_id": project_id,
         "run_root": run_root,
-        "processed_run_root": processed_run_root,
-        "tasks_total": len(tasks),
+        "processed_run_root": pred["processed_run_root"],
+        "tasks_total": pred["tasks_total"],
         "tasks_uploaded": uploaded_count,
         "manifest_path": manifest_path,
     }

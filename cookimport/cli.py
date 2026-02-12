@@ -64,6 +64,12 @@ from cookimport.staging.writer import (
 )
 
 app = typer.Typer(add_completion=False, invoke_without_command=True)
+bench_app = typer.Typer(name="bench", help="Offline benchmark suite tools.")
+app.add_typer(bench_app)
+
+from cookimport.tagging.cli import tag_catalog_app, tag_recipes_app  # noqa: E402
+app.add_typer(tag_catalog_app)
+app.add_typer(tag_recipes_app)
 console = Console()
 logger = logging.getLogger(__name__)
 
@@ -71,7 +77,10 @@ DEFAULT_INPUT = Path(__file__).parent.parent / "data" / "input"
 DEFAULT_OUTPUT = Path(__file__).parent.parent / "data" / "output"
 DEFAULT_INTERACTIVE_OUTPUT = DEFAULT_OUTPUT
 DEFAULT_GOLDEN = Path(__file__).parent.parent / "data" / "golden"
+DEFAULT_BENCH_SUITES = DEFAULT_GOLDEN / "bench" / "suites"
+DEFAULT_BENCH_RUNS = DEFAULT_GOLDEN / "bench" / "runs"
 DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "cookimport.json"
+REPO_ROOT = Path(__file__).parent.parent
 BACK_ACTION = "__back__"
 
 
@@ -105,6 +114,7 @@ def _load_settings() -> Dict[str, Any]:
         "workers": 7,
         "pdf_split_workers": 7,
         "epub_split_workers": 7,
+        "epub_extractor": "unstructured",
         "ocr_device": "auto",
         "ocr_batch_size": 1,
         "pdf_pages_per_job": 50,
@@ -168,6 +178,10 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     value="epub_split_workers",
                 ),
                 questionary.Choice(
+                    f"EPUB Extractor: {current_settings.get('epub_extractor', 'unstructured')} - unstructured/legacy",
+                    value="epub_extractor",
+                ),
+                questionary.Choice(
                     f"OCR Device: {current_settings.get('ocr_device', 'auto')} - auto/cpu/cuda/mps",
                     value="ocr_device",
                 ),
@@ -221,6 +235,20 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
             ).ask()
             if val and val.isdigit() and int(val) > 0:
                 current_settings["epub_split_workers"] = int(val)
+                _save_settings(current_settings)
+
+        elif choice == "epub_extractor":
+            val = _menu_select(
+                "Select EPUB extraction engine:",
+                choices=["unstructured", "legacy"],
+                default=current_settings.get("epub_extractor", "unstructured"),
+                menu_help=(
+                    "Unstructured uses semantic HTML partitioning for richer block extraction. "
+                    "Legacy uses BeautifulSoup tag-based parsing."
+                ),
+            )
+            if val and val != BACK_ACTION:
+                current_settings["epub_extractor"] = val
                 _save_settings(current_settings)
 
         elif choice == "ocr_device":
@@ -408,6 +436,9 @@ def _interactive_mode(*, limit: int | None = None) -> None:
 
             typer.echo()
             
+            # Apply EPUB extractor setting via env var (read at call time by epub.py)
+            os.environ["C3IMP_EPUB_EXTRACTOR"] = settings.get("epub_extractor", "unstructured")
+
             common_args = {
                 "out": output_folder,
                 "mapping": None,
@@ -416,6 +447,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 "workers": settings.get("workers", 7),
                 "pdf_split_workers": settings.get("pdf_split_workers", 7),
                 "epub_split_workers": settings.get("epub_split_workers", 7),
+                "epub_extractor": settings.get("epub_extractor", "unstructured"),
                 "ocr_device": settings.get("ocr_device", "auto"),
                 "ocr_batch_size": settings.get("ocr_batch_size", 1),
                 "pdf_pages_per_job": settings.get("pdf_pages_per_job", 50),
@@ -1468,6 +1500,11 @@ def stage(
         min=1,
         help="Max workers used to split a single EPUB into jobs.",
     ),
+    epub_extractor: str = typer.Option(
+        "unstructured",
+        "--epub-extractor",
+        help="EPUB extraction engine: unstructured (semantic) or legacy (BeautifulSoup).",
+    ),
 ) -> Path:
     """Stage recipes from a source file or folder.
 
@@ -1477,6 +1514,9 @@ def stage(
       {out}/{timestamp}/tips/{filename}/                 - Tip/knowledge snippets
       {out}/{timestamp}/<workbook>.excel_import_report.json - Conversion report
     """
+    # Apply EPUB extractor setting for this run
+    os.environ["C3IMP_EPUB_EXTRACTOR"] = epub_extractor.strip().lower()
+
     if not path.exists():
         _fail(f"Path not found: {path}")
     if mapping is not None and not mapping.exists():
@@ -2029,6 +2069,68 @@ def perf_report(
         append_history_csv(summary.rows, history_path(out_dir))
 
 
+@app.command("stats-dashboard")
+def stats_dashboard(
+    output_root: Path = typer.Option(
+        DEFAULT_OUTPUT,
+        "--output-root",
+        help="Root output folder for staged imports.",
+    ),
+    golden_root: Path = typer.Option(
+        DEFAULT_GOLDEN,
+        "--golden-root",
+        help="Root folder for golden-set / benchmark data.",
+    ),
+    out_dir: Path = typer.Option(
+        DEFAULT_OUTPUT / ".history" / "dashboard",
+        "--out-dir",
+        help="Directory where the dashboard will be written.",
+    ),
+    open_browser: bool = typer.Option(
+        False,
+        "--open",
+        help="Open the generated dashboard in the default browser.",
+    ),
+    since_days: int | None = typer.Option(
+        None,
+        "--since-days",
+        help="Only include runs from the last N days.",
+    ),
+    scan_reports: bool = typer.Option(
+        False,
+        "--scan-reports",
+        help="Force scanning individual *.excel_import_report.json files.",
+    ),
+) -> None:
+    """Generate a static lifetime-stats dashboard (HTML)."""
+    from cookimport.analytics.dashboard_collect import collect_dashboard_data
+    from cookimport.analytics.dashboard_render import render_dashboard
+
+    data = collect_dashboard_data(
+        output_root=output_root,
+        golden_root=golden_root,
+        since_days=since_days,
+        scan_reports=scan_reports,
+    )
+
+    html_path = render_dashboard(out_dir, data)
+
+    if data.collector_warnings:
+        typer.secho(
+            f"Collector warnings ({len(data.collector_warnings)}):",
+            fg=typer.colors.YELLOW,
+        )
+        for w in data.collector_warnings[:10]:
+            typer.secho(f"  - {w}", fg=typer.colors.YELLOW)
+
+    typer.secho(f"Wrote dashboard to {out_dir}", fg=typer.colors.GREEN)
+    typer.echo(f"Open this file in your browser:\n  {html_path}")
+
+    if open_browser:
+        import webbrowser
+        webbrowser.open(html_path.as_uri())
+
+
 @app.command()
 def inspect(
     path: Path = typer.Argument(..., help="Workbook file to inspect."),
@@ -2489,6 +2591,171 @@ def labelstudio_benchmark(
     if processed_run_root:
         typer.secho(f"Processed output: {processed_run_root}", fg=typer.colors.CYAN)
     typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
+
+
+@bench_app.command("validate")
+def bench_validate(
+    suite: Path = typer.Option(
+        ..., "--suite", help="Path to bench suite JSON file."
+    ),
+) -> None:
+    """Validate a bench suite manifest (check source files and gold dirs exist)."""
+    from cookimport.bench.suite import load_suite, validate_suite
+
+    try:
+        s = load_suite(suite)
+    except Exception as exc:  # noqa: BLE001
+        _fail(f"Failed to load suite: {exc}")
+
+    errors = validate_suite(s, REPO_ROOT)
+    if errors:
+        typer.secho("Validation errors:", fg=typer.colors.RED)
+        for err in errors:
+            typer.secho(f"  - {err}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    typer.secho(
+        f"Suite '{s.name}' is valid ({len(s.items)} item(s)).",
+        fg=typer.colors.GREEN,
+    )
+
+
+@bench_app.command("run")
+def bench_run(
+    suite: Path = typer.Option(
+        ..., "--suite", help="Path to bench suite JSON file."
+    ),
+    out_dir: Path = typer.Option(
+        DEFAULT_BENCH_RUNS,
+        "--out-dir",
+        help="Output directory for bench runs.",
+    ),
+    baseline: Path | None = typer.Option(
+        None, "--baseline", help="Previous run directory to compute deltas against."
+    ),
+    config_path: Path | None = typer.Option(
+        None, "--config", help="Knob config JSON file."
+    ),
+) -> None:
+    """Run the offline benchmark suite: generate predictions, evaluate, report."""
+    from cookimport.bench.packet import build_iteration_packet
+    from cookimport.bench.runner import run_suite
+    from cookimport.bench.suite import load_suite, validate_suite
+
+    try:
+        s = load_suite(suite)
+    except Exception as exc:  # noqa: BLE001
+        _fail(f"Failed to load suite: {exc}")
+
+    errors = validate_suite(s, REPO_ROOT)
+    if errors:
+        typer.secho("Suite validation errors:", fg=typer.colors.RED)
+        for err in errors:
+            typer.secho(f"  - {err}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    config: dict | None = None
+    if config_path and config_path.exists():
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+
+    try:
+        with console.status(
+            "[bold cyan]Running bench suite...[/bold cyan]", spinner="dots"
+        ) as status:
+            def update_progress(msg: str) -> None:
+                status.update(f"[bold cyan]Bench: {msg}[/bold cyan]")
+
+            run_root = run_suite(
+                s,
+                out_dir,
+                repo_root=REPO_ROOT,
+                config=config,
+                baseline_run_dir=baseline,
+                progress_callback=update_progress,
+            )
+    except Exception as exc:  # noqa: BLE001
+        _fail(str(exc))
+
+    # Build iteration packet
+    build_iteration_packet(run_root, baseline_run_dir=baseline)
+
+    typer.secho("Bench suite complete.", fg=typer.colors.GREEN)
+    typer.secho(f"Report: {run_root / 'report.md'}", fg=typer.colors.CYAN)
+    typer.secho(f"Metrics: {run_root / 'metrics.json'}", fg=typer.colors.CYAN)
+    typer.secho(f"Packet: {run_root / 'iteration_packet'}", fg=typer.colors.CYAN)
+
+
+@bench_app.command("sweep")
+def bench_sweep(
+    suite: Path = typer.Option(
+        ..., "--suite", help="Path to bench suite JSON file."
+    ),
+    out_dir: Path = typer.Option(
+        DEFAULT_BENCH_RUNS,
+        "--out-dir",
+        help="Output directory for sweep runs.",
+    ),
+    budget: int = typer.Option(
+        25, "--budget", min=1, help="Max number of sweep configurations to try."
+    ),
+    seed: int = typer.Option(42, "--seed", help="Random seed for sweep."),
+    objective: str = typer.Option(
+        "coverage", "--objective", help="Optimization objective (coverage or precision)."
+    ),
+) -> None:
+    """Run a parameter sweep over the bench suite."""
+    from cookimport.bench.suite import load_suite, validate_suite
+    from cookimport.bench.sweep import run_sweep
+
+    try:
+        s = load_suite(suite)
+    except Exception as exc:  # noqa: BLE001
+        _fail(f"Failed to load suite: {exc}")
+
+    errors = validate_suite(s, REPO_ROOT)
+    if errors:
+        typer.secho("Suite validation errors:", fg=typer.colors.RED)
+        for err in errors:
+            typer.secho(f"  - {err}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    try:
+        with console.status(
+            "[bold cyan]Running parameter sweep...[/bold cyan]", spinner="dots"
+        ) as status:
+            def update_progress(msg: str) -> None:
+                status.update(f"[bold cyan]Sweep: {msg}[/bold cyan]")
+
+            sweep_root = run_sweep(
+                s,
+                out_dir,
+                repo_root=REPO_ROOT,
+                budget=budget,
+                seed=seed,
+                objective=objective,
+                progress_callback=update_progress,
+            )
+    except Exception as exc:  # noqa: BLE001
+        _fail(str(exc))
+
+    typer.secho("Sweep complete.", fg=typer.colors.GREEN)
+    typer.secho(f"Results: {sweep_root}", fg=typer.colors.CYAN)
+
+
+@bench_app.command("knobs")
+def bench_knobs() -> None:
+    """List all tunable knobs and their defaults."""
+    from cookimport.bench.knobs import list_knobs
+
+    knobs = list_knobs()
+    if not knobs:
+        typer.echo("No tunable knobs registered.")
+        return
+    for knob in knobs:
+        bounds = f" bounds={knob.bounds}" if knob.bounds else ""
+        typer.echo(f"  {knob.name} ({knob.kind}) default={knob.default}{bounds}")
+        if knob.description:
+            typer.secho(f"    {knob.description}", fg=typer.colors.BRIGHT_BLACK)
 
 
 if __name__ == "__main__":

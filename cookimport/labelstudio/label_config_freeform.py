@@ -19,6 +19,8 @@ def build_freeform_label_config() -> str:
     <Label value="TIP"/>
     <Label value="NOTES"/>
     <Label value="VARIANT"/>
+    <Label value="YIELD_LINE"/>
+    <Label value="TIME_LINE"/>
     <Label value="OTHER"/>
   </Labels>
 </View>

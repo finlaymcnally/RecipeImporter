@@ -194,6 +194,19 @@ def _map_chunk_to_label(data: dict[str, Any]) -> str | None:
         or "advice" in chunk_hint
     ):
         return "TIP"
+    if (
+        "yield" in chunk_type
+        or "yield" in chunk_hint
+        or "serving" in chunk_type
+        or "serving" in chunk_hint
+    ):
+        return "YIELD_LINE"
+    if (
+        chunk_type in {"time_line", "prep_time", "cook_time", "total_time"}
+        or chunk_hint in {"time_line", "prep_time", "cook_time", "total_time"}
+        or (chunk_type.startswith("time") and "line" in chunk_type)
+    ):
+        return "TIME_LINE"
     if chunk_type in {"recipe_description"}:
         return "OTHER"
     if chunk_type.startswith("atom_"):
@@ -215,6 +228,10 @@ def _normalize_freeform_label(label: str) -> str:
         return "NOTES"
     if normalized == "NARRATIVE":
         return "OTHER"
+    if normalized == "YIELD":
+        return "YIELD_LINE"
+    if normalized == "TIME":
+        return "TIME_LINE"
     return normalized
 
 
