@@ -8,15 +8,35 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
+from cookimport.bench.cost import estimate_llm_costs, write_escalation_queue
+from cookimport.bench.noise import consolidate_predictions, dedupe_predictions
 from cookimport.bench.pred_run import build_pred_run_for_source
 from cookimport.bench.report import aggregate_metrics, format_suite_report_md
 from cookimport.bench.suite import BenchSuite
+from cookimport.bench.trace import TraceCollector
 from cookimport.labelstudio.eval_freeform import (
     evaluate_predicted_vs_freeform,
     format_freeform_eval_report_md,
     load_gold_freeform_ranges,
     load_predicted_labeled_ranges,
 )
+
+
+def _load_pred_dicts(pred_run_dir: Path) -> list[dict[str, Any]]:
+    """Load prediction tasks as raw dicts for noise/cost processing."""
+    tasks_path = pred_run_dir / "label_studio_tasks.jsonl"
+    if not tasks_path.exists():
+        return []
+    dicts: list[dict[str, Any]] = []
+    for line in tasks_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            dicts.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return dicts
 
 
 def _write_jsonl(path: Path, records: list[dict[str, Any] | Any]) -> None:
@@ -37,10 +57,11 @@ def run_suite(
     config: dict | None = None,
     baseline_run_dir: Path | None = None,
     progress_callback: Callable[[str], None] | None = None,
-) -> Path:
+) -> tuple[Path, dict[str, Any]]:
     """Run the full benchmark suite and write aggregate results.
 
-    Returns the run root directory.
+    Returns ``(run_root, aggregated_metrics)`` so callers can log the
+    metrics without re-reading ``metrics.json`` from disk.
     """
     def _notify(msg: str) -> None:
         if progress_callback:
@@ -55,7 +76,11 @@ def run_suite(
     suite_path = run_root / "suite_used.json"
     suite_path.write_text(suite.model_dump_json(indent=2), encoding="utf-8")
 
+    # Initialize trace collector for the run
+    trace = TraceCollector()
+
     per_item_results: list[dict[str, Any]] = []
+    all_cost_estimates: list[dict[str, Any]] = []
 
     for item in suite.items:
         _notify(f"Processing {item.item_id}...")
@@ -91,6 +116,22 @@ def run_suite(
         _notify(f"  [{item.item_id}] Loading predicted ranges...")
         predicted = load_predicted_labeled_ranges(target_pred)
 
+        # Noise reduction: load raw prediction dicts, dedupe + consolidate
+        raw_preds = _load_pred_dicts(target_pred)
+        raw_count = len(raw_preds)
+        deduped = dedupe_predictions(raw_preds)
+        consolidated = consolidate_predictions(deduped)
+        noise_stats = {
+            "raw_predictions": raw_count,
+            "after_dedupe": len(deduped),
+            "after_consolidation": len(consolidated),
+            "duplicates_removed": raw_count - len(deduped),
+            "overlaps_resolved": len(deduped) - len(consolidated),
+        }
+        (item_dir / "noise_stats.json").write_text(
+            json.dumps(noise_stats, indent=2), encoding="utf-8"
+        )
+
         # Evaluate
         _notify(f"  [{item.item_id}] Evaluating...")
         eval_result = evaluate_predicted_vs_freeform(
@@ -117,6 +158,37 @@ def run_suite(
         _write_jsonl(
             eval_dir / "false_positive_preds.jsonl",
             eval_result["false_positive_preds"],
+        )
+
+        # Cost estimation for LLM repair of missed/false-positive spans
+        cost_estimate = estimate_llm_costs(consolidated)
+        (eval_dir / "cost_estimate.json").write_text(
+            json.dumps(cost_estimate, indent=2), encoding="utf-8"
+        )
+        all_cost_estimates.append({
+            "item_id": item.item_id,
+            **cost_estimate,
+        })
+
+        # Escalation queue: predictions that would benefit from LLM review
+        write_escalation_queue(
+            consolidated,
+            eval_dir / "escalation_queue.jsonl",
+        )
+
+        # Record trace event for this item
+        trace.record(
+            "item_eval_complete",
+            block_index=0,
+            details={
+                "item_id": item.item_id,
+                "recall": eval_result["report"].get("recall", 0),
+                "precision": eval_result["report"].get("precision", 0),
+                "noise_stats": noise_stats,
+                "estimated_llm_cost_usd": cost_estimate.get(
+                    "estimated_total_cost_usd", 0
+                ),
+            },
         )
 
         per_item_results.append({
@@ -146,7 +218,17 @@ def run_suite(
         json.dumps(effective_knobs, indent=2, sort_keys=True), encoding="utf-8"
     )
 
+    # Write aggregate cost estimate
+    if all_cost_estimates:
+        (run_root / "cost_summary.json").write_text(
+            json.dumps(all_cost_estimates, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    # Write trace log
+    trace.write(run_root / "trace.jsonl")
+
     _notify(
         f"Suite complete. recall={agg['recall']:.3f}, precision={agg['precision']:.3f}"
     )
-    return run_root
+    return run_root, agg

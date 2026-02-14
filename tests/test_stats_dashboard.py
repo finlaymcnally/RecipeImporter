@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 
@@ -16,6 +17,12 @@ from cookimport.analytics.dashboard_schema import (
 )
 from cookimport.analytics.dashboard_collect import collect_dashboard_data
 from cookimport.analytics.dashboard_render import render_dashboard
+from cookimport.analytics.perf_report import (
+    append_benchmark_csv,
+    append_history_csv,
+    history_path,
+    _CSV_FIELDS,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -30,7 +37,11 @@ SAMPLE_CSV_HEADER = (
     "total_units,per_recipe_seconds,per_tip_seconds,"
     "per_tip_candidate_seconds,per_topic_candidate_seconds,per_unit_seconds,"
     "output_files,output_bytes,knowledge_share,knowledge_heavy,"
-    "dominant_stage,dominant_stage_seconds,dominant_checkpoint,dominant_checkpoint_seconds"
+    "dominant_stage,dominant_stage_seconds,dominant_checkpoint,dominant_checkpoint_seconds,"
+    "run_category,eval_scope,precision,recall,f1,"
+    "gold_total,gold_matched,pred_total,"
+    "supported_precision,supported_recall,"
+    "boundary_correct,boundary_over,boundary_under,boundary_partial"
 )
 
 SAMPLE_CSV_ROW1 = (
@@ -41,7 +52,8 @@ SAMPLE_CSV_ROW1 = (
     ",,,"
     "30,0.275,1.1,1.833,2.75,0.183,"
     "10,50000,0.066,,"
-    "writing,3.8,write_final_seconds,3.5"
+    "writing,3.8,write_final_seconds,3.5,"
+    "stage_import,,,,,,,,,,,,,"
 )
 
 SAMPLE_CSV_ROW2 = (
@@ -52,7 +64,22 @@ SAMPLE_CSV_ROW2 = (
     ",,,"
     "73,0.246,1.23,1.5375,2.46,0.168,"
     "25,120000,0.068,,"
-    "writing,6.1,write_final_seconds,5.8"
+    "writing,6.1,write_final_seconds,5.8,"
+    "stage_import,,,,,,,,,,,,,"
+)
+
+SAMPLE_CSV_BENCH_ROW = (
+    "2026-02-11T16:00:00,data/golden/eval-vs-pipeline/2026-02-11_16.00.00,my_book.pdf,"
+    ",,,,,"
+    ",,,,,"
+    ",,,"
+    ",,,,,,"
+    ",,,,,"
+    ",,,"
+    "benchmark_eval,freeform-spans,0.05,0.25,0.08333333333333333,"
+    "100,25,500,"
+    "0.08,0.55,"
+    "10,8,5,2"
 )
 
 
@@ -345,3 +372,119 @@ class TestRenderer:
         render_dashboard(tmp_path / "dash", data)
         render_dashboard(tmp_path / "dash", data)  # should not error
         assert (tmp_path / "dash" / "index.html").exists()
+
+
+# ---------------------------------------------------------------------------
+# Benchmark CSV tests
+# ---------------------------------------------------------------------------
+
+class TestBenchmarkCsv:
+    def test_benchmark_csv_append(self, tmp_path):
+        """append_benchmark_csv writes a row with benchmark columns populated."""
+        csv_path = tmp_path / "history.csv"
+        append_benchmark_csv(
+            SAMPLE_EVAL_REPORT,
+            csv_path,
+            run_timestamp="2026-02-11T16:00:00",
+            run_dir="/some/eval/dir",
+            eval_scope="freeform-spans",
+            source_file="my_book.pdf",
+        )
+        with csv_path.open("r", newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            rows = list(reader)
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["run_category"] == "benchmark_eval"
+        assert row["eval_scope"] == "freeform-spans"
+        assert float(row["precision"]) == pytest.approx(0.05)
+        assert float(row["recall"]) == pytest.approx(0.25)
+        assert float(row["f1"]) == pytest.approx(2 * 0.05 * 0.25 / (0.05 + 0.25))
+        assert row["gold_total"] == "100"
+        assert row["gold_matched"] == "25"
+        assert row["pred_total"] == "500"
+        assert float(row["supported_precision"]) == pytest.approx(0.08)
+        assert float(row["supported_recall"]) == pytest.approx(0.55)
+        assert row["boundary_correct"] == "10"
+        assert row["boundary_over"] == "8"
+        assert row["boundary_under"] == "5"
+        assert row["boundary_partial"] == "2"
+        assert row["file_name"] == "my_book.pdf"
+        # Stage-only fields should be empty
+        assert row["recipes"] == ""
+        assert row["total_seconds"] == ""
+
+    def test_csv_with_mixed_rows(self, tmp_path):
+        """CSV with both stage and benchmark rows; collector produces both."""
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+        csv_path.write_text(
+            SAMPLE_CSV_HEADER + "\n"
+            + SAMPLE_CSV_ROW1 + "\n"
+            + SAMPLE_CSV_BENCH_ROW + "\n",
+            encoding="utf-8",
+        )
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.stage_records) == 1
+        assert data.stage_records[0].file_name == "cookbook_a.xlsx"
+        assert len(data.benchmark_records) == 1
+        b = data.benchmark_records[0]
+        assert b.precision == pytest.approx(0.05)
+        assert b.recall == pytest.approx(0.25)
+        assert b.gold_total == 100
+        assert b.boundary_correct == 10
+        assert b.supported_recall == pytest.approx(0.55)
+        assert b.source_file == "my_book.pdf"
+
+    def test_benchmark_csv_schema_migration(self, tmp_path):
+        """Existing CSV without new columns gets migrated when appending."""
+        csv_path = tmp_path / "history.csv"
+        # Write old-format CSV (missing benchmark columns)
+        old_header = (
+            "run_timestamp,run_dir,file_name,report_path,importer_name,"
+            "total_seconds,parsing_seconds,writing_seconds,ocr_seconds,"
+            "recipes,tips,tip_candidates,topic_candidates,"
+            "standalone_blocks,standalone_topic_blocks,standalone_topic_coverage,"
+            "total_units,per_recipe_seconds,per_tip_seconds,"
+            "per_tip_candidate_seconds,per_topic_candidate_seconds,per_unit_seconds,"
+            "output_files,output_bytes,knowledge_share,knowledge_heavy,"
+            "dominant_stage,dominant_stage_seconds,dominant_checkpoint,dominant_checkpoint_seconds"
+        )
+        old_row = (
+            "2026-02-10T10:00:00,/some/dir,test.xlsx,,,"
+            "5.5,1.2,3.8,0.0,"
+            "20,5,3,2,"
+            ",,,"
+            "30,0.275,1.1,1.833,2.75,0.183,"
+            "10,50000,0.066,,"
+            "writing,3.8,write_final_seconds,3.5"
+        )
+        csv_path.write_text(old_header + "\n" + old_row + "\n", encoding="utf-8")
+
+        # Append a benchmark row — should trigger schema migration
+        append_benchmark_csv(
+            SAMPLE_EVAL_REPORT,
+            csv_path,
+            run_timestamp="2026-02-11T16:00:00",
+            run_dir="/some/eval/dir",
+            eval_scope="freeform-spans",
+        )
+
+        with csv_path.open("r", newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            assert list(reader.fieldnames) == _CSV_FIELDS
+            rows = list(reader)
+
+        assert len(rows) == 2
+        # Old row should have empty benchmark fields after migration
+        assert rows[0]["run_category"] == ""
+        assert rows[0]["precision"] == ""
+        assert rows[0]["recipes"] == "20"
+        # New row should have benchmark fields populated
+        assert rows[1]["run_category"] == "benchmark_eval"
+        assert float(rows[1]["precision"]) == pytest.approx(0.05)

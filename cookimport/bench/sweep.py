@@ -71,7 +71,7 @@ def run_sweep(
         config_dir = sweep_root / f"config_{i:03d}"
 
         try:
-            run_root = run_suite(
+            run_root, metrics = run_suite(
                 suite,
                 config_dir,
                 repo_root=repo_root,
@@ -80,12 +80,6 @@ def run_sweep(
                     f"  [config {idx}] {msg}"
                 ),
             )
-
-            metrics_path = run_root / "metrics.json"
-            if metrics_path.exists():
-                metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
-            else:
-                metrics = {}
 
             score = metrics.get("recall", 0.0)
             if objective == "precision":

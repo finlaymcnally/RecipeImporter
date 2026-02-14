@@ -26,6 +26,26 @@ Main command:
 cookimport <command> [options]
 ```
 
+### Launch Label Studio (Local)
+
+```bash
+cd /home/mcnal/projects/recipeimport
+docker start labelstudio
+```
+
+If this is your first run and the container does not exist yet:
+
+```bash
+docker run -d \
+  --name labelstudio \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v labelstudio_data:/label-studio/data \
+  heartexlabs/label-studio:latest
+```
+
+Then open `http://localhost:8080` and create/get your API token.
+
 If you need Label Studio commands, set auth first (or pass flags each time):
 
 ```bash

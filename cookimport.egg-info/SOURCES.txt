@@ -13,6 +13,9 @@ cookimport.egg-info/entry_points.txt
 cookimport.egg-info/requires.txt
 cookimport.egg-info/top_level.txt
 cookimport/analytics/__init__.py
+cookimport/analytics/dashboard_collect.py
+cookimport/analytics/dashboard_render.py
+cookimport/analytics/dashboard_schema.py
 cookimport/analytics/perf_report.py
 cookimport/bench/__init__.py
 cookimport/bench/cost.py
@@ -124,6 +127,7 @@ tests/test_performance_features.py
 tests/test_phase1_manual.py
 tests/test_recipesage_importer.py
 tests/test_source_field.py
+tests/test_stats_dashboard.py
 tests/test_step_ingredient_linking.py
 tests/test_tagging.py
 tests/test_text_importer.py

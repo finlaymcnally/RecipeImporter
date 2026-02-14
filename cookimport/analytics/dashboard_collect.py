@@ -116,12 +116,17 @@ def _compute_cutoff(since_days: int | None) -> datetime | None:
 # Stage / import collector
 # ---------------------------------------------------------------------------
 
-def _collect_stage_from_csv(
+_BENCHMARK_CATEGORIES = {"benchmark_eval", "benchmark_prediction"}
+
+
+def _collect_from_csv(
     csv_path: Path,
     cutoff: datetime | None,
     warnings: list[str],
-) -> list[StageRecord]:
-    records: list[StageRecord] = []
+) -> tuple[list[StageRecord], list[BenchmarkRecord]]:
+    """Read the unified CSV and split rows into stage and benchmark records."""
+    stage_records: list[StageRecord] = []
+    bench_records: list[BenchmarkRecord] = []
     try:
         with csv_path.open("r", newline="", encoding="utf-8") as fh:
             reader = csv.DictReader(fh)
@@ -131,6 +136,12 @@ def _collect_stage_from_csv(
                     if not _is_recent(ts, cutoff):
                         continue
 
+                    row_category = row.get("run_category", "")
+                    if row_category in _BENCHMARK_CATEGORIES:
+                        bench_records.append(_benchmark_record_from_csv_row(row, row_category))
+                        continue
+
+                    # Stage / import row
                     run_dir = row.get("run_dir", "")
                     category = RunCategory.stage_import
                     if "labelstudio" in run_dir.lower():
@@ -156,7 +167,7 @@ def _collect_stage_from_csv(
                     if per_unit is None:
                         per_unit = _safe_div(total_seconds, total_units)
 
-                    records.append(StageRecord(
+                    stage_records.append(StageRecord(
                         run_timestamp=ts,
                         run_dir=run_dir,
                         file_name=row.get("file_name", ""),
@@ -182,7 +193,44 @@ def _collect_stage_from_csv(
                     warnings.append(f"CSV row {row_num}: {exc}")
     except Exception as exc:
         warnings.append(f"Failed to read {csv_path}: {exc}")
-    return records
+    return stage_records, bench_records
+
+
+def _benchmark_record_from_csv_row(
+    row: dict[str, str],
+    row_category: str,
+) -> BenchmarkRecord:
+    """Build a BenchmarkRecord from a CSV row with benchmark columns."""
+    precision = _safe_float(row.get("precision"))
+    recall = _safe_float(row.get("recall"))
+    f1 = _safe_float(row.get("f1"))
+    if f1 is None and precision is not None and recall is not None and (precision + recall) > 0:
+        f1 = 2 * precision * recall / (precision + recall)
+
+    cat = RunCategory.benchmark_eval
+    if row_category == "benchmark_prediction":
+        cat = RunCategory.benchmark_prediction
+
+    run_dir = row.get("run_dir", "")
+    return BenchmarkRecord(
+        run_timestamp=row.get("run_timestamp"),
+        artifact_dir=run_dir,
+        report_path=row.get("report_path") or None,
+        run_category=cat,
+        precision=precision,
+        recall=recall,
+        f1=f1,
+        gold_total=_safe_int(row.get("gold_total")),
+        pred_total=_safe_int(row.get("pred_total")),
+        gold_matched=_safe_int(row.get("gold_matched")),
+        supported_precision=_safe_float(row.get("supported_precision")),
+        supported_recall=_safe_float(row.get("supported_recall")),
+        boundary_correct=_safe_int(row.get("boundary_correct")),
+        boundary_over=_safe_int(row.get("boundary_over")),
+        boundary_under=_safe_int(row.get("boundary_under")),
+        boundary_partial=_safe_int(row.get("boundary_partial")),
+        source_file=row.get("file_name") or None,
+    )
 
 
 def _collect_stage_from_reports(
@@ -486,16 +534,17 @@ def collect_dashboard_data(
     warnings: list[str] = []
     cutoff = _compute_cutoff(since_days)
 
-    # -- Stage records --
+    # -- Stage + benchmark records from CSV --
     csv_path = output_root / _HISTORY_CSV
     stage_records: list[StageRecord] = []
+    csv_bench_records: list[BenchmarkRecord] = []
 
     if csv_path.is_file() and not scan_reports:
-        stage_records = _collect_stage_from_csv(csv_path, cutoff, warnings)
+        stage_records, csv_bench_records = _collect_from_csv(csv_path, cutoff, warnings)
     else:
         if scan_reports and csv_path.is_file():
             # User wants both: CSV first, then fill in from reports
-            stage_records = _collect_stage_from_csv(csv_path, cutoff, warnings)
+            stage_records, csv_bench_records = _collect_from_csv(csv_path, cutoff, warnings)
         # Fallback / supplement from individual report JSONs
         report_records = _collect_stage_from_reports(output_root, cutoff, warnings)
         # Deduplicate by (run_timestamp, file_name)
@@ -508,8 +557,14 @@ def collect_dashboard_data(
     # Sort stage records by timestamp
     stage_records.sort(key=lambda r: r.run_timestamp or "zzzz")
 
-    # -- Benchmark records --
+    # -- Benchmark records from JSON + CSV --
     benchmark_records = _collect_benchmarks(golden_root, cutoff, warnings)
+    # Merge CSV-sourced benchmark records, dedup by (run_timestamp, artifact_dir)
+    json_bench_keys = {(r.run_timestamp, r.artifact_dir) for r in benchmark_records}
+    for r in csv_bench_records:
+        if (r.run_timestamp, r.artifact_dir) not in json_bench_keys:
+            benchmark_records.append(r)
+    benchmark_records.sort(key=lambda r: r.run_timestamp or "zzzz")
 
     # -- Summary --
     summary = _build_summary(stage_records, benchmark_records)

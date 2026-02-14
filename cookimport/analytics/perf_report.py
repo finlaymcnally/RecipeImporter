@@ -226,6 +226,66 @@ def append_history_csv(rows: Iterable[PerfRow], csv_path: Path) -> None:
             writer.writerow(_row_to_csv(row))
 
 
+def append_benchmark_csv(
+    report: dict[str, Any],
+    csv_path: Path,
+    *,
+    run_timestamp: str,
+    run_dir: str,
+    eval_scope: str = "",
+    source_file: str = "",
+    run_category: str = "benchmark_eval",
+) -> None:
+    """Append one benchmark eval row to the performance history CSV.
+
+    Stage-only columns are left empty; benchmark-only columns are populated
+    from *report* (an eval_report.json-shaped dict).
+    """
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    if csv_path.exists():
+        _ensure_csv_schema(csv_path)
+    write_header = not csv_path.exists() or csv_path.stat().st_size == 0
+
+    counts = report.get("counts") or {}
+    precision = _safe_float_or_none(report.get("precision"))
+    recall = _safe_float_or_none(report.get("recall"))
+    f1 = None
+    if precision is not None and recall is not None and (precision + recall) > 0:
+        f1 = 2 * precision * recall / (precision + recall)
+
+    app_aligned = report.get("app_aligned") or {}
+    supported_relaxed = app_aligned.get("supported_labels_relaxed") or {}
+
+    boundary = report.get("boundary") or {}
+
+    row: dict[str, Any] = {field: "" for field in _CSV_FIELDS}
+    row.update({
+        "run_timestamp": run_timestamp,
+        "run_dir": run_dir,
+        "file_name": source_file,
+        "run_category": run_category,
+        "eval_scope": eval_scope,
+        "precision": precision if precision is not None else "",
+        "recall": recall if recall is not None else "",
+        "f1": f1 if f1 is not None else "",
+        "gold_total": counts.get("gold_total", ""),
+        "gold_matched": counts.get("gold_matched", ""),
+        "pred_total": counts.get("pred_total", ""),
+        "supported_precision": supported_relaxed.get("precision", ""),
+        "supported_recall": supported_relaxed.get("recall", ""),
+        "boundary_correct": boundary.get("correct", ""),
+        "boundary_over": boundary.get("over", ""),
+        "boundary_under": boundary.get("under", ""),
+        "boundary_partial": boundary.get("partial", ""),
+    })
+
+    with csv_path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=_CSV_FIELDS)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+
+
 def _row_from_report(run_dir: Path, report_path: Path, data: dict[str, Any]) -> PerfRow | None:
     timing = data.get("timing") or {}
     checkpoints_raw = timing.get("checkpoints") or {}
@@ -420,6 +480,21 @@ _CSV_FIELDS = [
     "dominant_stage_seconds",
     "dominant_checkpoint",
     "dominant_checkpoint_seconds",
+    # Benchmark eval columns (empty for stage_import rows)
+    "run_category",
+    "eval_scope",
+    "precision",
+    "recall",
+    "f1",
+    "gold_total",
+    "gold_matched",
+    "pred_total",
+    "supported_precision",
+    "supported_recall",
+    "boundary_correct",
+    "boundary_over",
+    "boundary_under",
+    "boundary_partial",
 ]
 
 
@@ -468,6 +543,20 @@ def _row_to_csv(row: PerfRow) -> dict[str, Any]:
         "dominant_stage_seconds": dominant_stage_seconds,
         "dominant_checkpoint": dominant_checkpoint,
         "dominant_checkpoint_seconds": dominant_checkpoint_seconds,
+        "run_category": "stage_import",
+        "eval_scope": "",
+        "precision": "",
+        "recall": "",
+        "f1": "",
+        "gold_total": "",
+        "gold_matched": "",
+        "pred_total": "",
+        "supported_precision": "",
+        "supported_recall": "",
+        "boundary_correct": "",
+        "boundary_over": "",
+        "boundary_under": "",
+        "boundary_partial": "",
     }
 
 

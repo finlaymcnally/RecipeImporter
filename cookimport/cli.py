@@ -2379,6 +2379,15 @@ def labelstudio_eval(
         output_dir / "false_positive_preds.jsonl", result["false_positive_preds"]
     )
 
+    from cookimport.analytics.perf_report import append_benchmark_csv, history_path
+    append_benchmark_csv(
+        report,
+        history_path(DEFAULT_OUTPUT),
+        run_timestamp=dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        run_dir=str(output_dir),
+        eval_scope=scope,
+    )
+
     typer.secho(
         f"Evaluation complete. Report: {report_md_path}",
         fg=typer.colors.GREEN,
@@ -2584,6 +2593,16 @@ def labelstudio_benchmark(
         eval_result["false_positive_preds"],
     )
 
+    from cookimport.analytics.perf_report import append_benchmark_csv, history_path
+    append_benchmark_csv(
+        report,
+        history_path(DEFAULT_OUTPUT),
+        run_timestamp=dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        run_dir=str(eval_output_dir),
+        eval_scope="freeform-spans",
+        source_file=str(selected_source),
+    )
+
     typer.secho("Benchmark complete.", fg=typer.colors.GREEN)
     typer.secho(f"Gold spans: {selected_gold}", fg=typer.colors.CYAN)
     typer.secho(f"Prediction run: {pred_run}", fg=typer.colors.CYAN)
@@ -2665,7 +2684,7 @@ def bench_run(
             def update_progress(msg: str) -> None:
                 status.update(f"[bold cyan]Bench: {msg}[/bold cyan]")
 
-            run_root = run_suite(
+            run_root, agg_metrics = run_suite(
                 s,
                 out_dir,
                 repo_root=REPO_ROOT,
@@ -2678,6 +2697,16 @@ def bench_run(
 
     # Build iteration packet
     build_iteration_packet(run_root, baseline_run_dir=baseline)
+
+    from cookimport.analytics.perf_report import append_benchmark_csv, history_path
+    append_benchmark_csv(
+        agg_metrics,
+        history_path(DEFAULT_OUTPUT),
+        run_timestamp=run_root.name,
+        run_dir=str(run_root),
+        eval_scope="bench-suite",
+        source_file=s.name,
+    )
 
     typer.secho("Bench suite complete.", fg=typer.colors.GREEN)
     typer.secho(f"Report: {run_root / 'report.md'}", fg=typer.colors.CYAN)

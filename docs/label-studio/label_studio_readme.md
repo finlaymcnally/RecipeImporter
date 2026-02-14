@@ -103,7 +103,7 @@ Canonical labels (`cookimport/labelstudio/label_config_blocks.py`):
 
 Freeform labels (`cookimport/labelstudio/label_config_freeform.py`):
 
-- `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `TIP`, `NOTES`, `VARIANT`, `OTHER`
+- `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `TIP`, `NOTES`, `VARIANT`, `YIELD_LINE`, `TIME_LINE`, `OTHER`
 - explicitly preserves whitespace with `style="white-space: pre-wrap;"` for stable offsets.
 
 ### 1.6 Export contracts

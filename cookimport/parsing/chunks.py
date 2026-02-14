@@ -129,6 +129,12 @@ def chunk_non_recipe_blocks(
             )
             return
 
+        # Aggregate block_role counts for lane scoring
+        role_counts: dict[str, int] = {}
+        for b in current.blocks:
+            role = b.features.get("block_role", "other")
+            role_counts[role] = role_counts.get(role, 0) + 1
+
         chunk = KnowledgeChunk(
             identifier=f"c{chunk_index}",
             lane=ChunkLane.KNOWLEDGE,  # Lane assigned later
@@ -143,6 +149,7 @@ def chunk_non_recipe_blocks(
                 "block_range": [min(current.block_ids), max(current.block_ids)]
                 if current.block_ids
                 else [],
+                "block_role_counts": role_counts,
             },
         )
         chunks.append(chunk)
@@ -467,7 +474,11 @@ def assign_lanes(chunks: list[KnowledgeChunk]) -> list[KnowledgeChunk]:
 
 
 def _score_lane(chunk: KnowledgeChunk) -> ChunkLane:
-    """Score a chunk and determine its lane."""
+    """Score a chunk and determine its lane.
+
+    Uses both text heuristics and block_role signals (from
+    ``block_roles.assign_block_roles``) when available.
+    """
     text = chunk.text
     title = (chunk.title or "").lower().strip().rstrip(":")
 
@@ -481,6 +492,29 @@ def _score_lane(chunk: KnowledgeChunk) -> ChunkLane:
 
     # Check for knowledge indicators
     knowledge_score = _knowledge_score(text)
+
+    # Adjust scores using block_role counts when available
+    role_counts = (chunk.provenance or {}).get("block_role_counts") or {}
+    if role_counts:
+        total_blocks = max(sum(role_counts.values()), 1)
+        # Recipe-structural roles strongly indicate knowledge
+        recipe_roles = (
+            role_counts.get("ingredient_line", 0)
+            + role_counts.get("instruction_line", 0)
+            + role_counts.get("recipe_title", 0)
+            + role_counts.get("metadata", 0)
+        )
+        recipe_ratio = recipe_roles / total_blocks
+        # Tip-like roles are knowledge (technique/advice)
+        tip_count = role_counts.get("tip_like", 0)
+        # Narrative and other roles weakly suggest noise
+        other_count = role_counts.get("other", 0)
+
+        knowledge_score += recipe_ratio * 0.25
+        knowledge_score += min(0.1, tip_count / total_blocks * 0.15)
+        narrative_score += (other_count / total_blocks) * 0.1
+        knowledge_score = min(1.0, knowledge_score)
+        narrative_score = min(1.0, narrative_score)
 
     # Decision logic
     if knowledge_score >= 0.5 and knowledge_score > narrative_score:
