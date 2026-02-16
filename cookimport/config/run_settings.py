@@ -16,6 +16,9 @@ _UNKNOWN_KEY_WARNINGS: set[tuple[str, ...]] = set()
 _UI_REQUIRED_KEYS = ("ui_group", "ui_label", "ui_order")
 _SUMMARY_ORDER = (
     "epub_extractor",
+    "epub_unstructured_html_parser_version",
+    "epub_unstructured_skip_headers_footers",
+    "epub_unstructured_preprocess_mode",
     "ocr_device",
     "ocr_batch_size",
     "workers",
@@ -34,6 +37,17 @@ class EpubExtractor(str, Enum):
     unstructured = "unstructured"
     legacy = "legacy"
     markitdown = "markitdown"
+
+
+class UnstructuredHtmlParserVersion(str, Enum):
+    v1 = "v1"
+    v2 = "v2"
+
+
+class UnstructuredPreprocessMode(str, Enum):
+    none = "none"
+    br_split_v1 = "br_split_v1"
+    semantic_v1 = "semantic_v1"
 
 
 class OcrDevice(str, Enum):
@@ -150,6 +164,33 @@ class RunSettings(BaseModel):
             label="EPUB Extractor",
             order=60,
             description="EPUB extraction engine (unstructured, legacy, or markitdown).",
+        ),
+    )
+    epub_unstructured_html_parser_version: UnstructuredHtmlParserVersion = Field(
+        default=UnstructuredHtmlParserVersion.v1,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="Unstructured HTML Parser",
+            order=62,
+            description="Unstructured HTML parser version used for EPUB extraction.",
+        ),
+    )
+    epub_unstructured_skip_headers_footers: bool = Field(
+        default=False,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="Unstructured Skip Headers/Footers",
+            order=63,
+            description="Enable Unstructured header/footer skipping for EPUB HTML partitioning.",
+        ),
+    )
+    epub_unstructured_preprocess_mode: UnstructuredPreprocessMode = Field(
+        default=UnstructuredPreprocessMode.br_split_v1,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="Unstructured EPUB Preprocess",
+            order=64,
+            description="EPUB HTML preprocessing mode before Unstructured partitioning.",
         ),
     )
     ocr_device: OcrDevice = Field(
@@ -359,6 +400,13 @@ def build_run_settings(
     pdf_pages_per_job: int,
     epub_spine_items_per_job: int,
     epub_extractor: str | EpubExtractor,
+    epub_unstructured_html_parser_version: (
+        str | UnstructuredHtmlParserVersion
+    ) = UnstructuredHtmlParserVersion.v1,
+    epub_unstructured_skip_headers_footers: bool = False,
+    epub_unstructured_preprocess_mode: (
+        str | UnstructuredPreprocessMode
+    ) = UnstructuredPreprocessMode.br_split_v1,
     ocr_device: str | OcrDevice,
     ocr_batch_size: int,
     warm_models: bool,
@@ -385,6 +433,15 @@ def build_run_settings(
             "pdf_pages_per_job": pdf_pages_per_job,
             "epub_spine_items_per_job": epub_spine_items_per_job,
             "epub_extractor": _normalized_value(epub_extractor),
+            "epub_unstructured_html_parser_version": _normalized_value(
+                epub_unstructured_html_parser_version
+            ),
+            "epub_unstructured_skip_headers_footers": bool(
+                epub_unstructured_skip_headers_footers
+            ),
+            "epub_unstructured_preprocess_mode": _normalized_value(
+                epub_unstructured_preprocess_mode
+            ),
             "ocr_device": _normalized_value(ocr_device),
             "ocr_batch_size": ocr_batch_size,
             "warm_models": bool(warm_models),

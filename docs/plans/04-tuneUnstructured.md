@@ -1,3 +1,10 @@
+---
+summary: "ExecPlan and implementation record for tuning Unstructured EPUB extraction with explicit options, BR preprocessing, and diagnostics."
+read_when:
+  - "When changing EPUB unstructured parser/preprocess options or diagnostics artifacts"
+  - "When running debug-epub-extract variant comparisons"
+---
+
 # ExecPlan Tune Unstructured for EPUBs
 
 ## Goal
@@ -203,20 +210,27 @@ Validation:
 
 ## Progress
 
-- [ ] (2026-02-16T00:00Z) Add synthetic EPUB HTML fixtures that reproduce BR-list and faux-heading patterns.
-- [ ] (2026-02-16T00:00Z) Wire explicit unstructured HTML options into Settings, env vars, EPUB importer, and adapter.
-- [ ] (2026-02-16T00:00Z) Implement `normalize_epub_html_for_unstructured(..., mode="br_split_v1")` and make it idempotent.
-- [ ] (2026-02-16T00:00Z) Persist raw + normalized spine XHTML artifacts when diagnostics are enabled.
-- [ ] (2026-02-16T00:00Z) Enhance adapter to use emphasis metadata for bold detection and to defensively split squashed list items.
-- [ ] (2026-02-16T00:00Z) Add harness to compare parser versions and preprocess modes on real EPUB canaries.
-- [ ] (2026-02-16T00:00Z) Flip defaults based on canary results and update docs.
+- [x] (2026-02-16T14:00Z) Added synthetic EPUB HTML fixtures for BR ingredient/instruction lines, nested lists, and faux headings under `tests/fixtures/epub_html/`.
+- [x] (2026-02-16T14:00Z) Wired explicit unstructured options into `RunSettings`, CLI/env (`C3IMP_EPUB_UNSTRUCTURED_*`), stage path, benchmark prediction path, EPUB importer, and adapter diagnostics.
+- [x] (2026-02-16T14:00Z) Implemented `normalize_epub_html_for_unstructured(..., mode=...)` with deterministic BR splitting and idempotence tests.
+- [x] (2026-02-16T14:00Z) Added raw and normalized spine XHTML raw artifacts (`raw_spine_xhtml_*.xhtml` and `norm_spine_xhtml_*.xhtml`) for unstructured runs.
+- [x] (2026-02-16T14:00Z) Enhanced adapter with emphasis-aware bold heuristic, explicit depth metadata, and defensive newline splitting for squashed list items.
+- [x] (2026-02-16T14:00Z) Added `cookimport debug-epub-extract` harness with parser/preprocess variants, blocks/element diagnostics, and summary metrics.
+- [x] (2026-02-16T14:05Z) Flipped unstructured preprocess default to `br_split_v1` while keeping parser default `v1`; stage + benchmark prediction paths now share the same default contract.
 
 ## Surprises and Discoveries
 
-- None yet. Update this section whenever a real EPUB reveals a new pattern (e.g., CSS-based headings, ingredient tables, multi-column layouts in XHTML, etc.).
+- `partition_html(..., html_parser_version="v2")` can fail on normal EPUB XHTML unless input resembles `body.Document`/`div.Page` structure. Adapter now applies a compatibility shim for `v2` inputs.
+- Writing both raw and normalized spine XHTML was immediately useful when validating BR split behavior and diagnosing parser-version-specific behavior.
+- `semantic_v1` preprocess mode is currently an alias to `br_split_v1` to preserve forward compatibility without introducing a second, unvalidated rewrite path.
 
 ## Decision Log
 
 - (2026-02-16) Pre-normalize EPUB HTML before Unstructured rather than trying to “fix it downstream” in segmentation, because block boundaries are the coordinate system everything else depends on.
 - (2026-02-16) Keep preprocess improvements behind a mode flag first, then flip defaults only after canary validation.
 - (2026-02-16) Treat Unstructured options as explicit settings for reproducibility; record them in run metadata so benchmark/eval artifacts remain interpretable.
+- (2026-02-16) Keep default parser at `v1` for now and use `v2` as an explicit opt-in while collecting canary evidence with `debug-epub-extract`, because `v2` has stricter input-shape expectations.
+- (2026-02-16) Emit normalized XHTML alongside raw XHTML for unstructured diagnostics, because element-level JSON alone is not enough to explain preprocessing decisions during regressions.
+- (2026-02-16) Set preprocess default to `br_split_v1` (from `none`) after fixture-based validation showed the expected BR list boundary recovery with no regressions in targeted tests.
+
+Revision note (2026-02-16_14.05.00): Updated this plan from a proposed work list into an implementation record by marking completed milestones, documenting the parser-v2 compatibility discovery, and recording the default preprocess flip to `br_split_v1`.

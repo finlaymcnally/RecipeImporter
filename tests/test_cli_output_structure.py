@@ -64,6 +64,9 @@ def test_stage_output_structure(tmp_path):
     assert report["importerName"] == "text"
     assert report["runConfig"]["workers"] >= 1
     assert report["runConfig"]["epub_extractor"] == "unstructured"
+    assert report["runConfig"]["epub_unstructured_html_parser_version"] == "v1"
+    assert report["runConfig"]["epub_unstructured_skip_headers_footers"] is False
+    assert report["runConfig"]["epub_unstructured_preprocess_mode"] == "br_split_v1"
     assert isinstance(report.get("runConfigHash"), str)
     assert len(report["runConfigHash"]) == 64
     assert "workers=" in str(report.get("runConfigSummary", ""))
@@ -126,6 +129,55 @@ def test_epub_report_includes_extractor_setting(tmp_path):
     assert isinstance(report.get("runConfigHash"), str)
     assert len(report["runConfigHash"]) == 64
     assert "epub_extractor=legacy" in str(report.get("runConfigSummary", ""))
+
+
+def test_epub_report_tracks_unstructured_option_flags(tmp_path):
+    fixtures_dir = Path(__file__).parent / "fixtures"
+    source_file = fixtures_dir / "sample.epub"
+    if not source_file.exists():
+        pytest.skip("sample.epub not found")
+
+    output_dir = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        [
+            "stage",
+            str(source_file),
+            "--out",
+            str(output_dir),
+            "--workers",
+            "1",
+            "--epub-split-workers",
+            "1",
+            "--epub-extractor",
+            "unstructured",
+            "--epub-unstructured-html-parser-version",
+            "v2",
+            "--epub-unstructured-skip-headers-footers",
+            "--epub-unstructured-preprocess-mode",
+            "br_split_v1",
+        ],
+    )
+    assert result.exit_code == 0
+
+    timestamp_dirs = [
+        path
+        for path in output_dir.glob("*")
+        if path.is_dir() and not path.name.startswith(".")
+    ]
+    assert len(timestamp_dirs) == 1
+    timestamp_dir = timestamp_dirs[0]
+    report_path = timestamp_dir / "sample.excel_import_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["runConfig"]["epub_extractor"] == "unstructured"
+    assert report["runConfig"]["epub_unstructured_html_parser_version"] == "v2"
+    assert report["runConfig"]["epub_unstructured_skip_headers_footers"] is True
+    assert report["runConfig"]["epub_unstructured_preprocess_mode"] == "br_split_v1"
+
+    raw_epub_dir = timestamp_dir / "raw" / "epub"
+    assert list(raw_epub_dir.glob("**/unstructured_elements.jsonl"))
+    assert list(raw_epub_dir.glob("**/raw_spine_xhtml_*.xhtml"))
+    assert list(raw_epub_dir.glob("**/norm_spine_xhtml_*.xhtml"))
 
 
 def test_stage_markitdown_epub_writes_backend_and_markdown_artifact(tmp_path, monkeypatch):

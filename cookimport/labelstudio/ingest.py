@@ -60,6 +60,39 @@ from cookimport.staging.pdf_jobs import (
 logger = logging.getLogger(__name__)
 
 
+def _coerce_bool(value: bool | str | None, *, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _normalize_unstructured_html_parser_version(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"v1", "v2"}:
+        raise ValueError(
+            "Invalid epub_unstructured_html_parser_version. "
+            "Expected one of: v1, v2."
+        )
+    return normalized
+
+
+def _normalize_unstructured_preprocess_mode(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"none", "br_split_v1", "semantic_v1"}:
+        raise ValueError(
+            "Invalid epub_unstructured_preprocess_mode. "
+            "Expected one of: none, br_split_v1, semantic_v1."
+        )
+    return normalized
+
+
 def _slugify_name(name: str) -> str:
     import re
 
@@ -560,6 +593,9 @@ def generate_pred_run_artifacts(
     pdf_pages_per_job: int = 50,
     epub_spine_items_per_job: int = 10,
     epub_extractor: str | None = None,
+    epub_unstructured_html_parser_version: str | None = None,
+    epub_unstructured_skip_headers_footers: bool | str | None = None,
+    epub_unstructured_preprocess_mode: str | None = None,
     ocr_device: str = "auto",
     ocr_batch_size: int = 1,
     warm_models: bool = False,
@@ -596,6 +632,32 @@ def generate_pred_run_artifacts(
     selected_epub_extractor = str(
         epub_extractor or os.environ.get("C3IMP_EPUB_EXTRACTOR", "unstructured")
     ).strip().lower()
+    selected_html_parser_version = _normalize_unstructured_html_parser_version(
+        str(
+            epub_unstructured_html_parser_version
+            or os.environ.get("C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION", "v1")
+        )
+    )
+    selected_preprocess_mode = _normalize_unstructured_preprocess_mode(
+        str(
+            epub_unstructured_preprocess_mode
+            or os.environ.get("C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE", "br_split_v1")
+        )
+    )
+    selected_skip_headers_footers = _coerce_bool(
+        (
+            epub_unstructured_skip_headers_footers
+            if epub_unstructured_skip_headers_footers is not None
+            else os.environ.get("C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS")
+        ),
+        default=False,
+    )
+    os.environ["C3IMP_EPUB_EXTRACTOR"] = selected_epub_extractor
+    os.environ["C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION"] = selected_html_parser_version
+    os.environ["C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS"] = (
+        "true" if selected_skip_headers_footers else "false"
+    )
+    os.environ["C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE"] = selected_preprocess_mode
     run_settings = build_run_settings(
         workers=workers,
         pdf_split_workers=pdf_split_workers,
@@ -603,6 +665,9 @@ def generate_pred_run_artifacts(
         pdf_pages_per_job=pdf_pages_per_job,
         epub_spine_items_per_job=epub_spine_items_per_job,
         epub_extractor=selected_epub_extractor,
+        epub_unstructured_html_parser_version=selected_html_parser_version,
+        epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
+        epub_unstructured_preprocess_mode=selected_preprocess_mode,
         ocr_device=ocr_device,
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,
@@ -1004,6 +1069,9 @@ def run_labelstudio_import(
     pdf_pages_per_job: int = 50,
     epub_spine_items_per_job: int = 10,
     epub_extractor: str | None = None,
+    epub_unstructured_html_parser_version: str | None = None,
+    epub_unstructured_skip_headers_footers: bool | str | None = None,
+    epub_unstructured_preprocess_mode: str | None = None,
     ocr_device: str = "auto",
     ocr_batch_size: int = 1,
     warm_models: bool = False,
@@ -1038,6 +1106,9 @@ def run_labelstudio_import(
         pdf_pages_per_job=pdf_pages_per_job,
         epub_spine_items_per_job=epub_spine_items_per_job,
         epub_extractor=epub_extractor,
+        epub_unstructured_html_parser_version=epub_unstructured_html_parser_version,
+        epub_unstructured_skip_headers_footers=epub_unstructured_skip_headers_footers,
+        epub_unstructured_preprocess_mode=epub_unstructured_preprocess_mode,
         ocr_device=ocr_device,
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,

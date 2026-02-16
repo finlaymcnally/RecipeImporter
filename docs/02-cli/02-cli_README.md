@@ -114,6 +114,9 @@ Config keys and defaults:
 - `pdf_split_workers` (default `7`)
 - `epub_split_workers` (default `7`)
 - `epub_extractor` (default `unstructured`)
+- `epub_unstructured_html_parser_version` (default `v1`)
+- `epub_unstructured_skip_headers_footers` (default `false`)
+- `epub_unstructured_preprocess_mode` (default `br_split_v1`)
 - `ocr_device` (default `auto`)
 - `ocr_batch_size` (default `1`)
 - `output_dir` (default `data/output`)
@@ -127,6 +130,9 @@ What each setting affects:
 
 - `workers`, split workers, page/spine split size: `stage` and benchmark import parallelism/sharding.
 - `epub_extractor`: runtime extractor choice (`unstructured`, `legacy`, or `markitdown`) via `C3IMP_EPUB_EXTRACTOR`.
+- `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
+- `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
+- `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none`, `br_split_v1`, or `semantic_v1` alias).
 - `ocr_device`, `ocr_batch_size`: OCR path for PDFs.
 - `output_dir`: interactive `stage` target output root.
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
@@ -144,7 +150,11 @@ Developer note:
    - `Run with global defaults (...)`
    - `Run with last import settings (...)` when available
    - `Change run settings...` (full-screen arrow-key editor)
-3. Applies `C3IMP_EPUB_EXTRACTOR=<selected run settings>`.
+3. Applies selected EPUB env vars:
+   - `C3IMP_EPUB_EXTRACTOR`
+   - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`
+   - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`
+   - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
 4. Calls `stage(...)` using selected per-run workers/OCR/split/warm-model values.
 5. Saves selected settings to `<output_dir>/.history/last_run_settings_import.json` after a successful run.
 6. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
@@ -322,10 +332,40 @@ Options:
 - `--pdf-split-workers INTEGER>=1` (default `7`): max workers for one split PDF.
 - `--epub-split-workers INTEGER>=1` (default `7`): max workers for one split EPUB.
 - `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
+- `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
+- `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
+- `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
 - `markitdown` note: EPUB split jobs are disabled for this extractor because conversion is whole-book EPUB -> markdown (no spine-range mode).
 
 Split-merge progress detail:
 - After split workers finish, the worker dashboard `MainProcess` row now advances through merge phases (payload merge, ID reassignment, output writes, raw merge) instead of staying on a single static `Merging ...` label.
+
+### `cookimport debug-epub-extract PATH`
+
+Runs unstructured extraction diagnostics for one EPUB spine and writes variant artifacts.
+
+Behavior:
+
+- Reads one spine XHTML entry from the EPUB container.
+- Writes `raw_spine.xhtml` plus per-variant outputs:
+  - `normalized_spine.xhtml`
+  - `blocks.jsonl`
+  - `unstructured_elements.jsonl`
+  - `summary.json` (metrics per variant)
+- `--variants` runs parser/preprocess grid:
+  - parser `v1` + preprocess `none`
+  - parser `v2` + preprocess `none`
+  - parser `v1` + preprocess `br_split_v1`
+  - parser `v2` + preprocess `br_split_v1`
+
+Options:
+
+- `--out PATH` (default `data/output/epub-debug`): output root.
+- `--spine INTEGER>=0` (default `0`): spine index to inspect.
+- `--variants` (default disabled): run full variant grid.
+- `--html-parser-version TEXT` (default `v1`): single-run parser version when not using `--variants`.
+- `--preprocess-mode TEXT` (default `none`): single-run preprocess mode when not using `--variants`.
+- `--skip-headers-footers / --no-skip-headers-footers` (default disabled): pass Unstructured header/footer skip flag.
 
 ### `cookimport inspect PATH`
 
@@ -474,6 +514,9 @@ Options:
 - `--pdf-pages-per-job INTEGER>=1` (default `50`): PDF shard size.
 - `--epub-spine-items-per-job INTEGER>=1` (default `10`): EPUB shard size.
 - `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
+- `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
+- `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
+- `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
 - `markitdown` note: prediction EPUB split jobs are disabled for this extractor for the same reason as stage runs.
 - `--ocr-device TEXT` (default `auto`): `auto|cpu|cuda|mps`.
 - `--ocr-batch-size INTEGER>=1` (default `1`): pages per OCR model call.
@@ -587,6 +630,9 @@ CLI-relevant environment variables:
 
 - `C3IMP_LIMIT`: used by interactive mode callback. If set to an integer, interactive import uses it as `stage --limit`.
 - `C3IMP_EPUB_EXTRACTOR`: EPUB extractor switch (`unstructured`, `legacy`, or `markitdown`) read at runtime by the EPUB importer.
+- `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`: unstructured HTML parser version (`v1` or `v2`) for EPUB extraction.
+- `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`: bool toggle for Unstructured `skip_headers_and_footers` on EPUB HTML.
+- `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`: EPUB HTML preprocess mode before Unstructured (`none`, `br_split_v1`, `semantic_v1`).
 - `LABEL_STUDIO_URL`: default Label Studio URL when `--label-studio-url` is omitted.
 - `LABEL_STUDIO_API_KEY`: default Label Studio API key when `--label-studio-api-key` is omitted.
 - `COOKIMPORT_DATABASE_URL`: DB URL fallback for `tag-catalog export`, `tag-recipes debug-signals`, and `tag-recipes apply`.
@@ -599,7 +645,7 @@ Precedence notes:
 
 - For Label Studio creds: CLI flags win over environment variables.
 - For interactive Label Studio import/export creds: environment variables win over saved `cookimport.json` credentials.
-- For EPUB extractor: explicit `stage --epub-extractor`, explicit `labelstudio-benchmark --epub-extractor`, or interactive per-run Run Settings selection writes `C3IMP_EPUB_EXTRACTOR` for that run.
+- For EPUB extractor/options: explicit stage/benchmark flags or interactive per-run Run Settings selection write `C3IMP_EPUB_EXTRACTOR` plus `C3IMP_EPUB_UNSTRUCTURED_*` vars for that run.
 - For tag DB URL: `--db-url` wins; env var is fallback.
 
 ## Merged Discovery Provenance (Former `docs/understandings`)

@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import pytest
 
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import signals
-from cookimport.parsing.unstructured_adapter import partition_html_to_blocks
+from cookimport.parsing.unstructured_adapter import (
+    UnstructuredHtmlOptions,
+    partition_html_to_blocks,
+)
 from cookimport.parsing.block_roles import assign_block_roles
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures" / "epub_html"
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +148,73 @@ class TestPartitionHtmlToBlocks:
         )
         for row in diag:
             json.dumps(row)  # Should not raise
+
+    def test_options_propagate_to_diagnostics(self):
+        _, diag = partition_html_to_blocks(
+            self.SIMPLE_HTML,
+            spine_index=0,
+            source_location_id="test",
+            options=UnstructuredHtmlOptions(
+                html_parser_version="v2",
+                skip_headers_and_footers=True,
+                preprocess_mode="br_split_v1",
+            ),
+        )
+
+        assert diag
+        assert all(row["html_parser_version"] == "v2" for row in diag)
+        assert all(row["skip_headers_and_footers"] is True for row in diag)
+        assert all(row["preprocess_mode"] == "br_split_v1" for row in diag)
+
+    def test_bold_emphasis_sets_font_weight_for_faux_heading(self):
+        faux_heading_html = (FIXTURES_DIR / "faux_heading.xhtml").read_text(encoding="utf-8")
+        blocks, _ = partition_html_to_blocks(
+            faux_heading_html,
+            spine_index=0,
+            source_location_id="faux-heading",
+        )
+
+        block = next(b for b in blocks if "Blueberry Muffins" in b.text)
+        assert block.font_weight == "bold"
+        assert "b" in [tag.lower() for tag in block.features["unstructured_emphasis_tags"]]
+
+    def test_newline_splitting_for_list_item(self, monkeypatch):
+        class FakeMetadata:
+            def to_dict(self) -> dict[str, object]:
+                return {
+                    "category_depth": 2,
+                    "parent_id": "parent-1",
+                    "emphasized_text_tags": [],
+                    "emphasized_text_contents": [],
+                }
+
+        class FakeElement:
+            category = "ListItem"
+            text = "1 cup flour\n2 eggs"
+            metadata = FakeMetadata()
+            id = "element-1"
+
+        def fake_partition_html(*, text: str, **kwargs):  # noqa: ARG001
+            return [FakeElement()]
+
+        monkeypatch.setattr(
+            "unstructured.partition.html.partition_html",
+            fake_partition_html,
+        )
+
+        blocks, diag = partition_html_to_blocks(
+            "<html><body><ul><li>dummy</li></ul></body></html>",
+            spine_index=4,
+            source_location_id="book",
+        )
+
+        assert [b.text for b in blocks] == ["1 cup flour", "2 eggs"]
+        assert blocks[0].features["unstructured_stable_key"] == "book:spine4:e0.s0"
+        assert blocks[1].features["unstructured_stable_key"] == "book:spine4:e0.s1"
+        assert blocks[0].features["is_list_item"] is True
+        assert blocks[0].features["list_depth_hint"] == 2
+        assert diag[0]["split_index"] == 0
+        assert diag[1]["split_index"] == 1
 
     def test_ordering_preserved(self):
         """Block order must match HTML document order."""

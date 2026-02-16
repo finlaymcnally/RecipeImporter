@@ -84,6 +84,45 @@ def test_convert_epub_markitdown_writes_markdown_artifact(monkeypatch, tmp_path:
     assert first_block["features"]["md_line_end"] == 1
 
 
+def test_convert_epub_unstructured_writes_option_metadata_and_spine_html_artifacts(
+    monkeypatch,
+):
+    epub_path = FIXTURES_DIR / "sample.epub"
+    if not epub_path.exists():
+        pytest.skip("sample.epub not found")
+
+    monkeypatch.setenv("C3IMP_EPUB_EXTRACTOR", "unstructured")
+    monkeypatch.setenv("C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION", "v2")
+    monkeypatch.setenv("C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS", "true")
+    monkeypatch.setenv("C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE", "br_split_v1")
+
+    importer = EpubImporter()
+    result = importer.convert(epub_path, None)
+
+    diag_artifact = next(
+        artifact
+        for artifact in result.raw_artifacts
+        if artifact.location_id == "unstructured_elements"
+    )
+    assert diag_artifact.metadata["unstructured_html_parser_version"] == "v2"
+    assert diag_artifact.metadata["unstructured_skip_headers_footers"] is True
+    assert diag_artifact.metadata["unstructured_preprocess_mode"] == "br_split_v1"
+
+    raw_spine = [
+        artifact
+        for artifact in result.raw_artifacts
+        if artifact.location_id.startswith("raw_spine_xhtml_")
+    ]
+    normalized_spine = [
+        artifact
+        for artifact in result.raw_artifacts
+        if artifact.location_id.startswith("norm_spine_xhtml_")
+    ]
+    assert raw_spine
+    assert normalized_spine
+    assert len(raw_spine) == len(normalized_spine)
+
+
 def test_resolve_unstructured_version_handles_module_value(monkeypatch):
     version_module = types.ModuleType("unstructured.__version__")
     version_module.__version__ = "9.9.9"

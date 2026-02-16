@@ -6,9 +6,11 @@ import logging
 import multiprocessing
 import os
 import queue
+import re
 import shutil
 import threading
 import time
+import zipfile
 from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -223,6 +225,9 @@ def _load_settings() -> Dict[str, Any]:
         "pdf_split_workers": 7,
         "epub_split_workers": 7,
         "epub_extractor": "unstructured",
+        "epub_unstructured_html_parser_version": "v1",
+        "epub_unstructured_skip_headers_footers": False,
+        "epub_unstructured_preprocess_mode": "br_split_v1",
         "ocr_device": "auto",
         "ocr_batch_size": 1,
         "pdf_pages_per_job": 50,
@@ -368,6 +373,27 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     value="epub_extractor",
                 ),
                 questionary.Choice(
+                    (
+                        "Unstructured HTML Parser: "
+                        f"{current_settings.get('epub_unstructured_html_parser_version', 'v1')} - v1/v2"
+                    ),
+                    value="epub_unstructured_html_parser_version",
+                ),
+                questionary.Choice(
+                    (
+                        "Unstructured Skip Headers/Footers: "
+                        f"{'Yes' if current_settings.get('epub_unstructured_skip_headers_footers', False) else 'No'}"
+                    ),
+                    value="epub_unstructured_skip_headers_footers",
+                ),
+                questionary.Choice(
+                    (
+                        "Unstructured EPUB Preprocess: "
+                        f"{current_settings.get('epub_unstructured_preprocess_mode', 'br_split_v1')} - none/br_split_v1/semantic_v1"
+                    ),
+                    value="epub_unstructured_preprocess_mode",
+                ),
+                questionary.Choice(
                     f"OCR Device: {current_settings.get('ocr_device', 'auto')} - auto/cpu/cuda/mps",
                     value="ocr_device",
                 ),
@@ -435,6 +461,53 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
             )
             if val and val != BACK_ACTION:
                 current_settings["epub_extractor"] = val
+                _save_settings(current_settings)
+
+        elif choice == "epub_unstructured_html_parser_version":
+            val = _menu_select(
+                "Select Unstructured HTML parser version:",
+                choices=["v1", "v2"],
+                default=current_settings.get(
+                    "epub_unstructured_html_parser_version",
+                    "v1",
+                ),
+                menu_help=(
+                    "Choose Unstructured partition_html parser version for EPUB extraction."
+                ),
+            )
+            if val and val != BACK_ACTION:
+                current_settings["epub_unstructured_html_parser_version"] = val
+                _save_settings(current_settings)
+
+        elif choice == "epub_unstructured_skip_headers_footers":
+            val = questionary.confirm(
+                "Skip headers/footers in Unstructured HTML partitioning?",
+                default=bool(
+                    current_settings.get(
+                        "epub_unstructured_skip_headers_footers",
+                        False,
+                    )
+                ),
+            ).ask()
+            if val is not None:
+                current_settings["epub_unstructured_skip_headers_footers"] = bool(val)
+                _save_settings(current_settings)
+
+        elif choice == "epub_unstructured_preprocess_mode":
+            val = _menu_select(
+                "Select EPUB HTML preprocess mode before Unstructured:",
+                choices=["none", "br_split_v1", "semantic_v1"],
+                default=current_settings.get(
+                    "epub_unstructured_preprocess_mode",
+                    "br_split_v1",
+                ),
+                menu_help=(
+                    "none keeps raw HTML; br_split_v1 splits BR-separated paragraphs "
+                    "into block tags; semantic_v1 currently aliases br_split_v1."
+                ),
+            )
+            if val and val != BACK_ACTION:
+                current_settings["epub_unstructured_preprocess_mode"] = val
                 _save_settings(current_settings)
 
         elif choice == "ocr_device":
@@ -630,8 +703,13 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 fg=typer.colors.CYAN,
             )
 
-            # Apply EPUB extractor setting via env var (read at call time by epub.py).
+            # Apply EPUB settings via env vars (read at call time by epub.py).
             os.environ["C3IMP_EPUB_EXTRACTOR"] = selected_run_settings.epub_extractor.value
+            _set_epub_unstructured_env(
+                html_parser_version=selected_run_settings.epub_unstructured_html_parser_version.value,
+                skip_headers_footers=selected_run_settings.epub_unstructured_skip_headers_footers,
+                preprocess_mode=selected_run_settings.epub_unstructured_preprocess_mode.value,
+            )
 
             common_args = {
                 "out": output_folder,
@@ -642,6 +720,15 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 "pdf_split_workers": selected_run_settings.pdf_split_workers,
                 "epub_split_workers": selected_run_settings.epub_split_workers,
                 "epub_extractor": selected_run_settings.epub_extractor.value,
+                "epub_unstructured_html_parser_version": (
+                    selected_run_settings.epub_unstructured_html_parser_version.value
+                ),
+                "epub_unstructured_skip_headers_footers": (
+                    selected_run_settings.epub_unstructured_skip_headers_footers
+                ),
+                "epub_unstructured_preprocess_mode": (
+                    selected_run_settings.epub_unstructured_preprocess_mode.value
+                ),
                 "ocr_device": selected_run_settings.ocr_device.value,
                 "ocr_batch_size": selected_run_settings.ocr_batch_size,
                 "pdf_pages_per_job": selected_run_settings.pdf_pages_per_job,
@@ -975,6 +1062,15 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 label_studio_url=url,
                 label_studio_api_key=api_key,
                 epub_extractor=selected_benchmark_settings.epub_extractor.value,
+                epub_unstructured_html_parser_version=(
+                    selected_benchmark_settings.epub_unstructured_html_parser_version.value
+                ),
+                epub_unstructured_skip_headers_footers=(
+                    selected_benchmark_settings.epub_unstructured_skip_headers_footers
+                ),
+                epub_unstructured_preprocess_mode=(
+                    selected_benchmark_settings.epub_unstructured_preprocess_mode.value
+                ),
                 ocr_device=selected_benchmark_settings.ocr_device.value,
                 ocr_batch_size=selected_benchmark_settings.ocr_batch_size,
                 warm_models=selected_benchmark_settings.warm_models,
@@ -1017,6 +1113,26 @@ def _normalize_epub_extractor(value: str) -> str:
     return normalized
 
 
+def _normalize_unstructured_html_parser_version(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"v1", "v2"}:
+        _fail(
+            f"Invalid EPUB Unstructured HTML parser version: {value!r}. "
+            "Expected one of: v1, v2."
+        )
+    return normalized
+
+
+def _normalize_unstructured_preprocess_mode(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"none", "br_split_v1", "semantic_v1"}:
+        _fail(
+            f"Invalid EPUB Unstructured preprocess mode: {value!r}. "
+            "Expected one of: none, br_split_v1, semantic_v1."
+        )
+    return normalized
+
+
 def _normalize_ocr_device(value: str) -> str:
     normalized = value.strip().lower()
     if normalized not in {"auto", "cpu", "cuda", "mps"}:
@@ -1038,6 +1154,51 @@ def _temporary_epub_extractor(value: str) -> Iterable[None]:
             os.environ.pop("C3IMP_EPUB_EXTRACTOR", None)
         else:
             os.environ["C3IMP_EPUB_EXTRACTOR"] = previous
+
+
+def _set_epub_unstructured_env(
+    *,
+    html_parser_version: str,
+    skip_headers_footers: bool,
+    preprocess_mode: str,
+) -> None:
+    os.environ["C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION"] = html_parser_version
+    os.environ["C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS"] = (
+        "true" if skip_headers_footers else "false"
+    )
+    os.environ["C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE"] = preprocess_mode
+
+
+@contextmanager
+def _temporary_epub_unstructured_options(
+    *,
+    html_parser_version: str,
+    skip_headers_footers: bool,
+    preprocess_mode: str,
+) -> Iterable[None]:
+    previous_parser = os.environ.get("C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION")
+    previous_skip = os.environ.get("C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS")
+    previous_preprocess = os.environ.get("C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE")
+    _set_epub_unstructured_env(
+        html_parser_version=html_parser_version,
+        skip_headers_footers=skip_headers_footers,
+        preprocess_mode=preprocess_mode,
+    )
+    try:
+        yield
+    finally:
+        if previous_parser is None:
+            os.environ.pop("C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION", None)
+        else:
+            os.environ["C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION"] = previous_parser
+        if previous_skip is None:
+            os.environ.pop("C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS", None)
+        else:
+            os.environ["C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS"] = previous_skip
+        if previous_preprocess is None:
+            os.environ.pop("C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE", None)
+        else:
+            os.environ["C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE"] = previous_preprocess
 
 
 def _warm_all_models(ocr_device: str = "auto") -> None:
@@ -2148,6 +2309,21 @@ def stage(
         "--epub-extractor",
         help="EPUB extraction engine: unstructured (semantic), legacy (BeautifulSoup), or markitdown (EPUB->markdown).",
     ),
+    epub_unstructured_html_parser_version: str = typer.Option(
+        "v1",
+        "--epub-unstructured-html-parser-version",
+        help="Unstructured HTML parser version for EPUB extraction: v1 or v2.",
+    ),
+    epub_unstructured_skip_headers_footers: bool = typer.Option(
+        False,
+        "--epub-unstructured-skip-headers-footers/--no-epub-unstructured-skip-headers-footers",
+        help="Enable Unstructured skip_headers_and_footers for EPUB HTML partitioning.",
+    ),
+    epub_unstructured_preprocess_mode: str = typer.Option(
+        "br_split_v1",
+        "--epub-unstructured-preprocess-mode",
+        help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1, semantic_v1.",
+    ),
 ) -> Path:
     """Stage recipes from a source file or folder.
 
@@ -2158,10 +2334,22 @@ def stage(
       {out}/{timestamp}/<workbook>.excel_import_report.json - Conversion report
     """
     selected_epub_extractor = _normalize_epub_extractor(epub_extractor)
+    selected_html_parser_version = _normalize_unstructured_html_parser_version(
+        epub_unstructured_html_parser_version
+    )
+    selected_preprocess_mode = _normalize_unstructured_preprocess_mode(
+        epub_unstructured_preprocess_mode
+    )
+    selected_skip_headers_footers = bool(epub_unstructured_skip_headers_footers)
     selected_ocr_device = _normalize_ocr_device(ocr_device)
 
     # Apply EPUB extractor setting for this run.
     os.environ["C3IMP_EPUB_EXTRACTOR"] = selected_epub_extractor
+    _set_epub_unstructured_env(
+        html_parser_version=selected_html_parser_version,
+        skip_headers_footers=selected_skip_headers_footers,
+        preprocess_mode=selected_preprocess_mode,
+    )
 
     if not path.exists():
         _fail(f"Path not found: {path}")
@@ -2209,6 +2397,9 @@ def stage(
         pdf_pages_per_job=pdf_pages_per_job,
         epub_spine_items_per_job=epub_spine_items_per_job,
         epub_extractor=selected_epub_extractor,
+        epub_unstructured_html_parser_version=selected_html_parser_version,
+        epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
+        epub_unstructured_preprocess_mode=selected_preprocess_mode,
         ocr_device=selected_ocr_device,
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,
@@ -3217,6 +3408,233 @@ def labelstudio_eval(
     )
 
 
+_QUANTITY_TOKEN_RE = re.compile(
+    r"(?<!\w)(?:\d+\s*/\s*\d+|\d+(?:\.\d+)?)\s*"
+    r"(?:cups?|tbsp|tablespoons?|tsp|teaspoons?|oz|ounces?|lb|lbs|pounds?|"
+    r"g|kg|ml|l)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _p95_int(values: list[int]) -> int:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    idx = max(0, ((len(ordered) * 95 + 99) // 100) - 1)
+    return int(ordered[idx])
+
+
+def _has_multiple_quantity_tokens(text: str) -> bool:
+    return len(_QUANTITY_TOKEN_RE.findall(text)) >= 2
+
+
+def _write_jsonl_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        path.write_text("", encoding="utf-8")
+        return
+    payload = "\n".join(
+        json.dumps(row, ensure_ascii=False, sort_keys=True)
+        for row in rows
+    )
+    path.write_text(payload + "\n", encoding="utf-8")
+
+
+@app.command("debug-epub-extract")
+def debug_epub_extract(
+    path: Path = typer.Argument(..., help="EPUB file to inspect."),
+    out: Path = typer.Option(
+        DEFAULT_OUTPUT / "epub-debug",
+        "--out",
+        help="Output root for debug extraction artifacts.",
+    ),
+    spine: int = typer.Option(
+        0,
+        "--spine",
+        min=0,
+        help="Spine index to extract for variant comparison.",
+    ),
+    variants: bool = typer.Option(
+        False,
+        "--variants",
+        help=(
+            "Run the parser/preprocess variant grid "
+            "(v1/v2 x none/br_split_v1) instead of a single variant."
+        ),
+    ),
+    html_parser_version: str = typer.Option(
+        "v1",
+        "--html-parser-version",
+        help="Single-run parser version when --variants is not set (v1 or v2).",
+    ),
+    preprocess_mode: str = typer.Option(
+        "none",
+        "--preprocess-mode",
+        help=(
+            "Single-run preprocess mode when --variants is not set "
+            "(none, br_split_v1, semantic_v1)."
+        ),
+    ),
+    skip_headers_footers: bool = typer.Option(
+        False,
+        "--skip-headers-footers/--no-skip-headers-footers",
+        help="Pass skip_headers_and_footers into Unstructured partition_html.",
+    ),
+) -> None:
+    """Compare unstructured EPUB extraction variants for one spine XHTML document."""
+    from cookimport.parsing.block_roles import assign_block_roles
+    from cookimport.parsing.epub_html_normalize import normalize_epub_html_for_unstructured
+    from cookimport.parsing import signals
+    from cookimport.parsing.unstructured_adapter import (
+        UnstructuredHtmlOptions,
+        partition_html_to_blocks,
+    )
+
+    if not path.exists() or not path.is_file():
+        _fail(f"EPUB file not found: {path}")
+    if path.suffix.lower() != ".epub":
+        _fail(f"Expected an EPUB file, got: {path}")
+
+    selected_parser = _normalize_unstructured_html_parser_version(html_parser_version)
+    selected_preprocess = _normalize_unstructured_preprocess_mode(preprocess_mode)
+
+    run_root = out / dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    importer = epub.EpubImporter()
+    _title, spine_items = importer._read_epub_spine(path)  # noqa: SLF001
+    if not spine_items:
+        _fail("No spine items found in EPUB.")
+    if spine >= len(spine_items):
+        _fail(
+            f"Spine index out of range: {spine}. "
+            f"EPUB has {len(spine_items)} spine entries."
+        )
+
+    spine_path, _media_type = spine_items[spine]
+    with zipfile.ZipFile(path) as zip_handle:
+        raw_html = zip_handle.read(spine_path).decode("utf-8", errors="replace")
+    (run_root / "raw_spine.xhtml").write_text(raw_html, encoding="utf-8")
+
+    variant_pairs: list[tuple[str, str]]
+    if variants:
+        variant_pairs = [
+            (parser_version, preprocess_variant)
+            for preprocess_variant in ("none", "br_split_v1")
+            for parser_version in ("v1", "v2")
+        ]
+    else:
+        variant_pairs = [(selected_parser, selected_preprocess)]
+
+    summary_rows: list[dict[str, Any]] = []
+    for parser_version, preprocess_variant in variant_pairs:
+        variant_slug = f"parser_{parser_version}__preprocess_{preprocess_variant}"
+        variant_dir = run_root / variant_slug
+        variant_dir.mkdir(parents=True, exist_ok=True)
+
+        normalized_html = normalize_epub_html_for_unstructured(
+            raw_html,
+            mode=preprocess_variant,
+        )
+        (variant_dir / "normalized_spine.xhtml").write_text(
+            normalized_html,
+            encoding="utf-8",
+        )
+
+        options = UnstructuredHtmlOptions(
+            html_parser_version=parser_version,
+            skip_headers_and_footers=skip_headers_footers,
+            preprocess_mode=preprocess_variant,
+        )
+        try:
+            blocks, diagnostics = partition_html_to_blocks(
+                normalized_html,
+                spine_index=spine,
+                source_location_id=path.stem,
+                options=options,
+            )
+        except Exception as exc:  # noqa: BLE001
+            (variant_dir / "error.txt").write_text(str(exc), encoding="utf-8")
+            summary_rows.append(
+                {
+                    "variant": variant_slug,
+                    "html_parser_version": parser_version,
+                    "preprocess_mode": preprocess_variant,
+                    "skip_headers_footers": skip_headers_footers,
+                    "error": str(exc),
+                    "block_count": 0,
+                    "p95_block_length": 0,
+                    "blocks_with_multiple_quantities": 0,
+                    "ingredient_line_block_count": 0,
+                }
+            )
+            continue
+        for block in blocks:
+            signals.enrich_block(block)
+        assign_block_roles(blocks)
+
+        blocks_rows = [
+            {
+                "index": index,
+                "text": block.text,
+                "type": str(block.type),
+                "font_weight": block.font_weight,
+                "features": dict(block.features),
+            }
+            for index, block in enumerate(blocks)
+        ]
+        _write_jsonl_rows(variant_dir / "blocks.jsonl", blocks_rows)
+        _write_jsonl_rows(variant_dir / "unstructured_elements.jsonl", diagnostics)
+
+        block_lengths = [len(block.text) for block in blocks if block.text]
+        ingredient_line_count = sum(
+            1
+            for block in blocks
+            if block.features.get("block_role") == "ingredient_line"
+        )
+        multi_quantity_count = sum(
+            1
+            for block in blocks
+            if _has_multiple_quantity_tokens(block.text)
+        )
+        summary_rows.append(
+            {
+                "variant": variant_slug,
+                "html_parser_version": parser_version,
+                "preprocess_mode": preprocess_variant,
+                "skip_headers_footers": skip_headers_footers,
+                "block_count": len(blocks),
+                "p95_block_length": _p95_int(block_lengths),
+                "blocks_with_multiple_quantities": multi_quantity_count,
+                "ingredient_line_block_count": ingredient_line_count,
+            }
+        )
+
+    summary_payload = {
+        "source_file": str(path),
+        "spine_index": spine,
+        "spine_path": spine_path,
+        "variants": summary_rows,
+    }
+    (run_root / "summary.json").write_text(
+        json.dumps(summary_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    typer.secho(f"Wrote EPUB debug extraction artifacts to: {run_root}", fg=typer.colors.GREEN)
+    for row in summary_rows:
+        typer.echo(
+            " | ".join(
+                [
+                    row["variant"],
+                    f"blocks={row['block_count']}",
+                    f"p95_len={row['p95_block_length']}",
+                    f"multi_qty={row['blocks_with_multiple_quantities']}",
+                    f"ingredient_line={row['ingredient_line_block_count']}",
+                ]
+            )
+        )
+
+
 @app.command("labelstudio-benchmark")
 def labelstudio_benchmark(
     gold_spans: Annotated[Path | None, typer.Option(
@@ -3299,9 +3717,28 @@ def labelstudio_benchmark(
         "--epub-extractor",
         help="EPUB extraction engine: unstructured (semantic), legacy (BeautifulSoup), or markitdown (EPUB->markdown).",
     )] = "unstructured",
+    epub_unstructured_html_parser_version: Annotated[str, typer.Option(
+        "--epub-unstructured-html-parser-version",
+        help="Unstructured HTML parser version for EPUB extraction: v1 or v2.",
+    )] = "v1",
+    epub_unstructured_skip_headers_footers: Annotated[bool, typer.Option(
+        "--epub-unstructured-skip-headers-footers/--no-epub-unstructured-skip-headers-footers",
+        help="Enable Unstructured skip_headers_and_footers for EPUB HTML partitioning.",
+    )] = False,
+    epub_unstructured_preprocess_mode: Annotated[str, typer.Option(
+        "--epub-unstructured-preprocess-mode",
+        help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1, semantic_v1.",
+    )] = "br_split_v1",
 ) -> None:
     """Run benchmark eval against freeform gold, with optional upload step."""
     selected_epub_extractor = _normalize_epub_extractor(epub_extractor)
+    selected_html_parser_version = _normalize_unstructured_html_parser_version(
+        epub_unstructured_html_parser_version
+    )
+    selected_preprocess_mode = _normalize_unstructured_preprocess_mode(
+        epub_unstructured_preprocess_mode
+    )
+    selected_skip_headers_footers = bool(epub_unstructured_skip_headers_footers)
     selected_ocr_device = _normalize_ocr_device(ocr_device)
     url: str | None = None
     api_key: str | None = None
@@ -3389,70 +3826,81 @@ def labelstudio_benchmark(
 
     try:
         with _temporary_epub_extractor(selected_epub_extractor):
-            with console.status(
-                f"[bold cyan]Generating prediction tasks for {selected_source.name}...[/bold cyan]",
-                spinner="dots",
-            ) as status:
-                def update_progress(msg: str) -> None:
-                    status.update(
-                        f"[bold cyan]Benchmark import ({selected_source.name}): {msg}[/bold cyan]"
-                    )
+            with _temporary_epub_unstructured_options(
+                html_parser_version=selected_html_parser_version,
+                skip_headers_footers=selected_skip_headers_footers,
+                preprocess_mode=selected_preprocess_mode,
+            ):
+                with console.status(
+                    f"[bold cyan]Generating prediction tasks for {selected_source.name}...[/bold cyan]",
+                    spinner="dots",
+                ) as status:
+                    def update_progress(msg: str) -> None:
+                        status.update(
+                            f"[bold cyan]Benchmark import ({selected_source.name}): {msg}[/bold cyan]"
+                        )
 
-                if no_upload:
-                    import_result = generate_pred_run_artifacts(
-                        path=selected_source,
-                        output_dir=output_dir,
-                        pipeline=pipeline,
-                        chunk_level=chunk_level,
-                        task_scope="pipeline",
-                        context_window=1,
-                        segment_blocks=40,
-                        segment_overlap=5,
-                        limit=None,
-                        sample=None,
-                        workers=workers,
-                        pdf_split_workers=pdf_split_workers,
-                        epub_split_workers=epub_split_workers,
-                        pdf_pages_per_job=pdf_pages_per_job,
-                        epub_spine_items_per_job=epub_spine_items_per_job,
-                        epub_extractor=selected_epub_extractor,
-                        ocr_device=selected_ocr_device,
-                        ocr_batch_size=ocr_batch_size,
-                        warm_models=warm_models,
-                        processed_output_root=processed_output_dir,
-                        progress_callback=update_progress,
-                        run_manifest_kind="bench_pred_run",
-                    )
-                else:
-                    import_result = run_labelstudio_import(
-                        path=selected_source,
-                        output_dir=output_dir,
-                        pipeline=pipeline,
-                        project_name=project_name,
-                        chunk_level=chunk_level,
-                        task_scope="pipeline",
-                        context_window=1,
-                        segment_blocks=40,
-                        segment_overlap=5,
-                        overwrite=overwrite,
-                        resume=not overwrite,
-                        label_studio_url=url or "",
-                        label_studio_api_key=api_key or "",
-                        limit=None,
-                        sample=None,
-                        progress_callback=update_progress,
-                        workers=workers,
-                        pdf_split_workers=pdf_split_workers,
-                        epub_split_workers=epub_split_workers,
-                        pdf_pages_per_job=pdf_pages_per_job,
-                        epub_spine_items_per_job=epub_spine_items_per_job,
-                        epub_extractor=selected_epub_extractor,
-                        ocr_device=selected_ocr_device,
-                        ocr_batch_size=ocr_batch_size,
-                        warm_models=warm_models,
-                        processed_output_root=processed_output_dir,
-                        allow_labelstudio_write=True,
-                    )
+                    if no_upload:
+                        import_result = generate_pred_run_artifacts(
+                            path=selected_source,
+                            output_dir=output_dir,
+                            pipeline=pipeline,
+                            chunk_level=chunk_level,
+                            task_scope="pipeline",
+                            context_window=1,
+                            segment_blocks=40,
+                            segment_overlap=5,
+                            limit=None,
+                            sample=None,
+                            workers=workers,
+                            pdf_split_workers=pdf_split_workers,
+                            epub_split_workers=epub_split_workers,
+                            pdf_pages_per_job=pdf_pages_per_job,
+                            epub_spine_items_per_job=epub_spine_items_per_job,
+                            epub_extractor=selected_epub_extractor,
+                            epub_unstructured_html_parser_version=selected_html_parser_version,
+                            epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
+                            epub_unstructured_preprocess_mode=selected_preprocess_mode,
+                            ocr_device=selected_ocr_device,
+                            ocr_batch_size=ocr_batch_size,
+                            warm_models=warm_models,
+                            processed_output_root=processed_output_dir,
+                            progress_callback=update_progress,
+                            run_manifest_kind="bench_pred_run",
+                        )
+                    else:
+                        import_result = run_labelstudio_import(
+                            path=selected_source,
+                            output_dir=output_dir,
+                            pipeline=pipeline,
+                            project_name=project_name,
+                            chunk_level=chunk_level,
+                            task_scope="pipeline",
+                            context_window=1,
+                            segment_blocks=40,
+                            segment_overlap=5,
+                            overwrite=overwrite,
+                            resume=not overwrite,
+                            label_studio_url=url or "",
+                            label_studio_api_key=api_key or "",
+                            limit=None,
+                            sample=None,
+                            progress_callback=update_progress,
+                            workers=workers,
+                            pdf_split_workers=pdf_split_workers,
+                            epub_split_workers=epub_split_workers,
+                            pdf_pages_per_job=pdf_pages_per_job,
+                            epub_spine_items_per_job=epub_spine_items_per_job,
+                            epub_extractor=selected_epub_extractor,
+                            epub_unstructured_html_parser_version=selected_html_parser_version,
+                            epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
+                            epub_unstructured_preprocess_mode=selected_preprocess_mode,
+                            ocr_device=selected_ocr_device,
+                            ocr_batch_size=ocr_batch_size,
+                            warm_models=warm_models,
+                            processed_output_root=processed_output_dir,
+                            allow_labelstudio_write=True,
+                        )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
 
@@ -3513,6 +3961,9 @@ def labelstudio_benchmark(
         "force_source_match": force_source_match,
         "upload": not no_upload,
         "epub_extractor": selected_epub_extractor,
+        "epub_unstructured_html_parser_version": selected_html_parser_version,
+        "epub_unstructured_skip_headers_footers": selected_skip_headers_footers,
+        "epub_unstructured_preprocess_mode": selected_preprocess_mode,
         "ocr_device": selected_ocr_device,
         "ocr_batch_size": ocr_batch_size,
         "workers": workers,

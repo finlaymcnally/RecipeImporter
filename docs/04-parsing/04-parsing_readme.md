@@ -449,6 +449,27 @@ Critical caveat preserved:
 - `getattr(unstructured, "__version__", "unknown")` can resolve to a module-like object in some runtimes.
 - Any metadata path that leaves worker-process boundaries (for split import/benchmark) must normalize this to plain string to stay pickle-safe.
 
+### 2026-02-16: Unstructured EPUB tuning pass (BR splitting + explicit options)
+
+What changed:
+
+- Added explicit Unstructured HTML options through run settings/env:
+  - `html_parser_version` (`v1|v2`)
+  - `skip_headers_and_footers` (bool)
+  - `preprocess_mode` (`none|br_split_v1|semantic_v1`)
+- Added EPUB pre-normalization module `cookimport/parsing/epub_html_normalize.py`:
+  - BR-separated lines in `p/div/li` are split into sibling block tags.
+  - Normalization is deterministic and idempotent by test.
+- Adapter improvements in `cookimport/parsing/unstructured_adapter.py`:
+  - bold-detection heuristic from Unstructured emphasis metadata,
+  - explicit list depth hint and category depth persistence,
+  - defensive split of `ListItem` text containing newline-delimited items.
+
+Important caveat:
+
+- Unstructured HTML parser `v2` expects `body.Document`/`div.Page` style structure.
+- Adapter now applies a compatibility shim for `v2` inputs by wrapping/marking body when needed before calling `partition_html`.
+
 ## Things We Know Are Bad (Do Not Re-discover)
 
 - Text-based ingredient identity can collide when identical ingredient strings appear multiple times intentionally.

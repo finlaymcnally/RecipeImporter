@@ -16,6 +16,11 @@ def test_run_settings_hash_and_summary_are_stable() -> None:
     assert settings.stable_hash() == settings.stable_hash()
     assert settings.short_hash() == settings.stable_hash()[:12]
     assert settings.to_run_config_dict()["epub_extractor"] == "unstructured"
+    assert (
+        settings.to_run_config_dict()["epub_unstructured_html_parser_version"] == "v1"
+    )
+    assert settings.to_run_config_dict()["epub_unstructured_skip_headers_footers"] is False
+    assert settings.to_run_config_dict()["epub_unstructured_preprocess_mode"] == "br_split_v1"
     assert "workers=7" in settings.summary()
 
 

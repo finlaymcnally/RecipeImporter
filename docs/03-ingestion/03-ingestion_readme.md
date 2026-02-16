@@ -80,7 +80,11 @@ OCR:
 
 ### 1) Stage command setup (`cookimport/cli.py:stage`)
 
-- Sets EPUB extractor mode via `C3IMP_EPUB_EXTRACTOR` from `--epub-extractor`.
+- Sets EPUB extractor/runtime options via env vars from run settings:
+  - `C3IMP_EPUB_EXTRACTOR`
+  - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`
+  - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`
+  - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
 - Creates run output directory using timestamp format `%Y-%m-%d_%H.%M.%S`.
 - Builds `base_mapping` once and always passes it to workers.
 - Plans jobs with `_plan_jobs(...)`.
@@ -218,6 +222,10 @@ Extractor modes:
 - Control path:
   - CLI: `--epub-extractor`
   - Env: `C3IMP_EPUB_EXTRACTOR`
+  - Unstructured tuning env:
+    - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION` (`v1|v2`)
+    - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS` (bool)
+    - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE` (`none|br_split_v1|semantic_v1`)
 
 Block extraction:
 - Reads spine in order (ebooklib primary, zip fallback)
@@ -235,10 +243,14 @@ Candidate segmentation:
 - Produces candidate provenance with `start_spine` / `end_spine` when available
 
 Unstructured-specific behavior:
+- Normalizes spine XHTML via `normalize_epub_html_for_unstructured(...)` before partitioning.
 - Uses `partition_html_to_blocks(...)` adapter
 - Enriches blocks with shared `signals.enrich_block(...)`
 - Assigns deterministic `block_role` via `assign_block_roles(...)`
 - Emits optional raw artifact `unstructured_elements.jsonl` (diagnostics rows)
+- Emits spine-debug XHTML artifacts:
+  - `raw_spine_xhtml_0000.xhtml` (per spine, raw source XHTML)
+  - `norm_spine_xhtml_0000.xhtml` (per spine, normalized XHTML passed to Unstructured)
 
 ### PDF (`cookimport/plugins/pdf.py`)
 
@@ -329,7 +341,7 @@ For a run at `data/output/<timestamp>/`:
 
 Reporting/perf:
 - Report has `runTimestamp`, `importerName`, timing, warnings/errors, sample stats.
-- Report now includes `runConfig` for the run-level knobs (for example `epub_extractor`, worker counts, OCR settings, split sizes, and optional mapping/overrides paths).
+- Report now includes `runConfig` for run-level knobs (including `epub_extractor`, unstructured parser/preprocess flags, worker counts, OCR settings, split sizes, and optional mapping/overrides paths).
 - Report can include `outputStats` (counts/bytes/largest files by category).
 - Stage appends per-file summary rows into:
   - `data/output/.history/performance_history.csv`
@@ -352,6 +364,9 @@ Stage CLI options (key ones):
 - `--mapping`
 - `--overrides`
 - `--epub-extractor`
+- `--epub-unstructured-html-parser-version`
+- `--epub-unstructured-skip-headers-footers`
+- `--epub-unstructured-preprocess-mode`
 
 Overrides and mapping:
 - Mapping model supports `parsingOverrides` alias (`parsing_overrides` field in code).
@@ -440,7 +455,7 @@ Files most relevant to ingestion behavior:
 - `tests/test_paprika_importer.py`
 - `tests/test_paprika_merge.py`
 - `tests/test_recipesage_importer.py`
-- `tests/test_unstructured_adapter.py` (26 tests)
+- `tests/test_unstructured_adapter.py` (29 tests)
 
 When changing split/merge logic, update at least the split merge tests plus importer-specific tests.
 

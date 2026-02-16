@@ -57,6 +57,10 @@ from cookimport.plugins import registry
 # ---------------------------------------------------------------------------
 _EPUB_EXTRACTOR_DEFAULT = "unstructured"
 _EPUB_EXTRACTOR_CHOICES = {"legacy", "unstructured", "markitdown"}
+_UNSTRUCTURED_HTML_PARSER_VERSION_DEFAULT = "v1"
+_UNSTRUCTURED_HTML_PARSER_VERSION_CHOICES = {"v1", "v2"}
+_UNSTRUCTURED_PREPROCESS_MODE_DEFAULT = "br_split_v1"
+_UNSTRUCTURED_PREPROCESS_MODE_CHOICES = {"none", "br_split_v1", "semantic_v1"}
 
 
 def _get_epub_extractor() -> str:
@@ -70,6 +74,54 @@ def _get_epub_extractor() -> str:
             _EPUB_EXTRACTOR_DEFAULT,
         )
     return _EPUB_EXTRACTOR_DEFAULT
+
+
+def _get_unstructured_html_parser_version() -> str:
+    selected = os.environ.get(
+        "C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION",
+        _UNSTRUCTURED_HTML_PARSER_VERSION_DEFAULT,
+    ).strip().lower()
+    if selected in _UNSTRUCTURED_HTML_PARSER_VERSION_CHOICES:
+        return selected
+    if selected:
+        logger.warning(
+            "Unknown C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION=%r. Falling back to %s.",
+            selected,
+            _UNSTRUCTURED_HTML_PARSER_VERSION_DEFAULT,
+        )
+    return _UNSTRUCTURED_HTML_PARSER_VERSION_DEFAULT
+
+
+def _get_unstructured_skip_headers_footers() -> bool:
+    raw_value = os.environ.get("C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS")
+    if raw_value is None:
+        return False
+    normalized = str(raw_value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    logger.warning(
+        "Unknown C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS=%r. Falling back to false.",
+        raw_value,
+    )
+    return False
+
+
+def _get_unstructured_preprocess_mode() -> str:
+    selected = os.environ.get(
+        "C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE",
+        _UNSTRUCTURED_PREPROCESS_MODE_DEFAULT,
+    ).strip().lower()
+    if selected in _UNSTRUCTURED_PREPROCESS_MODE_CHOICES:
+        return selected
+    if selected:
+        logger.warning(
+            "Unknown C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE=%r. Falling back to %s.",
+            selected,
+            _UNSTRUCTURED_PREPROCESS_MODE_DEFAULT,
+        )
+    return _UNSTRUCTURED_PREPROCESS_MODE_DEFAULT
 
 # Suppress ebooklib warnings about future/deprecations if any
 warnings.filterwarnings("ignore", category=UserWarning, module="ebooklib")
@@ -225,6 +277,39 @@ class EpubImporter:
                 )
             )
 
+            if selected_extractor == "unstructured" and self._unstructured_spine_xhtml:
+                for entry in self._unstructured_spine_xhtml:
+                    spine_index = int(entry["spine_index"])
+                    raw_artifacts.append(
+                        RawArtifact(
+                            importer="epub",
+                            sourceHash=file_hash,
+                            locationId=f"raw_spine_xhtml_{spine_index:04d}",
+                            extension="xhtml",
+                            content=str(entry["raw_html"]),
+                            metadata={
+                                "artifact_type": "unstructured_raw_spine_xhtml",
+                                "extractor": "unstructured",
+                                "spine_index": spine_index,
+                            },
+                        )
+                    )
+                    raw_artifacts.append(
+                        RawArtifact(
+                            importer="epub",
+                            sourceHash=file_hash,
+                            locationId=f"norm_spine_xhtml_{spine_index:04d}",
+                            extension="xhtml",
+                            content=str(entry["normalized_html"]),
+                            metadata={
+                                "artifact_type": "unstructured_norm_spine_xhtml",
+                                "extractor": "unstructured",
+                                "spine_index": spine_index,
+                                "unstructured_preprocess_mode": self._unstructured_preprocess_mode,
+                            },
+                        )
+                    )
+
             if selected_extractor == "markitdown" and self._markitdown_markdown is not None:
                 raw_artifacts.append(
                     RawArtifact(
@@ -262,6 +347,11 @@ class EpubImporter:
                             "artifact_type": "unstructured_diagnostics",
                             "extractor": "unstructured",
                             "unstructured_version": unstructured_version,
+                            "unstructured_html_parser_version": self._unstructured_html_parser_version,
+                            "unstructured_skip_headers_footers": bool(
+                                self._unstructured_skip_headers_footers
+                            ),
+                            "unstructured_preprocess_mode": self._unstructured_preprocess_mode,
                             "element_count": len(self._unstructured_diagnostics),
                         },
                     )
@@ -566,6 +656,10 @@ class EpubImporter:
         """
         selected_extractor = extractor or _get_epub_extractor()
         self._unstructured_diagnostics: list[dict[str, Any]] = []
+        self._unstructured_spine_xhtml: list[dict[str, Any]] = []
+        self._unstructured_html_parser_version = _get_unstructured_html_parser_version()
+        self._unstructured_skip_headers_footers = _get_unstructured_skip_headers_footers()
+        self._unstructured_preprocess_mode = _get_unstructured_preprocess_mode()
         self._markitdown_markdown: str | None = None
 
         if selected_extractor == "markitdown":
@@ -619,7 +713,18 @@ class EpubImporter:
 
         use_unstructured = extractor == "unstructured"
         if use_unstructured:
-            from cookimport.parsing.unstructured_adapter import partition_html_to_blocks
+            from cookimport.parsing.epub_html_normalize import (
+                normalize_epub_html_for_unstructured,
+            )
+            from cookimport.parsing.unstructured_adapter import (
+                UnstructuredHtmlOptions,
+                partition_html_to_blocks,
+            )
+            unstructured_options = UnstructuredHtmlOptions(
+                html_parser_version=self._unstructured_html_parser_version,
+                skip_headers_and_footers=self._unstructured_skip_headers_footers,
+                preprocess_mode=self._unstructured_preprocess_mode,
+            )
 
         source_location_id = path.stem
 
@@ -638,10 +743,22 @@ class EpubImporter:
 
             if use_unstructured:
                 html_str = content.decode("utf-8", errors="replace")
-                spine_blocks, diag_rows = partition_html_to_blocks(
+                normalized_html = normalize_epub_html_for_unstructured(
                     html_str,
+                    mode=self._unstructured_preprocess_mode,
+                )
+                self._unstructured_spine_xhtml.append(
+                    {
+                        "spine_index": spine_index,
+                        "raw_html": html_str,
+                        "normalized_html": normalized_html,
+                    }
+                )
+                spine_blocks, diag_rows = partition_html_to_blocks(
+                    normalized_html,
                     spine_index=spine_index,
                     source_location_id=source_location_id,
+                    options=unstructured_options,
                 )
                 # Enrich with shared signals (ingredient/instruction detection)
                 for b in spine_blocks:
@@ -674,7 +791,18 @@ class EpubImporter:
 
         use_unstructured = extractor == "unstructured"
         if use_unstructured:
-            from cookimport.parsing.unstructured_adapter import partition_html_to_blocks
+            from cookimport.parsing.epub_html_normalize import (
+                normalize_epub_html_for_unstructured,
+            )
+            from cookimport.parsing.unstructured_adapter import (
+                UnstructuredHtmlOptions,
+                partition_html_to_blocks,
+            )
+            unstructured_options = UnstructuredHtmlOptions(
+                html_parser_version=self._unstructured_html_parser_version,
+                skip_headers_and_footers=self._unstructured_skip_headers_footers,
+                preprocess_mode=self._unstructured_preprocess_mode,
+            )
 
         source_location_id = path.stem
 
@@ -696,10 +824,22 @@ class EpubImporter:
 
                 if use_unstructured:
                     html_str = content.decode("utf-8", errors="replace")
-                    spine_blocks, diag_rows = partition_html_to_blocks(
+                    normalized_html = normalize_epub_html_for_unstructured(
                         html_str,
+                        mode=self._unstructured_preprocess_mode,
+                    )
+                    self._unstructured_spine_xhtml.append(
+                        {
+                            "spine_index": spine_index,
+                            "raw_html": html_str,
+                            "normalized_html": normalized_html,
+                        }
+                    )
+                    spine_blocks, diag_rows = partition_html_to_blocks(
+                        normalized_html,
                         spine_index=spine_index,
                         source_location_id=source_location_id,
+                        options=unstructured_options,
                     )
                     for b in spine_blocks:
                         b.add_feature("extraction_backend", extractor)
