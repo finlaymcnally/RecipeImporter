@@ -364,7 +364,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     value="epub_split_workers",
                 ),
                 questionary.Choice(
-                    f"EPUB Extractor: {current_settings.get('epub_extractor', 'unstructured')} - unstructured/legacy",
+                    f"EPUB Extractor: {current_settings.get('epub_extractor', 'unstructured')} - unstructured/legacy/markitdown",
                     value="epub_extractor",
                 ),
                 questionary.Choice(
@@ -426,11 +426,11 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
         elif choice == "epub_extractor":
             val = _menu_select(
                 "Select EPUB extraction engine:",
-                choices=["unstructured", "legacy"],
+                choices=["unstructured", "legacy", "markitdown"],
                 default=current_settings.get("epub_extractor", "unstructured"),
                 menu_help=(
                     "Unstructured uses semantic HTML partitioning for richer block extraction. "
-                    "Legacy uses BeautifulSoup tag-based parsing."
+                    "Legacy uses BeautifulSoup tag-based parsing. MarkItDown converts the whole EPUB to markdown first."
                 ),
             )
             if val and val != BACK_ACTION:
@@ -1009,10 +1009,10 @@ def _fail(message: str) -> None:
 
 def _normalize_epub_extractor(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized not in {"unstructured", "legacy"}:
+    if normalized not in {"unstructured", "legacy", "markitdown"}:
         _fail(
             f"Invalid EPUB extractor: {value!r}. "
-            "Expected one of: unstructured, legacy."
+            "Expected one of: unstructured, legacy, markitdown."
         )
     return normalized
 
@@ -1722,8 +1722,10 @@ def _plan_jobs(
     epub_spine_items_per_job: int,
     pdf_split_workers: int,
     epub_split_workers: int,
+    epub_extractor: str = "unstructured",
 ) -> list[JobSpec]:
     jobs: list[JobSpec] = []
+    selected_epub_extractor = epub_extractor.strip().lower()
     for file_path in files:
         if (
             pdf_split_workers > 1
@@ -1752,6 +1754,7 @@ def _plan_jobs(
         if (
             epub_split_workers > 1
             and file_path.suffix.lower() == ".epub"
+            and selected_epub_extractor != "markitdown"
             and epub_spine_items_per_job > 0
         ):
             spine_count = _resolve_epub_spine_count(file_path)
@@ -2143,7 +2146,7 @@ def stage(
     epub_extractor: str = typer.Option(
         "unstructured",
         "--epub-extractor",
-        help="EPUB extraction engine: unstructured (semantic) or legacy (BeautifulSoup).",
+        help="EPUB extraction engine: unstructured (semantic), legacy (BeautifulSoup), or markitdown (EPUB->markdown).",
     ),
 ) -> Path:
     """Stage recipes from a source file or folder.
@@ -2205,7 +2208,7 @@ def stage(
         epub_split_workers=epub_split_workers,
         pdf_pages_per_job=pdf_pages_per_job,
         epub_spine_items_per_job=epub_spine_items_per_job,
-        epub_extractor=os.environ.get("C3IMP_EPUB_EXTRACTOR", "unstructured"),
+        epub_extractor=selected_epub_extractor,
         ocr_device=selected_ocr_device,
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,
@@ -2215,6 +2218,7 @@ def stage(
         effective_workers=compute_effective_workers(
             workers=workers,
             epub_split_workers=epub_split_workers,
+            epub_extractor=selected_epub_extractor,
             all_epub=all_epub,
         ),
     )
@@ -2243,6 +2247,7 @@ def stage(
         epub_spine_items_per_job=epub_spine_items_per_job,
         pdf_split_workers=pdf_split_workers,
         epub_split_workers=epub_split_workers,
+        epub_extractor=selected_epub_extractor,
     )
     total_jobs = len(job_specs)
     expected_jobs: dict[Path, int] = {}
@@ -3292,7 +3297,7 @@ def labelstudio_benchmark(
     )] = False,
     epub_extractor: Annotated[str, typer.Option(
         "--epub-extractor",
-        help="EPUB extraction engine: unstructured (semantic) or legacy (BeautifulSoup).",
+        help="EPUB extraction engine: unstructured (semantic), legacy (BeautifulSoup), or markitdown (EPUB->markdown).",
     )] = "unstructured",
 ) -> None:
     """Run benchmark eval against freeform gold, with optional upload step."""
@@ -3410,6 +3415,7 @@ def labelstudio_benchmark(
                         epub_split_workers=epub_split_workers,
                         pdf_pages_per_job=pdf_pages_per_job,
                         epub_spine_items_per_job=epub_spine_items_per_job,
+                        epub_extractor=selected_epub_extractor,
                         ocr_device=selected_ocr_device,
                         ocr_batch_size=ocr_batch_size,
                         warm_models=warm_models,
@@ -3440,6 +3446,7 @@ def labelstudio_benchmark(
                         epub_split_workers=epub_split_workers,
                         pdf_pages_per_job=pdf_pages_per_job,
                         epub_spine_items_per_job=epub_spine_items_per_job,
+                        epub_extractor=selected_epub_extractor,
                         ocr_device=selected_ocr_device,
                         ocr_batch_size=ocr_batch_size,
                         warm_models=warm_models,

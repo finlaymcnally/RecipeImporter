@@ -5,6 +5,18 @@ read_when:
   - "When an option appears in import runs but is missing from benchmark/freeform eval history"
 ---
 
+# New Pipeline Option Contract
+
+For every new option/feature added to the processing pipeline, all three are required:
+
+1. Add it to the CLI run-settings selectors so it can be configured per run.
+2. Track it in dashboard/history data by saving it in `.csv` under `run config`.
+3. Apply it in both paths:
+   - `import` (produce cookbook outputs)
+   - `evaluate predictions vs freeform gold`
+
+If any one of these is missing, the feature is incomplete.
+
 # Pipeline Option Edit Map
 
 For every new processing option, wire these locations together.
@@ -15,6 +27,7 @@ For every new processing option, wire these locations together.
   - Add the field on `RunSettings` with `_ui_meta(...)`.
   - Include it in `_SUMMARY_ORDER` if it should appear in run summaries.
   - Add it to `build_run_settings(...)`.
+  - If the option changes split/parallel behavior, update `compute_effective_workers(...)` so run-config summaries/history reflect real execution.
 - `cookimport/cli_ui/run_settings_flow.py`
   - `choose_run_settings(...)` is the selector entrypoint (global/last/edit).
 - `cookimport/cli_ui/toggle_editor.py`
@@ -23,12 +36,15 @@ For every new processing option, wire these locations together.
 ## 2) Pass the option through CLI commands that launch processing
 
 - `cookimport/cli.py`
+  - Update validation/normalization helpers (for example `_normalize_epub_extractor(...)`) so direct CLI flags accept the new value.
   - Interactive import menu passes selected settings into `stage(...)` (`common_args`).
   - `stage(...)` builds canonical `RunSettings` and derives `run_config/hash/summary`.
+  - If the option affects split planning, update `_plan_jobs(...)` so stage split ranges match extractor capabilities.
   - Interactive benchmark menu passes selected settings into `labelstudio_benchmark(...)`.
   - `labelstudio_benchmark(...)` forwards settings to prediction generation.
 - `cookimport/labelstudio/ingest.py`
   - `generate_pred_run_artifacts(...)` accepts processing knobs and builds canonical `RunSettings`.
+  - If the option affects split planning, update `_plan_parallel_convert_jobs(...)` to keep benchmark prediction import behavior aligned with stage.
 
 ## 3) Ensure dashboard/history tracking (`run config`) is preserved
 

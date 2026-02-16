@@ -509,6 +509,7 @@ class ConversionReport(BaseModel):
     run_timestamp: str | None = Field(default=None, alias="runTimestamp")
     source_file: str | None = Field(default=None, alias="sourceFile")
     importer_name: str | None = Field(default=None, alias="importerName")
+    epub_backend: str | None = Field(default=None, alias="epubBackend")
     average_confidence: float | None = Field(default=None, alias="averageConfidence")
     category_confidence: dict[str, float] = Field(default_factory=dict, alias="categoryConfidence")
     

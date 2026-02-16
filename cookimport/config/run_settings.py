@@ -33,6 +33,7 @@ _SUMMARY_ORDER = (
 class EpubExtractor(str, Enum):
     unstructured = "unstructured"
     legacy = "legacy"
+    markitdown = "markitdown"
 
 
 class OcrDevice(str, Enum):
@@ -148,7 +149,7 @@ class RunSettings(BaseModel):
             group="Extraction",
             label="EPUB Extractor",
             order=60,
-            description="EPUB extraction engine (unstructured or legacy).",
+            description="EPUB extraction engine (unstructured, legacy, or markitdown).",
         ),
     )
     ocr_device: OcrDevice = Field(
@@ -321,10 +322,17 @@ def run_settings_ui_specs() -> list[RunSettingUiSpec]:
     return specs
 
 
+def _normalized_value(value: Any) -> str:
+    if isinstance(value, Enum):
+        return str(value.value).strip().lower()
+    return str(value).strip().lower()
+
+
 def compute_effective_workers(
     *,
     workers: int,
     epub_split_workers: int,
+    epub_extractor: str | EpubExtractor = EpubExtractor.unstructured,
     file_paths: Sequence[Path] | None = None,
     all_epub: bool | None = None,
 ) -> int:
@@ -333,7 +341,12 @@ def compute_effective_workers(
         effective_all_epub = bool(file_paths) and all(
             path.suffix.lower() == ".epub" for path in file_paths
         )
-    if effective_all_epub and epub_split_workers > workers:
+    selected_extractor = _normalized_value(epub_extractor)
+    if (
+        effective_all_epub
+        and selected_extractor != EpubExtractor.markitdown.value
+        and epub_split_workers > workers
+    ):
         return epub_split_workers
     return workers
 
@@ -360,6 +373,7 @@ def build_run_settings(
         resolved_effective_workers = compute_effective_workers(
             workers=workers,
             epub_split_workers=epub_split_workers,
+            epub_extractor=epub_extractor,
             file_paths=file_paths,
             all_epub=all_epub,
         )
@@ -370,8 +384,8 @@ def build_run_settings(
             "epub_split_workers": epub_split_workers,
             "pdf_pages_per_job": pdf_pages_per_job,
             "epub_spine_items_per_job": epub_spine_items_per_job,
-            "epub_extractor": str(epub_extractor).strip().lower(),
-            "ocr_device": str(ocr_device).strip().lower(),
+            "epub_extractor": _normalized_value(epub_extractor),
+            "ocr_device": _normalized_value(ocr_device),
             "ocr_batch_size": ocr_batch_size,
             "warm_models": bool(warm_models),
             "effective_workers": resolved_effective_workers,

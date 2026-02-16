@@ -37,6 +37,8 @@ from cookimport.core.reporting import (
 from cookimport.core.scoring import score_recipe_candidate
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning, signals
+from cookimport.parsing.markdown_blocks import markdown_to_blocks
+from cookimport.parsing.markitdown_adapter import convert_path_to_markdown
 from cookimport.parsing.block_roles import assign_block_roles
 from cookimport.parsing.atoms import Atom, contextualize_atoms, split_text_to_atoms
 from cookimport.parsing.tips import (
@@ -49,12 +51,25 @@ from cookimport.parsing.tips import (
 from cookimport.plugins import registry
 
 # ---------------------------------------------------------------------------
-# Extractor switch: C3IMP_EPUB_EXTRACTOR = legacy | unstructured
+# Extractor switch: C3IMP_EPUB_EXTRACTOR = legacy | unstructured | markitdown
 # Default: unstructured
 # Read at call time (not import time) so interactive settings take effect.
 # ---------------------------------------------------------------------------
+_EPUB_EXTRACTOR_DEFAULT = "unstructured"
+_EPUB_EXTRACTOR_CHOICES = {"legacy", "unstructured", "markitdown"}
+
+
 def _get_epub_extractor() -> str:
-    return os.environ.get("C3IMP_EPUB_EXTRACTOR", "unstructured").strip().lower()
+    selected = os.environ.get("C3IMP_EPUB_EXTRACTOR", _EPUB_EXTRACTOR_DEFAULT).strip().lower()
+    if selected in _EPUB_EXTRACTOR_CHOICES:
+        return selected
+    if selected:
+        logging.getLogger(__name__).warning(
+            "Unknown C3IMP_EPUB_EXTRACTOR=%r. Falling back to %s.",
+            selected,
+            _EPUB_EXTRACTOR_DEFAULT,
+        )
+    return _EPUB_EXTRACTOR_DEFAULT
 
 # Suppress ebooklib warnings about future/deprecations if any
 warnings.filterwarnings("ignore", category=UserWarning, module="ebooklib")
@@ -180,11 +195,18 @@ class EpubImporter:
             if progress_callback:
                 progress_callback("Computing hash...")
             file_hash = compute_file_hash(path)
+            selected_extractor = _get_epub_extractor()
+            report.epub_backend = selected_extractor
             
             # 1. Extract Blocks (DocPack)
             if progress_callback:
                 progress_callback("Extracting blocks from EPUB...")
-            blocks = self._extract_docpack(path, start_spine=start_spine, end_spine=end_spine)
+            blocks = self._extract_docpack(
+                path,
+                start_spine=start_spine,
+                end_spine=end_spine,
+                extractor=selected_extractor,
+            )
             
             raw_artifacts.append(
                 RawArtifact(
@@ -203,11 +225,27 @@ class EpubImporter:
                 )
             )
 
+            if selected_extractor == "markitdown" and self._markitdown_markdown is not None:
+                raw_artifacts.append(
+                    RawArtifact(
+                        importer="epub",
+                        sourceHash=file_hash,
+                        locationId="markitdown_markdown",
+                        extension="md",
+                        content=self._markitdown_markdown,
+                        metadata={
+                            "artifact_type": "markitdown_markdown",
+                            "extractor": "markitdown",
+                            "line_count": len(self._markitdown_markdown.splitlines()),
+                        },
+                    )
+                )
+
             # Assign deterministic block roles for chunk lane selection
             assign_block_roles(blocks)
 
             # Emit Unstructured diagnostics JSONL when using the Unstructured extractor
-            if _get_epub_extractor() == "unstructured" and self._unstructured_diagnostics:
+            if selected_extractor == "unstructured" and self._unstructured_diagnostics:
                 unstructured_version = _resolve_unstructured_version()
                 jsonl_lines = "\n".join(
                     json.dumps(row, ensure_ascii=False)
@@ -516,15 +554,27 @@ class EpubImporter:
         path: Path,
         start_spine: int | None = None,
         end_spine: int | None = None,
+        extractor: str | None = None,
     ) -> List[Block]:
         """
         Reads EPUB and converts spine items to a linear list of Blocks.
 
-        When C3IMP_EPUB_EXTRACTOR=unstructured, uses Unstructured's HTML
-        partitioner for richer semantic extraction with traceability.
-        Diagnostics rows are accumulated in self._unstructured_diagnostics.
+        Extractors:
+        - unstructured: semantic HTML partitioning with diagnostics rows.
+        - legacy: BeautifulSoup tag parser across spine docs.
+        - markitdown: whole-book EPUB->markdown conversion with markdown-line provenance.
         """
+        selected_extractor = extractor or _get_epub_extractor()
         self._unstructured_diagnostics: list[dict[str, Any]] = []
+        self._markitdown_markdown: str | None = None
+
+        if selected_extractor == "markitdown":
+            if start_spine is not None or end_spine is not None:
+                raise ValueError(
+                    "EPUB extractor 'markitdown' does not support split spine ranges. "
+                    "Set --epub-split-workers 1 or choose unstructured/legacy."
+                )
+            return self._extract_docpack_markitdown(path)
 
         if epub is not None:
             try:
@@ -532,6 +582,7 @@ class EpubImporter:
                     path,
                     start_spine=start_spine,
                     end_spine=end_spine,
+                    extractor=selected_extractor,
                 )
             except Exception as e:
                 logger.warning(f"Ebooklib extraction failed for EPUB {path}: {e}")
@@ -540,19 +591,33 @@ class EpubImporter:
             path,
             start_spine=start_spine,
             end_spine=end_spine,
+            extractor=selected_extractor,
         )
+
+    def _extract_docpack_markitdown(self, path: Path) -> List[Block]:
+        markdown_text = convert_path_to_markdown(path)
+        self._markitdown_markdown = markdown_text
+        blocks = markdown_to_blocks(
+            markdown_text,
+            source_path=path,
+            extraction_backend="markitdown",
+        )
+        for block in blocks:
+            signals.enrich_block(block, overrides=self._overrides)
+        return blocks
 
     def _extract_docpack_with_ebooklib(
         self,
         path: Path,
         start_spine: int | None = None,
         end_spine: int | None = None,
+        extractor: str = _EPUB_EXTRACTOR_DEFAULT,
     ) -> List[Block]:
         blocks: List[Block] = []
         if epub is None:
             raise RuntimeError("ebooklib is not available")
 
-        use_unstructured = _get_epub_extractor() == "unstructured"
+        use_unstructured = extractor == "unstructured"
         if use_unstructured:
             from cookimport.parsing.unstructured_adapter import partition_html_to_blocks
 
@@ -580,12 +645,19 @@ class EpubImporter:
                 )
                 # Enrich with shared signals (ingredient/instruction detection)
                 for b in spine_blocks:
+                    b.add_feature("extraction_backend", extractor)
                     signals.enrich_block(b, overrides=self._overrides)
                 blocks.extend(spine_blocks)
                 self._unstructured_diagnostics.extend(diag_rows)
             else:
                 soup = self._soup_from_bytes(content)
-                blocks.extend(self._parse_soup_to_blocks(soup, spine_index=spine_index))
+                blocks.extend(
+                    self._parse_soup_to_blocks(
+                        soup,
+                        spine_index=spine_index,
+                        extraction_backend=extractor,
+                    )
+                )
         return blocks
 
     def _extract_docpack_with_zip(
@@ -593,13 +665,14 @@ class EpubImporter:
         path: Path,
         start_spine: int | None = None,
         end_spine: int | None = None,
+        extractor: str = _EPUB_EXTRACTOR_DEFAULT,
     ) -> List[Block]:
         blocks: List[Block] = []
         _title, spine_items = self._read_epub_spine(path)
         if not spine_items:
             raise ValueError("No spine items found in EPUB")
 
-        use_unstructured = _get_epub_extractor() == "unstructured"
+        use_unstructured = extractor == "unstructured"
         if use_unstructured:
             from cookimport.parsing.unstructured_adapter import partition_html_to_blocks
 
@@ -629,12 +702,19 @@ class EpubImporter:
                         source_location_id=source_location_id,
                     )
                     for b in spine_blocks:
+                        b.add_feature("extraction_backend", extractor)
                         signals.enrich_block(b, overrides=self._overrides)
                     blocks.extend(spine_blocks)
                     self._unstructured_diagnostics.extend(diag_rows)
                 else:
                     soup = self._soup_from_bytes(content)
-                    blocks.extend(self._parse_soup_to_blocks(soup, spine_index=spine_index))
+                    blocks.extend(
+                        self._parse_soup_to_blocks(
+                            soup,
+                            spine_index=spine_index,
+                            extraction_backend=extractor,
+                        )
+                    )
         return blocks
 
     def _soup_from_bytes(self, content: bytes) -> BeautifulSoup:
@@ -715,6 +795,7 @@ class EpubImporter:
         self,
         soup: BeautifulSoup,
         spine_index: int | None = None,
+        extraction_backend: str = "legacy",
     ) -> List[Block]:
         blocks = []
         
@@ -753,6 +834,7 @@ class EpubImporter:
                 html=str(elem),
                 font_weight="bold" if elem.name.startswith("h") or elem.find("strong") or elem.find("b") else "normal"
             )
+            block.add_feature("extraction_backend", extraction_backend)
 
             if spine_index is not None:
                 block.add_feature("spine_index", spine_index)

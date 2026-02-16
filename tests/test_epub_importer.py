@@ -48,6 +48,42 @@ def test_convert_epub():
     assert "Lettuce" in r2.ingredients
 
 
+def test_convert_epub_markitdown_writes_markdown_artifact(monkeypatch, tmp_path: Path):
+    epub_path = tmp_path / "book.epub"
+    epub_path.write_bytes(b"dummy-epub")
+
+    monkeypatch.setenv("C3IMP_EPUB_EXTRACTOR", "markitdown")
+    monkeypatch.setattr(
+        "cookimport.plugins.epub.convert_path_to_markdown",
+        lambda _path: (
+            "# Pancakes\n\n"
+            "## Ingredients\n"
+            "- 1 cup flour\n"
+            "- 1 cup milk\n\n"
+            "## Instructions\n"
+            "1. Mix ingredients\n"
+        ),
+    )
+
+    importer = EpubImporter()
+    result = importer.convert(epub_path, None)
+
+    assert result.report.epub_backend == "markitdown"
+    markdown_artifact = next(
+        artifact for artifact in result.raw_artifacts if artifact.location_id == "markitdown_markdown"
+    )
+    assert markdown_artifact.extension == "md"
+    assert "Ingredients" in str(markdown_artifact.content)
+
+    full_text_artifact = next(
+        artifact for artifact in result.raw_artifacts if artifact.location_id == "full_text"
+    )
+    first_block = full_text_artifact.content["blocks"][0]
+    assert first_block["features"]["extraction_backend"] == "markitdown"
+    assert first_block["features"]["md_line_start"] == 1
+    assert first_block["features"]["md_line_end"] == 1
+
+
 def test_resolve_unstructured_version_handles_module_value(monkeypatch):
     version_module = types.ModuleType("unstructured.__version__")
     version_module.__version__ = "9.9.9"

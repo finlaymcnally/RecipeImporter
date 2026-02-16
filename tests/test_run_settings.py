@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 
 from cookimport.config.last_run_store import load_last_run_settings, save_last_run_settings
-from cookimport.config.run_settings import RunSettings, run_settings_ui_specs
+from cookimport.config.run_settings import (
+    RunSettings,
+    compute_effective_workers,
+    run_settings_ui_specs,
+)
 
 
 def test_run_settings_hash_and_summary_are_stable() -> None:
@@ -51,3 +55,14 @@ def test_last_run_store_round_trip_and_corrupt_recovery(tmp_path) -> None:
     migrated = load_last_run_settings("import", output_root)
     assert migrated is not None
     assert migrated.workers == 5
+
+
+def test_compute_effective_workers_does_not_promote_markitdown_epub_splits() -> None:
+    effective = compute_effective_workers(
+        workers=4,
+        epub_split_workers=12,
+        epub_extractor="markitdown",
+        all_epub=True,
+    )
+
+    assert effective == 4

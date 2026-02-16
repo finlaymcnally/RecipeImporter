@@ -259,8 +259,10 @@ def _plan_parallel_convert_jobs(
     epub_split_workers: int,
     pdf_pages_per_job: int,
     epub_spine_items_per_job: int,
+    epub_extractor: str = "unstructured",
 ) -> list[dict[str, int | None]]:
     suffix = path.suffix.lower()
+    selected_epub_extractor = epub_extractor.strip().lower()
     if suffix == ".pdf" and pdf_split_workers > 1 and pdf_pages_per_job > 0:
         page_count = _resolve_pdf_page_count(path)
         if page_count:
@@ -280,7 +282,12 @@ def _plan_parallel_convert_jobs(
                     }
                     for idx, (start, end) in enumerate(ranges)
                 ]
-    if suffix == ".epub" and epub_split_workers > 1 and epub_spine_items_per_job > 0:
+    if (
+        suffix == ".epub"
+        and selected_epub_extractor != "markitdown"
+        and epub_split_workers > 1
+        and epub_spine_items_per_job > 0
+    ):
         spine_count = _resolve_epub_spine_count(path)
         if spine_count:
             ranges = plan_job_ranges(
@@ -552,6 +559,7 @@ def generate_pred_run_artifacts(
     epub_split_workers: int = 1,
     pdf_pages_per_job: int = 50,
     epub_spine_items_per_job: int = 10,
+    epub_extractor: str | None = None,
     ocr_device: str = "auto",
     ocr_batch_size: int = 1,
     warm_models: bool = False,
@@ -585,13 +593,16 @@ def generate_pred_run_artifacts(
     if importer is None or score <= 0:
         raise RuntimeError("No importer available for this path.")
 
+    selected_epub_extractor = str(
+        epub_extractor or os.environ.get("C3IMP_EPUB_EXTRACTOR", "unstructured")
+    ).strip().lower()
     run_settings = build_run_settings(
         workers=workers,
         pdf_split_workers=pdf_split_workers,
         epub_split_workers=epub_split_workers,
         pdf_pages_per_job=pdf_pages_per_job,
         epub_spine_items_per_job=epub_spine_items_per_job,
-        epub_extractor=os.environ.get("C3IMP_EPUB_EXTRACTOR", "unstructured"),
+        epub_extractor=selected_epub_extractor,
         ocr_device=ocr_device,
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,
@@ -599,6 +610,7 @@ def generate_pred_run_artifacts(
         effective_workers=compute_effective_workers(
             workers=workers,
             epub_split_workers=epub_split_workers,
+            epub_extractor=selected_epub_extractor,
             all_epub=path.suffix.lower() == ".epub",
         ),
     )
@@ -619,6 +631,7 @@ def generate_pred_run_artifacts(
         epub_split_workers=epub_split_workers,
         pdf_pages_per_job=pdf_pages_per_job,
         epub_spine_items_per_job=epub_spine_items_per_job,
+        epub_extractor=selected_epub_extractor,
     )
     if len(job_specs) == 1:
         result = importer.convert(path, run_mapping, progress_callback=progress_callback)
@@ -990,6 +1003,7 @@ def run_labelstudio_import(
     epub_split_workers: int = 1,
     pdf_pages_per_job: int = 50,
     epub_spine_items_per_job: int = 10,
+    epub_extractor: str | None = None,
     ocr_device: str = "auto",
     ocr_batch_size: int = 1,
     warm_models: bool = False,
@@ -1023,6 +1037,7 @@ def run_labelstudio_import(
         epub_split_workers=epub_split_workers,
         pdf_pages_per_job=pdf_pages_per_job,
         epub_spine_items_per_job=epub_spine_items_per_job,
+        epub_extractor=epub_extractor,
         ocr_device=ocr_device,
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,

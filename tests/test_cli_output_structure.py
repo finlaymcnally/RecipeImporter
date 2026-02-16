@@ -126,3 +126,57 @@ def test_epub_report_includes_extractor_setting(tmp_path):
     assert isinstance(report.get("runConfigHash"), str)
     assert len(report["runConfigHash"]) == 64
     assert "epub_extractor=legacy" in str(report.get("runConfigSummary", ""))
+
+
+def test_stage_markitdown_epub_writes_backend_and_markdown_artifact(tmp_path, monkeypatch):
+    fixtures_dir = Path(__file__).parent / "fixtures"
+    source_file = fixtures_dir / "sample.epub"
+    if not source_file.exists():
+        pytest.skip("sample.epub not found")
+
+    monkeypatch.setattr(
+        "cookimport.plugins.epub.convert_path_to_markdown",
+        lambda _path: (
+            "# MarkItDown Recipe\n\n"
+            "## Ingredients\n"
+            "- 1 cup flour\n"
+            "- 1 cup milk\n"
+        ),
+    )
+
+    output_dir = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        [
+            "stage",
+            str(source_file),
+            "--out",
+            str(output_dir),
+            "--workers",
+            "1",
+            "--epub-split-workers",
+            "4",
+            "--epub-extractor",
+            "markitdown",
+        ],
+    )
+    assert result.exit_code == 0
+
+    timestamp_dirs = [
+        path
+        for path in output_dir.glob("*")
+        if path.is_dir() and not path.name.startswith(".")
+    ]
+    assert len(timestamp_dirs) == 1
+    timestamp_dir = timestamp_dirs[0]
+
+    report_path = timestamp_dir / "sample.excel_import_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["runConfig"]["epub_extractor"] == "markitdown"
+    assert report["runConfig"]["effective_workers"] == 1
+    assert report["epubBackend"] == "markitdown"
+
+    markdown_artifacts = list(
+        (timestamp_dir / "raw" / "epub").glob("**/markitdown_markdown.md")
+    )
+    assert markdown_artifacts

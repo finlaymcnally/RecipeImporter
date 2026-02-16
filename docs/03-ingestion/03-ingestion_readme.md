@@ -214,15 +214,21 @@ Behavior highlights:
 
 Extractor modes:
 - Default: `unstructured`
-- Alternate: `legacy`
+- Alternates: `legacy`, `markitdown`
 - Control path:
   - CLI: `--epub-extractor`
   - Env: `C3IMP_EPUB_EXTRACTOR`
 
 Block extraction:
 - Reads spine in order (ebooklib primary, zip fallback)
-- Supports range slicing via `start_spine`, `end_spine` (end exclusive)
+- Supports range slicing via `start_spine`, `end_spine` (end exclusive) for `unstructured`/`legacy`
+- `markitdown` converts the whole EPUB to markdown first; it does not support spine-range split jobs
 - Adds `spine_index` feature to blocks for deterministic merge ordering
+
+MarkItDown-specific behavior:
+- Uses `markitdown` with plugins disabled (`MarkItDown(enable_plugins=False)`)
+- Converts markdown to blocks with `md_line_start` / `md_line_end` provenance and `extraction_backend=markitdown`
+- Emits optional raw artifact `markitdown_markdown.md`
 
 Candidate segmentation:
 - Yield-driven anchors and title backtracking heuristics

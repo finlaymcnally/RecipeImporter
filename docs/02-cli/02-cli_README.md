@@ -126,7 +126,7 @@ Config keys and defaults:
 What each setting affects:
 
 - `workers`, split workers, page/spine split size: `stage` and benchmark import parallelism/sharding.
-- `epub_extractor`: runtime extractor choice (`unstructured` vs `legacy`) via `C3IMP_EPUB_EXTRACTOR`.
+- `epub_extractor`: runtime extractor choice (`unstructured`, `legacy`, or `markitdown`) via `C3IMP_EPUB_EXTRACTOR`.
 - `ocr_device`, `ocr_batch_size`: OCR path for PDFs.
 - `output_dir`: interactive `stage` target output root.
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
@@ -321,7 +321,8 @@ Options:
 - `--workers, -w INTEGER>=1` (default `7`): total process pool workers.
 - `--pdf-split-workers INTEGER>=1` (default `7`): max workers for one split PDF.
 - `--epub-split-workers INTEGER>=1` (default `7`): max workers for one split EPUB.
-- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy`; exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
+- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
+- `markitdown` note: EPUB split jobs are disabled for this extractor because conversion is whole-book EPUB -> markdown (no spine-range mode).
 
 Split-merge progress detail:
 - After split workers finish, the worker dashboard `MainProcess` row now advances through merge phases (payload merge, ID reassignment, output writes, raw merge) instead of staying on a single static `Merging ...` label.
@@ -472,7 +473,8 @@ Options:
 - `--epub-split-workers INTEGER>=1` (default `7`): EPUB split workers for prediction import.
 - `--pdf-pages-per-job INTEGER>=1` (default `50`): PDF shard size.
 - `--epub-spine-items-per-job INTEGER>=1` (default `10`): EPUB shard size.
-- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy`; exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
+- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
+- `markitdown` note: prediction EPUB split jobs are disabled for this extractor for the same reason as stage runs.
 - `--ocr-device TEXT` (default `auto`): `auto|cpu|cuda|mps`.
 - `--ocr-batch-size INTEGER>=1` (default `1`): pages per OCR model call.
 - `--warm-models` (default `false`): preload OCR/parsing models before prediction import.
@@ -584,7 +586,7 @@ Options:
 CLI-relevant environment variables:
 
 - `C3IMP_LIMIT`: used by interactive mode callback. If set to an integer, interactive import uses it as `stage --limit`.
-- `C3IMP_EPUB_EXTRACTOR`: EPUB extractor switch (`unstructured` or `legacy`) read at runtime by the EPUB importer.
+- `C3IMP_EPUB_EXTRACTOR`: EPUB extractor switch (`unstructured`, `legacy`, or `markitdown`) read at runtime by the EPUB importer.
 - `LABEL_STUDIO_URL`: default Label Studio URL when `--label-studio-url` is omitted.
 - `LABEL_STUDIO_API_KEY`: default Label Studio API key when `--label-studio-api-key` is omitted.
 - `COOKIMPORT_DATABASE_URL`: DB URL fallback for `tag-catalog export`, `tag-recipes debug-signals`, and `tag-recipes apply`.
