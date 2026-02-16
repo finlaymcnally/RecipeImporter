@@ -229,14 +229,65 @@ Status now: these edge-case rules are still actively normalized in `draft_v1.py`
 
 ### 2026-02-15_22.10.59 staging output contract flow map
 
-Merged source:
-- `docs/understandings/2026-02-15_22.10.59-staging-output-contract-flow.md`
+Merged source file:
+- `2026-02-15_22.10.59-staging-output-contract-flow.md` (formerly in `docs/understandings`)
 
 Preserved outcomes:
 - Single-file stage flow (`cli_worker`) and split-job merge flow (`cli.py`) both converge on the same writer functions for intermediate/final/tips/topic/chunks/report outputs.
 - Split jobs add one extra step: move raw artifacts from `.job_parts/<workbook>/job_<index>/raw/...` into run `raw/...`.
 - Cookbook safety normalization remains in `draft_v1.py` (ingredient line shaping), not in writer functions.
 - Historical staging failures were primarily quantity-kind/qty invariant violations, not unresolved ID placeholder handling.
+
+### 2026-02-15_22.48.59 report metadata flow consistency
+
+Merged source file:
+- `2026-02-15_22.48.59-report-metadata-flow.md` (formerly in `docs/understandings`)
+
+Preserved rule:
+- Single-file report writes happen in `cli_worker.stage_one_file`.
+- Split EPUB/PDF report writes happen in `cli._merge_split_jobs`.
+- Metadata fields that downstream tooling depends on (notably `importerName` and `runConfig`) must be set in both paths or split runs will silently drift.
+
+### 2026-02-15_22.59.48 split-merge bottleneck diagnosis from real run data
+
+Merged source file:
+- `2026-02-15_22.59.48-split-merge-write-topic-candidates-bottleneck.md` (formerly in `docs/understandings`)
+
+Preserved diagnosis:
+- Long “idle” periods after worker completion can be real merge output work, not a deadlock.
+- Example captured from `data/output/2026-02-15_22.47.11`: one EPUB merge spent about 172 seconds in `write_topic_candidates_seconds`.
+- Root cause in that run shape was repeated `_resolve_file_hash(...)` fallback hashing for candidates missing `file_hash`.
+
+Anti-loop note:
+- Do not treat post-100%-progress hangs as automatic concurrency bugs until merge-phase timing fields are checked.
+- Do not remove topic-candidate provenance to speed up writes; keep provenance and cache hash lookup instead.
+
+### 2026-02-15_22.59.30 split-merge visibility and topic hash cache
+
+Merged source:
+- `docs/tasks/2026-02-15_22.59.30 - split-merge-visibility-and-topic-hash-cache.md`
+
+Problem captured:
+- Large split EPUB/PDF runs could look hung after workers completed because merge stayed under a generic MainProcess label while doing long post-merge writes.
+- Topic-candidate writing repeatedly hashed the same source file, inflating merge-time write cost on knowledge-heavy inputs.
+
+Decisions/actions captured:
+- Add phase-level main-process status updates across merge/report/raw/topic-candidate write phases.
+- Cache source hash resolution per source file during topic-candidate ID generation so `_hash_file` runs once per file version, not once per candidate.
+
+Task-spec evidence preserved:
+- Fail-before command recorded:
+  - `. .venv/bin/activate && pytest -q tests/test_tip_writer.py::test_write_topic_candidates_hashes_source_file_once tests/test_split_merge_status.py::test_merge_split_jobs_reports_main_process_phases`
+- Pass-after command recorded:
+  - `. .venv/bin/activate && pytest -q tests/test_tip_writer.py tests/test_split_merge_status.py`
+- Recorded pass-after result: `3 passed`.
+
+Constraints that should remain:
+- Keep split merge output contract unchanged (same files, IDs, and artifact structure).
+- Merge progress/status callbacks must be best-effort and never allowed to fail the merge itself.
+
+Rollback note captured in task:
+- Removing callback plumbing and hash caching reverts to prior behavior where long merges appear stalled and topic-candidate writes can re-hash per candidate.
 
 ## Known bad patterns and anti-regression notes
 
@@ -257,6 +308,14 @@ These are the loops we should avoid repeating.
 4. Leaking section headers into ingredient lines
 - Why bad: section headers are structural and invalid as ingredient entries.
 - Keep: remove `section_header` lines before final output.
+
+5. Re-hashing the same source file for every topic candidate
+- Why bad: adds avoidable merge-time write overhead, especially on knowledge-heavy split runs.
+- Keep: source-hash cache behavior in topic-candidate write path.
+
+6. Reporting only a generic merge status after worker completion
+- Why bad: long post-merge phases can look like a hang and trigger false debugging loops.
+- Keep: phase-level merge status callbacks for report/raw/topic-candidate stages.
 
 ## Current limitations / things we know are not great yet
 

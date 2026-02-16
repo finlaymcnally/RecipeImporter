@@ -214,6 +214,7 @@ Manifest includes:
 - Progress callbacks include post-merge phases (archive/hash, processed-output writes, chunk/task generation, upload batching) so long runs continue surfacing advancing status.
 - Interactive `labelstudio` export resolves credentials first, then fetches project titles for a picker UI (showing a detected type tag beside each project when available). It now auto-uses the selected project's detected type as export scope and only prompts for scope when detection is `unknown` (or when the project name is typed manually).
 - Interactive Label Studio import/export credential resolution order is: CLI/env values first, then saved `cookimport.json` values, then one-time prompt (which persists back to `cookimport.json`).
+- Interactive benchmark upload follows the same env -> saved settings -> one-time prompt credential resolution path before invoking `labelstudio-benchmark`.
 
 ## 2) Known-Bad / High-Risk / Common Confusion
 
@@ -321,9 +322,9 @@ From 2026-02-11 discovery docs:
 ### 2026-02-15 interactive Label Studio UX simplification pass
 
 Merged sources:
-- `docs/understandings/2026-02-15_21.35.47-interactive-labelstudio-overwrite-rule.md`
-- `docs/understandings/2026-02-15_21.52.54-interactive-labelstudio-import-auto-upload.md`
-- `docs/understandings/2026-02-15_22.00.23-interactive-labelstudio-export-project-picker.md`
+- `2026-02-15_21.35.47-interactive-labelstudio-overwrite-rule.md` (former understanding file)
+- `2026-02-15_21.52.54-interactive-labelstudio-import-auto-upload.md` (former understanding file)
+- `2026-02-15_22.00.23-interactive-labelstudio-export-project-picker.md` (former understanding file)
 - `docs/tasks/2026-02-15_21.35.54 - interactive-labelstudio-import-auto-overwrite.md`
 - `docs/tasks/2026-02-15_22.00.23 - interactive-labelstudio-export-project-picker.md`
 
@@ -346,6 +347,65 @@ Task-spec evidence preserved (timestamp order):
   - verification command recorded:
     - `. .venv/bin/activate && pytest -q tests/test_labelstudio_benchmark_helpers.py -k "interactive_labelstudio_export_routes_to_export_command or select_export_project_name"`
   - recorded result: `3 passed, 16 deselected`.
+
+### 2026-02-15_22.27.19 -> 2026-02-15_23.20.35 interactive export prompt/type/scope refinement
+
+Merged sources:
+- `2026-02-15_22.27.19-interactive-export-prompt-order.md` (former understanding file)
+- `2026-02-15_22.34.31-export-project-type-detection.md` (former understanding file)
+- `2026-02-15_23.20.45-interactive-export-uses-detected-project-scope.md` (former understanding file)
+- `docs/tasks/2026-02-15_22.27.19 - interactive-export-project-before-scope.md`
+- `docs/tasks/2026-02-15_22.34.31 - export-picker-show-project-type.md`
+- `docs/tasks/2026-02-15_23.20.35 - interactive-export-auto-scope-from-project-type.md`
+
+Preserved sequence of decisions (timestamp order):
+
+1. `2026-02-15_22.27.19` changed interactive export prompt order to match user intent:
+- select/export project first,
+- then ask `Export scope` only if still needed.
+- Task constraint: keep credential resolution and manual-entry fallback semantics unchanged.
+- Task verification focus:
+  - fail-before on `interactive_labelstudio_export_selects_project_before_scope`
+  - pass-after on export order + routing tests.
+
+2. `2026-02-15_22.34.31` made project picker labels explicit:
+- render entries as `<project> [type: <scope>]`.
+- detection order chosen to maximize reliability:
+  - local `manifest.json` `task_scope` first,
+  - Label Studio payload/`label_config` heuristic fallback,
+  - `unknown` when unresolved.
+- Task verification command recorded:
+  - `. .venv/bin/activate && pytest -q tests/test_labelstudio_benchmark_helpers.py -k 'select_export_project_name or interactive_labelstudio_export'`.
+
+3. `2026-02-15_23.20.35` removed redundant scope prompt when type is known:
+- project selection now returns both title and detected scope,
+- interactive export auto-uses detected `pipeline` / `canonical-blocks` / `freeform-spans`,
+- only prompts for scope when type is `unknown` or the user enters a manual project name.
+- Recorded regression expectation:
+  - `test_interactive_labelstudio_export_routes_to_export_command` asserts no scope prompt when scope is detected.
+  - `test_interactive_labelstudio_export_selects_project_before_scope` still validates order in unknown/manual scope cases.
+
+Anti-loop note from this chain:
+- Do not reintroduce unconditional `Export scope` prompting after known-type project selection; this is explicitly the behavior users rejected.
+
+### 2026-02-15_22.28.33 -> 2026-02-15_22.45.08 export destination root churn (short-lived, now settled)
+
+Merged source files (former understandings):
+- `2026-02-15_22.28.33-labelstudio-export-run-root-reuse.md`
+- `2026-02-15_22.33.22-labelstudio-export-timestamped-project-root.md`
+- `2026-02-15_22.45.08-labelstudio-export-project-root.md`
+
+Preserved sequence (do not lose this context):
+1. Before `22.33.22`, export defaulted to reusing the latest matching manifest run root for the selected project.
+- Result: exports were refreshed in-place under older run timestamps.
+- Concrete captured example: `SFAHpipe1` export wrote under `data/golden/2026-02-14_01.58.47/.../exports/summary.json` with newer file write-times than the manifest.
+2. At `22.33.22`, default changed to always create timestamped project roots (`<output_dir>/<timestamp>/labelstudio/<project_slug>/exports/...`) when `--run-dir` was not supplied.
+3. At `22.45.08`, default was simplified again to stable project-slug roots (`<output_dir>/<project_slug>/exports/...`) for both interactive and non-interactive export when `--run-dir` is absent.
+
+Stable current rule:
+- `--run-dir` always wins when supplied.
+- Without `--run-dir`, default export root is project-slug-based (not reused run root and not fresh timestamp root).
+- Manifest lookup still resolves `project_id` and enforces task-scope alignment.
 
 ### Abandoned/deferred branch: PDF page box annotation
 

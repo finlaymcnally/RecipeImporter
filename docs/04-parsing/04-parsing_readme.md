@@ -426,14 +426,28 @@ Important note:
 
 ### 2026-02-15_22.07.14: Parsing flow and regression hotspot map
 
-Merged source:
-- `docs/understandings/2026-02-15_22.07.14-parsing-flow-and-regression-hotspots.md`
+Merged source file:
+- `2026-02-15_22.07.14-parsing-flow-and-regression-hotspots.md` (formerly in `docs/understandings`)
 
 Preserved guidance:
 - Parsing ownership is intentionally split across importer extraction, shared parsing modules, and draft-v1 shaping; regressions can first appear as staging/importer symptoms.
 - Step-link assignment surprises most often come from post-resolution passes (`all ingredients`, section-group aliasing, collective-term fallback), not from the initial exact/semantic/fuzzy scorer.
 - Chunk lanes are effectively binary (`knowledge` / `noise`) in current behavior, while legacy `NARRATIVE` compatibility remains for historical artifact/report interpretation.
 - `tip_candidates` / `topic_candidates` are broader debugging/classification surfaces; exported standalone tips come from filtered `results.tips`.
+
+### 2026-02-15_22.23.02: Unstructured runtime status check
+
+Merged source file:
+- `2026-02-15_22.23.02-unstructured-runtime-status-check.md` (formerly in `docs/understandings`)
+
+Preserved verification snapshot:
+- Dependency pin included `unstructured>=0.18.32,<0.19` and runtime env showed `0.18.32` installed.
+- EPUB extractor default resolution was verified end-to-end as `unstructured` (CLI defaults + importer fallback via `C3IMP_EPUB_EXTRACTOR`).
+- E2E stage run produced expected unstructured-specific raw diagnostics (`unstructured_elements.jsonl`) and enriched block features.
+
+Critical caveat preserved:
+- `getattr(unstructured, "__version__", "unknown")` can resolve to a module-like object in some runtimes.
+- Any metadata path that leaves worker-process boundaries (for split import/benchmark) must normalize this to plain string to stay pickle-safe.
 
 ## Things We Know Are Bad (Do Not Re-discover)
 

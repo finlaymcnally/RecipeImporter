@@ -9,6 +9,8 @@ Schema version history:
     1 – initial release
     2 – benchmark metadata enrichment (importer/run config)
     3 – stage/import run_config support in stage records
+    4 – stage/import run_config warning metadata for stale rows
+    5 – benchmark recipe count support (CSV + processed report enrichment)
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "5"
 
 
 class RunCategory(str, Enum):
@@ -41,6 +43,7 @@ class StageRecord(BaseModel):
     artifact_dir: str | None = None
     importer_name: str | None = None
     run_config: dict[str, Any] | None = None
+    run_config_warning: str | None = None
     run_category: RunCategory = RunCategory.stage_import
 
     # timing
@@ -95,6 +98,7 @@ class BenchmarkRecord(BaseModel):
     gold_total: int | None = None
     pred_total: int | None = None
     gold_matched: int | None = None
+    recipes: int | None = None
 
     # supported-labels focused metrics (relaxed overlap)
     supported_precision: float | None = None

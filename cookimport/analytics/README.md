@@ -3,6 +3,7 @@ Performance reporting utilities live here.
 - Reads per-run conversion reports and prints one-line, per-file timing summaries.
 - Appends run history to `data/output/.history/performance_history.csv` for easy trending.
 - Invoked by `cookimport perf-report` and auto-runs after `cookimport stage`.
+- Includes `cookimport benchmark-csv-backfill` to patch older benchmark rows from manifest/report artifacts.
 - Includes standalone topic coverage (`totalStandaloneBlocks`, `totalStandaloneTopicBlocks`, `standaloneTopicCoverage`) when available.
 
 Outliers are flagged across multiple metrics (total, parsing, writing, per-unit) and
@@ -30,4 +31,6 @@ Output: `data/output/.history/dashboard/` (configurable via `--out-dir`)
 Throughput dashboard organization:
 - run/date view (`Run / Date Trend`, `Recent Runs`) for timeline-level comparisons
 - stage/import tables include importer + run-config summary from stage report `runConfig` when available
+- collector fallback fills stage run-config from `report_path` JSON when CSV `run_config_json` is missing
+- stale stage rows with missing report references are flagged in Run Config as `[warn] missing report (stale row)`
 - file view (`File Trend`) grouped by `stage_records[*].file_name` to track one file across runs

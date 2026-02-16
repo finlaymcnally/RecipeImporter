@@ -110,7 +110,7 @@ _HTML = """\
     <h3>Recent Benchmarks</h3>
     <table id="benchmark-table"><thead><tr>
       <th>Timestamp</th><th>Precision</th><th>Recall</th><th>F1</th>
-      <th>Gold</th><th>Matched</th><th>Source</th><th>Importer</th><th>Run Config</th><th>Artifact</th>
+      <th>Gold</th><th>Matched</th><th>Recipes</th><th>Source</th><th>Importer</th><th>Run Config</th><th>Artifact</th>
     </tr></thead><tbody></tbody></table>
   </section>
 
@@ -185,6 +185,7 @@ th { font-weight: 600; color: var(--muted); font-size: 0.8rem; text-transform: u
 td.num { text-align: right; font-family: var(--mono); }
 td a { color: var(--accent); text-decoration: none; word-break: break-all; }
 td a:hover { text-decoration: underline; }
+td.warn-note { color: #b45309; font-weight: 600; }
 
 .inline-controls {
   display: flex;
@@ -470,8 +471,6 @@ _JS = """\
       .sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp))
       .slice(0, 20);
     recentRuns.forEach(r => {
-      const configSummary = runConfigSummary(r);
-      const configRaw = r.run_config ? JSON.stringify(r.run_config) : "";
       const tr = document.createElement("tr");
       tr.innerHTML =
         '<td>' + esc(r.run_timestamp || "") + '</td>' +
@@ -480,7 +479,7 @@ _JS = """\
         '<td class="num">' + (r.total_seconds != null ? r.total_seconds.toFixed(2) : "-") + '</td>' +
         '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
         '<td class="num">' + (r.per_recipe_seconds != null ? r.per_recipe_seconds.toFixed(3) : "-") + '</td>' +
-        '<td title="' + esc(configRaw) + '">' + esc(configSummary || "-") + '</td>' +
+        runConfigCell(r) +
         '<td><a href="' + esc(r.artifact_dir || "") + '">' + esc(shortPath(r.artifact_dir)) + '</a></td>';
       recentBody.appendChild(tr);
     });
@@ -535,8 +534,6 @@ _JS = """\
     [...fileRecords]
       .sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp))
       .forEach(r => {
-      const configSummary = runConfigSummary(r);
-      const configRaw = r.run_config ? JSON.stringify(r.run_config) : "";
       const tr = document.createElement("tr");
       tr.innerHTML =
         '<td>' + esc(r.run_timestamp || "") + '</td>' +
@@ -544,7 +541,7 @@ _JS = """\
         '<td class="num">' + (r.per_recipe_seconds != null ? r.per_recipe_seconds.toFixed(3) : "-") + '</td>' +
         '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
         '<td>' + esc(r.importer_name || "-") + '</td>' +
-        '<td title="' + esc(configRaw) + '">' + esc(configSummary || "-") + '</td>' +
+        runConfigCell(r) +
         '<td><a href="' + esc(r.artifact_dir || "") + '">' + esc(shortPath(r.artifact_dir)) + '</a></td>';
       fileBody.appendChild(tr);
     });
@@ -614,6 +611,7 @@ _JS = """\
         '<td class="num">' + fmt4(r.f1) + '</td>' +
         '<td class="num">' + (r.gold_total != null ? r.gold_total : "-") + '</td>' +
         '<td class="num">' + (r.gold_matched != null ? r.gold_matched : "-") + '</td>' +
+        '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
         '<td title="' + esc(r.source_file || "") + '">' + esc(sourceLabel || "-") + '</td>' +
         '<td>' + esc(r.importer_name || "-") + '</td>' +
         '<td title="' + esc(configRaw) + '">' + esc(configSummary || "-") + '</td>' +
@@ -701,6 +699,18 @@ _JS = """\
     if (cfg.effective_workers != null) parts.push("effective_workers=" + cfg.effective_workers);
     else if (cfg.workers != null) parts.push("workers=" + cfg.workers);
     return parts.join(" | ");
+  }
+  function runConfigCell(record) {
+    const summary = runConfigSummary(record);
+    const warning = record.run_config_warning || "";
+    const title = record.run_config ? JSON.stringify(record.run_config) : warning;
+    if (summary) {
+      return '<td title="' + esc(title) + '">' + esc(summary) + '</td>';
+    }
+    if (warning) {
+      return '<td class="warn-note" title="' + esc(title) + '">' + esc("[warn] " + warning) + '</td>';
+    }
+    return '<td>-</td>';
   }
   function shortPath(p) {
     if (!p) return "";

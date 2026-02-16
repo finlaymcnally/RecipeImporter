@@ -156,6 +156,83 @@ def test_labelstudio_eval_direct_call_uses_real_defaults(
     assert isinstance(captured["force_source_match"], bool)
 
 
+def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+    (pred_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "recipe_count": 14,
+                "source_file": str(tmp_path / "input" / "book.epub"),
+                "processed_report_path": "",
+            }
+        ),
+        encoding="utf-8",
+    )
+    gold_spans = tmp_path / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    output_dir = tmp_path / "eval"
+
+    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
+    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
+    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "# report")
+    monkeypatch.setattr(
+        cli,
+        "evaluate_predicted_vs_freeform",
+        lambda *_args, **_kwargs: {
+            "report": {},
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+
+    captured_csv: dict[str, object] = {}
+
+    def _capture_append(*_args, **kwargs):
+        captured_csv.update(kwargs)
+
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        _capture_append,
+    )
+
+    cli.labelstudio_eval(
+        scope="freeform-spans",
+        pred_run=pred_run,
+        gold_spans=gold_spans,
+        output_dir=output_dir,
+    )
+
+    assert captured_csv["recipes"] == 14
+    assert captured_csv["source_file"] == str(tmp_path / "input" / "book.epub")
+
+
+def test_sum_bench_recipe_count_from_per_item_manifests(tmp_path: Path) -> None:
+    run_root = tmp_path / "bench-run"
+    (run_root / "per_item" / "a" / "pred_run").mkdir(parents=True, exist_ok=True)
+    (run_root / "per_item" / "b" / "pred_run").mkdir(parents=True, exist_ok=True)
+    (run_root / "per_item" / "c" / "pred_run").mkdir(parents=True, exist_ok=True)
+
+    (run_root / "per_item" / "a" / "pred_run" / "manifest.json").write_text(
+        json.dumps({"recipe_count": 4}),
+        encoding="utf-8",
+    )
+    (run_root / "per_item" / "b" / "pred_run" / "manifest.json").write_text(
+        json.dumps({"recipe_count": 7}),
+        encoding="utf-8",
+    )
+    (run_root / "per_item" / "c" / "pred_run" / "manifest.json").write_text(
+        json.dumps({}),
+        encoding="utf-8",
+    )
+
+    assert cli._sum_bench_recipe_count(run_root) == 11
+
+
 def test_labelstudio_commands_default_output_roots() -> None:
     import_param = inspect.signature(cli.labelstudio_import).parameters["output_dir"]
     export_param = inspect.signature(cli.labelstudio_export).parameters["output_dir"]

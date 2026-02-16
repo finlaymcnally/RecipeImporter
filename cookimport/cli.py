@@ -1282,6 +1282,84 @@ def _co_locate_prediction_run_for_benchmark(pred_run: Path, eval_output_dir: Pat
     return target
 
 
+def _load_total_recipes_from_report_path(
+    report_path_value: Path | str | None,
+) -> int | None:
+    if report_path_value is None:
+        return None
+    report_path = Path(report_path_value)
+    if not report_path.exists() or not report_path.is_file():
+        return None
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    total_recipes = payload.get("totalRecipes")
+    try:
+        return int(total_recipes)
+    except (TypeError, ValueError):
+        return None
+
+
+def _load_pred_run_recipe_context(
+    pred_run: Path,
+) -> tuple[int | None, str, str]:
+    """Return ``(recipes, processed_report_path, source_file)`` for a pred run."""
+    manifest_path = pred_run / "manifest.json"
+    if not manifest_path.exists() or not manifest_path.is_file():
+        return (None, "", "")
+
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return (None, "", "")
+    if not isinstance(payload, dict):
+        return (None, "", "")
+
+    source_file = str(payload.get("source_file") or "")
+    processed_report_path = str(payload.get("processed_report_path") or "")
+
+    recipes: int | None
+    try:
+        recipes = int(payload.get("recipe_count"))
+    except (TypeError, ValueError):
+        recipes = None
+
+    if recipes is None and processed_report_path:
+        recipes = _load_total_recipes_from_report_path(processed_report_path)
+
+    return (recipes, processed_report_path, source_file)
+
+
+def _sum_bench_recipe_count(run_root: Path) -> int | None:
+    total = 0
+    found_any = False
+    for manifest_path in run_root.glob("per_item/*/pred_run/manifest.json"):
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        if not isinstance(payload, dict):
+            continue
+
+        recipe_count: int | None
+        try:
+            recipe_count = int(payload.get("recipe_count"))
+        except (TypeError, ValueError):
+            recipe_count = None
+
+        if recipe_count is None:
+            processed_report_path = payload.get("processed_report_path")
+            recipe_count = _load_total_recipes_from_report_path(processed_report_path)
+
+        if recipe_count is None:
+            continue
+        total += recipe_count
+        found_any = True
+
+    return total if found_any else None
+
+
 def _prune_empty_dirs(start: Path, *, stop_exclusive: Path | None = None) -> None:
     """Best-effort cleanup of empty directories after moving benchmark artifacts."""
     current = start
@@ -2521,6 +2599,51 @@ def stats_dashboard(
         webbrowser.open(html_path.as_uri())
 
 
+@app.command("benchmark-csv-backfill")
+def benchmark_csv_backfill(
+    out_dir: Path = typer.Option(
+        DEFAULT_OUTPUT,
+        "--out-dir",
+        help="Output root used to resolve the default history CSV path.",
+    ),
+    history_csv: Path | None = typer.Option(
+        None,
+        "--history-csv",
+        help="Explicit performance_history.csv path (overrides --out-dir).",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show what would be patched without writing to disk.",
+    ),
+) -> None:
+    """One-off patch for older benchmark CSV rows missing manifest-backed fields."""
+    from cookimport.analytics.perf_report import (
+        backfill_benchmark_history_csv,
+        history_path,
+    )
+
+    csv_path = history_csv or history_path(out_dir)
+    if not csv_path.exists():
+        _fail(f"History CSV not found: {csv_path}")
+
+    summary = backfill_benchmark_history_csv(csv_path, write=not dry_run)
+
+    if dry_run:
+        typer.secho(f"Dry run complete: {csv_path}", fg=typer.colors.CYAN)
+    else:
+        typer.secho(f"Backfill complete: {csv_path}", fg=typer.colors.GREEN)
+    typer.echo(f"Benchmark rows scanned: {summary.benchmark_rows}")
+    typer.echo(f"Rows updated: {summary.rows_updated}")
+    typer.echo(f"Recipes filled: {summary.recipes_filled}")
+    typer.echo(f"Report paths filled: {summary.report_paths_filled}")
+    typer.echo(f"Source file fields filled: {summary.source_files_filled}")
+    typer.echo(f"Rows still missing recipes: {summary.rows_still_missing_recipes}")
+
+    if dry_run and summary.rows_updated > 0:
+        typer.secho("Re-run without --dry-run to persist these patches.", fg=typer.colors.YELLOW)
+
+
 @app.command()
 def inspect(
     path: Path = typer.Argument(..., help="Workbook file to inspect."),
@@ -2773,6 +2896,11 @@ def labelstudio_eval(
         output_dir / "false_positive_preds.jsonl", result["false_positive_preds"]
     )
 
+    benchmark_recipes, processed_report_path, manifest_source_file = (
+        _load_pred_run_recipe_context(pred_run)
+    )
+    csv_source_file = manifest_source_file or ""
+
     from cookimport.analytics.perf_report import append_benchmark_csv, history_path
     append_benchmark_csv(
         report,
@@ -2780,6 +2908,9 @@ def labelstudio_eval(
         run_timestamp=dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         run_dir=str(output_dir),
         eval_scope=scope,
+        source_file=csv_source_file,
+        recipes=benchmark_recipes,
+        processed_report_path=processed_report_path,
     )
 
     typer.secho(
@@ -2993,6 +3124,14 @@ def labelstudio_benchmark(
         eval_result["false_positive_preds"],
     )
 
+    benchmark_recipes, manifest_report_path, _ = _load_pred_run_recipe_context(pred_run)
+    processed_report_path = import_result.get("processed_report_path")
+    csv_report_path = manifest_report_path
+    if not csv_report_path and processed_report_path is not None:
+        csv_report_path = str(processed_report_path)
+    if benchmark_recipes is None and processed_report_path is not None:
+        benchmark_recipes = _load_total_recipes_from_report_path(processed_report_path)
+
     from cookimport.analytics.perf_report import append_benchmark_csv, history_path
     append_benchmark_csv(
         report,
@@ -3001,6 +3140,8 @@ def labelstudio_benchmark(
         run_dir=str(eval_output_dir),
         eval_scope="freeform-spans",
         source_file=str(selected_source),
+        recipes=benchmark_recipes,
+        processed_report_path=csv_report_path,
     )
 
     typer.secho("Benchmark complete.", fg=typer.colors.GREEN)
@@ -3097,6 +3238,7 @@ def bench_run(
 
     # Build iteration packet
     build_iteration_packet(run_root, baseline_run_dir=baseline)
+    bench_recipe_total = _sum_bench_recipe_count(run_root)
 
     from cookimport.analytics.perf_report import append_benchmark_csv, history_path
     append_benchmark_csv(
@@ -3106,6 +3248,7 @@ def bench_run(
         run_dir=str(run_root),
         eval_scope="bench-suite",
         source_file=s.name,
+        recipes=bench_recipe_total,
     )
 
     typer.secho("Bench suite complete.", fg=typer.colors.GREEN)

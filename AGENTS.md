@@ -16,7 +16,7 @@ Add read_when hints on cross-cutting docs.
 
 Maintain the Source of Truth: Every time the agent makes a significant architectural change or learns something new about the project's "hidden rules," it must update "IMPORTANT CONVENTIONS.md"
 
-Externalize Discoveries: Any time the agent spends time "exploring" a complex logic flow to understand it, it should write a short summary of that discovery into a new file in /docs/14-understandings
+Externalize Discoveries: Any time the agent spends time "exploring" a complex logic flow to understand it, it should write a short summary of that discovery into a new file in /docs/understandings
 
 ## A DOCUMENTATION GOAL:
 Documentation should be prepared as something is build. It should be context for Reviewers: When reviewer open a Pull Request, the documentation changes serve as excellent context for  reviewers. 

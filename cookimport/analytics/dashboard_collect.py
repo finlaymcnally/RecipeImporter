@@ -104,6 +104,118 @@ def _parse_run_config_json(
     return None
 
 
+def _candidate_stage_report_paths(
+    report_path_raw: Any,
+    run_dir_raw: Any,
+) -> list[Path]:
+    candidates: list[Path] = []
+    seen: set[str] = set()
+
+    def _append(path: Path) -> None:
+        try:
+            key = str(path.resolve(strict=False))
+        except OSError:
+            key = str(path)
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(path)
+
+    report_text = str(report_path_raw).strip() if report_path_raw is not None else ""
+    if report_text:
+        report_path = Path(report_text).expanduser()
+        _append(report_path)
+        if not report_path.is_absolute():
+            _append(Path.cwd() / report_path)
+
+    run_dir_text = str(run_dir_raw).strip() if run_dir_raw is not None else ""
+    if report_text and run_dir_text:
+        report_name = Path(report_text).name
+        if report_name:
+            run_dir = Path(run_dir_text).expanduser()
+            _append(run_dir / report_name)
+            if not run_dir.is_absolute():
+                _append(Path.cwd() / run_dir / report_name)
+
+    return candidates
+
+
+def _load_stage_run_config_from_report(
+    report_path_raw: Any,
+    run_dir_raw: Any,
+    *,
+    warnings: list[str],
+    context: str,
+    cache: dict[tuple[str, str], tuple[dict[str, Any] | None, bool]],
+) -> tuple[dict[str, Any] | None, bool]:
+    report_key = str(report_path_raw).strip() if report_path_raw is not None else ""
+    run_dir_key = str(run_dir_raw).strip() if run_dir_raw is not None else ""
+    cache_key = (report_key, run_dir_key)
+    if cache_key in cache:
+        return cache[cache_key]
+
+    found_report = False
+    for candidate in _candidate_stage_report_paths(report_path_raw, run_dir_raw):
+        try:
+            if not candidate.is_file():
+                continue
+        except OSError:
+            continue
+
+        found_report = True
+        try:
+            payload = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            warnings.append(
+                f"{context}: failed reading report runConfig from {candidate}: {exc}"
+            )
+            continue
+
+        run_config = payload.get("runConfig")
+        if isinstance(run_config, dict):
+            cache[cache_key] = (run_config, True)
+            return (run_config, True)
+
+    cache[cache_key] = (None, found_report)
+    return (None, found_report)
+
+
+def _load_total_recipes_from_report(
+    report_path_raw: Any,
+    *,
+    warnings: list[str],
+    context: str,
+    cache: dict[str, int | None],
+) -> int | None:
+    report_key = str(report_path_raw).strip() if report_path_raw is not None else ""
+    if not report_key:
+        return None
+    if report_key in cache:
+        return cache[report_key]
+
+    for candidate in _candidate_stage_report_paths(report_path_raw, ""):
+        try:
+            if not candidate.is_file():
+                continue
+        except OSError:
+            continue
+
+        try:
+            payload = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            warnings.append(
+                f"{context}: failed reading processed report {candidate}: {exc}"
+            )
+            continue
+
+        recipes = _safe_int(payload.get("totalRecipes"))
+        cache[report_key] = recipes
+        return recipes
+
+    cache[report_key] = None
+    return None
+
+
 def _safe_div(numerator: float | None, denominator: int | float | None) -> float | None:
     if numerator is None or denominator is None or denominator == 0:
         return None
@@ -202,6 +314,10 @@ def _collect_from_csv(
     """Read the unified CSV and split rows into stage and benchmark records."""
     stage_records: list[StageRecord] = []
     bench_records: list[BenchmarkRecord] = []
+    report_run_config_cache: dict[
+        tuple[str, str], tuple[dict[str, Any] | None, bool]
+    ] = {}
+    benchmark_report_recipes_cache: dict[str, int | None] = {}
     try:
         with csv_path.open("r", newline="", encoding="utf-8") as fh:
             reader = csv.DictReader(fh)
@@ -214,6 +330,13 @@ def _collect_from_csv(
                     row_category = row.get("run_category", "")
                     if row_category in _BENCHMARK_CATEGORIES:
                         bench_record = _benchmark_record_from_csv_row(row, row_category)
+                        if bench_record.recipes is None and bench_record.report_path:
+                            bench_record.recipes = _load_total_recipes_from_report(
+                                bench_record.report_path,
+                                warnings=warnings,
+                                context=f"CSV row {row_num}",
+                                cache=benchmark_report_recipes_cache,
+                            )
                         if _is_pytest_temp_eval_artifact(bench_record.artifact_dir):
                             continue
                         bench_records.append(bench_record)
@@ -249,6 +372,18 @@ def _collect_from_csv(
                         warnings=warnings,
                         context=f"CSV row {row_num}",
                     )
+                    run_config_warning: str | None = None
+                    if run_config is None:
+                        run_config, report_found = _load_stage_run_config_from_report(
+                            row.get("report_path"),
+                            run_dir,
+                            warnings=warnings,
+                            context=f"CSV row {row_num}",
+                            cache=report_run_config_cache,
+                        )
+                        report_ref = str(row.get("report_path") or "").strip()
+                        if run_config is None and report_ref and not report_found:
+                            run_config_warning = "missing report (stale row)"
 
                     stage_records.append(StageRecord(
                         run_timestamp=ts,
@@ -258,6 +393,7 @@ def _collect_from_csv(
                         artifact_dir=run_dir,
                         importer_name=row.get("importer_name") or None,
                         run_config=run_config,
+                        run_config_warning=run_config_warning,
                         run_category=category,
                         total_seconds=total_seconds,
                         parsing_seconds=_safe_float(row.get("parsing_seconds")),
@@ -309,6 +445,7 @@ def _benchmark_record_from_csv_row(
         gold_total=_safe_int(row.get("gold_total")),
         pred_total=_safe_int(row.get("pred_total")),
         gold_matched=_safe_int(row.get("gold_matched")),
+        recipes=_safe_int(row.get("recipes")),
         supported_precision=_safe_float(row.get("supported_precision")),
         supported_recall=_safe_float(row.get("supported_recall")),
         boundary_correct=_safe_int(row.get("boundary_correct")),
@@ -349,6 +486,7 @@ def _merge_benchmark_record_fields(
         "gold_total",
         "pred_total",
         "gold_matched",
+        "recipes",
         "supported_precision",
         "supported_recall",
         "boundary_correct",
@@ -505,6 +643,7 @@ def _collect_benchmarks(
     warnings: list[str],
 ) -> list[BenchmarkRecord]:
     records: list[BenchmarkRecord] = []
+    processed_report_recipes_cache: dict[str, int | None] = {}
     if not golden_root.is_dir():
         return records
 
@@ -635,12 +774,22 @@ def _collect_benchmarks(
                     manifest.get("importer_name")
                     or manifest.get("pipeline")
                 )
+                recipe_count = _safe_int(manifest.get("recipe_count"))
+                if recipe_count is not None:
+                    record.recipes = recipe_count
                 run_config = manifest.get("run_config")
                 if isinstance(run_config, dict):
                     record.run_config = run_config
                 processed_report_path = manifest.get("processed_report_path")
                 if processed_report_path:
                     record.processed_report_path = str(processed_report_path)
+                    if record.recipes is None:
+                        record.recipes = _load_total_recipes_from_report(
+                            record.processed_report_path,
+                            warnings=warnings,
+                            context=f"benchmark manifest {manifest_path}",
+                            cache=processed_report_recipes_cache,
+                        )
                 break
             except (OSError, json.JSONDecodeError) as exc:
                 warnings.append(f"Malformed manifest.json in {manifest_path.parent}: {exc}")

@@ -20,6 +20,7 @@ from cookimport.analytics.dashboard_render import render_dashboard
 from cookimport.analytics.perf_report import (
     append_benchmark_csv,
     append_history_csv,
+    backfill_benchmark_history_csv,
     history_path,
     _CSV_FIELDS,
 )
@@ -192,7 +193,7 @@ def _write_eval_report(tmp_path: Path) -> Path:
 class TestSchema:
     def test_dashboard_data_minimal(self):
         d = DashboardData()
-        assert d.schema_version == "3"
+        assert d.schema_version == "5"
         assert d.stage_records == []
         assert d.benchmark_records == []
 
@@ -217,6 +218,7 @@ class TestSchema:
         assert r.recipes is None
         assert r.warnings_count is None
         assert r.run_config is None
+        assert r.run_config_warning is None
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +314,74 @@ class TestCollectors:
             "effective_workers": 10,
         }
 
+    def test_csv_collector_stage_run_config_fallback_from_report(self, tmp_path):
+        report_path = _write_report_json(tmp_path)
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = history_dir / "performance_history.csv"
+
+        stage_row = {field: "" for field in _CSV_FIELDS}
+        stage_row.update(
+            {
+                "run_timestamp": "2026-02-12T09:00:00",
+                "run_dir": str(report_path.parent),
+                "file_name": "test_book.pdf",
+                "report_path": str(report_path),
+                "run_category": "stage_import",
+                "total_seconds": "8.0",
+                "recipes": "15",
+            }
+        )
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(stage_row)
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.stage_records) == 1
+        assert data.stage_records[0].run_config == {
+            "epub_extractor": "legacy",
+            "ocr_device": "auto",
+            "ocr_batch_size": 1,
+            "effective_workers": 10,
+        }
+
+    def test_csv_collector_stage_run_config_warning_when_report_missing(self, tmp_path):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = history_dir / "performance_history.csv"
+
+        stage_row = {field: "" for field in _CSV_FIELDS}
+        stage_row.update(
+            {
+                "run_timestamp": "2026-02-12T09:00:00",
+                "run_dir": str(tmp_path / "output" / "2026-02-12_09.00.00"),
+                "file_name": "test_book.pdf",
+                "report_path": str(
+                    tmp_path / "output" / "2026-02-12_09.00.00"
+                    / "test_book.excel_import_report.json"
+                ),
+                "run_category": "stage_import",
+                "total_seconds": "8.0",
+                "recipes": "15",
+            }
+        )
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(stage_row)
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.stage_records) == 1
+        assert data.stage_records[0].run_config is None
+        assert data.stage_records[0].run_config_warning == "missing report (stale row)"
+
     def test_benchmark_collector(self, tmp_path):
         _write_eval_report(tmp_path)
         data = collect_dashboard_data(
@@ -328,14 +398,66 @@ class TestCollectors:
         assert len(b.per_label) == 2
         assert b.supported_recall == pytest.approx(0.55)
 
+    def test_benchmark_csv_recipes_backfill_from_processed_report_path(self, tmp_path):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+        processed_report = (
+            tmp_path / "output" / "2026-02-16_11.00.00" / "book.excel_import_report.json"
+        )
+        processed_report.parent.mkdir(parents=True, exist_ok=True)
+        processed_report.write_text(
+            json.dumps({"totalRecipes": 23}),
+            encoding="utf-8",
+        )
+
+        bench_row = {field: "" for field in _CSV_FIELDS}
+        bench_row.update(
+            {
+                "run_timestamp": "2026-02-16T11:05:00",
+                "run_dir": str(tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_11.05.00"),
+                "file_name": "book.epub",
+                "report_path": str(processed_report),
+                "run_category": "benchmark_eval",
+                "eval_scope": "freeform-spans",
+                "precision": "0.5",
+                "recall": "0.6",
+                "gold_total": "10",
+                "gold_matched": "6",
+                "pred_total": "12",
+                # Intentionally leave recipes empty to validate report-path backfill.
+                "recipes": "",
+            }
+        )
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(bench_row)
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.benchmark_records) == 1
+        assert data.benchmark_records[0].recipes == 23
+
     def test_benchmark_collector_prediction_run_manifest_enrichment(self, tmp_path):
         eval_path = _write_eval_report(tmp_path)
         pred_run_dir = eval_path.parent / "prediction-run"
         pred_run_dir.mkdir(parents=True, exist_ok=True)
+        processed_report_path = (
+            tmp_path / "output" / "2026-02-12_11.22.33" / "book.excel_import_report.json"
+        )
+        processed_report_path.parent.mkdir(parents=True, exist_ok=True)
+        processed_report_path.write_text(
+            json.dumps({"totalRecipes": 17}),
+            encoding="utf-8",
+        )
         (pred_run_dir / "manifest.json").write_text(
             json.dumps(
                 {
                     "task_count": 42,
+                    "recipe_count": 19,
                     "source_file": "/tmp/source/book.epub",
                     "importer_name": "epub",
                     "run_config": {
@@ -343,7 +465,7 @@ class TestCollectors:
                         "ocr_device": "auto",
                         "workers": 6,
                     },
-                    "processed_report_path": "/tmp/output/run/book.excel_import_report.json",
+                    "processed_report_path": str(processed_report_path),
                 }
             ),
             encoding="utf-8",
@@ -367,7 +489,8 @@ class TestCollectors:
             "ocr_device": "auto",
             "workers": 6,
         }
-        assert b.processed_report_path == "/tmp/output/run/book.excel_import_report.json"
+        assert b.processed_report_path == str(processed_report_path)
+        assert b.recipes == 19
         assert b.extracted_chars == 200
         assert b.chunked_chars == 150
         assert b.coverage_ratio == pytest.approx(0.75)
@@ -566,6 +689,7 @@ class TestRenderer:
         html_path = render_dashboard(tmp_path / "dash", data)
         html = html_path.read_text(encoding="utf-8")
         assert "Run Config" in html
+        assert "<th>Recipes</th>" in html
         assert "Precision: how many predictions were correct." in html
 
     def test_html_includes_run_and_file_trend_views(self, tmp_path):
@@ -639,6 +763,27 @@ class TestRenderer:
         assert "function compareRunTimestampDesc(aTs, bTs)" in js
         assert "compareRunTimestampDesc(a.run_timestamp, b.run_timestamp)" in js
 
+    def test_js_marks_stale_run_config_warning(self, tmp_path):
+        data = DashboardData(
+            stage_records=[
+                StageRecord(
+                    run_timestamp="2026-02-11_16.00.00",
+                    file_name="book.epub",
+                    run_config_warning="missing report (stale row)",
+                    total_seconds=12.0,
+                    recipes=6,
+                    per_recipe_seconds=2.0,
+                    artifact_dir="/tmp/output/2026-02-11_16.00.00",
+                )
+            ],
+            summary=DashboardSummary(total_stage_records=1, total_recipes=6),
+        )
+        render_dashboard(tmp_path / "dash", data)
+        js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
+        assert "run_config_warning" in js
+        assert 'class="warn-note"' in js
+        assert "[warn] " in js
+
     def test_idempotent(self, tmp_path):
         data = DashboardData()
         render_dashboard(tmp_path / "dash", data)
@@ -683,9 +828,34 @@ class TestBenchmarkCsv:
         assert row["boundary_under"] == "5"
         assert row["boundary_partial"] == "2"
         assert row["file_name"] == "my_book.pdf"
+        assert row["report_path"] == ""
         # Stage-only fields should be empty
         assert row["recipes"] == ""
         assert row["total_seconds"] == ""
+
+    def test_benchmark_csv_append_with_recipes_and_processed_report_path(self, tmp_path):
+        csv_path = tmp_path / "history.csv"
+        append_benchmark_csv(
+            SAMPLE_EVAL_REPORT,
+            csv_path,
+            run_timestamp="2026-02-11T16:00:00",
+            run_dir="/some/eval/dir",
+            eval_scope="freeform-spans",
+            source_file="my_book.pdf",
+            recipes=31,
+            processed_report_path="/tmp/output/2026-02-11_15.59.00/my_book.excel_import_report.json",
+        )
+        with csv_path.open("r", newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            rows = list(reader)
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["recipes"] == "31"
+        assert (
+            row["report_path"]
+            == "/tmp/output/2026-02-11_15.59.00/my_book.excel_import_report.json"
+        )
 
     def test_csv_with_mixed_rows(self, tmp_path):
         """CSV with both stage and benchmark rows; collector produces both."""
@@ -712,6 +882,7 @@ class TestBenchmarkCsv:
         assert b.boundary_correct == 10
         assert b.supported_recall == pytest.approx(0.55)
         assert b.source_file == "my_book.pdf"
+        assert b.recipes is None
 
     def test_csv_and_json_benchmark_rows_merge_by_artifact_dir(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
@@ -751,6 +922,7 @@ class TestBenchmarkCsv:
         b = data.benchmark_records[0]
         assert b.artifact_dir == str(eval_dir)
         assert b.source_file == "my_book.pdf"
+        assert b.recipes is None
         assert len(b.per_label) == 2
 
     def test_benchmark_csv_schema_migration(self, tmp_path):
@@ -800,3 +972,104 @@ class TestBenchmarkCsv:
         # New row should have benchmark fields populated
         assert rows[1]["run_category"] == "benchmark_eval"
         assert float(rows[1]["precision"]) == pytest.approx(0.05)
+
+    def test_backfill_benchmark_csv_from_prediction_manifest(self, tmp_path):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+
+        eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_14.05.00"
+        pred_run = eval_dir / "prediction-run"
+        pred_run.mkdir(parents=True, exist_ok=True)
+        processed_report = (
+            tmp_path / "output" / "2026-02-16_14.04.00" / "book.excel_import_report.json"
+        )
+        processed_report.parent.mkdir(parents=True, exist_ok=True)
+        processed_report.write_text(json.dumps({"totalRecipes": 12}), encoding="utf-8")
+        (pred_run / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "recipe_count": 12,
+                    "processed_report_path": str(processed_report),
+                    "source_file": "book.epub",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        bench_row = {field: "" for field in _CSV_FIELDS}
+        bench_row.update(
+            {
+                "run_timestamp": "2026-02-16T14:05:00",
+                "run_dir": str(eval_dir),
+                "run_category": "benchmark_eval",
+                "eval_scope": "freeform-spans",
+            }
+        )
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(bench_row)
+
+        summary = backfill_benchmark_history_csv(csv_path)
+        assert summary.benchmark_rows == 1
+        assert summary.rows_updated == 1
+        assert summary.recipes_filled == 1
+        assert summary.report_paths_filled == 1
+        assert summary.source_files_filled == 1
+        assert summary.rows_still_missing_recipes == 0
+
+        with csv_path.open("r", newline="", encoding="utf-8") as fh:
+            row = next(csv.DictReader(fh))
+        assert row["recipes"] == "12"
+        assert row["report_path"] == str(processed_report)
+        assert row["file_name"] == "book.epub"
+
+    def test_backfill_benchmark_csv_sums_bench_suite_item_recipes(self, tmp_path):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+        run_dir = tmp_path / "golden" / "bench" / "runs" / "2026-02-16_14.20.00"
+        (run_dir / "per_item" / "a" / "pred_run").mkdir(parents=True, exist_ok=True)
+        (run_dir / "per_item" / "b" / "pred_run").mkdir(parents=True, exist_ok=True)
+        (run_dir / "per_item" / "a" / "pred_run" / "manifest.json").write_text(
+            json.dumps({"recipe_count": 4}),
+            encoding="utf-8",
+        )
+        processed_report = (
+            tmp_path / "output" / "2026-02-16_14.19.00" / "item-b.excel_import_report.json"
+        )
+        processed_report.parent.mkdir(parents=True, exist_ok=True)
+        processed_report.write_text(json.dumps({"totalRecipes": 7}), encoding="utf-8")
+        (run_dir / "per_item" / "b" / "pred_run" / "manifest.json").write_text(
+            json.dumps({"processed_report_path": str(processed_report)}),
+            encoding="utf-8",
+        )
+
+        bench_row = {field: "" for field in _CSV_FIELDS}
+        bench_row.update(
+            {
+                "run_timestamp": "2026-02-16T14:21:00",
+                "run_dir": str(run_dir),
+                "run_category": "benchmark_eval",
+                "eval_scope": "bench-suite",
+                "file_name": "my-suite",
+            }
+        )
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(bench_row)
+
+        summary = backfill_benchmark_history_csv(csv_path)
+        assert summary.benchmark_rows == 1
+        assert summary.rows_updated == 1
+        assert summary.recipes_filled == 1
+        assert summary.report_paths_filled == 0
+        assert summary.source_files_filled == 0
+        assert summary.rows_still_missing_recipes == 0
+
+        with csv_path.open("r", newline="", encoding="utf-8") as fh:
+            row = next(csv.DictReader(fh))
+        assert row["recipes"] == "11"
+        assert row["report_path"] == ""

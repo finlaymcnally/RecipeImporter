@@ -32,6 +32,8 @@ This CSV is populated by:
   - `labelstudio-eval`
   - `labelstudio-benchmark`
   - `bench run`
+- optional one-off repair command for older benchmark rows:
+  - `benchmark-csv-backfill` (patches missing benchmark `recipes/report_path/file_name` from manifests)
 
 ### Stage-report fallback/supplement
 
@@ -54,7 +56,9 @@ Optional enrichment files in each eval directory:
 Manifest enrichment now includes benchmark run context used by the dashboard:
 - `importer_name`
 - `run_config` (for example `epub_extractor`, `ocr_device`, worker knobs)
+- `recipe_count` (extracted recipes in prediction run)
 - `processed_report_path` when processed outputs were written during benchmark
+  - benchmark `recipes` prefers `recipe_count`; collector backfills from `processed_report_path` (`totalRecipes`) when needed
 
 ## Where dashboard stats are saved
 
@@ -89,6 +93,27 @@ The throughput section is intentionally split into two complementary views:
 Timestamp ordering note:
 - Recent-run and benchmark tables sort by parsed time (not raw string compare), so mixed timestamp formats like `YYYY-MM-DDTHH:MM:SS` and `YYYY-MM-DD_HH.MM.SS` still appear in true chronological order.
 - Frontend timestamp parsing should use explicit component parsing for these two forms (with `Date` fallback for timezone-bearing ISO values) rather than relying only on `Date.parse`.
+
+Run config note:
+- Stage/import `Run Config` values come from CSV `run_config_json`.
+- If that column is empty on older history rows, the collector attempts to backfill from each row's `report_path` (`runConfig` in `*.excel_import_report.json`) when available.
+- If neither CSV nor report data is available and a report path reference exists, dashboard tables show `[warn] missing report (stale row)`.
+
+Benchmark recipes note:
+- `Recent Benchmarks` includes a `Recipes` column.
+- Benchmark recipe counts are persisted in CSV `recipes` for benchmark entrypoints (`labelstudio-benchmark`, `labelstudio-eval`, `bench run`) whenever recipe context is available.
+- Collector prefers manifest `recipe_count`, then falls back to `processed_report_path` -> report `totalRecipes` when needed.
+- For historical rows created before CSV persistence was complete, run `cookimport benchmark-csv-backfill` once to patch missing values.
+
+## Historical decisions worth preserving
+
+Timeline notes merged from former `docs/understandings` files:
+
+- `2026-02-15_23.17.17`: local `file://` dashboard failures were fixed by embedding inline JSON in `index.html`; keep inline-first + fetch-fallback behavior.
+- `2026-02-15_23.51.02` -> `2026-02-16_00.25.07`: throughput UI intentionally keeps both run/date trend and single selected-file trend; full per-file list/cards were tried (`00.12.54`) and rejected as too heavy.
+- `2026-02-16_10.37.22` -> `2026-02-16_10.51.07`: stage run-config display must stay CSV-first, report-path fallback second, with explicit stale-row warning text when report references are missing.
+- `2026-02-16_10.56.36`: benchmark `Gold`/`Matched` are span-eval metrics; `Recipes` is separate and should not be interpreted as score denominator.
+- `2026-02-16_11.33.17`: benchmark `recipes` must be persisted across all benchmark CSV append paths (`labelstudio-benchmark`, `labelstudio-eval`, `bench run`) to avoid blank `Recipes` rows.
 
 ## Regenerate
 

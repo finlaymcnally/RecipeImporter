@@ -105,11 +105,14 @@ For stage rows, key analytics columns include:
 - output size: `output_files`, `output_bytes`
 - derived descriptors: `knowledge_share`, `knowledge_heavy`, dominant stage/checkpoint fields
 - run context: `run_config_json` (serialized `runConfig` from per-file reports when available)
+  - dashboard collector fallback: when `run_config_json` is empty, collector tries `report_path` JSON `runConfig`
+  - stale-row signal: when a `report_path` reference is present but missing on disk, dashboard can emit a run-config warning
 
 For benchmark rows, key columns include:
 
 - `precision`, `recall`, `f1`
 - `gold_total`, `gold_matched`, `pred_total`
+- `recipes` (from pred-run manifest `recipe_count` when available; fallback from processed report when available)
 - `supported_precision`, `supported_recall`
 - boundary columns: `boundary_correct`, `boundary_over`, `boundary_under`, `boundary_partial`
 - `eval_scope`, `source_file` (stored in `file_name`)
@@ -127,8 +130,9 @@ Dashboard collector reads:
 Collector enrichment:
 
 - optional `coverage.json` adds `extracted_chars`, `chunked_chars`, `coverage_ratio`
-- optional `manifest.json` adds `task_count`, `source_file`
+- optional `manifest.json` adds `task_count`, `source_file`, `recipe_count`
 - benchmark collector also checks `prediction-run/{coverage.json,manifest.json}` and can enrich `importer_name`, `run_config`, and `processed_report_path` when present
+  - benchmark `recipes` prefers manifest `recipe_count`; if missing, collector can backfill from `processed_report_path` -> report `totalRecipes`
 
 Collector exclusions/filters:
 
@@ -152,6 +156,16 @@ Collector exclusions/filters:
 
 - Summarizes one run (`--run-dir` or auto-detect latest under `--out-dir`).
 - Optionally appends to CSV (`--write-csv/--no-csv`).
+
+### `cookimport benchmark-csv-backfill`
+
+- One-off repair command for historical benchmark CSV rows.
+- Reads `performance_history.csv` and patches benchmark rows missing `recipes` / `report_path` / `file_name`.
+- Backfill source order:
+  - existing CSV `report_path` -> report `totalRecipes` (for missing `recipes`)
+  - benchmark manifests (`prediction-run/manifest.json`, `run_dir/manifest.json`, `per_item/*/pred_run/manifest.json`)
+  - manifest `recipe_count` first, then manifest `processed_report_path` -> report `totalRecipes`
+- Writes changes in place (or preview only with `--dry-run`).
 
 ### `cookimport stats-dashboard`
 
@@ -211,8 +225,8 @@ Status:
 
 ### 2026-02-15_22.07.37 analytics metrics flow and mismatch map
 
-Merged source:
-- `docs/understandings/2026-02-15_22.07.37-analytics-metrics-flow-and-mismatches.md`
+Merged source file:
+- `2026-02-15_22.07.37-analytics-metrics-flow-and-mismatches.md` (formerly in `docs/understandings`)
 
 Preserved findings:
 - Stage writes per-file reports at `<run_root>/<slug>.excel_import_report.json`, then derives perf summary rows and appends history CSV.
@@ -220,6 +234,220 @@ Preserved findings:
 - Two mismatches remain important:
   - `perf_report.resolve_run_dir()` still expects hyphen-style timestamp folders while stage uses underscore/dot format.
   - End-of-stage auto history append writes to `history_path(DEFAULT_OUTPUT)` even when stage used a custom `--out`.
+
+### 2026-02-15_23.17.17 file:// dashboard data-loading fallback
+
+Merged source file:
+- `2026-02-15_23.17.17-stats-dashboard-file-scheme-fetch-fallback.md` (formerly in `docs/understandings`)
+
+Problem captured:
+- Browser local-file mode (`file://`) can block JS `fetch("assets/dashboard_data.json")`, making dashboard appear broken even when artifacts were written correctly.
+
+Decision captured:
+- Keep writing `assets/dashboard_data.json` for normal hosting/inspection.
+- Also embed the same JSON payload inline in `index.html`.
+- Dashboard JS should read inline JSON first, then fall back to fetch only when inline payload is missing/invalid.
+
+### 2026-02-15_23.36.55 benchmark metadata merge by artifact directory
+
+Merged source file:
+- `2026-02-15_23.36.55-benchmark-dashboard-metadata-flow.md` (formerly in `docs/understandings`)
+
+Problem captured:
+- Benchmark enrichment metadata (`manifest.json`, `coverage.json`) can live under `<eval_dir>/prediction-run/`, not only eval root.
+- CSV and JSON benchmark rows can describe the same eval run with timestamp differences, creating duplicate rows when merged by timestamp.
+
+Decision captured:
+- Probe both eval root and `prediction-run/` for benchmark enrichment.
+- Merge CSV + JSON benchmark rows by eval artifact directory and fill missing fields instead of appending duplicates.
+
+### 2026-02-15_23.50.42 throughput view split into run/date + file-trend perspectives
+
+Merged source:
+- `docs/tasks/2026-02-15_23.50.42 - dashboard-throughput-run-and-file-views.md`
+
+Problem captured:
+- Existing throughput section made it hard to answer both run-over-run trend questions and per-file trend questions.
+
+Decision captured:
+- Keep run/date view (`Recent Runs` table + trend) and add a file-focused trend/table view for one selected file over time.
+- Scope explicitly kept renderer-only (no collector/schema changes for this step).
+
+Task verification/evidence preserved:
+- `. .venv/bin/activate && pytest -q tests/test_stats_dashboard.py`
+- recorded result: `24 passed`.
+
+### 2026-02-15_23.51.02 throughput organization rule clarified
+
+Merged source file:
+- `2026-02-15_23.51.02-dashboard-throughput-run-vs-file-organization.md` (formerly in `docs/understandings`)
+
+Durable rule:
+- Throughput should continue exposing both views backed by the same stage records:
+  - run/date timeline across all records (newest-first table sorting),
+  - single-file trend over time grouped by `StageRecord.file_name` (chronological trend order).
+
+### 2026-02-16_00.10.16 mixed timestamp sort fix
+
+Merged source:
+- `docs/tasks/2026-02-16_00.10.16 - fix-dashboard-benchmark-time-sort.md`
+- `2026-02-16_00.10.16-dashboard-mixed-timestamp-sort-order.md` (formerly in `docs/understandings`)
+
+Problem captured:
+- Lexicographic sort broke ordering when datasets mixed `YYYY-MM-DDTHH:MM:SS` and `YYYY-MM-DD_HH.MM.SS`.
+
+Decision captured:
+- Use parsed timestamp ordering in both collector (latest timestamp selection + sort keys) and renderer JS (recent benchmark/run tables).
+- Keep unparseable rows visible and place them last where possible.
+
+Task verification/evidence preserved:
+- `. .venv/bin/activate && pytest -q tests/test_stats_dashboard.py` with mixed-format timestamp regressions (task records `26 passed`).
+- `cookimport stats-dashboard` run also recorded as successful artifact regeneration.
+
+### 2026-02-16_00.13.03 per-file history lists experiment (later superseded)
+
+Merged source:
+- `docs/tasks/2026-02-16_00.13.03 - dashboard-per-file-import-history-lists.md`
+- `2026-02-16_00.12.54-dashboard-throughput-per-file-history-lists.md` (formerly in `docs/understandings`)
+
+What was tried:
+- Replaced selected-file trend control with always-visible `Per-File History Lists` (one table per file).
+
+Why this matters historically:
+- This was a real implemented direction (with tests passing), but it was later judged too heavy and replaced.
+
+Task verification/evidence preserved:
+- task records `pytest -q tests/test_stats_dashboard.py` passing (`26 passed`).
+
+### 2026-02-16_00.19.42 stage/import run-config context added to throughput tables
+
+Merged source:
+- `docs/tasks/2026-02-16_00.19.42 - dashboard-import-run-config-columns.md`
+- `2026-02-16_00.19.42-stage-run-config-flow-into-dashboard.md` (formerly in `docs/understandings`)
+
+Problem captured:
+- Benchmark rows showed run-config summaries, stage/import rows did not.
+
+Decision captured:
+- Persist stage `runConfig` into CSV (`run_config_json`) during history writes.
+- Collect into stage records and render `Importer` + `Run Config` columns in run/date and file-trend tables.
+- Reuse benchmark-style summary key ordering/formatting for consistency.
+
+Task verification/evidence preserved:
+- task records `pytest -q tests/test_stats_dashboard.py` passing (`27 passed`).
+
+### 2026-02-16_00.25.07 selector-based file trend restored (reversal of 00.13.03)
+
+Merged source:
+- `docs/tasks/2026-02-16_00.25.07 - dashboard-file-trend-selector-restore.md`
+- `2026-02-16_00.25.07-dashboard-file-trend-selector-preferred.md` (formerly in `docs/understandings`)
+
+Reason for reversal:
+- always-visible per-file list layout was considered visually heavy and slower to scan.
+
+Final decision captured:
+- Restore single dropdown-driven file trend UI.
+- Keep run-config columns/summaries introduced at `00.19.42`.
+
+Task verification/evidence preserved:
+- task records `pytest -q tests/test_stats_dashboard.py` passing (`27 passed`).
+
+Anti-loop note:
+- Per-file card/list layout is a known attempted branch; do not reintroduce it without a clear UX reason.
+
+### 2026-02-16_00.26.20 pytest temp benchmark artifact filtering
+
+Merged source:
+- `docs/tasks/2026-02-16_00.26.20 - dashboard-ignore-pytest-benchmark-artifacts.md`
+- `2026-02-16_00.26.20-dashboard-ignore-pytest-benchmark-artifacts.md` (formerly in `docs/understandings`)
+
+Problem captured:
+- `Recent Benchmarks` could include local pytest temp rows (for example `pytest-46/test_.../eval`), polluting user-facing history.
+
+Decision captured:
+- Add narrow pytest-path detector in benchmark collectors and skip matching temp artifact rows in both CSV and JSON collection paths.
+
+Task verification/evidence preserved:
+- targeted filter test: `1 passed, 27 deselected`.
+- full suite after change: `28 passed`.
+
+### 2026-02-16_10.37.22 report-path run-config backfill for historical stage rows
+
+Merged source:
+- `docs/tasks/2026-02-16_10.37.22 - dashboard-stage-run-config-backfill-from-report-path.md`
+- `2026-02-16_10.37.22-stage-run-config-csv-backfill-rule.md` (formerly in `docs/understandings`)
+
+Problem captured:
+- Older CSV rows often have empty `run_config_json`, leaving new Run Config columns blank.
+
+Decision captured:
+- Collector precedence:
+  - use CSV `run_config_json` when present,
+  - else best-effort read row `report_path` JSON and load `runConfig`.
+- Keep fallback read-only and non-fatal when report files are missing.
+
+Task verification/evidence preserved:
+- task records `pytest -q tests/test_stats_dashboard.py` passing (`29 passed`).
+
+### 2026-02-16_10.43.02 stale-row warning for missing report references
+
+Merged source:
+- `docs/tasks/2026-02-16_10.43.02 - dashboard-stale-run-config-warning.md`
+- `2026-02-16_10.43.02-dashboard-stale-row-warning-rule.md` (formerly in `docs/understandings`)
+
+Problem captured:
+- Some rows had neither CSV config nor resolvable report path, and silently rendered as `-`.
+
+Decision captured:
+- Add `StageRecord.run_config_warning`.
+- Mark rows as stale when `report_path` is referenced but missing.
+- Keep stale rows visible and render explicit warning text in Run Config cell.
+
+Task verification/evidence preserved:
+- task records `pytest -q tests/test_stats_dashboard.py` passing (`31 passed`).
+
+### 2026-02-16_10.51.07 consolidated rule: CSV-first run-config + report fallback + stale warning
+
+Merged source:
+- `docs/tasks/2026-02-16_10.51.07 - csv-robust-stage-run-config-and-stale-warning.md`
+- `2026-02-16_10.51.07-stage-run-config-stale-warning-metadata.md` (formerly in `docs/understandings`)
+
+Final durable rule from the `10.37 -> 10.43 -> 10.51` sequence:
+1. Primary: use CSV `run_config_json`.
+2. Fallback: parse `report_path` JSON `runConfig` when primary is empty and report still exists.
+3. If both unavailable and report reference is stale: keep row and render warning (`[warn] missing report (stale row)`).
+
+Task verification/evidence preserved:
+- task records `pytest -q tests/test_stats_dashboard.py` passing (`31 passed`).
+
+### 2026-02-16_10.56.36 benchmark recipe counts vs span metrics
+
+Merged source file:
+- `2026-02-16_10.56.36-benchmark-dashboard-recipe-count-vs-span-metrics.md` (formerly in `docs/understandings`)
+
+Problem captured:
+- Users were reading `Gold`/`Matched` columns in `Recent Benchmarks` as recipe totals; those are span-eval counts.
+
+Decision captured:
+- Keep span metrics (`Gold`, `Matched`) as the scoring surface.
+- Add benchmark `Recipes` column sourced from CSV `recipes` and backfilled from `processed_report_path` (`totalRecipes`) when needed.
+
+Anti-loop note:
+- Perfect span scores do not imply perfect recipe-level parity in staged cookbook outputs; these are related but different contracts.
+
+### 2026-02-16_11.33.17 benchmark recipes blank due to CSV append-path gaps
+
+Merged source file:
+- `2026-02-16_11.33.17-benchmark-recipes-blank-csv-path-gaps.md` (formerly in `docs/understandings`)
+
+Problem captured:
+- `Recent Benchmarks` reads from benchmark `recipes`, but only one command path initially persisted recipe counts consistently.
+- `labelstudio-eval` and `bench run` could leave `recipes` blank even for new rows.
+
+Final rule:
+- Persist benchmark `recipes` in CSV for every benchmark CLI entrypoint (`labelstudio-benchmark`, `labelstudio-eval`, `bench run`).
+- Use prediction-run manifest `recipe_count` first.
+- Fall back to `processed_report_path` -> `totalRecipes` when manifest recipe count is unavailable.
 
 ## 6) Known bad / sharp edges (important)
 

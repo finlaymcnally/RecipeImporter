@@ -833,6 +833,8 @@ def generate_pred_run_artifacts(
         "importer_name": importer.name,
         "source_file": str(path),
         "book_id": book_id,
+        "recipe_count": len(result.recipes),
+        "tip_count": len(result.tips),
         "run_timestamp": run_dt.isoformat(timespec="seconds"),
         "run_config": run_config,
         "processed_run_root": (
@@ -1041,6 +1043,7 @@ def run_labelstudio_import(
         "project_id": project_id,
         "run_root": run_root,
         "processed_run_root": pred["processed_run_root"],
+        "processed_report_path": pred["processed_report_path"],
         "tasks_total": pred["tasks_total"],
         "tasks_uploaded": uploaded_count,
         "manifest_path": manifest_path,

@@ -276,6 +276,7 @@ Top-level command groups:
 - `cookimport labelstudio-eval`
 - `cookimport labelstudio-benchmark`
 - `cookimport perf-report`
+- `cookimport benchmark-csv-backfill`
 - `cookimport stats-dashboard`
 - `cookimport bench <validate|run|sweep|knobs>`
 - `cookimport tag-catalog export`
@@ -334,6 +335,23 @@ Options:
 - `--run-dir PATH`: specific run folder to summarize (defaults to latest under `--out-dir`).
 - `--out-dir PATH` (default `data/output`): output root used for discovery and history CSV location.
 - `--write-csv / --no-csv` (default `--write-csv`): append summary rows to history CSV or skip.
+
+### `cookimport benchmark-csv-backfill`
+
+One-off patch command for historical benchmark rows in `performance_history.csv`.
+
+What it does:
+
+- scans benchmark rows (`run_category=benchmark_eval|benchmark_prediction`)
+- fills missing `recipes` from benchmark manifests (`recipe_count`) with fallback to `processed_report_path -> totalRecipes`
+- fills missing `report_path` and `file_name` from benchmark manifests when available
+- writes updates in-place to the CSV unless `--dry-run` is used
+
+Options:
+
+- `--out-dir PATH` (default `data/output`): used to resolve default CSV path (`<out-dir>/.history/performance_history.csv`).
+- `--history-csv PATH`: explicit CSV path override.
+- `--dry-run` (default `false`): report how many rows would be patched without writing.
 
 ### `cookimport stats-dashboard`
 
@@ -562,17 +580,54 @@ Precedence notes:
 - For EPUB extractor: explicit `stage --epub-extractor`, explicit `labelstudio-benchmark --epub-extractor`, or interactive setting/prompt writes `C3IMP_EPUB_EXTRACTOR` for that run.
 - For tag DB URL: `--db-url` wins; env var is fallback.
 
-## Merged Discovery Provenance (`docs/understandings`)
+## Merged Discovery Provenance (Former `docs/understandings`)
 
-Merged source:
-- `2026-02-15_21.04.54-cli-interactive-flow-map.md`
+The understanding files listed below were merged into this README in timestamp order so CLI behavior + anti-loop notes live in one place.
+
+### 2026-02-15_21.04.54 cli interactive flow map
 
 Preserved points:
 - `cookimport` enters interactive mode only when no subcommand is invoked.
 - `import` / `C3import` wrappers are batch-first shortcuts (no-arg path runs `stage(data/input)` immediately).
 - Interactive import `limit` comes from `C3IMP_LIMIT` (for example via `C3imp <N>`), not a separate interactive prompt.
 - Non-interactive Label Studio write paths remain explicitly gated by `--allow-labelstudio-write`.
-- Interactive Label Studio import and interactive benchmark upload do not ask extra upload-confirmation questions; once the flow/mode is chosen, upload proceeds after credential resolution.
+- Interactive Label Studio import and interactive benchmark upload do not ask extra upload-confirmation questions; once flow/mode is chosen, upload proceeds after credential resolution.
+
+### 2026-02-15_22.44.43 interactive menu loop after jobs
+
+Merged source file:
+- `2026-02-15_22.44.43-interactive-menu-loop-after-jobs.md` (formerly in `docs/understandings`)
+
+Preserved finding:
+- Successful interactive `import`, `labelstudio`, `labelstudio_export`, and `labelstudio_benchmark` branches previously used `break`, which exited the whole session after one job.
+
+Current rule:
+- These branches must `continue` back to main menu.
+- Interactive mode exits only when main-menu action is `exit` (or `None`).
+
+### 2026-02-15_23.03.59 interactive menu numbering source
+
+Merged source file:
+- `2026-02-15_23.03.59-interactive-menu-numbering-source.md` (formerly in `docs/understandings`)
+
+Preserved finding:
+- Interactive select prompts should route through `_menu_select()` in `cookimport/cli.py`.
+
+Why this matters:
+- `_menu_select()` is the one control point for numbering, shortcut handling, and Backspace navigation.
+- Bypassing `_menu_select()` causes menu UX drift and inconsistent keyboard behavior.
+
+### 2026-02-15_23.11.30 interactive generate-dashboard feedback
+
+Merged source file:
+- `2026-02-15_23.11.30-interactive-generate-dashboard-feedback.md` (formerly in `docs/understandings`)
+
+Preserved finding:
+- `generate_dashboard` already worked, but immediate menu redraw looked like a no-op.
+
+Current rule:
+- Interactive dashboard generation prompts whether to open the produced dashboard.
+- `open_browser` response is forwarded into `stats_dashboard(...)` call.
 
 ## Merged Task Specs (`docs/tasks`)
 

@@ -10,6 +10,7 @@ from typing import Any, Iterable
 _RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$")
 _HISTORY_FILENAME = "performance_history.csv"
 _HISTORY_DIRNAME = ".history"
+_BENCHMARK_CATEGORIES = {"benchmark_eval", "benchmark_prediction"}
 
 
 @dataclass(frozen=True)
@@ -114,6 +115,23 @@ class PerfSummary:
     per_recipe_outliers: list[PerfRow]
     per_unit_outliers: list[PerfRow]
     knowledge_heavy: list[PerfRow]
+
+
+@dataclass(frozen=True)
+class BenchmarkCsvBackfillSummary:
+    benchmark_rows: int
+    rows_updated: int
+    recipes_filled: int
+    report_paths_filled: int
+    source_files_filled: int
+    rows_still_missing_recipes: int
+
+
+@dataclass(frozen=True)
+class _BenchmarkBackfillContext:
+    recipes: int | None = None
+    report_path: str = ""
+    source_file: str = ""
 
 
 def history_path(out_dir: Path) -> Path:
@@ -235,6 +253,8 @@ def append_benchmark_csv(
     run_dir: str,
     eval_scope: str = "",
     source_file: str = "",
+    recipes: int | None = None,
+    processed_report_path: str = "",
     run_category: str = "benchmark_eval",
 ) -> None:
     """Append one benchmark eval row to the performance history CSV.
@@ -264,6 +284,8 @@ def append_benchmark_csv(
         "run_timestamp": run_timestamp,
         "run_dir": run_dir,
         "file_name": source_file,
+        "report_path": processed_report_path,
+        "recipes": recipes if recipes is not None else "",
         "run_category": run_category,
         "eval_scope": eval_scope,
         "precision": precision if precision is not None else "",
@@ -285,6 +307,87 @@ def append_benchmark_csv(
         if write_header:
             writer.writeheader()
         writer.writerow(row)
+
+
+def backfill_benchmark_history_csv(
+    csv_path: Path,
+    *,
+    write: bool = True,
+) -> BenchmarkCsvBackfillSummary:
+    """Patch benchmark rows with missing recipe/report/source fields from manifests."""
+    if not csv_path.exists():
+        raise FileNotFoundError(csv_path)
+
+    _ensure_csv_schema(csv_path)
+    with csv_path.open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+
+    benchmark_rows = 0
+    rows_updated = 0
+    recipes_filled = 0
+    report_paths_filled = 0
+    source_files_filled = 0
+    rows_still_missing_recipes = 0
+
+    for row in rows:
+        if row.get("run_category", "") not in _BENCHMARK_CATEGORIES:
+            continue
+        benchmark_rows += 1
+
+        row_updated = False
+        run_dir_value = str(row.get("run_dir") or "").strip()
+        run_dir = Path(run_dir_value) if run_dir_value else None
+
+        recipes_before = _parse_int_or_none(row.get("recipes"))
+        recipes_value = recipes_before
+        report_path_value = str(row.get("report_path") or "").strip()
+        source_file_value = str(row.get("file_name") or "").strip()
+
+        if recipes_value is None and report_path_value:
+            recipes_value = _load_total_recipes_from_report(report_path_value)
+
+        context = _collect_benchmark_backfill_context(run_dir)
+
+        if recipes_value is None and context.recipes is not None:
+            row["recipes"] = str(context.recipes)
+            recipes_value = context.recipes
+            row_updated = True
+            recipes_filled += 1
+
+        if not report_path_value and context.report_path:
+            row["report_path"] = context.report_path
+            report_path_value = context.report_path
+            row_updated = True
+            report_paths_filled += 1
+
+        if not source_file_value and context.source_file:
+            row["file_name"] = context.source_file
+            source_file_value = context.source_file
+            row_updated = True
+            source_files_filled += 1
+
+        if recipes_before is None and recipes_value is None:
+            rows_still_missing_recipes += 1
+
+        if row_updated:
+            rows_updated += 1
+
+    if write and rows_updated > 0:
+        with csv_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({field: row.get(field, "") for field in _CSV_FIELDS})
+
+    return BenchmarkCsvBackfillSummary(
+        benchmark_rows=benchmark_rows,
+        rows_updated=rows_updated,
+        recipes_filled=recipes_filled,
+        report_paths_filled=report_paths_filled,
+        source_files_filled=source_files_filled,
+        rows_still_missing_recipes=rows_still_missing_recipes,
+    )
 
 
 def _row_from_report(run_dir: Path, report_path: Path, data: dict[str, Any]) -> PerfRow | None:
@@ -440,6 +543,105 @@ def _safe_int(value: Any, *, allow_none: bool = False) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None if allow_none else 0
+
+
+def _parse_int_or_none(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        try:
+            return int(float(text))
+        except (TypeError, ValueError):
+            return None
+
+
+def _load_total_recipes_from_report(report_path_value: Path | str | None) -> int | None:
+    if report_path_value is None:
+        return None
+    report_path = Path(report_path_value)
+    if not report_path.exists() or not report_path.is_file():
+        return None
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    return _parse_int_or_none(payload.get("totalRecipes"))
+
+
+def _load_manifest_backfill_context(
+    manifest_path: Path,
+) -> _BenchmarkBackfillContext | None:
+    if not manifest_path.exists() or not manifest_path.is_file():
+        return None
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    report_path = str(payload.get("processed_report_path") or "")
+    recipes = _parse_int_or_none(payload.get("recipe_count"))
+    if recipes is None and report_path:
+        recipes = _load_total_recipes_from_report(report_path)
+
+    return _BenchmarkBackfillContext(
+        recipes=recipes,
+        report_path=report_path,
+        source_file=str(payload.get("source_file") or ""),
+    )
+
+
+def _collect_benchmark_backfill_context(run_dir: Path | None) -> _BenchmarkBackfillContext:
+    if run_dir is None:
+        return _BenchmarkBackfillContext()
+
+    contexts: list[_BenchmarkBackfillContext] = []
+    for manifest_path in (
+        run_dir / "prediction-run" / "manifest.json",
+        run_dir / "manifest.json",
+    ):
+        context = _load_manifest_backfill_context(manifest_path)
+        if context is not None:
+            contexts.append(context)
+
+    per_item_contexts: list[_BenchmarkBackfillContext] = []
+    for manifest_path in sorted(run_dir.glob("per_item/*/pred_run/manifest.json")):
+        context = _load_manifest_backfill_context(manifest_path)
+        if context is not None:
+            per_item_contexts.append(context)
+
+    recipes: int | None = None
+    report_path = ""
+    source_file = ""
+
+    for context in contexts:
+        if recipes is None and context.recipes is not None:
+            recipes = context.recipes
+        if not report_path and context.report_path:
+            report_path = context.report_path
+        if not source_file and context.source_file:
+            source_file = context.source_file
+
+    if recipes is None and per_item_contexts:
+        summed = sum(
+            context.recipes for context in per_item_contexts if context.recipes is not None
+        )
+        if summed > 0 or any(context.recipes == 0 for context in per_item_contexts):
+            recipes = summed
+
+    return _BenchmarkBackfillContext(
+        recipes=recipes,
+        report_path=report_path,
+        source_file=source_file,
+    )
 
 
 def _fmt_seconds(value: float | None) -> str:
