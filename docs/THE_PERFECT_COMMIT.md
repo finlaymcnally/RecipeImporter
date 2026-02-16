@@ -39,7 +39,7 @@ For each non-trivial task, produce exactly one “perfect commit” (or a small 
 5. **Package**: short commit message + task file link; keep your “main” state green (run your standard checks)
 
 **Task spec (“task file”) is the contract**
-If a task doesn’t exist, create a lightweight task spec **file** in `docs/tasks/`:
+If a task doesn’t exist, create a lightweight task spec **file** in `docs/13-tasks/`:
 
 **Naming convention**
 * `YYYY-MM-DD_HH.MM.SS - short-title.md`
@@ -74,7 +74,7 @@ It is defined by **outputs**, not effort:
 * **Implementation**: minimal diff for one coherent change
 * **Proof**: tests or deterministic verification that **fails before** and **passes after**
 * **Docs (conditional)**: only where the change creates a gap between docs and reality
-* **Tracking link**: the `docs/tasks/...` file that acts as the single context anchor
+* **Tracking link**: the `docs/13-tasks/...` file that acts as the single context anchor
 
 ---
 
@@ -86,7 +86,7 @@ It is defined by **outputs**, not effort:
 * **Be atomic.** Apply the commit and you get a coherent, verified state; revert it and you’re back to a coherent, verified state.
 * **Keep your baseline green.** If it’s on your main line of work, it must pass your standard checks.
 * **Prove causality.** New/updated tests must **fail on the baseline** and **pass with the change**.
-* **Anchor to a task file.** Link the `docs/tasks/...` file that states what “done” means and how to verify it.
+* **Anchor to a task file.** Link the `docs/13-tasks/...` file that states what “done” means and how to verify it.
 * **No scope creep.** If you find adjacent work, open a follow-up task.
 
 ### Never
@@ -218,13 +218,13 @@ It is defined by **outputs**, not effort:
 **Commit message: requirements**
 
 * **Short and factual.**
-* One-line summary + link/path to the task file (e.g., `Refs: docs/tasks/...`).
+* One-line summary + link/path to the task file (e.g., `Refs: docs/13-tasks/...`).
 * No implementation essay.
 
 **Suggested format**
 
 * `Imperative summary`
-  `Refs: docs/tasks/2026-01-21_14.30.22 - short-title.md`
+  `Refs: docs/13-tasks/2026-01-21_14.30.22 - short-title.md`
 
 **Should**
 

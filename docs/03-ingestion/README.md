@@ -8,7 +8,7 @@ read_when:
 
 # Ingestion Section Reference
 
-This document consolidates all prior `docs/ingestion/*` notes and ExecPlans into one reference. It is meant to be the single source of truth for how ingestion works, where the code lives, why key choices were made, and what is known to be imperfect.
+This document consolidates all prior `docs/03-ingestion/*` notes and ExecPlans into one reference. It is meant to be the single source of truth for how ingestion works, where the code lives, why key choices were made, and what is known to be imperfect.
 
 ## Scope and Inputs/Outputs
 

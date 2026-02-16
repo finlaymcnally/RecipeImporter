@@ -154,7 +154,7 @@ Per-cookbook overrides via `ParsingOverrides`:
 
 ## Evaluation Harness
 
-**Location:** `docs/tips/` (this doc) + Label Studio integration
+**Location:** `docs/04-parsing/tips_readme.md` + Label Studio integration
 
 ### Building Golden Sets
 

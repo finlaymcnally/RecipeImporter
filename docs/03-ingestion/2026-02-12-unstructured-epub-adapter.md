@@ -1,3 +1,10 @@
+---
+summary: "Unstructured EPUB adapter behavior, traceability fields, and integration flow."
+read_when:
+  - When debugging or modifying unstructured EPUB extraction
+  - When reconciling extractor settings between CLI and importer paths
+---
+
 # Unstructured EPUB Adapter
 
 ## How it works

@@ -1,9 +1,3 @@
----
-summary: "Rules for working in /docs and key references."
-read_when:
-  - When editing documentation in /docs
----
-
 # Agent Guidelines — /docs
 
 This folder contains project documentation. Check folder-specific AGENTS.md files elsewhere for domain-specific guidance.

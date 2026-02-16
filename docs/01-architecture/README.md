@@ -7,7 +7,7 @@ read_when:
 
 # Architecture Readme
 
-This file consolidates the old `docs/architecture/` docs and revalidates them against current code.
+This file consolidates the old `docs/01-architecture/` docs and revalidates them against current code.
 
 ## Scope and Intent
 
@@ -18,16 +18,16 @@ This project (`cookimport`) is a deterministic recipe-import pipeline with optio
 - split-job processing for large PDF/EPUB sources
 - deterministic IDs/provenance that survive reruns and merging
 
-## Chronology of Architecture Notes (merged from `docs/architecture`)
+## Chronology of Architecture Notes (merged from `docs/01-architecture`)
 
-1. `docs/architecture/README.md` (created 2026-02-10 23:22)
+1. `docs/01-architecture/README.md` (created 2026-02-10 23:22)
 - Established the baseline architecture narrative (ingestion -> transformation, plugin registry, output layout).
 
-2. `docs/architecture/2026-02-11-remove-root-staging-defaults.md` (created 2026-02-11 18:20)
+2. `docs/01-architecture/2026-02-11-remove-root-staging-defaults.md` (created 2026-02-11 18:20)
 - Captured the shift away from root-level `staging/` defaults.
 - This change *is* reflected in current code.
 
-3. `docs/architecture/2026-02-11-standardize-run-timestamps.md` (created 2026-02-11 18:20)
+3. `docs/01-architecture/2026-02-11-standardize-run-timestamps.md` (created 2026-02-11 18:20)
 - Claimed timestamps were standardized to a colon-separated time format.
 - Current code still uses `YYYY-MM-DD_HH.MM.SS` (dot-separated time), so this effort is either incomplete or regressed.
 
@@ -234,7 +234,7 @@ From the archived architecture docs:
 ## If You Need to Change Architecture Safely
 
 1. Update code and docs atomically
-- At minimum: update the relevant section readmes (`docs/architecture/architecture_readme.md`, `docs/ingestion/section_ingestion_readme.md`, `docs/parsing/section_parsing_readme.md`, `docs/label-studio/label_studio_readme.md`).
+- At minimum: update the relevant section readmes (`docs/01-architecture/README.md`, `docs/03-ingestion/README.md`, `docs/04-parsing/README.md`, `docs/06-label-studio/README.md`).
 
 2. For output path or timestamp changes
 - check stage (`cookimport/cli.py`)

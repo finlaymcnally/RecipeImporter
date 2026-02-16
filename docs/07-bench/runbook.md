@@ -1,3 +1,10 @@
+---
+summary: "Quick-start runbook for offline benchmark-suite commands, outputs, and interpretation."
+read_when:
+  - When running cookimport bench validate/run/sweep/knobs workflows
+  - When onboarding contributors to offline benchmark iteration
+---
+
 # Offline Benchmark Runbook
 
 Quick-start guide for running the offline bench suite — no Label Studio required.

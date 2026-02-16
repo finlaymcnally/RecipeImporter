@@ -8,7 +8,7 @@ read_when:
 
 # Parsing: Section Overview
 
-This document consolidates the parsing docs in `docs/parsing/` into a single reference. It is meant to be the one-stop context for anyone (human or AI) working on parsing, step linking, or tip/knowledge extraction.
+This document consolidates the parsing docs in `docs/04-parsing/` into a single reference. It is meant to be the one-stop context for anyone (human or AI) working on parsing, step linking, or tip/knowledge extraction.
 
 If you only read one thing before touching parsing code, read this.
 

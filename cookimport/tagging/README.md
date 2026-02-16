@@ -1,6 +1,6 @@
 # Auto-Tagging Subsystem
 
-Catalog-driven recipe tagging engine. See `docs/plans/I4.1-Auto-tag.md` for full design.
+Catalog-driven recipe tagging engine. See `docs/12-plans/I4.1-Auto-tag.md` for full design.
 
 ## Quick start
 

@@ -1,5 +1,5 @@
 ---
-summary: "Code-verified architecture facts discovered while merging docs/architecture into architecture_readme.md."
+summary: "Code-verified architecture facts discovered while merging docs/01-architecture into the architecture README."
 read_when:
   - When updating architecture docs or output path/timestamp conventions
   - When debugging split-job merge behavior across stage and Label Studio flows

@@ -8,7 +8,7 @@ read_when:
 
 # Label Studio: Consolidated Technical Readme
 
-This document merges all prior docs from `docs/label-studio/` and reconciles them with the current implementation in:
+This document merges all prior docs from `docs/06-label-studio/` and reconciles them with the current implementation in:
 
 - `cookimport/labelstudio/`
 - `cookimport/cli.py`
