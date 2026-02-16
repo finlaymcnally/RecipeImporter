@@ -294,6 +294,54 @@ def test_export_freeform_spans_with_yield_and_time_labels(tmp_path, monkeypatch)
     assert time_row["touched_block_indices"] == [1]
 
 
+def test_export_uses_project_slug_run_root_when_manifest_exists(tmp_path, monkeypatch) -> None:
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def find_project_by_title(self, title: str) -> dict[str, object]:
+            return {"id": 123, "title": title}
+
+        def export_tasks(self, _project_id: int) -> list[dict[str, object]]:
+            return []
+
+    prior_run_root = (
+        tmp_path / "2026-02-10_23.04.31" / "labelstudio" / "old_project_root"
+    )
+    prior_run_root.mkdir(parents=True, exist_ok=True)
+    prior_manifest_path = prior_run_root / "manifest.json"
+    prior_manifest_path.write_text(
+        json.dumps(
+            {
+                "project_name": "Pipeline Project",
+                "project_id": 123,
+                "task_scope": "pipeline",
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("cookimport.labelstudio.export.LabelStudioClient", FakeClient)
+
+    result = run_labelstudio_export(
+        project_name="Pipeline Project",
+        output_dir=tmp_path,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="token",
+        run_dir=None,
+        export_scope="pipeline",
+    )
+
+    export_root = result["export_root"]
+    assert export_root == tmp_path / "pipeline_project" / "exports"
+    assert export_root.parent != prior_run_root
+    assert result["summary"]["manifest_path"] == str(prior_manifest_path)
+    assert (export_root / "summary.json").exists()
+    assert (export_root / "labelstudio_export.json").exists()
+
+
 def test_eval_freeform_ranges_smoke(tmp_path) -> None:
     pred_run = tmp_path / "pred_run"
     pred_run.mkdir(parents=True, exist_ok=True)

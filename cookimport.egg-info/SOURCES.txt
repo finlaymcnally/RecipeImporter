@@ -100,6 +100,7 @@ cookimport/tagging/rules.py
 cookimport/tagging/signals.py
 tests/test_atoms.py
 tests/test_bench.py
+tests/test_c3imp_interactive_menu.py
 tests/test_chunks.py
 tests/test_classifier.py
 tests/test_cli_limits.py
@@ -127,6 +128,7 @@ tests/test_performance_features.py
 tests/test_phase1_manual.py
 tests/test_recipesage_importer.py
 tests/test_source_field.py
+tests/test_split_merge_status.py
 tests/test_stats_dashboard.py
 tests/test_step_ingredient_linking.py
 tests/test_tagging.py

@@ -7,6 +7,7 @@ serialises them to JSON.
 
 Schema version history:
     1 – initial release
+    2 – benchmark metadata enrichment (importer/run config)
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 
 class RunCategory(str, Enum):
@@ -114,6 +115,9 @@ class BenchmarkRecord(BaseModel):
     # optional enrichment from manifest.json
     task_count: int | None = None
     source_file: str | None = None
+    importer_name: str | None = None
+    run_config: dict[str, Any] | None = None
+    processed_report_path: str | None = None
 
 
 class DashboardSummary(BaseModel):

@@ -22,5 +22,11 @@ Data sources (read-only):
 - `data/output/.history/performance_history.csv` (primary for stage records)
 - `data/output/<timestamp>/*.excel_import_report.json` (fallback with `--scan-reports`)
 - `data/golden/eval-vs-pipeline/*/eval_report.json` (benchmarks)
+- benchmark enrichment from `manifest.json` / `coverage.json` at eval root or `prediction-run/`
+  (includes source/importer/run-config context when available)
 
 Output: `data/output/.history/dashboard/` (configurable via `--out-dir`)
+
+Throughput dashboard organization:
+- run/date view (`Run / Date Trend`, `Recent Runs`) for timeline-level comparisons
+- file view (`File Trend`) grouped by `stage_records[*].file_name` to track one file across runs

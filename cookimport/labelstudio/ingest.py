@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable
@@ -137,6 +138,8 @@ def _write_processed_outputs(
     path: Path,
     run_dt: dt.datetime,
     output_root: Path,
+    importer_name: str,
+    run_config: dict[str, Any] | None = None,
 ) -> Path:
     timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
     run_root = output_root / timestamp
@@ -154,6 +157,9 @@ def _write_processed_outputs(
 
     if result.report is None:
         result.report = ConversionReport()
+    result.report.importer_name = importer_name
+    if run_config is not None:
+        result.report.run_config = dict(run_config)
     result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
     enrich_report_with_stats(result.report, result, path)
 
@@ -540,6 +546,24 @@ def generate_pred_run_artifacts(
     if importer is None or score <= 0:
         raise RuntimeError("No importer available for this path.")
 
+    effective_workers = workers
+    if path.suffix.lower() == ".epub" and epub_split_workers > workers:
+        effective_workers = epub_split_workers
+    run_config: dict[str, Any] = {
+        "workers": workers,
+        "effective_workers": effective_workers,
+        "pdf_split_workers": pdf_split_workers,
+        "epub_split_workers": epub_split_workers,
+        "pdf_pages_per_job": pdf_pages_per_job,
+        "epub_spine_items_per_job": epub_spine_items_per_job,
+        "ocr_device": "auto",
+        "ocr_batch_size": 1,
+        "warm_models": False,
+        "epub_extractor": os.environ.get(
+            "C3IMP_EPUB_EXTRACTOR", "unstructured"
+        ).strip().lower(),
+    }
+
     job_specs = _plan_parallel_convert_jobs(
         path,
         workers=workers,
@@ -628,6 +652,7 @@ def generate_pred_run_artifacts(
     file_hash = compute_file_hash(path)
     book_id = result.workbook or path.stem
     processed_run_root: Path | None = None
+    processed_report_path: Path | None = None
     if processed_output_root is not None:
         _notify("Writing processed cookbook outputs...")
         processed_run_root = _write_processed_outputs(
@@ -635,6 +660,11 @@ def generate_pred_run_artifacts(
             path=path,
             run_dt=run_dt,
             output_root=processed_output_root,
+            importer_name=importer.name,
+            run_config=run_config,
+        )
+        processed_report_path = (
+            processed_run_root / f"{path.stem}.excel_import_report.json"
         )
         _notify("Processed cookbook outputs complete.")
 
@@ -800,9 +830,17 @@ def generate_pred_run_artifacts(
 
     manifest = {
         "pipeline": importer.name,
+        "importer_name": importer.name,
         "source_file": str(path),
         "book_id": book_id,
         "run_timestamp": run_dt.isoformat(timespec="seconds"),
+        "run_config": run_config,
+        "processed_run_root": (
+            str(processed_run_root) if processed_run_root is not None else None
+        ),
+        "processed_report_path": (
+            str(processed_report_path) if processed_report_path is not None else None
+        ),
         "chunk_level": chunk_level if task_scope == "pipeline" else None,
         "task_scope": task_scope,
         "context_window": context_window if task_scope == "canonical-blocks" else None,
@@ -825,6 +863,7 @@ def generate_pred_run_artifacts(
     return {
         "run_root": run_root,
         "processed_run_root": processed_run_root,
+        "processed_report_path": processed_report_path,
         "tasks_total": len(tasks),
         "manifest_path": manifest_path,
         "tasks": tasks,
@@ -835,6 +874,7 @@ def generate_pred_run_artifacts(
         "coverage": coverage_payload,
         "label_config": label_config,
         "importer_name": importer.name,
+        "run_config": run_config,
         "book_id": book_id,
         "file_hash": file_hash,
     }

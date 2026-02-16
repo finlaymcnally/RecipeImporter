@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from cookimport.core.models import (
     ConversionReport,
     ConversionResult,
@@ -10,6 +12,7 @@ from cookimport.core.models import (
     TipTags,
     TopicCandidate,
 )
+from cookimport.staging import writer
 from cookimport.staging.writer import write_tip_outputs, write_topic_candidate_outputs
 
 
@@ -60,3 +63,38 @@ def test_write_tip_outputs(tmp_path: Path):
     assert "t0" in summary_text
     assert "dish: steak" in summary_text
     assert "methods: sear" in summary_text
+
+
+def test_write_topic_candidates_hashes_source_file_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    source_path = tmp_path / "source.epub"
+    source_path.write_text("fake source body", encoding="utf-8")
+    topics = [
+        TopicCandidate(text=f"Topic candidate {index}")
+        for index in range(12)
+    ]
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        topicCandidates=topics,
+        report=ConversionReport(),
+        workbook="source",
+        workbookPath=str(source_path),
+    )
+    out_dir = tmp_path / "tips"
+    hash_calls: list[Path] = []
+
+    def fake_hash(path: Path) -> str:
+        hash_calls.append(path)
+        return "cachedhash01"
+
+    monkeypatch.setattr(writer, "_hash_file", fake_hash)
+
+    write_topic_candidate_outputs(result, out_dir)
+
+    assert len(hash_calls) == 1
+    payloads = json.loads((out_dir / "topic_candidates.json").read_text(encoding="utf-8"))
+    assert payloads
+    assert all(
+        payload["id"].startswith("urn:recipeimport:topic:cachedhash01:")
+        for payload in payloads
+    )

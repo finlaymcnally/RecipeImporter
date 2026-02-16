@@ -7,6 +7,7 @@ import re
 import warnings
 import zipfile
 import xml.etree.ElementTree as ET
+from importlib import metadata as importlib_metadata
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, List, Tuple
 
@@ -72,6 +73,33 @@ def _block_to_raw(block: Block, index: int) -> dict[str, Any]:
         "font_weight": block.font_weight,
         "features": block.features,
     }
+
+
+def _resolve_unstructured_version() -> str:
+    try:
+        return importlib_metadata.version("unstructured")
+    except importlib_metadata.PackageNotFoundError:
+        pass
+    except Exception:
+        pass
+
+    try:
+        import unstructured as _unstructured_pkg
+    except Exception:
+        return "unknown"
+
+    version_value = getattr(_unstructured_pkg, "__version__", None)
+    if isinstance(version_value, str) and version_value:
+        return version_value
+
+    nested_version = getattr(version_value, "__version__", None)
+    if isinstance(nested_version, str) and nested_version:
+        return nested_version
+
+    if version_value is None:
+        return "unknown"
+    return str(version_value)
+
 
 class EpubImporter:
     name = "epub"
@@ -180,7 +208,7 @@ class EpubImporter:
 
             # Emit Unstructured diagnostics JSONL when using the Unstructured extractor
             if _get_epub_extractor() == "unstructured" and self._unstructured_diagnostics:
-                import unstructured as _unstructured_pkg
+                unstructured_version = _resolve_unstructured_version()
                 jsonl_lines = "\n".join(
                     json.dumps(row, ensure_ascii=False)
                     for row in self._unstructured_diagnostics
@@ -195,7 +223,7 @@ class EpubImporter:
                         metadata={
                             "artifact_type": "unstructured_diagnostics",
                             "extractor": "unstructured",
-                            "unstructured_version": getattr(_unstructured_pkg, "__version__", "unknown"),
+                            "unstructured_version": unstructured_version,
                             "element_count": len(self._unstructured_diagnostics),
                         },
                     )

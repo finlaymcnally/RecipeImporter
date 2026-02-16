@@ -61,7 +61,7 @@ export LABEL_STUDIO_API_KEY=<your_token>
 4. `labelstudio-import` - Create/import labeling tasks
 5. `labelstudio-export` - Export labels into JSONL artifacts
 6. `labelstudio-eval` - Evaluate predictions vs gold labels
-7. `labelstudio-benchmark` - One-shot benchmark flow for freeform labels
+7. `labelstudio-benchmark` - Benchmark freeform labels (generate fresh predictions; interactive mode can also re-score existing runs)
 
 ---
 

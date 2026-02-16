@@ -2,9 +2,13 @@
   "workers": 10,
   "pdf_split_workers": 10,
   "epub_split_workers": 10,
+  "epub_extractor": "legacy",
   "ocr_device": "auto",
   "ocr_batch_size": 1,
   "pdf_pages_per_job": 50,
   "epub_spine_items_per_job": 10,
-  "warm_models": false
+  "warm_models": false,
+  "output_dir": "/home/mcnal/projects/recipeimport/data/output",
+  "label_studio_url": "http://localhost:8080",
+  "label_studio_api_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6ODA3ODQxMTY3NSwiaWF0IjoxNzcxMjExNjc1LCJqdGkiOiJkZTk0NWUxNTA1NjM0MGE2YWY5MTQzZGYwNDhlNjAyMyIsInVzZXJfaWQiOiIxIn0.TPkjLgYr96F97ak4DZqV5nYB_DIAzNu55YSNm_UnA9I"
 }

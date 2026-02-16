@@ -540,6 +540,7 @@ class ConversionReport(BaseModel):
     errors: list[str] = Field(default_factory=list)
     timing: dict[str, Any] | None = None
     output_stats: dict[str, Any] | None = Field(default=None, alias="outputStats")
+    run_config: dict[str, Any] | None = Field(default=None, alias="runConfig")
 
 
 class RawArtifact(BaseModel):

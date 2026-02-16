@@ -185,7 +185,7 @@ def _write_eval_report(tmp_path: Path) -> Path:
 class TestSchema:
     def test_dashboard_data_minimal(self):
         d = DashboardData()
-        assert d.schema_version == "1"
+        assert d.schema_version == "2"
         assert d.stage_records == []
         assert d.benchmark_records == []
 
@@ -269,6 +269,50 @@ class TestCollectors:
         assert b.boundary_correct == 10
         assert len(b.per_label) == 2
         assert b.supported_recall == pytest.approx(0.55)
+
+    def test_benchmark_collector_prediction_run_manifest_enrichment(self, tmp_path):
+        eval_path = _write_eval_report(tmp_path)
+        pred_run_dir = eval_path.parent / "prediction-run"
+        pred_run_dir.mkdir(parents=True, exist_ok=True)
+        (pred_run_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "task_count": 42,
+                    "source_file": "/tmp/source/book.epub",
+                    "importer_name": "epub",
+                    "run_config": {
+                        "epub_extractor": "legacy",
+                        "ocr_device": "auto",
+                        "workers": 6,
+                    },
+                    "processed_report_path": "/tmp/output/run/book.excel_import_report.json",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (pred_run_dir / "coverage.json").write_text(
+            json.dumps({"extracted_chars": 200, "chunked_chars": 150}),
+            encoding="utf-8",
+        )
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.benchmark_records) == 1
+        b = data.benchmark_records[0]
+        assert b.task_count == 42
+        assert b.source_file == "/tmp/source/book.epub"
+        assert b.importer_name == "epub"
+        assert b.run_config == {
+            "epub_extractor": "legacy",
+            "ocr_device": "auto",
+            "workers": 6,
+        }
+        assert b.processed_report_path == "/tmp/output/run/book.excel_import_report.json"
+        assert b.extracted_chars == 200
+        assert b.chunked_chars == 150
+        assert b.coverage_ratio == pytest.approx(0.75)
 
     def test_combined_collection(self, tmp_path):
         _write_csv(tmp_path)
@@ -355,7 +399,12 @@ class TestRenderer:
                 StageRecord(file_name="b.epub", recipes=5),
             ],
             benchmark_records=[
-                BenchmarkRecord(precision=0.1, recall=0.3),
+                BenchmarkRecord(
+                    precision=0.1,
+                    recall=0.3,
+                    importer_name="epub",
+                    run_config={"epub_extractor": "legacy", "ocr_device": "auto"},
+                ),
             ],
         )
         render_dashboard(tmp_path / "dash", data)
@@ -366,6 +415,59 @@ class TestRenderer:
         loaded = DashboardData.model_validate(raw)
         assert len(loaded.stage_records) == 1
         assert len(loaded.benchmark_records) == 1
+
+    def test_html_includes_benchmark_context_columns(self, tmp_path):
+        data = DashboardData(
+            benchmark_records=[
+                BenchmarkRecord(
+                    run_timestamp="2026-02-11_16.00.00",
+                    artifact_dir="/tmp/eval",
+                    precision=0.1,
+                    recall=0.2,
+                    importer_name="epub",
+                    source_file="/tmp/source/book.epub",
+                    run_config={"epub_extractor": "legacy", "ocr_device": "auto"},
+                ),
+            ],
+        )
+        html_path = render_dashboard(tmp_path / "dash", data)
+        html = html_path.read_text(encoding="utf-8")
+        assert "Run Config" in html
+        assert "Precision: how many predictions were correct." in html
+
+    def test_html_includes_run_and_file_trend_views(self, tmp_path):
+        data = DashboardData(
+            stage_records=[
+                StageRecord(
+                    run_timestamp="2026-02-11_16.00.00",
+                    file_name="book.epub",
+                    total_seconds=12.0,
+                    recipes=6,
+                    per_recipe_seconds=2.0,
+                    artifact_dir="/tmp/output/2026-02-11_16.00.00",
+                )
+            ],
+            summary=DashboardSummary(total_stage_records=1, total_recipes=6),
+        )
+        html_path = render_dashboard(tmp_path / "dash", data)
+        html = html_path.read_text(encoding="utf-8")
+        assert "Run / Date Trend (sec/recipe)" in html
+        assert "Recent Runs (Date / Run View)" in html
+        assert "File Trend (Selected File)" in html
+        assert 'id="file-trend-select"' in html
+
+    def test_html_embeds_inline_data_for_file_scheme(self, tmp_path):
+        data = DashboardData(
+            stage_records=[
+                StageRecord(file_name="local.xlsx", recipes=3, total_seconds=1.5),
+            ],
+            summary=DashboardSummary(total_stage_records=1, total_recipes=3),
+        )
+        html_path = render_dashboard(tmp_path / "dash", data)
+        html = html_path.read_text(encoding="utf-8")
+        assert 'id="dashboard-data-inline"' in html
+        assert "__DASHBOARD_DATA_INLINE__" not in html
+        assert '"file_name": "local.xlsx"' in html
 
     def test_idempotent(self, tmp_path):
         data = DashboardData()
@@ -440,6 +542,46 @@ class TestBenchmarkCsv:
         assert b.boundary_correct == 10
         assert b.supported_recall == pytest.approx(0.55)
         assert b.source_file == "my_book.pdf"
+
+    def test_csv_and_json_benchmark_rows_merge_by_artifact_dir(self, tmp_path):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True)
+        eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-11_16.00.00"
+        eval_dir.mkdir(parents=True)
+        (eval_dir / "eval_report.json").write_text(
+            json.dumps(SAMPLE_EVAL_REPORT), encoding="utf-8"
+        )
+
+        csv_path = history_dir / "performance_history.csv"
+        bench_row = (
+            "2026-02-11T16:00:00,"
+            + str(eval_dir)
+            + ",my_book.pdf,"
+            ",,,,,"
+            ",,,,,"
+            ",,,"
+            ",,,,,,"
+            ",,,,,"
+            ",,,"
+            "benchmark_eval,freeform-spans,0.05,0.25,0.08333333333333333,"
+            "100,25,500,"
+            "0.08,0.55,"
+            "10,8,5,2"
+        )
+        csv_path.write_text(
+            SAMPLE_CSV_HEADER + "\n" + bench_row + "\n",
+            encoding="utf-8",
+        )
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.benchmark_records) == 1
+        b = data.benchmark_records[0]
+        assert b.artifact_dir == str(eval_dir)
+        assert b.source_file == "my_book.pdf"
+        assert len(b.per_label) == 2
 
     def test_benchmark_csv_schema_migration(self, tmp_path):
         """Existing CSV without new columns gets migrated when appending."""

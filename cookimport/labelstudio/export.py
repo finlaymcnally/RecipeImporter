@@ -5,8 +5,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import datetime as dt
-
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.canonical import derive_gold_spans, BLOCK_LABELS
 from cookimport.labelstudio.freeform_tasks import map_span_offsets_to_blocks
@@ -212,7 +210,6 @@ def run_labelstudio_export(
         if manifest_path and manifest_path.exists():
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             project_id = manifest.get("project_id")
-            run_root = manifest_path.parent
 
     if manifest and manifest.get("task_scope"):
         task_scope = manifest.get("task_scope")
@@ -234,8 +231,7 @@ def run_labelstudio_export(
             raise RuntimeError("Label Studio project lookup missing id.")
 
     if run_root is None:
-        timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-        run_root = output_dir / timestamp / "labelstudio" / _slugify_name(project_name)
+        run_root = output_dir / _slugify_name(project_name)
         run_root.mkdir(parents=True, exist_ok=True)
 
     export_root = run_root / "exports"

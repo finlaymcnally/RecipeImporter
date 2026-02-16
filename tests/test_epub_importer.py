@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import sys
+import types
 import pytest
 from pathlib import Path
 from cookimport.core.blocks import Block
 from cookimport.parsing import signals
-from cookimport.plugins.epub import EpubImporter
+from cookimport.plugins.epub import EpubImporter, _resolve_unstructured_version
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -44,6 +46,22 @@ def test_convert_epub():
     r2 = result.recipes[1]
     assert r2.name == "Simple Salad"
     assert "Lettuce" in r2.ingredients
+
+
+def test_resolve_unstructured_version_handles_module_value(monkeypatch):
+    version_module = types.ModuleType("unstructured.__version__")
+    version_module.__version__ = "9.9.9"
+
+    package_module = types.ModuleType("unstructured")
+    package_module.__version__ = version_module
+
+    def _raise_missing(_dist_name: str) -> str:
+        raise RuntimeError("not installed")
+
+    monkeypatch.setattr("cookimport.plugins.epub.importlib_metadata.version", _raise_missing)
+    monkeypatch.setitem(sys.modules, "unstructured", package_module)
+
+    assert _resolve_unstructured_version() == "9.9.9"
 
 
 def test_backtrack_for_title_prefers_earliest_title_block():

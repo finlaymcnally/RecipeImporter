@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -139,6 +140,25 @@ def _hash_file(path: Path) -> str:
     return digest.hexdigest()[:12]
 
 
+@lru_cache(maxsize=256)
+def _hash_file_cached(path_str: str, mtime_ns: int, size_bytes: int) -> str:
+    # Keep metadata in cache keys so edits invalidate cached hashes.
+    _ = (mtime_ns, size_bytes)
+    return _hash_file(Path(path_str))
+
+
+def _hash_path_with_cache(path: Path) -> str:
+    try:
+        stat = path.stat()
+    except OSError:
+        return _hash_file(path)
+    try:
+        canonical_path = str(path.resolve())
+    except OSError:
+        canonical_path = str(path)
+    return _hash_file_cached(canonical_path, int(stat.st_mtime_ns), int(stat.st_size))
+
+
 def _resolve_file_hash(results: ConversionResult, provenance: dict[str, Any]) -> str:
     file_hash = provenance.get("file_hash") or provenance.get("fileHash")
     if file_hash:
@@ -147,11 +167,11 @@ def _resolve_file_hash(results: ConversionResult, provenance: dict[str, Any]) ->
     if workbook_path:
         path = Path(str(workbook_path))
         if path.exists():
-            return _hash_file(path)
+            return _hash_path_with_cache(path)
     if results.workbook_path:
         path = Path(results.workbook_path)
         if path.exists():
-            return _hash_file(path)
+            return _hash_path_with_cache(path)
     return "unknown"
 
 

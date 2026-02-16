@@ -114,14 +114,193 @@ def test_labelstudio_benchmark_direct_call_uses_real_defaults(
         cli.labelstudio_benchmark(output_dir=tmp_path / "empty-golden")
 
 
+def test_labelstudio_eval_direct_call_uses_real_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+    gold_spans = tmp_path / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    output_dir = tmp_path / "eval"
+
+    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
+    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
+    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "# report")
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        lambda *_args, **_kwargs: None,
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_eval(*_args, overlap_threshold: float, force_source_match: bool, **_kwargs):
+        captured["overlap_threshold"] = overlap_threshold
+        captured["force_source_match"] = force_source_match
+        return {"report": {}, "missed_gold": [], "false_positive_preds": []}
+
+    monkeypatch.setattr(cli, "evaluate_predicted_vs_freeform", fake_eval)
+
+    cli.labelstudio_eval(
+        scope="freeform-spans",
+        pred_run=pred_run,
+        gold_spans=gold_spans,
+        output_dir=output_dir,
+    )
+
+    assert captured["overlap_threshold"] == 0.5
+    assert isinstance(captured["overlap_threshold"], float)
+    assert captured["force_source_match"] is False
+    assert isinstance(captured["force_source_match"], bool)
+
+
 def test_labelstudio_commands_default_output_roots() -> None:
     import_param = inspect.signature(cli.labelstudio_import).parameters["output_dir"]
     export_param = inspect.signature(cli.labelstudio_export).parameters["output_dir"]
     benchmark_param = inspect.signature(cli.labelstudio_benchmark).parameters["output_dir"]
+    eval_overlap_param = inspect.signature(cli.labelstudio_eval).parameters["overlap_threshold"]
+    eval_force_match_param = inspect.signature(cli.labelstudio_eval).parameters["force_source_match"]
 
     assert getattr(import_param.default, "default", None) == cli.DEFAULT_GOLDEN
     assert getattr(export_param.default, "default", None) == cli.DEFAULT_GOLDEN
     assert benchmark_param.default == cli.DEFAULT_GOLDEN
+    assert eval_overlap_param.default == 0.5
+    assert eval_force_match_param.default is False
+
+
+def test_resolve_interactive_labelstudio_settings_uses_saved_credentials_without_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = {
+        "label_studio_url": "http://localhost:8080",
+        "label_studio_api_key": "saved-key",
+    }
+    monkeypatch.delenv("LABEL_STUDIO_URL", raising=False)
+    monkeypatch.delenv("LABEL_STUDIO_API_KEY", raising=False)
+    monkeypatch.setattr(
+        cli.questionary,
+        "text",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("URL prompt should not run when creds are already saved.")
+        ),
+    )
+    monkeypatch.setattr(
+        cli.questionary,
+        "password",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("API key prompt should not run when creds are already saved.")
+        ),
+    )
+    monkeypatch.setattr(cli, "_preflight_labelstudio_credentials", lambda *_: None)
+
+    url, api_key = cli._resolve_interactive_labelstudio_settings(settings)
+
+    assert url == "http://localhost:8080"
+    assert api_key == "saved-key"
+
+
+def test_resolve_interactive_labelstudio_settings_prompts_and_persists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings: dict[str, str] = {}
+    monkeypatch.delenv("LABEL_STUDIO_URL", raising=False)
+    monkeypatch.delenv("LABEL_STUDIO_API_KEY", raising=False)
+
+    class _Prompt:
+        def __init__(self, value: str):
+            self._value = value
+
+        def ask(self):
+            return self._value
+
+    monkeypatch.setattr(
+        cli.questionary,
+        "text",
+        lambda *_args, **_kwargs: _Prompt("http://localhost:8080"),
+    )
+    monkeypatch.setattr(
+        cli.questionary,
+        "password",
+        lambda *_args, **_kwargs: _Prompt("new-key"),
+    )
+    saved_snapshots: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        cli,
+        "_save_settings",
+        lambda payload: saved_snapshots.append(dict(payload)),
+    )
+    monkeypatch.setattr(cli, "_preflight_labelstudio_credentials", lambda *_: None)
+
+    url, api_key = cli._resolve_interactive_labelstudio_settings(settings)
+
+    assert url == "http://localhost:8080"
+    assert api_key == "new-key"
+    assert settings["label_studio_url"] == "http://localhost:8080"
+    assert settings["label_studio_api_key"] == "new-key"
+    assert saved_snapshots[-1]["label_studio_url"] == "http://localhost:8080"
+    assert saved_snapshots[-1]["label_studio_api_key"] == "new-key"
+
+
+def test_resolve_interactive_labelstudio_settings_reprompts_when_saved_creds_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = {
+        "label_studio_url": "http://localhost:8080",
+        "label_studio_api_key": "stale-key",
+    }
+    monkeypatch.delenv("LABEL_STUDIO_URL", raising=False)
+    monkeypatch.delenv("LABEL_STUDIO_API_KEY", raising=False)
+
+    class _Prompt:
+        def __init__(self, value: str):
+            self._value = value
+
+        def ask(self):
+            return self._value
+
+    monkeypatch.setattr(
+        cli.questionary,
+        "text",
+        lambda *_args, **_kwargs: _Prompt("http://localhost:8080"),
+    )
+    monkeypatch.setattr(
+        cli.questionary,
+        "password",
+        lambda *_args, **_kwargs: _Prompt("fresh-key"),
+    )
+    probe_calls: list[tuple[str, str]] = []
+
+    def fake_preflight(url: str, api_key: str) -> str | None:
+        probe_calls.append((url, api_key))
+        if api_key == "stale-key":
+            return "Label Studio API error 401 on /api/projects?page=1&page_size=100: unauthorized"
+        return None
+
+    monkeypatch.setattr(cli, "_preflight_labelstudio_credentials", fake_preflight)
+    saved_snapshots: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        cli,
+        "_save_settings",
+        lambda payload: saved_snapshots.append(dict(payload)),
+    )
+
+    url, api_key = cli._resolve_interactive_labelstudio_settings(settings)
+
+    assert url == "http://localhost:8080"
+    assert api_key == "fresh-key"
+    assert probe_calls == [
+        ("http://localhost:8080", "stale-key"),
+        ("http://localhost:8080", "fresh-key"),
+    ]
+    assert settings["label_studio_api_key"] == "fresh-key"
+    assert saved_snapshots[-1]["label_studio_api_key"] == "fresh-key"
+
+
+def test_is_labelstudio_credential_error() -> None:
+    assert cli._is_labelstudio_credential_error("Label Studio API error 401 on /api/projects: unauthorized")
+    assert cli._is_labelstudio_credential_error("Label Studio API error 403 on /api/projects: forbidden")
+    assert not cli._is_labelstudio_credential_error("timed out connecting to host")
 
 
 def test_co_locate_prediction_run_for_benchmark_moves_into_eval_dir(tmp_path: Path) -> None:
@@ -166,7 +345,7 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
     selected_file = tmp_path / "book.epub"
     selected_file.write_text("dummy", encoding="utf-8")
 
-    menu_answers = iter(["labelstudio", selected_file, "freeform-spans"])
+    menu_answers = iter(["labelstudio", selected_file, "freeform-spans", "exit"])
 
     def fake_menu_select(*_args, **_kwargs):
         return next(menu_answers)
@@ -192,7 +371,7 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
         "text",
         lambda *args, **kwargs: _Prompt(next(text_answers)),
     )
-    confirm_answers = iter([False, True])
+    confirm_answers = iter([True])
     monkeypatch.setattr(
         cli.questionary,
         "confirm",
@@ -213,13 +392,81 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
 
     monkeypatch.setattr(cli, "run_labelstudio_import", fake_run_labelstudio_import)
 
-    cli._interactive_mode()
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
 
     assert captured["task_scope"] == "freeform-spans"
     assert captured["chunk_level"] == "both"
     assert captured["segment_blocks"] == 42
     assert captured["segment_overlap"] == 6
     assert captured["output_dir"] == tmp_path / "golden"
+    assert captured["overwrite"] is True
+    assert captured["resume"] is False
+
+
+def test_interactive_labelstudio_import_forces_overwrite_without_prompt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    selected_file = tmp_path / "book.epub"
+    selected_file.write_text("dummy", encoding="utf-8")
+
+    menu_answers = iter(["labelstudio", selected_file, "pipeline", "both", "exit"])
+
+    def fake_menu_select(*_args, **_kwargs):
+        return next(menu_answers)
+
+    class _Prompt:
+        def __init__(self, value: str | bool):
+            self._value = value
+
+        def ask(self):
+            return self._value
+
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [selected_file])
+    monkeypatch.setattr(cli, "_load_settings", lambda: {})
+    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
+    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", tmp_path / "golden")
+    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
+    monkeypatch.setenv("LABEL_STUDIO_URL", "http://localhost:8080")
+    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "key")
+    monkeypatch.setattr(
+        cli.questionary,
+        "text",
+        lambda *args, **kwargs: _Prompt(""),
+    )
+
+    confirm_prompts: list[str] = []
+
+    def fake_confirm(message: str, *args, **kwargs):
+        confirm_prompts.append(message)
+        if "Overwrite existing project" in message:
+            raise AssertionError("Interactive import should not ask overwrite confirmation.")
+        if "Upload tasks to Label Studio now?" in message:
+            return _Prompt(True)
+        raise AssertionError(f"Unexpected confirmation prompt: {message}")
+
+    monkeypatch.setattr(cli.questionary, "confirm", fake_confirm)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_labelstudio_import(**kwargs):
+        captured.update(kwargs)
+        return {
+            "project_name": "book",
+            "project_id": 1,
+            "tasks_total": 10,
+            "tasks_uploaded": 10,
+            "run_root": tmp_path / "out",
+        }
+
+    monkeypatch.setattr(cli, "run_labelstudio_import", fake_run_labelstudio_import)
+
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
+
+    assert confirm_prompts == []
+    assert captured["overwrite"] is True
+    assert captured["resume"] is False
 
 
 def test_interactive_benchmark_uses_golden_output_roots(
@@ -227,17 +474,26 @@ def test_interactive_benchmark_uses_golden_output_roots(
 ) -> None:
     configured_output = tmp_path / "custom-output"
     golden_root = tmp_path / "golden"
-    menu_answers = iter(["labelstudio_benchmark"])
+    gold_spans = golden_root / "some-run" / "exports" / "freeform_span_labels.jsonl"
+    pred_run = golden_root / "some-run" / "prediction-run"
+    menu_answers = iter(["labelstudio_benchmark", "upload", "exit"])
 
     monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
     monkeypatch.setattr(cli, "_load_settings", lambda: {"output_dir": str(configured_output)})
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
     monkeypatch.setattr(
-        cli.questionary,
-        "confirm",
-        lambda *args, **kwargs: type("_Prompt", (), {"ask": lambda self: True})(),
+        cli,
+        "_resolve_interactive_labelstudio_settings",
+        lambda _settings: ("http://localhost:8080", "benchmark-key"),
     )
+    monkeypatch.setattr(cli, "_discover_freeform_gold_exports", lambda *_: [gold_spans])
+    monkeypatch.setattr(cli, "_discover_prediction_runs", lambda *_: [pred_run])
+
+    def _unexpected_confirm(*_args, **_kwargs):
+        raise AssertionError("Interactive benchmark upload should not ask for confirmation.")
+
+    monkeypatch.setattr(cli.questionary, "confirm", _unexpected_confirm)
 
     captured: dict[str, object] = {}
 
@@ -246,12 +502,61 @@ def test_interactive_benchmark_uses_golden_output_roots(
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
 
-    cli._interactive_mode()
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
 
     assert captured["output_dir"] == golden_root
     eval_output_dir = captured["eval_output_dir"]
     assert isinstance(eval_output_dir, Path)
     assert eval_output_dir.parent == golden_root / "eval-vs-pipeline"
+    assert captured["label_studio_url"] == "http://localhost:8080"
+    assert captured["label_studio_api_key"] == "benchmark-key"
+
+
+def test_interactive_generate_dashboard_prompts_and_opens_browser(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    configured_output = tmp_path / "custom-output"
+    golden_root = tmp_path / "golden"
+    menu_answers = iter(["generate_dashboard", "exit"])
+
+    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
+    monkeypatch.setattr(cli, "_load_settings", lambda: {"output_dir": str(configured_output)})
+    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
+
+    confirm_messages: list[str] = []
+
+    class _Prompt:
+        def __init__(self, value: bool):
+            self._value = value
+
+        def ask(self):
+            return self._value
+
+    def fake_confirm(message: str, *_args, **_kwargs):
+        confirm_messages.append(message)
+        return _Prompt(True)
+
+    monkeypatch.setattr(cli.questionary, "confirm", fake_confirm)
+
+    captured: dict[str, object] = {}
+
+    def fake_stats_dashboard(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(cli, "stats_dashboard", fake_stats_dashboard)
+
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
+
+    assert confirm_messages == ["Open dashboard in your browser after generation?"]
+    assert captured["output_root"] == configured_output
+    assert captured["golden_root"] == golden_root
+    assert captured["out_dir"] == configured_output / ".history" / "dashboard"
+    assert captured["open_browser"] is True
+    assert captured["since_days"] is None
+    assert captured["scan_reports"] is False
 
 
 def test_interactive_benchmark_eval_only_uses_existing_prediction_run(
@@ -265,7 +570,7 @@ def test_interactive_benchmark_eval_only_uses_existing_prediction_run(
     gold_spans.parent.mkdir(parents=True, exist_ok=True)
     gold_spans.write_text("{}\n", encoding="utf-8")
 
-    menu_answers = iter(["labelstudio_benchmark", "eval-only", gold_spans, pred_run])
+    menu_answers = iter(["labelstudio_benchmark", "eval-only", gold_spans, pred_run, "exit"])
     monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
     monkeypatch.setattr(cli, "_load_settings", lambda: {})
@@ -285,7 +590,8 @@ def test_interactive_benchmark_eval_only_uses_existing_prediction_run(
 
     monkeypatch.setattr(cli, "labelstudio_eval", fake_labelstudio_eval)
 
-    cli._interactive_mode()
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
 
     assert captured["scope"] == "freeform-spans"
     assert captured["pred_run"] == pred_run
@@ -299,30 +605,21 @@ def test_interactive_labelstudio_export_routes_to_export_command(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     selected_output = tmp_path / "golden"
-    menu_answers = iter(["labelstudio_export", "freeform-spans"])
+    menu_answers = iter(["labelstudio_export", "exit"])
 
-    def fake_menu_select(*_args, **_kwargs):
+    def fake_menu_select(prompt: str, *_args, **_kwargs):
+        if prompt == "Export scope:":
+            raise AssertionError("Known project type should skip export scope prompt.")
         return next(menu_answers)
-
-    class _Prompt:
-        def __init__(self, value: str):
-            self._value = value
-
-        def ask(self):
-            return self._value
 
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
     monkeypatch.setattr(cli, "_load_settings", lambda: {})
     monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", selected_output)
     monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
+    monkeypatch.setattr(cli, "_select_export_project", lambda **_: ("Bench Project", "freeform-spans"))
     monkeypatch.setenv("LABEL_STUDIO_URL", "http://localhost:8080")
     monkeypatch.setenv("LABEL_STUDIO_API_KEY", "key")
-    monkeypatch.setattr(
-        cli.questionary,
-        "text",
-        lambda *args, **kwargs: _Prompt("Bench Project"),
-    )
 
     captured: dict[str, object] = {}
 
@@ -332,11 +629,185 @@ def test_interactive_labelstudio_export_routes_to_export_command(
 
     monkeypatch.setattr(cli, "run_labelstudio_export", fake_run_labelstudio_export)
 
-    cli._interactive_mode()
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
 
     assert captured["project_name"] == "Bench Project"
     assert captured["export_scope"] == "freeform-spans"
     assert captured["output_dir"] == selected_output
+
+
+def test_interactive_labelstudio_export_selects_project_before_scope(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    selected_output = tmp_path / "golden"
+    events: list[str] = []
+
+    state = {"main_calls": 0}
+
+    def fake_menu_select(prompt: str, *_args, **_kwargs):
+        events.append(f"menu:{prompt}")
+        if prompt == "What would you like to do?":
+            state["main_calls"] += 1
+            return "labelstudio_export" if state["main_calls"] == 1 else "exit"
+        if prompt == "Export scope:":
+            return "pipeline"
+        raise AssertionError(f"Unexpected prompt: {prompt}")
+
+    def fake_select_export_project(**_kwargs):
+        events.append("select_project")
+        return "Bench Project", None
+
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
+    monkeypatch.setattr(cli, "_load_settings", lambda: {})
+    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
+    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", selected_output)
+    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
+    monkeypatch.setattr(cli, "_select_export_project", fake_select_export_project)
+    monkeypatch.setenv("LABEL_STUDIO_URL", "http://localhost:8080")
+    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "key")
+    monkeypatch.setattr(
+        cli,
+        "run_labelstudio_export",
+        lambda **_kwargs: {"summary_path": selected_output / "summary.json"},
+    )
+
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
+
+    assert events == [
+        "menu:What would you like to do?",
+        "select_project",
+        "menu:Export scope:",
+        "menu:What would you like to do?",
+    ]
+
+
+def test_select_export_project_returns_detected_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def list_projects(self):
+            return [
+                {"title": "Alpha"},
+            ]
+
+    monkeypatch.setattr(cli, "LabelStudioClient", FakeClient)
+    monkeypatch.setattr(cli, "_discover_manifest_project_scopes", lambda *_: {"Alpha": "pipeline"})
+    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: "Alpha")
+
+    selected, scope = cli._select_export_project(
+        label_studio_url="http://example",
+        label_studio_api_key="k",
+    )
+    assert selected == "Alpha"
+    assert scope == "pipeline"
+
+
+def test_select_export_project_name_uses_project_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def list_projects(self):
+            return [
+                {"title": "beta"},
+                {"title": "Alpha"},
+                {"title": ""},
+            ]
+
+    def fake_menu_select(*_args, **_kwargs):
+        assert _kwargs["choices"][1].value == "Alpha"
+        assert _kwargs["choices"][1].title == "Alpha [type: pipeline]"
+        assert _kwargs["choices"][2].value == "beta"
+        assert _kwargs["choices"][2].title == "beta [type: unknown]"
+        return "beta"
+
+    monkeypatch.setattr(cli, "LabelStudioClient", FakeClient)
+    monkeypatch.setattr(cli, "_discover_manifest_project_scopes", lambda *_: {"Alpha": "pipeline"})
+    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
+
+    selected = cli._select_export_project_name(
+        label_studio_url="http://example",
+        label_studio_api_key="k",
+    )
+    assert selected == "beta"
+
+
+def test_select_export_project_name_prefers_manifest_scope_over_payload_inference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def list_projects(self):
+            return [
+                {"title": "Alpha", "label_config": "<Label value='VARIANT'/>"},
+            ]
+
+    def fake_menu_select(*_args, **_kwargs):
+        assert _kwargs["choices"][1].title == "Alpha [type: canonical-blocks]"
+        return "Alpha"
+
+    monkeypatch.setattr(cli, "LabelStudioClient", FakeClient)
+    monkeypatch.setattr(
+        cli,
+        "_discover_manifest_project_scopes",
+        lambda *_: {"Alpha": "canonical-blocks"},
+    )
+    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
+
+    selected = cli._select_export_project_name(
+        label_studio_url="http://example",
+        label_studio_api_key="k",
+    )
+    assert selected == "Alpha"
+
+
+def test_select_export_project_name_falls_back_to_manual_on_client_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RaisingClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def list_projects(self):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(cli, "LabelStudioClient", RaisingClient)
+    monkeypatch.setattr(cli, "_prompt_manual_project_name", lambda: "Typed Name")
+
+    selected = cli._select_export_project_name(
+        label_studio_url="http://example",
+        label_studio_api_key="k",
+    )
+    assert selected == "Typed Name"
+
+
+def test_interactive_main_menu_does_not_offer_inspect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_values: list[object] = []
+
+    def fake_menu_select(*_args, **_kwargs):
+        choices = _kwargs.get("choices", [])
+        captured_values.extend(getattr(choice, "value", choice) for choice in choices)
+        return "exit"
+
+    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
+    monkeypatch.setattr(cli, "_load_settings", lambda: {})
+
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
+
+    assert "inspect" not in captured_values
 
 
 def test_labelstudio_benchmark_passes_processed_output_root(

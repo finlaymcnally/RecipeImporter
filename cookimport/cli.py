@@ -12,11 +12,12 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Dict, Any, Annotated
+from typing import Iterable, Dict, Any, Annotated, Callable
 
 import questionary
 import typer
 from prompt_toolkit.keys import Keys
+from questionary.prompts.common import Choice as QuestionaryChoice, Separator as QuestionarySeparator
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
@@ -29,6 +30,7 @@ from cookimport.core.overrides_io import load_parsing_overrides
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
 from cookimport.core.slug import slugify_name
 from cookimport.core.timing import TimingStats, measure
+from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.export import run_labelstudio_export
 from cookimport.labelstudio.ingest import run_labelstudio_import
 from cookimport.labelstudio.eval_canonical import (
@@ -82,6 +84,87 @@ DEFAULT_BENCH_RUNS = DEFAULT_GOLDEN / "bench" / "runs"
 DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "cookimport.json"
 REPO_ROOT = Path(__file__).parent.parent
 BACK_ACTION = "__back__"
+SUPPORTED_LABELSTUDIO_TASK_SCOPES = {"pipeline", "canonical-blocks", "freeform-spans"}
+_MENU_SHORTCUT_KEYS = (
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "0",
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "n",
+    "o",
+    "p",
+    "q",
+    "r",
+    "s",
+    "t",
+    "u",
+    "v",
+    "w",
+    "x",
+    "y",
+    "z",
+)
+
+
+def _menu_option_count(choices: list[Any]) -> int:
+    return sum(
+        1
+        for raw_choice in choices
+        if not isinstance(QuestionaryChoice.build(raw_choice), QuestionarySeparator)
+    )
+
+
+def _menu_shortcut_bindings(choices: list[Any]) -> dict[str, Any]:
+    selectable_choices: list[QuestionaryChoice] = []
+    for raw_choice in choices:
+        built_choice = QuestionaryChoice.build(raw_choice)
+        if isinstance(built_choice, QuestionarySeparator) or built_choice.disabled:
+            continue
+        selectable_choices.append(built_choice)
+
+    available_shortcuts = list(_MENU_SHORTCUT_KEYS)
+    bindings: dict[str, Any] = {}
+
+    # Respect explicit shortcuts first.
+    for built_choice in selectable_choices:
+        shortcut_key = built_choice.shortcut_key
+        if isinstance(shortcut_key, str) and shortcut_key:
+            if shortcut_key in available_shortcuts:
+                available_shortcuts.remove(shortcut_key)
+            bindings[shortcut_key] = built_choice.value
+
+    # Mirror Questionary's auto-assignment order for remaining choices.
+    for built_choice in selectable_choices:
+        shortcut_key = built_choice.shortcut_key
+        if isinstance(shortcut_key, str):
+            continue
+        if shortcut_key is False:
+            continue
+        if not available_shortcuts:
+            break
+        assigned = available_shortcuts.pop(0)
+        bindings[assigned] = built_choice.value
+
+    return bindings
 
 
 def _menu_select(
@@ -92,18 +175,38 @@ def _menu_select(
     **kwargs: Any,
 ) -> Any:
     """Select helper with Backspace support for one-level menu back navigation."""
+    option_count = _menu_option_count(choices)
+    use_shortcuts = option_count <= len(_MENU_SHORTCUT_KEYS)
+    shortcut_bindings = _menu_shortcut_bindings(choices) if use_shortcuts else {}
     if menu_help:
         typer.secho(menu_help, fg=typer.colors.BRIGHT_BLACK)
     question = questionary.select(
         message,
         choices=choices,
-        instruction="(Enter to select, Backspace to go back)",
+        instruction=(
+            "(Type number shortcut to select, Enter to select, Backspace to go back)"
+            if use_shortcuts
+            else "(Enter to select, Backspace to go back)"
+        ),
+        use_shortcuts=use_shortcuts,
         **kwargs,
     )
 
     @question.application.key_bindings.add(Keys.Backspace, eager=True)
     def _go_back(event: Any) -> None:
         event.app.exit(result=BACK_ACTION)
+
+    if use_shortcuts:
+        for key, value in shortcut_bindings.items():
+            if key not in "0123456789":
+                continue
+
+            def _register_numeric_shortcut(shortcut: str, selected_value: Any) -> None:
+                @question.application.key_bindings.add(shortcut, eager=True)
+                def _select_by_shortcut(event: Any) -> None:
+                    event.app.exit(result=selected_value)
+
+            _register_numeric_shortcut(key, value)
 
     return question.ask()
 
@@ -139,6 +242,84 @@ def _save_settings(settings: Dict[str, Any]) -> None:
     DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(DEFAULT_CONFIG_PATH, "w") as f:
         json.dump(settings, f, indent=2)
+
+
+def _resolve_interactive_labelstudio_settings(
+    settings: Dict[str, Any],
+) -> tuple[str, str]:
+    """Resolve Label Studio creds for interactive flows, persisting prompted values."""
+    env_url = os.getenv("LABEL_STUDIO_URL")
+    env_api_key = os.getenv("LABEL_STUDIO_API_KEY")
+    stored_url = str(settings.get("label_studio_url", "") or "").strip()
+    stored_api_key = str(settings.get("label_studio_api_key", "") or "").strip()
+
+    label_studio_url = env_url or stored_url
+    label_studio_api_key = env_api_key or stored_api_key
+
+    if not label_studio_url:
+        label_studio_url = questionary.text(
+            "Label Studio URL:",
+            default=stored_url or "http://localhost:8080",
+        ).ask()
+    if not label_studio_api_key:
+        label_studio_api_key = questionary.password(
+            "Label Studio API key:",
+        ).ask()
+
+    url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
+
+    changed = False
+    if not env_url and url != stored_url:
+        settings["label_studio_url"] = url
+        changed = True
+    if not env_api_key and api_key != stored_api_key:
+        settings["label_studio_api_key"] = api_key
+        changed = True
+    if changed:
+        _save_settings(settings)
+
+    if not env_url and not env_api_key:
+        preflight_error = _preflight_labelstudio_credentials(url, api_key)
+        if preflight_error and _is_labelstudio_credential_error(preflight_error):
+            typer.secho(
+                "Saved Label Studio credentials were rejected. Please enter updated values.",
+                fg=typer.colors.YELLOW,
+            )
+            refreshed_url = questionary.text(
+                "Label Studio URL:",
+                default=url,
+            ).ask()
+            refreshed_api_key = questionary.password(
+                "Label Studio API key:",
+            ).ask()
+            url, api_key = _resolve_labelstudio_settings(refreshed_url, refreshed_api_key)
+            settings["label_studio_url"] = url
+            settings["label_studio_api_key"] = api_key
+            _save_settings(settings)
+            retry_error = _preflight_labelstudio_credentials(url, api_key)
+            if retry_error and _is_labelstudio_credential_error(retry_error):
+                _fail(f"Updated Label Studio credentials were rejected: {retry_error}")
+
+    return url, api_key
+
+
+def _preflight_labelstudio_credentials(url: str, api_key: str) -> str | None:
+    """Best-effort interactive credential probe; returns error text on failure."""
+    try:
+        client = LabelStudioClient(url, api_key)
+        client.list_projects()
+    except Exception as exc:  # noqa: BLE001
+        return str(exc)
+    return None
+
+
+def _is_labelstudio_credential_error(error_text: str) -> bool:
+    normalized = error_text.lower()
+    return (
+        "api error 401" in normalized
+        or "api error 403" in normalized
+        or "api error 404" in normalized
+    )
 
 
 def _list_importable_files(folder: Path) -> list[Path]:
@@ -190,7 +371,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     value="ocr_batch_size",
                 ),
                 questionary.Choice(
-                    f"Output Folder: {current_settings.get('output_dir', str(DEFAULT_INTERACTIVE_OUTPUT))} - stage/inspect artifacts",
+                    f"Output Folder: {current_settings.get('output_dir', str(DEFAULT_INTERACTIVE_OUTPUT))} - stage artifacts",
                     value="output_dir",
                 ),
                 questionary.Choice(
@@ -336,14 +517,14 @@ def _interactive_mode(*, limit: int | None = None) -> None:
         )
         choices.append(
             questionary.Choice(
-                "Benchmark against labeled freeform export - run predictions + scoring",
+                "Benchmark against labeled freeform export - re-score existing runs or generate new predictions",
                 value="labelstudio_benchmark",
             )
         )
         choices.append(
             questionary.Choice(
-                "Inspect a single file - preview inferred layout and confidence",
-                value="inspect",
+                "Generate dashboard - build lifetime stats dashboard HTML",
+                value="generate_dashboard",
             )
         )
         choices.append(
@@ -359,7 +540,9 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             choices=choices,
             menu_help=(
                 "Choose a workflow. Import converts source files, Label Studio creates "
-                "annotation tasks, Benchmark scores pipeline predictions against gold."
+                "annotation tasks, Benchmark re-scores existing predictions or generates "
+                "new ones against gold, and "
+                "Dashboard builds a static lifetime summary."
             ),
         )
 
@@ -368,43 +551,30 @@ def _interactive_mode(*, limit: int | None = None) -> None:
 
         if action is None or action == "exit":
             raise typer.Exit(0)
+
+        if action == "generate_dashboard":
+            open_dashboard = questionary.confirm(
+                "Open dashboard in your browser after generation?",
+                default=True,
+            ).ask()
+            if open_dashboard is None:
+                continue
+            typer.secho(
+                f"Generating dashboard from {output_folder}...",
+                fg=typer.colors.CYAN,
+            )
+            stats_dashboard(
+                output_root=output_folder,
+                golden_root=DEFAULT_GOLDEN,
+                out_dir=output_folder / ".history" / "dashboard",
+                open_browser=bool(open_dashboard),
+                since_days=None,
+                scan_reports=False,
+            )
+            continue
             
         if action == "settings":
             _settings_menu(settings)
-            continue
-
-        if action == "inspect":
-            if not importable_files:
-                typer.secho(
-                    f"\nNo supported files found in {input_folder}",
-                    fg=typer.colors.YELLOW,
-                )
-                input("Press Enter to continue...")
-                continue
-
-            file_choices = [
-                questionary.Choice(f.name, value=f) for f in importable_files
-            ]
-            selected_file = _menu_select(
-                "Select a file to inspect:",
-                choices=file_choices,
-                menu_help="Pick one source file to inspect parser layout guesses.",
-            )
-
-            if selected_file in {None, BACK_ACTION}:
-                continue
-
-            write_map = questionary.confirm(
-                "Write a mapping file? (useful for customizing column mappings)",
-                default=True,
-            ).ask()
-
-            if write_map is None:
-                continue
-
-            typer.echo()
-            inspect(path=selected_file, out=output_folder, write_mapping=write_map)
-            input("Press Enter to continue...")
             continue
 
         elif action == "import":
@@ -461,7 +631,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 run_folder = stage(path=selection, **common_args)
 
             typer.secho(f"\nOutputs written to: {run_folder}", fg=typer.colors.CYAN)
-            break
+            continue
 
         elif action == "labelstudio":
             if not importable_files:
@@ -582,38 +752,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     typer.secho("Segment overlap must be >= 0.", fg=typer.colors.RED)
                     continue
 
-            overwrite = questionary.confirm(
-                "Overwrite existing project if it exists?",
-                default=False,
-            ).ask()
+            # Interactive flow always recreates the project if it exists.
+            overwrite = True
 
-            if overwrite is None:
-                continue
-
-            allow_upload = questionary.confirm(
-                "Upload tasks to Label Studio now?",
-                default=False,
-            ).ask()
-            if allow_upload is not True:
-                typer.secho("Label Studio upload cancelled.", fg=typer.colors.YELLOW)
-                continue
-
-            label_studio_url = os.getenv("LABEL_STUDIO_URL")
-            label_studio_api_key = os.getenv("LABEL_STUDIO_API_KEY")
-
-            if not label_studio_url:
-                label_studio_url = questionary.text(
-                    "Label Studio URL:",
-                    default="http://localhost:8080",
-                ).ask()
-            if not label_studio_api_key:
-                label_studio_api_key = questionary.password(
-                    "Label Studio API key:",
-                ).ask()
-
-            url, api_key = _resolve_labelstudio_settings(
-                label_studio_url, label_studio_api_key
-            )
+            url, api_key = _resolve_interactive_labelstudio_settings(settings)
 
             try:
                 result = run_labelstudio_import(
@@ -626,8 +768,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     context_window=context_window,
                     segment_blocks=segment_blocks,
                     segment_overlap=segment_overlap,
-                    overwrite=bool(overwrite),
-                    resume=not overwrite,
+                    overwrite=overwrite,
+                    resume=False,
                     label_studio_url=url,
                     label_studio_api_key=api_key,
                     limit=None,
@@ -646,59 +788,45 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 fg=typer.colors.CYAN,
             )
             typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
-            break
+            continue
 
         elif action == "labelstudio_export":
-            project_name_raw = questionary.text(
-                "Label Studio project name to export:",
-                default="",
-            ).ask()
-            if project_name_raw is None:
-                continue
-            project_name = project_name_raw.strip()
-            if not project_name:
-                typer.secho("Project name is required for export.", fg=typer.colors.RED)
-                continue
-
-            export_scope = _menu_select(
-                "Export scope:",
-                menu_help="Choose the task type used by the project you already labeled.",
-                choices=[
-                    questionary.Choice(
-                        "pipeline chunks - chunk-level labels",
-                        value="pipeline",
-                    ),
-                    questionary.Choice(
-                        "canonical blocks - block-level labels and derived spans",
-                        value="canonical-blocks",
-                    ),
-                    questionary.Choice(
-                        "freeform spans - offset-based highlighted spans",
-                        value="freeform-spans",
-                    ),
-                ],
-            )
-            if export_scope in {None, BACK_ACTION}:
-                continue
-
             target_output_dir = DEFAULT_GOLDEN
 
-            label_studio_url = os.getenv("LABEL_STUDIO_URL")
-            label_studio_api_key = os.getenv("LABEL_STUDIO_API_KEY")
-
-            if not label_studio_url:
-                label_studio_url = questionary.text(
-                    "Label Studio URL:",
-                    default="http://localhost:8080",
-                ).ask()
-            if not label_studio_api_key:
-                label_studio_api_key = questionary.password(
-                    "Label Studio API key:",
-                ).ask()
-
-            url, api_key = _resolve_labelstudio_settings(
-                label_studio_url, label_studio_api_key
+            url, api_key = _resolve_interactive_labelstudio_settings(settings)
+            project_name, detected_scope = _select_export_project(
+                label_studio_url=url,
+                label_studio_api_key=api_key,
             )
+            if not project_name:
+                continue
+            if detected_scope in SUPPORTED_LABELSTUDIO_TASK_SCOPES:
+                export_scope = detected_scope
+                typer.secho(
+                    f"Using detected project type: {export_scope}",
+                    fg=typer.colors.BRIGHT_BLACK,
+                )
+            else:
+                export_scope = _menu_select(
+                    "Export scope:",
+                    menu_help="Choose the task type used by the project you already labeled.",
+                    choices=[
+                        questionary.Choice(
+                            "pipeline chunks - chunk-level labels",
+                            value="pipeline",
+                        ),
+                        questionary.Choice(
+                            "canonical blocks - block-level labels and derived spans",
+                            value="canonical-blocks",
+                        ),
+                        questionary.Choice(
+                            "freeform spans - offset-based highlighted spans",
+                            value="freeform-spans",
+                        ),
+                    ],
+                )
+                if export_scope in {None, BACK_ACTION}:
+                    continue
 
             try:
                 result = run_labelstudio_export(
@@ -716,7 +844,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 f"Export complete. Summary: {result['summary_path']}",
                 fg=typer.colors.GREEN,
             )
-            break
+            continue
 
         elif action == "labelstudio_benchmark":
             benchmark_eval_output = (
@@ -731,7 +859,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 selected_mode = _menu_select(
                     "How would you like to benchmark?",
                     menu_help=(
-                        "Use eval-only when you already have prediction tasks. "
+                        "Use eval-only to re-score an existing prediction run "
+                        "(for updated gold/settings). "
                         "Use upload only when you need to generate fresh predictions."
                     ),
                     choices=[
@@ -788,29 +917,22 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     gold_spans=Path(selected_gold),
                     output_dir=benchmark_eval_output,
                 )
-                break
-
-            allow_upload = questionary.confirm(
-                "Upload benchmark prediction tasks to Label Studio now?",
-                default=False,
-            ).ask()
-            if allow_upload is not True:
-                typer.secho(
-                    "Benchmark upload cancelled. Select eval-only mode if you already have prediction runs.",
-                    fg=typer.colors.YELLOW,
-                )
                 continue
+
+            url, api_key = _resolve_interactive_labelstudio_settings(settings)
             labelstudio_benchmark(
                 output_dir=DEFAULT_GOLDEN,
                 eval_output_dir=benchmark_eval_output,
                 allow_labelstudio_write=True,
+                label_studio_url=url,
+                label_studio_api_key=api_key,
                 workers=settings.get("workers", 7),
                 pdf_split_workers=settings.get("pdf_split_workers", 7),
                 epub_split_workers=settings.get("epub_split_workers", 7),
                 pdf_pages_per_job=settings.get("pdf_pages_per_job", 50),
                 epub_spine_items_per_job=settings.get("epub_spine_items_per_job", 10),
             )
-            break
+            continue
 
 
 @app.callback()
@@ -860,6 +982,140 @@ def _resolve_labelstudio_settings(
     if not api_key:
         _fail("Label Studio API key missing. Use --label-studio-api-key or LABEL_STUDIO_API_KEY.")
     return url, api_key
+
+
+def _prompt_manual_project_name() -> str | None:
+    project_name_raw = questionary.text(
+        "Label Studio project name to export:",
+        default="",
+    ).ask()
+    if project_name_raw is None:
+        return None
+    project_name = project_name_raw.strip()
+    if not project_name:
+        typer.secho("Project name is required for export.", fg=typer.colors.RED)
+        return None
+    return project_name
+
+
+def _discover_manifest_project_scopes(*roots: Path) -> dict[str, str]:
+    """Best-effort map of project title -> task scope from local manifest history."""
+    latest_by_project: dict[str, tuple[float, str]] = {}
+    for root in roots:
+        if not root.exists():
+            continue
+        for manifest_path in root.glob("**/labelstudio/**/manifest.json"):
+            try:
+                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            project_name = str(payload.get("project_name", "")).strip()
+            task_scope = str(payload.get("task_scope", "")).strip()
+            if not project_name or not task_scope:
+                continue
+            try:
+                mtime = manifest_path.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            previous = latest_by_project.get(project_name)
+            if previous is None or mtime >= previous[0]:
+                latest_by_project[project_name] = (mtime, task_scope)
+    return {project_name: scope for project_name, (_mtime, scope) in latest_by_project.items()}
+
+
+def _infer_scope_from_project_payload(project: dict[str, Any]) -> str | None:
+    """Infer task scope from Label Studio project payload when available."""
+    explicit_scope = str(project.get("task_scope", "")).strip()
+    if explicit_scope in SUPPORTED_LABELSTUDIO_TASK_SCOPES:
+        return explicit_scope
+
+    label_config = str(project.get("label_config", "") or "")
+    if not label_config:
+        return None
+
+    if "YIELD_LINE" in label_config or "VARIANT" in label_config:
+        return "freeform-spans"
+    if (
+        "RECIPE_TITLE" in label_config
+        and "INGREDIENT_LINE" in label_config
+        and "INSTRUCTION_LINE" in label_config
+        and "NARRATIVE" in label_config
+        and "VARIANT" not in label_config
+    ):
+        return "canonical-blocks"
+    if "mixed" in label_config and "value_usefulness" in label_config:
+        return "pipeline"
+    return None
+
+
+def _select_export_project(
+    *,
+    label_studio_url: str,
+    label_studio_api_key: str,
+) -> tuple[str | None, str | None]:
+    try:
+        client = LabelStudioClient(label_studio_url, label_studio_api_key)
+        projects = client.list_projects()
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(
+            f"Could not fetch Label Studio projects ({exc}). Falling back to manual entry.",
+            fg=typer.colors.YELLOW,
+        )
+        return _prompt_manual_project_name(), None
+
+    known_scopes = _discover_manifest_project_scopes(DEFAULT_GOLDEN, DEFAULT_OUTPUT)
+    scope_by_title: dict[str, str | None] = {}
+    for project in projects:
+        if not isinstance(project, dict):
+            continue
+        title = str(project.get("title", "")).strip()
+        if not title:
+            continue
+        scope_by_title[title] = known_scopes.get(title) or _infer_scope_from_project_payload(project)
+
+    project_titles = sorted(scope_by_title.keys(), key=str.casefold)
+
+    if not project_titles:
+        typer.secho(
+            "No Label Studio projects found. Enter a project name manually.",
+            fg=typer.colors.YELLOW,
+        )
+        return _prompt_manual_project_name(), None
+
+    selection = _menu_select(
+        "Select Label Studio project to export:",
+        menu_help="Choose an existing project title (with detected type), or switch to manual entry.",
+        choices=[
+            questionary.Choice("Type project name manually", value="__manual__"),
+            *[
+                questionary.Choice(
+                    f"{title} [type: {scope_by_title.get(title) or 'unknown'}]",
+                    value=title,
+                )
+                for title in project_titles
+            ],
+        ],
+    )
+    if selection in {None, BACK_ACTION}:
+        return None, None
+    if selection == "__manual__":
+        return _prompt_manual_project_name(), None
+    selected_project = str(selection)
+    return selected_project, scope_by_title.get(selected_project)
+
+
+def _select_export_project_name(
+    *,
+    label_studio_url: str,
+    label_studio_api_key: str,
+) -> str | None:
+    project_name, _detected_scope = _select_export_project(
+        label_studio_url=label_studio_url,
+        label_studio_api_key=label_studio_api_key,
+    )
+    return project_name
 
 
 def _require_labelstudio_write_consent(allow_labelstudio_write: bool) -> None:
@@ -1236,11 +1492,21 @@ def _prefix_collision(path: Path, job_index: int) -> Path:
     return candidate
 
 
-def _write_error_report(out: Path, file_path: Path, run_dt: dt.datetime, errors: list[str]) -> None:
+def _write_error_report(
+    out: Path,
+    file_path: Path,
+    run_dt: dt.datetime,
+    errors: list[str],
+    *,
+    importer_name: str | None = None,
+    run_config: dict[str, Any] | None = None,
+) -> None:
     report = ConversionReport(
         errors=errors,
         sourceFile=str(file_path),
+        importerName=importer_name,
         runTimestamp=run_dt.isoformat(timespec="seconds"),
+        runConfig=dict(run_config) if run_config is not None else None,
     )
     write_report(report, out, file_path.stem)
 
@@ -1263,11 +1529,22 @@ def _merge_split_jobs(
     limit: int | None,
     run_dt: dt.datetime,
     importer_name: str,
+    run_config: dict[str, Any] | None = None,
+    status_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     workbook_slug = slugify_name(file_path.stem)
     merge_stats = TimingStats()
     merge_start = time.monotonic()
 
+    def _report_status(message: str) -> None:
+        if status_callback is None:
+            return
+        try:
+            status_callback(message)
+        except Exception:
+            return
+
+    _report_status("Merging job payloads...")
     ordered_jobs = sorted(job_results, key=_job_range_start)
     merged_recipes: list[Any] = []
     merged_tip_candidates: list[Any] = []
@@ -1294,6 +1571,7 @@ def _merge_split_jobs(
             standalone_block_total += result.report.total_standalone_blocks
             standalone_topic_block_total += result.report.total_standalone_topic_blocks
 
+    _report_status("Reassigning recipe IDs...")
     file_hash = compute_file_hash(file_path)
     sorted_recipes, _ = reassign_recipe_ids(
         merged_recipes,
@@ -1303,7 +1581,11 @@ def _merge_split_jobs(
     )
     tips, _, _ = partition_tip_candidates(merged_tip_candidates)
 
-    report = ConversionReport(warnings=warnings)
+    report = ConversionReport(
+        warnings=warnings,
+        importerName=importer_name,
+        runConfig=dict(run_config) if run_config is not None else None,
+    )
     merged_result = ConversionResult(
         recipes=sorted_recipes,
         tips=tips,
@@ -1336,6 +1618,7 @@ def _merge_split_jobs(
     parsing_overrides = (
         mapping_config.parsing_overrides if mapping_config and mapping_config.parsing_overrides else None
     )
+    _report_status("Building chunks...")
     if merged_result.non_recipe_blocks:
         merged_result.chunks = chunks_from_non_recipe_blocks(
             merged_result.non_recipe_blocks,
@@ -1351,22 +1634,28 @@ def _merge_split_jobs(
     enrich_report_with_stats(report, merged_result, file_path)
 
     output_stats = OutputStats(out)
+    _report_status("Writing merged outputs...")
     with measure(merge_stats, "writing"):
         intermediate_dir = out / "intermediate drafts" / workbook_slug
         final_dir = out / "final drafts" / workbook_slug
         tips_dir = out / "tips" / workbook_slug
 
+        _report_status("Writing intermediate drafts...")
         with measure(merge_stats, "write_intermediate_seconds"):
             write_intermediate_outputs(merged_result, intermediate_dir, output_stats=output_stats)
+        _report_status("Writing final drafts...")
         with measure(merge_stats, "write_final_seconds"):
             write_draft_outputs(merged_result, final_dir, output_stats=output_stats)
+        _report_status("Writing tips...")
         with measure(merge_stats, "write_tips_seconds"):
             write_tip_outputs(merged_result, tips_dir, output_stats=output_stats)
+        _report_status("Writing topic candidates...")
         with measure(merge_stats, "write_topic_candidates_seconds"):
             write_topic_candidate_outputs(merged_result, tips_dir, output_stats=output_stats)
 
         if merged_result.chunks:
             chunks_dir = out / "chunks" / workbook_slug
+            _report_status("Writing chunks...")
             with measure(merge_stats, "write_chunks_seconds"):
                 write_chunk_outputs(merged_result.chunks, chunks_dir, output_stats=output_stats)
 
@@ -1385,9 +1674,12 @@ def _merge_split_jobs(
     if output_stats.file_counts:
         report.output_stats = output_stats.to_report()
     report.timing = merge_stats.to_dict()
+    _report_status("Writing report...")
     write_report(report, out, file_path.stem)
 
+    _report_status("Merging raw artifacts...")
     _merge_raw_artifacts(out, workbook_slug, job_results)
+    _report_status("Merge done")
 
     return {
         "file": file_path.name,
@@ -1405,6 +1697,8 @@ def _merge_pdf_jobs(
     mapping_config: MappingConfig | None,
     limit: int | None,
     run_dt: dt.datetime,
+    run_config: dict[str, Any] | None = None,
+    status_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     return _merge_split_jobs(
         file_path,
@@ -1414,6 +1708,8 @@ def _merge_pdf_jobs(
         limit,
         run_dt,
         importer_name="pdf",
+        run_config=run_config,
+        status_callback=status_callback,
     )
 
 
@@ -1424,6 +1720,8 @@ def _merge_epub_jobs(
     mapping_config: MappingConfig | None,
     limit: int | None,
     run_dt: dt.datetime,
+    run_config: dict[str, Any] | None = None,
+    status_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     return _merge_split_jobs(
         file_path,
@@ -1433,6 +1731,8 @@ def _merge_epub_jobs(
         limit,
         run_dt,
         importer_name="epub",
+        run_config=run_config,
+        status_callback=status_callback,
     )
 
 
@@ -1558,6 +1858,23 @@ def stage(
     effective_workers = workers
     if all_epub and epub_split_workers > workers:
         effective_workers = epub_split_workers
+
+    run_config: dict[str, Any] = {
+        "workers": workers,
+        "effective_workers": effective_workers,
+        "pdf_split_workers": pdf_split_workers,
+        "epub_split_workers": epub_split_workers,
+        "pdf_pages_per_job": pdf_pages_per_job,
+        "epub_spine_items_per_job": epub_spine_items_per_job,
+        "ocr_device": ocr_device,
+        "ocr_batch_size": ocr_batch_size,
+        "warm_models": warm_models,
+        "epub_extractor": os.environ.get("C3IMP_EPUB_EXTRACTOR", "unstructured").strip().lower(),
+    }
+    if mapping is not None:
+        run_config["mapping_path"] = str(mapping)
+    if overrides is not None:
+        run_config["overrides_path"] = str(overrides)
 
     from concurrent.futures import ProcessPoolExecutor, as_completed
     from cookimport.cli_worker import stage_one_file, stage_pdf_job, stage_epub_job
@@ -1727,7 +2044,14 @@ def stage(
                     live.console.print(
                         f"[red]✘ Error {job.file_path.name}: {message}[/red]"
                     )
-                    _write_error_report(out, job.file_path, run_dt, reasons)
+                    _write_error_report(
+                        out,
+                        job.file_path,
+                        run_dt,
+                        reasons,
+                        importer_name=job.split_kind,
+                        run_config=run_config,
+                    )
                 else:
                     _set_worker_status(
                         "MainProcess",
@@ -1738,6 +2062,13 @@ def stage(
                         f"Merging {expected_count} jobs for {job.file_path.name}..."
                     )
                     try:
+                        def _main_merge_status(message: str) -> None:
+                            _set_worker_status(
+                                "MainProcess",
+                                job.file_path.name,
+                                message,
+                            )
+
                         if job.split_kind == "epub":
                             merged = _merge_epub_jobs(
                                 job.file_path,
@@ -1746,6 +2077,8 @@ def stage(
                                 base_mapping,
                                 limit,
                                 run_dt,
+                                run_config,
+                                status_callback=_main_merge_status,
                             )
                         else:
                             merged = _merge_pdf_jobs(
@@ -1755,6 +2088,8 @@ def stage(
                                 base_mapping,
                                 limit,
                                 run_dt,
+                                run_config,
+                                status_callback=_main_merge_status,
                             )
                         imported += 1
                         _set_worker_status(
@@ -1777,7 +2112,12 @@ def stage(
                             f"[red]✘ Error {job.file_path.name}: {exc}[/red]"
                         )
                         _write_error_report(
-                            out, job.file_path, run_dt, [str(exc)]
+                            out,
+                            job.file_path,
+                            run_dt,
+                            [str(exc)],
+                            importer_name=job.split_kind,
+                            run_config=run_config,
                         )
         else:
             if res["status"] == "success":
@@ -1816,6 +2156,7 @@ def stage(
                                     job.job_count,
                                     progress_queue,
                                     job.display_name,
+                                    run_config,
                                 )
                             ] = job
                         else:
@@ -1832,6 +2173,7 @@ def stage(
                                     job.job_count,
                                     progress_queue,
                                     job.display_name,
+                                    run_config,
                                 )
                             ] = job
                     else:
@@ -1845,6 +2187,7 @@ def stage(
                                 run_dt,
                                 progress_queue,
                                 job.display_name,
+                                run_config,
                             )
                         ] = job
 
@@ -1885,6 +2228,7 @@ def stage(
                             job.job_count,
                             progress_queue,
                             job.display_name,
+                            run_config,
                         )
                     else:
                         res = stage_pdf_job(
@@ -1898,6 +2242,7 @@ def stage(
                             job.job_count,
                             progress_queue,
                             job.display_name,
+                            run_config,
                         )
                 else:
                     res = stage_one_file(
@@ -1908,6 +2253,7 @@ def stage(
                         run_dt,
                         progress_queue,
                         job.display_name,
+                        run_config,
                     )
                 progress_bar.update(overall_task, advance=1)
                 handle_job_result(job, res, live)
@@ -2321,21 +2667,25 @@ def labelstudio_eval(
     output_dir: Path = typer.Option(
         ..., "--output-dir", help="Output folder for eval artifacts."
     ),
-    overlap_threshold: float = typer.Option(
-        0.5,
-        "--overlap-threshold",
-        min=0.0,
-        max=1.0,
-        help="Jaccard overlap threshold for matching.",
-    ),
-    force_source_match: bool = typer.Option(
-        False,
-        "--force-source-match",
-        help=(
-            "Ignore source hash/file identity when matching spans. "
-            "Useful for comparing renamed/truncated source variants."
+    overlap_threshold: Annotated[
+        float,
+        typer.Option(
+            "--overlap-threshold",
+            min=0.0,
+            max=1.0,
+            help="Jaccard overlap threshold for matching.",
         ),
-    ),
+    ] = 0.5,
+    force_source_match: Annotated[
+        bool,
+        typer.Option(
+            "--force-source-match",
+            help=(
+                "Ignore source hash/file identity when matching spans. "
+                "Useful for comparing renamed/truncated source variants."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Evaluate pipeline predictions against canonical or freeform gold sets."""
     if scope not in {"canonical-blocks", "freeform-spans"}:

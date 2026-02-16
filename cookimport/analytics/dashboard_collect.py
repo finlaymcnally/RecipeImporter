@@ -69,6 +69,18 @@ def _safe_int(value: Any) -> int | None:
         return None
 
 
+def _normalize_path(value: str | Path | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return str(Path(text).expanduser().resolve())
+    except OSError:
+        return text
+
+
 def _safe_div(numerator: float | None, denominator: int | float | None) -> float | None:
     if numerator is None or denominator is None or denominator == 0:
         return None
@@ -212,10 +224,12 @@ def _benchmark_record_from_csv_row(
         cat = RunCategory.benchmark_prediction
 
     run_dir = row.get("run_dir", "")
+    normalized_run_dir = _normalize_path(run_dir) or run_dir
+    normalized_report_path = _normalize_path(row.get("report_path"))
     return BenchmarkRecord(
         run_timestamp=row.get("run_timestamp"),
-        artifact_dir=run_dir,
-        report_path=row.get("report_path") or None,
+        artifact_dir=normalized_run_dir,
+        report_path=normalized_report_path,
         run_category=cat,
         precision=precision,
         recall=recall,
@@ -230,7 +244,86 @@ def _benchmark_record_from_csv_row(
         boundary_under=_safe_int(row.get("boundary_under")),
         boundary_partial=_safe_int(row.get("boundary_partial")),
         source_file=row.get("file_name") or None,
+        importer_name=row.get("importer_name") or None,
     )
+
+
+def _merge_benchmark_record_fields(
+    target: BenchmarkRecord,
+    incoming: BenchmarkRecord,
+) -> None:
+    def _assign_if_missing(field: str, value: Any) -> None:
+        if value is None:
+            return
+        current = getattr(target, field)
+        if current is None:
+            setattr(target, field, value)
+            return
+        if isinstance(current, str) and current == "":
+            setattr(target, field, value)
+            return
+        if isinstance(current, list) and not current:
+            setattr(target, field, value)
+            return
+        if isinstance(current, dict) and not current:
+            setattr(target, field, value)
+
+    for field in (
+        "run_timestamp",
+        "report_path",
+        "precision",
+        "recall",
+        "f1",
+        "gold_total",
+        "pred_total",
+        "gold_matched",
+        "supported_precision",
+        "supported_recall",
+        "boundary_correct",
+        "boundary_over",
+        "boundary_under",
+        "boundary_partial",
+        "coverage_ratio",
+        "extracted_chars",
+        "chunked_chars",
+        "task_count",
+        "source_file",
+        "importer_name",
+        "run_config",
+        "processed_report_path",
+    ):
+        _assign_if_missing(field, getattr(incoming, field))
+
+
+def _merge_benchmark_records(
+    json_records: list[BenchmarkRecord],
+    csv_records: list[BenchmarkRecord],
+) -> list[BenchmarkRecord]:
+    merged: list[BenchmarkRecord] = list(json_records)
+    def _artifact_key(path: str | None) -> str | None:
+        return _normalize_path(path)
+
+    by_artifact_dir: dict[str, BenchmarkRecord] = {
+        key: record
+        for record in merged
+        if (key := _artifact_key(record.artifact_dir))
+    }
+
+    for csv_record in csv_records:
+        existing = (
+            by_artifact_dir.get(_artifact_key(csv_record.artifact_dir))
+            if _artifact_key(csv_record.artifact_dir)
+            else None
+        )
+        if existing is None:
+            merged.append(csv_record)
+            key = _artifact_key(csv_record.artifact_dir)
+            if key:
+                by_artifact_dir[key] = csv_record
+            continue
+        _merge_benchmark_record_fields(existing, csv_record)
+
+    return merged
 
 
 def _collect_stage_from_reports(
@@ -413,8 +506,8 @@ def _collect_benchmarks(
 
         record = BenchmarkRecord(
             run_timestamp=ts_str,
-            artifact_dir=str(eval_dir),
-            report_path=str(rp),
+            artifact_dir=_normalize_path(eval_dir),
+            report_path=_normalize_path(rp),
             run_category=RunCategory.benchmark_eval,
             precision=precision,
             recall=recall,
@@ -432,8 +525,13 @@ def _collect_benchmarks(
         )
 
         # Optional: coverage.json enrichment
-        coverage_path = eval_dir / "coverage.json"
-        if coverage_path.is_file():
+        coverage_candidates = (
+            eval_dir / "coverage.json",
+            eval_dir / _PREDICTION_RUN / "coverage.json",
+        )
+        for coverage_path in coverage_candidates:
+            if not coverage_path.is_file():
+                continue
             try:
                 cov = json.loads(coverage_path.read_text(encoding="utf-8"))
                 extracted = _safe_int(cov.get("extracted_chars"))
@@ -442,18 +540,35 @@ def _collect_benchmarks(
                 record.chunked_chars = chunked
                 if extracted and chunked:
                     record.coverage_ratio = chunked / extracted
+                break
             except (OSError, json.JSONDecodeError) as exc:
-                warnings.append(f"Malformed coverage.json in {eval_dir}: {exc}")
+                warnings.append(f"Malformed coverage.json in {coverage_path.parent}: {exc}")
 
         # Optional: manifest.json enrichment
-        manifest_path = eval_dir / "manifest.json"
-        if manifest_path.is_file():
+        manifest_candidates = (
+            eval_dir / "manifest.json",
+            eval_dir / _PREDICTION_RUN / "manifest.json",
+        )
+        for manifest_path in manifest_candidates:
+            if not manifest_path.is_file():
+                continue
             try:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
                 record.task_count = _safe_int(manifest.get("task_count"))
                 record.source_file = manifest.get("source_file")
+                record.importer_name = (
+                    manifest.get("importer_name")
+                    or manifest.get("pipeline")
+                )
+                run_config = manifest.get("run_config")
+                if isinstance(run_config, dict):
+                    record.run_config = run_config
+                processed_report_path = manifest.get("processed_report_path")
+                if processed_report_path:
+                    record.processed_report_path = str(processed_report_path)
+                break
             except (OSError, json.JSONDecodeError) as exc:
-                warnings.append(f"Malformed manifest.json in {eval_dir}: {exc}")
+                warnings.append(f"Malformed manifest.json in {manifest_path.parent}: {exc}")
 
         records.append(record)
 
@@ -559,11 +674,7 @@ def collect_dashboard_data(
 
     # -- Benchmark records from JSON + CSV --
     benchmark_records = _collect_benchmarks(golden_root, cutoff, warnings)
-    # Merge CSV-sourced benchmark records, dedup by (run_timestamp, artifact_dir)
-    json_bench_keys = {(r.run_timestamp, r.artifact_dir) for r in benchmark_records}
-    for r in csv_bench_records:
-        if (r.run_timestamp, r.artifact_dir) not in json_bench_keys:
-            benchmark_records.append(r)
+    benchmark_records = _merge_benchmark_records(benchmark_records, csv_bench_records)
     benchmark_records.sort(key=lambda r: r.run_timestamp or "zzzz")
 
     # -- Summary --
