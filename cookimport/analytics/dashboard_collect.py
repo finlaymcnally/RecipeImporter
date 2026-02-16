@@ -16,6 +16,7 @@ Fallback
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import logging
 import re
@@ -68,6 +69,42 @@ def _safe_int(value: Any) -> int | None:
         return int(float(value))
     except (TypeError, ValueError):
         return None
+
+
+def _stable_hash_for_run_config(run_config: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        run_config,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _summary_for_run_config(run_config: dict[str, Any]) -> str:
+    ordered_keys = (
+        "epub_extractor",
+        "ocr_device",
+        "ocr_batch_size",
+        "workers",
+        "effective_workers",
+        "pdf_split_workers",
+        "epub_split_workers",
+        "pdf_pages_per_job",
+        "epub_spine_items_per_job",
+        "warm_models",
+    )
+    parts: list[str] = []
+    for key in ordered_keys:
+        if key not in run_config:
+            continue
+        value = run_config.get(key)
+        if isinstance(value, bool):
+            rendered = "true" if value else "false"
+        else:
+            rendered = str(value)
+        parts.append(f"{key}={rendered}")
+    return " | ".join(parts)
 
 
 def _normalize_path(value: str | Path | None) -> str | None:
@@ -146,8 +183,11 @@ def _load_stage_run_config_from_report(
     *,
     warnings: list[str],
     context: str,
-    cache: dict[tuple[str, str], tuple[dict[str, Any] | None, bool]],
-) -> tuple[dict[str, Any] | None, bool]:
+    cache: dict[
+        tuple[str, str],
+        tuple[dict[str, Any] | None, str | None, str | None, bool],
+    ],
+) -> tuple[dict[str, Any] | None, str | None, str | None, bool]:
     report_key = str(report_path_raw).strip() if report_path_raw is not None else ""
     run_dir_key = str(run_dir_raw).strip() if run_dir_raw is not None else ""
     cache_key = (report_key, run_dir_key)
@@ -173,11 +213,17 @@ def _load_stage_run_config_from_report(
 
         run_config = payload.get("runConfig")
         if isinstance(run_config, dict):
-            cache[cache_key] = (run_config, True)
-            return (run_config, True)
+            run_config_hash = str(payload.get("runConfigHash") or "").strip() or None
+            run_config_summary = str(payload.get("runConfigSummary") or "").strip() or None
+            if run_config_hash is None:
+                run_config_hash = _stable_hash_for_run_config(run_config)
+            if run_config_summary is None:
+                run_config_summary = _summary_for_run_config(run_config)
+            cache[cache_key] = (run_config, run_config_hash, run_config_summary, True)
+            return (run_config, run_config_hash, run_config_summary, True)
 
-    cache[cache_key] = (None, found_report)
-    return (None, found_report)
+    cache[cache_key] = (None, None, None, found_report)
+    return (None, None, None, found_report)
 
 
 def _load_total_recipes_from_report(
@@ -315,7 +361,7 @@ def _collect_from_csv(
     stage_records: list[StageRecord] = []
     bench_records: list[BenchmarkRecord] = []
     report_run_config_cache: dict[
-        tuple[str, str], tuple[dict[str, Any] | None, bool]
+        tuple[str, str], tuple[dict[str, Any] | None, str | None, str | None, bool]
     ] = {}
     benchmark_report_recipes_cache: dict[str, int | None] = {}
     try:
@@ -329,7 +375,12 @@ def _collect_from_csv(
 
                     row_category = row.get("run_category", "")
                     if row_category in _BENCHMARK_CATEGORIES:
-                        bench_record = _benchmark_record_from_csv_row(row, row_category)
+                        bench_record = _benchmark_record_from_csv_row(
+                            row,
+                            row_category,
+                            warnings=warnings,
+                            context=f"CSV row {row_num}",
+                        )
                         if bench_record.recipes is None and bench_record.report_path:
                             bench_record.recipes = _load_total_recipes_from_report(
                                 bench_record.report_path,
@@ -372,18 +423,43 @@ def _collect_from_csv(
                         warnings=warnings,
                         context=f"CSV row {row_num}",
                     )
+                    run_config_hash = (
+                        str(row.get("run_config_hash") or "").strip() or None
+                    )
+                    run_config_summary = (
+                        str(row.get("run_config_summary") or "").strip() or None
+                    )
                     run_config_warning: str | None = None
                     if run_config is None:
-                        run_config, report_found = _load_stage_run_config_from_report(
+                        (
+                            run_config,
+                            report_hash,
+                            report_summary,
+                            report_found,
+                        ) = _load_stage_run_config_from_report(
                             row.get("report_path"),
                             run_dir,
                             warnings=warnings,
                             context=f"CSV row {row_num}",
                             cache=report_run_config_cache,
                         )
+                        if run_config_hash is None:
+                            run_config_hash = report_hash
+                        if run_config_summary is None:
+                            run_config_summary = report_summary
                         report_ref = str(row.get("report_path") or "").strip()
-                        if run_config is None and report_ref and not report_found:
+                        if (
+                            run_config is None
+                            and run_config_summary is None
+                            and report_ref
+                            and not report_found
+                        ):
                             run_config_warning = "missing report (stale row)"
+                    else:
+                        if run_config_hash is None:
+                            run_config_hash = _stable_hash_for_run_config(run_config)
+                        if run_config_summary is None:
+                            run_config_summary = _summary_for_run_config(run_config)
 
                     stage_records.append(StageRecord(
                         run_timestamp=ts,
@@ -393,6 +469,8 @@ def _collect_from_csv(
                         artifact_dir=run_dir,
                         importer_name=row.get("importer_name") or None,
                         run_config=run_config,
+                        run_config_hash=run_config_hash,
+                        run_config_summary=run_config_summary,
                         run_config_warning=run_config_warning,
                         run_category=category,
                         total_seconds=total_seconds,
@@ -419,6 +497,9 @@ def _collect_from_csv(
 def _benchmark_record_from_csv_row(
     row: dict[str, str],
     row_category: str,
+    *,
+    warnings: list[str],
+    context: str,
 ) -> BenchmarkRecord:
     """Build a BenchmarkRecord from a CSV row with benchmark columns."""
     precision = _safe_float(row.get("precision"))
@@ -434,6 +515,18 @@ def _benchmark_record_from_csv_row(
     run_dir = row.get("run_dir", "")
     normalized_run_dir = _normalize_path(run_dir) or run_dir
     normalized_report_path = _normalize_path(row.get("report_path"))
+    run_config = _parse_run_config_json(
+        row.get("run_config_json"),
+        warnings=warnings,
+        context=context,
+    )
+    run_config_hash = str(row.get("run_config_hash") or "").strip() or None
+    run_config_summary = str(row.get("run_config_summary") or "").strip() or None
+    if run_config is not None:
+        if run_config_hash is None:
+            run_config_hash = _stable_hash_for_run_config(run_config)
+        if run_config_summary is None:
+            run_config_summary = _summary_for_run_config(run_config)
     return BenchmarkRecord(
         run_timestamp=row.get("run_timestamp"),
         artifact_dir=normalized_run_dir,
@@ -454,6 +547,9 @@ def _benchmark_record_from_csv_row(
         boundary_partial=_safe_int(row.get("boundary_partial")),
         source_file=row.get("file_name") or None,
         importer_name=row.get("importer_name") or None,
+        run_config=run_config,
+        run_config_hash=run_config_hash,
+        run_config_summary=run_config_summary,
     )
 
 
@@ -500,6 +596,8 @@ def _merge_benchmark_record_fields(
         "source_file",
         "importer_name",
         "run_config",
+        "run_config_hash",
+        "run_config_summary",
         "processed_report_path",
     ):
         _assign_if_missing(field, getattr(incoming, field))
@@ -594,6 +692,14 @@ def _collect_stage_from_reports(
 
             w_list = data.get("warnings") or []
             e_list = data.get("errors") or []
+            run_config = data.get("runConfig") if isinstance(data.get("runConfig"), dict) else None
+            run_config_hash = str(data.get("runConfigHash") or "").strip() or None
+            run_config_summary = str(data.get("runConfigSummary") or "").strip() or None
+            if run_config is not None:
+                if run_config_hash is None:
+                    run_config_hash = _stable_hash_for_run_config(run_config)
+                if run_config_summary is None:
+                    run_config_summary = _summary_for_run_config(run_config)
 
             records.append(StageRecord(
                 run_timestamp=data.get("runTimestamp") or child.name,
@@ -602,7 +708,9 @@ def _collect_stage_from_reports(
                 report_path=str(report_path),
                 artifact_dir=run_dir_str,
                 importer_name=data.get("importerName"),
-                run_config=data.get("runConfig") if isinstance(data.get("runConfig"), dict) else None,
+                run_config=run_config,
+                run_config_hash=run_config_hash,
+                run_config_summary=run_config_summary,
                 run_category=category,
                 total_seconds=total_seconds,
                 parsing_seconds=_safe_float(
@@ -780,6 +888,16 @@ def _collect_benchmarks(
                 run_config = manifest.get("run_config")
                 if isinstance(run_config, dict):
                     record.run_config = run_config
+                    if record.run_config_hash is None:
+                        record.run_config_hash = _stable_hash_for_run_config(run_config)
+                    if record.run_config_summary is None:
+                        record.run_config_summary = _summary_for_run_config(run_config)
+                run_config_hash = str(manifest.get("run_config_hash") or "").strip()
+                if run_config_hash:
+                    record.run_config_hash = run_config_hash
+                run_config_summary = str(manifest.get("run_config_summary") or "").strip()
+                if run_config_summary:
+                    record.run_config_summary = run_config_summary
                 processed_report_path = manifest.get("processed_report_path")
                 if processed_report_path:
                     record.processed_report_path = str(processed_report_path)

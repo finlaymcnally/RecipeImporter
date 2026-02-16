@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import shutil
 from pathlib import Path
 from typing import Any, Callable
@@ -20,6 +21,9 @@ from cookimport.labelstudio.eval_freeform import (
     load_gold_freeform_ranges,
     load_predicted_labeled_ranges,
 )
+from cookimport.runs import RunManifest, RunSource, write_run_manifest
+
+logger = logging.getLogger(__name__)
 
 
 def _load_pred_dicts(pred_run_dir: Path) -> list[dict[str, Any]]:
@@ -47,6 +51,16 @@ def _write_jsonl(path: Path, records: list[dict[str, Any] | Any]) -> None:
             rec = asdict(rec)
         lines.append(json.dumps(rec))
     path.write_text("\n".join(lines) + "\n" if lines else "", encoding="utf-8")
+
+
+def _path_for_manifest(run_root: Path, path_like: Path | str | None) -> str | None:
+    if path_like is None:
+        return None
+    candidate = Path(path_like)
+    try:
+        return str(candidate.relative_to(run_root))
+    except ValueError:
+        return str(candidate)
 
 
 def run_suite(
@@ -176,6 +190,64 @@ def run_suite(
             eval_dir / "escalation_queue.jsonl",
         )
 
+        pred_manifest_payload: dict[str, Any] = {}
+        pred_manifest_path = target_pred / "manifest.json"
+        if pred_manifest_path.exists():
+            try:
+                loaded = json.loads(pred_manifest_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    pred_manifest_payload = loaded
+            except (OSError, json.JSONDecodeError):
+                pred_manifest_payload = {}
+
+        pred_run_config = pred_manifest_payload.get("run_config")
+        if not isinstance(pred_run_config, dict):
+            pred_run_config = None
+        item_run_config: dict[str, Any] = {
+            "overlap_threshold": 0.5,
+            "force_source_match": item.force_source_match,
+        }
+        if pred_run_config is not None:
+            item_run_config["prediction_run_config"] = pred_run_config
+        pred_config_hash = str(pred_manifest_payload.get("run_config_hash") or "").strip()
+        pred_config_summary = str(
+            pred_manifest_payload.get("run_config_summary") or ""
+        ).strip()
+        if pred_config_hash:
+            item_run_config["prediction_run_config_hash"] = pred_config_hash
+        if pred_config_summary:
+            item_run_config["prediction_run_config_summary"] = pred_config_summary
+
+        item_eval_manifest = RunManifest(
+            run_kind="bench_eval",
+            run_id=eval_dir.name,
+            created_at=dt.datetime.now().isoformat(timespec="seconds"),
+            source=RunSource(
+                path=str(pred_manifest_payload.get("source_file") or source_path),
+                source_hash=str(pred_manifest_payload.get("source_hash") or "") or None,
+                importer_name=str(pred_manifest_payload.get("importer_name") or "") or None,
+            ),
+            run_config=item_run_config,
+            artifacts={
+                "pred_run_dir": _path_for_manifest(eval_dir, target_pred),
+                "gold_spans_jsonl": _path_for_manifest(eval_dir, gold_spans_path),
+                "eval_report_json": "eval_report.json",
+                "eval_report_md": "eval_report.md",
+                "missed_gold_spans_jsonl": "missed_gold_spans.jsonl",
+                "false_positive_preds_jsonl": "false_positive_preds.jsonl",
+                "cost_estimate_json": "cost_estimate.json",
+                "escalation_queue_jsonl": "escalation_queue.jsonl",
+            },
+        )
+        try:
+            write_run_manifest(eval_dir, item_eval_manifest)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to write run_manifest.json for bench eval at %s: %s",
+                eval_dir,
+                exc,
+            )
+
         # Record trace event for this item
         trace.record(
             "item_eval_complete",
@@ -227,6 +299,33 @@ def run_suite(
 
     # Write trace log
     trace.write(run_root / "trace.jsonl")
+
+    suite_manifest = RunManifest(
+        run_kind="bench_suite",
+        run_id=run_root.name,
+        created_at=run_dt.isoformat(timespec="seconds"),
+        source=RunSource(path=suite.name),
+        run_config=config or {},
+        artifacts={
+            "suite_used_json": "suite_used.json",
+            "report_md": "report.md",
+            "metrics_json": "metrics.json",
+            "knobs_effective_json": "knobs_effective.json",
+            "trace_jsonl": "trace.jsonl",
+            "per_item_dir": "per_item",
+            "cost_summary_json": "cost_summary.json"
+            if (run_root / "cost_summary.json").exists()
+            else None,
+        },
+    )
+    try:
+        write_run_manifest(run_root, suite_manifest)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to write run_manifest.json for bench suite at %s: %s",
+            run_root,
+            exc,
+        )
 
     _notify(
         f"Suite complete. recall={agg['recall']:.3f}, precision={agg['precision']:.3f}"

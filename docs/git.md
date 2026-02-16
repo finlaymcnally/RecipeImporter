@@ -1,1 +1,7 @@
+---
+summary: "Brief changelog note of prior dashboard/analytics and Label Studio documentation updates."
+read_when:
+  - When tracing prior dashboard and benchmark CSV repair changes
+---
+
 Enhanced the stats dashboard and analytics pipeline with robust benchmark recipe tracking and historical data repair. Implemented cookimport benchmark-csv-backfill to patch missing manifest-backed fields in the performance history CSV. Upgraded the dashboard to schema v5, adding a Recipes column for benchmarks and a resilient run-config fallback that flags stale rows with missing report files. Standardized recipe count persistence across all benchmark entry points and improved metadata resolution to probe both eval roots and prediction subdirectories. Reordered interactive export prompts for better UX and added project type detection to the project picker. Performed extensive documentation updates by consolidating historical task and understanding notes into unified READMEs.

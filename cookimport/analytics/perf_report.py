@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import csv
+import datetime as dt
+import hashlib
 import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-_RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$")
+_RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}$")
+_LEGACY_RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$")
 _HISTORY_FILENAME = "performance_history.csv"
 _HISTORY_DIRNAME = ".history"
 _BENCHMARK_CATEGORIES = {"benchmark_eval", "benchmark_prediction"}
@@ -35,6 +38,8 @@ class PerfRow:
     output_bytes: int | None
     checkpoints: dict[str, float]
     run_config: dict[str, Any] | None = None
+    run_config_hash: str | None = None
+    run_config_summary: str | None = None
 
     @property
     def total_units(self) -> int:
@@ -141,14 +146,31 @@ def history_path(out_dir: Path) -> Path:
 def resolve_run_dir(run_dir: Path | None, out_dir: Path) -> Path | None:
     if run_dir is not None:
         return run_dir
-    candidates = [
-        path
-        for path in out_dir.iterdir()
-        if path.is_dir() and _RUN_DIR_PATTERN.match(path.name)
-    ]
+    candidates: list[tuple[dt.datetime, Path]] = []
+    for path in out_dir.iterdir():
+        if not path.is_dir():
+            continue
+        parsed = _parse_run_dir_timestamp(path.name)
+        if parsed is None:
+            continue
+        candidates.append((parsed, path))
     if not candidates:
         return None
-    return max(candidates, key=lambda path: path.name)
+    return max(candidates, key=lambda item: (item[0], item[1].name))[1]
+
+
+def _parse_run_dir_timestamp(folder_name: str) -> dt.datetime | None:
+    if _RUN_DIR_PATTERN.match(folder_name):
+        try:
+            return dt.datetime.strptime(folder_name, "%Y-%m-%d_%H.%M.%S")
+        except ValueError:
+            return None
+    if _LEGACY_RUN_DIR_PATTERN.match(folder_name):
+        try:
+            return dt.datetime.strptime(folder_name, "%Y-%m-%d-%H-%M-%S")
+        except ValueError:
+            return None
+    return None
 
 
 def load_perf_rows(run_dir: Path) -> list[PerfRow]:
@@ -255,6 +277,9 @@ def append_benchmark_csv(
     source_file: str = "",
     recipes: int | None = None,
     processed_report_path: str = "",
+    run_config: dict[str, Any] | None = None,
+    run_config_hash: str | None = None,
+    run_config_summary: str | None = None,
     run_category: str = "benchmark_eval",
 ) -> None:
     """Append one benchmark eval row to the performance history CSV.
@@ -278,6 +303,13 @@ def append_benchmark_csv(
     supported_relaxed = app_aligned.get("supported_labels_relaxed") or {}
 
     boundary = report.get("boundary") or {}
+    resolved_run_config_hash = run_config_hash
+    resolved_run_config_summary = run_config_summary
+    if run_config is not None:
+        if resolved_run_config_hash is None:
+            resolved_run_config_hash = _stable_hash_for_run_config(run_config)
+        if resolved_run_config_summary is None:
+            resolved_run_config_summary = _summary_for_run_config(run_config)
 
     row: dict[str, Any] = {field: "" for field in _CSV_FIELDS}
     row.update({
@@ -300,6 +332,13 @@ def append_benchmark_csv(
         "boundary_over": boundary.get("over", ""),
         "boundary_under": boundary.get("under", ""),
         "boundary_partial": boundary.get("partial", ""),
+        "run_config_hash": resolved_run_config_hash or "",
+        "run_config_summary": resolved_run_config_summary or "",
+        "run_config_json": (
+            json.dumps(run_config, sort_keys=True)
+            if run_config is not None
+            else ""
+        ),
     })
 
     with csv_path.open("a", newline="", encoding="utf-8") as handle:
@@ -423,6 +462,12 @@ def _row_from_report(run_dir: Path, report_path: Path, data: dict[str, Any]) -> 
     run_config = data.get("runConfig")
     if not isinstance(run_config, dict):
         run_config = None
+    run_config_hash = str(data.get("runConfigHash") or "").strip() or None
+    run_config_summary = str(data.get("runConfigSummary") or "").strip() or None
+    if run_config_hash is None and run_config is not None:
+        run_config_hash = _stable_hash_for_run_config(run_config)
+    if run_config_summary is None and run_config is not None:
+        run_config_summary = _summary_for_run_config(run_config)
 
     source_file = data.get("sourceFile")
     if source_file:
@@ -451,6 +496,8 @@ def _row_from_report(run_dir: Path, report_path: Path, data: dict[str, Any]) -> 
         output_bytes=output_bytes,
         checkpoints=checkpoints,
         run_config=run_config,
+        run_config_hash=run_config_hash,
+        run_config_summary=run_config_summary,
     )
 
 
@@ -702,6 +749,8 @@ _CSV_FIELDS = [
     "boundary_over",
     "boundary_under",
     "boundary_partial",
+    "run_config_hash",
+    "run_config_summary",
     "run_config_json",
 ]
 
@@ -765,12 +814,50 @@ def _row_to_csv(row: PerfRow) -> dict[str, Any]:
         "boundary_over": "",
         "boundary_under": "",
         "boundary_partial": "",
+        "run_config_hash": row.run_config_hash or "",
+        "run_config_summary": row.run_config_summary or "",
         "run_config_json": (
             json.dumps(row.run_config, sort_keys=True)
             if row.run_config is not None
             else ""
         ),
     }
+
+
+def _stable_hash_for_run_config(run_config: dict[str, Any]) -> str:
+    canonical_json = json.dumps(
+        run_config,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+
+
+def _summary_for_run_config(run_config: dict[str, Any]) -> str:
+    ordered_keys = (
+        "epub_extractor",
+        "ocr_device",
+        "ocr_batch_size",
+        "workers",
+        "effective_workers",
+        "pdf_split_workers",
+        "epub_split_workers",
+        "pdf_pages_per_job",
+        "epub_spine_items_per_job",
+        "warm_models",
+    )
+    parts: list[str] = []
+    for key in ordered_keys:
+        if key not in run_config:
+            continue
+        value = run_config.get(key)
+        if isinstance(value, bool):
+            rendered = "true" if value else "false"
+        else:
+            rendered = str(value)
+        parts.append(f"{key}={rendered}")
+    return " | ".join(parts)
 
 
 def _ensure_csv_schema(csv_path: Path) -> None:

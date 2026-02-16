@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.canonical import derive_gold_spans, BLOCK_LABELS
 from cookimport.labelstudio.freeform_tasks import map_span_offsets_to_blocks
+from cookimport.runs import RunManifest, RunSource, write_run_manifest
+
+logger = logging.getLogger(__name__)
 
 
 def _find_latest_manifest(output_root: Path, project_name: str) -> Path | None:
@@ -125,6 +130,59 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
 
+def _path_for_manifest(run_root: Path, path_like: Path | str | None) -> str | None:
+    if path_like is None:
+        return None
+    candidate = Path(path_like)
+    try:
+        return str(candidate.relative_to(run_root))
+    except ValueError:
+        return str(candidate)
+
+
+def _write_export_run_manifest(
+    *,
+    run_root: Path,
+    export_scope: str,
+    project_name: str,
+    project_id: int | None,
+    source_file: str | None,
+    source_hash: str | None,
+    importer_name: str | None,
+    artifact_paths: dict[str, Path | str | None],
+    notes: str | None = None,
+) -> None:
+    artifacts: dict[str, Any] = {
+        "label_studio_project_name": project_name,
+        "label_studio_project_id": project_id,
+    }
+    for key, value in artifact_paths.items():
+        path_value = _path_for_manifest(run_root, value)
+        if path_value:
+            artifacts[key] = path_value
+    manifest = RunManifest(
+        run_kind="labelstudio_export",
+        run_id=run_root.name,
+        created_at=dt.datetime.now().isoformat(timespec="seconds"),
+        source=RunSource(
+            path=source_file,
+            source_hash=source_hash,
+            importer_name=importer_name,
+        ),
+        run_config={"export_scope": export_scope},
+        artifacts=artifacts,
+        notes=notes,
+    )
+    try:
+        write_run_manifest(run_root, manifest)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to write run_manifest.json for Label Studio export at %s: %s",
+            run_root,
+            exc,
+        )
+
+
 def _extract_freeform_spans(annotation: dict[str, Any]) -> list[dict[str, Any]]:
     spans: list[dict[str, Any]] = []
     for item in annotation.get("result") or []:
@@ -192,6 +250,9 @@ def run_labelstudio_export(
     manifest: dict[str, Any] | None = None
     project_id: int | None = None
     run_root = run_dir
+    manifest_source_file: str | None = None
+    manifest_source_hash: str | None = None
+    manifest_importer: str | None = None
 
     scopes = {"pipeline", "canonical-blocks", "freeform-spans"}
     if export_scope not in scopes:
@@ -210,6 +271,14 @@ def run_labelstudio_export(
         if manifest_path and manifest_path.exists():
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             project_id = manifest.get("project_id")
+
+    if isinstance(manifest, dict):
+        source_file_raw = str(manifest.get("source_file") or "").strip()
+        source_hash_raw = str(manifest.get("source_hash") or "").strip()
+        importer_raw = str(manifest.get("importer_name") or "").strip()
+        manifest_source_file = source_file_raw or None
+        manifest_source_hash = source_hash_raw or None
+        manifest_importer = importer_raw or None
 
     if manifest and manifest.get("task_scope"):
         task_scope = manifest.get("task_scope")
@@ -372,6 +441,22 @@ def run_labelstudio_export(
         summary_path.write_text(
             json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8"
         )
+        _write_export_run_manifest(
+            run_root=run_root,
+            export_scope=export_scope,
+            project_name=project_name,
+            project_id=project_id,
+            source_file=manifest_source_file,
+            source_hash=manifest_source_hash,
+            importer_name=manifest_importer,
+            artifact_paths={
+                "summary_json": summary_path,
+                "export_payload_json": export_path,
+                "freeform_span_labels_jsonl": spans_path,
+                "freeform_segment_manifest_jsonl": segment_manifest_path,
+            },
+            notes="Exported freeform span labels from Label Studio.",
+        )
 
         return {
             "export_root": export_root,
@@ -443,6 +528,22 @@ def run_labelstudio_export(
         summary_path = export_root / "summary.json"
         summary_path.write_text(
             json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8"
+        )
+        _write_export_run_manifest(
+            run_root=run_root,
+            export_scope=export_scope,
+            project_name=project_name,
+            project_id=project_id,
+            source_file=manifest_source_file,
+            source_hash=manifest_source_hash,
+            importer_name=manifest_importer,
+            artifact_paths={
+                "summary_json": summary_path,
+                "export_payload_json": export_path,
+                "canonical_block_labels_jsonl": labels_path,
+                "canonical_gold_spans_jsonl": spans_path,
+            },
+            notes="Exported canonical block labels from Label Studio.",
         )
 
         return {
@@ -524,6 +625,23 @@ def run_labelstudio_export(
     summary_path = export_root / "summary.json"
     summary_path.write_text(
         json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    _write_export_run_manifest(
+        run_root=run_root,
+        export_scope=export_scope,
+        project_name=project_name,
+        project_id=project_id,
+        source_file=manifest_source_file,
+        source_hash=manifest_source_hash,
+        importer_name=manifest_importer,
+        artifact_paths={
+            "summary_json": summary_path,
+            "export_payload_json": export_path,
+            "labeled_chunks_jsonl": labeled_path,
+            "golden_set_jsonl": golden_path,
+            "skipped_jsonl": skipped_path if skipped else None,
+        },
+        notes="Exported pipeline chunk labels from Label Studio.",
     )
 
     return {

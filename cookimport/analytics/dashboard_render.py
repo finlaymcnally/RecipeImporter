@@ -691,6 +691,9 @@ _JS = """\
     return parts[parts.length - 1] || path;
   }
   function runConfigSummary(record) {
+    if (record.run_config_summary) {
+      return record.run_config_summary;
+    }
     const cfg = record.run_config || {};
     const parts = [];
     if (cfg.epub_extractor != null) parts.push("epub_extractor=" + cfg.epub_extractor);
@@ -703,9 +706,19 @@ _JS = """\
   function runConfigCell(record) {
     const summary = runConfigSummary(record);
     const warning = record.run_config_warning || "";
-    const title = record.run_config ? JSON.stringify(record.run_config) : warning;
+    const hash = record.run_config_hash || "";
+    let title = warning;
+    if (record.run_config) {
+      title = JSON.stringify(record.run_config);
+    } else if (summary) {
+      title = summary;
+    }
+    if (hash) {
+      title = (title ? title + "\n" : "") + "hash=" + hash;
+    }
     if (summary) {
-      return '<td title="' + esc(title) + '">' + esc(summary) + '</td>';
+      const shortHash = hash ? " [" + hash.slice(0, 10) + "]" : "";
+      return '<td title="' + esc(title) + '">' + esc(summary + shortHash) + '</td>';
     }
     if (warning) {
       return '<td class="warn-note" title="' + esc(title) + '">' + esc("[warn] " + warning) + '</td>';

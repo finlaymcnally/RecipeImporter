@@ -1,0 +1,5 @@
+Run-configuration source of truth.
+
+- `run_settings.py` defines canonical `RunSettings` used for interactive run selection, report `runConfig`, and analytics hashes/summaries.
+- `last_run_store.py` persists per-operation last settings under `<output_dir>/.history/last_run_settings_{import|benchmark}.json`.
+- To add a new run knob: add one field on `RunSettings` with `ui_*` metadata, wire it into pipeline execution where needed, and keep tests in `tests/test_run_settings.py` passing.

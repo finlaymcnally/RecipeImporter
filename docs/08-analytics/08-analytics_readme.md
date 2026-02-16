@@ -37,6 +37,7 @@ Analytics in this repo currently means three surfaces:
 - Producer: `cookimport stats-dashboard`
 - Collector: `cookimport/analytics/dashboard_collect.py`
 - Data contract: `cookimport/analytics/dashboard_schema.py`
+- Current schema version: `6` (adds explicit `run_config_hash` / `run_config_summary` fields on stage + benchmark records)
 - Renderer: `cookimport/analytics/dashboard_render.py`
 - `index.html` now embeds an inline copy of the same dashboard JSON so the dashboard still works when opened via `file://` in browsers that block local `fetch()`.
 
@@ -84,6 +85,10 @@ Core fields consumed by analytics:
   - `timing.checkpoints` (arbitrary named checkpoints)
 - output footprint: `outputStats`
 - quality metadata: `warnings`, `errors`
+- run context:
+  - `runConfig` (full structured settings snapshot)
+  - `runConfigHash` (stable SHA-256 hash of canonicalized `runConfig`)
+  - `runConfigSummary` (human-readable ordered summary)
 
 Notes:
 - Split-job merges write aggregated report timing where parsing/OCR are summed from child jobs and merge overhead is recorded in `timing.checkpoints.merge_seconds`.
@@ -93,7 +98,7 @@ Notes:
 
 CSV acts as the long-term unified event log for:
 
-- stage/import rows (`run_category` empty or stage categories)
+- stage/import rows (`run_category=stage_import`; collector may classify some as `labelstudio_import` based on run path)
 - benchmark/eval rows (`run_category=benchmark_eval` or `benchmark_prediction`)
 
 For stage rows, key analytics columns include:
@@ -104,7 +109,10 @@ For stage rows, key analytics columns include:
 - topic coverage fields: `standalone_*`
 - output size: `output_files`, `output_bytes`
 - derived descriptors: `knowledge_share`, `knowledge_heavy`, dominant stage/checkpoint fields
-- run context: `run_config_json` (serialized `runConfig` from per-file reports when available)
+- run context:
+  - `run_config_hash` (grouping/filter key)
+  - `run_config_summary` (table/display string)
+  - `run_config_json` (serialized `runConfig` for full fidelity/tooltips/fallbacks)
   - dashboard collector fallback: when `run_config_json` is empty, collector tries `report_path` JSON `runConfig`
   - stale-row signal: when a `report_path` reference is present but missing on disk, dashboard can emit a run-config warning
 
@@ -116,6 +124,7 @@ For benchmark rows, key columns include:
 - `supported_precision`, `supported_recall`
 - boundary columns: `boundary_correct`, `boundary_over`, `boundary_under`, `boundary_partial`
 - `eval_scope`, `source_file` (stored in `file_name`)
+- run context columns: `run_config_hash`, `run_config_summary`, `run_config_json`
 
 Schema migration support exists: old CSV files missing newer columns are auto-expanded during append.
 
@@ -131,7 +140,7 @@ Collector enrichment:
 
 - optional `coverage.json` adds `extracted_chars`, `chunked_chars`, `coverage_ratio`
 - optional `manifest.json` adds `task_count`, `source_file`, `recipe_count`
-- benchmark collector also checks `prediction-run/{coverage.json,manifest.json}` and can enrich `importer_name`, `run_config`, and `processed_report_path` when present
+- benchmark collector also checks `prediction-run/{coverage.json,manifest.json}` and can enrich `importer_name`, `run_config`, `run_config_hash`, `run_config_summary`, and `processed_report_path` when present
   - benchmark `recipes` prefers manifest `recipe_count`; if missing, collector can backfill from `processed_report_path` -> report `totalRecipes`
 
 Collector exclusions/filters:
@@ -231,9 +240,9 @@ Merged source file:
 Preserved findings:
 - Stage writes per-file reports at `<run_root>/<slug>.excel_import_report.json`, then derives perf summary rows and appends history CSV.
 - Stats dashboard primarily reads `data/output/.history/performance_history.csv`, then supplements/falls back to report JSON scan.
-- Two mismatches remain important:
-  - `perf_report.resolve_run_dir()` still expects hyphen-style timestamp folders while stage uses underscore/dot format.
-  - End-of-stage auto history append writes to `history_path(DEFAULT_OUTPUT)` even when stage used a custom `--out`.
+- That investigation identified two mismatches that were later fixed:
+  - `perf_report.resolve_run_dir()` now accepts both hyphen-style legacy folders and underscore/dot stage folders.
+  - Stage history append now targets `history_path(<actual_stage_output_root>)`, not `history_path(DEFAULT_OUTPUT)`.
 
 ### 2026-02-15_23.17.17 file:// dashboard data-loading fallback
 
@@ -449,19 +458,24 @@ Final rule:
 - Use prediction-run manifest `recipe_count` first.
 - Fall back to `processed_report_path` -> `totalRecipes` when manifest recipe count is unavailable.
 
-## 6) Known bad / sharp edges (important)
+## 6) Known caveats / sharp edges (important)
 
-### A) `perf-report` latest-run auto-detect likely mismatches current run-folder naming
+### A) `perf-report` timestamp auto-detect now supports both folder styles
 
-- `stage` writes run dirs as `YYYY-MM-DD_HH.MM.SS`.
-- `resolve_run_dir` in `cookimport/analytics/perf_report.py` currently matches `YYYY-MM-DD-HH-MM-SS`.
-- Effect: `cookimport perf-report` without `--run-dir` may fail to find the latest run under modern timestamped folders.
+- `resolve_run_dir` in `cookimport/analytics/perf_report.py` now accepts both:
+  - `YYYY-MM-DD_HH.MM.SS` (current stage format)
+  - `YYYY-MM-DD-HH-MM-SS` (legacy format)
+- The latest run is chosen by parsed datetime, not string sort.
+- Regression anchors:
+  - `tests/test_perf_report.py::test_resolve_run_dir_detects_stage_timestamp_format`
+  - `tests/test_perf_report.py::test_resolve_run_dir_accepts_legacy_timestamp_format`
 
-### B) `stage` history append currently targets `DEFAULT_OUTPUT` regardless of `--out`
+### B) Stage history append now follows actual stage output root
 
-- In `cookimport/cli.py`, end-of-stage append uses `history_path(DEFAULT_OUTPUT)`.
-- Effect: running `cookimport stage --out <custom>` still appends history rows to default `data/output/.history/performance_history.csv`, not the custom output root.
-- Dashboard generation with non-default roots can therefore look incomplete unless manually aligned.
+- `cookimport stage --out <custom_root>` now appends to `<custom_root>/.history/performance_history.csv`.
+- This keeps `perf-report` and `stats-dashboard --output-root <custom_root>` aligned with the run artifacts users just produced.
+- Regression anchor:
+  - `tests/test_cli_output_structure.py::test_stage_writes_to_custom_output`
 
 ### C) CSV and JSON collector date handling is tolerant but not fully normalized
 
@@ -488,8 +502,8 @@ Final rule:
 - verify benchmark eval files exist under `data/golden/eval-vs-pipeline/*/eval_report.json`
 
 4. If `perf-report` cannot auto-find a run:
-- provide explicit `--run-dir data/output/<timestamp>`
-- then check/fix timestamp matcher mismatch noted above
+- provide explicit `--run-dir <output_root>/<timestamp>`
+- verify folder names match one of the supported timestamp formats above
 
 ## 8) Why this design exists
 

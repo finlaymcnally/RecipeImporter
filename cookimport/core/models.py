@@ -541,6 +541,8 @@ class ConversionReport(BaseModel):
     timing: dict[str, Any] | None = None
     output_stats: dict[str, Any] | None = Field(default=None, alias="outputStats")
     run_config: dict[str, Any] | None = Field(default=None, alias="runConfig")
+    run_config_hash: str | None = Field(default=None, alias="runConfigHash")
+    run_config_summary: str | None = Field(default=None, alias="runConfigSummary")
 
 
 class RawArtifact(BaseModel):

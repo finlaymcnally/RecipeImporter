@@ -56,6 +56,8 @@ Optional enrichment files in each eval directory:
 Manifest enrichment now includes benchmark run context used by the dashboard:
 - `importer_name`
 - `run_config` (for example `epub_extractor`, `ocr_device`, worker knobs)
+- `run_config_hash`
+- `run_config_summary`
 - `recipe_count` (extracted recipes in prediction run)
 - `processed_report_path` when processed outputs were written during benchmark
   - benchmark `recipes` prefers `recipe_count`; collector backfills from `processed_report_path` (`totalRecipes`) when needed
@@ -95,9 +97,10 @@ Timestamp ordering note:
 - Frontend timestamp parsing should use explicit component parsing for these two forms (with `Date` fallback for timezone-bearing ISO values) rather than relying only on `Date.parse`.
 
 Run config note:
-- Stage/import `Run Config` values come from CSV `run_config_json`.
-- If that column is empty on older history rows, the collector attempts to backfill from each row's `report_path` (`runConfig` in `*.excel_import_report.json`) when available.
+- Stage/import `Run Config` values primarily come from CSV `run_config_summary` and `run_config_hash` (with `run_config_json` kept for full details/tooltips).
+- If `run_config_json` is empty on older history rows, the collector attempts to backfill from each row's `report_path` (`runConfig` in `*.excel_import_report.json`) when available.
 - If neither CSV nor report data is available and a report path reference exists, dashboard tables show `[warn] missing report (stale row)`.
+- Dashboard run-config cells show the summary and append a short hash suffix (`[abcdef1234]`) when `run_config_hash` is available; tooltip includes full hash and JSON/details.
 
 Benchmark recipes note:
 - `Recent Benchmarks` includes a `Recipes` column.

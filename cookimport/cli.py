@@ -25,6 +25,9 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 from rich.text import Text
 
+from cookimport.cli_ui.run_settings_flow import choose_run_settings
+from cookimport.config.last_run_store import save_last_run_settings
+from cookimport.config.run_settings import RunSettings, build_run_settings, compute_effective_workers
 from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
 from cookimport.core.overrides_io import load_parsing_overrides
@@ -33,7 +36,7 @@ from cookimport.core.slug import slugify_name
 from cookimport.core.timing import TimingStats, measure
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.export import run_labelstudio_export
-from cookimport.labelstudio.ingest import run_labelstudio_import
+from cookimport.labelstudio.ingest import generate_pred_run_artifacts, run_labelstudio_import
 from cookimport.labelstudio.eval_canonical import (
     evaluate_structural_vs_gold,
     format_eval_report_md,
@@ -49,6 +52,7 @@ from cookimport.labelstudio.eval_freeform import (
 )
 from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
+from cookimport.runs import RunManifest, RunSource, write_run_manifest
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
 from cookimport.parsing.tips import partition_tip_candidates
 from cookimport.staging.pdf_jobs import (
@@ -500,25 +504,25 @@ def _interactive_mode(*, limit: int | None = None) -> None:
         if importable_files:
             choices.append(
                 questionary.Choice(
-                    "Import files from data/input - convert to schema.org + cookbook3 outputs",
+                    "Stage files from data/input - produce cookbook outputs",
                     value="import",
                 )
             )
             choices.append(
                 questionary.Choice(
-                    "Label Studio benchmark import - create labeling tasks from one source",
+                    "Label Studio: create labeling tasks (uploads)",
                     value="labelstudio",
                 )
             )
         choices.append(
             questionary.Choice(
-                "Label Studio export - pull finished labels into golden artifacts",
+                "Label Studio: export completed labels to golden artifacts",
                 value="labelstudio_export",
             )
         )
         choices.append(
             questionary.Choice(
-                "Benchmark against labeled freeform export - re-score existing runs or generate new predictions",
+                "Evaluate predictions vs freeform gold (re-score or generate)",
                 value="labelstudio_benchmark",
             )
         )
@@ -540,9 +544,9 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             "What would you like to do?",
             choices=choices,
             menu_help=(
-                "Choose a workflow. Import converts source files, Label Studio creates "
-                "annotation tasks, Benchmark re-scores existing predictions or generates "
-                "new ones against gold, and "
+                "Choose a workflow. Stage produces cookbook outputs, Label Studio task "
+                "creation uploads annotation tasks, export pulls completed labels, "
+                "and evaluate compares predictions against gold. "
                 "Dashboard builds a static lifetime summary."
             ),
         )
@@ -606,24 +610,43 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 continue
 
             typer.echo()
-            
-            # Apply EPUB extractor setting via env var (read at call time by epub.py)
-            os.environ["C3IMP_EPUB_EXTRACTOR"] = settings.get("epub_extractor", "unstructured")
+
+            global_run_settings = RunSettings.model_validate(settings)
+            selected_run_settings = choose_run_settings(
+                kind="import",
+                global_defaults=global_run_settings,
+                output_dir=output_folder,
+                menu_select=_menu_select,
+                back_action=BACK_ACTION,
+            )
+            if selected_run_settings is None:
+                typer.secho("Import cancelled.", fg=typer.colors.YELLOW)
+                continue
+
+            typer.secho(
+                "Run settings: "
+                f"{selected_run_settings.summary()} "
+                f"(hash {selected_run_settings.short_hash()})",
+                fg=typer.colors.CYAN,
+            )
+
+            # Apply EPUB extractor setting via env var (read at call time by epub.py).
+            os.environ["C3IMP_EPUB_EXTRACTOR"] = selected_run_settings.epub_extractor.value
 
             common_args = {
                 "out": output_folder,
                 "mapping": None,
                 "overrides": None,
                 "limit": limit,
-                "workers": settings.get("workers", 7),
-                "pdf_split_workers": settings.get("pdf_split_workers", 7),
-                "epub_split_workers": settings.get("epub_split_workers", 7),
-                "epub_extractor": settings.get("epub_extractor", "unstructured"),
-                "ocr_device": settings.get("ocr_device", "auto"),
-                "ocr_batch_size": settings.get("ocr_batch_size", 1),
-                "pdf_pages_per_job": settings.get("pdf_pages_per_job", 50),
-                "epub_spine_items_per_job": settings.get("epub_spine_items_per_job", 10),
-                "warm_models": settings.get("warm_models", False),
+                "workers": selected_run_settings.workers,
+                "pdf_split_workers": selected_run_settings.pdf_split_workers,
+                "epub_split_workers": selected_run_settings.epub_split_workers,
+                "epub_extractor": selected_run_settings.epub_extractor.value,
+                "ocr_device": selected_run_settings.ocr_device.value,
+                "ocr_batch_size": selected_run_settings.ocr_batch_size,
+                "pdf_pages_per_job": selected_run_settings.pdf_pages_per_job,
+                "epub_spine_items_per_job": selected_run_settings.epub_spine_items_per_job,
+                "warm_models": selected_run_settings.warm_models,
             }
 
             if selection == "all":
@@ -631,6 +654,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             else:
                 run_folder = stage(path=selection, **common_args)
 
+            save_last_run_settings("import", output_folder, selected_run_settings)
             typer.secho(f"\nOutputs written to: {run_folder}", fg=typer.colors.CYAN)
             continue
 
@@ -858,7 +882,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             benchmark_mode = "upload"
             if gold_candidates and prediction_runs:
                 selected_mode = _menu_select(
-                    "How would you like to benchmark?",
+                    "How would you like to evaluate?",
                     menu_help=(
                         "Use eval-only to re-score an existing prediction run "
                         "(for updated gold/settings). "
@@ -866,11 +890,11 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     ),
                     choices=[
                         questionary.Choice(
-                            "Score existing prediction run (no upload)",
+                            "Evaluate existing prediction run (no upload)",
                             value="eval-only",
                         ),
                         questionary.Choice(
-                            "Generate fresh predictions + score (uploads to Label Studio)",
+                            "Generate predictions + evaluate (uploads to Label Studio)",
                             value="upload",
                         ),
                     ],
@@ -912,6 +936,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
                     continue
 
+                typer.secho(
+                    "Eval-only mode: no pipeline run settings applied.",
+                    fg=typer.colors.BRIGHT_BLACK,
+                )
                 labelstudio_eval(
                     scope="freeform-spans",
                     pred_run=Path(selected_pred_run),
@@ -920,24 +948,24 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 )
                 continue
 
-            configured_benchmark_extractor = str(
-                settings.get("epub_extractor", "unstructured") or "unstructured"
-            ).strip().lower()
-            if configured_benchmark_extractor not in {"unstructured", "legacy"}:
-                configured_benchmark_extractor = "unstructured"
-
-            selected_benchmark_extractor = _menu_select(
-                "Select EPUB extraction engine for benchmark prediction import:",
-                menu_help=(
-                    "Unstructured uses semantic HTML partitioning for EPUB. "
-                    "Legacy uses BeautifulSoup tag parsing."
-                ),
-                choices=["unstructured", "legacy"],
-                default=configured_benchmark_extractor,
+            benchmark_defaults = RunSettings.model_validate(settings)
+            selected_benchmark_settings = choose_run_settings(
+                kind="benchmark",
+                global_defaults=benchmark_defaults,
+                output_dir=output_folder,
+                menu_select=_menu_select,
+                back_action=BACK_ACTION,
             )
-            if selected_benchmark_extractor in {None, BACK_ACTION}:
+            if selected_benchmark_settings is None:
                 typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
                 continue
+
+            typer.secho(
+                "Run settings: "
+                f"{selected_benchmark_settings.summary()} "
+                f"(hash {selected_benchmark_settings.short_hash()})",
+                fg=typer.colors.CYAN,
+            )
 
             url, api_key = _resolve_interactive_labelstudio_settings(settings)
             labelstudio_benchmark(
@@ -946,13 +974,17 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 allow_labelstudio_write=True,
                 label_studio_url=url,
                 label_studio_api_key=api_key,
-                epub_extractor=str(selected_benchmark_extractor),
-                workers=settings.get("workers", 7),
-                pdf_split_workers=settings.get("pdf_split_workers", 7),
-                epub_split_workers=settings.get("epub_split_workers", 7),
-                pdf_pages_per_job=settings.get("pdf_pages_per_job", 50),
-                epub_spine_items_per_job=settings.get("epub_spine_items_per_job", 10),
+                epub_extractor=selected_benchmark_settings.epub_extractor.value,
+                ocr_device=selected_benchmark_settings.ocr_device.value,
+                ocr_batch_size=selected_benchmark_settings.ocr_batch_size,
+                warm_models=selected_benchmark_settings.warm_models,
+                workers=selected_benchmark_settings.workers,
+                pdf_split_workers=selected_benchmark_settings.pdf_split_workers,
+                epub_split_workers=selected_benchmark_settings.epub_split_workers,
+                pdf_pages_per_job=selected_benchmark_settings.pdf_pages_per_job,
+                epub_spine_items_per_job=selected_benchmark_settings.epub_spine_items_per_job,
             )
+            save_last_run_settings("benchmark", output_folder, selected_benchmark_settings)
             continue
 
 
@@ -981,6 +1013,16 @@ def _normalize_epub_extractor(value: str) -> str:
         _fail(
             f"Invalid EPUB extractor: {value!r}. "
             "Expected one of: unstructured, legacy."
+        )
+    return normalized
+
+
+def _normalize_ocr_device(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"auto", "cpu", "cuda", "mps"}:
+        _fail(
+            f"Invalid OCR device: {value!r}. "
+            "Expected one of: auto, cpu, cuda, mps."
         )
     return normalized
 
@@ -1301,23 +1343,64 @@ def _load_total_recipes_from_report_path(
         return None
 
 
+@dataclass(frozen=True)
+class PredRunContext:
+    recipes: int | None
+    processed_report_path: str
+    source_file: str
+    source_hash: str | None
+    run_config: dict[str, Any] | None
+    run_config_hash: str | None
+    run_config_summary: str | None
+
+
 def _load_pred_run_recipe_context(
     pred_run: Path,
-) -> tuple[int | None, str, str]:
-    """Return ``(recipes, processed_report_path, source_file)`` for a pred run."""
+) -> PredRunContext:
+    """Return recipe/report/source/run-config context for a prediction run."""
     manifest_path = pred_run / "manifest.json"
     if not manifest_path.exists() or not manifest_path.is_file():
-        return (None, "", "")
+        return PredRunContext(
+            recipes=None,
+            processed_report_path="",
+            source_file="",
+            source_hash=None,
+            run_config=None,
+            run_config_hash=None,
+            run_config_summary=None,
+        )
 
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
-        return (None, "", "")
+        return PredRunContext(
+            recipes=None,
+            processed_report_path="",
+            source_file="",
+            source_hash=None,
+            run_config=None,
+            run_config_hash=None,
+            run_config_summary=None,
+        )
     if not isinstance(payload, dict):
-        return (None, "", "")
+        return PredRunContext(
+            recipes=None,
+            processed_report_path="",
+            source_file="",
+            source_hash=None,
+            run_config=None,
+            run_config_hash=None,
+            run_config_summary=None,
+        )
 
     source_file = str(payload.get("source_file") or "")
+    source_hash = str(payload.get("source_hash") or "").strip() or None
     processed_report_path = str(payload.get("processed_report_path") or "")
+    run_config = payload.get("run_config")
+    if not isinstance(run_config, dict):
+        run_config = None
+    run_config_hash = str(payload.get("run_config_hash") or "").strip() or None
+    run_config_summary = str(payload.get("run_config_summary") or "").strip() or None
 
     recipes: int | None
     try:
@@ -1328,7 +1411,15 @@ def _load_pred_run_recipe_context(
     if recipes is None and processed_report_path:
         recipes = _load_total_recipes_from_report_path(processed_report_path)
 
-    return (recipes, processed_report_path, source_file)
+    return PredRunContext(
+        recipes=recipes,
+        processed_report_path=processed_report_path,
+        source_file=source_file,
+        source_hash=source_hash,
+        run_config=run_config,
+        run_config_hash=run_config_hash,
+        run_config_summary=run_config_summary,
+    )
 
 
 def _sum_bench_recipe_count(run_root: Path) -> int | None:
@@ -1391,6 +1482,117 @@ def _display_prediction_run_path(path: Path, output_dir: Path) -> str:
         except ValueError:
             continue
     return str(path)
+
+
+def _path_for_manifest(run_root: Path, path_like: Path | str | None) -> str | None:
+    if path_like is None:
+        return None
+    candidate = Path(path_like)
+    try:
+        return str(candidate.relative_to(run_root))
+    except ValueError:
+        return str(candidate)
+
+
+def _write_run_manifest_best_effort(run_root: Path, manifest: RunManifest) -> None:
+    try:
+        write_run_manifest(run_root, manifest)
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(
+            f"Warning: failed to write run_manifest.json in {run_root}: {exc}",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+        logger.warning("Failed to write run_manifest.json in %s: %s", run_root, exc)
+
+
+def _write_stage_run_manifest(
+    *,
+    run_root: Path,
+    output_root: Path,
+    requested_path: Path,
+    run_dt: dt.datetime,
+    run_config: dict[str, Any],
+) -> None:
+    report_paths = sorted(run_root.glob("*.excel_import_report.json"))
+    importer_name: str | None = None
+    if report_paths:
+        try:
+            report_payload = json.loads(report_paths[0].read_text(encoding="utf-8"))
+            if isinstance(report_payload, dict):
+                importer_name = str(report_payload.get("importerName") or "").strip() or None
+        except (OSError, json.JSONDecodeError):
+            importer_name = None
+
+    source_hash: str | None = None
+    if requested_path.is_file():
+        try:
+            source_hash = compute_file_hash(requested_path)
+        except Exception as exc:  # noqa: BLE001
+            typer.secho(
+                f"Warning: failed to compute source hash for run manifest: {exc}",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
+
+    artifacts: dict[str, Any] = {}
+    if report_paths:
+        artifacts["reports"] = [path.name for path in report_paths]
+    for path_key, artifact_key in (
+        ("intermediate drafts", "intermediate_drafts_dir"),
+        ("final drafts", "final_drafts_dir"),
+        ("tips", "tips_dir"),
+        ("chunks", "chunks_dir"),
+        ("raw", "raw_dir"),
+    ):
+        target = run_root / path_key
+        if target.exists():
+            artifacts[artifact_key] = path_key
+    history_csv = output_root / ".history" / "performance_history.csv"
+    if history_csv.exists():
+        artifacts["history_csv"] = str(history_csv)
+
+    manifest = RunManifest(
+        run_kind="stage",
+        run_id=run_root.name,
+        created_at=run_dt.isoformat(timespec="seconds"),
+        source=RunSource(
+            path=str(requested_path),
+            source_hash=source_hash,
+            importer_name=importer_name,
+        ),
+        run_config=run_config,
+        artifacts=artifacts,
+        notes="Stage run outputs for cookbook import.",
+    )
+    _write_run_manifest_best_effort(run_root, manifest)
+
+
+def _write_eval_run_manifest(
+    *,
+    run_root: Path,
+    run_kind: str,
+    source_path: str | None,
+    source_hash: str | None,
+    importer_name: str | None,
+    run_config: dict[str, Any],
+    artifacts: dict[str, Any],
+    notes: str | None = None,
+) -> None:
+    manifest = RunManifest(
+        run_kind=run_kind,
+        run_id=run_root.name,
+        created_at=dt.datetime.now().isoformat(timespec="seconds"),
+        source=RunSource(
+            path=source_path,
+            source_hash=source_hash,
+            importer_name=importer_name,
+        ),
+        run_config=run_config,
+        artifacts=artifacts,
+        notes=notes,
+    )
+    _write_run_manifest_best_effort(run_root, manifest)
 
 
 def _require_importer(path: Path):
@@ -1622,6 +1824,8 @@ def _write_error_report(
     *,
     importer_name: str | None = None,
     run_config: dict[str, Any] | None = None,
+    run_config_hash: str | None = None,
+    run_config_summary: str | None = None,
 ) -> None:
     report = ConversionReport(
         errors=errors,
@@ -1629,6 +1833,8 @@ def _write_error_report(
         importerName=importer_name,
         runTimestamp=run_dt.isoformat(timespec="seconds"),
         runConfig=dict(run_config) if run_config is not None else None,
+        runConfigHash=run_config_hash,
+        runConfigSummary=run_config_summary,
     )
     write_report(report, out, file_path.stem)
 
@@ -1652,6 +1858,8 @@ def _merge_split_jobs(
     run_dt: dt.datetime,
     importer_name: str,
     run_config: dict[str, Any] | None = None,
+    run_config_hash: str | None = None,
+    run_config_summary: str | None = None,
     status_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     workbook_slug = slugify_name(file_path.stem)
@@ -1707,6 +1915,8 @@ def _merge_split_jobs(
         warnings=warnings,
         importerName=importer_name,
         runConfig=dict(run_config) if run_config is not None else None,
+        runConfigHash=run_config_hash,
+        runConfigSummary=run_config_summary,
     )
     merged_result = ConversionResult(
         recipes=sorted_recipes,
@@ -1820,6 +2030,8 @@ def _merge_pdf_jobs(
     limit: int | None,
     run_dt: dt.datetime,
     run_config: dict[str, Any] | None = None,
+    run_config_hash: str | None = None,
+    run_config_summary: str | None = None,
     status_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     return _merge_split_jobs(
@@ -1831,6 +2043,8 @@ def _merge_pdf_jobs(
         run_dt,
         importer_name="pdf",
         run_config=run_config,
+        run_config_hash=run_config_hash,
+        run_config_summary=run_config_summary,
         status_callback=status_callback,
     )
 
@@ -1843,6 +2057,8 @@ def _merge_epub_jobs(
     limit: int | None,
     run_dt: dt.datetime,
     run_config: dict[str, Any] | None = None,
+    run_config_hash: str | None = None,
+    run_config_summary: str | None = None,
     status_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     return _merge_split_jobs(
@@ -1854,6 +2070,8 @@ def _merge_epub_jobs(
         run_dt,
         importer_name="epub",
         run_config=run_config,
+        run_config_hash=run_config_hash,
+        run_config_summary=run_config_summary,
         status_callback=status_callback,
     )
 
@@ -1936,8 +2154,11 @@ def stage(
       {out}/{timestamp}/tips/{filename}/                 - Tip/knowledge snippets
       {out}/{timestamp}/<workbook>.excel_import_report.json - Conversion report
     """
-    # Apply EPUB extractor setting for this run
-    os.environ["C3IMP_EPUB_EXTRACTOR"] = epub_extractor.strip().lower()
+    selected_epub_extractor = _normalize_epub_extractor(epub_extractor)
+    selected_ocr_device = _normalize_ocr_device(ocr_device)
+
+    # Apply EPUB extractor setting for this run.
+    os.environ["C3IMP_EPUB_EXTRACTOR"] = selected_epub_extractor
 
     if not path.exists():
         _fail(f"Path not found: {path}")
@@ -1948,12 +2169,13 @@ def stage(
 
     if warm_models:
         with console.status("[bold cyan]Warming models...[/bold cyan]", spinner="dots"):
-            _warm_all_models(ocr_device=ocr_device)
+            _warm_all_models(ocr_device=selected_ocr_device)
 
     # Create timestamped output folder for this run
     run_dt = dt.datetime.now()
     timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
-    out = out / timestamp
+    output_root = out
+    out = output_root / timestamp
     out.mkdir(parents=True, exist_ok=True)
 
     files_to_process = list(_iter_files(path))
@@ -1969,7 +2191,7 @@ def stage(
     # Resolve mapping config once for parallel runs if provided
     # or use it as a template for overrides
     base_mapping = mapping_override or MappingConfig()
-    base_mapping.ocr_device = ocr_device
+    base_mapping.ocr_device = selected_ocr_device
     base_mapping.ocr_batch_size = ocr_batch_size
     if overrides is not None:
         base_mapping.parsing_overrides = load_parsing_overrides(overrides)
@@ -1977,26 +2199,29 @@ def stage(
     imported = 0
     errors: list[str] = []
     all_epub = all(f.suffix.lower() == ".epub" for f in files_to_process)
-    effective_workers = workers
-    if all_epub and epub_split_workers > workers:
-        effective_workers = epub_split_workers
-
-    run_config: dict[str, Any] = {
-        "workers": workers,
-        "effective_workers": effective_workers,
-        "pdf_split_workers": pdf_split_workers,
-        "epub_split_workers": epub_split_workers,
-        "pdf_pages_per_job": pdf_pages_per_job,
-        "epub_spine_items_per_job": epub_spine_items_per_job,
-        "ocr_device": ocr_device,
-        "ocr_batch_size": ocr_batch_size,
-        "warm_models": warm_models,
-        "epub_extractor": os.environ.get("C3IMP_EPUB_EXTRACTOR", "unstructured").strip().lower(),
-    }
-    if mapping is not None:
-        run_config["mapping_path"] = str(mapping)
-    if overrides is not None:
-        run_config["overrides_path"] = str(overrides)
+    run_settings = build_run_settings(
+        workers=workers,
+        pdf_split_workers=pdf_split_workers,
+        epub_split_workers=epub_split_workers,
+        pdf_pages_per_job=pdf_pages_per_job,
+        epub_spine_items_per_job=epub_spine_items_per_job,
+        epub_extractor=os.environ.get("C3IMP_EPUB_EXTRACTOR", "unstructured"),
+        ocr_device=selected_ocr_device,
+        ocr_batch_size=ocr_batch_size,
+        warm_models=warm_models,
+        mapping_path=mapping,
+        overrides_path=overrides,
+        all_epub=all_epub,
+        effective_workers=compute_effective_workers(
+            workers=workers,
+            epub_split_workers=epub_split_workers,
+            all_epub=all_epub,
+        ),
+    )
+    effective_workers = run_settings.effective_workers or workers
+    run_config = run_settings.to_run_config_dict()
+    run_config_hash = run_settings.stable_hash()
+    run_config_summary = run_settings.summary()
 
     from concurrent.futures import ProcessPoolExecutor, as_completed
     from cookimport.cli_worker import stage_one_file, stage_pdf_job, stage_epub_job
@@ -2173,6 +2398,8 @@ def stage(
                         reasons,
                         importer_name=job.split_kind,
                         run_config=run_config,
+                        run_config_hash=run_config_hash,
+                        run_config_summary=run_config_summary,
                     )
                 else:
                     _set_worker_status(
@@ -2200,6 +2427,8 @@ def stage(
                                 limit,
                                 run_dt,
                                 run_config,
+                                run_config_hash,
+                                run_config_summary,
                                 status_callback=_main_merge_status,
                             )
                         else:
@@ -2211,6 +2440,8 @@ def stage(
                                 limit,
                                 run_dt,
                                 run_config,
+                                run_config_hash,
+                                run_config_summary,
                                 status_callback=_main_merge_status,
                             )
                         imported += 1
@@ -2240,6 +2471,8 @@ def stage(
                             [str(exc)],
                             importer_name=job.split_kind,
                             run_config=run_config,
+                            run_config_hash=run_config_hash,
+                            run_config_summary=run_config_summary,
                         )
         else:
             if res["status"] == "success":
@@ -2279,6 +2512,8 @@ def stage(
                                     progress_queue,
                                     job.display_name,
                                     run_config,
+                                    run_config_hash,
+                                    run_config_summary,
                                 )
                             ] = job
                         else:
@@ -2296,6 +2531,8 @@ def stage(
                                     progress_queue,
                                     job.display_name,
                                     run_config,
+                                    run_config_hash,
+                                    run_config_summary,
                                 )
                             ] = job
                     else:
@@ -2310,6 +2547,8 @@ def stage(
                                 progress_queue,
                                 job.display_name,
                                 run_config,
+                                run_config_hash,
+                                run_config_summary,
                             )
                         ] = job
 
@@ -2351,6 +2590,8 @@ def stage(
                             progress_queue,
                             job.display_name,
                             run_config,
+                            run_config_hash,
+                            run_config_summary,
                         )
                     else:
                         res = stage_pdf_job(
@@ -2365,6 +2606,8 @@ def stage(
                             progress_queue,
                             job.display_name,
                             run_config,
+                            run_config_hash,
+                            run_config_summary,
                         )
                 else:
                     res = stage_one_file(
@@ -2376,6 +2619,8 @@ def stage(
                         progress_queue,
                         job.display_name,
                         run_config,
+                        run_config_hash,
+                        run_config_summary,
                     )
                 progress_bar.update(overall_task, advance=1)
                 handle_job_result(job, res, live)
@@ -2442,9 +2687,17 @@ def stage(
                     fg=typer.colors.CYAN,
                 )
 
-            append_history_csv(summary.rows, history_path(DEFAULT_OUTPUT))
+            append_history_csv(summary.rows, history_path(output_root))
     except Exception as exc:
         logger.warning("Performance summary skipped: %s", exc)
+
+    _write_stage_run_manifest(
+        run_root=out,
+        output_root=output_root,
+        requested_path=path,
+        run_dt=run_dt,
+        run_config=run_config,
+    )
 
     return out
 
@@ -2735,7 +2988,7 @@ def labelstudio_import(
         None, "--sample", min=1, help="Randomly sample N chunks."
     ),
 ) -> None:
-    """Import a cookbook into Label Studio for pipeline, canonical, or freeform labeling."""
+    """Create and upload Label Studio tasks for pipeline/canonical/freeform scopes."""
     _require_labelstudio_write_consent(allow_labelstudio_write)
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     try:
@@ -2802,7 +3055,7 @@ def labelstudio_export(
         None, "--label-studio-api-key", help="Label Studio API key."
     ),
 ) -> None:
-    """Export labeled tasks from Label Studio into golden set JSONL."""
+    """Export completed Label Studio annotations into golden-set JSONL artifacts."""
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     try:
         result = run_labelstudio_export(
@@ -2896,21 +3149,61 @@ def labelstudio_eval(
         output_dir / "false_positive_preds.jsonl", result["false_positive_preds"]
     )
 
-    benchmark_recipes, processed_report_path, manifest_source_file = (
-        _load_pred_run_recipe_context(pred_run)
-    )
-    csv_source_file = manifest_source_file or ""
+    pred_context = _load_pred_run_recipe_context(pred_run)
+    csv_source_file = pred_context.source_file or ""
+    csv_history_root = DEFAULT_OUTPUT
+    if pred_context.processed_report_path:
+        processed_report = Path(pred_context.processed_report_path)
+        if (
+            processed_report.name.endswith(".excel_import_report.json")
+            and len(processed_report.parents) >= 2
+        ):
+            csv_history_root = processed_report.parents[1]
 
     from cookimport.analytics.perf_report import append_benchmark_csv, history_path
     append_benchmark_csv(
         report,
-        history_path(DEFAULT_OUTPUT),
+        history_path(csv_history_root),
         run_timestamp=dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         run_dir=str(output_dir),
         eval_scope=scope,
         source_file=csv_source_file,
-        recipes=benchmark_recipes,
-        processed_report_path=processed_report_path,
+        recipes=pred_context.recipes,
+        processed_report_path=pred_context.processed_report_path,
+        run_config=pred_context.run_config,
+        run_config_hash=pred_context.run_config_hash,
+        run_config_summary=pred_context.run_config_summary,
+    )
+
+    eval_run_config: dict[str, Any] = {
+        "scope": scope,
+        "overlap_threshold": overlap_threshold,
+        "force_source_match": force_source_match,
+    }
+    if pred_context.run_config is not None:
+        eval_run_config["prediction_run_config"] = pred_context.run_config
+    if pred_context.run_config_hash:
+        eval_run_config["prediction_run_config_hash"] = pred_context.run_config_hash
+    if pred_context.run_config_summary:
+        eval_run_config["prediction_run_config_summary"] = pred_context.run_config_summary
+
+    _write_eval_run_manifest(
+        run_root=output_dir,
+        run_kind="labelstudio_eval",
+        source_path=pred_context.source_file or None,
+        source_hash=pred_context.source_hash,
+        importer_name=None,
+        run_config=eval_run_config,
+        artifacts={
+            "pred_run_dir": _path_for_manifest(output_dir, pred_run),
+            "gold_spans_jsonl": _path_for_manifest(output_dir, gold_spans),
+            "eval_report_json": "eval_report.json",
+            "eval_report_md": "eval_report.md",
+            "missed_gold_spans_jsonl": "missed_gold_spans.jsonl",
+            "false_positive_preds_jsonl": "false_positive_preds.jsonl",
+            "history_csv": str(csv_history_root / ".history" / "performance_history.csv"),
+        },
+        notes="Evaluation report against exported gold spans.",
     )
 
     typer.secho(
@@ -2964,7 +3257,17 @@ def labelstudio_benchmark(
     )] = None,
     allow_labelstudio_write: Annotated[bool, typer.Option(
         "--allow-labelstudio-write/--no-allow-labelstudio-write",
-        help="Explicitly allow writing prediction tasks to Label Studio.",
+        help=(
+            "Explicitly allow uploading prediction tasks to Label Studio. "
+            "Ignored when --no-upload is set."
+        ),
+    )] = False,
+    no_upload: Annotated[bool, typer.Option(
+        "--no-upload",
+        help=(
+            "Generate prediction artifacts locally and evaluate without "
+            "uploading to Label Studio."
+        ),
     )] = False,
     overwrite: Annotated[bool, typer.Option("--overwrite/--resume", help="Overwrite prediction project or resume.")] = False,
     label_studio_url: Annotated[str | None, typer.Option("--label-studio-url", help="Label Studio base URL.")] = None,
@@ -2974,15 +3277,32 @@ def labelstudio_benchmark(
     epub_split_workers: Annotated[int, typer.Option("--epub-split-workers", min=1, help="Max workers used when splitting an EPUB prediction import.")] = 7,
     pdf_pages_per_job: Annotated[int, typer.Option("--pdf-pages-per-job", min=1, help="Target page count per PDF split job.")] = 50,
     epub_spine_items_per_job: Annotated[int, typer.Option("--epub-spine-items-per-job", min=1, help="Target spine items per EPUB split job.")] = 10,
+    ocr_device: Annotated[str, typer.Option(
+        "--ocr-device",
+        help="OCR device to use (auto, cpu, cuda, mps).",
+    )] = "auto",
+    ocr_batch_size: Annotated[int, typer.Option(
+        "--ocr-batch-size",
+        min=1,
+        help="Number of pages to process per OCR model call.",
+    )] = 1,
+    warm_models: Annotated[bool, typer.Option(
+        "--warm-models",
+        help="Proactively load heavy models before prediction import.",
+    )] = False,
     epub_extractor: Annotated[str, typer.Option(
         "--epub-extractor",
         help="EPUB extraction engine: unstructured (semantic) or legacy (BeautifulSoup).",
     )] = "unstructured",
 ) -> None:
-    """Run one-shot benchmark: pipeline predictions vs freeform labeled gold spans."""
+    """Run benchmark eval against freeform gold, with optional upload step."""
     selected_epub_extractor = _normalize_epub_extractor(epub_extractor)
-    _require_labelstudio_write_consent(allow_labelstudio_write)
-    url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
+    selected_ocr_device = _normalize_ocr_device(ocr_device)
+    url: str | None = None
+    api_key: str | None = None
+    if not no_upload:
+        _require_labelstudio_write_consent(allow_labelstudio_write)
+        url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
 
     selected_gold = gold_spans
     if selected_gold is None:
@@ -3058,6 +3378,10 @@ def labelstudio_benchmark(
         eval_output_dir = selected_gold.parent.parent / "eval-vs-pipeline" / timestamp
     eval_output_dir.mkdir(parents=True, exist_ok=True)
 
+    if warm_models:
+        with console.status("[bold cyan]Warming models...[/bold cyan]", spinner="dots"):
+            _warm_all_models(ocr_device=selected_ocr_device)
+
     try:
         with _temporary_epub_extractor(selected_epub_extractor):
             with console.status(
@@ -3069,31 +3393,59 @@ def labelstudio_benchmark(
                         f"[bold cyan]Benchmark import ({selected_source.name}): {msg}[/bold cyan]"
                     )
 
-                import_result = run_labelstudio_import(
-                    path=selected_source,
-                    output_dir=output_dir,
-                    pipeline=pipeline,
-                    project_name=project_name,
-                    chunk_level=chunk_level,
-                    task_scope="pipeline",
-                    context_window=1,
-                    segment_blocks=40,
-                    segment_overlap=5,
-                    overwrite=overwrite,
-                    resume=not overwrite,
-                    label_studio_url=url,
-                    label_studio_api_key=api_key,
-                    limit=None,
-                    sample=None,
-                    progress_callback=update_progress,
-                    workers=workers,
-                    pdf_split_workers=pdf_split_workers,
-                    epub_split_workers=epub_split_workers,
-                    pdf_pages_per_job=pdf_pages_per_job,
-                    epub_spine_items_per_job=epub_spine_items_per_job,
-                    processed_output_root=processed_output_dir,
-                    allow_labelstudio_write=True,
-                )
+                if no_upload:
+                    import_result = generate_pred_run_artifacts(
+                        path=selected_source,
+                        output_dir=output_dir,
+                        pipeline=pipeline,
+                        chunk_level=chunk_level,
+                        task_scope="pipeline",
+                        context_window=1,
+                        segment_blocks=40,
+                        segment_overlap=5,
+                        limit=None,
+                        sample=None,
+                        workers=workers,
+                        pdf_split_workers=pdf_split_workers,
+                        epub_split_workers=epub_split_workers,
+                        pdf_pages_per_job=pdf_pages_per_job,
+                        epub_spine_items_per_job=epub_spine_items_per_job,
+                        ocr_device=selected_ocr_device,
+                        ocr_batch_size=ocr_batch_size,
+                        warm_models=warm_models,
+                        processed_output_root=processed_output_dir,
+                        progress_callback=update_progress,
+                        run_manifest_kind="bench_pred_run",
+                    )
+                else:
+                    import_result = run_labelstudio_import(
+                        path=selected_source,
+                        output_dir=output_dir,
+                        pipeline=pipeline,
+                        project_name=project_name,
+                        chunk_level=chunk_level,
+                        task_scope="pipeline",
+                        context_window=1,
+                        segment_blocks=40,
+                        segment_overlap=5,
+                        overwrite=overwrite,
+                        resume=not overwrite,
+                        label_studio_url=url or "",
+                        label_studio_api_key=api_key or "",
+                        limit=None,
+                        sample=None,
+                        progress_callback=update_progress,
+                        workers=workers,
+                        pdf_split_workers=pdf_split_workers,
+                        epub_split_workers=epub_split_workers,
+                        pdf_pages_per_job=pdf_pages_per_job,
+                        epub_spine_items_per_job=epub_spine_items_per_job,
+                        ocr_device=selected_ocr_device,
+                        ocr_batch_size=ocr_batch_size,
+                        warm_models=warm_models,
+                        processed_output_root=processed_output_dir,
+                        allow_labelstudio_write=True,
+                    )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
 
@@ -3124,7 +3476,9 @@ def labelstudio_benchmark(
         eval_result["false_positive_preds"],
     )
 
-    benchmark_recipes, manifest_report_path, _ = _load_pred_run_recipe_context(pred_run)
+    pred_context = _load_pred_run_recipe_context(pred_run)
+    benchmark_recipes = pred_context.recipes
+    manifest_report_path = pred_context.processed_report_path
     processed_report_path = import_result.get("processed_report_path")
     csv_report_path = manifest_report_path
     if not csv_report_path and processed_report_path is not None:
@@ -3135,19 +3489,77 @@ def labelstudio_benchmark(
     from cookimport.analytics.perf_report import append_benchmark_csv, history_path
     append_benchmark_csv(
         report,
-        history_path(DEFAULT_OUTPUT),
+        history_path(processed_output_dir),
         run_timestamp=dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         run_dir=str(eval_output_dir),
         eval_scope="freeform-spans",
         source_file=str(selected_source),
         recipes=benchmark_recipes,
         processed_report_path=csv_report_path,
+        run_config=pred_context.run_config,
+        run_config_hash=pred_context.run_config_hash,
+        run_config_summary=pred_context.run_config_summary,
+    )
+
+    benchmark_run_config: dict[str, Any] = {
+        "overlap_threshold": overlap_threshold,
+        "force_source_match": force_source_match,
+        "upload": not no_upload,
+        "epub_extractor": selected_epub_extractor,
+        "ocr_device": selected_ocr_device,
+        "ocr_batch_size": ocr_batch_size,
+        "workers": workers,
+        "pdf_split_workers": pdf_split_workers,
+        "epub_split_workers": epub_split_workers,
+        "pdf_pages_per_job": pdf_pages_per_job,
+        "epub_spine_items_per_job": epub_spine_items_per_job,
+        "warm_models": warm_models,
+    }
+    if pred_context.run_config is not None:
+        benchmark_run_config["prediction_run_config"] = pred_context.run_config
+    if pred_context.run_config_hash:
+        benchmark_run_config["prediction_run_config_hash"] = pred_context.run_config_hash
+    if pred_context.run_config_summary:
+        benchmark_run_config["prediction_run_config_summary"] = pred_context.run_config_summary
+
+    benchmark_artifacts: dict[str, Any] = {
+        "pred_run_dir": _path_for_manifest(eval_output_dir, pred_run),
+        "gold_spans_jsonl": _path_for_manifest(eval_output_dir, selected_gold),
+        "eval_report_json": "eval_report.json",
+        "eval_report_md": "eval_report.md",
+        "missed_gold_spans_jsonl": "missed_gold_spans.jsonl",
+        "false_positive_preds_jsonl": "false_positive_preds.jsonl",
+        "history_csv": str(processed_output_dir / ".history" / "performance_history.csv"),
+    }
+    if csv_report_path:
+        benchmark_artifacts["processed_report_json"] = _path_for_manifest(
+            eval_output_dir,
+            csv_report_path,
+        )
+    processed_run_root = import_result.get("processed_run_root")
+    if processed_run_root:
+        benchmark_artifacts["processed_output_run_dir"] = _path_for_manifest(
+            eval_output_dir,
+            processed_run_root,
+        )
+
+    _write_eval_run_manifest(
+        run_root=eval_output_dir,
+        run_kind="labelstudio_benchmark",
+        source_path=str(selected_source),
+        source_hash=pred_context.source_hash,
+        importer_name=None,
+        run_config=benchmark_run_config,
+        artifacts=benchmark_artifacts,
+        notes=(
+            "Benchmark evaluation against freeform gold spans. "
+            + ("Upload disabled." if no_upload else "Prediction tasks uploaded to Label Studio.")
+        ),
     )
 
     typer.secho("Benchmark complete.", fg=typer.colors.GREEN)
     typer.secho(f"Gold spans: {selected_gold}", fg=typer.colors.CYAN)
     typer.secho(f"Prediction run: {pred_run}", fg=typer.colors.CYAN)
-    processed_run_root = import_result.get("processed_run_root")
     if processed_run_root:
         typer.secho(f"Processed output: {processed_run_root}", fg=typer.colors.CYAN)
     typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
@@ -3249,6 +3661,7 @@ def bench_run(
         eval_scope="bench-suite",
         source_file=s.name,
         recipes=bench_recipe_total,
+        run_config=config,
     )
 
     typer.secho("Bench suite complete.", fg=typer.colors.GREEN)

@@ -11,6 +11,7 @@ Schema version history:
     3 – stage/import run_config support in stage records
     4 – stage/import run_config warning metadata for stale rows
     5 – benchmark recipe count support (CSV + processed report enrichment)
+    6 – explicit run_config_hash/run_config_summary support in CSV + manifests
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 
 
 class RunCategory(str, Enum):
@@ -43,6 +44,8 @@ class StageRecord(BaseModel):
     artifact_dir: str | None = None
     importer_name: str | None = None
     run_config: dict[str, Any] | None = None
+    run_config_hash: str | None = None
+    run_config_summary: str | None = None
     run_config_warning: str | None = None
     run_category: RunCategory = RunCategory.stage_import
 
@@ -123,6 +126,8 @@ class BenchmarkRecord(BaseModel):
     source_file: str | None = None
     importer_name: str | None = None
     run_config: dict[str, Any] | None = None
+    run_config_hash: str | None = None
+    run_config_summary: str | None = None
     processed_report_path: str | None = None
 
 

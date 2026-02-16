@@ -20,7 +20,11 @@ def test_stage_output_structure(tmp_path):
     assert result.exit_code == 0
     
     # Find the timestamped directory
-    timestamp_dirs = list(output_dir.glob("*"))
+    timestamp_dirs = [
+        path
+        for path in output_dir.glob("*")
+        if path.is_dir() and not path.name.startswith(".")
+    ]
     assert len(timestamp_dirs) == 1
     timestamp_dir = timestamp_dirs[0]
     
@@ -60,6 +64,15 @@ def test_stage_output_structure(tmp_path):
     assert report["importerName"] == "text"
     assert report["runConfig"]["workers"] >= 1
     assert report["runConfig"]["epub_extractor"] == "unstructured"
+    assert isinstance(report.get("runConfigHash"), str)
+    assert len(report["runConfigHash"]) == 64
+    assert "workers=" in str(report.get("runConfigSummary", ""))
+    run_manifest_path = timestamp_dir / "run_manifest.json"
+    assert run_manifest_path.exists()
+    run_manifest = json.loads(run_manifest_path.read_text(encoding="utf-8"))
+    assert run_manifest["run_kind"] == "stage"
+    assert run_manifest["run_id"] == timestamp_dir.name
+    assert run_manifest["artifacts"]["reports"] == [f"{file_slug}.excel_import_report.json"]
 
     # Expected: output/timestamp/tips/simple_text/
     tips_dir = timestamp_dir / "tips" / file_slug
@@ -70,6 +83,9 @@ def test_stage_output_structure(tmp_path):
     raw_dir = timestamp_dir / "raw" / "text"
     assert raw_dir.exists()
     assert list(raw_dir.rglob("*.json"))
+
+    history_csv = output_dir / ".history" / "performance_history.csv"
+    assert history_csv.exists()
 
 
 def test_epub_report_includes_extractor_setting(tmp_path):
@@ -96,10 +112,17 @@ def test_epub_report_includes_extractor_setting(tmp_path):
     )
     assert result.exit_code == 0
 
-    timestamp_dirs = list(output_dir.glob("*"))
+    timestamp_dirs = [
+        path
+        for path in output_dir.glob("*")
+        if path.is_dir() and not path.name.startswith(".")
+    ]
     assert len(timestamp_dirs) == 1
     timestamp_dir = timestamp_dirs[0]
     report_path = timestamp_dir / "sample.excel_import_report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["importerName"] == "epub"
     assert report["runConfig"]["epub_extractor"] == "legacy"
+    assert isinstance(report.get("runConfigHash"), str)
+    assert len(report["runConfigHash"]) == 64
+    assert "epub_extractor=legacy" in str(report.get("runConfigSummary", ""))

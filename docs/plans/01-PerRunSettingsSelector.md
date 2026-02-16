@@ -1,3 +1,10 @@
+---
+summary: "ExecPlan and implementation log for per-run run settings selection, editing, and runConfig persistence."
+read_when:
+  - When changing interactive Import or benchmark run-settings selection/editor behavior
+  - When updating runConfig hash/summary persistence into reports, CSV history, or dashboard data
+---
+
 # Add per-run Run Settings selector + toggle editor, with runConfig persistence
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
@@ -23,20 +30,26 @@ Critically, the system must be designed so that adding a new pipeline knob later
 
 ## Progress
 
-- [ ] (2026-02-16) Repo reconnaissance: identify current global settings storage, current runConfig/report writing, current interactive import/benchmark flow wiring, and where performance_history.csv is appended.
-- [ ] (2026-02-16) Define a canonical `RunSettings` model (typed + UI metadata) and a stable `run_config_hash` + `run_config_summary`.
-- [ ] (2026-02-16) Implement a small persistence layer for “last run settings” per operation (import vs benchmark) with safe migration behavior.
-- [ ] (2026-02-16) Wire a “Run Settings mode” picker into interactive Import and Benchmark flows (global / last / edit).
-- [ ] (2026-02-16) Implement the toggle-table editor (prompt_toolkit-based TUI) driven entirely by the canonical settings model.
-- [ ] (2026-02-16) Ensure runConfig is written consistently for: single-file stage, split-merge stage, prediction-run generation, eval-only benchmark rows, and any other run types that appear in the dashboard.
-- [ ] (2026-02-16) Update analytics append + dashboard collector as needed so runConfig is visible everywhere (CSV, dashboard JSON).
-- [ ] (2026-02-16) Add tests to prevent “forgot to register new setting” regressions.
-- [ ] (2026-02-16) Document the new behavior (CLI docs + developer “how to add a new setting” note).
+- [x] (2026-02-16) Repo reconnaissance: identified settings/report/analytics wiring and benchmark append paths.
+- [x] (2026-02-16) Defined canonical `RunSettings` model (typed + UI metadata) with stable `run_config_hash` + `run_config_summary`.
+- [x] (2026-02-16) Implemented per-operation last-run settings persistence (`import` vs `benchmark`) with schema-evolution-safe loading and atomic writes.
+- [x] (2026-02-16) Wired “Run Settings mode” picker into interactive Import and Benchmark upload flows (global / last / edit).
+- [x] (2026-02-16) Implemented prompt_toolkit toggle-table editor driven by canonical settings metadata.
+- [x] (2026-02-16) Ensured runConfig propagation for single-file stage, split-merge stage, prediction-run generation, benchmark CSV append paths, and dashboard ingestion.
+- [x] (2026-02-16) Updated analytics CSV + dashboard schema/collector/renderer to surface run-config hash/summary consistently.
+- [x] (2026-02-16) Added tests for run-settings model/store and updated report/dashboard/interactive benchmark tests.
+- [x] (2026-02-16) Updated CLI, Label Studio, analytics, conventions, and understandings docs for new behavior and extension rules.
 
 ## Surprises & Discoveries
 
-- Observation: (none yet — fill in during implementation)
-  Evidence: (add test output or file/line references)
+- Observation: Adding `run_config_hash`/`run_config_summary` required touching three independent analytics surfaces (CSV writer, collector schema, renderer) to keep the CSV-first contract intact.
+  Evidence: `cookimport/analytics/perf_report.py`, `cookimport/analytics/dashboard_collect.py`, `cookimport/analytics/dashboard_schema.py`, `cookimport/analytics/dashboard_render.py`.
+
+- Observation: Benchmark rows need manifest enrichment in both eval root and `prediction-run/` to reliably attach run config metadata and recipe counts.
+  Evidence: `cookimport/analytics/dashboard_collect.py` manifest candidate probes and `cookimport/labelstudio/ingest.py` manifest fields.
+
+- Observation: Backward compatibility for last-run settings benefits from accepting both wrapped payloads (`{"run_settings": {...}}`) and legacy flat payloads.
+  Evidence: `cookimport/config/last_run_store.py` load path + `tests/test_run_settings.py::test_last_run_store_round_trip_and_corrupt_recovery`.
 
 ## Decision Log
 
@@ -56,9 +69,20 @@ Critically, the system must be designed so that adding a new pipeline knob later
   Rationale: CSV stays small and stable; JSON retains full fidelity for debugging and dashboard details.
   Date/Author: 2026-02-16 / assistant
 
+- Decision: Keep run-settings metadata for optional/derived fields (`effective_workers`, mapping/overrides paths) in the canonical `RunSettings` model, but hide them from direct UI editing.
+  Rationale: This keeps one serialized source of truth for report/analytics traceability while keeping the interactive editor focused on user-tunable knobs.
+  Date/Author: 2026-02-16 / assistant
+
+- Decision: Interactive benchmark eval-only mode should explicitly bypass run-settings selection and persistence.
+  Rationale: Eval-only re-scoring does not run the extraction pipeline, so saving benchmark run settings from this path would be misleading.
+  Date/Author: 2026-02-16 / assistant
+
 ## Outcomes & Retrospective
 
-- (empty — fill in after milestones ship)
+- Outcome: The project now has a canonical per-run settings stack (`RunSettings`, chooser, toggle editor, last-run store) used by interactive Import and benchmark upload without mutating global defaults.
+- Outcome: Run settings traceability is end-to-end: conversion reports, benchmark manifests, `performance_history.csv`, and dashboard records now all carry hash + summary metadata.
+- Outcome: Regression coverage now includes run-settings hashing/schema evolution, last-run persistence/recovery, report field presence, benchmark interactive routing, and dashboard ingestion/rendering of hash/summary.
+- Remaining gap: `pytest -q` still reports unrelated fixture/path failures in importer tests (`tests/test_paprika_importer.py`, `tests/test_recipesage_importer.py`) in this environment; changed-area targeted suites pass.
 
 ## Context and Orientation
 
@@ -367,6 +391,19 @@ Example summary string:
 
 Keep the summary stable and avoid including ephemeral paths unless those paths materially change outcomes (mapping/overrides might be included but can be abbreviated).
 
+Validation evidence captured during implementation:
+
+    . .venv/bin/activate && pytest -q tests/test_run_settings.py tests/test_cli_output_structure.py tests/test_labelstudio_benchmark_helpers.py tests/test_labelstudio_ingest_parallel.py tests/test_stats_dashboard.py
+    # 77 passed
+
+    . .venv/bin/activate && pytest -q tests/test_bench.py tests/test_benchmark_csv_backfill_cli.py tests/test_performance_features.py tests/test_c3imp_interactive_menu.py
+    # 36 passed
+
+Known unrelated full-suite failures in current environment:
+
+    . .venv/bin/activate && pytest -q
+    # failures in tests/test_paprika_importer.py and tests/test_recipesage_importer.py due to missing docs/template/examples fixtures
+
 ## Interfaces and Dependencies
 
 Dependencies:
@@ -397,7 +434,7 @@ In `cookimport/cli_ui/toggle_editor.py`, define:
 
 In `cookimport/cli_ui/run_settings_flow.py`, define:
 
-    def choose_run_settings(*, kind: Literal["import","benchmark"], global_defaults: RunSettings, output_dir: Path) -> RunSettings: ...
+    def choose_run_settings(*, kind: Literal["import","benchmark"], global_defaults: RunSettings, output_dir: Path) -> RunSettings | None: ...
 
 In report writing code (where ConversionReport is built), ensure fields exist and are always populated:
 
@@ -411,3 +448,4 @@ At the analytics layer that appends to `performance_history.csv`, ensure columns
     run_config_summary
 
 Plan revision note (2026-02-16): Initial version authored to introduce a canonical RunSettings model, a prompt_toolkit toggle editor, and end-to-end runConfig persistence into reports/CSV/dashboard.
+Plan revision note (2026-02-16_12.09.36): Marked all milestones complete, added implementation discoveries/evidence, and documented shipped outcomes plus known unrelated full-suite failures so the plan now reflects deployed behavior.

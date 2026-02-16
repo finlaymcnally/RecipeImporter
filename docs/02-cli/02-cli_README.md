@@ -84,17 +84,17 @@ Important divergence to remember:
 
 Menu options:
 
-- `Import files from data/input - convert to schema.org + cookbook3 outputs`
-- `Label Studio benchmark import - create labeling tasks from one source`
-- `Label Studio export - pull finished labels into golden artifacts`
-- `Benchmark against labeled freeform export - re-score existing runs or generate new predictions`
+- `Stage files from data/input - produce cookbook outputs`
+- `Label Studio: create labeling tasks (uploads)`
+- `Label Studio: export completed labels to golden artifacts`
+- `Evaluate predictions vs freeform gold (re-score or generate)`
 - `Generate dashboard - build lifetime stats dashboard HTML`
 - `Settings - tune worker/OCR/output defaults`
 - `Exit - close the tool`
 
 Availability rule:
 
-- `Import` and `Label Studio benchmark import` only appear when at least one supported top-level file exists in `data/input`.
+- `Import` and `Label Studio task upload` only appear when at least one supported top-level file exists in `data/input`.
 - `inspect` remains available as a direct command (`cookimport inspect <path>`), not as an interactive menu action.
 
 Menu numbering and shortcuts:
@@ -104,7 +104,9 @@ Menu numbering and shortcuts:
 
 ### [I] Settings
 
-`Settings` opens a loop and writes each accepted change back to `cookimport.json` immediately.
+`Settings` edits global defaults in `cookimport.json`.
+
+Interactive `Import` and benchmark upload runs now include a per-run chooser (`global defaults` / `last run` / `change run settings`) so experiments do not mutate these global defaults.
 
 Config keys and defaults:
 
@@ -130,16 +132,24 @@ What each setting affects:
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
 - `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
 
+Developer note:
+- Per-run toggle definitions live in `cookimport/config/run_settings.py`. Add new fields there with `ui_*` metadata so the interactive editor picks them up automatically.
+
 ### [D] Import Flow
 
 `Import` steps:
 
 1. Prompt for `Import All` or one selected file from top-level `data/input`.
-2. Applies `C3IMP_EPUB_EXTRACTOR=<settings.epub_extractor>`.
-3. Calls `stage(...)` using settings values for workers/OCR/split/warm-models.
-4. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
-5. Prints `Outputs written to: <run_folder>`.
-6. Returns to the main menu after successful import.
+2. Show `Run settings` mode picker:
+   - `Run with global defaults (...)`
+   - `Run with last import settings (...)` when available
+   - `Change run settings...` (full-screen arrow-key editor)
+3. Applies `C3IMP_EPUB_EXTRACTOR=<selected run settings>`.
+4. Calls `stage(...)` using selected per-run workers/OCR/split/warm-model values.
+5. Saves selected settings to `<output_dir>/.history/last_run_settings_import.json` after a successful run.
+6. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
+7. Prints `Outputs written to: <run_folder>`.
+8. Returns to the main menu after successful import.
 
 ### [E] Label Studio Import Flow
 
@@ -205,13 +215,13 @@ What each setting affects:
 4. Uses the selected project's detected type as `export_scope` when available.
    - If the selected project type is `unknown` (or project name is typed manually), interactive mode prompts for `export_scope` (`pipeline`, `canonical-blocks`, `freeform-spans`).
 5. Calls `run_labelstudio_export(...)` with `output_dir=data/golden`.
-   - By default, export writes to a fresh timestamped folder: `data/golden/<timestamp>/labelstudio/<project_slug>/exports/`.
+   - By default, export writes to: `data/golden/<project_slug>/exports/`.
    - If `--run-dir` is supplied in non-interactive mode, export writes to that run directory.
 6. Prints export summary path and returns to the main menu.
 
 ### [G] Benchmark vs Freeform Gold Flow
 
-`Benchmark against labeled freeform export` supports two paths:
+`Evaluate predictions vs freeform gold` supports two paths:
 
 - `eval-only` when both gold exports and prediction runs exist.
 - `upload` mode (default/fallback) for generating fresh predictions.
@@ -241,15 +251,17 @@ Typical reasons to use `eval-only` again on an old run:
 
 1. Select freeform gold export (`**/exports/freeform_span_labels.jsonl`).
 2. Select prediction run (`**/label_studio_tasks.jsonl` run directory).
-3. Runs `labelstudio-eval scope=freeform-spans` into `data/golden/eval-vs-pipeline/<timestamp>`.
-4. Returns to the main menu.
+3. Prints `Eval-only mode: no pipeline run settings applied.`
+4. Runs `labelstudio-eval scope=freeform-spans` into `data/golden/eval-vs-pipeline/<timestamp>`.
+5. Returns to the main menu.
 
 ### [G2] Upload Branch
 
-1. Prompts for benchmark EPUB extractor (`unstructured` or `legacy`), defaulting to saved interactive setting (`settings.epub_extractor`).
+1. Shows benchmark `Run settings` mode picker (`global` / `last benchmark` / `change`), using the same editor flow as Import.
 2. Resolves Label Studio credentials from env (`LABEL_STUDIO_URL` / `LABEL_STUDIO_API_KEY`) or saved interactive settings; if still missing, prompts and saves values to `cookimport.json`.
-3. Calls `labelstudio-benchmark(...)` with selected extractor plus settings-driven parallelism/splitting values.
-4. Returns to the main menu on completion.
+3. Calls `labelstudio-benchmark(...)` with selected per-run settings (extractor, workers/split controls, OCR options, warm-model flag).
+4. Saves selected settings to `<output_dir>/.history/last_run_settings_benchmark.json` after a successful upload/eval run.
+5. Returns to the main menu on completion.
 
 ### [H] Generate Dashboard Flow
 
@@ -289,6 +301,7 @@ Every command supports `--help`.
 ### `cookimport stage PATH`
 
 Stages one file or all files under a folder (recursive for folder input). Always creates a timestamped run folder under `--out` using format `YYYY-MM-DD_HH.MM.SS`.
+Each stage run folder includes `run_manifest.json` for source/config/artifact traceability.
 
 Arguments:
 
@@ -369,6 +382,7 @@ Options:
 ### `cookimport labelstudio-import PATH`
 
 Creates Label Studio tasks from one source file.
+The prediction run directory now includes `run_manifest.json`.
 
 Arguments:
 
@@ -411,6 +425,7 @@ Options:
 ### `cookimport labelstudio-eval SCOPE`
 
 Scores prediction spans against canonical/freeform gold labels.
+The eval output directory now includes `run_manifest.json`.
 
 Arguments:
 
@@ -426,12 +441,13 @@ Options:
 
 ### `cookimport labelstudio-benchmark`
 
-One-shot prediction+eval flow against freeform gold spans.
+Prediction+eval flow against freeform gold spans (upload or offline).
 
 Behavior note:
 
-- Non-interactive `cookimport labelstudio-benchmark` is upload-first: it generates a fresh prediction run, uploads, then evaluates.
-- Re-scoring an old prediction run without upload is done with `cookimport labelstudio-eval --pred-run ... --gold-spans ...`.
+- Non-interactive upload path: generates predictions, uploads to Label Studio, then evaluates.
+- Non-interactive offline path: `--no-upload` generates predictions locally and evaluates with no Label Studio credentials/API calls.
+- Re-scoring an old prediction run without regeneration is still done with `cookimport labelstudio-eval --pred-run ... --gold-spans ...`.
 - Interactive mode (`cookimport` -> Benchmark) can expose an `eval-only` branch that wraps this re-score workflow when both artifacts are discoverable.
 
 Options:
@@ -446,7 +462,8 @@ Options:
 - `--pipeline TEXT` (default `auto`): importer selection.
 - `--chunk-level TEXT` (default `both`): `structural|atomic|both`.
 - `--project-name TEXT`: explicit prediction project name.
-- `--allow-labelstudio-write / --no-allow-labelstudio-write` (default disabled): required gate for upload.
+- `--allow-labelstudio-write / --no-allow-labelstudio-write` (default disabled): required gate for upload mode.
+- `--no-upload` (default `false`): force offline benchmark (no upload, no credential resolution).
 - `--overwrite / --resume` (default `--resume`): recreate prediction project or resume.
 - `--label-studio-url TEXT`: explicit Label Studio URL.
 - `--label-studio-api-key TEXT`: explicit Label Studio API key.
@@ -456,10 +473,13 @@ Options:
 - `--pdf-pages-per-job INTEGER>=1` (default `50`): PDF shard size.
 - `--epub-spine-items-per-job INTEGER>=1` (default `10`): EPUB shard size.
 - `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy`; exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
+- `--ocr-device TEXT` (default `auto`): `auto|cpu|cuda|mps`.
+- `--ocr-batch-size INTEGER>=1` (default `1`): pages per OCR model call.
+- `--warm-models` (default `false`): preload OCR/parsing models before prediction import.
 
-Hard requirement:
+Upload requirement:
 
-- Upload is blocked unless `--allow-labelstudio-write` is set.
+- Upload mode is blocked unless `--allow-labelstudio-write` is set.
 
 ### `cookimport bench validate`
 
@@ -577,7 +597,7 @@ Precedence notes:
 
 - For Label Studio creds: CLI flags win over environment variables.
 - For interactive Label Studio import/export creds: environment variables win over saved `cookimport.json` credentials.
-- For EPUB extractor: explicit `stage --epub-extractor`, explicit `labelstudio-benchmark --epub-extractor`, or interactive setting/prompt writes `C3IMP_EPUB_EXTRACTOR` for that run.
+- For EPUB extractor: explicit `stage --epub-extractor`, explicit `labelstudio-benchmark --epub-extractor`, or interactive per-run Run Settings selection writes `C3IMP_EPUB_EXTRACTOR` for that run.
 - For tag DB URL: `--db-url` wins; env var is fallback.
 
 ## Merged Discovery Provenance (Former `docs/understandings`)

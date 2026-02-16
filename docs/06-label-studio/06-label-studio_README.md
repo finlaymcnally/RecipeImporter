@@ -57,13 +57,15 @@ Default output roots:
 Uploads are intentionally gated.
 
 - Non-interactive:
-  - `labelstudio-import` and `labelstudio-benchmark` require `--allow-labelstudio-write`.
+  - `labelstudio-import` requires `--allow-labelstudio-write`.
+  - `labelstudio-benchmark` requires `--allow-labelstudio-write` only in upload mode.
+  - `labelstudio-benchmark --no-upload` is fully offline and skips credential resolution + upload.
   - Otherwise they fail fast.
 - Interactive:
   - `labelstudio` import proceeds directly to upload (no separate upload confirmation prompt).
   - `labelstudio` import always uses overwrite semantics for resolved project names (`overwrite=True`, `resume=False`); there is no overwrite/resume chooser in this flow.
-  - benchmark upload path still has an explicit confirmation prompt.
-  - benchmark supports eval-only fallback (no upload) in interactive flow only.
+  - benchmark upload does not ask a second confirmation; choosing upload mode is treated as explicit intent.
+  - benchmark supports eval-only fallback (no upload) in interactive flow.
 
 Non-interactive overwrite/resume behavior is unchanged:
 - `cookimport labelstudio-import` still exposes `--overwrite / --resume`.
@@ -163,18 +165,23 @@ Output artifacts for both eval scopes:
 
 ### 1.8 Benchmark command behavior
 
-`labelstudio-benchmark` currently does:
+`labelstudio-benchmark` currently supports two non-interactive paths:
 
 1. select/find a freeform gold export,
 2. infer/select source file,
-3. run a pipeline `run_labelstudio_import(...)` prediction import,
+3. generate prediction artifacts:
+   - upload mode: `run_labelstudio_import(...)`
+   - offline mode: `generate_pred_run_artifacts(...)` with `--no-upload`
 4. co-locate prediction run under `<eval_output_dir>/prediction-run`,
 5. run freeform eval and write report artifacts.
 
 Important:
 
-- CLI `labelstudio-benchmark` always imports/uploads prediction tasks (requires write consent).
-- Eval-only mode exists in interactive flow (`cookimport` menu), not as a standalone non-interactive flag.
+- Upload mode imports/uploads prediction tasks (requires write consent).
+- Offline mode is explicit via `--no-upload`.
+- Eval-only mode against an existing prediction run is available via `labelstudio-eval` and interactive benchmark eval-only.
+- Benchmark prediction manifests include run-config metadata (`run_config`, `run_config_hash`, `run_config_summary`) so analytics/dashboard rows can be grouped by configuration.
+- Non-interactive benchmark knobs include worker/split controls plus OCR and warmup flags (`--ocr-device`, `--ocr-batch-size`, `--warm-models`, `--epub-extractor`).
 
 ### 1.9 Parallel split-job behavior and reindexing
 
@@ -199,21 +206,24 @@ Benchmark eval artifacts:
 
 - `<eval_output_dir>/...` (often under `data/golden/eval-vs-pipeline/<timestamp>/`)
 - prediction artifacts moved to `<eval_output_dir>/prediction-run/`
+- run roots now include `run_manifest.json` for import/export/eval/benchmark traceability.
 
 Manifest includes:
 
 - project metadata, task scope settings, uploaded count, IDs, source file, URL, and coverage.
+- prediction run settings and traceability fields: `run_config`, `run_config_hash`, `run_config_summary`.
+- processed-output linkage fields when available: `processed_run_root`, `processed_report_path`, `recipe_count`.
+- run identity fields used across flows: `run_kind`, `run_id`, and source identity (`path`, `source_hash`).
 
 ### 1.11 Additional operational conventions
 
 - Freeform source matching is strict by default (source identity must align). Use `--force-source-match` only when intentionally comparing renamed/cutdown variants.
-- Benchmark gold discovery checks both:
-- `data/output/**/exports/freeform_span_labels.jsonl`
-- `data/golden/**/exports/freeform_span_labels.jsonl`
+- Benchmark gold discovery checks both `data/output/**/exports/freeform_span_labels.jsonl` and `data/golden/**/exports/freeform_span_labels.jsonl`.
 - Split-job `labelstudio-import` and `labelstudio-benchmark` support the same PDF/EPUB split controls as stage imports (`workers`, split workers, pages/spine per job).
 - Progress callbacks include post-merge phases (archive/hash, processed-output writes, chunk/task generation, upload batching) so long runs continue surfacing advancing status.
 - Interactive `labelstudio` export resolves credentials first, then fetches project titles for a picker UI (showing a detected type tag beside each project when available). It now auto-uses the selected project's detected type as export scope and only prompts for scope when detection is `unknown` (or when the project name is typed manually).
 - Interactive Label Studio import/export credential resolution order is: CLI/env values first, then saved `cookimport.json` values, then one-time prompt (which persists back to `cookimport.json`).
+- Interactive benchmark upload uses the same per-run settings chooser as interactive Import (`global defaults` / `last benchmark` / `change run settings`) and writes successful selections to `<output_dir>/.history/last_run_settings_benchmark.json`.
 - Interactive benchmark upload follows the same env -> saved settings -> one-time prompt credential resolution path before invoking `labelstudio-benchmark`.
 
 ## 2) Known-Bad / High-Risk / Common Confusion
@@ -232,8 +242,8 @@ Users often expected benchmark to be “offline scoring only.”
 
 Current reality:
 
-- non-interactive benchmark always performs a prediction import upload before scoring,
-- unless using interactive eval-only path.
+- non-interactive benchmark can be upload mode (default) or explicit offline mode (`--no-upload`).
+- eval-only against an existing pred run is a separate command (`labelstudio-eval`) and interactive branch.
 
 ### 2.3 Source mismatch leading to zero overlap
 
@@ -511,6 +521,12 @@ cookimport labelstudio-eval freeform-spans \
 cookimport labelstudio-benchmark --allow-labelstudio-write
 ```
 
+Offline (no upload/API calls):
+
+```bash
+cookimport labelstudio-benchmark --no-upload
+```
+
 Optional tuning:
 
 - `--workers`
@@ -542,13 +558,12 @@ Optional tuning:
 
 ## 8) Open Gaps / Future Work
 
-- Add explicit non-interactive eval-only benchmark path (currently interactive-only).
 - Add stronger live-manual validation transcripts for each scope after config changes.
 - If PDF page box workflow is revived, treat as a separate task scope and keep this doc explicit about status.
 
 ## 9) Consolidation Findings (Preserved)
 
-- `labelstudio-benchmark` (CLI) is upload-first by design and always calls `run_labelstudio_import(...)`; true eval-only exists only in interactive menu mode.
+- `labelstudio-benchmark` (CLI) supports both upload and offline `--no-upload` generation paths; true re-score-only of existing prediction runs remains `labelstudio-eval` (and interactive eval-only mode).
 - Resume/idempotence is keyed by deterministic task IDs (`chunk_id`/`block_id`/`segment_id`), not Label Studio task IDs.
 - Split EPUB/PDF job merges must rebase block indices globally before chunk/task generation; otherwise eval can produce false zero-match results.
 - Freeform eval has three layers now: strict metrics, `app_aligned` diagnostics, and `classification_only` diagnostics.

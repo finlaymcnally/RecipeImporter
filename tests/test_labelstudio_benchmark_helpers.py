@@ -554,11 +554,15 @@ def test_interactive_benchmark_uses_golden_output_roots(
     golden_root = tmp_path / "golden"
     gold_spans = golden_root / "some-run" / "exports" / "freeform_span_labels.jsonl"
     pred_run = golden_root / "some-run" / "prediction-run"
-    menu_answers = iter(["labelstudio_benchmark", "upload", "legacy", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "upload", "global", "exit"])
 
     monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
-    monkeypatch.setattr(cli, "_load_settings", lambda: {"output_dir": str(configured_output)})
+    monkeypatch.setattr(
+        cli,
+        "_load_settings",
+        lambda: {"output_dir": str(configured_output), "epub_extractor": "legacy"},
+    )
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
     monkeypatch.setattr(
         cli,
@@ -962,6 +966,110 @@ def test_labelstudio_benchmark_passes_processed_output_root(
     )
 
     assert captured["processed_output_root"] == processed_root
+
+
+def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+    (prediction_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(source_file),
+                "source_hash": "hash-123",
+                "run_config": {"workers": 1},
+                "run_config_hash": "cfg-hash",
+                "run_config_summary": "workers=1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_resolve_labelstudio_settings",
+        lambda *_: (_ for _ in ()).throw(
+            AssertionError("No-upload mode must not resolve Label Studio credentials.")
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "run_labelstudio_import",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("No-upload mode must not call run_labelstudio_import.")
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_co_locate_prediction_run_for_benchmark",
+        lambda _pred_run, _eval_dir: prediction_run,
+    )
+    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
+    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
+    monkeypatch.setattr(
+        cli,
+        "evaluate_predicted_vs_freeform",
+        lambda *_args, **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 0,
+                    "pred_total": 0,
+                    "gold_matched": 0,
+                    "pred_matched": 0,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "recall": 0.0,
+                "precision": 0.0,
+                "boundary": {"correct": 0, "over": 0, "under": 0, "partial": 0},
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(cli, "write_jsonl", lambda *_: None)
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        lambda *_args, **_kwargs: None,
+    )
+
+    captured_generate: dict[str, object] = {}
+
+    def fake_generate_pred_run_artifacts(**kwargs):
+        captured_generate.update(kwargs)
+        return {
+            "run_root": prediction_run,
+            "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
+            "processed_report_path": "",
+        }
+
+    monkeypatch.setattr(cli, "generate_pred_run_artifacts", fake_generate_pred_run_artifacts)
+
+    eval_root = tmp_path / "eval"
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=tmp_path / "output",
+        eval_output_dir=eval_root,
+        no_upload=True,
+    )
+
+    assert captured_generate["path"] == source_file
+    assert captured_generate["run_manifest_kind"] == "bench_pred_run"
+    run_manifest_path = eval_root / "run_manifest.json"
+    assert run_manifest_path.exists()
+    run_manifest = json.loads(run_manifest_path.read_text(encoding="utf-8"))
+    assert run_manifest["run_kind"] == "labelstudio_benchmark"
+    assert run_manifest["run_config"]["upload"] is False
 
 
 def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(

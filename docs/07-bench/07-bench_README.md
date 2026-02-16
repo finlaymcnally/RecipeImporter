@@ -40,6 +40,7 @@ Key files:
 - `label_studio_tasks.jsonl` (predicted tasks/ranges used for scoring)
 - `extracted_archive.json` (block stream used to derive tasks)
 - `manifest.json` (run metadata)
+- `run_manifest.json` (cross-command source/config/artifact linkage)
 - `coverage.json`
 
 These are the canonical "predictions" for both:
@@ -95,10 +96,10 @@ No scoring step is included in this command.
 
 1. Select gold freeform export
 2. Select source file
-3. Build prediction-run artifacts (`run_labelstudio_import` -> `generate_pred_run_artifacts`)
-4. Upload prediction tasks (for this command path)
+3. Build prediction-run artifacts (upload mode calls `run_labelstudio_import(...)`, which uses `generate_pred_run_artifacts(...)`; offline mode calls `generate_pred_run_artifacts(...)` directly).
+4. Choose upload vs offline: upload mode (default) sends tasks to Label Studio (`--allow-labelstudio-write` required), while offline mode (`--no-upload`) skips credential resolution and Label Studio API calls.
 5. Evaluate predicted ranges vs gold ranges
-6. Write eval report artifacts (`eval_report.json`, `eval_report.md`, misses/FPs)
+6. Write eval report artifacts (`eval_report.json`, `eval_report.md`, misses/FPs) plus `run_manifest.json`
 
 ### 4.3 Offline suite flow (`cookimport bench run`)
 
@@ -148,7 +149,7 @@ Outputs:
 | Command | Uploads to Label Studio | Scores predictions | Primary prediction source |
 |---|---:|---:|---|
 | `cookimport stage` | No | No | N/A |
-| `cookimport labelstudio-benchmark` | Yes (explicit consent required) | Yes | `label_studio_tasks.jsonl` from prediction run |
+| `cookimport labelstudio-benchmark` | Optional (upload mode only; `--allow-labelstudio-write`) | Yes | `label_studio_tasks.jsonl` from prediction run |
 | Interactive benchmark eval-only | No | Yes | existing prediction run (`label_studio_tasks.jsonl`) |
 | `cookimport bench run` | No | Yes | `label_studio_tasks.jsonl` from offline pred run |
 
@@ -160,8 +161,9 @@ Today, benchmark contract is span/range based because gold is span/range based. 
 
 ### 8.2 "Why is upload happening during benchmark?"
 
-`labelstudio-benchmark` command is intentionally an online one-shot flow.
-If you want pure offline scoring, use:
+`labelstudio-benchmark` supports both upload and offline generation.
+If you want no Label Studio side effects, use:
+- `labelstudio-benchmark --no-upload`, or
 - interactive benchmark `eval-only` mode (when prediction runs exist), or
 - `cookimport bench run`.
 

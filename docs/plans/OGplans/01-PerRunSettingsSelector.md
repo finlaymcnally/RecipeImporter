@@ -1,3 +1,11 @@
+---
+summary: "Archived original ExecPlan draft for per-run run-settings selector and toggle editor."
+read_when:
+  - When comparing the original run-settings plan draft with the finalized implementation plan
+---
+
+https://chatgpt.com/c/69933f93-86b0-832b-b604-37505b903e40
+
 # Add per-run Run Settings selector + toggle editor, with runConfig persistence
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.

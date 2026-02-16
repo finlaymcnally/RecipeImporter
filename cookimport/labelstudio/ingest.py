@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable
 
-from cookimport.core.models import ConversionReport, ConversionResult
+from cookimport.config.run_settings import build_run_settings, compute_effective_workers
+from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
 from cookimport.parsing.tips import partition_tip_candidates
 from cookimport.parsing.chunks import (
@@ -38,6 +40,7 @@ from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.label_config import LABEL_CONFIG_XML
 from cookimport.labelstudio.label_config_blocks import build_block_label_config
 from cookimport.labelstudio.label_config_freeform import build_freeform_label_config
+from cookimport.runs import RunManifest, RunSource, write_run_manifest
 from cookimport.staging.writer import (
     OutputStats,
     write_chunk_outputs,
@@ -53,6 +56,8 @@ from cookimport.staging.pdf_jobs import (
     plan_pdf_page_ranges,
     reassign_recipe_ids,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _slugify_name(name: str) -> str:
@@ -132,6 +137,31 @@ def _task_id_key(task_scope: str) -> str:
     return "chunk_id"
 
 
+def _path_for_manifest(run_root: Path, path_like: Path | str | None) -> str | None:
+    if path_like is None:
+        return None
+    candidate = Path(path_like)
+    try:
+        return str(candidate.relative_to(run_root))
+    except ValueError:
+        return str(candidate)
+
+
+def _write_manifest_best_effort(
+    run_root: Path,
+    manifest: RunManifest,
+    *,
+    notify: Callable[[str], None] | None = None,
+) -> None:
+    try:
+        write_run_manifest(run_root, manifest)
+    except Exception as exc:  # noqa: BLE001
+        message = f"Warning: failed to write run_manifest.json in {run_root}: {exc}"
+        if notify is not None:
+            notify(message)
+        logger.warning(message)
+
+
 def _write_processed_outputs(
     *,
     result: ConversionResult,
@@ -140,6 +170,8 @@ def _write_processed_outputs(
     output_root: Path,
     importer_name: str,
     run_config: dict[str, Any] | None = None,
+    run_config_hash: str | None = None,
+    run_config_summary: str | None = None,
 ) -> Path:
     timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
     run_root = output_root / timestamp
@@ -160,6 +192,8 @@ def _write_processed_outputs(
     result.report.importer_name = importer_name
     if run_config is not None:
         result.report.run_config = dict(run_config)
+    result.report.run_config_hash = run_config_hash
+    result.report.run_config_summary = run_config_summary
     result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
     enrich_report_with_stats(result.report, result, path)
 
@@ -279,6 +313,7 @@ def _plan_parallel_convert_jobs(
 def _parallel_convert_worker(
     path: Path,
     pipeline: str,
+    run_mapping: Any = None,
     *,
     start_page: int | None = None,
     end_page: int | None = None,
@@ -301,7 +336,7 @@ def _parallel_convert_worker(
         kwargs["start_spine"] = start_spine
         kwargs["end_spine"] = end_spine
 
-    result = importer.convert(path, None, **kwargs)
+    result = importer.convert(path, run_mapping, **kwargs)
     return importer.name, result
 
 
@@ -517,8 +552,12 @@ def generate_pred_run_artifacts(
     epub_split_workers: int = 1,
     pdf_pages_per_job: int = 50,
     epub_spine_items_per_job: int = 10,
+    ocr_device: str = "auto",
+    ocr_batch_size: int = 1,
+    warm_models: bool = False,
     processed_output_root: Path | None = None,
     progress_callback: Callable[[str], None] | None = None,
+    run_manifest_kind: str = "bench_pred_run",
 ) -> dict[str, Any]:
     """Generate prediction-run artifacts offline (no Label Studio credentials needed).
 
@@ -546,23 +585,32 @@ def generate_pred_run_artifacts(
     if importer is None or score <= 0:
         raise RuntimeError("No importer available for this path.")
 
-    effective_workers = workers
-    if path.suffix.lower() == ".epub" and epub_split_workers > workers:
-        effective_workers = epub_split_workers
-    run_config: dict[str, Any] = {
-        "workers": workers,
-        "effective_workers": effective_workers,
-        "pdf_split_workers": pdf_split_workers,
-        "epub_split_workers": epub_split_workers,
-        "pdf_pages_per_job": pdf_pages_per_job,
-        "epub_spine_items_per_job": epub_spine_items_per_job,
-        "ocr_device": "auto",
-        "ocr_batch_size": 1,
-        "warm_models": False,
-        "epub_extractor": os.environ.get(
-            "C3IMP_EPUB_EXTRACTOR", "unstructured"
-        ).strip().lower(),
-    }
+    run_settings = build_run_settings(
+        workers=workers,
+        pdf_split_workers=pdf_split_workers,
+        epub_split_workers=epub_split_workers,
+        pdf_pages_per_job=pdf_pages_per_job,
+        epub_spine_items_per_job=epub_spine_items_per_job,
+        epub_extractor=os.environ.get("C3IMP_EPUB_EXTRACTOR", "unstructured"),
+        ocr_device=ocr_device,
+        ocr_batch_size=ocr_batch_size,
+        warm_models=warm_models,
+        all_epub=path.suffix.lower() == ".epub",
+        effective_workers=compute_effective_workers(
+            workers=workers,
+            epub_split_workers=epub_split_workers,
+            all_epub=path.suffix.lower() == ".epub",
+        ),
+    )
+    run_config = run_settings.to_run_config_dict()
+    run_config_hash = run_settings.stable_hash()
+    run_config_summary = run_settings.summary()
+    run_mapping: MappingConfig | None = None
+    if path.suffix.lower() == ".pdf":
+        run_mapping = MappingConfig(
+            ocr_device=run_settings.ocr_device.value,
+            ocr_batch_size=run_settings.ocr_batch_size,
+        )
 
     job_specs = _plan_parallel_convert_jobs(
         path,
@@ -573,7 +621,7 @@ def generate_pred_run_artifacts(
         epub_spine_items_per_job=epub_spine_items_per_job,
     )
     if len(job_specs) == 1:
-        result = importer.convert(path, None, progress_callback=progress_callback)
+        result = importer.convert(path, run_mapping, progress_callback=progress_callback)
     else:
         _notify(
             f"Running {len(job_specs)} split job(s) with up to {max(1, workers)} workers..."
@@ -591,6 +639,7 @@ def generate_pred_run_artifacts(
             importer_name, job_result = _parallel_convert_worker(
                 path,
                 pipeline,
+                run_mapping,
                 start_page=spec.get("start_page"),
                 end_page=spec.get("end_page"),
                 start_spine=spec.get("start_spine"),
@@ -605,6 +654,7 @@ def generate_pred_run_artifacts(
                         _parallel_convert_worker,
                         path,
                         pipeline,
+                        run_mapping,
                         start_page=spec.get("start_page"),
                         end_page=spec.get("end_page"),
                         start_spine=spec.get("start_spine"),
@@ -662,6 +712,8 @@ def generate_pred_run_artifacts(
             output_root=processed_output_root,
             importer_name=importer.name,
             run_config=run_config,
+            run_config_hash=run_config_hash,
+            run_config_summary=run_config_summary,
         )
         processed_report_path = (
             processed_run_root / f"{path.stem}.excel_import_report.json"
@@ -832,11 +884,14 @@ def generate_pred_run_artifacts(
         "pipeline": importer.name,
         "importer_name": importer.name,
         "source_file": str(path),
+        "source_hash": file_hash,
         "book_id": book_id,
         "recipe_count": len(result.recipes),
         "tip_count": len(result.tips),
         "run_timestamp": run_dt.isoformat(timespec="seconds"),
         "run_config": run_config,
+        "run_config_hash": run_config_hash,
+        "run_config_summary": run_config_summary,
         "processed_run_root": (
             str(processed_run_root) if processed_run_root is not None else None
         ),
@@ -860,6 +915,34 @@ def generate_pred_run_artifacts(
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
     )
+
+    run_manifest_artifacts: dict[str, Any] = {
+        "tasks_jsonl": "label_studio_tasks.jsonl",
+        "prediction_manifest_json": "manifest.json",
+        "coverage_json": "coverage.json",
+        "extracted_archive_json": "extracted_archive.json",
+        "extracted_text": "extracted_text.txt",
+    }
+    processed_run_path = _path_for_manifest(run_root, processed_run_root)
+    if processed_run_path:
+        run_manifest_artifacts["processed_output_run_dir"] = processed_run_path
+    processed_report_manifest_path = _path_for_manifest(run_root, processed_report_path)
+    if processed_report_manifest_path:
+        run_manifest_artifacts["processed_report_json"] = processed_report_manifest_path
+
+    run_manifest_payload = RunManifest(
+        run_kind=run_manifest_kind,
+        run_id=run_root.name,
+        created_at=run_dt.isoformat(timespec="seconds"),
+        source=RunSource(
+            path=str(path),
+            source_hash=file_hash,
+            importer_name=importer.name,
+        ),
+        run_config=run_config,
+        artifacts=run_manifest_artifacts,
+    )
+    _write_manifest_best_effort(run_root, run_manifest_payload, notify=_notify)
     _notify("Prediction run artifacts complete.")
 
     return {
@@ -877,6 +960,8 @@ def generate_pred_run_artifacts(
         "label_config": label_config,
         "importer_name": importer.name,
         "run_config": run_config,
+        "run_config_hash": run_config_hash,
+        "run_config_summary": run_config_summary,
         "book_id": book_id,
         "file_hash": file_hash,
     }
@@ -905,6 +990,9 @@ def run_labelstudio_import(
     epub_split_workers: int = 1,
     pdf_pages_per_job: int = 50,
     epub_spine_items_per_job: int = 10,
+    ocr_device: str = "auto",
+    ocr_batch_size: int = 1,
+    warm_models: bool = False,
     processed_output_root: Path | None = None,
     allow_labelstudio_write: bool = False,
 ) -> dict[str, Any]:
@@ -935,8 +1023,12 @@ def run_labelstudio_import(
         epub_split_workers=epub_split_workers,
         pdf_pages_per_job=pdf_pages_per_job,
         epub_spine_items_per_job=epub_spine_items_per_job,
+        ocr_device=ocr_device,
+        ocr_batch_size=ocr_batch_size,
+        warm_models=warm_models,
         processed_output_root=processed_output_root,
         progress_callback=progress_callback,
+        run_manifest_kind="labelstudio_import",
     )
 
     run_root = pred["run_root"]
@@ -1035,6 +1127,44 @@ def run_labelstudio_import(
     project_path.write_text(
         json.dumps(project, indent=2, sort_keys=True), encoding="utf-8"
     )
+    run_config_payload = pred.get("run_config")
+    if not isinstance(run_config_payload, dict):
+        run_config_payload = {}
+    run_manifest_artifacts: dict[str, Any] = {
+        "tasks_jsonl": "label_studio_tasks.jsonl",
+        "prediction_manifest_json": "manifest.json",
+        "coverage_json": "coverage.json",
+        "extracted_archive_json": "extracted_archive.json",
+        "extracted_text": "extracted_text.txt",
+        "project_json": "project.json",
+        "label_studio_project_name": project_title,
+        "label_studio_project_id": project_id,
+        "uploaded_task_count": uploaded_count,
+    }
+    processed_run_manifest_path = _path_for_manifest(run_root, pred.get("processed_run_root"))
+    if processed_run_manifest_path:
+        run_manifest_artifacts["processed_output_run_dir"] = processed_run_manifest_path
+    processed_report_manifest_path = _path_for_manifest(
+        run_root,
+        pred.get("processed_report_path"),
+    )
+    if processed_report_manifest_path:
+        run_manifest_artifacts["processed_report_json"] = processed_report_manifest_path
+
+    run_manifest_payload = RunManifest(
+        run_kind="labelstudio_import",
+        run_id=run_root.name,
+        created_at=dt.datetime.now().isoformat(timespec="seconds"),
+        source=RunSource(
+            path=str(path),
+            source_hash=str(pred.get("file_hash") or "") or None,
+            importer_name=str(pred.get("importer_name") or "") or None,
+        ),
+        run_config=run_config_payload,
+        artifacts=run_manifest_artifacts,
+        notes="Label Studio import run with upload metadata.",
+    )
+    _write_manifest_best_effort(run_root, run_manifest_payload, notify=_notify)
     _notify("Label Studio import artifacts complete.")
 
     return {
@@ -1044,6 +1174,9 @@ def run_labelstudio_import(
         "run_root": run_root,
         "processed_run_root": pred["processed_run_root"],
         "processed_report_path": pred["processed_report_path"],
+        "run_config": pred.get("run_config"),
+        "run_config_hash": pred.get("run_config_hash"),
+        "run_config_summary": pred.get("run_config_summary"),
         "tasks_total": pred["tasks_total"],
         "tasks_uploaded": uploaded_count,
         "manifest_path": manifest_path,

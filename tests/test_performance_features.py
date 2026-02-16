@@ -36,7 +36,11 @@ def test_stage_with_performance_flags(tmp_path):
     assert result.exit_code == 0
     
     # Find the timestamped directory
-    timestamp_dirs = list(output_dir.glob("*"))
+    timestamp_dirs = [
+        path
+        for path in output_dir.glob("*")
+        if path.is_dir() and not path.name.startswith(".")
+    ]
     assert len(timestamp_dirs) == 1
     timestamp_dir = timestamp_dirs[0]
     
@@ -74,7 +78,11 @@ def test_stage_parallel(tmp_path):
     assert result.exit_code == 0
     
     # Find the timestamped directory
-    timestamp_dirs = list(output_dir.glob("*"))
+    timestamp_dirs = [
+        path
+        for path in output_dir.glob("*")
+        if path.is_dir() and not path.name.startswith(".")
+    ]
     assert len(timestamp_dirs) == 1
     timestamp_dir = timestamp_dirs[0]
     

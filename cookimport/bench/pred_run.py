@@ -35,6 +35,7 @@ def build_pred_run_for_source(
         epub_split_workers=cfg.get("epub_split_workers", 1),
         pdf_pages_per_job=cfg.get("pdf_pages_per_job", 50),
         epub_spine_items_per_job=cfg.get("epub_spine_items_per_job", 10),
+        run_manifest_kind="bench_pred_run",
         progress_callback=progress_callback,
         **kwargs,
     )

@@ -173,7 +173,9 @@ def stage_one_file(
     run_dt: dt.datetime,
     progress_queue: Any | None = None,
     display_name: str | None = None,
-    report_context: dict[str, Any] | None = None,
+    run_config: dict[str, Any] | None = None,
+    run_config_hash: str | None = None,
+    run_config_summary: str | None = None,
 ) -> dict[str, Any]:
     """Process a single file and return a summary."""
 
@@ -235,8 +237,10 @@ def stage_one_file(
 
         # Enrich report
         result.report.importer_name = importer.name
-        if report_context is not None:
-            result.report.run_config = dict(report_context)
+        if run_config is not None:
+            result.report.run_config = dict(run_config)
+        result.report.run_config_hash = run_config_hash
+        result.report.run_config_summary = run_config_summary
         result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
         enrich_report_with_stats(result.report, result, file_path)
 
@@ -284,7 +288,9 @@ def stage_one_file(
             sourceFile=str(file_path),
             importerName=importer.name,
             runTimestamp=run_dt.isoformat(timespec="seconds"),
-            runConfig=dict(report_context) if report_context is not None else None,
+            runConfig=dict(run_config) if run_config is not None else None,
+            runConfigHash=run_config_hash,
+            runConfigSummary=run_config_summary,
         )
         write_report(report, out, file_path.stem)
         return {
@@ -310,7 +316,9 @@ def stage_pdf_job(
     job_count: int,
     progress_queue: Any | None = None,
     display_name: str | None = None,
-    report_context: dict[str, Any] | None = None,
+    run_config: dict[str, Any] | None = None,
+    run_config_hash: str | None = None,
+    run_config_summary: str | None = None,
 ) -> dict[str, Any]:
     """Process a PDF page-range job and return a mergeable payload."""
 
@@ -353,8 +361,10 @@ def stage_pdf_job(
             write_raw_artifacts(result, job_root)
 
         result.report.importer_name = importer.name
-        if report_context is not None:
-            result.report.run_config = dict(report_context)
+        if run_config is not None:
+            result.report.run_config = dict(run_config)
+        result.report.run_config_hash = run_config_hash
+        result.report.run_config_summary = run_config_summary
         result.raw_artifacts = []
         file_stats.total_seconds = (dt.datetime.now() - start_total).total_seconds()
 
@@ -403,7 +413,9 @@ def stage_epub_job(
     job_count: int,
     progress_queue: Any | None = None,
     display_name: str | None = None,
-    report_context: dict[str, Any] | None = None,
+    run_config: dict[str, Any] | None = None,
+    run_config_hash: str | None = None,
+    run_config_summary: str | None = None,
 ) -> dict[str, Any]:
     """Process an EPUB spine-range job and return a mergeable payload."""
 
@@ -446,8 +458,10 @@ def stage_epub_job(
             write_raw_artifacts(result, job_root)
 
         result.report.importer_name = importer.name
-        if report_context is not None:
-            result.report.run_config = dict(report_context)
+        if run_config is not None:
+            result.report.run_config = dict(run_config)
+        result.report.run_config_hash = run_config_hash
+        result.report.run_config_summary = run_config_summary
         result.raw_artifacts = []
         file_stats.total_seconds = (dt.datetime.now() - start_total).total_seconds()
 

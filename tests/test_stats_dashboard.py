@@ -43,7 +43,7 @@ SAMPLE_CSV_HEADER = (
     "gold_total,gold_matched,pred_total,"
     "supported_precision,supported_recall,"
     "boundary_correct,boundary_over,boundary_under,boundary_partial,"
-    "run_config_json"
+    "run_config_hash,run_config_summary,run_config_json"
 )
 
 SAMPLE_CSV_ROW1 = (
@@ -113,6 +113,8 @@ SAMPLE_REPORT_JSON = {
         "ocr_batch_size": 1,
         "effective_workers": 10,
     },
+    "runConfigHash": "abc123def456",
+    "runConfigSummary": "epub_extractor=legacy | ocr_device=auto | ocr_batch_size=1 | effective_workers=10",
 }
 
 
@@ -193,7 +195,7 @@ def _write_eval_report(tmp_path: Path) -> Path:
 class TestSchema:
     def test_dashboard_data_minimal(self):
         d = DashboardData()
-        assert d.schema_version == "5"
+        assert d.schema_version == "6"
         assert d.stage_records == []
         assert d.benchmark_records == []
 
@@ -269,6 +271,8 @@ class TestCollectors:
             "ocr_batch_size": 1,
             "effective_workers": 10,
         }
+        assert r.run_config_hash == "abc123def456"
+        assert "epub_extractor=legacy" in str(r.run_config_summary)
 
     def test_csv_collector_stage_run_config_json(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
@@ -313,6 +317,8 @@ class TestCollectors:
             "ocr_batch_size": 1,
             "effective_workers": 10,
         }
+        assert r.run_config_hash is not None
+        assert "epub_extractor=legacy" in str(r.run_config_summary)
 
     def test_csv_collector_stage_run_config_fallback_from_report(self, tmp_path):
         report_path = _write_report_json(tmp_path)
@@ -348,6 +354,8 @@ class TestCollectors:
             "ocr_batch_size": 1,
             "effective_workers": 10,
         }
+        assert data.stage_records[0].run_config_hash == "abc123def456"
+        assert "epub_extractor=legacy" in str(data.stage_records[0].run_config_summary)
 
     def test_csv_collector_stage_run_config_warning_when_report_missing(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
@@ -397,6 +405,40 @@ class TestCollectors:
         assert b.boundary_correct == 10
         assert len(b.per_label) == 2
         assert b.supported_recall == pytest.approx(0.55)
+
+    def test_csv_collector_benchmark_run_config_columns(self, tmp_path):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+
+        bench_row = {field: "" for field in _CSV_FIELDS}
+        bench_row.update(
+            {
+                "run_timestamp": "2026-02-16T11:05:00",
+                "run_dir": str(tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_11.05.00"),
+                "run_category": "benchmark_eval",
+                "eval_scope": "freeform-spans",
+                "precision": "0.2",
+                "recall": "0.4",
+                "run_config_hash": "cfg123",
+                "run_config_summary": "epub_extractor=legacy | workers=7",
+                "run_config_json": json.dumps({"epub_extractor": "legacy", "workers": 7}),
+            }
+        )
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(bench_row)
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.benchmark_records) == 1
+        record = data.benchmark_records[0]
+        assert record.run_config_hash == "cfg123"
+        assert record.run_config_summary == "epub_extractor=legacy | workers=7"
+        assert record.run_config == {"epub_extractor": "legacy", "workers": 7}
 
     def test_benchmark_csv_recipes_backfill_from_processed_report_path(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
@@ -844,6 +886,7 @@ class TestBenchmarkCsv:
             source_file="my_book.pdf",
             recipes=31,
             processed_report_path="/tmp/output/2026-02-11_15.59.00/my_book.excel_import_report.json",
+            run_config={"epub_extractor": "legacy", "workers": 7},
         )
         with csv_path.open("r", newline="", encoding="utf-8") as fh:
             reader = csv.DictReader(fh)
@@ -856,6 +899,9 @@ class TestBenchmarkCsv:
             row["report_path"]
             == "/tmp/output/2026-02-11_15.59.00/my_book.excel_import_report.json"
         )
+        assert row["run_config_hash"] != ""
+        assert "epub_extractor=legacy" in row["run_config_summary"]
+        assert row["run_config_json"] != ""
 
     def test_csv_with_mixed_rows(self, tmp_path):
         """CSV with both stage and benchmark rows; collector produces both."""

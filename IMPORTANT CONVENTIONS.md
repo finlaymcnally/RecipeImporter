@@ -31,16 +31,24 @@ Interactive file discovery and direct staging intentionally differ:
 - Interactive `labelstudio` import always recreates the resolved Label Studio project (`overwrite=True`, `resume=False`) and does not prompt for resume mode.
 - Interactive `labelstudio` import no longer asks for upload confirmation; once scope/options are chosen, it proceeds directly to upload (after credential resolution).
 - Interactive `labelstudio` export resolves credentials first, then lists project titles from Label Studio for selection, with manual entry fallback when discovery is unavailable. If the selected project has a detected task type, export uses that scope automatically and skips the separate scope prompt.
-- Label Studio export (interactive and non-interactive) creates a fresh timestamped run folder by default: `data/golden/<timestamp>/labelstudio/<project_slug>/exports/...`; it uses prior manifests for project/scope resolution, not for export destination. `--run-dir` still forces export into a specific run.
+- Label Studio export (interactive and non-interactive) writes to a stable project root by default: `data/golden/<project_slug>/exports/...`; it uses prior manifests for project/scope resolution, not for export destination. `--run-dir` still forces export into a specific run.
 - Interactive main menu is persistent: successful `import`, `labelstudio`, `labelstudio_export`, and `labelstudio_benchmark` actions all return to the main menu. The session exits only when the user selects `Exit`.
 - Interactive select menus should be wired through `_menu_select` so numbering, shortcuts, and Backspace-go-back behavior remain consistent.
 - Interactive benchmark (`labelstudio_benchmark`) only offers `eval-only` when both discovery sets are non-empty: at least one `**/exports/freeform_span_labels.jsonl` and one `**/label_studio_tasks.jsonl` under `data/golden` or `data/output`. If either set is missing, it falls back directly to upload mode.
-- Interactive benchmark upload prompts for EPUB extractor (`unstructured` or `legacy`) before credential resolution and passes that choice into `labelstudio_benchmark(...)`.
+- Interactive Import and interactive benchmark upload both go through a per-run settings chooser (`global defaults`, `last run settings`, `change run settings`) before execution.
+- Interactive benchmark eval-only mode must not apply/save pipeline run settings and should emit `Eval-only mode: no pipeline run settings applied.`
 - Interactive benchmark upload resolves Label Studio credentials through `_resolve_interactive_labelstudio_settings(settings)` (env -> saved config -> prompt) before calling `labelstudio_benchmark(...)`.
 - Typer command functions that are called directly from Python (interactive helpers/tests) must keep runtime defaults as plain Python values, typically via `Annotated[..., typer.Option(...)] = <default>`; avoid relying on `param: T = typer.Option(...)` defaults in those call paths.
 - Interactive `generate_dashboard` asks whether to open the dashboard in a browser, then runs `stats_dashboard(output_root=<settings.output_dir>, out_dir=<output_root>/.history/dashboard)` and returns to the main menu.
 
 When debugging "file missing from menu" reports, check whether the file is nested inside `data/input`.
+
+## Run Settings Source of Truth
+
+- `cookimport/config/run_settings.py` is the canonical definition of per-run knobs (`RunSettings`), UI metadata, summary rendering, and stable hash generation.
+- `cookimport/cli_ui/run_settings_flow.py` and `cookimport/cli_ui/toggle_editor.py` must derive editor rows/options from `RunSettings` metadata; do not maintain a separate hard-coded field list.
+- Last-run snapshots are stored in `<output_dir>/.history/last_run_settings_{import|benchmark}.json` via `cookimport/config/last_run_store.py`.
+- Schema evolution contract for stored run settings: missing keys default, unknown keys are ignored (warn once), and corrupt payloads degrade to `None` (treated as no saved run settings).
 
 ## Report Output Convention
 
@@ -48,7 +56,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
   - `<run_root>/<workbook_slug>.excel_import_report.json`
 - `cookimport/core/reporting.py` includes a legacy `ReportBuilder` that writes under `reports/`; treat it as legacy unless explicitly wired into active runtime flows.
 - When updating docs about report locations, verify `stage()` and split-merge paths in `cookimport/cli.py` before documenting.
-- Report metadata fields that must be consistent across normal and split runs (for example `importerName`, `runConfig`) must be set in both:
+- Report metadata fields that must be consistent across normal and split runs (for example `importerName`, `runConfig`, `runConfigHash`, `runConfigSummary`) must be set in both:
   - `cookimport/cli_worker.py` (single-file writer path)
   - `cookimport/cli.py:_merge_split_jobs` (split merge writer path)
 
@@ -63,11 +71,13 @@ When debugging "file missing from menu" reports, check whether the file is neste
 ## Benchmark Contract Rule
 
 - Freeform benchmark scoring (`labelstudio-benchmark`, interactive eval-only, and `bench run`) evaluates prediction task artifacts (`label_studio_tasks.jsonl`) against freeform gold spans (`freeform_span_labels.jsonl`), not staged cookbook outputs; optional processed outputs written during benchmark are review artifacts only.
+- Non-interactive `labelstudio-benchmark` supports an explicit offline path via `--no-upload`; this mode must skip Label Studio credential resolution and never call upload APIs.
+- Run-producing flows must emit `run_manifest.json` so source identity (`path` + `source_hash`), effective config, and key artifacts are inspectable without reading code.
 
 ## Analytics Caveats
 
-- Stage run folders are timestamped as `YYYY-MM-DD_HH.MM.SS`, but `perf_report.resolve_run_dir()` currently matches `YYYY-MM-DD-HH-MM-SS`; auto-latest selection for `cookimport perf-report` may miss normal stage folders unless `--run-dir` is supplied.
-- End-of-stage history append currently writes to `history_path(DEFAULT_OUTPUT)` even when `cookimport stage` uses a custom `--out`; analytics CSV/dashboard reviews should verify whether rows landed in `data/output/.history/performance_history.csv` or expected custom roots.
+- `perf_report.resolve_run_dir()` must accept both timestamp folder styles (`YYYY-MM-DD_HH.MM.SS` and legacy `YYYY-MM-DD-HH-MM-SS`) and choose the latest parsed run directory.
+- Stage history append must target the actual chosen stage root (`<stage --out>/.history/performance_history.csv`), not a hard-coded default output folder.
 - Dashboard `index.html` embeds dashboard JSON inline (in addition to `assets/dashboard_data.json`) so opening via `file://` works even when browser local `fetch()` is blocked.
 - Dashboard timestamp ordering (recent runs/benchmarks and latest benchmark picks) must parse timestamps before sorting because history mixes `YYYY-MM-DDTHH:MM:SS` and `YYYY-MM-DD_HH.MM.SS` formats.
 - Dashboard frontend timestamp parsing should explicitly parse timestamp components for those two canonical formats; avoid relying only on `Date.parse(...)` for local `file://` dashboards.
@@ -77,5 +87,6 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - Dashboard benchmark collection should ignore pytest temp eval artifact paths (`.../pytest-<n>/test_*/eval`) so local Python test runs do not pollute benchmark history.
 - Dashboard `Recent Benchmarks` `Gold`/`Matched` columns are freeform span-eval counts (`gold_total`/`gold_matched`), not recipe totals; benchmark `recipes` is stored in CSV when available and can be backfilled from `processed_report_path`.
 - Dashboard metrics contract is CSV-first: every stat shown in `stats-dashboard` must be written to `performance_history.csv`; JSON report scans are fallback/backfill only.
+- Run-config metrics contract is `run_config_hash` + `run_config_summary` + `run_config_json` in CSV. Dashboard UI should display summary/hash first and use JSON/report fallback only when CSV context is incomplete.
 - Benchmark CSV `recipes` should be populated for all benchmark entrypoints (`labelstudio-benchmark`, `labelstudio-eval`, `bench run`) using pred-run manifest `recipe_count` first, then `processed_report_path` fallback.
 - If historical benchmark rows predate that persistence path, use `cookimport benchmark-csv-backfill` to patch CSV `recipes/report_path/file_name` from benchmark manifests before regenerating the dashboard.
