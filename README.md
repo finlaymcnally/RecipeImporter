@@ -227,6 +227,7 @@ Options:
 - `--epub-split-workers INTEGER` (min 1, default: `7`)
 - `--pdf-pages-per-job INTEGER` (min 1, default: `50`)
 - `--epub-spine-items-per-job INTEGER` (min 1, default: `10`)
+- `--epub-extractor TEXT` (default: `unstructured`; expected: `unstructured`, `legacy`)
 
 ---
 

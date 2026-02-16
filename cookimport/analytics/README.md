@@ -29,4 +29,5 @@ Output: `data/output/.history/dashboard/` (configurable via `--out-dir`)
 
 Throughput dashboard organization:
 - run/date view (`Run / Date Trend`, `Recent Runs`) for timeline-level comparisons
+- stage/import tables include importer + run-config summary from stage report `runConfig` when available
 - file view (`File Trend`) grouped by `stage_records[*].file_name` to track one file across runs

@@ -89,8 +89,8 @@ _HTML = """\
     <div id="throughput-chart" class="chart-container"></div>
     <h3>Recent Runs (Date / Run View)</h3>
     <table id="recent-runs"><thead><tr>
-      <th>Timestamp</th><th>File</th><th>Total (s)</th>
-      <th>Recipes</th><th>sec/recipe</th><th>Artifact</th>
+      <th>Timestamp</th><th>File</th><th>Importer</th><th>Total (s)</th>
+      <th>Recipes</th><th>sec/recipe</th><th>Run Config</th><th>Artifact</th>
     </tr></thead><tbody></tbody></table>
     <h3>File Trend (Selected File)</h3>
     <div class="inline-controls">
@@ -99,7 +99,7 @@ _HTML = """\
     </div>
     <div id="file-trend-chart" class="chart-container"></div>
     <table id="file-trend-table"><thead><tr>
-      <th>Timestamp</th><th>Total (s)</th><th>sec/recipe</th><th>Recipes</th><th>Artifact</th>
+      <th>Timestamp</th><th>Total (s)</th><th>sec/recipe</th><th>Recipes</th><th>Importer</th><th>Run Config</th><th>Artifact</th>
     </tr></thead><tbody></tbody></table>
   </section>
 
@@ -318,11 +318,42 @@ _JS = """\
 
   // ---- Filtering helpers ----
   function parseTs(ts) {
-    if (!ts) return null;
-    // Handle both ISO and folder-name formats
-    const s = ts.replace(/_(\\d{2})[.:](\\d{2})[.:](\\d{2})$/, "T$1:$2:$3");
-    const d = new Date(s);
+    if (ts == null) return null;
+    const text = String(ts).trim();
+    if (!text) return null;
+
+    // Parse canonical timestamp forms explicitly to avoid browser Date.parse quirks:
+    // YYYY-MM-DD_HH.MM.SS and YYYY-MM-DDTHH:MM:SS
+    const m = text.match(/^(\\d{4})-(\\d{2})-(\\d{2})[T_](\\d{2})[.:](\\d{2})[.:](\\d{2})$/);
+    if (m) {
+      const d = new Date(
+        Number(m[1]),
+        Number(m[2]) - 1,
+        Number(m[3]),
+        Number(m[4]),
+        Number(m[5]),
+        Number(m[6]),
+      );
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    // Fallback for ISO strings with timezone offsets.
+    const normalized = text.replace(/_(\\d{2})[.:](\\d{2})[.:](\\d{2})$/, "T$1:$2:$3");
+    const d = new Date(normalized);
     return isNaN(d.getTime()) ? null : d;
+  }
+
+  function compareRunTimestampAsc(aTs, bTs) {
+    const a = parseTs(aTs);
+    const b = parseTs(bTs);
+    if (a && b) return a - b;
+    if (a) return -1;
+    if (b) return 1;
+    return (aTs || "").localeCompare(bTs || "");
+  }
+
+  function compareRunTimestampDesc(aTs, bTs) {
+    return compareRunTimestampAsc(bTs, aTs);
   }
 
   function isRecent(ts) {
@@ -436,16 +467,20 @@ _JS = """\
     const recentBody = document.querySelector("#recent-runs tbody");
     recentBody.innerHTML = "";
     const recentRuns = [...records]
-      .sort((a, b) => (b.run_timestamp || "").localeCompare(a.run_timestamp || ""))
+      .sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp))
       .slice(0, 20);
     recentRuns.forEach(r => {
+      const configSummary = runConfigSummary(r);
+      const configRaw = r.run_config ? JSON.stringify(r.run_config) : "";
       const tr = document.createElement("tr");
       tr.innerHTML =
         '<td>' + esc(r.run_timestamp || "") + '</td>' +
         '<td>' + esc(r.file_name) + '</td>' +
+        '<td>' + esc(r.importer_name || "-") + '</td>' +
         '<td class="num">' + (r.total_seconds != null ? r.total_seconds.toFixed(2) : "-") + '</td>' +
         '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
         '<td class="num">' + (r.per_recipe_seconds != null ? r.per_recipe_seconds.toFixed(3) : "-") + '</td>' +
+        '<td title="' + esc(configRaw) + '">' + esc(configSummary || "-") + '</td>' +
         '<td><a href="' + esc(r.artifact_dir || "") + '">' + esc(shortPath(r.artifact_dir)) + '</a></td>';
       recentBody.appendChild(tr);
     });
@@ -476,7 +511,7 @@ _JS = """\
 
     const fileRecords = records
       .filter(r => r.file_name === selectedFileTrend)
-      .sort((a, b) => (a.run_timestamp || "").localeCompare(b.run_timestamp || ""));
+      .sort((a, b) => compareRunTimestampAsc(a.run_timestamp, b.run_timestamp));
 
     const filePoints = fileRecords
       .filter(r => r.total_seconds != null && r.run_timestamp)
@@ -498,14 +533,18 @@ _JS = """\
     const fileBody = document.querySelector("#file-trend-table tbody");
     fileBody.innerHTML = "";
     [...fileRecords]
-      .sort((a, b) => (b.run_timestamp || "").localeCompare(a.run_timestamp || ""))
+      .sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp))
       .forEach(r => {
+      const configSummary = runConfigSummary(r);
+      const configRaw = r.run_config ? JSON.stringify(r.run_config) : "";
       const tr = document.createElement("tr");
       tr.innerHTML =
         '<td>' + esc(r.run_timestamp || "") + '</td>' +
         '<td class="num">' + (r.total_seconds != null ? r.total_seconds.toFixed(2) : "-") + '</td>' +
         '<td class="num">' + (r.per_recipe_seconds != null ? r.per_recipe_seconds.toFixed(3) : "-") + '</td>' +
         '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
+        '<td>' + esc(r.importer_name || "-") + '</td>' +
+        '<td title="' + esc(configRaw) + '">' + esc(configSummary || "-") + '</td>' +
         '<td><a href="' + esc(r.artifact_dir || "") + '">' + esc(shortPath(r.artifact_dir)) + '</a></td>';
       fileBody.appendChild(tr);
     });
@@ -559,10 +598,10 @@ _JS = """\
     // Table
     const tbody = document.querySelector("#benchmark-table tbody");
     tbody.innerHTML = "";
-    const sorted = [...records].sort((a, b) => (b.run_timestamp || "").localeCompare(a.run_timestamp || ""));
+    const sorted = [...records].sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
     sorted.forEach(r => {
       const sourceLabel = basename(r.source_file || "");
-      const configSummary = benchmarkConfigSummary(r);
+      const configSummary = runConfigSummary(r);
       const configRaw = r.run_config ? JSON.stringify(r.run_config) : "";
       const processedReportLink = r.processed_report_path
         ? ' <a href="' + esc(r.processed_report_path) + '" title="' + esc(r.processed_report_path) + '">report</a>'
@@ -592,7 +631,7 @@ _JS = """\
       return;
     }
     // Use the most recent benchmark that has per_label data
-    const sorted = [...records].sort((a, b) => (b.run_timestamp || "").localeCompare(a.run_timestamp || ""));
+    const sorted = [...records].sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
     const latest = sorted.find(r => r.per_label && r.per_label.length > 0);
     if (!latest) {
       section.innerHTML = '<h2>Per-Label Breakdown</h2><p class="empty-note">No per-label metrics available in benchmark records.</p>';
@@ -623,7 +662,7 @@ _JS = """\
       section.innerHTML = '<h2>Boundary Classification</h2><p class="empty-note">No benchmark records.</p>';
       return;
     }
-    const sorted = [...records].sort((a, b) => (b.run_timestamp || "").localeCompare(a.run_timestamp || ""));
+    const sorted = [...records].sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
     const latest = sorted.find(r => r.boundary_correct != null || r.boundary_over != null || r.boundary_under != null || r.boundary_partial != null);
     if (!latest) {
       section.innerHTML = '<h2>Boundary Classification</h2><p class="empty-note">No boundary data available in benchmark records.</p>';
@@ -653,7 +692,7 @@ _JS = """\
     const parts = path.replace(/\\\\/g, "/").split("/");
     return parts[parts.length - 1] || path;
   }
-  function benchmarkConfigSummary(record) {
+  function runConfigSummary(record) {
     const cfg = record.run_config || {};
     const parts = [];
     if (cfg.epub_extractor != null) parts.push("epub_extractor=" + cfg.epub_extractor);

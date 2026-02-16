@@ -8,6 +8,7 @@ serialises them to JSON.
 Schema version history:
     1 – initial release
     2 – benchmark metadata enrichment (importer/run config)
+    3 – stage/import run_config support in stage records
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 
 class RunCategory(str, Enum):
@@ -39,6 +40,7 @@ class StageRecord(BaseModel):
     report_path: str | None = None
     artifact_dir: str | None = None
     importer_name: str | None = None
+    run_config: dict[str, Any] | None = None
     run_category: RunCategory = RunCategory.stage_import
 
     # timing

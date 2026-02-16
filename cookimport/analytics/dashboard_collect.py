@@ -44,6 +44,7 @@ _TS_DIR_RE = re.compile(
 _HISTORY_CSV = ".history/performance_history.csv"
 _JOB_PARTS = ".job_parts"
 _PREDICTION_RUN = "prediction-run"
+_PYTEST_RUN_SEGMENT_RE = re.compile(r"^pytest-\d+$")
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +82,28 @@ def _normalize_path(value: str | Path | None) -> str | None:
         return text
 
 
+def _parse_run_config_json(
+    raw: Any,
+    *,
+    warnings: list[str],
+    context: str,
+) -> dict[str, Any] | None:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        warnings.append(f"{context}: malformed run_config_json ({exc})")
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    warnings.append(f"{context}: run_config_json is not a JSON object")
+    return None
+
+
 def _safe_div(numerator: float | None, denominator: int | float | None) -> float | None:
     if numerator is None or denominator is None or denominator == 0:
         return None
@@ -100,28 +123,68 @@ def _parse_dir_timestamp(name: str) -> datetime | None:
         return None
 
 
+def _parse_timestamp(ts_str: str | None) -> datetime | None:
+    if ts_str is None:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts_str)
+    except (ValueError, TypeError):
+        dt = _parse_dir_timestamp(ts_str)
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _timestamp_sort_key(ts_str: str | None) -> tuple[int, float, str]:
+    parsed = _parse_timestamp(ts_str)
+    if parsed is None:
+        return (1, float("inf"), ts_str or "")
+    return (0, parsed.timestamp(), ts_str or "")
+
+
 def _is_recent(ts_str: str | None, cutoff: datetime | None) -> bool:
     if cutoff is None or ts_str is None:
         return True
-    try:
-        dt = datetime.fromisoformat(ts_str)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt >= cutoff
-    except (ValueError, TypeError):
-        # Also try parsing the folder-name format
-        parsed = _parse_dir_timestamp(ts_str)
-        if parsed is not None:
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            return parsed >= cutoff
+    parsed = _parse_timestamp(ts_str)
+    if parsed is None:
         return True  # can't parse → include it
+    return parsed >= cutoff
 
 
 def _compute_cutoff(since_days: int | None) -> datetime | None:
     if since_days is None:
         return None
     return datetime.now(tz=timezone.utc) - timedelta(days=since_days)
+
+
+def _path_parts_lower(path_value: str | Path | None) -> tuple[str, ...]:
+    if path_value is None:
+        return ()
+    text = str(path_value).strip()
+    if not text:
+        return ()
+    return tuple(
+        part.lower()
+        for part in text.replace("\\", "/").split("/")
+        if part and part != "."
+    )
+
+
+def _is_pytest_temp_eval_artifact(path_value: str | Path | None) -> bool:
+    """Return True when a path matches pytest temp eval/prediction artifact layout."""
+    parts = _path_parts_lower(path_value)
+    if len(parts) < 3:
+        return False
+    for idx in range(len(parts) - 2):
+        if (
+            _PYTEST_RUN_SEGMENT_RE.match(parts[idx])
+            and parts[idx + 1].startswith("test_")
+            and parts[idx + 2] in {"eval", _PREDICTION_RUN}
+        ):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +213,10 @@ def _collect_from_csv(
 
                     row_category = row.get("run_category", "")
                     if row_category in _BENCHMARK_CATEGORIES:
-                        bench_records.append(_benchmark_record_from_csv_row(row, row_category))
+                        bench_record = _benchmark_record_from_csv_row(row, row_category)
+                        if _is_pytest_temp_eval_artifact(bench_record.artifact_dir):
+                            continue
+                        bench_records.append(bench_record)
                         continue
 
                     # Stage / import row
@@ -178,6 +244,11 @@ def _collect_from_csv(
                     per_unit = _safe_float(row.get("per_unit_seconds"))
                     if per_unit is None:
                         per_unit = _safe_div(total_seconds, total_units)
+                    run_config = _parse_run_config_json(
+                        row.get("run_config_json"),
+                        warnings=warnings,
+                        context=f"CSV row {row_num}",
+                    )
 
                     stage_records.append(StageRecord(
                         run_timestamp=ts,
@@ -186,6 +257,7 @@ def _collect_from_csv(
                         report_path=row.get("report_path"),
                         artifact_dir=run_dir,
                         importer_name=row.get("importer_name") or None,
+                        run_config=run_config,
                         run_category=category,
                         total_seconds=total_seconds,
                         parsing_seconds=_safe_float(row.get("parsing_seconds")),
@@ -392,6 +464,7 @@ def _collect_stage_from_reports(
                 report_path=str(report_path),
                 artifact_dir=run_dir_str,
                 importer_name=data.get("importerName"),
+                run_config=data.get("runConfig") if isinstance(data.get("runConfig"), dict) else None,
                 run_category=category,
                 total_seconds=total_seconds,
                 parsing_seconds=_safe_float(
@@ -456,6 +529,8 @@ def _collect_benchmarks(
 
         # Skip prediction-run directories
         if _PREDICTION_RUN in eval_dir.parts:
+            continue
+        if _is_pytest_temp_eval_artifact(eval_dir):
             continue
 
         # Attempt timestamp from directory name
@@ -572,8 +647,8 @@ def _collect_benchmarks(
 
         records.append(record)
 
-    # Sort by timestamp string (stable; un-parseable sorts last)
-    records.sort(key=lambda r: r.run_timestamp or "zzzz")
+    # Sort by parsed timestamp (un-parseable sorts last)
+    records.sort(key=lambda r: _timestamp_sort_key(r.run_timestamp))
     return records
 
 
@@ -590,6 +665,7 @@ def _build_summary(
     total_runtime = 0.0
     has_runtime = False
     latest_stage_ts: str | None = None
+    latest_stage_dt: datetime | None = None
 
     for r in stage_records:
         if r.recipes is not None:
@@ -599,16 +675,39 @@ def _build_summary(
         if r.total_seconds is not None:
             total_runtime += r.total_seconds
             has_runtime = True
-        if r.run_timestamp and (
-            latest_stage_ts is None or r.run_timestamp > latest_stage_ts
+        if not r.run_timestamp:
+            continue
+        parsed = _parse_timestamp(r.run_timestamp)
+        if parsed is None:
+            if latest_stage_dt is None and (
+                latest_stage_ts is None or r.run_timestamp > latest_stage_ts
+            ):
+                latest_stage_ts = r.run_timestamp
+            continue
+        if latest_stage_dt is None or parsed > latest_stage_dt or (
+            parsed == latest_stage_dt
+            and (latest_stage_ts is None or r.run_timestamp > latest_stage_ts)
         ):
+            latest_stage_dt = parsed
             latest_stage_ts = r.run_timestamp
 
     latest_bench_ts: str | None = None
+    latest_bench_dt: datetime | None = None
     for r in benchmark_records:
-        if r.run_timestamp and (
-            latest_bench_ts is None or r.run_timestamp > latest_bench_ts
+        if not r.run_timestamp:
+            continue
+        parsed = _parse_timestamp(r.run_timestamp)
+        if parsed is None:
+            if latest_bench_dt is None and (
+                latest_bench_ts is None or r.run_timestamp > latest_bench_ts
+            ):
+                latest_bench_ts = r.run_timestamp
+            continue
+        if latest_bench_dt is None or parsed > latest_bench_dt or (
+            parsed == latest_bench_dt
+            and (latest_bench_ts is None or r.run_timestamp > latest_bench_ts)
         ):
+            latest_bench_dt = parsed
             latest_bench_ts = r.run_timestamp
 
     return DashboardSummary(
@@ -669,13 +768,13 @@ def collect_dashboard_data(
                 stage_records.append(r)
                 seen.add((r.run_timestamp, r.file_name))
 
-    # Sort stage records by timestamp
-    stage_records.sort(key=lambda r: r.run_timestamp or "zzzz")
+    # Sort stage records by parsed timestamp (un-parseable sorts last)
+    stage_records.sort(key=lambda r: _timestamp_sort_key(r.run_timestamp))
 
     # -- Benchmark records from JSON + CSV --
     benchmark_records = _collect_benchmarks(golden_root, cutoff, warnings)
     benchmark_records = _merge_benchmark_records(benchmark_records, csv_bench_records)
-    benchmark_records.sort(key=lambda r: r.run_timestamp or "zzzz")
+    benchmark_records.sort(key=lambda r: _timestamp_sort_key(r.run_timestamp))
 
     # -- Summary --
     summary = _build_summary(stage_records, benchmark_records)

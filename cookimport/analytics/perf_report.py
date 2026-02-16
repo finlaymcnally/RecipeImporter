@@ -33,6 +33,7 @@ class PerfRow:
     output_files: int | None
     output_bytes: int | None
     checkpoints: dict[str, float]
+    run_config: dict[str, Any] | None = None
 
     @property
     def total_units(self) -> int:
@@ -316,6 +317,9 @@ def _row_from_report(run_dir: Path, report_path: Path, data: dict[str, Any]) -> 
         standalone_topic_coverage = standalone_topic_blocks / standalone_blocks
 
     output_files, output_bytes = _extract_output_totals(data.get("outputStats"))
+    run_config = data.get("runConfig")
+    if not isinstance(run_config, dict):
+        run_config = None
 
     source_file = data.get("sourceFile")
     if source_file:
@@ -343,6 +347,7 @@ def _row_from_report(run_dir: Path, report_path: Path, data: dict[str, Any]) -> 
         output_files=output_files,
         output_bytes=output_bytes,
         checkpoints=checkpoints,
+        run_config=run_config,
     )
 
 
@@ -495,6 +500,7 @@ _CSV_FIELDS = [
     "boundary_over",
     "boundary_under",
     "boundary_partial",
+    "run_config_json",
 ]
 
 
@@ -557,6 +563,11 @@ def _row_to_csv(row: PerfRow) -> dict[str, Any]:
         "boundary_over": "",
         "boundary_under": "",
         "boundary_partial": "",
+        "run_config_json": (
+            json.dumps(row.run_config, sort_keys=True)
+            if row.run_config is not None
+            else ""
+        ),
     }
 
 

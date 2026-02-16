@@ -10,6 +10,7 @@ import shutil
 import threading
 import time
 from collections import defaultdict
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Dict, Any, Annotated, Callable
@@ -919,6 +920,25 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 )
                 continue
 
+            configured_benchmark_extractor = str(
+                settings.get("epub_extractor", "unstructured") or "unstructured"
+            ).strip().lower()
+            if configured_benchmark_extractor not in {"unstructured", "legacy"}:
+                configured_benchmark_extractor = "unstructured"
+
+            selected_benchmark_extractor = _menu_select(
+                "Select EPUB extraction engine for benchmark prediction import:",
+                menu_help=(
+                    "Unstructured uses semantic HTML partitioning for EPUB. "
+                    "Legacy uses BeautifulSoup tag parsing."
+                ),
+                choices=["unstructured", "legacy"],
+                default=configured_benchmark_extractor,
+            )
+            if selected_benchmark_extractor in {None, BACK_ACTION}:
+                typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
+                continue
+
             url, api_key = _resolve_interactive_labelstudio_settings(settings)
             labelstudio_benchmark(
                 output_dir=DEFAULT_GOLDEN,
@@ -926,6 +946,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 allow_labelstudio_write=True,
                 label_studio_url=url,
                 label_studio_api_key=api_key,
+                epub_extractor=str(selected_benchmark_extractor),
                 workers=settings.get("workers", 7),
                 pdf_split_workers=settings.get("pdf_split_workers", 7),
                 epub_split_workers=settings.get("epub_split_workers", 7),
@@ -952,6 +973,29 @@ def main(ctx: typer.Context) -> None:
 def _fail(message: str) -> None:
     typer.secho(message, err=True, fg=typer.colors.RED)
     raise typer.Exit(1)
+
+
+def _normalize_epub_extractor(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"unstructured", "legacy"}:
+        _fail(
+            f"Invalid EPUB extractor: {value!r}. "
+            "Expected one of: unstructured, legacy."
+        )
+    return normalized
+
+
+@contextmanager
+def _temporary_epub_extractor(value: str) -> Iterable[None]:
+    previous = os.environ.get("C3IMP_EPUB_EXTRACTOR")
+    os.environ["C3IMP_EPUB_EXTRACTOR"] = value
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("C3IMP_EPUB_EXTRACTOR", None)
+        else:
+            os.environ["C3IMP_EPUB_EXTRACTOR"] = previous
 
 
 def _warm_all_models(ocr_device: str = "auto") -> None:
@@ -2799,8 +2843,13 @@ def labelstudio_benchmark(
     epub_split_workers: Annotated[int, typer.Option("--epub-split-workers", min=1, help="Max workers used when splitting an EPUB prediction import.")] = 7,
     pdf_pages_per_job: Annotated[int, typer.Option("--pdf-pages-per-job", min=1, help="Target page count per PDF split job.")] = 50,
     epub_spine_items_per_job: Annotated[int, typer.Option("--epub-spine-items-per-job", min=1, help="Target spine items per EPUB split job.")] = 10,
+    epub_extractor: Annotated[str, typer.Option(
+        "--epub-extractor",
+        help="EPUB extraction engine: unstructured (semantic) or legacy (BeautifulSoup).",
+    )] = "unstructured",
 ) -> None:
     """Run one-shot benchmark: pipeline predictions vs freeform labeled gold spans."""
+    selected_epub_extractor = _normalize_epub_extractor(epub_extractor)
     _require_labelstudio_write_consent(allow_labelstudio_write)
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
 
@@ -2879,40 +2928,41 @@ def labelstudio_benchmark(
     eval_output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        with console.status(
-            f"[bold cyan]Generating prediction tasks for {selected_source.name}...[/bold cyan]",
-            spinner="dots",
-        ) as status:
-            def update_progress(msg: str) -> None:
-                status.update(
-                    f"[bold cyan]Benchmark import ({selected_source.name}): {msg}[/bold cyan]"
-                )
+        with _temporary_epub_extractor(selected_epub_extractor):
+            with console.status(
+                f"[bold cyan]Generating prediction tasks for {selected_source.name}...[/bold cyan]",
+                spinner="dots",
+            ) as status:
+                def update_progress(msg: str) -> None:
+                    status.update(
+                        f"[bold cyan]Benchmark import ({selected_source.name}): {msg}[/bold cyan]"
+                    )
 
-            import_result = run_labelstudio_import(
-                path=selected_source,
-                output_dir=output_dir,
-                pipeline=pipeline,
-                project_name=project_name,
-                chunk_level=chunk_level,
-                task_scope="pipeline",
-                context_window=1,
-                segment_blocks=40,
-                segment_overlap=5,
-                overwrite=overwrite,
-                resume=not overwrite,
-                label_studio_url=url,
-                label_studio_api_key=api_key,
-                limit=None,
-                sample=None,
-                progress_callback=update_progress,
-                workers=workers,
-                pdf_split_workers=pdf_split_workers,
-                epub_split_workers=epub_split_workers,
-                pdf_pages_per_job=pdf_pages_per_job,
-                epub_spine_items_per_job=epub_spine_items_per_job,
-                processed_output_root=processed_output_dir,
-                allow_labelstudio_write=True,
-            )
+                import_result = run_labelstudio_import(
+                    path=selected_source,
+                    output_dir=output_dir,
+                    pipeline=pipeline,
+                    project_name=project_name,
+                    chunk_level=chunk_level,
+                    task_scope="pipeline",
+                    context_window=1,
+                    segment_blocks=40,
+                    segment_overlap=5,
+                    overwrite=overwrite,
+                    resume=not overwrite,
+                    label_studio_url=url,
+                    label_studio_api_key=api_key,
+                    limit=None,
+                    sample=None,
+                    progress_callback=update_progress,
+                    workers=workers,
+                    pdf_split_workers=pdf_split_workers,
+                    epub_split_workers=epub_split_workers,
+                    pdf_pages_per_job=pdf_pages_per_job,
+                    epub_spine_items_per_job=epub_spine_items_per_job,
+                    processed_output_root=processed_output_dir,
+                    allow_labelstudio_write=True,
+                )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
 

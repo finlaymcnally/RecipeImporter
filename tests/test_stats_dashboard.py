@@ -41,7 +41,8 @@ SAMPLE_CSV_HEADER = (
     "run_category,eval_scope,precision,recall,f1,"
     "gold_total,gold_matched,pred_total,"
     "supported_precision,supported_recall,"
-    "boundary_correct,boundary_over,boundary_under,boundary_partial"
+    "boundary_correct,boundary_over,boundary_under,boundary_partial,"
+    "run_config_json"
 )
 
 SAMPLE_CSV_ROW1 = (
@@ -104,6 +105,12 @@ SAMPLE_REPORT_JSON = {
         "files": {
             "total": {"count": 8, "bytes": 45000},
         },
+    },
+    "runConfig": {
+        "epub_extractor": "legacy",
+        "ocr_device": "auto",
+        "ocr_batch_size": 1,
+        "effective_workers": 10,
     },
 }
 
@@ -185,7 +192,7 @@ def _write_eval_report(tmp_path: Path) -> Path:
 class TestSchema:
     def test_dashboard_data_minimal(self):
         d = DashboardData()
-        assert d.schema_version == "2"
+        assert d.schema_version == "3"
         assert d.stage_records == []
         assert d.benchmark_records == []
 
@@ -209,6 +216,7 @@ class TestSchema:
         assert r.total_seconds is None
         assert r.recipes is None
         assert r.warnings_count is None
+        assert r.run_config is None
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +261,56 @@ class TestCollectors:
         assert r.recipes == 15
         assert r.warnings_count == 1
         assert r.errors_count == 0
+        assert r.run_config == {
+            "epub_extractor": "legacy",
+            "ocr_device": "auto",
+            "ocr_batch_size": 1,
+            "effective_workers": 10,
+        }
+
+    def test_csv_collector_stage_run_config_json(self, tmp_path):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+        stage_row = {field: "" for field in _CSV_FIELDS}
+        stage_row.update(
+            {
+                "run_timestamp": "2026-02-12T11:00:00",
+                "run_dir": str(tmp_path / "output" / "2026-02-12_11.00.00"),
+                "file_name": "book.epub",
+                "importer_name": "epub",
+                "run_category": "stage_import",
+                "total_seconds": "9.5",
+                "recipes": "4",
+                "run_config_json": json.dumps(
+                    {
+                        "epub_extractor": "legacy",
+                        "ocr_device": "auto",
+                        "ocr_batch_size": 1,
+                        "effective_workers": 10,
+                    }
+                ),
+            }
+        )
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(stage_row)
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.stage_records) == 1
+        r = data.stage_records[0]
+        assert r.file_name == "book.epub"
+        assert r.importer_name == "epub"
+        assert r.run_config == {
+            "epub_extractor": "legacy",
+            "ocr_device": "auto",
+            "ocr_batch_size": 1,
+            "effective_workers": 10,
+        }
 
     def test_benchmark_collector(self, tmp_path):
         _write_eval_report(tmp_path)
@@ -324,6 +382,81 @@ class TestCollectors:
         assert data.summary.total_stage_records == 2
         assert data.summary.total_benchmark_records == 1
         assert data.summary.total_recipes == 70  # 20 + 50
+
+    def test_mixed_timestamp_formats_sort_by_time_and_summary_latest(self, tmp_path):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+
+        def _bench_row(ts: str, run_dir: Path, source_file: str) -> str:
+            return (
+                f"{ts},{run_dir},{source_file},"
+                ",,,,,"
+                ",,,,,"
+                ",,,"
+                ",,,,,,"
+                ",,,,,"
+                ",,,"
+                "benchmark_eval,freeform-spans,0.05,0.25,0.08333333333333333,"
+                "100,25,500,"
+                "0.08,0.55,"
+                "10,8,5,2"
+            )
+
+        older_ts = "2026-02-15_23.25.45"
+        newer_ts = "2026-02-15T23:59:24"
+        older_dir = tmp_path / "golden" / "eval-vs-pipeline" / older_ts
+        newer_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-15_23.59.24"
+        csv_path.write_text(
+            SAMPLE_CSV_HEADER + "\n"
+            + _bench_row(newer_ts, newer_dir, "book_newer.epub") + "\n"
+            + _bench_row(older_ts, older_dir, "book_older.epub") + "\n",
+            encoding="utf-8",
+        )
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert [r.run_timestamp for r in data.benchmark_records] == [older_ts, newer_ts]
+        assert data.summary.latest_benchmark_timestamp == newer_ts
+
+    def test_csv_benchmark_rows_skip_pytest_temp_eval_artifacts(self, tmp_path):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+
+        def _bench_row(ts: str, run_dir: Path, source_file: str) -> str:
+            return (
+                f"{ts},{run_dir},{source_file},"
+                ",,,,,"
+                ",,,,,"
+                ",,,"
+                ",,,,,,"
+                ",,,,,"
+                ",,,"
+                "benchmark_eval,freeform-spans,0.05,0.25,0.08333333333333333,"
+                "100,25,500,"
+                "0.08,0.55,"
+                "10,8,5,2"
+            )
+
+        keep_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_00.04.14"
+        skip_dir = tmp_path / "pytest-46" / "test_labelstudio_benchmark_pas0" / "eval"
+
+        csv_path.write_text(
+            SAMPLE_CSV_HEADER + "\n"
+            + _bench_row("2026-02-16_00.04.14", keep_dir, "keep.epub") + "\n"
+            + _bench_row("2026-02-15T23:59:24", skip_dir, "book.epub") + "\n",
+            encoding="utf-8",
+        )
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.benchmark_records) == 1
+        assert data.benchmark_records[0].source_file == "keep.epub"
 
     def test_empty_roots(self, tmp_path):
         data = collect_dashboard_data(
@@ -441,6 +574,13 @@ class TestRenderer:
                 StageRecord(
                     run_timestamp="2026-02-11_16.00.00",
                     file_name="book.epub",
+                    importer_name="epub",
+                    run_config={
+                        "epub_extractor": "legacy",
+                        "ocr_device": "auto",
+                        "ocr_batch_size": 1,
+                        "effective_workers": 10,
+                    },
                     total_seconds=12.0,
                     recipes=6,
                     per_recipe_seconds=2.0,
@@ -455,6 +595,10 @@ class TestRenderer:
         assert "Recent Runs (Date / Run View)" in html
         assert "File Trend (Selected File)" in html
         assert 'id="file-trend-select"' in html
+        assert 'id="file-trend-chart"' in html
+        assert 'id="file-trend-table"' in html
+        assert "<th>File</th><th>Importer</th><th>Total (s)</th>" in html
+        assert "<th>Recipes</th><th>sec/recipe</th><th>Run Config</th><th>Artifact</th>" in html
 
     def test_html_embeds_inline_data_for_file_scheme(self, tmp_path):
         data = DashboardData(
@@ -468,6 +612,32 @@ class TestRenderer:
         assert 'id="dashboard-data-inline"' in html
         assert "__DASHBOARD_DATA_INLINE__" not in html
         assert '"file_name": "local.xlsx"' in html
+
+    def test_js_uses_timestamp_comparators_for_run_sorting(self, tmp_path):
+        data = DashboardData(
+            benchmark_records=[
+                BenchmarkRecord(
+                    run_timestamp="2026-02-15_23.25.45",
+                    artifact_dir="/tmp/eval-older",
+                    precision=0.1,
+                    recall=0.2,
+                ),
+                BenchmarkRecord(
+                    run_timestamp="2026-02-15T23:59:24",
+                    artifact_dir="/tmp/eval-newer",
+                    precision=0.2,
+                    recall=0.3,
+                ),
+            ],
+        )
+        render_dashboard(tmp_path / "dash", data)
+        js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
+        assert "const m = text.match(/^(\\d{4})-(\\d{2})-(\\d{2})[T_](\\d{2})[.:](\\d{2})[.:](\\d{2})$/);" in js
+        assert "const d = new Date(" in js
+        assert "Number(m[1])" in js
+        assert "function compareRunTimestampAsc(aTs, bTs)" in js
+        assert "function compareRunTimestampDesc(aTs, bTs)" in js
+        assert "compareRunTimestampDesc(a.run_timestamp, b.run_timestamp)" in js
 
     def test_idempotent(self, tmp_path):
         data = DashboardData()

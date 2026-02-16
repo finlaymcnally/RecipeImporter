@@ -104,6 +104,7 @@ For stage rows, key analytics columns include:
 - topic coverage fields: `standalone_*`
 - output size: `output_files`, `output_bytes`
 - derived descriptors: `knowledge_share`, `knowledge_heavy`, dominant stage/checkpoint fields
+- run context: `run_config_json` (serialized `runConfig` from per-file reports when available)
 
 For benchmark rows, key columns include:
 
@@ -133,6 +134,7 @@ Collector exclusions/filters:
 
 - skips hidden output directories (including `.history`, `.job_parts`)
 - skips `prediction-run` eval directories in JSON benchmark scan
+- skips benchmark artifacts that match pytest temp eval paths (for example `.../pytest-46/test_foo0/eval`) so local Python test runs do not pollute dashboard benchmark history
 - optional `--since-days` date cutoff
 
 ## 4) Command behavior (current)
@@ -157,7 +159,8 @@ Collector exclusions/filters:
 - `--scan-reports` can force direct JSON report scanning in addition to CSV path.
 - Throughput view is organized in two ways:
   - run/date trend + recent-runs table across all stage/import rows
-  - file trend selector/table to track one file's processing speed over time
+  - file trend selector/table (grouped by file name) to track one file's processing speed over time
+  - stage/import tables include importer and run-config summary columns
 
 ## 5) Historical timeline and prior attempts (preserved)
 

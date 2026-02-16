@@ -71,6 +71,7 @@ Notes:
 
 - `index.html` embeds an inline copy of `dashboard_data.json`, so it still works via `file://` even when browser local fetches are restricted.
 - Collectors are read-only. They do not modify the source metrics in `data/output` or `data/golden`.
+- Benchmark rows pointing at pytest temp eval paths (for example `.../pytest-46/test_foo0/eval`) are ignored so local `pytest` runs do not appear in `Recent Benchmarks`.
 
 ## Import speed organization in the dashboard
 
@@ -79,9 +80,15 @@ The throughput section is intentionally split into two complementary views:
 - Run/date view:
   - `Run / Date Trend (sec/recipe)` chart across all visible stage/import rows.
   - `Recent Runs (Date / Run View)` table sorted by newest run timestamp.
+  - Includes `Importer` and `Run Config` columns for stage/import rows.
 - File view:
   - `File Trend (Selected File)` selector + chart + table.
+  - File-trend rows include `Importer` and `Run Config` summary columns.
   - Grouping key is `stage_records[*].file_name`, so you can track how one file's processing speed changes across runs.
+
+Timestamp ordering note:
+- Recent-run and benchmark tables sort by parsed time (not raw string compare), so mixed timestamp formats like `YYYY-MM-DDTHH:MM:SS` and `YYYY-MM-DD_HH.MM.SS` still appear in true chronological order.
+- Frontend timestamp parsing should use explicit component parsing for these two forms (with `Date` fallback for timezone-bearing ISO values) rather than relying only on `Date.parse`.
 
 ## Regenerate
 

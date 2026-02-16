@@ -246,9 +246,10 @@ Typical reasons to use `eval-only` again on an old run:
 
 ### [G2] Upload Branch
 
-1. Resolves Label Studio credentials from env (`LABEL_STUDIO_URL` / `LABEL_STUDIO_API_KEY`) or saved interactive settings; if still missing, prompts and saves values to `cookimport.json`.
-2. Calls `labelstudio-benchmark(...)` with settings-driven parallelism/splitting values.
-3. Returns to the main menu on completion.
+1. Prompts for benchmark EPUB extractor (`unstructured` or `legacy`), defaulting to saved interactive setting (`settings.epub_extractor`).
+2. Resolves Label Studio credentials from env (`LABEL_STUDIO_URL` / `LABEL_STUDIO_API_KEY`) or saved interactive settings; if still missing, prompts and saves values to `cookimport.json`.
+3. Calls `labelstudio-benchmark(...)` with selected extractor plus settings-driven parallelism/splitting values.
+4. Returns to the main menu on completion.
 
 ### [H] Generate Dashboard Flow
 
@@ -436,6 +437,7 @@ Options:
 - `--epub-split-workers INTEGER>=1` (default `7`): EPUB split workers for prediction import.
 - `--pdf-pages-per-job INTEGER>=1` (default `50`): PDF shard size.
 - `--epub-spine-items-per-job INTEGER>=1` (default `10`): EPUB shard size.
+- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy`; exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
 
 Hard requirement:
 
@@ -557,7 +559,7 @@ Precedence notes:
 
 - For Label Studio creds: CLI flags win over environment variables.
 - For interactive Label Studio import/export creds: environment variables win over saved `cookimport.json` credentials.
-- For EPUB extractor: explicit `stage --epub-extractor` or interactive setting writes `C3IMP_EPUB_EXTRACTOR` for that run.
+- For EPUB extractor: explicit `stage --epub-extractor`, explicit `labelstudio-benchmark --epub-extractor`, or interactive setting/prompt writes `C3IMP_EPUB_EXTRACTOR` for that run.
 - For tag DB URL: `--db-url` wins; env var is fallback.
 
 ## Merged Discovery Provenance (`docs/understandings`)
