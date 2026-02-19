@@ -3,6 +3,7 @@ from __future__ import annotations
 from bs4 import BeautifulSoup, FeatureNotFound, NavigableString, Tag
 
 _SPLIT_TAG_NAMES = {"p", "div", "li"}
+_DROP_TAG_NAMES = {"script", "style", "noscript", "svg"}
 
 
 def normalize_epub_html_for_unstructured(html: str, *, mode: str) -> str:
@@ -13,6 +14,7 @@ def normalize_epub_html_for_unstructured(html: str, *, mode: str) -> str:
 
     soup = _parse_html_document(html)
 
+    _remove_noise_elements(soup)
     _split_br_blocks(soup)
     _remove_empty_split_tags(soup)
     return str(soup)
@@ -65,6 +67,19 @@ def _split_br_blocks(soup: BeautifulSoup) -> None:
         _split_tag_on_br(tag, soup)
 
 
+def _remove_noise_elements(soup: BeautifulSoup) -> None:
+    for tag in list(soup.find_all(True)):
+        if not isinstance(tag, Tag):
+            continue
+        if not tag.name:
+            continue
+        if tag.name in _DROP_TAG_NAMES:
+            tag.decompose()
+            continue
+        if _is_toc_nav(tag) or _is_pagebreak_tag(tag):
+            tag.decompose()
+
+
 def _is_split_candidate(tag: Tag) -> bool:
     if tag.name not in _SPLIT_TAG_NAMES:
         return False
@@ -72,6 +87,47 @@ def _is_split_candidate(tag: Tag) -> bool:
         if isinstance(child, Tag) and child.name.lower() == "br":
             return True
     return False
+
+
+def _is_toc_nav(tag: Tag) -> bool:
+    if tag.name != "nav":
+        return False
+    type_tokens = _attr_tokens(tag, "epub:type") + _attr_tokens(tag, "type")
+    role_tokens = _attr_tokens(tag, "role")
+    return any(token in {"toc", "doc-toc", "navigation"} for token in type_tokens + role_tokens)
+
+
+def _is_pagebreak_tag(tag: Tag) -> bool:
+    type_tokens = _attr_tokens(tag, "epub:type") + _attr_tokens(tag, "type")
+    role_tokens = _attr_tokens(tag, "role")
+    class_tokens = [token.lower() for token in tag.get("class", [])]
+    if any("pagebreak" in token for token in type_tokens):
+        return True
+    if any("doc-pagebreak" in token for token in role_tokens):
+        return True
+    if any("pagebreak" in token for token in class_tokens):
+        return True
+    return False
+
+
+def _attr_tokens(tag: Tag, key: str) -> list[str]:
+    attrs = getattr(tag, "attrs", None)
+    if not isinstance(attrs, dict):
+        return []
+    raw = attrs.get(key)
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple)):
+        values = raw
+    else:
+        values = [raw]
+    tokens: list[str] = []
+    for value in values:
+        text = str(value).strip().lower()
+        if not text:
+            continue
+        tokens.extend(part for part in text.split() if part)
+    return tokens
 
 
 def _split_tag_on_br(tag: Tag, soup: BeautifulSoup) -> None:

@@ -7,6 +7,7 @@ import re
 import warnings
 import zipfile
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from importlib import metadata as importlib_metadata
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, List, Tuple
@@ -37,6 +38,8 @@ from cookimport.core.reporting import (
 from cookimport.core.scoring import score_recipe_candidate
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning, signals
+from cookimport.parsing.epub_health import compute_epub_extraction_health
+from cookimport.parsing.epub_postprocess import postprocess_epub_blocks
 from cookimport.parsing.markdown_blocks import markdown_to_blocks
 from cookimport.parsing.markitdown_adapter import convert_path_to_markdown
 from cookimport.parsing.block_roles import assign_block_roles
@@ -129,6 +132,14 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="ebooklib")
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class EpubSpineItem:
+    path: str
+    media_type: str
+    item_id: str
+    properties: tuple[str, ...] = ()
 
 
 def _block_to_raw(block: Block, index: int) -> dict[str, Any]:
@@ -328,6 +339,19 @@ class EpubImporter:
 
             # Assign deterministic block roles for chunk lane selection
             assign_block_roles(blocks)
+
+            health = compute_epub_extraction_health(blocks)
+            raw_artifacts.append(
+                RawArtifact(
+                    importer="epub",
+                    sourceHash=file_hash,
+                    locationId="epub_extraction_health",
+                    extension="json",
+                    content=health,
+                    metadata={"artifact_type": "epub_extraction_health"},
+                )
+            )
+            report.warnings.extend(health.get("warnings", []))
 
             # Emit Unstructured diagnostics JSONL when using the Unstructured extractor
             if selected_extractor == "unstructured" and self._unstructured_diagnostics:
@@ -668,11 +692,10 @@ class EpubImporter:
                     "EPUB extractor 'markitdown' does not support split spine ranges. "
                     "Set --epub-split-workers 1 or choose unstructured/legacy."
                 )
-            return self._extract_docpack_markitdown(path)
-
-        if epub is not None:
+            blocks = self._extract_docpack_markitdown(path)
+        elif epub is not None:
             try:
-                return self._extract_docpack_with_ebooklib(
+                blocks = self._extract_docpack_with_ebooklib(
                     path,
                     start_spine=start_spine,
                     end_spine=end_spine,
@@ -680,25 +703,35 @@ class EpubImporter:
                 )
             except Exception as e:
                 logger.warning(f"Ebooklib extraction failed for EPUB {path}: {e}")
+                blocks = self._extract_docpack_with_zip(
+                    path,
+                    start_spine=start_spine,
+                    end_spine=end_spine,
+                    extractor=selected_extractor,
+                )
+        else:
+            blocks = self._extract_docpack_with_zip(
+                path,
+                start_spine=start_spine,
+                end_spine=end_spine,
+                extractor=selected_extractor,
+            )
 
-        return self._extract_docpack_with_zip(
-            path,
-            start_spine=start_spine,
-            end_spine=end_spine,
-            extractor=selected_extractor,
-        )
+        if selected_extractor in {"legacy", "unstructured"}:
+            blocks = postprocess_epub_blocks(blocks)
+
+        for block in blocks:
+            signals.enrich_block(block, overrides=self._overrides)
+        return blocks
 
     def _extract_docpack_markitdown(self, path: Path) -> List[Block]:
         markdown_text = convert_path_to_markdown(path)
         self._markitdown_markdown = markdown_text
-        blocks = markdown_to_blocks(
+        return markdown_to_blocks(
             markdown_text,
             source_path=path,
             extraction_backend="markitdown",
         )
-        for block in blocks:
-            signals.enrich_block(block, overrides=self._overrides)
-        return blocks
 
     def _extract_docpack_with_ebooklib(
         self,
@@ -739,7 +772,25 @@ class EpubImporter:
                 continue
             if ebooklib is not None and item.get_type() != ebooklib.ITEM_DOCUMENT:
                 continue
+            item_path = str(getattr(item, "file_name", "") or "")
+            media_type = str(getattr(item, "media_type", "") or "")
+            item_properties = tuple(str(value) for value in (getattr(item, "properties", None) or []))
+            if self._should_skip_spine_document(
+                item_id=item_id,
+                spine_path=item_path,
+                media_type=media_type,
+                properties=item_properties,
+            ):
+                continue
             content = item.get_content()
+            if self._should_skip_spine_document(
+                item_id=item_id,
+                spine_path=item_path,
+                media_type=media_type,
+                properties=item_properties,
+                content=content,
+            ):
+                continue
 
             if use_unstructured:
                 html_str = content.decode("utf-8", errors="replace")
@@ -760,10 +811,8 @@ class EpubImporter:
                     source_location_id=source_location_id,
                     options=unstructured_options,
                 )
-                # Enrich with shared signals (ingredient/instruction detection)
                 for b in spine_blocks:
                     b.add_feature("extraction_backend", extractor)
-                    signals.enrich_block(b, overrides=self._overrides)
                 blocks.extend(spine_blocks)
                 self._unstructured_diagnostics.extend(diag_rows)
             else:
@@ -807,11 +856,13 @@ class EpubImporter:
         source_location_id = path.stem
 
         with zipfile.ZipFile(path) as zip_handle:
-            for spine_index, (spine_path, media_type) in enumerate(spine_items):
+            for spine_index, spine_item in enumerate(spine_items):
                 if start_spine is not None and spine_index < start_spine:
                     continue
                 if end_spine is not None and spine_index >= end_spine:
                     continue
+                spine_path = spine_item.path
+                media_type = spine_item.media_type
                 if not spine_path:
                     continue
                 if media_type and "html" not in media_type:
@@ -820,6 +871,14 @@ class EpubImporter:
                     content = zip_handle.read(spine_path)
                 except KeyError:
                     logger.warning(f"Missing spine item in EPUB: {spine_path}")
+                    continue
+                if self._should_skip_spine_document(
+                    item_id=spine_item.item_id,
+                    spine_path=spine_path,
+                    media_type=media_type,
+                    properties=spine_item.properties,
+                    content=content,
+                ):
                     continue
 
                 if use_unstructured:
@@ -843,7 +902,6 @@ class EpubImporter:
                     )
                     for b in spine_blocks:
                         b.add_feature("extraction_backend", extractor)
-                        signals.enrich_block(b, overrides=self._overrides)
                     blocks.extend(spine_blocks)
                     self._unstructured_diagnostics.extend(diag_rows)
                 else:
@@ -863,7 +921,7 @@ class EpubImporter:
         except FeatureNotFound:
             return BeautifulSoup(content, "html.parser")
 
-    def _read_epub_spine(self, path: Path) -> tuple[str | None, List[tuple[str, str]]]:
+    def _read_epub_spine(self, path: Path) -> tuple[str | None, list[EpubSpineItem]]:
         with zipfile.ZipFile(path) as zip_handle:
             opf_path = self._find_opf_path(zip_handle)
             opf_bytes = zip_handle.read(opf_path)
@@ -901,9 +959,9 @@ class EpubImporter:
             return title_node.text.strip()
         return None
 
-    def _extract_spine_items(self, opf_path: str, opf_bytes: bytes) -> List[tuple[str, str]]:
+    def _extract_spine_items(self, opf_path: str, opf_bytes: bytes) -> list[EpubSpineItem]:
         root = ET.fromstring(opf_bytes)
-        manifest: dict[str, tuple[str, str]] = {}
+        manifest: dict[str, tuple[str, str, tuple[str, ...]]] = {}
 
         for item in root.findall(".//{*}manifest/{*}item"):
             item_id = item.attrib.get("id")
@@ -911,11 +969,17 @@ class EpubImporter:
             if not item_id or not href:
                 continue
             media_type = item.attrib.get("media-type", "")
+            properties_raw = item.attrib.get("properties", "")
+            properties = tuple(
+                token.strip().lower()
+                for token in properties_raw.split()
+                if token.strip()
+            )
             clean_href = href.split("#", 1)[0]
-            manifest[item_id] = (clean_href, media_type)
+            manifest[item_id] = (clean_href, media_type, properties)
 
         base_dir = PurePosixPath(opf_path).parent
-        spine_items: List[tuple[str, str]] = []
+        spine_items: list[EpubSpineItem] = []
         for itemref in root.findall(".//{*}spine/{*}itemref"):
             idref = itemref.attrib.get("idref")
             if not idref:
@@ -923,13 +987,148 @@ class EpubImporter:
             manifest_entry = manifest.get(idref)
             if not manifest_entry:
                 continue
-            href, media_type = manifest_entry
+            href, media_type, properties = manifest_entry
             if not href:
                 continue
             full_path = str((base_dir / href).as_posix())
-            spine_items.append((full_path, media_type))
+            spine_items.append(
+                EpubSpineItem(
+                    path=full_path,
+                    media_type=media_type,
+                    item_id=idref,
+                    properties=properties,
+                )
+            )
 
         return spine_items
+
+    def _should_skip_spine_document(
+        self,
+        *,
+        item_id: str,
+        spine_path: str,
+        media_type: str,
+        properties: tuple[str, ...] | list[str] | None = None,
+        content: bytes | None = None,
+    ) -> bool:
+        media_type_lower = media_type.strip().lower()
+        if media_type_lower and "html" not in media_type_lower:
+            return True
+
+        properties_set = {
+            str(value).strip().lower()
+            for value in (properties or ())
+            if str(value).strip()
+        }
+        if "nav" in properties_set:
+            return True
+
+        item_id_lower = item_id.strip().lower()
+        basename = PurePosixPath(spine_path).name.lower()
+        if item_id_lower in {"nav", "toc"}:
+            return True
+        if basename in {"nav.xhtml", "nav.html", "toc.xhtml", "toc.html", "contents.xhtml"}:
+            return True
+
+        if not content:
+            return False
+
+        soup = self._soup_from_bytes(content)
+        return self._document_has_toc_nav(soup)
+
+    def _document_has_toc_nav(self, soup: BeautifulSoup) -> bool:
+        for nav in soup.find_all("nav"):
+            if not isinstance(nav, Tag):
+                continue
+            type_tokens = self._tag_attr_tokens(nav, "epub:type") + self._tag_attr_tokens(nav, "type")
+            role_tokens = self._tag_attr_tokens(nav, "role")
+            if any(token in {"toc", "doc-toc", "navigation"} for token in type_tokens + role_tokens):
+                return True
+        return False
+
+    def _tag_attr_tokens(self, tag: Tag, key: str) -> list[str]:
+        raw = tag.attrs.get(key)
+        if raw is None:
+            return []
+        if isinstance(raw, (list, tuple)):
+            values = raw
+        else:
+            values = [raw]
+        tokens: list[str] = []
+        for value in values:
+            text = str(value).strip().lower()
+            if not text:
+                continue
+            tokens.extend(part for part in text.split() if part)
+        return tokens
+
+    def _is_pagebreak_tag(self, tag: Tag) -> bool:
+        type_tokens = self._tag_attr_tokens(tag, "epub:type") + self._tag_attr_tokens(tag, "type")
+        role_tokens = self._tag_attr_tokens(tag, "role")
+        class_tokens = [token.lower() for token in tag.get("class", [])]
+        if any("pagebreak" in token for token in type_tokens):
+            return True
+        if any("doc-pagebreak" in token for token in role_tokens):
+            return True
+        if any("pagebreak" in token for token in class_tokens):
+            return True
+        return False
+
+    def _is_table_cell_tag(self, tag: Tag) -> bool:
+        return tag.name in {"td", "th"}
+
+    def _is_block_tag(self, tag: Tag) -> bool:
+        return tag.name in {
+            "p",
+            "div",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "li",
+            "blockquote",
+            "td",
+            "th",
+            "tr",
+        }
+
+    def _has_block_children(self, tag: Tag) -> bool:
+        for child in tag.children:
+            if isinstance(child, Tag) and self._is_block_tag(child):
+                return True
+        return False
+
+    def _build_table_row_block(
+        self,
+        row: Tag,
+        *,
+        spine_index: int | None,
+        extraction_backend: str,
+    ) -> Block | None:
+        cells = [cell for cell in row.find_all(self._is_table_cell_tag, recursive=False)]
+        if not cells:
+            cells = [cell for cell in row.find_all(self._is_table_cell_tag)]
+        cell_text = [
+            cleaning.normalize_epub_text(cell.get_text(" ", strip=True))
+            for cell in cells
+        ]
+        cell_text = [value for value in cell_text if value]
+        if not cell_text:
+            return None
+
+        block = Block(
+            text=" ".join(cell_text),
+            type=BlockType.TABLE,
+            html=str(row),
+            font_weight="normal",
+        )
+        block.add_feature("extraction_backend", extraction_backend)
+        block.add_feature("epub_table_row", True)
+        if spine_index is not None:
+            block.add_feature("spine_index", spine_index)
+        return block
 
     def _parse_soup_to_blocks(
         self,
@@ -937,60 +1136,77 @@ class EpubImporter:
         spine_index: int | None = None,
         extraction_backend: str = "legacy",
     ) -> List[Block]:
-        blocks = []
-        
-        # We want to capture block-level elements
-        # h1-h6, p, div, li, td
-        
-        # Helper to decide if we should emit a block
-        def is_block_tag(tag):
-            return tag.name in ['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'td', 'th', 'blockquote']
+        blocks: list[Block] = []
+        emitted_table_nodes: set[int] = set()
 
-        # Flatten the structure
-        # We iterate over all tags. If it's a block tag and has text, we emit.
-        # But we must avoid double counting children.
-        # So we only take text from DIRECT children or if it's a leaf block.
-        
-        for elem in soup.find_all(is_block_tag):
-            # Get text, but be careful of nested block tags?
-            # Actually, standard soup.get_text() gets all descendant text.
-            # If we have <div><p>Text</p></div>, we get "Text" for p and "Text" for div.
-            # We want the most specific block.
-            
-            # Check if this element contains other block tags
-            has_block_children = any(child.name in ['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'td', 'th', 'blockquote'] 
-                                     for child in elem.children if isinstance(child, Tag))
-            
-            if has_block_children:
-                continue # Skip container, let children be handled
-            
-            text = cleaning.normalize_text(elem.get_text())
+        for row in soup.find_all("tr"):
+            if not isinstance(row, Tag):
+                continue
+            if self._is_pagebreak_tag(row):
+                continue
+            if row.find_parent("nav"):
+                continue
+            row_block = self._build_table_row_block(
+                row,
+                spine_index=spine_index,
+                extraction_backend=extraction_backend,
+            )
+            if row_block is None:
+                continue
+            blocks.append(row_block)
+            emitted_table_nodes.add(id(row))
+            for cell in row.find_all(self._is_table_cell_tag):
+                emitted_table_nodes.add(id(cell))
+
+        for elem in soup.find_all(self._is_block_tag):
+            if not isinstance(elem, Tag):
+                continue
+            if elem.name == "tr":
+                continue
+            if id(elem) in emitted_table_nodes:
+                continue
+            if self._is_pagebreak_tag(elem):
+                continue
+            nav_parent = elem.find_parent("nav")
+            if isinstance(nav_parent, Tag):
+                nav_tokens = (
+                    self._tag_attr_tokens(nav_parent, "epub:type")
+                    + self._tag_attr_tokens(nav_parent, "type")
+                    + self._tag_attr_tokens(nav_parent, "role")
+                )
+                if any(token in {"toc", "doc-toc", "navigation"} for token in nav_tokens):
+                    continue
+            if self._has_block_children(elem):
+                continue
+
+            text = cleaning.normalize_epub_text(elem.get_text("\n"))
             if not text:
                 continue
-            
+
+            block_type = BlockType.TABLE if elem.name in {"td", "th"} else BlockType.TEXT
             block = Block(
                 text=text,
-                type=BlockType.TEXT,
+                type=block_type,
                 html=str(elem),
-                font_weight="bold" if elem.name.startswith("h") or elem.find("strong") or elem.find("b") else "normal"
+                font_weight=(
+                    "bold"
+                    if elem.name.startswith("h") or elem.find("strong") or elem.find("b")
+                    else "normal"
+                ),
             )
             block.add_feature("extraction_backend", extraction_backend)
-
             if spine_index is not None:
                 block.add_feature("spine_index", spine_index)
-            
-            # Signals
-            signals.enrich_block(block, overrides=self._overrides)
-            
-            # Extra EPUB specific signals
             if elem.name.startswith("h"):
                 block.add_feature("is_heading", True)
                 block.add_feature("heading_level", int(elem.name[1]))
             if elem.name == "li":
                 block.add_feature("is_list_item", True)
-                
+            if elem.name in {"td", "th"}:
+                block.add_feature("epub_table_cell", True)
+
             blocks.append(block)
-            
+
         return blocks
 
     def _detect_candidates(self, blocks: List[Block]) -> List[Tuple[int, int, float]]:

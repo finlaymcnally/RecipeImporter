@@ -354,6 +354,15 @@ Heuristics are intentionally simple; downstream logic should not assume high-pre
 - Unicode normalization (NFKC)
 - Whitespace normalization
 - Hyphenation repair across line breaks
+- EPUB-specific normalization path (`normalize_epub_text`) removes soft hyphens/zero-width chars and normalizes unicode fractions/punctuation for ingredient detection stability.
+
+## EPUB Postprocess and Health (`cookimport/parsing/epub_postprocess.py`, `cookimport/parsing/epub_health.py`)
+
+- `postprocess_epub_blocks(...)` runs after `legacy`/`unstructured` extraction to do shared structural cleanup:
+  - split BR-collapsed/table/list multi-line blocks into deterministic per-line blocks
+  - strip leading bullet markers
+  - drop obvious noise blocks (pagebreak markers/nav leftovers)
+- `compute_epub_extraction_health(...)` computes extraction sanity metrics and warning keys (`epub_*`) that are attached to EPUB conversion reports.
 
 ### Caveat
 

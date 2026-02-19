@@ -59,6 +59,19 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - `cookimport/cli_ui/run_settings_flow.py` and `cookimport/cli_ui/toggle_editor.py` must derive editor rows/options from `RunSettings` metadata; do not maintain a separate hard-coded field list.
 - Last-run snapshots are stored in `<output_dir>/.history/last_run_settings_{import|benchmark}.json` via `cookimport/config/last_run_store.py`.
 - Schema evolution contract for stored run settings: missing keys default, unknown keys are ignored (warn once), and corrupt payloads degrade to `None` (treated as no saved run settings).
+- New processing-option contract (do all, or the feature is incomplete):
+  - add option to `RunSettings` + interactive selectors,
+  - pass it through both run-producing command paths (`stage` and benchmark prediction generation),
+  - persist it in report/manifest + history CSV run-config fields,
+  - expose it in dashboard collector/renderer surfaces.
+- Pipeline option edit-map references:
+  - `cookimport/config/run_settings.py`
+  - `cookimport/cli.py`
+  - `cookimport/labelstudio/ingest.py`
+  - `cookimport/core/models.py`
+  - `cookimport/analytics/perf_report.py`
+  - `cookimport/analytics/dashboard_collect.py`
+  - `cookimport/analytics/dashboard_render.py`
 
 ## Dependency Resolution Rule
 
@@ -80,6 +93,8 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - Split PDF/EPUB workers write raw artifacts to `.job_parts/<workbook>/job_<index>/raw`, then the main process merges IDs/outputs and moves raw artifacts into run `raw/`.
 - `epub_extractor=markitdown` is intentionally whole-book only: do not split EPUB by spine ranges for this extractor.
 - Unstructured EPUB diagnostics now include both raw and normalized spine XHTML artifacts (`raw_spine_xhtml_*.xhtml`, `norm_spine_xhtml_*.xhtml`) in `raw/epub/<source_hash>/`; keep both when changing EPUB diagnostics.
+- EPUB HTML extractors (`legacy` + `unstructured`) must run through shared `cookimport/parsing/epub_postprocess.py` cleanup before segmentation/signals so BR/table splitting, bullet stripping, and noise filtering remain consistent.
+- EPUB extraction reports should always emit raw artifact `epub_extraction_health.json` plus stable warning keys (`epub_*`) in `ConversionReport.warnings` when thresholds trip.
 - Unstructured HTML parser `v2` requires `body.Document`/`div.Page`-style inputs; adapter-level compatibility wrapping is required before `partition_html(..., html_parser_version=\"v2\")` on generic EPUB XHTML.
 - `.job_parts` should be removed after successful merge; if it remains, treat it as evidence of merge failure/interruption.
 - `stage` builds and passes a base `MappingConfig` to workers, so worker conversion typically skips importer `inspect()` unless planning/split metadata requires it.

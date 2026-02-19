@@ -3484,6 +3484,7 @@ def debug_epub_extract(
 ) -> None:
     """Compare unstructured EPUB extraction variants for one spine XHTML document."""
     from cookimport.parsing.block_roles import assign_block_roles
+    from cookimport.parsing.epub_postprocess import postprocess_epub_blocks
     from cookimport.parsing.epub_html_normalize import normalize_epub_html_for_unstructured
     from cookimport.parsing import signals
     from cookimport.parsing.unstructured_adapter import (
@@ -3512,7 +3513,7 @@ def debug_epub_extract(
             f"EPUB has {len(spine_items)} spine entries."
         )
 
-    spine_path, _media_type = spine_items[spine]
+    spine_path = spine_items[spine].path
     with zipfile.ZipFile(path) as zip_handle:
         raw_html = zip_handle.read(spine_path).decode("utf-8", errors="replace")
     (run_root / "raw_spine.xhtml").write_text(raw_html, encoding="utf-8")
@@ -3570,6 +3571,7 @@ def debug_epub_extract(
                 }
             )
             continue
+        blocks = postprocess_epub_blocks(blocks)
         for block in blocks:
             signals.enrich_block(block)
         assign_block_roles(blocks)

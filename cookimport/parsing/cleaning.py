@@ -1,6 +1,30 @@
 import re
 import unicodedata
 
+_SOFT_HYPHEN = "\u00ad"
+_ZERO_WIDTH_RE = re.compile(r"[\u200b\u200c\u200d\u2060\ufeff]")
+_UNICODE_FRACTIONS = {
+    "½": "1/2",
+    "⅓": "1/3",
+    "⅔": "2/3",
+    "¼": "1/4",
+    "¾": "3/4",
+    "⅛": "1/8",
+    "⅜": "3/8",
+    "⅝": "5/8",
+    "⅞": "7/8",
+}
+_EPUB_PUNCT_REPLACEMENTS = {
+    "“": '"',
+    "”": '"',
+    "‘": "'",
+    "’": "'",
+    "–": "-",
+    "—": "-",
+    "⁄": "/",
+}
+
+
 def normalize_text(text: str) -> str:
     """
     Main entry point for text cleaning.
@@ -13,6 +37,27 @@ def normalize_text(text: str) -> str:
     text = unicodedata.normalize("NFKC", text)
     text = standardize_whitespace(text)
     return text
+
+
+def normalize_epub_text(text: str) -> str:
+    """EPUB-specific normalization on top of shared text cleanup."""
+    if not text:
+        return ""
+
+    text = fix_mojibake(text)
+    text = text.replace(_SOFT_HYPHEN, "")
+    text = _ZERO_WIDTH_RE.sub("", text)
+    for bad, good in _EPUB_PUNCT_REPLACEMENTS.items():
+        text = text.replace(bad, good)
+    for fraction, ascii_fraction in _UNICODE_FRACTIONS.items():
+        text = text.replace(fraction, ascii_fraction)
+    text = unicodedata.normalize("NFKC", text)
+    text = text.replace(_SOFT_HYPHEN, "")
+    text = _ZERO_WIDTH_RE.sub("", text)
+    text = text.replace("⁄", "/")
+    text = standardize_whitespace(text)
+    return text
+
 
 def fix_mojibake(text: str) -> str:
     """

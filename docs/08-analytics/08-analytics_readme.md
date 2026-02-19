@@ -170,10 +170,13 @@ Collector exclusions/filters:
 
 - One-off repair command for historical benchmark CSV rows.
 - Reads `performance_history.csv` and patches benchmark rows missing `recipes` / `report_path` / `file_name`.
+- Resolves benchmark artifact roots from each row `run_dir`.
 - Backfill source order:
   - existing CSV `report_path` -> report `totalRecipes` (for missing `recipes`)
   - benchmark manifests (`prediction-run/manifest.json`, `run_dir/manifest.json`, `per_item/*/pred_run/manifest.json`)
   - manifest `recipe_count` first, then manifest `processed_report_path` -> report `totalRecipes`
+- For bench-suite `run_dir/per_item/*/pred_run/manifest.json` cases, recovered `recipes` is sum of per-item `recipe_count` values.
+- Repair is additive: only missing CSV fields are filled, existing values are not overwritten.
 - Writes changes in place (or preview only with `--dry-run`).
 
 ### `cookimport stats-dashboard`
@@ -457,6 +460,44 @@ Final rule:
 - Persist benchmark `recipes` in CSV for every benchmark CLI entrypoint (`labelstudio-benchmark`, `labelstudio-eval`, `bench run`).
 - Use prediction-run manifest `recipe_count` first.
 - Fall back to `processed_report_path` -> `totalRecipes` when manifest recipe count is unavailable.
+
+### 2026-02-16_11.41.26 benchmark CSV backfill manifest resolution details
+
+Merged source file:
+- `2026-02-16_11.41.26-benchmark-csv-backfill-manifest-resolution.md` (formerly in `docs/understandings`)
+
+Preserved recovery precedence/details:
+- Resolve benchmark artifacts from CSV row `run_dir`.
+- For single eval runs, check `run_dir/prediction-run/manifest.json` first (and `run_dir/manifest.json` fallback).
+- For bench-suite runs, recover totals by summing `run_dir/per_item/*/pred_run/manifest.json` `recipe_count`.
+- `recipes` precedence:
+  1. manifest `recipe_count`
+  2. fallback `processed_report_path` -> report `totalRecipes`
+- Backfill scope remains limited to missing `recipes`, `report_path`, and `file_name`.
+
+### 2026-02-16_12.09.36 run-settings propagation into analytics/dashboard
+
+Merged source file:
+- `2026-02-16_12.09.36-run-settings-config-propagation.md` (formerly in `docs/understandings`)
+
+Durable analytics contract:
+- `run_config_hash`, `run_config_summary`, and `run_config_json` must be persisted to history CSV for stage and benchmark rows.
+- Dashboard collector prefers CSV hash/summary/json and only falls back to report/manifest reads when CSV context is missing.
+- Dashboard renderer should keep stale-row signaling when legacy report references are missing.
+- Run-setting canonical source remains `cookimport/config/run_settings.py`, but analytics consumers must treat CSV as primary runtime history surface.
+
+### 2026-02-16_12.30.45 history-root alignment and mixed timestamp run-dir resolution
+
+Merged source file:
+- `2026-02-16_12.30.45-run-manifest-semantics-and-history-root.md` (formerly in `docs/understandings`)
+
+Analytics-relevant outcomes:
+- Stage CSV appends to `<stage --out>/.history/performance_history.csv`.
+- Benchmark CSV appends to `<processed_output_dir>/.history/performance_history.csv`.
+- `perf_report.resolve_run_dir()` supports both timestamp folder styles:
+  - `YYYY-MM-DD_HH.MM.SS`
+  - `YYYY-MM-DD-HH-MM-SS`
+- This preserves auto-latest behavior across mixed historical output folders.
 
 ## 6) Known caveats / sharp edges (important)
 

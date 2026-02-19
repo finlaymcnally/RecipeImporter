@@ -143,8 +143,8 @@ Updated:
 - `docs/06-label-studio/06-label-studio_README.md`
 - `docs/07-bench/07-bench_README.md`
 - `docs/08-analytics/08-analytics_readme.md`
+- `docs/01-architecture/01-architecture_README.md`
 - `IMPORTANT CONVENTIONS.md`
-- `docs/understandings/2026-02-16_12.30.45-run-manifest-semantics-and-history-root.md`
 
 ## Concrete Steps
 

@@ -85,7 +85,7 @@ def _emphasis_coverage_ratio(text: str, emphasized_contents: list[str]) -> float
         return 0.0
     emphasized_total = 0
     for part in emphasized_contents:
-        normalized_part = cleaning.normalize_text(part)
+        normalized_part = cleaning.normalize_epub_text(part)
         if not normalized_part:
             continue
         emphasized_total += len(normalized_part)
@@ -98,7 +98,7 @@ def _split_list_item_lines(raw_text: str) -> list[str]:
     lines = raw_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     result: list[str] = []
     for line in lines:
-        normalized_line = cleaning.normalize_text(line)
+        normalized_line = cleaning.normalize_epub_text(line)
         if normalized_line:
             result.append(normalized_line)
     return result
@@ -197,7 +197,7 @@ def partition_html_to_blocks(
     for element_index, element in enumerate(elements):
         raw_text = element.text or ""
         # Normalize using the repo's shared cleaning pipeline.
-        text = cleaning.normalize_text(raw_text)
+        text = cleaning.normalize_epub_text(raw_text)
         if not text:
             continue
 

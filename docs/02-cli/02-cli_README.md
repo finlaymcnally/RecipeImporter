@@ -394,6 +394,20 @@ High-value outputs:
 - `candidates.json`, `candidates_preview.md`
 - `epubcheck.txt`, `epubcheck.json` (when validator jar is found)
 
+Integration contract (stage/debug parity, preserve this):
+
+- `epub blocks` and `epub candidates` should continue to reuse production importer internals:
+  - `cookimport/plugins/epub.py:_extract_docpack(...)`
+  - `cookimport/plugins/epub.py:_detect_candidates(...)`
+  - `cookimport/plugins/epub.py:_extract_title(...)` (candidate title guesses)
+- Direct `_extract_docpack(...)` use in debug commands must initialize importer state expected by signal enrichment (`importer._overrides = None`), which is normally initialized on full `convert(...)` path.
+- Debug commands should set the same EPUB unstructured env vars as stage so extractor output stays comparable:
+  - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`
+  - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`
+  - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
+- Output safety rules: reject non-empty `--out` unless `--force`, and never modify source EPUB files.
+- Structural inspection should keep zip/OPF parsing as baseline; optional `epub_utils` support is best-effort enrichment only.
+
 ### `cookimport inspect PATH`
 
 Inspects importer layout guesses for one file.
@@ -675,127 +689,11 @@ Precedence notes:
 - For EPUB extractor/options: explicit stage/benchmark flags or interactive per-run Run Settings selection write `C3IMP_EPUB_EXTRACTOR` plus `C3IMP_EPUB_UNSTRUCTURED_*` vars for that run.
 - For tag DB URL: `--db-url` wins; env var is fallback.
 
-## Merged Discovery Provenance (Former `docs/understandings`)
 
-The understanding files listed below were merged into this README in timestamp order so CLI behavior + anti-loop notes live in one place.
+## CLI History Log
 
-### 2026-02-15_21.04.54 cli interactive flow map
-
-Preserved points:
-- `cookimport` enters interactive mode only when no subcommand is invoked.
-- `import` / `C3import` wrappers are batch-first shortcuts (no-arg path runs `stage(data/input)` immediately).
-- Interactive import `limit` comes from `C3IMP_LIMIT` (for example via `C3imp <N>`), not a separate interactive prompt.
-- Non-interactive Label Studio write paths remain explicitly gated by `--allow-labelstudio-write`.
-- Interactive Label Studio import and interactive benchmark upload do not ask extra upload-confirmation questions; once flow/mode is chosen, upload proceeds after credential resolution.
-
-### 2026-02-15_22.44.43 interactive menu loop after jobs
-
-Merged source file:
-- `2026-02-15_22.44.43-interactive-menu-loop-after-jobs.md` (formerly in `docs/understandings`)
-
-Preserved finding:
-- Successful interactive `import`, `labelstudio`, `labelstudio_export`, and `labelstudio_benchmark` branches previously used `break`, which exited the whole session after one job.
-
-Current rule:
-- These branches must `continue` back to main menu.
-- Interactive mode exits only when main-menu action is `exit` (or `None`).
-
-### 2026-02-15_23.03.59 interactive menu numbering source
-
-Merged source file:
-- `2026-02-15_23.03.59-interactive-menu-numbering-source.md` (formerly in `docs/understandings`)
-
-Preserved finding:
-- Interactive select prompts should route through `_menu_select()` in `cookimport/cli.py`.
-
-Why this matters:
-- `_menu_select()` is the one control point for numbering, shortcut handling, and Backspace navigation.
-- Bypassing `_menu_select()` causes menu UX drift and inconsistent keyboard behavior.
-
-### 2026-02-15_23.11.30 interactive generate-dashboard feedback
-
-Merged source file:
-- `2026-02-15_23.11.30-interactive-generate-dashboard-feedback.md` (formerly in `docs/understandings`)
-
-Preserved finding:
-- `generate_dashboard` already worked, but immediate menu redraw looked like a no-op.
-
-Current rule:
-- Interactive dashboard generation prompts whether to open the produced dashboard.
-- `open_browser` response is forwarded into `stats_dashboard(...)` call.
-
-## Merged Task Specs (`docs/tasks`)
-
-Task-spec files were previously kept under `docs/tasks/` and are now merged here so interactive CLI behavior changes, constraints, and verification evidence stay in one place.
-
-### 2026-02-15_21.28.04 - remove-interactive-inspect-menu
-
-Source task file:
-- `docs/tasks/2026-02-15_21.28.04 - remove-interactive-inspect-menu.md`
-
-Problem captured:
-- Interactive main menu offered `Inspect`, but this path was not useful for the cleanup pass and created docs/menu drift.
-
-Behavior contract preserved:
-- Interactive main menu no longer includes `inspect`.
-- Direct command `cookimport inspect PATH` remains available.
-- CLI docs reflect the menu removal (and no standalone interactive inspect flow).
-
-Verification and evidence preserved:
-- Regression test: `test_interactive_main_menu_does_not_offer_inspect` in `tests/test_labelstudio_benchmark_helpers.py`.
-- Task record states fail-before (menu still included `inspect`) and pass-after once the interactive inspect branch was removed from `cookimport/cli.py`.
-
-Constraints and rollback notes:
-- Keep non-interactive inspect tooling intact.
-- Rollback path was to restore the interactive inspect branch and update docs/tests in the same change.
-
-### 2026-02-15_21.35.54 - interactive-labelstudio-import-auto-overwrite
-
-Source task file:
-- `docs/tasks/2026-02-15_21.35.54 - interactive-labelstudio-import-auto-overwrite.md`
-
-Problem captured:
-- Interactive Label Studio import prompted overwrite/resume each run, which led to accidental resume paths and confusing exits.
-
-Behavior contract preserved:
-- Interactive `labelstudio` import no longer prompts `Overwrite existing project if it exists?`.
-- Interactive path always calls import with `overwrite=True` and `resume=False`.
-- Non-interactive `cookimport labelstudio-import` flags (`--overwrite/--resume`) remain unchanged.
-
-Verification and evidence preserved:
-- Regression test: `test_interactive_labelstudio_import_forces_overwrite_without_prompt`.
-- Full helper test module run was also required by the task record.
-- Task record preserves fail-before (prompt appeared) and pass-after once interactive flow forced overwrite mode.
-
-Constraints and rollback notes:
-- Auto-overwrite applies only inside the interactive `action == "labelstudio"` flow.
-- Rollback path was to reintroduce prompt-driven overwrite/resume selection in interactive mode.
-
-### 2026-02-15_22.00.23 - interactive-labelstudio-export-project-picker
-
-Source task file:
-- `docs/tasks/2026-02-15_22.00.23 - interactive-labelstudio-export-project-picker.md`
-
-Problem captured:
-- Interactive export required manual project-name typing, which was slow/error-prone when many similarly named projects existed.
-
-Behavior contract preserved:
-- Interactive export resolves Label Studio credentials first.
-- It then attempts project-title discovery and shows a picker UI.
-- Manual-entry fallback remains available.
-- If discovery fails or returns no projects, flow falls back to manual entry.
-- Export-scope selection and `run_labelstudio_export(...)` routing remain unchanged.
-
-Verification and evidence preserved:
-- Tests in `tests/test_labelstudio_benchmark_helpers.py` cover export routing + picker helper + fallback behavior.
-- Task record includes command:
-  - `. .venv/bin/activate && pytest -q tests/test_labelstudio_benchmark_helpers.py -k "interactive_labelstudio_export_routes_to_export_command or select_export_project_name"`
-- Task record result: `3 passed, 16 deselected`.
-
-Constraints and rollback notes:
-- Keep env-var credential behavior unchanged.
-- Preserve back-navigation semantics (`BACK_ACTION`).
-- Rollback path was restoring manual-only project-name prompt in interactive export.
+Historical architecture/build/fix-attempt notes were moved to `docs/02-cli/02-cli_log.md`.
+Use that file to check prior attempts before retrying a fix path.
 
 ## Related Docs
 
