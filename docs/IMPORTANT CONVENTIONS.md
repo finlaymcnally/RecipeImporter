@@ -1,3 +1,10 @@
+---
+summary: "Cross-cutting project conventions and hidden rules that must stay aligned with implementation."
+read_when:
+  - "When changing cross-cutting CLI/data/docs contracts"
+  - "When adding new architectural rules discovered during implementation"
+---
+
 # Important Conventions
 
 ## Documentation IA
@@ -16,9 +23,9 @@ Current order:
 9. `docs/09-tagging`
 10. `docs/10-llm`
 11. `docs/11-reference`
-12. `docs/12-plans`
-13. `docs/13-tasks`
-14. `docs/14-understandings`
+12. `docs/plans`
+13. `docs/tasks`
+14. `docs/understandings`
 
 When adding new top-level docs sections, use the same `NN-name` convention and update `docs/README.md`.
 
@@ -40,6 +47,7 @@ Interactive file discovery and direct staging intentionally differ:
 - Interactive benchmark upload resolves Label Studio credentials through `_resolve_interactive_labelstudio_settings(settings)` (env -> saved config -> prompt) before calling `labelstudio_benchmark(...)`.
 - Typer command functions that are called directly from Python (interactive helpers/tests) must keep runtime defaults as plain Python values, typically via `Annotated[..., typer.Option(...)] = <default>`; avoid relying on `param: T = typer.Option(...)` defaults in those call paths.
 - Interactive `generate_dashboard` asks whether to open the dashboard in a browser, then runs `stats_dashboard(output_root=<settings.output_dir>, out_dir=<output_root>/.history/dashboard)` and returns to the main menu.
+- EPUB debug tooling lives under `cookimport epub ...` (sub-CLI module `cookimport/epubdebug`), and block/candidate debug commands must reuse production EPUB importer internals (`_extract_docpack`, `_detect_candidates`) to preserve stage/debug parity.
 
 When debugging "file missing from menu" reports, check whether the file is nested inside `data/input`.
 
@@ -51,6 +59,11 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - `cookimport/cli_ui/run_settings_flow.py` and `cookimport/cli_ui/toggle_editor.py` must derive editor rows/options from `RunSettings` metadata; do not maintain a separate hard-coded field list.
 - Last-run snapshots are stored in `<output_dir>/.history/last_run_settings_{import|benchmark}.json` via `cookimport/config/last_run_store.py`.
 - Schema evolution contract for stored run settings: missing keys default, unknown keys are ignored (warn once), and corrupt payloads degrade to `None` (treated as no saved run settings).
+
+## Dependency Resolution Rule
+
+- When checking package availability with `pip index versions`, remember it is stable-only by default; for pre-release-only packages use `--pre` before concluding a dependency is unavailable.
+- For optional debug/tooling dependencies that are pre-release-only (for example `epub-utils==0.1.0a1`), keep them in optional extras and maintain a no-extra fallback path.
 
 ## Report Output Convention
 

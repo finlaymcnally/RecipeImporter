@@ -77,8 +77,10 @@ bench_app = typer.Typer(name="bench", help="Offline benchmark suite tools.")
 app.add_typer(bench_app)
 
 from cookimport.tagging.cli import tag_catalog_app, tag_recipes_app  # noqa: E402
+from cookimport.epubdebug.cli import epub_app  # noqa: E402
 app.add_typer(tag_catalog_app)
 app.add_typer(tag_recipes_app)
+app.add_typer(epub_app, name="epub")
 console = Console()
 logger = logging.getLogger(__name__)
 

@@ -39,7 +39,7 @@ For each non-trivial task, produce exactly one “perfect commit” (or a small 
 5. **Package**: short commit message + task file link; keep your “main” state green (run your standard checks)
 
 **Task spec (“task file”) is the contract**
-If a task doesn’t exist, create a lightweight task spec **file** in `docs/13-tasks/`:
+If a task doesn’t exist, create a lightweight task spec **file** in `docs/tasks/`:
 
 **Naming convention**
 * `YYYY-MM-DD_HH.MM.SS - short-title.md`

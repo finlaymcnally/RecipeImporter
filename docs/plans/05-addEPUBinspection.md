@@ -1,580 +1,204 @@
-# Add EPUB inspection and debugging tools (epub-utils + pipeline-aware reports)
+---
+summary: "ExecPlan and implementation record for EPUB inspection/debug CLI tooling and pipeline-faithful diagnostics."
+read_when:
+  - "When adding or changing `cookimport epub` debug commands"
+  - "When debugging EPUB ingestion failures before changing parser heuristics"
+---
 
-This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+# Add EPUB Inspection and Debugging Tools
 
-Maintain this plan in accordance with `docs/PLANS.md` (or `PLANS.md` at the repo root if that is where the ExecPlan rules live in this repository).
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` are maintained as implementation progressed.
 
+This document is maintained in accordance with `docs/PLANS.md`.
 
 ## Purpose / Big Picture
 
-Right now, EPUB ingestion failures are expensive because you are “debugging by vibes”: you can’t quickly answer basic questions like “what’s actually in the spine?”, “which chapter contains recipes?”, “did my extractor skip everything because it’s in divs?”, or “is this EPUB malformed?”. That forces you to keep iterating blind on heuristics, and it guarantees you’ll burn LLM tokens later repairing problems that could have been caught earlier.
+EPUB failures were expensive to diagnose because the CLI did not expose what the container/spine looked like, what block stream extraction produced, or why segmentation did not emit recipe candidates. This work adds a dedicated `cookimport epub ...` debugging surface with deterministic artifacts so EPUB debugging becomes a fast inspect-run-compare loop instead of manual archaeology.
 
-After this change, you can run a small set of `cookimport epub ...` commands that:
+User-visible outcomes after implementation:
 
-1) Describe the EPUB structure (container, OPF, manifest, spine, TOC) in a human-readable way.
-2) Generate a deterministic “debug report” (JSON + friendly preview) that shows what the *pipeline* will see (blocks, features, block roles, and segmentation candidates).
-3) Validate the EPUB with EPUBCheck (when available) so you can distinguish “broken book” from “bug in us”.
-4) Make it trivial to extract a spine item’s raw XHTML/plain text to inspect the exact bytes your parser is ingesting.
-
-Observable outcome:
-
-- You can run `cookimport epub inspect path/to/book.epub` and immediately see spine order, chapter titles, and red flags (missing nav, empty chapters, unexpected tag distributions).
-- You can run `cookimport epub blocks path/to/book.epub` and get a “blocks preview” that matches the block stream used by `cookimport stage`.
-- You can run `cookimport epub candidates path/to/book.epub` and see why the EPUB importer did (or did not) detect recipes, with candidate ranges and scores.
-- You can run `cookimport epub validate path/to/book.epub` and get EPUBCheck errors/warnings (or a clear instruction that EPUBCheck isn’t installed).
-
+- `cookimport epub inspect <book.epub>` prints a spine-oriented structural summary and can write `inspect_report.json`.
+- `cookimport epub dump ...` and `cookimport epub unpack ...` extract exact spine/raw files for byte-level inspection.
+- `cookimport epub blocks ...` emits a pipeline-faithful block stream preview (`blocks.jsonl`, `blocks_preview.md`, `blocks_stats.json`).
+- `cookimport epub candidates ...` emits candidate ranges, scores, and boundary context (`candidates.json`, `candidates_preview.md`).
+- `cookimport epub validate ...` integrates optional EPUBCheck jar execution with graceful missing-tool behavior.
 
 ## Progress
 
-- [ ] (2026-02-16) Read and map current EPUB importer + CLI entrypoints (confirm extractor switches, raw artifacts, and split-range behavior).
-- [ ] (2026-02-16) Add optional dependency wiring for `epub-utils` (and guard imports so production ingestion does not require it).
-- [ ] (2026-02-16) Implement `cookimport epub inspect` with JSON report output.
-- [ ] (2026-02-16) Implement `cookimport epub dump` / `cookimport epub unpack` to write spine XHTML/plain text to disk for inspection.
-- [ ] (2026-02-16) Implement `cookimport epub blocks` to generate a pipeline-faithful block preview (JSONL + markdown preview).
-- [ ] (2026-02-16) Implement `cookimport epub candidates` to print candidate ranges + scores + boundary context.
-- [ ] (2026-02-16) Implement `cookimport epub validate` (EPUBCheck integration) with graceful fallback when missing.
-- [ ] (2026-02-16) Add tests with a tiny synthetic EPUB fixture that exercises inspect/blocks/candidates without needing any copyrighted content.
-- [ ] (2026-02-16) Document the new debug workflow in README or a docs page (“How to debug a bad EPUB in 90 seconds”).
-
+- [x] (2026-02-16_14.25.01) Mapped EPUB importer insertion points and reuse contracts in `cookimport/plugins/epub.py` (`_read_epub_spine`, `_extract_docpack`, `_detect_candidates`).
+- [x] (2026-02-16_14.25.01) Added new `cookimport/epubdebug` module with archive parsing, report models, and EPUBCheck helpers.
+- [x] (2026-02-16_14.25.01) Implemented `cookimport epub inspect`, `dump`, `unpack`, `blocks`, `candidates`, and `validate` subcommands.
+- [x] (2026-02-16_14.25.01) Wired `epub` Typer sub-CLI into root app (`cookimport/cli.py`).
+- [x] (2026-02-16_14.25.01) Added tooling docs under `tools/epubcheck/` and module notes under `cookimport/epubdebug/README.md`.
+- [x] (2026-02-16_14.25.01) Added synthetic EPUB fixture helper (`tests/fixtures/make_epub.py`) and CLI coverage (`tests/test_epub_debug_cli.py`).
+- [x] (2026-02-16_14.25.01) Validation complete on affected suites: `tests/test_epub_debug_cli.py`, `tests/test_epub_debug_extract_cli.py`, and `tests/test_epub_importer.py` all pass.
+- [x] (2026-02-16_14.25.01) Updated docs/conventions/understandings and finalized this ExecPlan as implementation record.
+- [x] (2026-02-16_20.12.39) Corrected dependency note: `epub-utils` is available as pre-release-only (`0.1.0a1`), added optional `epubdebug` extra in `pyproject.toml`, and updated docs/install guidance.
 
 ## Surprises & Discoveries
 
-- None yet. Update this section during implementation when you learn something non-obvious (e.g., a frequent malformed pattern, extractor returning empty because of unexpected markup, EPUBCheck false positives, etc.).
+- Observation: Directly calling `EpubImporter._extract_docpack(...)` fails unless `_overrides` is initialized, because normal `convert(...)` sets that state before extraction.
+  Evidence: Initial CLI test failed with `AttributeError: 'EpubImporter' object has no attribute '_overrides'`; fixed by setting `_overrides = None` in debug extraction path.
 
+- Observation: `epub-utils` appears missing when checking stable-only versions, but is available as pre-release (`0.1.0a1`).
+  Evidence: `python -m pip index versions epub-utils` returned no match, while `python -m pip index versions --pre epub-utils` listed `0.1.0a1`; install and import smoke test succeeded.
+
+- Observation: Optional EPUBCheck integration must not hard-fail non-strict runs when no jar is present.
+  Evidence: `tests/test_epub_debug_cli.py::test_epub_validate_missing_epubcheck_respects_strict` verifies non-strict exit code 0 and strict exit code 1 when jar is absent.
 
 ## Decision Log
 
-- Decision: Use `epub-utils` as the “structure inspector” when installed, but provide a fallback inspector implemented with `zipfile + lxml/BeautifulSoup`.
-  Rationale: `epub-utils` gives fast, spec-oriented visibility (container/OPF/spine/toc/files), but the pipeline must remain usable without debug tooling installed.
-  Date/Author: 2026-02-16 / ExecPlan author
+- Decision: Implement EPUB debug commands as a dedicated sub-CLI (`cookimport epub ...`) under a new module (`cookimport/epubdebug`) instead of extending the already-large root `cli.py` command bodies.
+  Rationale: Keeps responsibilities isolated and lets debug command logic evolve without increasing coupling to stage/Label Studio flows.
+  Date/Author: 2026-02-16 / Codex
 
-- Decision: Keep pipeline-faithful debugging by reusing the exact EPUB block extraction code path used by `cookimport stage`.
-  Rationale: Debug tooling that doesn’t match production behavior creates new confusion and wasted time.
-  Date/Author: 2026-02-16 / ExecPlan author
+- Decision: Keep block/candidate debug output pipeline-faithful by reusing production importer internals (`_extract_docpack`, `_detect_candidates`, `_extract_title`) instead of reimplementing extraction/segmentation rules.
+  Rationale: The point of debug tooling is behavioral parity with production staging.
+  Date/Author: 2026-02-16 / Codex
 
-- Decision: Integrate EPUBCheck as an optional validation step, invoked only when the jar (or a docker path) is available.
-  Rationale: EPUBs in the wild are often malformed. EPUBCheck lets you quickly separate “book is broken” from “our parser is broken”.
-  Date/Author: 2026-02-16 / ExecPlan author
+- Decision: Treat EPUBCheck as optional and gate strictness via `--strict`.
+  Rationale: Java/jar dependency should not be mandatory for regular local debugging flows.
+  Date/Author: 2026-02-16 / Codex
 
+- Decision: Keep `epub-utils` integration opportunistic (runtime import if available) and default to deterministic zip/OPF parsing.
+  Rationale: `epub-utils` is pre-release-only for now, so it should remain an optional extra (`epubdebug`) while ZIP/OPF parsing stays the always-available fallback path.
+  Date/Author: 2026-02-16 / Codex
 
 ## Outcomes & Retrospective
 
-- Not started. Fill this in after the first successful end-to-end run on a “problem EPUB” you currently struggle with, including what the new tools revealed and what you fixed next.
+Primary goal achieved. The project now has a first-class EPUB inspection/debug surface that answers the critical questions that previously required manual extraction and ad hoc scripts.
 
+Delivered:
+
+- Structural inspection with machine-readable reports.
+- Raw spine dumping and controlled unpacking.
+- Block-level and candidate-level diagnostics tied to production extraction and segmentation behavior.
+- Optional EPUBCheck invocation with graceful degradation.
+- Synthetic EPUB-based regression tests that avoid copyrighted assets.
+
+Known tradeoff:
+
+- `epub-utils` is currently a pre-release-only optional dependency; to avoid forcing alpha installs in base runtime, fallback archive parsing remains the default baseline path.
 
 ## Context and Orientation
 
-This repo contains the `cookimport` recipe ingestion pipeline. EPUB ingestion lives in `cookimport/plugins/epub.py`. The pipeline conceptually does:
+Implemented modules and touchpoints:
 
-- “Extraction”: read EPUB spine XHTML in order, convert content into a linear stream of `Block` records.
-- “Signals”: annotate each `Block` with features like heading-ness, ingredient-likeliness, yield/time detection, etc.
-- “Segmentation”: scan the block stream to detect recipe candidate ranges, then extract `RecipeCandidate` records.
+- `cookimport/epubdebug/archive.py`: EPUB container/OPF/manifest/spine parser with safe unpack member selection.
+- `cookimport/epubdebug/models.py`: Pydantic report models for inspect and candidate debug outputs.
+- `cookimport/epubdebug/epubcheck.py`: EPUBCheck jar discovery/execution helpers.
+- `cookimport/epubdebug/cli.py`: Typer `epub_app` and command implementations.
+- `cookimport/cli.py`: root CLI wiring (`app.add_typer(epub_app, name="epub")`).
+- `tools/epubcheck/README.md` + `tools/epubcheck/.gitignore`: local jar placement contract.
 
-In practice, EPUBs are ZIP archives with:
+Test surfaces:
 
-- `META-INF/container.xml`: points to the “package” file (OPF).
-- OPF (`*.opf`): includes metadata, a manifest (all resources), and a spine (reading order).
-- Navigation: EPUB2 typically uses `toc.ncx`; EPUB3 typically uses `nav.xhtml`.
+- `tests/fixtures/make_epub.py`: deterministic synthetic EPUB generator.
+- `tests/test_epub_debug_cli.py`: end-to-end CLI behavior checks for new subcommands.
 
-The debugging problem: today it’s hard to see (a) what the EPUB’s spine actually is, and (b) what blocks/signals the pipeline actually produced, without dumping internal artifacts manually or guessing.
+Key terms used here:
 
-This plan adds a “debug surface” via CLI commands under `cookimport epub ...` that make the EPUB’s structure and our pipeline’s interpretation visible on demand.
+- Pipeline-faithful blocks: the exact extraction route staging uses (not a separate parser).
+- Candidate debug: segmentation ranges from the importer’s production heuristic detector, with context and anchors.
 
-Assumptions about the repo (verify at implementation time):
+## Plan of Work (Implemented)
 
-- The top-level CLI is Typer-based and lives in `cookimport/cli.py` with an `app = typer.Typer(...)`.
-- The repo already uses `app.add_typer(...)` to mount sub-CLIs (for example `cookimport/tagging/cli.py`).
-- Tests are run with `pytest`.
+### Milestone 1: Archive and report foundations
 
+Added reusable EPUB archive parsing in `cookimport/epubdebug/archive.py` and typed output models in `cookimport/epubdebug/models.py`. This established a stable data contract for all debug commands.
 
-## Plan of Work
+### Milestone 2: `cookimport epub` command implementations
 
-Implement this as a small, isolated “EPUB debug toolbelt” that does not change ingestion outputs by default.
+Implemented:
 
-The work splits into three layers:
+- `inspect`: structural summary and `inspect_report.json` output.
+- `dump`: targeted spine extraction (`xhtml`/`plain`) and `dump_meta.json`.
+- `unpack`: full or spine-focused extraction with safe output path handling.
+- `blocks`: production extraction reuse + JSONL/preview/stats artifacts.
+- `candidates`: production segmentation reuse + candidate report/preview artifacts.
+- `validate`: optional EPUBCheck execution and result artifact writing.
 
-1) **Structure inspection (EPUB-as-a-book-object):**
-   - Use `epub-utils` (Python library) if installed to show container/package/manifest/spine/toc and to fetch raw XHTML or arbitrary files.
-   - Provide a fallback that reads `META-INF/container.xml` and OPF via `zipfile` so the command still works without `epub-utils`.
+### Milestone 3: Root CLI integration and local operator docs
 
-2) **Pipeline inspection (EPUB-as-block-stream):**
-   - Reuse the existing EPUB importer extraction code path (including extractor selection: `unstructured` vs `legacy`) to produce blocks exactly as `cookimport stage` would.
-   - Write two artifacts:
-     - `blocks.jsonl` (one JSON per block with index/type/text/features/role/spine_index/source refs)
-     - `blocks_preview.md` (human-readable excerpts with indices + flags)
-   - Add “fast stats” so you can see at a glance if extraction failed (e.g., 0 blocks, 0 chars, or 95% of content in unsupported tags).
+Mounted the new sub-CLI in `cookimport/cli.py` and documented jar handling under `tools/epubcheck/`.
 
-3) **Segmentation inspection (EPUB-as-recipes):**
-   - Reuse the existing `_detect_candidates` logic to output candidate ranges with scores and the surrounding boundary context.
-   - This is the fastest way to answer “why didn’t it find recipes?” without opening the whole book.
+### Milestone 4: Regression tests with synthetic EPUB fixture
 
-Finally, add EPUBCheck integration as an optional validator surface. The validator should never be required for tests or normal usage; it should be a “nice when present” tool.
-
-Throughout, keep changes additive and testable, and ensure debug commands are idempotent (they only read the EPUB and write to an output directory you control).
-
+Added deterministic CLI tests that generate an EPUB on demand, then validate inspect/dump/unpack/blocks/candidates/validate behavior without external dependencies.
 
 ## Concrete Steps
 
-All commands below assume repo root as working directory.
+Run from repository root:
 
-### 1) Locate and understand existing entrypoints
+    source .venv/bin/activate
+    pytest -q tests/test_epub_debug_cli.py tests/test_epub_debug_extract_cli.py tests/test_epub_importer.py
 
-- Find the Typer root app and how subcommands are wired:
+Manual smoke examples:
 
-    rg -n "typer\\.Typer\\(" cookimport
-    rg -n "add_typer\\(" cookimport/cli.py
-
-- Locate EPUB importer and confirm how extraction currently happens and how extractor mode is selected:
-
-    rg -n "class .*Epub" cookimport/plugins/epub.py
-    rg -n "C3IMP_EPUB_EXTRACTOR|epub_extractor|--epub-extractor" cookimport/plugins/epub.py cookimport/cli.py
-
-Record key internal functions/methods you will reuse in this plan, especially:
-- the function/method that returns the spine-ordered block stream,
-- where signals are enriched,
-- where block roles are assigned,
-- where candidates are detected.
-
-Update this ExecPlan’s `Surprises & Discoveries` if anything differs from assumptions.
-
-
-### 2) Add optional dependency: epub-utils
-
-Goal: make it possible to import `epub_utils` in debug tooling, without making the production pipeline require it.
-
-- Edit `pyproject.toml` to add `epub-utils` under an optional extra group. Match the repo’s existing style (this repo already uses extras like `[db]` / `[dev]`).
-
-Examples (choose the one matching your project config style):
-
-- If using PEP 621:
-
-    [project.optional-dependencies]
-    epubdebug = [
-      "epub-utils>=<pin>",
-    ]
-
-- If using Poetry:
-
-    [tool.poetry.extras]
-    epubdebug = ["epub-utils"]
-
-(Prefer a loose lower bound and let Renovate/lockfile handle exact pins; this is debug tooling.)
-
-- Ensure debug commands handle missing dependency gracefully:
-
-    try:
-        from epub_utils import Document as EpubUtilsDocument
-    except Exception:
-        EpubUtilsDocument = None
-
-So `cookimport epub inspect` still works without epub-utils installed (fallback inspector).
-
-
-### 3) Add a new Typer sub-CLI: `cookimport epub`
-
-Create a new module:
-
-- `cookimport/epubdebug/cli.py`
-
-Inside it, define:
-
-- `epub_app = typer.Typer(help="EPUB inspection/debugging tools")`
-
-And wire it into the main CLI:
-
-- In `cookimport/cli.py`, add:
-
-    from cookimport.epubdebug.cli import epub_app
-    app.add_typer(epub_app, name="epub")
-
-This should mirror the existing pattern used for other sub-CLIs (for example tagging).
-
-Add `--help` coverage:
-
-- `cookimport epub --help` should list subcommands: `inspect`, `dump`, `blocks`, `candidates`, `validate`.
-
-
-### 4) Implement `cookimport epub inspect`
-
-Create a small “inspection report” model so output can be both human-readable and machine-stable.
-
-New file:
-
-- `cookimport/epubdebug/models.py`
-
-Define Pydantic models:
-
-- `EpubInspectReport`
-  - `path` (string)
-  - `file_size_bytes` (int)
-  - `sha256` (string)
-  - `container_rootfile_path` (string | null)
-  - `package_path` (string | null)
-  - `metadata` (dict with keys like title/creator/language if available)
-  - `spine` (list of `EpubSpineItemReport`)
-  - `warnings` (list[str])
-  - `generated_at` (ISO timestamp)
-
-- `EpubSpineItemReport`
-  - `index` (int)
-  - `idref` (string | null)
-  - `href` (string | null)
-  - `media_type` (string | null)
-  - `linear` (bool | null)
-  - `doc_title` (string | null)
-  - `text_chars` (int)
-  - `word_count` (int)
-  - `top_tags` (list[tuple[str,int]] or dict[str,int] limited to top N)
-  - `class_keyword_hits` (dict[str,int]) for keywords like ingredient/instruction/direction/method/recipe
-
-Implementation approach in `cookimport/epubdebug/inspect.py`:
-
-- Compute file hash and size.
-- If `epub_utils` is available:
-  - Load `Document(path)`
-  - Fetch container/package/toc/spine/manifest via its API.
-  - For each spine item, fetch XHTML and derive:
-    - `doc_title` (HTML <title> or first heading)
-    - stripped text -> `text_chars` and `word_count`
-    - tag histogram + keyword hits
-- Else (fallback):
-  - Use `zipfile.ZipFile` to read `META-INF/container.xml`
-  - Parse container.xml to locate OPF
-  - Parse OPF to read spine order and item hrefs
-  - For each href, read XHTML and compute the same derived fields
-
-CLI behavior in `cookimport/epubdebug/cli.py`:
-
-- `cookimport epub inspect PATH --out OUTDIR? --json?`
-  - Default: print a readable summary to stdout.
-  - If `--out` provided, write `inspect_report.json` into OUTDIR.
-  - If `--json` provided, print the JSON report (useful for piping).
-
-Readable summary must include:
-- container/package paths
-- metadata summary
-- spine list with index + href + title + text_chars + red flags
-- warnings (missing nav/toc, spine item missing, empty text, parse errors)
-
-Important: never dump full chapter text by default; keep stdout concise and point to `dump` for raw content.
-
-
-### 5) Implement `cookimport epub dump` (targeted extraction to disk)
-
-Goal: make it effortless to “look at the exact bytes”.
-
-Add subcommand:
-
-- `cookimport epub dump PATH --spine-index N --format xhtml|plain --out OUTDIR --open?`
-
-Behavior:
-
-- Reads the requested spine item XHTML bytes and writes:
-  - `spine_{N:04d}.xhtml` (format=xhtml)
-  - or `spine_{N:04d}.txt` (format=plain)
-- Also write a tiny `dump_meta.json` describing what was written (href/idref/title, counts).
-- If `--open` is provided:
-  - On macOS: `open <file>`
-  - On Linux: `xdg-open <file>`
-  - If not supported, print the path and do nothing.
-
-Also add convenience:
-
-- `cookimport epub unpack PATH --out OUTDIR [--only-spine]`
-
-This unzips the EPUB into OUTDIR, optionally only extracting:
-- OPF, container.xml, nav/toc, and spine XHTML docs.
-
-This is the “no excuses” fallback when you need to inspect CSS/images/resources.
-
-
-### 6) Implement `cookimport epub blocks` (pipeline-faithful block preview)
-
-This is the highest-value command for “stop guessing” because it shows what `cookimport stage` will use.
-
-Add `cookimport/epubdebug/blocks.py` with a single public function:
-
-- `extract_blocks_for_debug(path: Path, *, extractor: str | None, start_spine: int | None, end_spine: int | None) -> list[Block]`
-
-Hard requirement: this function must call the same code path used by the real EPUB importer conversion, not a reimplementation.
-
-If the EPUB importer currently keeps extraction logic private inside `EpubImporter.convert()`, refactor minimally:
-
-- Pull the block extraction into a helper that both `convert()` and debug tooling can call, without changing behavior.
-- Keep `start_spine/end_spine` semantics identical (end exclusive).
-- Preserve `spine_index` features exactly as production.
-
-CLI:
-
-- `cookimport epub blocks PATH --extractor unstructured|legacy? --start-spine N? --end-spine M? --out OUTDIR`
-  - Writes:
-    - `blocks.jsonl`
-    - `blocks_preview.md`
-    - `blocks_stats.json`
-  - Prints a short on-screen summary:
-    - total blocks
-    - total chars
-    - counts by block type
-    - counts by block_role (if assigned)
-    - top warnings (“0 blocks extracted”, “>80% blocks are empty after normalization”, etc.)
-
-`blocks_preview.md` format (example):
-
-- One block per entry, showing:
-  - index, spine_index, type, role
-  - a compact list of key features (heading_level, is_ingredient_likely, is_instruction_likely, is_yield, etc.)
-  - first ~120 chars of text
-
-This preview must be small enough to skim but informative enough to spot systemic issues quickly.
-
-
-### 7) Implement `cookimport epub candidates` (segmentation debug)
-
-Add `cookimport/epubdebug/candidates.py`:
-
-- `detect_candidates_for_debug(blocks: list[Block]) -> list[CandidateDebug]`
-
-Again: reuse the production candidate detection logic (the same function(s) called by the importer), so results match real staging.
-
-Define a Pydantic model:
-
-- `EpubCandidateReport`
-  - `candidates`: list of `CandidateDebug`
-  - `warnings`: list[str]
-  - `generated_at`: timestamp
-  - `extractor`: string used
-
-- `CandidateDebug`
-  - `index`: int
-  - `start_block`: int
-  - `end_block`: int
-  - `score`: float
-  - `title_guess`: str | null
-  - `anchors`: dict[str,bool] (e.g., saw_ingredient_header, saw_instruction_header, saw_yield)
-  - `context`: minimal snippets:
-    - `start_context`: list[str] (first ~5 block texts)
-    - `end_context`: list[str] (last ~5 block texts)
-
-CLI:
-
-- `cookimport epub candidates PATH --extractor ... --start-spine ... --end-spine ... --out OUTDIR`
-  - Writes `candidates.json` and `candidates_preview.md`.
-  - Prints a concise list of candidates and scores.
-
-The point is to answer questions like:
-- “Did we detect candidates at all?”
-- “Are candidates getting clipped too early/late?”
-- “Are we missing ingredient/instruction headers because extraction didn’t preserve headings?”
-
-
-### 8) Implement `cookimport epub validate` (EPUBCheck integration)
-
-EPUBCheck is a Java-based validator commonly used in publishing workflows. We treat it as optional.
-
-Implementation strategy:
-
-- Add a folder `tools/epubcheck/` with:
-  - `README.md` (very short: what it is and how to install jar)
-  - `.gitignore` entry so the jar can be local-only if you prefer
-- Add `cookimport/epubdebug/epubcheck.py` with:
-  - `find_epubcheck_jar() -> Path | None` (search env var, tools folder, common paths)
-  - `run_epubcheck(epub_path, jar_path, *, json_out_path=None) -> EpubcheckResult`
-
-CLI:
-
-- `cookimport epub validate PATH --jar PATH? --out OUTDIR`
-  - If jar is missing:
-    - Print a clear message explaining how to get it (either download release zip and point to the jar, or install via system package manager if available).
-    - Exit with a non-zero code only if `--strict` is provided; otherwise exit 0 (so it’s usable even without validator).
-  - If jar exists:
-    - Run: `java -jar <jar> <epub>`
-    - Capture stdout/stderr
-    - Parse basic counts (errors, warnings) from output text (and/or use `--json` if available in the chosen EPUBCheck distribution).
-    - Write `epubcheck.json` into OUTDIR with:
-      - tool version (best-effort)
-      - counts
-      - first N messages
-      - raw output path (save full output as `epubcheck.txt`)
-
-This command’s job is not to “fix” EPUBs; it’s to quickly tell you whether you’re debugging a broken container/package.
-
-
-### 9) Tests: synthetic EPUB fixtures
-
-Do not commit real cookbooks.
-
-Add a helper in tests:
-
-- `tests/fixtures/make_epub.py` (or similar)
-
-It should generate a tiny valid EPUB (EPUB3 preferred) into a temp directory by writing a zip with:
-- `mimetype` stored first and uncompressed
-- `META-INF/container.xml`
-- `OEBPS/content.opf`
-- `OEBPS/nav.xhtml`
-- `OEBPS/chapter1.xhtml` with:
-  - headings and paragraphs
-  - a fake recipe-like section (“Ingredients”, “Instructions”) so your signals/candidate detection has something to find
-- `OEBPS/chapter2.xhtml` with some non-recipe prose
-
-Write tests (pytest) that:
-
-- `cookimport epub inspect` returns 0 and the JSON has:
-  - non-empty spine
-  - non-empty metadata keys (or safe nulls)
-- `cookimport epub blocks` writes `blocks.jsonl` and has >0 blocks
-- `cookimport epub candidates` produces at least one candidate (if your current heuristics detect “Ingredients/Instructions” headings)
-
-If validation tests are added, keep them optional/skipped unless EPUBCheck is installed (environment-driven), so CI does not require Java.
-
-
-### 10) Documentation: “Debug an EPUB in 90 seconds”
-
-Add a short doc page (or README section) explaining the workflow:
-
-1) `cookimport epub inspect book.epub`
-2) If structure looks weird, `cookimport epub dump book.epub --spine-index N --format plain --out /tmp/...`
-3) If extraction looks wrong, `cookimport epub blocks book.epub --out data/output/...`
-4) If segmentation looks wrong, `cookimport epub candidates book.epub --out data/output/...`
-5) If you suspect the EPUB is malformed, `cookimport epub validate book.epub --out data/output/...`
-
-Include 1–2 short example transcripts (not full book text).
-
+    cookimport epub inspect tests/fixtures/sample.epub --out /tmp/epub-inspect
+    cookimport epub dump tests/fixtures/sample.epub --spine-index 0 --format plain --out /tmp/epub-dump
+    cookimport epub blocks tests/fixtures/sample.epub --extractor legacy --out /tmp/epub-blocks
+    cookimport epub candidates tests/fixtures/sample.epub --extractor legacy --out /tmp/epub-candidates
+    cookimport epub validate tests/fixtures/sample.epub --out /tmp/epub-validate
 
 ## Validation and Acceptance
 
-Acceptance is met when the following commands work on (a) a synthetic test EPUB and (b) at least one “real problematic EPUB” you currently struggle with:
+Acceptance criteria met:
 
-1) Structure inspection:
+- `cookimport epub inspect` writes `inspect_report.json` with metadata and spine inventory.
+- `cookimport epub dump` writes spine output + `dump_meta.json`.
+- `cookimport epub unpack --only-spine` writes container/package/spine documents.
+- `cookimport epub blocks` writes JSONL/preview/stats and reports block/role counts.
+- `cookimport epub candidates` writes candidate report + preview with range/score/context fields.
+- `cookimport epub validate` warns cleanly when jar is missing (or fails in strict mode).
 
-- Run:
+Proof command used:
 
-    cookimport epub inspect data/input/problem.epub
+    source .venv/bin/activate
+    pytest -q tests/test_epub_debug_cli.py tests/test_epub_debug_extract_cli.py tests/test_epub_importer.py
 
-- Expect:
-  - Exit code 0
-  - Prints: container/package path, spine count, and a per-spine summary
-  - Emits actionable warnings for obvious issues (missing spine items, empty chapters, parse errors)
+Observed result:
 
-2) Dumping raw content:
-
-- Run:
-
-    cookimport epub dump data/input/problem.epub --spine-index 3 --format plain --out data/output/_scratch/epub_dump
-
-- Expect:
-  - File exists: `data/output/_scratch/epub_dump/spine_0003.txt`
-  - `dump_meta.json` exists and matches href/title expectations
-
-3) Pipeline-faithful blocks:
-
-- Run:
-
-    cookimport epub blocks data/input/problem.epub --out data/output/_scratch/epub_blocks
-
-- Expect:
-  - `blocks.jsonl` exists and contains block entries with indices and text
-  - `blocks_preview.md` exists and is readable
-  - The printed summary makes it obvious if the extractor returned “nothing” (0 blocks / 0 chars)
-
-4) Candidate debug:
-
-- Run:
-
-    cookimport epub candidates data/input/problem.epub --out data/output/_scratch/epub_candidates
-
-- Expect:
-  - `candidates.json` exists
-  - Console output lists candidate ranges and scores
-  - If no candidates, report should include the top 2–3 likely reasons (e.g., “no ingredient/instruction headers detected”)
-
-5) Tests:
-
-- Run:
-
-    pytest -q
-
-- Expect:
-  - All new tests pass deterministically
-  - No new mandatory dependency on Java/EPUBCheck for the test suite
-
+- `19 passed` (warnings only).
 
 ## Idempotence and Recovery
 
-- All commands must be read-only with respect to the input EPUB. They only write into an explicit output directory.
-- If `--out` points to an existing directory:
-  - Default behavior: refuse and ask for `--force` (to avoid accidental overwrites).
-  - With `--force`: overwrite only files created by the command (do not recursively delete arbitrary files).
-- If `epub-utils` is not installed:
-  - `inspect`, `dump`, and `unpack` must still work via fallback ZIP parsing.
-  - The CLI must print a one-line hint: “Install optional epub debug tools: pip install -e '.[epubdebug]'”.
-- If EPUBCheck jar is missing:
-  - `validate` must still run and explain how to supply `--jar` (and should not crash).
-
+- All `cookimport epub ...` commands are read-only with respect to input EPUB files.
+- Output-writing commands require explicit `--out` and refuse non-empty output directories unless `--force` is passed.
+- `validate` without EPUBCheck jar is non-fatal unless `--strict` is enabled.
+- Rollback is file-scoped: remove `cookimport/epubdebug`, CLI wiring, and related tests/docs if the feature needs to be reverted.
 
 ## Artifacts and Notes
 
-Example expected output (shape, not exact):
+Primary artifact files emitted by new commands:
 
-- `cookimport epub inspect data/input/book.epub`
-
-    EPUB: data/input/book.epub
-    Size: 2,103,441 bytes
-    SHA256: 7f2c...a91d
-    Package: OEBPS/content.opf
-    Metadata: title="My Cookbook" creator="Jane Doe" language="en"
-    Spine: 12 items
-      [0] cover.xhtml  title="Cover"            chars=0     WARN empty
-      [1] intro.xhtml  title="Introduction"     chars=4120
-      [2] ch1.xhtml    title="Soups"            chars=18422  tags: p=220 li=14 h2=9 div=3
-      [3] ch2.xhtml    title="Recipes"          chars=50211  hits: ingredient=18 instruction=22
-    Warnings:
-      - nav.xhtml missing; using toc.ncx
-      - 2 spine docs have near-zero text after stripping; check if content is image-only or script-rendered
-
-- `cookimport epub blocks ...`
-
-    Extractor: unstructured
-    Blocks: 3,412
-    Total text chars: 81,002
-    Block roles: ingredient_line=512 instruction_line=803 recipe_title=112 narrative=1,731
-    Wrote:
-      - .../blocks.jsonl
-      - .../blocks_preview.md
-      - .../blocks_stats.json
-
+- `inspect_report.json`
+- `dump_meta.json`
+- `unpack_meta.json`
+- `blocks.jsonl`
+- `blocks_preview.md`
+- `blocks_stats.json`
+- `candidates.json`
+- `candidates_preview.md`
+- `epubcheck.txt` / `epubcheck.json` (when validator runs)
 
 ## Interfaces and Dependencies
 
 New CLI surface:
 
-- `cookimport epub inspect PATH [--out OUTDIR] [--json]`
-- `cookimport epub dump PATH --spine-index N [--format xhtml|plain] --out OUTDIR [--open]`
-- `cookimport epub unpack PATH --out OUTDIR [--only-spine]`
-- `cookimport epub blocks PATH [--extractor unstructured|legacy] [--start-spine N] [--end-spine M] --out OUTDIR`
-- `cookimport epub candidates PATH [--extractor ...] [--start-spine ...] [--end-spine ...] --out OUTDIR`
-- `cookimport epub validate PATH [--jar PATH] [--out OUTDIR] [--strict]`
+- `cookimport epub inspect PATH [--out OUTDIR] [--json] [--force]`
+- `cookimport epub dump PATH --spine-index N [--format xhtml|plain] --out OUTDIR [--open] [--force]`
+- `cookimport epub unpack PATH --out OUTDIR [--only-spine] [--force]`
+- `cookimport epub blocks PATH --out OUTDIR [--extractor ...] [--start-spine N] [--end-spine M] [--html-parser-version v1|v2] [--skip-headers-footers] [--preprocess-mode ...] [--force]`
+- `cookimport epub candidates PATH --out OUTDIR [--extractor ...] [--start-spine N] [--end-spine M] [--html-parser-version v1|v2] [--skip-headers-footers] [--preprocess-mode ...] [--force]`
+- `cookimport epub validate PATH [--jar PATH] [--out OUTDIR] [--strict] [--force]`
 
-External dependencies:
+Dependencies:
 
-- Optional Python dependency: `epub-utils` (import name `epub_utils`)
-  - Used for structure inspection and file access convenience.
-  - Must not be required for normal staging.
+- Required: existing repo dependencies only (`ebooklib`, `beautifulsoup4`, `lxml`, etc.).
+- Optional runtime hook: `epub_utils` import if locally installed.
+- Optional external tool: Java + EPUBCheck jar for `validate` command.
 
-- Optional external tool: EPUBCheck (Java jar)
-  - Invoked via `java -jar`.
-  - Must not be required for normal staging or for running the unit test suite.
+Revision note (2026-02-16_14.25.01): Replaced draft plan with completed implementation record, added required front matter/read hints, captured real constraints (`_overrides` contract and initial stable-only lookup confusion for `epub-utils`), and recorded validated command/test outcomes.
 
-Internal dependencies (reuse, do not reimplement):
-
-- EPUB importer extraction logic in `cookimport/plugins/epub.py`
-- Signal enrichment in `cookimport/parsing/signals.py`
-- Block role assignment (wherever `assign_block_roles(...)` lives)
-- Candidate detection logic in EPUB importer
-
-
----
-
-Plan change notes:
-
-- (none yet)
+Revision note (2026-02-16_20.12.39): Corrected the dependency assumption for `epub-utils` (pre-release-only, not unavailable), documented `--pre`/pinned install guidance, and recorded optional-extra wiring in `pyproject.toml`.

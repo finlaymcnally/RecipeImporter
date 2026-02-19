@@ -292,6 +292,7 @@ Interactive mode exits when:
 Top-level command groups:
 
 - `cookimport stage`
+- `cookimport epub <inspect|dump|unpack|blocks|candidates|validate>`
 - `cookimport inspect`
 - `cookimport labelstudio-import`
 - `cookimport labelstudio-export`
@@ -366,6 +367,32 @@ Options:
 - `--html-parser-version TEXT` (default `v1`): single-run parser version when not using `--variants`.
 - `--preprocess-mode TEXT` (default `none`): single-run preprocess mode when not using `--variants`.
 - `--skip-headers-footers / --no-skip-headers-footers` (default disabled): pass Unstructured header/footer skip flag.
+
+### `cookimport epub ...`
+
+EPUB-specific inspection/debug command group mounted as a sub-CLI.
+These commands are read-only on the source EPUB and write artifacts only to `--out` directories.
+Optional pre-release helper dependency for richer structure inspection:
+
+- `source .venv/bin/activate && python -m pip install -e '.[epubdebug]'`
+- `epub-utils` is currently pre-release-only (`0.1.0a1`), so if installing directly use:
+- `python -m pip install --pre epub-utils` or `python -m pip install 'epub-utils==0.1.0a1'`
+
+Subcommands:
+
+- `cookimport epub inspect PATH [--out OUTDIR] [--json] [--force]`
+- `cookimport epub dump PATH --spine-index N [--format xhtml|plain] --out OUTDIR [--open] [--force]`
+- `cookimport epub unpack PATH --out OUTDIR [--only-spine] [--force]`
+- `cookimport epub blocks PATH --out OUTDIR [--extractor unstructured|legacy|markitdown] [--start-spine N] [--end-spine M] [--html-parser-version v1|v2] [--skip-headers-footers] [--preprocess-mode none|br_split_v1|semantic_v1] [--force]`
+- `cookimport epub candidates PATH --out OUTDIR [--extractor ...] [--start-spine N] [--end-spine M] [--html-parser-version ...] [--skip-headers-footers] [--preprocess-mode ...] [--force]`
+- `cookimport epub validate PATH [--jar PATH] [--out OUTDIR] [--strict] [--force]`
+
+High-value outputs:
+
+- `inspect_report.json`
+- `blocks.jsonl`, `blocks_preview.md`, `blocks_stats.json`
+- `candidates.json`, `candidates_preview.md`
+- `epubcheck.txt`, `epubcheck.json` (when validator jar is found)
 
 ### `cookimport inspect PATH`
 

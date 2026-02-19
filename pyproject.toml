@@ -35,6 +35,9 @@ dev = [
   "pytest>=7.4",
   "psycopg[binary]>=3.1",
 ]
+epubdebug = [
+  "epub-utils==0.1.0a1",
+]
 
 [project.scripts]
 cookimport = "cookimport.cli:app"
