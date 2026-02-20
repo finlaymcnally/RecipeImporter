@@ -86,11 +86,13 @@ The throughput section is intentionally split into two complementary views:
 - Run/date view:
   - `Run / Date Trend (sec/recipe)` chart across all visible stage/import rows.
   - `Recent Runs (Date / Run View)` table sorted by newest run timestamp.
+  - Includes explicit EPUB visibility columns: `EPUB Req`, `EPUB Eff`, and `Auto Score`.
   - Includes `Importer` and `Run Config` columns for stage/import rows.
 - File view:
   - `File Trend (Selected File)` selector + chart + table.
-  - File-trend rows include `Importer` and `Run Config` summary columns.
+  - File-trend rows include `Importer`, `EPUB Req`, `EPUB Eff`, `Auto Score`, and `Run Config` summary columns.
   - Grouping key is `stage_records[*].file_name`, so you can track how one file's processing speed changes across runs.
+  - Filters include category/date plus a dedicated `EPUB Extractor` checkbox group keyed by effective/requested extractor values.
 
 Timestamp ordering note:
 - Recent-run and benchmark tables sort by parsed time (not raw string compare), so mixed timestamp formats like `YYYY-MM-DDTHH:MM:SS` and `YYYY-MM-DD_HH.MM.SS` still appear in true chronological order.

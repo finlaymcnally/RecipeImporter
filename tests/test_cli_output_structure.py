@@ -273,6 +273,8 @@ def test_stage_markdown_epub_writes_backend_and_diagnostics(tmp_path):
     assert report["runConfig"]["epub_extractor_requested"] == "markdown"
     assert report["runConfig"]["epub_extractor_effective"] == "markdown"
     assert report["epubBackend"] == "markdown"
+    assert "epubAutoSelection" not in report
+    assert "epubAutoSelectedScore" not in report
 
     markdown_diag = list((timestamp_dir / "raw" / "epub").glob("**/markdown_blocks.jsonl"))
     assert markdown_diag
@@ -292,7 +294,10 @@ def test_stage_auto_epub_records_effective_extractor(tmp_path, monkeypatch):
                 "requested_extractor": "auto",
                 "effective_extractor": "legacy",
                 "sample_indices": [0],
-                "candidates": [],
+                "candidates": [
+                    {"backend": "legacy", "status": "ok", "average_score": 0.62},
+                    {"backend": "markdown", "status": "ok", "average_score": 0.55},
+                ],
             },
         ),
     )
@@ -329,6 +334,9 @@ def test_stage_auto_epub_records_effective_extractor(tmp_path, monkeypatch):
     assert report["runConfig"]["epub_extractor_requested"] == "auto"
     assert report["runConfig"]["epub_extractor_effective"] == "legacy"
     assert report["epubBackend"] == "legacy"
+    assert report["epubAutoSelection"]["effective_extractor"] == "legacy"
+    assert report["epubAutoSelection"]["source_file"].endswith("sample.epub")
+    assert report["epubAutoSelectedScore"] == pytest.approx(0.62)
 
     auto_artifacts = list((timestamp_dir / "raw" / "epub").glob("**/epub_extractor_auto.json"))
     assert auto_artifacts

@@ -24,6 +24,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from cookimport.parsing.epub_auto_select import selected_auto_score
+
 from .dashboard_schema import (
     BenchmarkLabelMetrics,
     BenchmarkRecord,
@@ -84,6 +86,8 @@ def _stable_hash_for_run_config(run_config: dict[str, Any]) -> str:
 def _summary_for_run_config(run_config: dict[str, Any]) -> str:
     ordered_keys = (
         "epub_extractor",
+        "epub_extractor_requested",
+        "epub_extractor_effective",
         "ocr_device",
         "ocr_batch_size",
         "workers",
@@ -117,6 +121,15 @@ def _normalize_path(value: str | Path | None) -> str | None:
         return str(Path(text).expanduser().resolve())
     except OSError:
         return text
+
+
+def _normalize_optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text
 
 
 def _parse_run_config_json(
@@ -262,6 +275,46 @@ def _load_total_recipes_from_report(
     return None
 
 
+def _load_stage_auto_score_from_report(
+    report_path_raw: Any,
+    run_dir_raw: Any,
+    *,
+    warnings: list[str],
+    context: str,
+    cache: dict[tuple[str, str], float | None],
+) -> float | None:
+    report_key = str(report_path_raw).strip() if report_path_raw is not None else ""
+    run_dir_key = str(run_dir_raw).strip() if run_dir_raw is not None else ""
+    cache_key = (report_key, run_dir_key)
+    if cache_key in cache:
+        return cache[cache_key]
+
+    for candidate in _candidate_stage_report_paths(report_path_raw, run_dir_raw):
+        try:
+            if not candidate.is_file():
+                continue
+        except OSError:
+            continue
+
+        try:
+            payload = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            warnings.append(
+                f"{context}: failed reading report auto score from {candidate}: {exc}"
+            )
+            continue
+
+        auto_score = _safe_float(payload.get("epubAutoSelectedScore"))
+        if auto_score is None:
+            artifact = payload.get("epubAutoSelection")
+            auto_score = selected_auto_score(artifact if isinstance(artifact, dict) else None)
+        cache[cache_key] = auto_score
+        return auto_score
+
+    cache[cache_key] = None
+    return None
+
+
 def _safe_div(numerator: float | None, denominator: int | float | None) -> float | None:
     if numerator is None or denominator is None or denominator == 0:
         return None
@@ -363,6 +416,7 @@ def _collect_from_csv(
     report_run_config_cache: dict[
         tuple[str, str], tuple[dict[str, Any] | None, str | None, str | None, bool]
     ] = {}
+    report_auto_score_cache: dict[tuple[str, str], float | None] = {}
     benchmark_report_recipes_cache: dict[str, int | None] = {}
     try:
         with csv_path.open("r", newline="", encoding="utf-8") as fh:
@@ -398,6 +452,12 @@ def _collect_from_csv(
                     category = RunCategory.stage_import
                     if "labelstudio" in run_dir.lower():
                         category = RunCategory.labelstudio_import
+                    importer_name = _normalize_optional_text(row.get("importer_name"))
+                    file_name = row.get("file_name", "")
+                    is_epub_like = (
+                        (importer_name or "").lower() == "epub"
+                        or str(file_name).lower().endswith(".epub")
+                    )
 
                     recipes = _safe_int(row.get("recipes"))
                     tips = _safe_int(row.get("tips"))
@@ -422,6 +482,20 @@ def _collect_from_csv(
                         row.get("run_config_json"),
                         warnings=warnings,
                         context=f"CSV row {row_num}",
+                    )
+                    epub_extractor_requested = _normalize_optional_text(
+                        row.get("epub_extractor_requested")
+                    )
+                    epub_extractor_effective = _normalize_optional_text(
+                        row.get("epub_extractor_effective")
+                    )
+                    epub_auto_selected_score = _safe_float(
+                        row.get("epub_auto_selected_score")
+                    )
+                    has_explicit_epub_fields = (
+                        epub_extractor_requested is not None
+                        or epub_extractor_effective is not None
+                        or epub_auto_selected_score is not None
                     )
                     run_config_hash = (
                         str(row.get("run_config_hash") or "").strip() or None
@@ -460,18 +534,54 @@ def _collect_from_csv(
                             run_config_hash = _stable_hash_for_run_config(run_config)
                         if run_config_summary is None:
                             run_config_summary = _summary_for_run_config(run_config)
+                    if run_config is not None and (is_epub_like or has_explicit_epub_fields):
+                        if epub_extractor_requested is None:
+                            epub_extractor_requested = _normalize_optional_text(
+                                run_config.get("epub_extractor_requested")
+                            )
+                        if epub_extractor_requested is None:
+                            epub_extractor_requested = _normalize_optional_text(
+                                run_config.get("epub_extractor")
+                            )
+                        if epub_extractor_effective is None:
+                            epub_extractor_effective = _normalize_optional_text(
+                                run_config.get("epub_extractor_effective")
+                            )
+                        if epub_extractor_effective is None:
+                            epub_extractor_effective = _normalize_optional_text(
+                                run_config.get("epub_extractor")
+                            )
+                        if epub_auto_selected_score is None:
+                            epub_auto_selected_score = _safe_float(
+                                run_config.get("epub_auto_selected_score")
+                            )
+                    if epub_auto_selected_score is None and (is_epub_like or has_explicit_epub_fields):
+                        epub_auto_selected_score = _load_stage_auto_score_from_report(
+                            row.get("report_path"),
+                            run_dir,
+                            warnings=warnings,
+                            context=f"CSV row {row_num}",
+                            cache=report_auto_score_cache,
+                        )
+                    if not (is_epub_like or has_explicit_epub_fields):
+                        epub_extractor_requested = None
+                        epub_extractor_effective = None
+                        epub_auto_selected_score = None
 
                     stage_records.append(StageRecord(
                         run_timestamp=ts,
                         run_dir=run_dir,
-                        file_name=row.get("file_name", ""),
+                        file_name=file_name,
                         report_path=row.get("report_path"),
                         artifact_dir=run_dir,
-                        importer_name=row.get("importer_name") or None,
+                        importer_name=importer_name,
                         run_config=run_config,
                         run_config_hash=run_config_hash,
                         run_config_summary=run_config_summary,
                         run_config_warning=run_config_warning,
+                        epub_extractor_requested=epub_extractor_requested,
+                        epub_extractor_effective=epub_extractor_effective,
+                        epub_auto_selected_score=epub_auto_selected_score,
                         run_category=category,
                         total_seconds=total_seconds,
                         parsing_seconds=_safe_float(row.get("parsing_seconds")),
@@ -689,6 +799,8 @@ def _collect_stage_from_reports(
             category = RunCategory.stage_import
             if "labelstudio" in run_dir_str.lower():
                 category = RunCategory.labelstudio_import
+            importer_name = _normalize_optional_text(data.get("importerName"))
+            is_epub_like = (importer_name or "").lower() == "epub"
 
             w_list = data.get("warnings") or []
             e_list = data.get("errors") or []
@@ -700,6 +812,52 @@ def _collect_stage_from_reports(
                     run_config_hash = _stable_hash_for_run_config(run_config)
                 if run_config_summary is None:
                     run_config_summary = _summary_for_run_config(run_config)
+            epub_extractor_requested = _normalize_optional_text(
+                data.get("epubExtractorRequested")
+            )
+            epub_extractor_effective = _normalize_optional_text(
+                data.get("epubExtractorEffective")
+            )
+            has_explicit_epub_fields = (
+                epub_extractor_requested is not None
+                or epub_extractor_effective is not None
+            )
+            if run_config is not None and (is_epub_like or has_explicit_epub_fields):
+                if epub_extractor_requested is None:
+                    epub_extractor_requested = _normalize_optional_text(
+                        run_config.get("epub_extractor_requested")
+                    )
+                if epub_extractor_requested is None:
+                    epub_extractor_requested = _normalize_optional_text(
+                        run_config.get("epub_extractor")
+                    )
+                if epub_extractor_effective is None:
+                    epub_extractor_effective = _normalize_optional_text(
+                        run_config.get("epub_extractor_effective")
+                    )
+                if epub_extractor_effective is None:
+                    epub_extractor_effective = _normalize_optional_text(
+                        run_config.get("epub_extractor")
+                    )
+            if epub_extractor_effective is None and (is_epub_like or has_explicit_epub_fields):
+                epub_extractor_effective = _normalize_optional_text(data.get("epubBackend"))
+            epub_auto_selected_score = _safe_float(data.get("epubAutoSelectedScore"))
+            if epub_auto_selected_score is None and (is_epub_like or has_explicit_epub_fields):
+                artifact = data.get("epubAutoSelection")
+                if isinstance(artifact, dict):
+                    epub_auto_selected_score = selected_auto_score(artifact)
+            if (
+                epub_auto_selected_score is None
+                and run_config is not None
+                and (is_epub_like or has_explicit_epub_fields)
+            ):
+                epub_auto_selected_score = _safe_float(
+                    run_config.get("epub_auto_selected_score")
+                )
+            if not (is_epub_like or has_explicit_epub_fields):
+                epub_extractor_requested = None
+                epub_extractor_effective = None
+                epub_auto_selected_score = None
 
             records.append(StageRecord(
                 run_timestamp=data.get("runTimestamp") or child.name,
@@ -707,10 +865,13 @@ def _collect_stage_from_reports(
                 file_name=file_name,
                 report_path=str(report_path),
                 artifact_dir=run_dir_str,
-                importer_name=data.get("importerName"),
+                importer_name=importer_name,
                 run_config=run_config,
                 run_config_hash=run_config_hash,
                 run_config_summary=run_config_summary,
+                epub_extractor_requested=epub_extractor_requested,
+                epub_extractor_effective=epub_extractor_effective,
+                epub_auto_selected_score=epub_auto_selected_score,
                 run_category=category,
                 total_seconds=total_seconds,
                 parsing_seconds=_safe_float(

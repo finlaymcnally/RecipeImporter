@@ -19,6 +19,7 @@ from cookimport.parsing.chunks import (
     chunks_from_topic_candidates,
 )
 from cookimport.parsing.epub_auto_select import (
+    selected_auto_score,
     select_epub_extractor_auto,
     write_auto_extractor_artifact,
 )
@@ -252,6 +253,8 @@ def _write_processed_outputs(
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
+    epub_auto_selection: dict[str, Any] | None = None,
+    epub_auto_selected_score: float | None = None,
 ) -> Path:
     timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
     run_root = output_root / timestamp
@@ -274,6 +277,10 @@ def _write_processed_outputs(
         result.report.run_config = dict(run_config)
     result.report.run_config_hash = run_config_hash
     result.report.run_config_summary = run_config_summary
+    if epub_auto_selection is not None:
+        result.report.epub_auto_selection = dict(epub_auto_selection)
+    if epub_auto_selected_score is not None:
+        result.report.epub_auto_selected_score = float(epub_auto_selected_score)
     result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
     enrich_report_with_stats(result.report, result, path)
 
@@ -681,6 +688,8 @@ def generate_pred_run_artifacts(
     )
     effective_epub_extractor = selected_epub_extractor
     auto_resolution_artifact: dict[str, Any] | None = None
+    auto_selection_payload: dict[str, Any] | None = None
+    auto_selection_score: float | None = None
     if (
         path.suffix.lower() == ".epub"
         and selected_epub_extractor == "auto"
@@ -855,15 +864,23 @@ def generate_pred_run_artifacts(
     _notify("Computing source file hash...")
     file_hash = compute_file_hash(path)
     if auto_resolution_artifact is not None:
+        auto_selection_payload = {
+            **auto_resolution_artifact,
+            "source_file": str(path),
+            "source_hash": file_hash,
+        }
+        auto_selection_score = selected_auto_score(auto_selection_payload)
         write_auto_extractor_artifact(
             run_root=run_root,
             source_hash=file_hash,
-            artifact={
-                **auto_resolution_artifact,
-                "source_file": str(path),
-                "source_hash": file_hash,
-            },
+            artifact=auto_selection_payload,
         )
+    if auto_selection_payload is not None:
+        if result.report is None:
+            result.report = ConversionReport()
+        result.report.epub_auto_selection = dict(auto_selection_payload)
+        if auto_selection_score is not None:
+            result.report.epub_auto_selected_score = float(auto_selection_score)
     book_id = result.workbook or path.stem
     processed_run_root: Path | None = None
     processed_report_path: Path | None = None
@@ -878,6 +895,8 @@ def generate_pred_run_artifacts(
             run_config=run_config,
             run_config_hash=run_config_hash,
             run_config_summary=run_config_summary,
+            epub_auto_selection=auto_selection_payload,
+            epub_auto_selected_score=auto_selection_score,
         )
         processed_report_path = (
             processed_run_root / f"{path.stem}.excel_import_report.json"
@@ -1056,6 +1075,8 @@ def generate_pred_run_artifacts(
         "run_config": run_config,
         "run_config_hash": run_config_hash,
         "run_config_summary": run_config_summary,
+        "epub_auto_selection": auto_selection_payload,
+        "epub_auto_selected_score": auto_selection_score,
         "processed_run_root": (
             str(processed_run_root) if processed_run_root is not None else None
         ),
@@ -1113,6 +1134,8 @@ def generate_pred_run_artifacts(
         "run_root": run_root,
         "processed_run_root": processed_run_root,
         "processed_report_path": processed_report_path,
+        "epub_auto_selection": auto_selection_payload,
+        "epub_auto_selected_score": auto_selection_score,
         "tasks_total": len(tasks),
         "manifest_path": manifest_path,
         "tasks": tasks,

@@ -73,6 +73,7 @@ _HTML = """\
 
 <nav id="filters">
   <fieldset id="category-filters"><legend>Categories</legend></fieldset>
+  <fieldset id="extractor-filters"><legend>EPUB Extractor</legend></fieldset>
   <fieldset id="date-filters"><legend>Date range</legend>
     <button data-days="7">7d</button>
     <button data-days="30">30d</button>
@@ -90,7 +91,7 @@ _HTML = """\
     <h3>Recent Runs (Date / Run View)</h3>
     <table id="recent-runs"><thead><tr>
       <th>Timestamp</th><th>File</th><th>Importer</th><th>Total (s)</th>
-      <th>Recipes</th><th>sec/recipe</th><th>Run Config</th><th>Artifact</th>
+      <th>Recipes</th><th>sec/recipe</th><th>EPUB Req</th><th>EPUB Eff</th><th>Auto Score</th><th>Run Config</th><th>Artifact</th>
     </tr></thead><tbody></tbody></table>
     <h3>File Trend (Selected File)</h3>
     <div class="inline-controls">
@@ -99,7 +100,7 @@ _HTML = """\
     </div>
     <div id="file-trend-chart" class="chart-container"></div>
     <table id="file-trend-table"><thead><tr>
-      <th>Timestamp</th><th>Total (s)</th><th>sec/recipe</th><th>Recipes</th><th>Importer</th><th>Run Config</th><th>Artifact</th>
+      <th>Timestamp</th><th>Total (s)</th><th>sec/recipe</th><th>Recipes</th><th>Importer</th><th>EPUB Req</th><th>EPUB Eff</th><th>Auto Score</th><th>Run Config</th><th>Artifact</th>
     </tr></thead><tbody></tbody></table>
   </section>
 
@@ -218,6 +219,7 @@ _JS = """\
 
   let DATA = null;
   let activeCategories = new Set(["stage_import", "benchmark_eval"]);
+  let activeExtractors = new Set();
   let activeDays = 0; // 0 = all
   let selectedFileTrend = "";
 
@@ -266,6 +268,7 @@ _JS = """\
   function init() {
     renderHeader();
     setupFilters();
+    setupExtractorFilters();
     renderAll();
   }
 
@@ -314,6 +317,46 @@ _JS = """\
         activeDays = parseInt(btn.dataset.days, 10);
         renderAll();
       });
+    });
+  }
+
+  function setupExtractorFilters() {
+    const ef = document.getElementById("extractor-filters");
+    if (!ef) return;
+    ef.innerHTML = "";
+    const extractors = Array.from(
+      new Set(
+        (DATA.stage_records || [])
+          .map(record => epubExtractorEffective(record) || epubExtractorRequested(record))
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b));
+
+    activeExtractors = new Set(extractors);
+    if (extractors.length === 0) {
+      const note = document.createElement("span");
+      note.className = "empty-note";
+      note.textContent = "No EPUB extractor data";
+      ef.appendChild(note);
+      return;
+    }
+
+    extractors.forEach(extractor => {
+      const id = "extractor-" + extractor;
+      const label = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = true;
+      cb.value = extractor;
+      cb.id = id;
+      cb.addEventListener("change", () => {
+        if (cb.checked) activeExtractors.add(extractor);
+        else activeExtractors.delete(extractor);
+        renderAll();
+      });
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(" " + extractor));
+      ef.appendChild(label);
     });
   }
 
@@ -367,7 +410,9 @@ _JS = """\
 
   function filteredStage() {
     return DATA.stage_records.filter(r =>
-      activeCategories.has(r.run_category) && isRecent(r.run_timestamp)
+      activeCategories.has(r.run_category) &&
+      isRecent(r.run_timestamp) &&
+      stagePassesExtractorFilter(r)
     );
   }
 
@@ -375,6 +420,13 @@ _JS = """\
     return DATA.benchmark_records.filter(r =>
       activeCategories.has(r.run_category) && isRecent(r.run_timestamp)
     );
+  }
+
+  function stagePassesExtractorFilter(record) {
+    const extractor = epubExtractorEffective(record) || epubExtractorRequested(record);
+    if (!extractor) return true;
+    if (activeExtractors.size === 0) return false;
+    return activeExtractors.has(extractor);
   }
 
   // ---- Render all sections ----
@@ -479,6 +531,8 @@ _JS = """\
         '<td class="num">' + (r.total_seconds != null ? r.total_seconds.toFixed(2) : "-") + '</td>' +
         '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
         '<td class="num">' + (r.per_recipe_seconds != null ? r.per_recipe_seconds.toFixed(3) : "-") + '</td>' +
+        extractorCells(r) +
+        autoScoreCell(r) +
         runConfigCell(r) +
         '<td><a href="' + esc(r.artifact_dir || "") + '">' + esc(shortPath(r.artifact_dir)) + '</a></td>';
       recentBody.appendChild(tr);
@@ -541,6 +595,8 @@ _JS = """\
         '<td class="num">' + (r.per_recipe_seconds != null ? r.per_recipe_seconds.toFixed(3) : "-") + '</td>' +
         '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
         '<td>' + esc(r.importer_name || "-") + '</td>' +
+        extractorCells(r) +
+        autoScoreCell(r) +
         runConfigCell(r) +
         '<td><a href="' + esc(r.artifact_dir || "") + '">' + esc(shortPath(r.artifact_dir)) + '</a></td>';
       fileBody.appendChild(tr);
@@ -690,6 +746,44 @@ _JS = """\
     const parts = path.replace(/\\\\/g, "/").split("/");
     return parts[parts.length - 1] || path;
   }
+  function epubExtractorRequested(record) {
+    if (record.epub_extractor_requested) return String(record.epub_extractor_requested);
+    const importer = String(record.importer_name || "").toLowerCase();
+    if (importer && importer !== "epub") return null;
+    const cfg = record.run_config || {};
+    return cfg.epub_extractor_requested || cfg.epub_extractor || null;
+  }
+  function epubExtractorEffective(record) {
+    if (record.epub_extractor_effective) return String(record.epub_extractor_effective);
+    const importer = String(record.importer_name || "").toLowerCase();
+    if (importer && importer !== "epub") return null;
+    const cfg = record.run_config || {};
+    return cfg.epub_extractor_effective || cfg.epub_extractor || null;
+  }
+  function autoScoreValue(record) {
+    const direct = record.epub_auto_selected_score;
+    if (direct != null && direct !== "") {
+      const parsed = Number(direct);
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+    const cfg = record.run_config || {};
+    const cfgValue = cfg.epub_auto_selected_score;
+    if (cfgValue != null && cfgValue !== "") {
+      const parsed = Number(cfgValue);
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+    return null;
+  }
+  function extractorCells(record) {
+    return (
+      '<td>' + esc(epubExtractorRequested(record) || "-") + '</td>' +
+      '<td>' + esc(epubExtractorEffective(record) || "-") + '</td>'
+    );
+  }
+  function autoScoreCell(record) {
+    const score = autoScoreValue(record);
+    return '<td class="num">' + (score != null ? score.toFixed(3) : "-") + '</td>';
+  }
   function runConfigSummary(record) {
     if (record.run_config_summary) {
       return record.run_config_summary;
@@ -697,6 +791,8 @@ _JS = """\
     const cfg = record.run_config || {};
     const parts = [];
     if (cfg.epub_extractor != null) parts.push("epub_extractor=" + cfg.epub_extractor);
+    if (cfg.epub_extractor_requested != null) parts.push("epub_extractor_requested=" + cfg.epub_extractor_requested);
+    if (cfg.epub_extractor_effective != null) parts.push("epub_extractor_effective=" + cfg.epub_extractor_effective);
     if (cfg.ocr_device != null) parts.push("ocr_device=" + cfg.ocr_device);
     if (cfg.ocr_batch_size != null) parts.push("ocr_batch_size=" + cfg.ocr_batch_size);
     if (cfg.effective_workers != null) parts.push("effective_workers=" + cfg.effective_workers);

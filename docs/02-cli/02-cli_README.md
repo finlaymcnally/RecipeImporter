@@ -8,6 +8,8 @@ read_when:
 # CLI Section Reference
 
 Primary command wiring lives in `cookimport/cli.py`.
+Use this file as the source-of-truth CLI reference for coding/agent context.
+For beginner interactive usage, start with `README.md` in the project root.
 
 ## Entry Points
 
@@ -306,6 +308,21 @@ Top-level command groups:
 - `cookimport tag-recipes <debug-signals|suggest|apply>`
 
 Every command supports `--help`.
+
+### CLI Help Shortcuts
+
+Use these to inspect current help text from the installed version:
+
+```bash
+cookimport --help
+cookimport stage --help
+cookimport perf-report --help
+cookimport inspect --help
+cookimport labelstudio-import --help
+cookimport labelstudio-export --help
+cookimport labelstudio-eval --help
+cookimport labelstudio-benchmark --help
+```
 
 ## Command Reference
 

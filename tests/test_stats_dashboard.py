@@ -30,58 +30,97 @@ from cookimport.analytics.perf_report import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
-SAMPLE_CSV_HEADER = (
-    "run_timestamp,run_dir,file_name,report_path,importer_name,"
-    "total_seconds,parsing_seconds,writing_seconds,ocr_seconds,"
-    "recipes,tips,tip_candidates,topic_candidates,"
-    "standalone_blocks,standalone_topic_blocks,standalone_topic_coverage,"
-    "total_units,per_recipe_seconds,per_tip_seconds,"
-    "per_tip_candidate_seconds,per_topic_candidate_seconds,per_unit_seconds,"
-    "output_files,output_bytes,knowledge_share,knowledge_heavy,"
-    "dominant_stage,dominant_stage_seconds,dominant_checkpoint,dominant_checkpoint_seconds,"
-    "run_category,eval_scope,precision,recall,f1,"
-    "gold_total,gold_matched,pred_total,"
-    "supported_precision,supported_recall,"
-    "boundary_correct,boundary_over,boundary_under,boundary_partial,"
-    "run_config_hash,run_config_summary,run_config_json"
+def _sample_csv_row(values: dict[str, str]) -> str:
+    row = {field: "" for field in _CSV_FIELDS}
+    row.update(values)
+    return ",".join(str(row[field]) for field in _CSV_FIELDS)
+
+
+SAMPLE_CSV_HEADER = ",".join(_CSV_FIELDS)
+
+SAMPLE_CSV_ROW1 = _sample_csv_row(
+    {
+        "run_timestamp": "2026-02-10T10:00:00",
+        "run_dir": "data/output/2026-02-10_10.00.00",
+        "file_name": "cookbook_a.xlsx",
+        "report_path": "data/output/2026-02-10_10.00.00/cookbook_a.excel_import_report.json",
+        "total_seconds": "5.5",
+        "parsing_seconds": "1.2",
+        "writing_seconds": "3.8",
+        "ocr_seconds": "0.0",
+        "recipes": "20",
+        "tips": "5",
+        "tip_candidates": "3",
+        "topic_candidates": "2",
+        "total_units": "30",
+        "per_recipe_seconds": "0.275",
+        "per_tip_seconds": "1.1",
+        "per_tip_candidate_seconds": "1.833",
+        "per_topic_candidate_seconds": "2.75",
+        "per_unit_seconds": "0.183",
+        "output_files": "10",
+        "output_bytes": "50000",
+        "knowledge_share": "0.066",
+        "dominant_stage": "writing",
+        "dominant_stage_seconds": "3.8",
+        "dominant_checkpoint": "write_final_seconds",
+        "dominant_checkpoint_seconds": "3.5",
+        "run_category": "stage_import",
+    }
 )
 
-SAMPLE_CSV_ROW1 = (
-    "2026-02-10T10:00:00,data/output/2026-02-10_10.00.00,cookbook_a.xlsx,"
-    "data/output/2026-02-10_10.00.00/cookbook_a.excel_import_report.json,,"
-    "5.5,1.2,3.8,0.0,"
-    "20,5,3,2,"
-    ",,,"
-    "30,0.275,1.1,1.833,2.75,0.183,"
-    "10,50000,0.066,,"
-    "writing,3.8,write_final_seconds,3.5,"
-    "stage_import,,,,,,,,,,,,,"
+SAMPLE_CSV_ROW2 = _sample_csv_row(
+    {
+        "run_timestamp": "2026-02-11T14:30:00",
+        "run_dir": "data/output/2026-02-11_14.30.00",
+        "file_name": "cookbook_b.epub",
+        "report_path": "data/output/2026-02-11_14.30.00/cookbook_b.excel_import_report.json",
+        "importer_name": "epub",
+        "total_seconds": "12.3",
+        "parsing_seconds": "4.5",
+        "writing_seconds": "6.1",
+        "ocr_seconds": "1.7",
+        "recipes": "50",
+        "tips": "10",
+        "tip_candidates": "8",
+        "topic_candidates": "5",
+        "total_units": "73",
+        "per_recipe_seconds": "0.246",
+        "per_tip_seconds": "1.23",
+        "per_tip_candidate_seconds": "1.5375",
+        "per_topic_candidate_seconds": "2.46",
+        "per_unit_seconds": "0.168",
+        "output_files": "25",
+        "output_bytes": "120000",
+        "knowledge_share": "0.068",
+        "dominant_stage": "writing",
+        "dominant_stage_seconds": "6.1",
+        "dominant_checkpoint": "write_final_seconds",
+        "dominant_checkpoint_seconds": "5.8",
+        "run_category": "stage_import",
+    }
 )
 
-SAMPLE_CSV_ROW2 = (
-    "2026-02-11T14:30:00,data/output/2026-02-11_14.30.00,cookbook_b.epub,"
-    "data/output/2026-02-11_14.30.00/cookbook_b.excel_import_report.json,epub,"
-    "12.3,4.5,6.1,1.7,"
-    "50,10,8,5,"
-    ",,,"
-    "73,0.246,1.23,1.5375,2.46,0.168,"
-    "25,120000,0.068,,"
-    "writing,6.1,write_final_seconds,5.8,"
-    "stage_import,,,,,,,,,,,,,"
-)
-
-SAMPLE_CSV_BENCH_ROW = (
-    "2026-02-11T16:00:00,data/golden/eval-vs-pipeline/2026-02-11_16.00.00,my_book.pdf,"
-    ",,,,,"
-    ",,,,,"
-    ",,,"
-    ",,,,,,"
-    ",,,,,"
-    ",,,"
-    "benchmark_eval,freeform-spans,0.05,0.25,0.08333333333333333,"
-    "100,25,500,"
-    "0.08,0.55,"
-    "10,8,5,2"
+SAMPLE_CSV_BENCH_ROW = _sample_csv_row(
+    {
+        "run_timestamp": "2026-02-11T16:00:00",
+        "run_dir": "data/golden/eval-vs-pipeline/2026-02-11_16.00.00",
+        "file_name": "my_book.pdf",
+        "run_category": "benchmark_eval",
+        "eval_scope": "freeform-spans",
+        "precision": "0.05",
+        "recall": "0.25",
+        "f1": "0.08333333333333333",
+        "gold_total": "100",
+        "gold_matched": "25",
+        "pred_total": "500",
+        "supported_precision": "0.08",
+        "supported_recall": "0.55",
+        "boundary_correct": "10",
+        "boundary_over": "8",
+        "boundary_under": "5",
+        "boundary_partial": "2",
+    }
 )
 
 
@@ -109,6 +148,8 @@ SAMPLE_REPORT_JSON = {
     },
     "runConfig": {
         "epub_extractor": "legacy",
+        "epub_extractor_requested": "legacy",
+        "epub_extractor_effective": "legacy",
         "ocr_device": "auto",
         "ocr_batch_size": 1,
         "effective_workers": 10,
@@ -195,7 +236,7 @@ def _write_eval_report(tmp_path: Path) -> Path:
 class TestSchema:
     def test_dashboard_data_minimal(self):
         d = DashboardData()
-        assert d.schema_version == "6"
+        assert d.schema_version == "7"
         assert d.stage_records == []
         assert d.benchmark_records == []
 
@@ -267,10 +308,14 @@ class TestCollectors:
         assert r.errors_count == 0
         assert r.run_config == {
             "epub_extractor": "legacy",
+            "epub_extractor_requested": "legacy",
+            "epub_extractor_effective": "legacy",
             "ocr_device": "auto",
             "ocr_batch_size": 1,
             "effective_workers": 10,
         }
+        assert r.epub_extractor_requested is None
+        assert r.epub_extractor_effective is None
         assert r.run_config_hash == "abc123def456"
         assert "epub_extractor=legacy" in str(r.run_config_summary)
 
@@ -288,9 +333,15 @@ class TestCollectors:
                 "run_category": "stage_import",
                 "total_seconds": "9.5",
                 "recipes": "4",
+                "epub_extractor_requested": "auto",
+                "epub_extractor_effective": "legacy",
+                "epub_auto_selected_score": "0.73",
                 "run_config_json": json.dumps(
                     {
-                        "epub_extractor": "legacy",
+                        "epub_extractor": "auto",
+                        "epub_extractor_requested": "auto",
+                        "epub_extractor_effective": "legacy",
+                        "epub_auto_selected_score": 0.73,
                         "ocr_device": "auto",
                         "ocr_batch_size": 1,
                         "effective_workers": 10,
@@ -312,13 +363,19 @@ class TestCollectors:
         assert r.file_name == "book.epub"
         assert r.importer_name == "epub"
         assert r.run_config == {
-            "epub_extractor": "legacy",
+            "epub_extractor": "auto",
+            "epub_extractor_requested": "auto",
+            "epub_extractor_effective": "legacy",
+            "epub_auto_selected_score": 0.73,
             "ocr_device": "auto",
             "ocr_batch_size": 1,
             "effective_workers": 10,
         }
+        assert r.epub_extractor_requested == "auto"
+        assert r.epub_extractor_effective == "legacy"
+        assert r.epub_auto_selected_score == pytest.approx(0.73)
         assert r.run_config_hash is not None
-        assert "epub_extractor=legacy" in str(r.run_config_summary)
+        assert "epub_extractor=auto" in str(r.run_config_summary)
 
     def test_csv_collector_stage_run_config_fallback_from_report(self, tmp_path):
         report_path = _write_report_json(tmp_path)
@@ -350,10 +407,14 @@ class TestCollectors:
         assert len(data.stage_records) == 1
         assert data.stage_records[0].run_config == {
             "epub_extractor": "legacy",
+            "epub_extractor_requested": "legacy",
+            "epub_extractor_effective": "legacy",
             "ocr_device": "auto",
             "ocr_batch_size": 1,
             "effective_workers": 10,
         }
+        assert data.stage_records[0].epub_extractor_requested is None
+        assert data.stage_records[0].epub_extractor_effective is None
         assert data.stage_records[0].run_config_hash == "abc123def456"
         assert "epub_extractor=legacy" in str(data.stage_records[0].run_config_summary)
 
@@ -554,18 +615,26 @@ class TestCollectors:
         csv_path = history_dir / "performance_history.csv"
 
         def _bench_row(ts: str, run_dir: Path, source_file: str) -> str:
-            return (
-                f"{ts},{run_dir},{source_file},"
-                ",,,,,"
-                ",,,,,"
-                ",,,"
-                ",,,,,,"
-                ",,,,,"
-                ",,,"
-                "benchmark_eval,freeform-spans,0.05,0.25,0.08333333333333333,"
-                "100,25,500,"
-                "0.08,0.55,"
-                "10,8,5,2"
+            return _sample_csv_row(
+                {
+                    "run_timestamp": ts,
+                    "run_dir": str(run_dir),
+                    "file_name": source_file,
+                    "run_category": "benchmark_eval",
+                    "eval_scope": "freeform-spans",
+                    "precision": "0.05",
+                    "recall": "0.25",
+                    "f1": "0.08333333333333333",
+                    "gold_total": "100",
+                    "gold_matched": "25",
+                    "pred_total": "500",
+                    "supported_precision": "0.08",
+                    "supported_recall": "0.55",
+                    "boundary_correct": "10",
+                    "boundary_over": "8",
+                    "boundary_under": "5",
+                    "boundary_partial": "2",
+                }
             )
 
         older_ts = "2026-02-15_23.25.45"
@@ -592,18 +661,26 @@ class TestCollectors:
         csv_path = history_dir / "performance_history.csv"
 
         def _bench_row(ts: str, run_dir: Path, source_file: str) -> str:
-            return (
-                f"{ts},{run_dir},{source_file},"
-                ",,,,,"
-                ",,,,,"
-                ",,,"
-                ",,,,,,"
-                ",,,,,"
-                ",,,"
-                "benchmark_eval,freeform-spans,0.05,0.25,0.08333333333333333,"
-                "100,25,500,"
-                "0.08,0.55,"
-                "10,8,5,2"
+            return _sample_csv_row(
+                {
+                    "run_timestamp": ts,
+                    "run_dir": str(run_dir),
+                    "file_name": source_file,
+                    "run_category": "benchmark_eval",
+                    "eval_scope": "freeform-spans",
+                    "precision": "0.05",
+                    "recall": "0.25",
+                    "f1": "0.08333333333333333",
+                    "gold_total": "100",
+                    "gold_matched": "25",
+                    "pred_total": "500",
+                    "supported_precision": "0.08",
+                    "supported_recall": "0.55",
+                    "boundary_correct": "10",
+                    "boundary_over": "8",
+                    "boundary_under": "5",
+                    "boundary_partial": "2",
+                }
             )
 
         keep_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_00.04.14"
@@ -764,7 +841,7 @@ class TestRenderer:
         assert 'id="file-trend-chart"' in html
         assert 'id="file-trend-table"' in html
         assert "<th>File</th><th>Importer</th><th>Total (s)</th>" in html
-        assert "<th>Recipes</th><th>sec/recipe</th><th>Run Config</th><th>Artifact</th>" in html
+        assert "<th>Recipes</th><th>sec/recipe</th><th>EPUB Req</th><th>EPUB Eff</th><th>Auto Score</th><th>Run Config</th><th>Artifact</th>" in html
 
     def test_html_embeds_inline_data_for_file_scheme(self, tmp_path):
         data = DashboardData(
@@ -940,20 +1017,26 @@ class TestBenchmarkCsv:
         )
 
         csv_path = history_dir / "performance_history.csv"
-        bench_row = (
-            "2026-02-11T16:00:00,"
-            + str(eval_dir)
-            + ",my_book.pdf,"
-            ",,,,,"
-            ",,,,,"
-            ",,,"
-            ",,,,,,"
-            ",,,,,"
-            ",,,"
-            "benchmark_eval,freeform-spans,0.05,0.25,0.08333333333333333,"
-            "100,25,500,"
-            "0.08,0.55,"
-            "10,8,5,2"
+        bench_row = _sample_csv_row(
+            {
+                "run_timestamp": "2026-02-11T16:00:00",
+                "run_dir": str(eval_dir),
+                "file_name": "my_book.pdf",
+                "run_category": "benchmark_eval",
+                "eval_scope": "freeform-spans",
+                "precision": "0.05",
+                "recall": "0.25",
+                "f1": "0.08333333333333333",
+                "gold_total": "100",
+                "gold_matched": "25",
+                "pred_total": "500",
+                "supported_precision": "0.08",
+                "supported_recall": "0.55",
+                "boundary_correct": "10",
+                "boundary_over": "8",
+                "boundary_under": "5",
+                "boundary_partial": "2",
+            }
         )
         csv_path.write_text(
             SAMPLE_CSV_HEADER + "\n" + bench_row + "\n",

@@ -1,544 +1,338 @@
-# Add multi-backend “race and auto-pick best output” for EPUB, integrated with per-run RunSettings
+---
+summary: "ExecPlan refresh for multi-backend EPUB auto-selection, focused on finishing report/analytics visibility and a dedicated race command on top of shipped extractor infrastructure."
+read_when:
+  - "When extending EPUB auto-selection (`--epub-extractor auto`) or race diagnostics"
+  - "When wiring EPUB extractor decision metadata into reports, perf CSV, or dashboard views"
+---
+
+# Multi-backend EPUB auto-selection: finish race visibility and tooling
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-This repository includes `PLANS.md` at the repository root. This ExecPlan must be maintained in accordance with `PLANS.md` (same path).
+This plan must be maintained in accordance with `docs/PLANS.md`.
 
 ## Purpose / Big Picture
 
-EPUB import quality is currently fragile, and choosing the “least bad” extractor/segmentation path is a manual, time-consuming process. The trick that saves time is to **run multiple backends for the same input**, score their outputs deterministically, and **auto-pick the best** — while keeping full traceability so you can later see which backend won, why, and how often.
+The original `06` goal was to run multiple EPUB extraction backends, choose the best one deterministically, and make that decision easy to inspect later. Since this draft was first written, most backend and auto-selection infrastructure has already shipped (`legacy`, `unstructured`, `markdown`, `markitdown`, plus deterministic `auto` resolution before workers run). The remaining gap is not extraction capability; the gap is visibility and ergonomics.
 
-After this change:
-
-- Importing an EPUB can be configured (per-run, via the existing Run Settings chooser/editor) to use **single-backend** mode or **auto-best-of** mode.
-- In auto-best-of mode, the system runs multiple EPUB extraction backends (initially: `legacy` vs `unstructured`, but extensible), computes a deterministic **QualityScoreV1**, and selects the best candidate.
-- The selection decision and candidate scores are recorded in the per-file report JSON (and surfaced in history/dashboard), so you can benchmark and compare permutations without guesswork.
-- You also get a developer-facing “race” command to compare backends on one EPUB and produce a compact, inspectable report.
-
-This plan explicitly integrates with the already-implemented **per-run RunSettings selector/editor + runConfig persistence** (see the implemented ExecPlan “Add per-run Run Settings selector + toggle editor, with runConfig persistence”). We will build on that system rather than reinventing settings/traceability.
+After this refreshed plan is implemented, a user can run EPUB imports with `--epub-extractor auto` and get the backend decision captured directly in the conversion report, visible in history/dashboard surfaces, and available through a dedicated one-file race command under the existing `cookimport epub ...` debug namespace. This avoids manual archaeology in raw artifacts while preserving today’s deterministic behavior.
 
 ## Progress
 
-- [x] (2026-02-16) Prerequisite confirmed: per-run `RunSettings` model + chooser/editor + runConfig hash/summary persistence already exist and are wired into reports/CSV/dashboard.
-- [ ] (2026-02-16) Add `QualityScoreV1` deterministic heuristic scorer and persist it into conversion reports.
-- [ ] Add a generic “backend race” engine with failure-tolerant candidate execution + stable tie-breaking + structured race report.
-- [ ] Wire EPUB importer to support “single backend” vs “race and pick best” using RunSettings fields, and record selection details into report JSON.
-- [ ] Ensure split-job EPUB runs behave safely (initially: warn/disable race in split mode; later: add probe-based preflight selection so all jobs use one chosen backend).
-- [ ] Surface key race outputs in analytics (CSV + dashboard) for visibility across runs.
-- [ ] Add `cookimport backend-race …` developer command (and/or `cookimport inspect …` enhancement) to run race on one EPUB and print/emit comparison artifacts.
-- [ ] Add tests (unit + integration-ish) covering scoring stability, race selection determinism, report field presence, and “add a new backend” guardrails.
-- [ ] Update docs: “How to add a backend candidate”, “How scoring works”, and “How to run sweeps / interpret dashboards”.
+- [x] (2026-02-20_10.35.00) Reviewed current code paths and completed ExecPlans (`03`, `04`, `05`, `07`, `08`) to establish what is already shipped vs. still missing from this plan’s intent.
+- [x] (2026-02-20_10.46.00) Confirmed that `auto` extractor selection is already deterministic and resolved before worker fan-out (`cookimport/parsing/epub_auto_select.py`, `cookimport/cli.py`, `cookimport/labelstudio/ingest.py`).
+- [x] (2026-02-20_10.53.00) Confirmed split-job safety behavior: workers receive concrete effective extractors, not unresolved `auto`, and split planning respects extractor capabilities.
+- [x] (2026-02-20_14.12.00) Added first-class report schema fields for EPUB auto-selection/race metadata and selected-score summary (`epubAutoSelection`, `epubAutoSelectedScore`).
+- [x] (2026-02-20_14.24.00) Propagated auto-selection metadata through stage worker/split-merge report paths and benchmark prediction processed report/manifest paths.
+- [x] (2026-02-20_14.30.00) Added `cookimport epub race` command under `cookimport/epubdebug/cli.py` with deterministic candidate scoring and `epub_race_report.json`.
+- [x] (2026-02-20_14.37.00) Added explicit extractor visibility fields to perf CSV + dashboard schema/collector/renderer (including dashboard extractor filter).
+- [x] (2026-02-20_14.49.00) Added targeted tests/docs/conventions/understandings updates and validated with local venv test run.
 
 ## Surprises & Discoveries
 
-- None yet. As implementation proceeds, capture surprises with evidence (test output, logs, or small excerpts).
+- Observation: The old `06` draft is no longer the right baseline because the core extractor architecture was implemented later under adjacent plans.
+  Evidence: `docs/plans/08-HolisticHardening.md` and current code already include `markdown` backend, deterministic `auto`, and benchmark wiring.
+
+- Observation: Auto-selection details are currently persisted as a raw artifact (`epub_extractor_auto.json`) but not as first-class report fields.
+  Evidence: `cookimport/parsing/epub_auto_select.py:write_auto_extractor_artifact` writes JSON under `raw/epub/...`; `cookimport/core/models.py:ConversionReport` has no dedicated auto-selection field.
+
+- Observation: Existing analytics can infer extractor choice from `runConfig`, but there is no explicit, normalized field for auto-selected score or candidate outcome.
+  Evidence: Added additive CSV columns (`epub_extractor_requested`, `epub_extractor_effective`, `epub_auto_selected_score`) and stage dashboard fields in `cookimport/analytics/*` to remove inference-only behavior.
+
+- Observation: Non-EPUB stage rows still carry generic run config keys; extractor-specific dashboard columns should not be populated from those values.
+  Evidence: Collector now gates extractor field projection by EPUB-like rows (importer/file) so text/pdf rows do not show misleading extractor labels.
 
 ## Decision Log
 
-- Decision: Reuse the existing canonical per-run `RunSettings` system as the source of truth for enabling/disabling backend racing and for ensuring runConfig traceability.
-  Rationale: The project already has a strong “one canonical place” contract for run knobs and reporting; backend racing should be another knob, not a parallel configuration stack.
-  Date/Author: 2026-02-16 / assistant
+- Decision: Keep the current deterministic sampling-based auto-selection design as the default race mechanism for v1 of this plan refresh.
+  Rationale: It is already deployed, split-safe, benchmark-safe, and fast. Replacing it with full N-backend full-book conversion would be more expensive and riskier without clear user benefit for this solo workflow.
+  Date/Author: 2026-02-20 / Codex
 
-- Decision: Introduce a deterministic heuristic “QualityScoreV1” for auto-selection, rather than requiring Label Studio gold data or an LLM judge.
-  Rationale: Auto-selection must work for brand-new books without ground truth and must be cheap and reproducible. Gold-based eval remains valuable for benchmarking, but should not be required to run the pipeline.
-  Date/Author: 2026-02-16 / assistant
+- Decision: Add report/analytics visibility by promoting existing auto-selection artifact data, rather than creating an entirely separate second scoring pipeline.
+  Rationale: Reusing the shipped selection payload keeps behavior consistent and minimizes new moving parts.
+  Date/Author: 2026-02-20 / Codex
 
-- Decision: Record backend-race results (candidates + scores + selected backend) as structured report data, not only as console output.
-  Rationale: The pipeline’s core value includes traceability and visibility. If the system picks a backend automatically, you must be able to audit that decision later.
-  Date/Author: 2026-02-16 / assistant
+- Decision: Implement a dedicated race entrypoint as `cookimport epub race` (within existing EPUB debug CLI), not as a new top-level command.
+  Rationale: EPUB debugging already lives under `cookimport epub ...`; keeping this command there preserves CLI discoverability and avoids command-surface sprawl.
+  Date/Author: 2026-02-20 / Codex
+
+- Decision: Centralize selected-score extraction in `selected_auto_score(...)` and reuse it in stage/prediction/report/analytics wiring.
+  Rationale: Prevents drift where each layer computes selected candidate score differently.
+  Date/Author: 2026-02-20 / Codex
 
 ## Outcomes & Retrospective
 
-- Not started. At completion, summarize what was achieved, what remains, and what you would do differently.
+Implemented the remaining `06` scope end-to-end:
+
+- Stage and processed report JSON now emit first-class `epubAutoSelection` + `epubAutoSelectedScore` for auto runs.
+- Split EPUB merges preserve auto metadata in merged reports.
+- Prediction-run manifests now include auto metadata, and benchmark CSV appenders can carry `epub_auto_selected_score`.
+- `cookimport epub race` now provides one-command deterministic candidate comparison + `epub_race_report.json`.
+- Perf CSV/dashboard now expose explicit EPUB extractor requested/effective/auto-score fields (with extractor filtering in dashboard UI).
+
+Validation evidence:
+
+- `pytest -q tests/test_epub_auto_select.py tests/test_cli_output_structure.py tests/test_epub_debug_cli.py tests/test_performance_features.py tests/test_stats_dashboard.py`
+- Result: `53 passed` (warnings only) in local `.venv`.
+
+Residual limitations:
+
+- `epub_extractor=markitdown` can be passed to `epub race --candidates`, but because auto scoring samples spine ranges, markitdown candidate runs are expected to fail and are reported as failed candidates (by design for now).
 
 ## Context and Orientation
 
-This repository is a Python 3.12 CLI-first recipe import pipeline. It supports multiple source formats through a plugin architecture and converges into shared staging/writing/reporting.
+Relevant current modules and contracts:
 
-Key existing components this plan builds on:
+- `cookimport/plugins/epub.py`: extractor execution (`legacy`, `unstructured`, `markdown`, `markitdown`) and per-run `epubBackend` reporting.
+- `cookimport/parsing/epub_extractors.py`: explicit extractor implementations and diagnostics metadata.
+- `cookimport/parsing/extraction_quality.py`: deterministic score model (`score_blocks`) used by auto-selection.
+- `cookimport/parsing/epub_auto_select.py`: deterministic candidate sampling and effective extractor resolution with artifact payload.
+- `cookimport/cli.py`: stage orchestration, per-file auto resolution, split planning, worker dispatch, split merge.
+- `cookimport/cli_worker.py`: single-file and split-job report writing path.
+- `cookimport/labelstudio/ingest.py`: benchmark prediction generation path, including `auto` resolution and scoped EPUB env behavior.
+- `cookimport/core/models.py`: `ConversionReport` schema.
+- `cookimport/analytics/perf_report.py`: performance CSV schema and row append logic.
+- `cookimport/analytics/dashboard_schema.py`, `cookimport/analytics/dashboard_collect.py`, `cookimport/analytics/dashboard_render.py`: dashboard data contract and rendering.
+- `cookimport/epubdebug/cli.py`: existing EPUB debug command group where new race command should live.
 
-1) Per-run settings and traceability (already implemented)
-- `cookimport/config/run_settings.py` defines the canonical `RunSettings` model with:
-  - typed fields representing run knobs,
-  - UI metadata so the toggle-table editor can render settings rows automatically,
-  - `stable_hash()` and `summary()` used to persist config identity into run artifacts.
-- `cookimport/config/last_run_store.py` persists “last run settings” separately for `import` vs `benchmark`.
-- Interactive flows in `cookimport/cli.py` route Import/Benchmark through a “Run Settings mode” chooser (global / last / edit), then print the chosen summary before running.
-- Conversion reports JSON, the performance history CSV, and the dashboard collector/renderer already carry `run_config_hash` + `run_config_summary`, and reports store the structured `runConfig` snapshot.
+Definitions used in this plan:
 
-2) EPUB import path (current architecture)
-- The EPUB importer lives under `cookimport/plugins/epub.py` and implements the standard importer protocol (`detect`, `inspect`, `convert`).
-- Conversion returns a `ConversionResult` containing recipes/tips/topics/non-recipe blocks/raw artifacts plus a per-file `ConversionReport`.
-- Staging orchestration occurs in `cookimport/cli.py` and `cookimport/cli_worker.py` and writes outputs + report JSON via `cookimport/staging/writer.py`.
-- EPUB inputs may be split into spine-based jobs for parallelism (split-job planning/merge behavior is part of ingestion/staging).
-
-Terms used in this plan:
-
-- Backend: An alternative implementation that produces the same “kind” of intermediate output. For this plan, it initially means “EPUB extraction backend” (e.g., `legacy` vs `unstructured`) but the design should generalize to other toggles later.
-- Candidate: One backend run option within a race (backend id + any RunSettings overrides applied).
-- Race: Running multiple candidates on the same input (or a representative probe), scoring each result, and selecting the best deterministically.
-- QualityScoreV1: A deterministic heuristic score computed from a `ConversionResult` (primarily recipe candidate shape + missing fields + warnings) used for auto-selection.
+- Auto-selection artifact: JSON payload produced by `select_epub_extractor_auto(...)`, including candidates, sample indices, and selected backend rationale.
+- Effective extractor: concrete backend actually used by conversion (`legacy`, `unstructured`, `markdown`, `markitdown`), after resolving requested value.
+- Race command: a one-file developer command that runs the same deterministic auto-selection logic and writes a focused comparison artifact.
 
 ## Plan of Work
 
-### Milestone 1: Add deterministic QualityScoreV1 and persist it into the report
+### Milestone 1: Report contract for auto-selection metadata
 
-At the end of this milestone, every conversion report contains a numeric “quality score” and a small breakdown of signals that produced it. This score is computed deterministically from the conversion output and is cheap enough to run for every file.
-
-Work:
-
-1) Create a small quality scoring module, suggested path:
-- `cookimport/quality/scoring_v1.py`
-
-2) Define a Pydantic model for scoring output, suggested:
-
-- `QualityScoreV1`
-  - `overall: float` (0–100)
-  - `signals: dict[str, float]` (named components; stable keys)
-  - `notes: list[str]` (human explanations, stable-ish but can evolve)
-  - `version: str = "v1"`
-
-3) Implement `score_conversion_result_v1(result: ConversionResult) -> QualityScoreV1` using only deterministic signals that exist without ground truth. The initial scoring recipe should prioritize:
-- Penalize missing critical recipe fields (name, ingredients, instructions).
-- Reward a higher fraction of “well-formed recipes” (recipes having name + >=1 ingredient + >=1 instruction).
-- Penalize pathological segmentation signals:
-  - absurd recipe count relative to block count or extracted char count (use conservative heuristics),
-  - extremely high duplicate-title rate,
-  - extremely low average ingredient/instruction counts.
-- Penalize conversion errors/warnings recorded in the report (if those exist).
-- If candidate segmentation score/confidence already exists, incorporate it as a gentle positive signal (do not make it dominate).
-
-Important constraints:
-- Scoring must be stable across runs (no randomness).
-- If the result has 0 recipes, score should be low but not crash.
-- If some metrics are missing for certain importers, treat them as “unknown” rather than failing.
-
-4) Persist the score into the report schema:
-- Update `cookimport/core/models.py` where `ConversionReport` is defined (or wherever report schema lives).
-- Add optional fields:
-  - `qualityScoreV1: float | None`
-  - `qualitySignalsV1: dict[str, float] | None`
-  - `qualityNotesV1: list[str] | None`
-  - `qualityVersion: str | None` (to allow future versions)
-- Ensure defaults are None so older reports remain readable.
-
-5) Populate these fields in the conversion/report-building path:
-- Find the “report builder” location used by the active stage writer (per docs, this is not necessarily the legacy `core/reporting.py`).
-- After conversion completes but before report JSON is written, compute `QualityScoreV1` and attach fields to the report.
-
-Proof/acceptance:
-
-- Run `cookimport stage data/input/some.epub` and inspect the written report JSON:
-  - it contains `qualityScoreV1` and `qualitySignalsV1`.
-- Unit test proves scoring determinism:
-  - calling `score_conversion_result_v1` twice on the same fixture result yields identical output.
-
-### Milestone 2: Implement a generic backend race engine (candidate runner + scorer + stable selection)
-
-At the end of this milestone, there is a reusable “race” helper that can run N candidates, tolerate failures, score each candidate, and choose the winner deterministically while producing a structured race report.
+Add explicit report fields so backend choice is visible without reading raw artifacts.
 
 Work:
 
-1) Create a backend race module, suggested path:
-- `cookimport/backends/race.py`
+1) Extend `ConversionReport` in `cookimport/core/models.py` with optional EPUB auto-selection fields. Keep these additive and backward-compatible.
+- `epub_auto_selection` (alias `epubAutoSelection`): structured payload containing selected extractor, sample indices, candidates, and selection reason.
+- `epub_auto_selected_score` (alias `epubAutoSelectedScore`): float score for selected candidate when available.
 
-2) Define Pydantic models to persist race outcomes (these will be embedded into the conversion report):
+2) Normalize payload shape before writing:
+- Keep field names stable and JSON-serializable.
+- Preserve candidate order and status (`ok`/`failed`) exactly as evaluated.
 
-- `BackendRaceCandidateReport`
-  - `candidateId: str` (stable id like `epub:legacy`)
-  - `backendId: str` (e.g., `legacy`, `unstructured`)
-  - `runConfigHash: str` and `runConfigSummary: str` (the candidate’s effective settings identity)
-  - `qualityScoreV1: float | None`
-  - `qualitySignalsV1: dict[str, float] | None`
-  - `status: Literal["ok","error"]`
-  - `errorType: str | None`, `errorMessage: str | None` (short; keep long trace in logs, not report)
-  - `timingSeconds: float | None` (optional but useful)
+3) Ensure non-auto runs remain clean:
+- Fields should be omitted or `None` when extractor request is not `auto`.
 
-- `BackendRaceReport`
-  - `mode: str` (e.g., `auto_best`)
-  - `candidates: list[BackendRaceCandidateReport]`
-  - `selectedCandidateId: str | None`
-  - `selectedBackendId: str | None`
-  - `selectionRationale: str` (short: “highest QualityScoreV1; tie-break by fewer errors then stable candidate order”)
-  - `raceVersion: str = "v1"`
+Acceptance:
+- A stage report generated with `--epub-extractor auto` contains `epubAutoSelection` and `epubAutoSelectedScore`.
+- A stage report generated with `--epub-extractor legacy` does not contain misleading auto fields.
 
-3) Implement a helper function that is generic and easy to reuse:
+### Milestone 2: Propagate metadata through stage + benchmark flows
 
-- `run_backend_race_v1(...) -> tuple[selected_result, BackendRaceReport]`
-
-Inputs should be:
-- `base_settings: RunSettings`
-- `candidates: list[BackendCandidateSpec]` where each spec has:
-  - `backend_id: str`
-  - `settings_overrides: dict[str, object]` (usually just `{ "epub_extractor": "legacy" }`)
-  - `candidate_id: str` (derived, stable)
-- `run_one(settings: RunSettings) -> ConversionResult` (calls into the actual importer/pipeline)
-- `score_one(result: ConversionResult) -> QualityScoreV1`
-
-Selection algorithm must be deterministic:
-- Exclude errored candidates unless all candidates error.
-- Prefer the highest `qualityScoreV1.overall`.
-- If tie, prefer fewer report errors/warnings if available; else stable order.
-- If all error, raise the “best” error but include the race report in logs (and, where possible, attach to report for post-mortem).
-
-4) Add `BackendRaceReport` as an optional field on `ConversionReport` (or nested under a new `backendSelection`/`backendRace` field). The report JSON should be sufficient to answer:
-- what candidates were tried,
-- how they scored,
-- which one was selected,
-- and whether any candidate failed.
-
-Proof/acceptance:
-
-- Add unit tests with a fake `run_one` that returns synthetic `ConversionResult`-like objects and a fake scorer:
-  - proves stable tie-breaking,
-  - proves failure-tolerant behavior (one candidate errors, another wins),
-  - proves that candidate ordering is stable and deterministic.
-
-### Milestone 3: Wire EPUB importer to use backend racing based on RunSettings (single vs auto-best)
-
-At the end of this milestone, EPUB conversion supports auto-best-of mode and records a backend race report into the output report JSON. Only the selected candidate’s outputs are written as the run outputs.
+Ensure report metadata survives both direct writes and split merges.
 
 Work:
 
-1) Extend `RunSettings` with the knobs needed to enable racing:
-- In `cookimport/config/run_settings.py`, add fields (names are suggestions; keep consistent with existing naming style):
+1) In `cookimport/cli.py`, keep a per-file map of auto-selection artifacts during pre-worker resolution.
 
-  - `epub_backend_mode`: enum with at least:
-    - `single` (default)
-    - `auto_best` (race multiple backends and pick best)
-  - `epub_backend_candidates`: optional “preset selector” OR keep it implicit for v1.
-    - For v1, simplest: hardcode candidates `[legacy, unstructured]` when mode is `auto_best`.
-    - If you add a selector, keep it as a simple enum like:
-      - `legacy_vs_unstructured` (default)
-      - `legacy_only`
-      - `unstructured_only`
-  - `backend_race_debug_dump`: bool default False (whether to write small candidate debug artifacts)
-  - `backend_race_max_probe_spine_items`: int default 0 (0 means “no probing; run full candidate conversions”; used in Milestone 4)
+2) Pass per-file artifact data into worker/merge write paths:
+- `stage_one_file(...)` in `cookimport/cli_worker.py`
+- `stage_epub_job(...)` in `cookimport/cli_worker.py`
+- `_merge_split_jobs(...)` path in `cookimport/cli.py`
 
-Each new field must:
-- have UI metadata so it appears in the toggle-table editor,
-- be included in `RunSettings.to_run_config_dict()`,
-- be included in `RunSettings.summary()` in a compact way,
-- and be part of `stable_hash()` identity (because it materially changes behavior).
+3) In `cookimport/labelstudio/ingest.py`, attach the same metadata into prediction-run report/manifests so benchmark paths keep parity with stage paths.
 
-2) In `cookimport/plugins/epub.py`, identify where the backend is chosen today.
-- There is currently an `epub_extractor` knob (per prior work). Factor the extractor choice into a dedicated function if it is not already:
-  - `_convert_with_extractor(path, mapping, progress_callback, extractor_id, ...) -> ConversionResult`
-- Ensure each backend has a stable id string that matches `RunSettings.epub_extractor` values.
+4) Preserve existing invariants:
+- Do not re-resolve `auto` inside workers.
+- Do not mutate global env state outside scoped context managers.
 
-3) Implement racing in the EPUB conversion path:
-- If `run_settings.epub_backend_mode == "single"`:
-  - run exactly one backend (the existing behavior).
-- If `auto_best`:
-  - build candidate list (v1: legacy + unstructured),
-  - run `run_backend_race_v1` to obtain the selected `ConversionResult` and `BackendRaceReport`,
-  - attach `BackendRaceReport` into the selected result’s report fields,
-  - also attach the selected backend id somewhere obvious in report fields, e.g.:
-    - `selectedBackendId: "unstructured"` or `epubSelectedExtractor: "unstructured"`.
+Acceptance:
+- Single-file auto stage report includes full auto payload.
+- Split EPUB auto stage run writes one merged report with the same selected extractor and payload shape.
+- Prediction-run artifacts include requested/effective extractor plus auto-selection metadata when applicable.
 
-Important: avoid output duplication
-- Candidate conversions must not cause the stage writer to write drafts for losing candidates.
-- The easiest safe approach is: run candidate conversions *inside* the importer and return only the selected `ConversionResult` to the stage writer.
+### Milestone 3: Add `cookimport epub race` developer command
 
-4) Console visibility:
-- During auto-best selection, print a compact summary (via Rich) such as:
-
-    EPUB backend race (2 candidates):
-      legacy: score=62.3 (ok)
-      unstructured: score=79.0 (ok)
-    Selected: unstructured (score=79.0)
-
-This should happen regardless of interactive/non-interactive mode, because it is an important behavioral difference.
-
-5) Failure handling:
-- If one backend crashes, record it in the race report and continue.
-- If all backends crash, raise, but ensure the exception message tells the user:
-  - “All EPUB backends failed; see logs; race report recorded in … (if possible).”
-
-Proof/acceptance:
-
-- Run an EPUB import in interactive mode, set `epub_backend_mode=auto_best`, and observe:
-  - console prints candidate scores and the selected backend.
-  - report JSON includes backend race data.
-- Re-run with the same file and settings and confirm the selected backend is stable.
-
-### Milestone 4: Make racing safe and useful in split-job EPUB runs (probe-based selection)
-
-At the end of this milestone, enabling `auto_best` does not create “mixed backend per job” behavior. Instead, the system either:
-- (initially) disables race with a warning when split-job mode is active, or
-- (preferred final) runs a small probe for each backend to choose one backend for the whole book, then uses that backend for all jobs.
+Expose a fast, explicit way to inspect backend candidate scoring without running full stage.
 
 Work:
 
-1) Identify split-job planning for EPUB:
-- Search for EPUB job planning modules (likely near `cookimport/staging/pdf_jobs.py` or similar).
-- Find where EPUB jobs are planned and where worker jobs are executed/merged.
+1) Add a new subcommand in `cookimport/epubdebug/cli.py`:
+- `cookimport epub race PATH --out OUTDIR [--candidates unstructured,markdown,legacy] [--json] [--force]`
 
-2) Implement “probe selection” when split jobs are active:
-- If `run_settings.epub_backend_mode == auto_best` and `epub_split_workers > 1` (or equivalent):
-  - If `backend_race_max_probe_spine_items == 0`:
-    - Print a warning and fall back to single-backend mode (use the configured `epub_extractor`).
-  - Else:
-    - For each candidate backend:
-      - run a conversion only over the first N spine items (or first job range), where N comes from `backend_race_max_probe_spine_items`.
-      - score the probe results using `QualityScoreV1`.
-    - Choose the best backend and use it for the full split run (all jobs use the same chosen backend).
-    - Record in `BackendRaceReport` whether the race was “probe-based” and what N was.
+2) Command behavior:
+- Resolve candidates with `select_epub_extractor_auto(...)`.
+- Print a compact summary table (candidate, status, average score, selected marker).
+- Write `epub_race_report.json` to `OUTDIR` (or equivalent stable name).
 
-3) Ensure report correctness:
-- The final per-file report must clearly show:
-  - race was probe-based,
-  - which backend was selected,
-  - candidate probe scores.
+3) Keep implementation aligned with stage behavior:
+- Reuse deterministic sampling logic and scorer from `epub_auto_select.py`.
+- Do not introduce a second, different selection algorithm.
 
-Proof/acceptance:
+Acceptance:
+- Running the command on an EPUB writes a deterministic race report artifact.
+- Console output clearly identifies selected backend and candidate score summary.
 
-- Run a split-job EPUB stage (configure split workers > 1).
-- Confirm:
-  - selection occurs once,
-  - all jobs use the same backend,
-  - report JSON includes probe-based selection details.
+### Milestone 4: Analytics visibility and dashboard support
 
-### Milestone 5: Visibility and benchmarking surfaces (CSV + dashboard + quick “inspect” tools)
-
-At the end of this milestone, you can see backend choices and quality scores across many runs without opening raw JSON.
+Add explicit fields so historical analysis does not require parsing nested run config blobs manually.
 
 Work:
 
-1) Update perf history CSV append logic:
-- In `cookimport/analytics/perf_report.py`, add columns populated from the per-file report JSON:
-  - `quality_score_v1`
-  - `selected_backend` (or `epub_selected_backend`)
-  - `backend_race_mode` (optional)
-- Keep columns stable and simple. Avoid exploding candidate lists into CSV.
+1) Extend CSV row schema in `cookimport/analytics/perf_report.py` with additive columns:
+- `epub_extractor_requested`
+- `epub_extractor_effective`
+- `epub_auto_selected_score`
 
-2) Update dashboard ingestion/rendering:
-- In `cookimport/analytics/dashboard_schema.py` and collector/renderer modules, ingest and render:
-  - quality score and selected backend per run.
-- Add at least one way to filter/group by:
-  - run_config_hash (already exists),
-  - selected backend (new).
+2) Populate new columns from report/run_config data with safe fallback:
+- prefer explicit report fields, fallback to run config keys when possible.
 
-3) Add a CLI helper for one-file inspection:
-- Add a new command:
-  - `cookimport backend-race <path-to-epub> --output-dir <...>`
-- Behavior:
-  - runs conversion in `auto_best` mode regardless of global defaults,
-  - prints candidate comparison,
-  - writes a small `backend_race.json` artifact in a predictable place (either under the run root or under a `debug/` subfolder),
-  - does not write full drafts unless explicitly requested (default should be “report-only” for speed).
+3) Extend dashboard schema and collector:
+- add corresponding fields to stage records in `cookimport/analytics/dashboard_schema.py`.
+- parse from CSV in `cookimport/analytics/dashboard_collect.py`.
 
-Proof/acceptance:
+4) Extend dashboard rendering:
+- expose effective extractor and selected auto score in stage table and filters in `cookimport/analytics/dashboard_render.py`.
 
-- Run the command on one EPUB and confirm:
-  - console output shows candidate scores and winner,
-  - a JSON artifact exists with the race report,
-  - perf report and dashboard show quality score + selected backend for normal stage runs.
+Acceptance:
+- `performance_history.csv` includes new EPUB extractor visibility fields for stage rows.
+- `stats-dashboard` displays effective extractor and selected score when present.
 
-### Milestone 6: Guardrails and tests (stability + “add new backend” rules)
+### Milestone 5: Tests and docs
 
-At the end of this milestone, it is difficult to regress the race/scoring system silently.
+Add guardrails and document the final contract.
 
 Work:
 
-1) Unit tests:
-- `tests/test_quality_scoring_v1.py`:
-  - scoring is deterministic for a synthetic conversion result.
-  - scoring handles edge cases (0 recipes, missing fields) without crashing.
-- `tests/test_backend_race.py`:
-  - deterministic tie-breaking,
-  - failure-tolerance (one candidate errors),
-  - “all fail” behavior.
-- Extend existing `tests/test_run_settings.py` to ensure new fields have UI metadata and are included in summary/hash behavior.
+1) Tests:
+- Extend CLI output tests (`tests/test_cli_output_structure.py`) to assert `epubAutoSelection` fields on auto runs.
+- Add/extend split-path tests to ensure merged reports keep auto-selection metadata.
+- Add command tests for `cookimport epub race` in `tests/test_epub_debug_cli.py`.
+- Add perf/dashboard tests for new CSV and schema fields.
 
-2) Integration-ish test:
-- If there are EPUB fixture tests, add one that runs the importer in auto_best mode with a tiny fixture EPUB and asserts:
-  - report includes `backendRace`,
-  - `selectedBackendId` is set,
-  - `qualityScoreV1` is present.
+2) Docs:
+- Update `docs/03-ingestion/03-ingestion_readme.md` with explicit report field contract.
+- Update `docs/08-analytics/08-analytics_readme.md` and `docs/08-analytics/dashboard_readme.md` with new CSV/dashboard fields.
+- Update `docs/understandings/IMPORTANT-UNDERSTANDING-epub-extractor-types.md` with race command usage.
 
-3) Doc update:
-- Add a section to the relevant docs README (or a new doc under `docs/03-ingestion/`):
-  - “How to add a new EPUB backend candidate”
-    - implement extractor function,
-    - give it a stable id,
-    - add it to the candidate list for auto_best (or to the preset enum),
-    - ensure tests cover it.
-  - “How QualityScoreV1 works (and what it does not measure)”
-  - “How to run backend-race and interpret its report”.
+3) Finalize this plan:
+- Mark progress items complete.
+- Record test command outcomes and residual limitations in `Outcomes & Retrospective`.
 
-Proof/acceptance:
-
-- Running `pytest -q` passes.
-- Removing a required UI metadata key from a new RunSettings field should fail the run-settings tests (then revert).
+Acceptance:
+- Targeted tests pass in local venv.
+- Docs reflect the shipped report + analytics contracts.
 
 ## Concrete Steps
 
-These steps are written so a novice can execute them while implementing. Run commands from the repository root.
+Run from repository root:
 
-1) Locate the existing RunSettings model and how it is used in stage/import:
+1) Environment:
 
-    ls cookimport/config
-    python -c "import cookimport.config.run_settings as rs; print(rs.RunSettings)"
+    source .venv/bin/activate
+    pip install -e .[dev]
 
-    (If the module path differs, search for `class RunSettings` and `stable_hash`.)
+2) Targeted tests:
 
-2) Locate report schema and where reports are written:
+    pytest -q tests/test_epub_auto_select.py tests/test_cli_output_structure.py tests/test_epub_debug_cli.py tests/test_performance_features.py tests/test_stats_dashboard.py
 
-    python -c "import cookimport.core.models as m; print([n for n in dir(m) if 'Report' in n])"
-    (Then open the file and find `ConversionReport`.)
+3) Manual stage check:
 
-3) Add QualityScoreV1 and wire it into report writing:
-- Run a single EPUB stage and inspect the report JSON.
-- Expect to see new keys.
+    cookimport stage data/input/<book>.epub --epub-extractor auto --workers 1 --epub-split-workers 2
 
-4) Add backend race engine:
-- Run unit tests for the new module.
+Inspect:
+- `<run_root>/<book_slug>.excel_import_report.json` for `epubAutoSelection`.
+- `<run_root>/raw/epub/<source_hash>/epub_extractor_auto.json` for parity with report payload.
 
-5) Wire EPUB importer:
-- Run `cookimport stage data/input/some.epub` in `auto_best` mode (via Run Settings editor).
-- Confirm console prints candidate comparison and selection.
+4) Manual race command check:
 
-6) Add analytics fields:
-- Run a stage.
-- Run `cookimport perf-report`.
-- Inspect `data/output/.history/performance_history.csv` for the new columns.
+    cookimport epub race data/input/<book>.epub --out /tmp/epub-race --force
 
-7) Generate dashboard (if applicable in this repo):
+Inspect:
+- `/tmp/epub-race/epub_race_report.json`
+- console summary for selected backend and candidate scores.
 
-    cookimport stats-dashboard
-    (Open the generated HTML and confirm the new fields appear.)
+5) Analytics check:
+
+    cookimport perf-report --run-dir <run_root> --out-dir data/output --write-csv
+    cookimport stats-dashboard --output-root data/output --golden-root data/golden --out-dir data/output/.history/dashboard
+
+Inspect:
+- `data/output/.history/performance_history.csv` includes new EPUB extractor columns.
+- dashboard stage table/filter exposes effective extractor and selected score.
 
 ## Validation and Acceptance
 
-This work is accepted when all of the following are demonstrably true:
+This plan is complete when all of the following are true:
 
-1) Auto-best behavior:
-- With `epub_backend_mode=auto_best`, importing an EPUB tries multiple backends and selects one deterministically.
-- The selection is visible in console output and recorded in the per-file report JSON.
+1) Report visibility:
+- Auto stage runs include first-class auto-selection metadata in report JSON.
+- Non-auto runs do not populate auto-only fields.
 
-2) Traceability:
-- The report JSON contains:
-  - `runConfig`/`runConfigHash`/`runConfigSummary` (existing),
-  - `qualityScoreV1` + `qualitySignalsV1`,
-  - `backendRace` (or equivalent) containing candidate list, per-candidate status, scores, and selected backend.
+2) Split parity:
+- Split EPUB runs preserve the same selected backend and auto metadata in merged report outputs.
 
-3) Visibility:
-- `performance_history.csv` contains `quality_score_v1` and `selected_backend` for each staged file.
-- The dashboard (if used) can display/filter by selected backend and show quality score.
+3) Debug ergonomics:
+- `cookimport epub race` provides one-command candidate comparison and artifact output.
 
-4) Safety:
-- If one backend errors, the run continues with remaining candidates and records the failure.
-- If all backends error, the failure is explicit and actionable, not silent.
+4) Analytics visibility:
+- History CSV and dashboard include explicit requested/effective extractor fields and selected score when available.
 
-5) Extensibility:
-- Adding a new backend candidate requires edits in a small, obvious set of places (backend implementation + candidate registration), and tests fail if it is miswired.
+5) Regression safety:
+- Targeted tests covering auto selection, report shape, race command, and analytics fields pass.
 
 ## Idempotence and Recovery
 
-- Auto-best should not mutate global defaults. It is purely per-run behavior controlled through RunSettings, consistent with the existing per-run settings design.
-- Race candidate execution should not write drafts for losing candidates. Only the selected candidate’s conversion result should flow into the normal writer path.
-- If `backend_race_debug_dump` writes artifacts, they should be written under the run root and should be safe to overwrite on rerun (use stable file names and atomic writes where appropriate).
-- Backward compatibility: new report fields must be optional so older report JSON files remain readable by the dashboard/perf report tools.
+- All changes are additive to report/dashboard contracts; old report files remain readable because new fields are optional.
+- Stage and benchmark runs remain timestamped and idempotent at run-root level.
+- If any new analytics column causes issues, fallback is to leave the field blank (not crash ingestion/report collection).
+- Race command is read-only on input EPUB and writes only to explicit output path.
 
 ## Artifacts and Notes
 
-Example console output (illustrative):
-
-    EPUB backend race (mode=auto_best, candidates=2)
-      legacy: score=61.8 (ok)
-      unstructured: score=78.9 (ok)
-    Selected backend: unstructured (score=78.9)
-
-Example report JSON fragment (illustrative shape):
+Expected report fragment for auto runs (shape-level example):
 
     {
-      "runConfigHash": "a1b2c3d4e5f6",
-      "runConfigSummary": "epub_backend_mode=auto_best | ...",
-      "qualityScoreV1": 78.9,
-      "qualitySignalsV1": {
-        "well_formed_recipe_share": 0.82,
-        "missing_fields_penalty": -5.0,
-        "duplicate_title_penalty": -2.0
+      "runConfig": {
+        "epub_extractor": "auto",
+        "epub_extractor_requested": "auto",
+        "epub_extractor_effective": "markdown"
       },
-      "backendRace": {
-        "raceVersion": "v1",
-        "mode": "auto_best",
-        "selectionRationale": "Highest QualityScoreV1; tie-break by stable candidate order",
-        "selectedBackendId": "unstructured",
-        "selectedCandidateId": "epub:unstructured",
+      "epubBackend": "markdown",
+      "epubAutoSelectedScore": 0.81,
+      "epubAutoSelection": {
+        "requested_extractor": "auto",
+        "effective_extractor": "markdown",
+        "sample_indices": [0, 1, 6, 11, 12],
+        "selected_reason": "highest_average_score_then_candidate_order",
         "candidates": [
-          { "candidateId": "epub:legacy", "backendId": "legacy", "status": "ok", "qualityScoreV1": 61.8, "runConfigHash": "...", "runConfigSummary": "..." },
-          { "candidateId": "epub:unstructured", "backendId": "unstructured", "status": "ok", "qualityScoreV1": 78.9, "runConfigHash": "...", "runConfigSummary": "..." }
+          {"backend": "unstructured", "status": "ok", "average_score": 0.74},
+          {"backend": "markdown", "status": "ok", "average_score": 0.81},
+          {"backend": "legacy", "status": "failed", "error": "..."}
         ]
       }
     }
 
+Notes:
+- Keep the report payload aligned with the raw auto artifact structure to reduce drift and debugging confusion.
+- `markitdown` stays a concrete opt-in extractor and is not part of default auto candidate set unless explicitly changed.
+
 ## Interfaces and Dependencies
 
-This plan introduces (or requires) the following interfaces/types.
+Expected interfaces after implementation:
 
-In `cookimport/quality/scoring_v1.py`:
+- `cookimport/core/models.py`:
+  - `ConversionReport.epub_auto_selection: dict[str, Any] | None` (alias `epubAutoSelection`)
+  - `ConversionReport.epub_auto_selected_score: float | None` (alias `epubAutoSelectedScore`)
 
-    class QualityScoreV1(BaseModel):
-        version: str = "v1"
-        overall: float
-        signals: dict[str, float] = {}
-        notes: list[str] = []
+- `cookimport/epubdebug/cli.py`:
+  - new command `epub race` that reuses `select_epub_extractor_auto(...)`
 
-    def score_conversion_result_v1(result: ConversionResult) -> QualityScoreV1:
-        ...
+- `cookimport/analytics/perf_report.py`:
+  - new CSV fields for requested/effective extractor and selected auto score
 
-In `cookimport/backends/race.py`:
+- `cookimport/analytics/dashboard_schema.py`:
+  - stage record fields mirroring the same extractor/score values
 
-    class BackendCandidateSpec(BaseModel):
-        candidate_id: str
-        backend_id: str
-        settings_overrides: dict[str, object] = {}
+No new third-party dependencies are required for this refresh.
 
-    class BackendRaceCandidateReport(BaseModel):
-        candidateId: str
-        backendId: str
-        runConfigHash: str
-        runConfigSummary: str
-        qualityScoreV1: float | None = None
-        qualitySignalsV1: dict[str, float] | None = None
-        status: Literal["ok","error"]
-        errorType: str | None = None
-        errorMessage: str | None = None
-        timingSeconds: float | None = None
+Plan revision note (2026-02-20_11.08.55): Replaced the outdated pre-implementation draft with a current-state ExecPlan that treats multi-backend extraction and deterministic auto-selection as already shipped, and narrows remaining work to report/analytics visibility plus a dedicated EPUB race command.
 
-    class BackendRaceReport(BaseModel):
-        raceVersion: str = "v1"
-        mode: str
-        candidates: list[BackendRaceCandidateReport]
-        selectedCandidateId: str | None = None
-        selectedBackendId: str | None = None
-        selectionRationale: str
-
-    def run_backend_race_v1(
-        *,
-        base_settings: RunSettings,
-        candidates: list[BackendCandidateSpec],
-        run_one: Callable[[RunSettings], ConversionResult],
-        score_one: Callable[[ConversionResult], QualityScoreV1],
-    ) -> tuple[ConversionResult, BackendRaceReport]:
-        ...
-
-In `cookimport/config/run_settings.py`:
-
-- Add fields described in Milestone 3 and ensure each has UI metadata.
-
-In `cookimport/core/models.py` (`ConversionReport`):
-
-- Add optional fields described in Milestone 1 and Milestone 2:
-  - quality score/breakdown fields,
-  - backend race report field.
-
-No new third-party dependencies are required for the core race/scoring system. (If you add a sweep command later that reads YAML, that would be a new dependency; prefer Python-defined plans in v1.)
-
----
-
-Change note (2026-02-16):
-
-This ExecPlan is a revision of the earlier “multi-backend auto-pick” plan to explicitly integrate with the now-implemented per-run `RunSettings` selector/editor and runConfig persistence. The new plan removes duplicated work around run configuration plumbing and instead uses RunSettings as the canonical knob layer for backend racing, while extending report/analytics visibility to cover race decisions and quality scoring.
+Plan revision note (2026-02-20_14.49.00): Completed implementation of report/manifest metadata propagation, `epub race`, and analytics/dashboard visibility; updated tests/docs and recorded validation outcomes.

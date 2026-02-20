@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from cookimport.core.blocks import Block
-from cookimport.parsing.epub_auto_select import select_epub_extractor_auto
+from cookimport.parsing.epub_auto_select import selected_auto_score, select_epub_extractor_auto
 
 
 class _FakeImporter:
@@ -75,3 +75,14 @@ def test_select_epub_extractor_auto_raises_when_all_fail(
 
     with pytest.raises(RuntimeError):
         select_epub_extractor_auto(path)
+
+
+def test_selected_auto_score_reads_selected_candidate() -> None:
+    artifact = {
+        "effective_extractor": "markdown",
+        "candidates": [
+            {"backend": "legacy", "status": "ok", "average_score": 0.42},
+            {"backend": "markdown", "status": "ok", "average_score": 0.77},
+        ],
+    }
+    assert selected_auto_score(artifact) == pytest.approx(0.77)

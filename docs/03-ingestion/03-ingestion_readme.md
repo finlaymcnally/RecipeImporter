@@ -222,6 +222,10 @@ Block extraction:
 - Skips nav/TOC spine docs when identified via OPF `properties="nav"` or nav/toc signatures in HTML.
 - Applies shared post-extraction cleanup for `unstructured`/`legacy`/`markdown` (`cookimport/parsing/epub_postprocess.py`) before segmentation.
 - `auto` mode is resolved once per EPUB in stage/benchmark orchestration and persisted as `raw/epub/<source_hash>/epub_extractor_auto.json`.
+- Stage/processed report JSON now promotes auto-selection as first-class fields (not just raw artifact):
+  - `epubAutoSelection`: full auto race payload (candidates, sample indices, selected backend/reason).
+  - `epubAutoSelectedScore`: average score for the selected candidate backend.
+  - non-auto runs omit these fields.
 
 MarkItDown-specific behavior:
 - Uses `markitdown` with plugins disabled (`MarkItDown(enable_plugins=False)`)

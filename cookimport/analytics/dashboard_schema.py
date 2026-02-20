@@ -12,6 +12,7 @@ Schema version history:
     4 – stage/import run_config warning metadata for stale rows
     5 – benchmark recipe count support (CSV + processed report enrichment)
     6 – explicit run_config_hash/run_config_summary support in CSV + manifests
+    7 – explicit EPUB extractor requested/effective/auto-score fields on stage records
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-SCHEMA_VERSION = "6"
+SCHEMA_VERSION = "7"
 
 
 class RunCategory(str, Enum):
@@ -47,6 +48,9 @@ class StageRecord(BaseModel):
     run_config_hash: str | None = None
     run_config_summary: str | None = None
     run_config_warning: str | None = None
+    epub_extractor_requested: str | None = None
+    epub_extractor_effective: str | None = None
+    epub_auto_selected_score: float | None = None
     run_category: RunCategory = RunCategory.stage_import
 
     # timing

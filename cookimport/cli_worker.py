@@ -131,6 +131,18 @@ def apply_result_limits(
     return len(result.recipes), len(result.tips), truncated
 
 
+def _apply_epub_auto_metadata(
+    report: ConversionReport,
+    *,
+    epub_auto_selection: dict[str, Any] | None,
+    epub_auto_selected_score: float | None,
+) -> None:
+    if epub_auto_selection is not None:
+        report.epub_auto_selection = dict(epub_auto_selection)
+    if epub_auto_selected_score is not None:
+        report.epub_auto_selected_score = float(epub_auto_selected_score)
+
+
 def _run_import(
     file_path: Path,
     mapping_config: MappingConfig | None,
@@ -194,6 +206,8 @@ def stage_one_file(
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
+    epub_auto_selection: dict[str, Any] | None = None,
+    epub_auto_selected_score: float | None = None,
 ) -> dict[str, Any]:
     """Process a single file and return a summary."""
 
@@ -260,6 +274,11 @@ def stage_one_file(
             result.report.run_config = dict(run_config)
         result.report.run_config_hash = run_config_hash
         result.report.run_config_summary = run_config_summary
+        _apply_epub_auto_metadata(
+            result.report,
+            epub_auto_selection=epub_auto_selection,
+            epub_auto_selected_score=epub_auto_selected_score,
+        )
         result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
         enrich_report_with_stats(result.report, result, file_path)
 
@@ -310,6 +329,11 @@ def stage_one_file(
             runConfig=dict(run_config) if run_config is not None else None,
             runConfigHash=run_config_hash,
             runConfigSummary=run_config_summary,
+        )
+        _apply_epub_auto_metadata(
+            report,
+            epub_auto_selection=epub_auto_selection,
+            epub_auto_selected_score=epub_auto_selected_score,
         )
         write_report(report, out, file_path.stem)
         return {
@@ -436,6 +460,8 @@ def stage_epub_job(
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
+    epub_auto_selection: dict[str, Any] | None = None,
+    epub_auto_selected_score: float | None = None,
 ) -> dict[str, Any]:
     """Process an EPUB spine-range job and return a mergeable payload."""
 
@@ -483,6 +509,11 @@ def stage_epub_job(
             result.report.run_config = dict(run_config)
         result.report.run_config_hash = run_config_hash
         result.report.run_config_summary = run_config_summary
+        _apply_epub_auto_metadata(
+            result.report,
+            epub_auto_selection=epub_auto_selection,
+            epub_auto_selected_score=epub_auto_selected_score,
+        )
         result.raw_artifacts = []
         file_stats.total_seconds = (dt.datetime.now() - start_total).total_seconds()
 

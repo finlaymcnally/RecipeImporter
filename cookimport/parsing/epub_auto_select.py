@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from cookimport.parsing.block_roles import assign_block_roles
 from cookimport.parsing.extraction_quality import score_blocks
@@ -134,6 +134,34 @@ def write_auto_extractor_artifact(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(artifact, indent=2, sort_keys=True), encoding="utf-8")
     return target
+
+
+def selected_auto_score(artifact: Mapping[str, Any] | None) -> float | None:
+    """Return the selected candidate score from an auto-selection artifact."""
+    if not isinstance(artifact, Mapping):
+        return None
+
+    selected_backend = str(artifact.get("effective_extractor") or "").strip().lower()
+    if not selected_backend:
+        return None
+
+    raw_candidates = artifact.get("candidates")
+    if not isinstance(raw_candidates, Sequence):
+        return None
+
+    for candidate in raw_candidates:
+        if not isinstance(candidate, Mapping):
+            continue
+        backend = str(candidate.get("backend") or "").strip().lower()
+        if backend != selected_backend:
+            continue
+        if str(candidate.get("status") or "").strip().lower() != "ok":
+            continue
+        try:
+            return float(candidate.get("average_score"))
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 def _resolve_spine_count(inspection: Any) -> int:

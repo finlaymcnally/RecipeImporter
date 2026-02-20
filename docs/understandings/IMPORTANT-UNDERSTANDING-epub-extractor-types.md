@@ -65,6 +65,10 @@ What it does:
 Split support:
 - Resolved before workers launch; workers use the resolved concrete backend.
 
+Debug ergonomics:
+- `cookimport epub race <book>.epub --out <dir>` runs the same deterministic auto-selection scorer, prints candidate summary, and writes `epub_race_report.json`.
+- Use `--candidates` to compare a custom extractor set while keeping the same scoring logic used by `auto`.
+
 ## `markitdown` (compatibility path)
 
 What it does:

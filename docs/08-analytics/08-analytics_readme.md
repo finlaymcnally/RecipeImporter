@@ -39,7 +39,7 @@ Analytics in this repo currently means three surfaces:
 - Producer: `cookimport stats-dashboard`
 - Collector: `cookimport/analytics/dashboard_collect.py`
 - Data contract: `cookimport/analytics/dashboard_schema.py`
-- Current schema version: `6` (adds explicit `run_config_hash` / `run_config_summary` fields on stage + benchmark records)
+- Current schema version: `7` (adds explicit EPUB extractor requested/effective/auto-score fields on stage records)
 - Renderer: `cookimport/analytics/dashboard_render.py`
 - `index.html` now embeds an inline copy of the same dashboard JSON so the dashboard still works when opened via `file://` in browsers that block local `fetch()`.
 
@@ -115,6 +115,10 @@ For stage rows, key analytics columns include:
   - `run_config_hash` (grouping/filter key)
   - `run_config_summary` (table/display string)
   - `run_config_json` (serialized `runConfig` for full fidelity/tooltips/fallbacks)
+  - explicit EPUB visibility columns:
+    - `epub_extractor_requested`
+    - `epub_extractor_effective`
+    - `epub_auto_selected_score`
   - dashboard collector fallback: when `run_config_json` is empty, collector tries `report_path` JSON `runConfig`
   - stale-row signal: when a `report_path` reference is present but missing on disk, dashboard can emit a run-config warning
 
