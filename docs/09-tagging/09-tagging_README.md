@@ -8,6 +8,7 @@ read_when:
 # Tagging Section Reference
 
 Auto-tagging code lives under `cookimport/tagging/` and is wired into the main CLI via `tag-catalog` and `tag-recipes` command groups.
+For tagging architecture/build/fix-attempt history and anti-loop context, use `docs/09-tagging/09-tagging_log.md`.
 
 ## Core modules
 
@@ -25,3 +26,5 @@ Auto-tagging code lives under `cookimport/tagging/` and is wired into the main C
   `cookimport/tagging/README.md`
 - Implementation plan details:
   `docs/12-plans/I4.1-Auto-tag.md`
+- Version/build/fix-attempt history:
+  `docs/09-tagging/09-tagging_log.md`

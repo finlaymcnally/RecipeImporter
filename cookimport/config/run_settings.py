@@ -36,6 +36,8 @@ _SUMMARY_ORDER = (
 class EpubExtractor(str, Enum):
     unstructured = "unstructured"
     legacy = "legacy"
+    markdown = "markdown"
+    auto = "auto"
     markitdown = "markitdown"
 
 
@@ -163,7 +165,9 @@ class RunSettings(BaseModel):
             group="Extraction",
             label="EPUB Extractor",
             order=60,
-            description="EPUB extraction engine (unstructured, legacy, or markitdown).",
+            description=(
+                "EPUB extraction engine (unstructured, legacy, markdown, auto, or markitdown)."
+            ),
         ),
     )
     epub_unstructured_html_parser_version: UnstructuredHtmlParserVersion = Field(

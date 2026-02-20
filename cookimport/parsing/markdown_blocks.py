@@ -15,6 +15,7 @@ def _new_block(
     text: str,
     *,
     source_path: Path,
+    source_location_id: str,
     extraction_backend: str,
     md_line_start: int,
     md_line_end: int,
@@ -31,7 +32,9 @@ def _new_block(
     block.add_feature("extraction_backend", extraction_backend)
     block.add_feature("md_line_start", md_line_start)
     block.add_feature("md_line_end", md_line_end)
-    block.add_feature("source_location_id", source_path.stem)
+    block.add_feature("markdown_line_start", md_line_start)
+    block.add_feature("markdown_line_end", md_line_end)
+    block.add_feature("source_location_id", source_location_id)
     return block
 
 
@@ -39,9 +42,11 @@ def markdown_to_blocks(
     markdown_text: str,
     *,
     source_path: Path,
+    source_location_id: str | None = None,
     extraction_backend: str,
 ) -> list[Block]:
     """Parse markdown lines into deterministic blocks with line provenance."""
+    effective_source_location_id = source_location_id or source_path.stem
     lines = markdown_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     blocks: list[Block] = []
     paragraph_lines: list[str] = []
@@ -57,6 +62,7 @@ def markdown_to_blocks(
         block = _new_block(
             paragraph_text,
             source_path=source_path,
+            source_location_id=effective_source_location_id,
             extraction_backend=extraction_backend,
             md_line_start=paragraph_start,
             md_line_end=end_line,
@@ -80,6 +86,7 @@ def markdown_to_blocks(
             block = _new_block(
                 heading_text,
                 source_path=source_path,
+                source_location_id=effective_source_location_id,
                 extraction_backend=extraction_backend,
                 md_line_start=line_number,
                 md_line_end=line_number,
@@ -98,6 +105,7 @@ def markdown_to_blocks(
             block = _new_block(
                 list_text,
                 source_path=source_path,
+                source_location_id=effective_source_location_id,
                 extraction_backend=extraction_backend,
                 md_line_start=line_number,
                 md_line_end=line_number,

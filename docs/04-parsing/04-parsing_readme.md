@@ -1,16 +1,16 @@
 ---
-summary: "Comprehensive, code-verified parsing guide with chronology, current behavior, prior attempts, and known failure modes."
+summary: "Code-verified parsing reference focused on current behavior, contracts, and regression-sensitive modules."
 read_when:
   - When changing ingredient parsing, instruction metadata extraction, step-ingredient linking, or EPUB recipe segmentation
   - When changing tip/topic extraction, knowledge chunking, or chunk lane mapping
-  - When reconciling parsing docs against code/tests or avoiding repeated dead-end fixes
+  - When reconciling parsing docs against code/tests (use `04-parsing_log.md` for historical attempts)
 ---
 
 # Parsing: Consolidated System Reference
 
-This file replaces all prior docs in `docs/04-parsing/` and is now the single source of truth for parsing.
+This file is the source of truth for current parsing behavior.
 
-Primary goal: preserve critical detail (including previous failed/partial attempts) so future work does not restart old loops.
+Historical architecture versions, builds, and fix attempts now live in `docs/04-parsing/04-parsing_log.md`.
 
 ## What This Covers
 
@@ -22,20 +22,12 @@ Primary goal: preserve critical detail (including previous failed/partial attemp
 - Topic candidate extraction
 - Knowledge chunk generation, lane assignment, and highlight extraction
 - Output artifacts and where they are written
-- Known bad behavior / sharp edges
-- Historical timeline of what was changed and why
+- Current limitations / sharp edges
 
-## Source Inputs That Were Merged
+## History and Prior Attempts
 
-Chronology from old docs and filenames:
-
-1. `docs/04-parsing/2026-01-31-step-ingredient-splitting.md`
-2. `docs/04-parsing/2026-02-10-parsing-lane-alignment.md`
-3. `docs/04-parsing/step_linking_readme.md`
-4. `docs/04-parsing/tips_readme.md`
-5. `docs/04-parsing/04-parsing_README.md`
-
-All details below were rechecked against current code and tests.
+- Architecture versions, build notes, and fix attempts: `docs/04-parsing/04-parsing_log.md`
+- If debugging starts looping, check the log first before trying a new approach.
 
 ## Where The Parsing Code Lives
 
@@ -51,6 +43,10 @@ Core modules:
 - `cookimport/parsing/cleaning.py`
 - `cookimport/parsing/tip_taxonomy.py`
 - `cookimport/parsing/block_roles.py`
+- `cookimport/parsing/markdown_blocks.py`
+- `cookimport/parsing/epub_extractors.py`
+- `cookimport/parsing/extraction_quality.py`
+- `cookimport/parsing/epub_auto_select.py`
 
 Major call sites:
 
@@ -358,11 +354,13 @@ Heuristics are intentionally simple; downstream logic should not assume high-pre
 
 ## EPUB Postprocess and Health (`cookimport/parsing/epub_postprocess.py`, `cookimport/parsing/epub_health.py`)
 
-- `postprocess_epub_blocks(...)` runs after `legacy`/`unstructured` extraction to do shared structural cleanup:
+- `postprocess_epub_blocks(...)` runs after `legacy`/`unstructured`/`markdown` extraction to do shared structural cleanup:
   - split BR-collapsed/table/list multi-line blocks into deterministic per-line blocks
   - strip leading bullet markers
   - drop obvious noise blocks (pagebreak markers/nav leftovers)
 - `compute_epub_extraction_health(...)` computes extraction sanity metrics and warning keys (`epub_*`) that are attached to EPUB conversion reports.
+- `score_blocks(...)` in `cookimport/parsing/extraction_quality.py` provides deterministic 0..1 extraction scoring used by EPUB `auto` backend selection.
+- `select_epub_extractor_auto(...)` in `cookimport/parsing/epub_auto_select.py` samples deterministic spine indices and records rationale artifacts.
 
 ### Caveat
 
@@ -381,116 +379,9 @@ Under a run output folder:
 - Chunks: `data/output/<timestamp>/chunks/<workbook_stem>/c{index}.json`
 - Chunk summary: `data/output/<timestamp>/chunks/<workbook_stem>/chunks.md`
 
-## Historical Timeline (What Changed, Why, Outcome)
-
-### 2026-01-30 to 2026-01-31: step-linking duplication and split handling
-
-Problem observed:
-
-- Ingredients duplicated across multiple steps when only one assignment intended.
-
-What was implemented:
-
-- Two-phase global resolver.
-- Earliest-use tiebreak among multiple use-verb steps.
-- Strong split gating for true multi-step assignment.
-- Split confidence penalty for review triage.
-
-Outcome:
-
-- Major duplicate reduction while preserving intentional split behavior.
-
-Residual risk:
-
-- Collective/fuzzy fallbacks can still create occasional false positives.
-
-### 2026-02-10: lane taxonomy alignment
-
-Problem observed:
-
-- Freeform labeling no longer treated `NARRATIVE` as a user-facing lane.
-
-What was implemented:
-
-- Chunk lane routing changed toward `knowledge`/`noise`.
-- Writer summary treats legacy `NARRATIVE` as noise.
-
-Outcome:
-
-- Better alignment between parsing outputs and benchmark/annotation taxonomy.
-
-Residual risk:
-
-- Historical artifacts may still contain `NARRATIVE`; reporting is compatible but mixed-lane legacy data can confuse manual comparisons.
-
-### 2026-02-15: docs consolidation pass
-
-What happened:
-
-- Parsing docs were merged, then revalidated here against code/tests.
-
-Important note:
-
-- Some prior docs described desired behavior that is now only partially true; this file reflects implemented behavior as of current code.
-
-### 2026-02-15_22.07.14: Parsing flow and regression hotspot map
-
-Merged source file:
-- `2026-02-15_22.07.14-parsing-flow-and-regression-hotspots.md` (formerly in `docs/understandings`)
-
-Preserved guidance:
-- Parsing ownership is intentionally split across importer extraction, shared parsing modules, and draft-v1 shaping; regressions can first appear as staging/importer symptoms.
-- Step-link assignment surprises most often come from post-resolution passes (`all ingredients`, section-group aliasing, collective-term fallback), not from the initial exact/semantic/fuzzy scorer.
-- Chunk lanes are effectively binary (`knowledge` / `noise`) in current behavior, while legacy `NARRATIVE` compatibility remains for historical artifact/report interpretation.
-- `tip_candidates` / `topic_candidates` are broader debugging/classification surfaces; exported standalone tips come from filtered `results.tips`.
-
-### 2026-02-15_22.23.02: Unstructured runtime status check
-
-Merged source file:
-- `2026-02-15_22.23.02-unstructured-runtime-status-check.md` (formerly in `docs/understandings`)
-
-Preserved verification snapshot:
-- Dependency pin included `unstructured>=0.18.32,<0.19` and runtime env showed `0.18.32` installed.
-- EPUB extractor default resolution was verified end-to-end as `unstructured` (CLI defaults + importer fallback via `C3IMP_EPUB_EXTRACTOR`).
-- E2E stage run produced expected unstructured-specific raw diagnostics (`unstructured_elements.jsonl`) and enriched block features.
-
-Critical caveat preserved:
-- `getattr(unstructured, "__version__", "unknown")` can resolve to a module-like object in some runtimes.
-- Any metadata path that leaves worker-process boundaries (for split import/benchmark) must normalize this to plain string to stay pickle-safe.
-
-### 2026-02-16: Unstructured EPUB tuning pass (BR splitting + explicit options)
-
-What changed:
-
-- Added explicit Unstructured HTML options through run settings/env:
-  - `html_parser_version` (`v1|v2`)
-  - `skip_headers_and_footers` (bool)
-  - `preprocess_mode` (`none|br_split_v1|semantic_v1`)
-- Added EPUB pre-normalization module `cookimport/parsing/epub_html_normalize.py`:
-  - BR-separated lines in `p/div/li` are split into sibling block tags.
-  - Normalization is deterministic and idempotent by test.
-- Adapter improvements in `cookimport/parsing/unstructured_adapter.py`:
-  - bold-detection heuristic from Unstructured emphasis metadata,
-  - explicit list depth hint and category depth persistence,
-  - defensive split of `ListItem` text containing newline-delimited items.
-
-Important caveat:
-
-- Unstructured HTML parser `v2` expects `body.Document`/`div.Page` style structure.
-- Adapter now applies a compatibility shim for `v2` inputs by wrapping/marking body when needed before calling `partition_html`.
-
-## Things We Know Are Bad (Do Not Re-discover)
-
-- Text-based ingredient identity can collide when identical ingredient strings appear multiple times intentionally.
-- Collective-term fallback (`spices`, `herbs`, `seasonings`) is useful but can attach to wrong step in multi-component recipes.
-- Instruction time summing is naive across overlapping/optional durations.
-- Tip/chunk lane decisions are heuristic and unstable around narrative-advice hybrids.
-- `ingredients.py` has duplicate function definition for `parse_ingredient_line` (early stub + final function).
-- `chunks.md` output currently includes emoji lane markers; harmless but noisy for strictly ASCII consumers.
-
 ## Practical Change Workflow (Recommended)
 
-1. Reproduce with targeted tests first.
+1. If progress stalls or repeats, read `docs/04-parsing/04-parsing_log.md` first.
 2. For step linking, inspect `debug=True` output (`candidates`, `assignments`, group/all-ingredients annotations).
 3. Verify with focused tests:
    - `tests/test_step_ingredient_linking.py`

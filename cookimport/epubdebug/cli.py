@@ -62,10 +62,10 @@ def _require_epub_path(path: Path) -> Path:
 
 def _normalize_epub_extractor(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized not in {"unstructured", "legacy", "markitdown"}:
+    if normalized not in {"unstructured", "legacy", "markdown", "markitdown"}:
         _fail(
             f"Invalid EPUB extractor: {value!r}. "
-            "Expected one of: unstructured, legacy, markitdown."
+            "Expected one of: unstructured, legacy, markdown, markitdown."
         )
     return normalized
 
@@ -611,7 +611,7 @@ def debug_epub_blocks(
     extractor: str = typer.Option(
         "unstructured",
         "--extractor",
-        help="EPUB extractor: unstructured, legacy, or markitdown.",
+        help="EPUB extractor: unstructured, legacy, markdown, or markitdown.",
     ),
     start_spine: int | None = typer.Option(
         None,
@@ -714,7 +714,7 @@ def debug_epub_candidates(
     extractor: str = typer.Option(
         "unstructured",
         "--extractor",
-        help="EPUB extractor: unstructured, legacy, or markitdown.",
+        help="EPUB extractor: unstructured, legacy, markdown, or markitdown.",
     ),
     start_spine: int | None = typer.Option(
         None,

@@ -20,6 +20,7 @@ from cookimport.bench.knobs import (
 from cookimport.bench.noise import consolidate_predictions, dedupe_predictions, gate_noise
 from cookimport.bench.cost import estimate_llm_costs, write_escalation_queue
 from cookimport.bench.packet import build_iteration_packet
+from cookimport.bench.pred_run import build_pred_run_for_source
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +250,7 @@ def test_list_knobs():
     assert len(knobs) >= 1
     names = {k.name for k in knobs}
     assert "segment_blocks" in names
+    assert "epub_extractor" in names
 
 
 def test_effective_knobs_defaults():
@@ -273,6 +275,12 @@ def test_validate_knobs_valid():
     assert errors == []
 
 
+def test_validate_knobs_rejects_invalid_epub_extractor():
+    errors = validate_knobs({"epub_extractor": "not-a-real-backend"})
+    assert errors
+    assert "allowed values" in errors[0]
+
+
 def test_load_config_missing():
     result = load_config(None)
     assert result == {}
@@ -283,6 +291,30 @@ def test_load_config_from_file(tmp_path: Path):
     cfg_file.write_text(json.dumps({"segment_blocks": 50}), encoding="utf-8")
     result = load_config(cfg_file)
     assert result["segment_blocks"] == 50
+
+
+def test_build_pred_run_for_source_passes_epub_extractor(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("epub", encoding="utf-8")
+    out_dir = tmp_path / "runs"
+    captured: dict[str, object] = {}
+
+    def _fake_generate_pred_run_artifacts(**kwargs):
+        captured.update(kwargs)
+        return {"run_root": out_dir / "run"}
+
+    monkeypatch.setattr(
+        "cookimport.bench.pred_run.generate_pred_run_artifacts",
+        _fake_generate_pred_run_artifacts,
+    )
+
+    build_pred_run_for_source(
+        source,
+        out_dir,
+        config={"epub_extractor": "markdown"},
+    )
+
+    assert captured["epub_extractor"] == "markdown"
 
 
 # ---------------------------------------------------------------------------

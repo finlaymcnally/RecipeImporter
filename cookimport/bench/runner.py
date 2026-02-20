@@ -203,6 +203,23 @@ def run_suite(
         pred_run_config = pred_manifest_payload.get("run_config")
         if not isinstance(pred_run_config, dict):
             pred_run_config = None
+        requested_extractor = None
+        effective_extractor = None
+        if pred_run_config is not None:
+            requested_extractor = (
+                str(pred_run_config.get("epub_extractor_requested") or "").strip() or None
+            )
+            effective_extractor = (
+                str(pred_run_config.get("epub_extractor_effective") or "").strip() or None
+            )
+            if requested_extractor is None:
+                requested_extractor = (
+                    str(pred_run_config.get("epub_extractor") or "").strip() or None
+                )
+            if effective_extractor is None:
+                effective_extractor = (
+                    str(pred_run_config.get("epub_extractor") or "").strip() or None
+                )
         item_run_config: dict[str, Any] = {
             "overlap_threshold": 0.5,
             "force_source_match": item.force_source_match,
@@ -268,6 +285,8 @@ def run_suite(
             "report": eval_result["report"],
             "missed_gold": eval_result["missed_gold"],
             "false_positive_preds": eval_result["false_positive_preds"],
+            "requested_epub_extractor": requested_extractor,
+            "effective_epub_extractor": effective_extractor,
         })
         _notify(
             f"  [{item.item_id}] Done. "

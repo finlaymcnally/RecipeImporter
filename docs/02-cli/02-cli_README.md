@@ -129,7 +129,7 @@ Config keys and defaults:
 What each setting affects:
 
 - `workers`, split workers, page/spine split size: `stage` and benchmark import parallelism/sharding.
-- `epub_extractor`: runtime extractor choice (`unstructured`, `legacy`, or `markitdown`) via `C3IMP_EPUB_EXTRACTOR`.
+- `epub_extractor`: runtime extractor choice (`unstructured`, `legacy`, `markdown`, `auto`, or `markitdown`) via `C3IMP_EPUB_EXTRACTOR`.
 - `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
 - `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
 - `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none`, `br_split_v1`, or `semantic_v1` alias).
@@ -332,11 +332,12 @@ Options:
 - `--workers, -w INTEGER>=1` (default `7`): total process pool workers.
 - `--pdf-split-workers INTEGER>=1` (default `7`): max workers for one split PDF.
 - `--epub-split-workers INTEGER>=1` (default `7`): max workers for one split EPUB.
-- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
+- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy|markdown|auto|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
 - `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
 - `markitdown` note: EPUB split jobs are disabled for this extractor because conversion is whole-book EPUB -> markdown (no spine-range mode).
+- `auto` note: stage resolves one effective extractor per EPUB before worker launch, writes `raw/epub/<source_hash>/epub_extractor_auto.json`, and then uses the resolved backend consistently for split planning/workers.
 
 Split-merge progress detail:
 - After split workers finish, the worker dashboard `MainProcess` row now advances through merge phases (payload merge, ID reassignment, output writes, raw merge) instead of staying on a single static `Merging ...` label.
@@ -383,7 +384,7 @@ Subcommands:
 - `cookimport epub inspect PATH [--out OUTDIR] [--json] [--force]`
 - `cookimport epub dump PATH --spine-index N [--format xhtml|plain] --out OUTDIR [--open] [--force]`
 - `cookimport epub unpack PATH --out OUTDIR [--only-spine] [--force]`
-- `cookimport epub blocks PATH --out OUTDIR [--extractor unstructured|legacy|markitdown] [--start-spine N] [--end-spine M] [--html-parser-version v1|v2] [--skip-headers-footers] [--preprocess-mode none|br_split_v1|semantic_v1] [--force]`
+- `cookimport epub blocks PATH --out OUTDIR [--extractor unstructured|legacy|markdown|markitdown] [--start-spine N] [--end-spine M] [--html-parser-version v1|v2] [--skip-headers-footers] [--preprocess-mode none|br_split_v1|semantic_v1] [--force]`
 - `cookimport epub candidates PATH --out OUTDIR [--extractor ...] [--start-spine N] [--end-spine M] [--html-parser-version ...] [--skip-headers-footers] [--preprocess-mode ...] [--force]`
 - `cookimport epub validate PATH [--jar PATH] [--out OUTDIR] [--strict] [--force]`
 
@@ -554,11 +555,12 @@ Options:
 - `--epub-split-workers INTEGER>=1` (default `7`): EPUB split workers for prediction import.
 - `--pdf-pages-per-job INTEGER>=1` (default `50`): PDF shard size.
 - `--epub-spine-items-per-job INTEGER>=1` (default `10`): EPUB shard size.
-- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
+- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy|markdown|auto|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
 - `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
 - `markitdown` note: prediction EPUB split jobs are disabled for this extractor for the same reason as stage runs.
+- `auto` note: prediction generation resolves one effective backend per EPUB up front and records requested/effective extractor in run config plus `raw/epub/<source_hash>/epub_extractor_auto.json`.
 - `--ocr-device TEXT` (default `auto`): `auto|cpu|cuda|mps`.
 - `--ocr-batch-size INTEGER>=1` (default `1`): pages per OCR model call.
 - `--warm-models` (default `false`): preload OCR/parsing models before prediction import.
@@ -670,7 +672,7 @@ Options:
 CLI-relevant environment variables:
 
 - `C3IMP_LIMIT`: used by interactive mode callback. If set to an integer, interactive import uses it as `stage --limit`.
-- `C3IMP_EPUB_EXTRACTOR`: EPUB extractor switch (`unstructured`, `legacy`, or `markitdown`) read at runtime by the EPUB importer.
+- `C3IMP_EPUB_EXTRACTOR`: EPUB extractor switch (`unstructured`, `legacy`, `markdown`, `auto`, or `markitdown`) read at runtime by the EPUB importer.
 - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`: unstructured HTML parser version (`v1` or `v2`) for EPUB extraction.
 - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`: bool toggle for Unstructured `skip_headers_and_footers` on EPUB HTML.
 - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`: EPUB HTML preprocess mode before Unstructured (`none`, `br_split_v1`, `semantic_v1`).

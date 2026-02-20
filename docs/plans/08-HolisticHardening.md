@@ -1,6 +1,13 @@
+---
+summary: "ExecPlan and implementation record for multi-backend EPUB extraction (`legacy`, `unstructured`, `markdown`), deterministic `auto` selection, and benchmark integration."
+read_when:
+  - "When changing EPUB extractor backends, extractor auto-selection, or extractor diagnostics artifacts"
+  - "When wiring new run settings through stage, benchmark prediction generation, and reporting"
+---
+
 # Holistic EPUB pipeline hardening: multi-backend extraction, auto-selection, and benchmark-driven iteration
 
-This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` were updated during implementation.
 
 This plan must be maintained in accordance with `docs/PLANS.md` (ExecPlan requirements and workflow rules).
 
@@ -26,38 +33,49 @@ How to see it working (human-verifiable):
 
 ## Progress
 
-- [ ] (2026-02-16) Milestone 0: Establish reproducible baselines for “known bad” EPUB behavior (one real input + at least one synthetic fixture) and record the run roots + reports.
-- [ ] (2026-02-16) Milestone 1: Refactor EPUB extraction into an explicit backend interface (legacy + unstructured) with shared post-processing and invariant-preserving diagnostics (no intended behavior change).
-- [ ] (2026-02-16) Milestone 2: Implement the new `markdown` extraction backend (HTML→Markdown→Blocks) with optional Pandoc acceleration and deterministic, testable Markdown parsing.
-- [ ] (2026-02-16) Milestone 3: Implement `auto` extractor selection (deterministic scoring + sampling) in the stage/CLI layer so split jobs remain consistent; persist “why” artifacts and report fields.
-- [ ] (2026-02-16) Milestone 4: Wire extractor choice into `cookimport bench` (knob + per-item reporting) so extractor experiments are measurable and reproducible.
-- [ ] (2026-02-16) Milestone 5: Add focused unit + integration tests, plus a short CLI smoke runbook, proving extraction backends and `auto` mode work end-to-end and do not break split-merge invariants.
+- [ ] (2026-02-19_14.58.00) Milestone 0: Partial. Synthetic EPUB fixture path is covered through existing test fixture builders, but local real-EPUB baseline run roots were not recorded in this workspace.
+- [x] (2026-02-19_14.58.00) Milestone 1: Added explicit backend extraction module (`cookimport/parsing/epub_extractors.py`) and wired importer diagnostics/meta through one backend interface.
+- [x] (2026-02-19_14.58.00) Milestone 2: Added `markdown` backend (Pandoc-if-present, `markdownify` fallback), deterministic markdown block parsing provenance fields, and markdown diagnostics artifacts.
+- [x] (2026-02-19_14.58.00) Milestone 3: Added deterministic `auto` scoring/selection (`cookimport/parsing/extraction_quality.py`, `cookimport/parsing/epub_auto_select.py`) and persisted auto-selection rationale artifacts.
+- [x] (2026-02-19_14.58.00) Milestone 4: Added benchmark knob + propagation/reporting for extractor choice (`bench/knobs.py`, `bench/pred_run.py`, `bench/runner.py`, `bench/report.py`).
+- [x] (2026-02-19_14.58.00) Milestone 5: Added focused tests for extraction scoring/auto-selection/wiring and validated with targeted pytest run (72 passed).
 
 
 ## Surprises & Discoveries
 
 (Keep this section updated as you implement. Include short evidence snippets like a failing command output or a before/after metric excerpt.)
 
-- Observation: TBD
-  Evidence: TBD
+- Observation: Prediction artifact generation was mutating `C3IMP_EPUB_*` env vars globally, which leaked extractor state across tests/runs.
+  Evidence: `tests/test_labelstudio_ingest_parallel.py::test_run_labelstudio_import_emits_post_merge_progress` failed when leaked `C3IMP_EPUB_EXTRACTOR=auto` triggered auto-resolution against a fake importer.
+
+- Observation: Auto-selection should only resolve when the active importer is the real EPUB importer.
+  Evidence: non-EPUB fake importer tests still pass once auto-resolution is gated on `importer.name == "epub"` and env overrides are scoped.
 
 
 ## Decision Log
 
 (Record decisions as you implement, even “small” ones; they become critical later.)
 
-- Decision: TBD
-  Rationale: TBD
-  Date/Author: TBD
+- Decision: Keep `markitdown` as a backward-compatible extractor value while introducing `markdown` as the new spine-range-capable backend.
+  Rationale: Preserve existing user configs/tests while enabling richer per-spine markdown diagnostics and split compatibility.
+  Date/Author: 2026-02-19 / Codex
+
+- Decision: Resolve `auto` once in parent orchestration and persist requested/effective extractor fields in run config/report artifacts.
+  Rationale: Prevent per-worker drift and make backend choice auditable in stage/benchmark outputs.
+  Date/Author: 2026-02-19 / Codex
+
+- Decision: Scope and restore EPUB runtime env vars in prediction generation.
+  Rationale: Prevent cross-run/test contamination from ambient `C3IMP_EPUB_*` state.
+  Date/Author: 2026-02-19 / Codex
 
 
 ## Outcomes & Retrospective
 
 (Fill in at the end of major milestones and at completion.)
 
-- Outcome: TBD
-  What remains: TBD
-  Lessons learned: TBD
+- Outcome: Implemented multi-backend EPUB extraction (`legacy`, `unstructured`, `markdown`), deterministic `auto` backend selection with rationale artifacts, and benchmark extractor control/reporting.
+  What remains: Optional local manual baseline captures for a real copyrighted EPUB were not recorded in this workspace.
+  Lessons learned: extractor-selection logic and runtime env setting must be treated as part of orchestration contracts, not just importer internals.
 
 
 ## Context and Orientation
@@ -397,11 +415,20 @@ Environment setup (repo root):
 Fast tests (repo root):
     pytest -q
 
-Targeted tests while iterating:
-    pytest -q tests/test_unstructured_adapter.py
-    pytest -q tests/test_epub_importer.py
-    pytest -q tests/test_epub_job_merge.py
-    pytest -q tests/test_bench.py
+Targeted tests executed during implementation:
+    source .venv/bin/activate
+    pytest -q tests/test_markdown_blocks.py tests/test_epub_importer.py tests/test_cli_output_structure.py tests/test_run_settings.py tests/test_toggle_editor.py tests/test_labelstudio_ingest_parallel.py tests/test_bench.py tests/test_epub_auto_select.py tests/test_extraction_quality.py
+
+Observed result:
+    72 passed, 13 warnings in 5.45s
+
+Broader regression check:
+    source .venv/bin/activate
+    pytest -q
+
+Observed result:
+    418 passed, 5 failed, 21 warnings
+    Remaining failures are outside this plan scope (`tests/test_paprika_importer.py`, `tests/test_recipesage_importer.py`) and are caused by missing example fixture files under `docs/template/examples/...` plus importer error-path validation mismatch.
 
 Manual stage checks (repo root; with a local EPUB you have rights to use):
     cookimport stage data/input/<book>.epub --epub-extractor legacy --workers 1
@@ -471,6 +498,7 @@ During Milestone 0, record (in this plan) the following for your “known bad”
 - (after this plan) run root path for markdown extraction
 - (after this plan) run root path for auto extraction
 Also record which outputs regressed or improved (e.g., recipe boundary examples), but do not paste copyrighted text.
+Status: not completed in this workspace (no real local EPUB baseline run roots recorded).
 
 For the synthetic EPUB fixture, include in this plan:
 - the expected number of Blocks per spine doc (approximate),
@@ -499,8 +527,9 @@ New interfaces (must exist at end of Milestone 3):
 - `cookimport/parsing/extraction_quality.py`:
   - `ExtractionScore`
   - `score_blocks(blocks) -> ExtractionScore`
-- A stage-layer function to resolve `auto` into an effective extractor before worker launch, for example:
-  - `cookimport/cli.py: resolve_epub_extractor_auto(path, candidate_extractors, ...) -> (effective, artifact_dict)`
+- Auto-selection resolver:
+  - `cookimport/parsing/epub_auto_select.py: select_epub_extractor_auto(...) -> AutoExtractorResolution`
+  - Stage wiring in `cookimport/cli.py` and prediction wiring in `cookimport/labelstudio/ingest.py`
 
 Bench integration (must exist at end of Milestone 4):
 - `cookimport/bench/knobs.py` includes `epub_extractor` tunable and validation.
@@ -508,3 +537,4 @@ Bench integration (must exist at end of Milestone 4):
 
 Plan revision note:
 - (2026-02-16) Initial ExecPlan drafted to coordinate multi-backend EPUB extraction, deterministic auto-selection, and benchmark integration as a single cohesive implementation and validation story.
+- (2026-02-19) Updated after implementation: completed milestones 1-5, documented scoped env override fix for prediction runs, recorded validation command/results, and refreshed interfaces to match shipped modules.

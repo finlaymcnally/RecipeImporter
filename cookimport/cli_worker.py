@@ -6,6 +6,7 @@ import multiprocessing
 import os
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,22 @@ from cookimport.staging.writer import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _temporary_epub_extractor(value: str | None):
+    if not value:
+        yield
+        return
+    previous = os.environ.get("C3IMP_EPUB_EXTRACTOR")
+    os.environ["C3IMP_EPUB_EXTRACTOR"] = str(value)
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("C3IMP_EPUB_EXTRACTOR", None)
+        else:
+            os.environ["C3IMP_EPUB_EXTRACTOR"] = previous
 
 def _worker_label() -> str:
     return f"{multiprocessing.current_process().name} ({os.getpid()})"
@@ -173,6 +190,7 @@ def stage_one_file(
     run_dt: dt.datetime,
     progress_queue: Any | None = None,
     display_name: str | None = None,
+    epub_extractor: str | None = None,
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
@@ -205,11 +223,12 @@ def stage_one_file(
         # Note: mapping_config is already passed in and overridden by CLI if needed
         _report_progress("Starting file...")
         _report_progress("Parsing recipes...")
-        result, file_stats, resolved_mapping = _run_import(
-            file_path,
-            mapping_config,
-            _report_progress,
-        )
+        with _temporary_epub_extractor(epub_extractor):
+            result, file_stats, resolved_mapping = _run_import(
+                file_path,
+                mapping_config,
+                _report_progress,
+            )
 
         if limit is not None:
             apply_result_limits(
@@ -413,6 +432,7 @@ def stage_epub_job(
     job_count: int,
     progress_queue: Any | None = None,
     display_name: str | None = None,
+    epub_extractor: str | None = None,
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
@@ -442,13 +462,14 @@ def stage_epub_job(
         start_total = dt.datetime.now()
         _report_progress("Starting job...")
         _report_progress("Parsing recipes...")
-        result, file_stats, _ = _run_import(
-            file_path,
-            mapping_config,
-            _report_progress,
-            start_spine=start_spine,
-            end_spine=end_spine,
-        )
+        with _temporary_epub_extractor(epub_extractor):
+            result, file_stats, _ = _run_import(
+                file_path,
+                mapping_config,
+                _report_progress,
+                start_spine=start_spine,
+                end_spine=end_spine,
+            )
 
         workbook_slug = slugify_name(file_path.stem)
         job_root = out / ".job_parts" / workbook_slug / f"job_{job_index}"

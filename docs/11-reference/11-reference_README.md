@@ -7,6 +7,9 @@ read_when:
 
 # Reference Section
 
+This is the source of truth for current reference artifacts under `docs/11-reference`.
+For versions/build/fix-attempt history and anti-loop notes, read `docs/11-reference/11-reference_log.md`.
+
 Use these files for static contracts and inventories.
 
 - Recipe database field inventory:

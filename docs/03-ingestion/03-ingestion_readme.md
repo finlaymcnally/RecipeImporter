@@ -1,32 +1,16 @@
 ---
-summary: "Comprehensive, code-verified ingestion reference with architecture, behavior, historical attempts, and known limitations."
+summary: "Code-verified ingestion runtime reference with architecture, behavior, contracts, and known limitations."
 read_when:
   - Working on ingestion/importers, extraction, split jobs, or merge behavior
   - Debugging recipe ordering, ID reassignment, raw artifacts, or stage output mismatches
-  - Reconciling historical ingestion decisions to avoid retrying already-failed approaches
+  - Reviewing current ingestion contracts before changing code
 ---
 
 # Ingestion README
 
-This is the consolidated source of truth for `docs/03-ingestion` as of 2026-02-16.
+This is the source of truth for current ingestion behavior in `docs/03-ingestion`.
 
-It combines and supersedes:
-- `docs/03-ingestion/2026-02-12_10.17.19-import-pipeline-convergence.md`
-- `docs/03-ingestion/2026-02-12-unstructured-epub-adapter.md`
-- `docs/03-ingestion/03-ingestion_README.md`
-
-It is intentionally detailed to preserve prior exploration context and prevent repeated dead-end loops.
-
-## Document Chronology (Source Merge Order)
-
-Order below is based on source document filenames/timestamps and last consolidation date:
-1. `2026-02-12_10.17.19-import-pipeline-convergence.md`
-2. `2026-02-12-unstructured-epub-adapter.md`
-3. `03-ingestion_README.md` (later consolidation pass, modified on 2026-02-15)
-4. `docs/understandings/2026-02-16_13.02.32-markitdown-extractor-split-contract.md` (merged)
-5. `docs/understandings/2026-02-16_14.00.37-unstructured-v2-body-document-and-epub-option-propagation.md` (merged)
-6. `docs/understandings/IMPORTANT-UNDERSTANDING-epub-extractor-types.md` (merged, undated durable reference)
-7. This file `03-ingestion_readme.md` (consolidated and re-verified on 2026-02-19)
+Historical architecture/build/fix-attempt notes are tracked in `docs/03-ingestion/03-ingestion_log.md`.
 
 ## Scope
 
@@ -221,7 +205,7 @@ Behavior highlights:
 
 Extractor modes:
 - Default: `unstructured`
-- Alternates: `legacy`, `markitdown`
+- Alternates: `legacy`, `markdown`, `auto`, `markitdown` (legacy compatibility mode)
 - Control path:
   - CLI: `--epub-extractor`
   - Env: `C3IMP_EPUB_EXTRACTOR`
@@ -232,17 +216,23 @@ Extractor modes:
 
 Block extraction:
 - Reads spine in order (ebooklib primary, zip fallback)
-- Supports range slicing via `start_spine`, `end_spine` (end exclusive) for `unstructured`/`legacy`
+- Supports range slicing via `start_spine`, `end_spine` (end exclusive) for `unstructured`/`legacy`/`markdown`
 - `markitdown` converts the whole EPUB to markdown first; it does not support spine-range split jobs
 - Adds `spine_index` feature to blocks for deterministic merge ordering
 - Skips nav/TOC spine docs when identified via OPF `properties="nav"` or nav/toc signatures in HTML.
-- Applies shared post-extraction cleanup for `unstructured`/`legacy` (`cookimport/parsing/epub_postprocess.py`) before segmentation.
+- Applies shared post-extraction cleanup for `unstructured`/`legacy`/`markdown` (`cookimport/parsing/epub_postprocess.py`) before segmentation.
+- `auto` mode is resolved once per EPUB in stage/benchmark orchestration and persisted as `raw/epub/<source_hash>/epub_extractor_auto.json`.
 
 MarkItDown-specific behavior:
 - Uses `markitdown` with plugins disabled (`MarkItDown(enable_plugins=False)`)
 - Converts markdown to blocks with `md_line_start` / `md_line_end` provenance and `extraction_backend=markitdown`
 - Emits optional raw artifact `markitdown_markdown.md`
 - Whole-book conversion only: spine-range split jobs are intentionally disabled for this extractor in both stage and benchmark prediction planners.
+
+Markdown-specific behavior:
+- Converts each spine HTML document to markdown (Pandoc when available, else `markdownify`) and parses deterministic markdown blocks.
+- Emits diagnostics artifact `markdown_blocks.jsonl` with line-level provenance (`markdown_line_start`/`markdown_line_end`) and stable keys.
+- Includes converter metadata in extractor diagnostics (`pandoc_used`, converter name/error, markdownify version).
 
 Candidate segmentation:
 - Yield-driven anchors and title backtracking heuristics
@@ -263,7 +253,7 @@ Unstructured-specific behavior:
 
 Current behavior is one mutually exclusive extractor choice per run:
 
-- `EPUB -> [unstructured | legacy | markitdown] -> block stream -> shared segmentation/extraction`
+- `EPUB -> [unstructured | legacy | markdown | markitdown] -> block stream -> shared segmentation/extraction`
 
 This is intentionally not:
 
@@ -286,6 +276,11 @@ This is intentionally not:
 - Emits one block per leaf block-level element with `extraction_backend=legacy`.
 - Supports spine-range split jobs.
 
+`markdown`:
+- Converts per-spine XHTML/HTML to markdown using Pandoc when present, with deterministic fallback to `markdownify`.
+- Parses markdown lines into heading/list/paragraph blocks with markdown line provenance.
+- Supports spine-range split jobs.
+
 `markitdown`:
 - Converts full EPUB to markdown first, then parses markdown lines into blocks.
 - Carries markdown line provenance (`md_line_start`, `md_line_end`) plus `source_location_id`.
@@ -303,7 +298,9 @@ Boundary note for `markitdown`:
 Quick selection guidance:
 - Start with `unstructured` for general ingestion and richer traceability.
 - Use `legacy` when simpler HTML-tag parsing behavior is preferred.
+- Use `markdown` when per-spine HTML conversion plus deterministic markdown parsing yields cleaner block boundaries.
 - Use `markitdown` when source XHTML is noisy and markdown normalization yields better block boundaries.
+- Use `auto` when you want deterministic scoring over sampled spines and a recorded backend-selection rationale.
 
 ### PDF (`cookimport/plugins/pdf.py`)
 
@@ -448,95 +445,6 @@ Overrides and mapping:
 5. `.job_parts` semantics are easy to misread.
 - Successful split merge removes `.job_parts/<workbook_slug>`.
 - Leftover `.job_parts` usually indicates merge interruption/failure or abandoned run.
-
-## Historical Attempts (Preserve To Avoid Rework Loops)
-
-### 2026-02-12 10:17:19: Pipeline convergence note
-
-Established and still true:
-- Importers differ early (block-first vs record-first vs structured-first).
-- They converge at `ConversionResult` and downstream writer pipeline.
-- Chunking is fed from non-recipe/topic paths post-convert.
-
-Do not re-litigate unless code changed:
-- “Should we force all importers into same early extraction model?”
-- Existing design intentionally allows importer-specific extraction while standardizing handoff contract.
-
-### 2026-02-12: Unstructured EPUB adapter note
-
-Established and still true:
-- Unstructured is default EPUB extractor.
-- Adapter emits traceability metadata and diagnostics JSONL artifact.
-- Deterministic role assignment exists and is covered by unit tests.
-
-Do not re-litigate unless objective evidence appears:
-- “Need to revert default to legacy parser globally.”
-- Current default was chosen to retain richer semantic signals and traceability.
-
-### 2026-02-15: Prior ingestion README consolidation
-
-Preserved decisions:
-- Split-job merge architecture for PDF + EPUB.
-- Main-process merge + ID rewrite strategy.
-- Serial fallback for environments blocking multiprocessing.
-- Raw artifact merge from temporary `.job_parts` workspace.
-
-Known incomplete idea intentionally not implemented:
-- Earlier EPUB split plan considered overlap + owned-range filtering.
-- Implemented version uses straightforward spine ranges without overlap.
-- If boundary errors become frequent, revisit overlap as a targeted fix, not a broad redesign.
-
-### 2026-02-15_22.06.34: Split-merge and ID rewrite discovery map
-
-Merged source:
-- `docs/understandings/2026-02-15_22.06.34-ingestion-split-merge-and-id-rewrite-map.md`
-
-Preserved operational details:
-- Split workers write raw artifacts under `.job_parts/<workbook>/job_<index>/raw/...` and return merge payloads.
-- Main-process merge sorts by source range, rewrites recipe IDs globally (`c0..cN`), then rebuilds tips/chunks once.
-- Raw merge collisions are renamed with `job_<index>_...` prefixes so artifacts are not dropped.
-- `.job_parts` is expected to be removed on successful merge; leftover `.job_parts` is usually merge-failure/interruption evidence and should be treated as debug signal.
-- Stage builds and passes `base_mapping` for workers; worker `inspect()` is mainly a split-planning concern, not the normal non-split conversion initialization path.
-
-### 2026-02-16_13.02.32: MarkItDown extractor split contract
-
-Merged source:
-- `docs/understandings/2026-02-16_13.02.32-markitdown-extractor-split-contract.md`
-
-Preserved contract:
-- `epub_extractor` remains the single run-setting knob across stage and benchmark prediction generation.
-- `markitdown` is whole-book EPUB conversion and cannot honor spine-range split jobs.
-- Split-planner parity must be maintained in both planners together:
-  - `cookimport/cli.py:_plan_jobs(...)`
-  - `cookimport/labelstudio/ingest.py:_plan_parallel_convert_jobs(...)`
-- Effective worker reporting must stay honest when split capability changes:
-  - `cookimport/config/run_settings.py:compute_effective_workers(...)`.
-- `labelstudio_benchmark(...)` must forward selected extractor explicitly so manifests/history rows record the true extractor used.
-
-Anti-loop note:
-- Do not "fix" markitdown split errors by forcing pseudo-ranges; extractor behavior is whole-book by design.
-
-### 2026-02-16_14.00.37: Unstructured v2 input-shape caveat + option propagation
-
-Merged source:
-- `docs/understandings/2026-02-16_14.00.37-unstructured-v2-body-document-and-epub-option-propagation.md`
-
-Discovery preserved:
-- `partition_html(..., html_parser_version=\"v2\")` can fail on normal EPUB XHTML with:
-  - `No <body class='Document'> or <div class='Page'> element found in the HTML.`
-- This is usually parser-v2 input-shape mismatch, not EPUB corruption.
-
-Durable contract:
-- Keep parser default at `v1` for broad compatibility.
-- When parser `v2` is requested, compatibility wrapping/annotation must happen in adapter layer (`cookimport/parsing/unstructured_adapter.py`) so all flows share behavior.
-- EPUB unstructured option triplet must propagate in every run-producing path (not stage only):
-  - `epub_unstructured_html_parser_version`
-  - `epub_unstructured_skip_headers_footers`
-  - `epub_unstructured_preprocess_mode`
-- These options must appear in run config, drive `C3IMP_EPUB_UNSTRUCTURED_*` runtime env vars, and be reflected in diagnostics metadata.
-
-Debugging evidence worth preserving:
-- Per-spine `raw_spine_xhtml_*.xhtml` and `norm_spine_xhtml_*.xhtml` artifacts made parser-shape failures and preprocessing effects visible quickly without reopening EPUB internals repeatedly.
 
 ## Test Coverage Pointers
 

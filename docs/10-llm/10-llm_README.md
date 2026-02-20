@@ -19,6 +19,10 @@ LLM integrations are optional and live under `cookimport/llm/`.
 
 - `docs/12-plans/I6.1-integrate-LLM.md`
 
+## History and anti-loop log
+
+- `docs/10-llm/10-llm_log.md`
+
 ## Important boundary
 
 Primary stage imports remain deterministic by default; LLM behavior should be explicitly gated and auditable.

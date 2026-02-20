@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import logging
 import multiprocessing
@@ -56,6 +57,10 @@ from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
 from cookimport.runs import RunManifest, RunSource, write_run_manifest
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
+from cookimport.parsing.epub_auto_select import (
+    select_epub_extractor_auto,
+    write_auto_extractor_artifact,
+)
 from cookimport.parsing.tips import partition_tip_candidates
 from cookimport.staging.pdf_jobs import (
     plan_job_ranges,
@@ -371,7 +376,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     value="epub_split_workers",
                 ),
                 questionary.Choice(
-                    f"EPUB Extractor: {current_settings.get('epub_extractor', 'unstructured')} - unstructured/legacy/markitdown",
+                    f"EPUB Extractor: {current_settings.get('epub_extractor', 'unstructured')} - unstructured/legacy/markdown/auto/markitdown",
                     value="epub_extractor",
                 ),
                 questionary.Choice(
@@ -454,11 +459,13 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
         elif choice == "epub_extractor":
             val = _menu_select(
                 "Select EPUB extraction engine:",
-                choices=["unstructured", "legacy", "markitdown"],
+                choices=["unstructured", "legacy", "markdown", "auto", "markitdown"],
                 default=current_settings.get("epub_extractor", "unstructured"),
                 menu_help=(
                     "Unstructured uses semantic HTML partitioning for richer block extraction. "
-                    "Legacy uses BeautifulSoup tag-based parsing. MarkItDown converts the whole EPUB to markdown first."
+                    "Legacy uses BeautifulSoup tag-based parsing. Markdown converts spine HTML into markdown first. "
+                    "Auto scores sample spine docs and chooses the best backend for each EPUB. "
+                    "MarkItDown is retained as legacy whole-book markdown mode."
                 ),
             )
             if val and val != BACK_ACTION:
@@ -1107,10 +1114,10 @@ def _fail(message: str) -> None:
 
 def _normalize_epub_extractor(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized not in {"unstructured", "legacy", "markitdown"}:
+    if normalized not in {"unstructured", "legacy", "markdown", "auto", "markitdown"}:
         _fail(
             f"Invalid EPUB extractor: {value!r}. "
-            "Expected one of: unstructured, legacy, markitdown."
+            "Expected one of: unstructured, legacy, markdown, auto, markitdown."
         )
     return normalized
 
@@ -1886,10 +1893,13 @@ def _plan_jobs(
     pdf_split_workers: int,
     epub_split_workers: int,
     epub_extractor: str = "unstructured",
+    epub_extractor_by_file: dict[Path, str] | None = None,
 ) -> list[JobSpec]:
     jobs: list[JobSpec] = []
-    selected_epub_extractor = epub_extractor.strip().lower()
     for file_path in files:
+        selected_epub_extractor = str(
+            (epub_extractor_by_file or {}).get(file_path, epub_extractor)
+        ).strip().lower()
         if (
             pdf_split_workers > 1
             and file_path.suffix.lower() == ".pdf"
@@ -1917,7 +1927,7 @@ def _plan_jobs(
         if (
             epub_split_workers > 1
             and file_path.suffix.lower() == ".epub"
-            and selected_epub_extractor != "markitdown"
+            and selected_epub_extractor not in {"markitdown", "auto"}
             and epub_spine_items_per_job > 0
         ):
             spine_count = _resolve_epub_spine_count(file_path)
@@ -2047,6 +2057,7 @@ def _merge_split_jobs(
     merged_topic_candidates: list[Any] = []
     merged_non_recipe_blocks: list[Any] = []
     warnings: list[str] = []
+    epub_backends: set[str] = set()
     standalone_block_total = 0
     standalone_topic_block_total = 0
 
@@ -2063,6 +2074,8 @@ def _merge_split_jobs(
         if result.report and result.report.errors:
             for error in result.report.errors:
                 warnings.append(f"Job {job.get('job_index')}: {error}")
+        if result.report and result.report.epub_backend:
+            epub_backends.add(str(result.report.epub_backend))
         if result.report:
             standalone_block_total += result.report.total_standalone_blocks
             standalone_topic_block_total += result.report.total_standalone_topic_blocks
@@ -2084,6 +2097,13 @@ def _merge_split_jobs(
         runConfigHash=run_config_hash,
         runConfigSummary=run_config_summary,
     )
+    if importer_name == "epub" and epub_backends:
+        report.epub_backend = sorted(epub_backends)[0]
+        if len(epub_backends) > 1:
+            report.warnings.append(
+                "epub_backend_inconsistent_across_split_jobs: "
+                + ", ".join(sorted(epub_backends))
+            )
     merged_result = ConversionResult(
         recipes=sorted_recipes,
         tips=tips,
@@ -2309,7 +2329,11 @@ def stage(
     epub_extractor: str = typer.Option(
         "unstructured",
         "--epub-extractor",
-        help="EPUB extraction engine: unstructured (semantic), legacy (BeautifulSoup), or markitdown (EPUB->markdown).",
+        help=(
+            "EPUB extraction engine: unstructured (semantic), legacy (BeautifulSoup), "
+            "markdown (HTML->Markdown), auto (deterministic pre-selection), "
+            "or markitdown (legacy whole-book EPUB->markdown mode)."
+        ),
     ),
     epub_unstructured_html_parser_version: str = typer.Option(
         "v1",
@@ -2345,8 +2369,8 @@ def stage(
     selected_skip_headers_footers = bool(epub_unstructured_skip_headers_footers)
     selected_ocr_device = _normalize_ocr_device(ocr_device)
 
-    # Apply EPUB extractor setting for this run.
-    os.environ["C3IMP_EPUB_EXTRACTOR"] = selected_epub_extractor
+    # Apply EPUB unstructured runtime options for this run.
+    # Extractor choice is passed explicitly into worker calls.
     _set_epub_unstructured_env(
         html_parser_version=selected_html_parser_version,
         skip_headers_footers=selected_skip_headers_footers,
@@ -2391,6 +2415,35 @@ def stage(
 
     imported = 0
     errors: list[str] = []
+    effective_epub_extractors: dict[Path, str] = {
+        file_path: selected_epub_extractor
+        for file_path in files_to_process
+        if file_path.suffix.lower() == ".epub"
+    }
+    if selected_epub_extractor == "auto":
+        for file_path in files_to_process:
+            if file_path.suffix.lower() != ".epub":
+                continue
+            resolution = select_epub_extractor_auto(file_path)
+            effective_epub_extractors[file_path] = resolution.effective_extractor
+            source_hash = compute_file_hash(file_path)
+            write_auto_extractor_artifact(
+                run_root=out,
+                source_hash=source_hash,
+                artifact={
+                    **resolution.artifact,
+                    "source_file": str(file_path),
+                    "source_hash": source_hash,
+                },
+            )
+            typer.secho(
+                (
+                    f"Auto-selected EPUB extractor for {file_path.name}: "
+                    f"{resolution.effective_extractor}"
+                ),
+                fg=typer.colors.CYAN,
+            )
+
     all_epub = all(f.suffix.lower() == ".epub" for f in files_to_process)
     run_settings = build_run_settings(
         workers=workers,
@@ -2417,8 +2470,42 @@ def stage(
     )
     effective_workers = run_settings.effective_workers or workers
     run_config = run_settings.to_run_config_dict()
-    run_config_hash = run_settings.stable_hash()
-    run_config_summary = run_settings.summary()
+    run_config["epub_extractor_requested"] = selected_epub_extractor
+    run_config["epub_extractor_effective"] = (
+        selected_epub_extractor
+        if selected_epub_extractor != "auto"
+        else "resolved_per_file"
+    )
+
+    def _stable_run_config_hash(payload: dict[str, Any]) -> str:
+        canonical = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def _render_run_config_summary(payload: dict[str, Any]) -> str:
+        parts: list[str] = []
+        for key in sorted(payload):
+            value = payload[key]
+            rendered = "true" if value is True else "false" if value is False else str(value)
+            parts.append(f"{key}={rendered}")
+        return " | ".join(parts)
+
+    def _run_config_for_file(file_path: Path) -> dict[str, Any]:
+        if file_path.suffix.lower() != ".epub":
+            return dict(run_config)
+        payload = dict(run_config)
+        payload["epub_extractor_effective"] = effective_epub_extractors.get(
+            file_path,
+            selected_epub_extractor,
+        )
+        return payload
+
+    run_config_hash = _stable_run_config_hash(run_config)
+    run_config_summary = _render_run_config_summary(run_config)
 
     from concurrent.futures import ProcessPoolExecutor, as_completed
     from cookimport.cli_worker import stage_one_file, stage_pdf_job, stage_epub_job
@@ -2441,6 +2528,7 @@ def stage(
         pdf_split_workers=pdf_split_workers,
         epub_split_workers=epub_split_workers,
         epub_extractor=selected_epub_extractor,
+        epub_extractor_by_file=effective_epub_extractors,
     )
     total_jobs = len(job_specs)
     expected_jobs: dict[Path, int] = {}
@@ -2558,8 +2646,17 @@ def stage(
 
     job_results_by_file: dict[Path, list[dict[str, Any]]] = defaultdict(list)
 
+    def _run_config_hash_for_file(file_path: Path) -> str:
+        return _stable_run_config_hash(_run_config_for_file(file_path))
+
+    def _run_config_summary_for_file(file_path: Path) -> str:
+        return _render_run_config_summary(_run_config_for_file(file_path))
+
     def handle_job_result(job: JobSpec, res: dict[str, Any], live: Live) -> None:
         nonlocal imported
+        job_run_config = _run_config_for_file(job.file_path)
+        job_run_config_hash = _run_config_hash_for_file(job.file_path)
+        job_run_config_summary = _run_config_summary_for_file(job.file_path)
 
         if job.is_split:
             job_results_by_file[job.file_path].append(res)
@@ -2595,9 +2692,9 @@ def stage(
                         run_dt,
                         reasons,
                         importer_name=job.split_kind,
-                        run_config=run_config,
-                        run_config_hash=run_config_hash,
-                        run_config_summary=run_config_summary,
+                        run_config=job_run_config,
+                        run_config_hash=job_run_config_hash,
+                        run_config_summary=job_run_config_summary,
                     )
                 else:
                     _set_worker_status(
@@ -2624,9 +2721,9 @@ def stage(
                                 base_mapping,
                                 limit,
                                 run_dt,
-                                run_config,
-                                run_config_hash,
-                                run_config_summary,
+                                job_run_config,
+                                job_run_config_hash,
+                                job_run_config_summary,
                                 status_callback=_main_merge_status,
                             )
                         else:
@@ -2637,9 +2734,9 @@ def stage(
                                 base_mapping,
                                 limit,
                                 run_dt,
-                                run_config,
-                                run_config_hash,
-                                run_config_summary,
+                                job_run_config,
+                                job_run_config_hash,
+                                job_run_config_summary,
                                 status_callback=_main_merge_status,
                             )
                         imported += 1
@@ -2668,9 +2765,9 @@ def stage(
                             run_dt,
                             [str(exc)],
                             importer_name=job.split_kind,
-                            run_config=run_config,
-                            run_config_hash=run_config_hash,
-                            run_config_summary=run_config_summary,
+                            run_config=job_run_config,
+                            run_config_hash=job_run_config_hash,
+                            run_config_summary=job_run_config_summary,
                         )
         else:
             if res["status"] == "success":
@@ -2694,6 +2791,10 @@ def stage(
             with ProcessPoolExecutor(max_workers=effective_workers) as executor:
                 futures: dict[Any, JobSpec] = {}
                 for job in job_specs:
+                    job_run_config = _run_config_for_file(job.file_path)
+                    job_run_config_hash = _run_config_hash_for_file(job.file_path)
+                    job_run_config_summary = _run_config_summary_for_file(job.file_path)
+                    job_epub_extractor = effective_epub_extractors.get(job.file_path)
                     if job.is_split:
                         if job.split_kind == "epub":
                             futures[
@@ -2709,9 +2810,10 @@ def stage(
                                     job.job_count,
                                     progress_queue,
                                     job.display_name,
-                                    run_config,
-                                    run_config_hash,
-                                    run_config_summary,
+                                    job_epub_extractor,
+                                    job_run_config,
+                                    job_run_config_hash,
+                                    job_run_config_summary,
                                 )
                             ] = job
                         else:
@@ -2728,9 +2830,9 @@ def stage(
                                     job.job_count,
                                     progress_queue,
                                     job.display_name,
-                                    run_config,
-                                    run_config_hash,
-                                    run_config_summary,
+                                    job_run_config,
+                                    job_run_config_hash,
+                                    job_run_config_summary,
                                 )
                             ] = job
                     else:
@@ -2744,9 +2846,10 @@ def stage(
                                 run_dt,
                                 progress_queue,
                                 job.display_name,
-                                run_config,
-                                run_config_hash,
-                                run_config_summary,
+                                job_epub_extractor,
+                                job_run_config,
+                                job_run_config_hash,
+                                job_run_config_summary,
                             )
                         ] = job
 
@@ -2774,6 +2877,10 @@ def stage(
                 "[yellow]⚠ Multiprocessing unavailable; running jobs serially.[/yellow]"
             )
             for job in job_specs:
+                job_run_config = _run_config_for_file(job.file_path)
+                job_run_config_hash = _run_config_hash_for_file(job.file_path)
+                job_run_config_summary = _run_config_summary_for_file(job.file_path)
+                job_epub_extractor = effective_epub_extractors.get(job.file_path)
                 if job.is_split:
                     if job.split_kind == "epub":
                         res = stage_epub_job(
@@ -2787,9 +2894,10 @@ def stage(
                             job.job_count,
                             progress_queue,
                             job.display_name,
-                            run_config,
-                            run_config_hash,
-                            run_config_summary,
+                            job_epub_extractor,
+                            job_run_config,
+                            job_run_config_hash,
+                            job_run_config_summary,
                         )
                     else:
                         res = stage_pdf_job(
@@ -2803,9 +2911,9 @@ def stage(
                             job.job_count,
                             progress_queue,
                             job.display_name,
-                            run_config,
-                            run_config_hash,
-                            run_config_summary,
+                            job_run_config,
+                            job_run_config_hash,
+                            job_run_config_summary,
                         )
                 else:
                     res = stage_one_file(
@@ -2816,9 +2924,10 @@ def stage(
                         run_dt,
                         progress_queue,
                         job.display_name,
-                        run_config,
-                        run_config_hash,
-                        run_config_summary,
+                        job_epub_extractor,
+                        job_run_config,
+                        job_run_config_hash,
+                        job_run_config_summary,
                     )
                 progress_bar.update(overall_task, advance=1)
                 handle_job_result(job, res, live)
@@ -3719,7 +3828,11 @@ def labelstudio_benchmark(
     )] = False,
     epub_extractor: Annotated[str, typer.Option(
         "--epub-extractor",
-        help="EPUB extraction engine: unstructured (semantic), legacy (BeautifulSoup), or markitdown (EPUB->markdown).",
+        help=(
+            "EPUB extraction engine: unstructured (semantic), legacy (BeautifulSoup), "
+            "markdown (HTML->Markdown), auto (deterministic pre-selection), "
+            "or markitdown (legacy whole-book EPUB->markdown mode)."
+        ),
     )] = "unstructured",
     epub_unstructured_html_parser_version: Annotated[str, typer.Option(
         "--epub-unstructured-html-parser-version",
@@ -4200,7 +4313,10 @@ def bench_knobs() -> None:
         return
     for knob in knobs:
         bounds = f" bounds={knob.bounds}" if knob.bounds else ""
-        typer.echo(f"  {knob.name} ({knob.kind}) default={knob.default}{bounds}")
+        choices = f" choices={list(knob.choices)}" if knob.choices else ""
+        typer.echo(
+            f"  {knob.name} ({knob.kind}) default={knob.default}{bounds}{choices}"
+        )
         if knob.description:
             typer.secho(f"    {knob.description}", fg=typer.colors.BRIGHT_BLACK)
 

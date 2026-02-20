@@ -38,9 +38,14 @@ from cookimport.core.reporting import (
 from cookimport.core.scoring import score_recipe_candidate
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning, signals
+from cookimport.parsing.epub_extractors import (
+    EpubExtractor,
+    LegacyEpubExtractor,
+    MarkdownEpubExtractor,
+    UnstructuredEpubExtractor,
+)
 from cookimport.parsing.epub_health import compute_epub_extraction_health
 from cookimport.parsing.epub_postprocess import postprocess_epub_blocks
-from cookimport.parsing.markdown_blocks import markdown_to_blocks
 from cookimport.parsing.markitdown_adapter import convert_path_to_markdown
 from cookimport.parsing.block_roles import assign_block_roles
 from cookimport.parsing.atoms import Atom, contextualize_atoms, split_text_to_atoms
@@ -54,12 +59,18 @@ from cookimport.parsing.tips import (
 from cookimport.plugins import registry
 
 # ---------------------------------------------------------------------------
-# Extractor switch: C3IMP_EPUB_EXTRACTOR = legacy | unstructured | markitdown
+# Extractor switch: C3IMP_EPUB_EXTRACTOR = legacy | unstructured | markdown | auto
 # Default: unstructured
 # Read at call time (not import time) so interactive settings take effect.
 # ---------------------------------------------------------------------------
 _EPUB_EXTRACTOR_DEFAULT = "unstructured"
-_EPUB_EXTRACTOR_CHOICES = {"legacy", "unstructured", "markitdown"}
+_EPUB_EXTRACTOR_CHOICES = {
+    "legacy",
+    "unstructured",
+    "markdown",
+    "auto",
+    "markitdown",  # legacy alias retained for compatibility
+}
 _UNSTRUCTURED_HTML_PARSER_VERSION_DEFAULT = "v1"
 _UNSTRUCTURED_HTML_PARSER_VERSION_CHOICES = {"v1", "v2"}
 _UNSTRUCTURED_PREPROCESS_MODE_DEFAULT = "br_split_v1"
@@ -259,6 +270,11 @@ class EpubImporter:
                 progress_callback("Computing hash...")
             file_hash = compute_file_hash(path)
             selected_extractor = _get_epub_extractor()
+            if selected_extractor == "auto":
+                raise ValueError(
+                    "EPUB extractor 'auto' must be resolved before convert(). "
+                    "Use stage/benchmark orchestration to resolve auto mode."
+                )
             report.epub_backend = selected_extractor
             
             # 1. Extract Blocks (DocPack)
@@ -353,31 +369,42 @@ class EpubImporter:
             )
             report.warnings.extend(health.get("warnings", []))
 
-            # Emit Unstructured diagnostics JSONL when using the Unstructured extractor
-            if selected_extractor == "unstructured" and self._unstructured_diagnostics:
-                unstructured_version = _resolve_unstructured_version()
+            extractor_diagnostics = self._extractor_diagnostics.get(selected_extractor, [])
+            if extractor_diagnostics:
+                location_ids = {
+                    "unstructured": "unstructured_elements",
+                    "legacy": "legacy_elements",
+                    "markdown": "markdown_blocks",
+                }
+                artifact_ids = {
+                    "unstructured": "unstructured_diagnostics",
+                    "legacy": "legacy_diagnostics",
+                    "markdown": "markdown_diagnostics",
+                }
                 jsonl_lines = "\n".join(
                     json.dumps(row, ensure_ascii=False)
-                    for row in self._unstructured_diagnostics
+                    for row in extractor_diagnostics
                 )
+                metadata: dict[str, Any] = {
+                    "artifact_type": artifact_ids.get(
+                        selected_extractor, "epub_extractor_diagnostics"
+                    ),
+                    "extractor": selected_extractor,
+                    "element_count": len(extractor_diagnostics),
+                }
+                metadata.update(self._extractor_meta.get(selected_extractor, {}))
+
                 raw_artifacts.append(
                     RawArtifact(
                         importer="epub",
                         sourceHash=file_hash,
-                        locationId="unstructured_elements",
+                        locationId=location_ids.get(
+                            selected_extractor,
+                            f"{selected_extractor}_elements",
+                        ),
                         extension="jsonl",
                         content=jsonl_lines,
-                        metadata={
-                            "artifact_type": "unstructured_diagnostics",
-                            "extractor": "unstructured",
-                            "unstructured_version": unstructured_version,
-                            "unstructured_html_parser_version": self._unstructured_html_parser_version,
-                            "unstructured_skip_headers_footers": bool(
-                                self._unstructured_skip_headers_footers
-                            ),
-                            "unstructured_preprocess_mode": self._unstructured_preprocess_mode,
-                            "element_count": len(self._unstructured_diagnostics),
-                        },
+                        metadata=metadata,
                     )
                 )
 
@@ -676,9 +703,29 @@ class EpubImporter:
         Extractors:
         - unstructured: semantic HTML partitioning with diagnostics rows.
         - legacy: BeautifulSoup tag parser across spine docs.
+        - markdown: spine-by-spine HTML->Markdown conversion with markdown diagnostics.
         - markitdown: whole-book EPUB->markdown conversion with markdown-line provenance.
         """
         selected_extractor = extractor or _get_epub_extractor()
+        if selected_extractor == "auto":
+            raise ValueError(
+                "EPUB extractor 'auto' must be resolved before _extract_docpack()."
+            )
+        if selected_extractor not in _EPUB_EXTRACTOR_CHOICES:
+            raise ValueError(
+                f"Unsupported EPUB extractor: {selected_extractor!r}."
+            )
+
+        self._extractor_diagnostics: dict[str, list[dict[str, Any]]] = {
+            "legacy": [],
+            "unstructured": [],
+            "markdown": [],
+        }
+        self._extractor_meta: dict[str, dict[str, Any]] = {
+            "legacy": {},
+            "unstructured": {},
+            "markdown": {},
+        }
         self._unstructured_diagnostics: list[dict[str, Any]] = []
         self._unstructured_spine_xhtml: list[dict[str, Any]] = []
         self._unstructured_html_parser_version = _get_unstructured_html_parser_version()
@@ -690,7 +737,7 @@ class EpubImporter:
             if start_spine is not None or end_spine is not None:
                 raise ValueError(
                     "EPUB extractor 'markitdown' does not support split spine ranges. "
-                    "Set --epub-split-workers 1 or choose unstructured/legacy."
+                    "Set --epub-split-workers 1 or choose unstructured/legacy/markdown."
                 )
             blocks = self._extract_docpack_markitdown(path)
         elif epub is not None:
@@ -717,7 +764,7 @@ class EpubImporter:
                 extractor=selected_extractor,
             )
 
-        if selected_extractor in {"legacy", "unstructured"}:
+        if selected_extractor in {"legacy", "unstructured", "markdown"}:
             blocks = postprocess_epub_blocks(blocks)
 
         for block in blocks:
@@ -725,6 +772,8 @@ class EpubImporter:
         return blocks
 
     def _extract_docpack_markitdown(self, path: Path) -> List[Block]:
+        from cookimport.parsing.markdown_blocks import markdown_to_blocks
+
         markdown_text = convert_path_to_markdown(path)
         self._markitdown_markdown = markdown_text
         return markdown_to_blocks(
@@ -744,20 +793,7 @@ class EpubImporter:
         if epub is None:
             raise RuntimeError("ebooklib is not available")
 
-        use_unstructured = extractor == "unstructured"
-        if use_unstructured:
-            from cookimport.parsing.epub_html_normalize import (
-                normalize_epub_html_for_unstructured,
-            )
-            from cookimport.parsing.unstructured_adapter import (
-                UnstructuredHtmlOptions,
-                partition_html_to_blocks,
-            )
-            unstructured_options = UnstructuredHtmlOptions(
-                html_parser_version=self._unstructured_html_parser_version,
-                skip_headers_and_footers=self._unstructured_skip_headers_footers,
-                preprocess_mode=self._unstructured_preprocess_mode,
-            )
+        backend = self._build_extractor(extractor)
 
         source_location_id = path.stem
 
@@ -792,37 +828,24 @@ class EpubImporter:
             ):
                 continue
 
-            if use_unstructured:
-                html_str = content.decode("utf-8", errors="replace")
-                normalized_html = normalize_epub_html_for_unstructured(
-                    html_str,
-                    mode=self._unstructured_preprocess_mode,
-                )
+            html_str = content.decode("utf-8", errors="replace")
+            extraction = backend.extract_spine_html(
+                html_str,
+                spine_index=spine_index,
+                source_location_id=source_location_id,
+            )
+            blocks.extend(extraction.blocks)
+            self._extractor_diagnostics.setdefault(extractor, []).extend(
+                extraction.diagnostics_rows
+            )
+            self._update_extractor_meta(extractor, extraction.meta)
+            if extractor == "unstructured":
                 self._unstructured_spine_xhtml.append(
                     {
                         "spine_index": spine_index,
-                        "raw_html": html_str,
-                        "normalized_html": normalized_html,
+                        "raw_html": extraction.meta.get("raw_html", html_str),
+                        "normalized_html": extraction.meta.get("normalized_html", html_str),
                     }
-                )
-                spine_blocks, diag_rows = partition_html_to_blocks(
-                    normalized_html,
-                    spine_index=spine_index,
-                    source_location_id=source_location_id,
-                    options=unstructured_options,
-                )
-                for b in spine_blocks:
-                    b.add_feature("extraction_backend", extractor)
-                blocks.extend(spine_blocks)
-                self._unstructured_diagnostics.extend(diag_rows)
-            else:
-                soup = self._soup_from_bytes(content)
-                blocks.extend(
-                    self._parse_soup_to_blocks(
-                        soup,
-                        spine_index=spine_index,
-                        extraction_backend=extractor,
-                    )
                 )
         return blocks
 
@@ -838,20 +861,7 @@ class EpubImporter:
         if not spine_items:
             raise ValueError("No spine items found in EPUB")
 
-        use_unstructured = extractor == "unstructured"
-        if use_unstructured:
-            from cookimport.parsing.epub_html_normalize import (
-                normalize_epub_html_for_unstructured,
-            )
-            from cookimport.parsing.unstructured_adapter import (
-                UnstructuredHtmlOptions,
-                partition_html_to_blocks,
-            )
-            unstructured_options = UnstructuredHtmlOptions(
-                html_parser_version=self._unstructured_html_parser_version,
-                skip_headers_and_footers=self._unstructured_skip_headers_footers,
-                preprocess_mode=self._unstructured_preprocess_mode,
-            )
+        backend = self._build_extractor(extractor)
 
         source_location_id = path.stem
 
@@ -881,39 +891,52 @@ class EpubImporter:
                 ):
                     continue
 
-                if use_unstructured:
-                    html_str = content.decode("utf-8", errors="replace")
-                    normalized_html = normalize_epub_html_for_unstructured(
-                        html_str,
-                        mode=self._unstructured_preprocess_mode,
-                    )
+                html_str = content.decode("utf-8", errors="replace")
+                extraction = backend.extract_spine_html(
+                    html_str,
+                    spine_index=spine_index,
+                    source_location_id=source_location_id,
+                )
+                blocks.extend(extraction.blocks)
+                self._extractor_diagnostics.setdefault(extractor, []).extend(
+                    extraction.diagnostics_rows
+                )
+                self._update_extractor_meta(extractor, extraction.meta)
+                if extractor == "unstructured":
                     self._unstructured_spine_xhtml.append(
                         {
                             "spine_index": spine_index,
-                            "raw_html": html_str,
-                            "normalized_html": normalized_html,
+                            "raw_html": extraction.meta.get("raw_html", html_str),
+                            "normalized_html": extraction.meta.get("normalized_html", html_str),
                         }
                     )
-                    spine_blocks, diag_rows = partition_html_to_blocks(
-                        normalized_html,
-                        spine_index=spine_index,
-                        source_location_id=source_location_id,
-                        options=unstructured_options,
-                    )
-                    for b in spine_blocks:
-                        b.add_feature("extraction_backend", extractor)
-                    blocks.extend(spine_blocks)
-                    self._unstructured_diagnostics.extend(diag_rows)
-                else:
-                    soup = self._soup_from_bytes(content)
-                    blocks.extend(
-                        self._parse_soup_to_blocks(
-                            soup,
-                            spine_index=spine_index,
-                            extraction_backend=extractor,
-                        )
-                    )
         return blocks
+
+    def _build_extractor(self, extractor: str) -> EpubExtractor:
+        if extractor == "legacy":
+            return LegacyEpubExtractor()
+        if extractor == "unstructured":
+            return UnstructuredEpubExtractor(
+                html_parser_version=self._unstructured_html_parser_version,
+                skip_headers_and_footers=self._unstructured_skip_headers_footers,
+                preprocess_mode=self._unstructured_preprocess_mode,
+            )
+        if extractor == "markdown":
+            return MarkdownEpubExtractor()
+        raise ValueError(f"Unsupported EPUB extractor backend: {extractor!r}")
+
+    def _update_extractor_meta(self, extractor: str, meta: dict[str, Any]) -> None:
+        if not meta:
+            return
+        current = self._extractor_meta.setdefault(extractor, {})
+        for key, value in meta.items():
+            if key in {"raw_html", "normalized_html"}:
+                continue
+            current[key] = value
+        if extractor == "unstructured":
+            self._unstructured_diagnostics = list(
+                self._extractor_diagnostics.get("unstructured", [])
+            )
 
     def _soup_from_bytes(self, content: bytes) -> BeautifulSoup:
         try:

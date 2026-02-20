@@ -71,3 +71,14 @@ def test_compute_effective_workers_does_not_promote_markitdown_epub_splits() -> 
     )
 
     assert effective == 4
+
+
+def test_compute_effective_workers_promotes_auto_epub_splits() -> None:
+    effective = compute_effective_workers(
+        workers=4,
+        epub_split_workers=12,
+        epub_extractor="auto",
+        all_epub=True,
+    )
+
+    assert effective == 12

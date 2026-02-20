@@ -108,11 +108,21 @@ def format_suite_report_md(
         item_id = item.get("item_id", "?")
         report = item.get("report", {})
         ic = report.get("counts", {})
+        requested_extractor = str(item.get("requested_epub_extractor") or "").strip()
+        effective_extractor = str(item.get("effective_epub_extractor") or "").strip()
+        extractor_note = ""
+        if requested_extractor and effective_extractor:
+            extractor_note = (
+                f", extractor(requested/effective)={requested_extractor}/{effective_extractor}"
+            )
+        elif effective_extractor:
+            extractor_note = f", extractor={effective_extractor}"
         lines.append(
             f"- **{item_id}**: recall={report.get('recall', 0):.3f} "
             f"({ic.get('gold_matched', 0)}/{ic.get('gold_total', 0)}), "
             f"precision={report.get('precision', 0):.3f} "
             f"({ic.get('pred_matched', 0)}/{ic.get('pred_total', 0)})"
+            f"{extractor_note}"
         )
 
     lines.append("")

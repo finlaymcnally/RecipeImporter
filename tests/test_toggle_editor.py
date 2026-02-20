@@ -17,7 +17,7 @@ def test_enum_rows_show_all_options_with_selected_boxed() -> None:
 
     fragments = _render_value_fragments(spec, "legacy", row_selected=False)
 
-    assert _text(fragments) == "unstructured | [legacy] | markitdown"
+    assert _text(fragments) == "unstructured | [legacy] | markdown | auto | markitdown"
 
 
 def test_bool_rows_show_both_options_with_selected_boxed() -> None:
@@ -33,5 +33,5 @@ def test_selected_row_uses_highlight_style_on_selected_option() -> None:
 
     fragments = _render_value_fragments(spec, "legacy", row_selected=True)
 
-    assert _text(fragments) == "unstructured | [legacy] | markitdown"
+    assert _text(fragments) == "unstructured | [legacy] | markdown | auto | markitdown"
     assert any(style == "reverse bold" for style, _ in fragments)

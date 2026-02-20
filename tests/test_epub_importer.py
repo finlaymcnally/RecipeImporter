@@ -7,6 +7,7 @@ from pathlib import Path
 from cookimport.core.blocks import Block
 from cookimport.parsing import signals
 from cookimport.plugins.epub import EpubImporter, _resolve_unstructured_version
+from tests.fixtures.make_epub import make_synthetic_epub
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -121,6 +122,37 @@ def test_convert_epub_unstructured_writes_option_metadata_and_spine_html_artifac
     assert raw_spine
     assert normalized_spine
     assert len(raw_spine) == len(normalized_spine)
+
+
+def test_convert_epub_markdown_writes_diagnostics_artifact(tmp_path: Path, monkeypatch) -> None:
+    source = make_synthetic_epub(
+        tmp_path / "markdown.epub",
+        spine_documents=[
+            (
+                "chapter1.xhtml",
+                """
+                <h1>Skillet Bread</h1>
+                <h2>Ingredients</h2>
+                <ul><li>1 cup flour</li><li>1 egg</li></ul>
+                <h2>Instructions</h2>
+                <p>Mix ingredients.</p>
+                """,
+            ),
+        ],
+    )
+    monkeypatch.setenv("C3IMP_EPUB_EXTRACTOR", "markdown")
+
+    result = EpubImporter().convert(source, None)
+
+    assert result.report.epub_backend == "markdown"
+    markdown_artifact = next(
+        artifact
+        for artifact in result.raw_artifacts
+        if artifact.location_id == "markdown_blocks"
+    )
+    assert markdown_artifact.extension == "jsonl"
+    assert markdown_artifact.metadata["extractor"] == "markdown"
+    assert markdown_artifact.metadata["element_count"] > 0
 
 
 def test_resolve_unstructured_version_handles_module_value(monkeypatch):

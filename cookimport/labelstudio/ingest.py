@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import logging
 import os
+from contextlib import contextmanager
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from cookimport.config.run_settings import build_run_settings, compute_effective_workers
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
@@ -15,6 +17,10 @@ from cookimport.parsing.tips import partition_tip_candidates
 from cookimport.parsing.chunks import (
     chunks_from_non_recipe_blocks,
     chunks_from_topic_candidates,
+)
+from cookimport.parsing.epub_auto_select import (
+    select_epub_extractor_auto,
+    write_auto_extractor_artifact,
 )
 from cookimport.plugins import registry
 from cookimport.labelstudio.block_tasks import (
@@ -91,6 +97,47 @@ def _normalize_unstructured_preprocess_mode(value: str) -> str:
             "Expected one of: none, br_split_v1, semantic_v1."
         )
     return normalized
+
+
+def _normalize_epub_extractor(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"unstructured", "legacy", "markdown", "auto", "markitdown"}:
+        raise ValueError(
+            "Invalid epub_extractor. "
+            "Expected one of: unstructured, legacy, markdown, auto, markitdown."
+        )
+    return normalized
+
+
+@contextmanager
+def _temporary_epub_runtime_env(
+    *,
+    extractor: str,
+    html_parser_version: str,
+    skip_headers_footers: bool,
+    preprocess_mode: str,
+) -> Iterable[None]:
+    keys = (
+        "C3IMP_EPUB_EXTRACTOR",
+        "C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION",
+        "C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS",
+        "C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE",
+    )
+    previous = {key: os.environ.get(key) for key in keys}
+    os.environ["C3IMP_EPUB_EXTRACTOR"] = extractor
+    os.environ["C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION"] = html_parser_version
+    os.environ["C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS"] = (
+        "true" if skip_headers_footers else "false"
+    )
+    os.environ["C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE"] = preprocess_mode
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def _slugify_name(name: str) -> str:
@@ -317,7 +364,7 @@ def _plan_parallel_convert_jobs(
                 ]
     if (
         suffix == ".epub"
-        and selected_epub_extractor != "markitdown"
+        and selected_epub_extractor not in {"markitdown", "auto"}
         and epub_split_workers > 1
         and epub_spine_items_per_job > 0
     ):
@@ -629,9 +676,20 @@ def generate_pred_run_artifacts(
     if importer is None or score <= 0:
         raise RuntimeError("No importer available for this path.")
 
-    selected_epub_extractor = str(
-        epub_extractor or os.environ.get("C3IMP_EPUB_EXTRACTOR", "unstructured")
-    ).strip().lower()
+    selected_epub_extractor = _normalize_epub_extractor(
+        str(epub_extractor or os.environ.get("C3IMP_EPUB_EXTRACTOR", "unstructured"))
+    )
+    effective_epub_extractor = selected_epub_extractor
+    auto_resolution_artifact: dict[str, Any] | None = None
+    if (
+        path.suffix.lower() == ".epub"
+        and selected_epub_extractor == "auto"
+        and importer.name == "epub"
+    ):
+        resolution = select_epub_extractor_auto(path)
+        effective_epub_extractor = resolution.effective_extractor
+        auto_resolution_artifact = dict(resolution.artifact)
+
     selected_html_parser_version = _normalize_unstructured_html_parser_version(
         str(
             epub_unstructured_html_parser_version
@@ -652,12 +710,6 @@ def generate_pred_run_artifacts(
         ),
         default=False,
     )
-    os.environ["C3IMP_EPUB_EXTRACTOR"] = selected_epub_extractor
-    os.environ["C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION"] = selected_html_parser_version
-    os.environ["C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS"] = (
-        "true" if selected_skip_headers_footers else "false"
-    )
-    os.environ["C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE"] = selected_preprocess_mode
     run_settings = build_run_settings(
         workers=workers,
         pdf_split_workers=pdf_split_workers,
@@ -675,13 +727,25 @@ def generate_pred_run_artifacts(
         effective_workers=compute_effective_workers(
             workers=workers,
             epub_split_workers=epub_split_workers,
-            epub_extractor=selected_epub_extractor,
+            epub_extractor=effective_epub_extractor,
             all_epub=path.suffix.lower() == ".epub",
         ),
     )
     run_config = run_settings.to_run_config_dict()
-    run_config_hash = run_settings.stable_hash()
-    run_config_summary = run_settings.summary()
+    run_config["epub_extractor_requested"] = selected_epub_extractor
+    run_config["epub_extractor_effective"] = effective_epub_extractor
+    run_config_hash = hashlib.sha256(
+        json.dumps(
+            run_config,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    run_config_summary = " | ".join(
+        f"{key}={'true' if value is True else 'false' if value is False else value}"
+        for key, value in sorted(run_config.items())
+    )
     run_mapping: MappingConfig | None = None
     if path.suffix.lower() == ".pdf":
         run_mapping = MappingConfig(
@@ -689,95 +753,117 @@ def generate_pred_run_artifacts(
             ocr_batch_size=run_settings.ocr_batch_size,
         )
 
-    job_specs = _plan_parallel_convert_jobs(
-        path,
-        workers=workers,
-        pdf_split_workers=pdf_split_workers,
-        epub_split_workers=epub_split_workers,
-        pdf_pages_per_job=pdf_pages_per_job,
-        epub_spine_items_per_job=epub_spine_items_per_job,
-        epub_extractor=selected_epub_extractor,
-    )
-    if len(job_specs) == 1:
-        result = importer.convert(path, run_mapping, progress_callback=progress_callback)
-    else:
-        _notify(
-            f"Running {len(job_specs)} split job(s) with up to {max(1, workers)} workers..."
+    with _temporary_epub_runtime_env(
+        extractor=effective_epub_extractor,
+        html_parser_version=selected_html_parser_version,
+        skip_headers_footers=selected_skip_headers_footers,
+        preprocess_mode=selected_preprocess_mode,
+    ):
+        job_specs = _plan_parallel_convert_jobs(
+            path,
+            workers=workers,
+            pdf_split_workers=pdf_split_workers,
+            epub_split_workers=epub_split_workers,
+            pdf_pages_per_job=pdf_pages_per_job,
+            epub_spine_items_per_job=epub_spine_items_per_job,
+            epub_extractor=effective_epub_extractor,
         )
-        effective_workers = max(1, workers)
-        if path.suffix.lower() == ".epub":
-            effective_workers = max(effective_workers, epub_split_workers)
-        if path.suffix.lower() == ".pdf":
-            effective_workers = max(effective_workers, pdf_split_workers)
-        max_workers = min(effective_workers, len(job_specs))
-        job_results: list[dict[str, Any]] = []
-        job_errors: list[str] = []
-
-        def _run_job_serial(spec: dict[str, int | None]) -> None:
-            importer_name, job_result = _parallel_convert_worker(
-                path,
-                pipeline,
-                run_mapping,
-                start_page=spec.get("start_page"),
-                end_page=spec.get("end_page"),
-                start_spine=spec.get("start_spine"),
-                end_spine=spec.get("end_spine"),
+        if len(job_specs) == 1:
+            result = importer.convert(path, run_mapping, progress_callback=progress_callback)
+        else:
+            _notify(
+                f"Running {len(job_specs)} split job(s) with up to {max(1, workers)} workers..."
             )
-            job_results.append({**spec, "result": job_result, "importer_name": importer_name})
+            effective_workers = max(1, workers)
+            if path.suffix.lower() == ".epub":
+                effective_workers = max(effective_workers, epub_split_workers)
+            if path.suffix.lower() == ".pdf":
+                effective_workers = max(effective_workers, pdf_split_workers)
+            max_workers = min(effective_workers, len(job_specs))
+            job_results: list[dict[str, Any]] = []
+            job_errors: list[str] = []
 
-        try:
-            with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                futures = {
-                    executor.submit(
-                        _parallel_convert_worker,
-                        path,
-                        pipeline,
-                        run_mapping,
-                        start_page=spec.get("start_page"),
-                        end_page=spec.get("end_page"),
-                        start_spine=spec.get("start_spine"),
-                        end_spine=spec.get("end_spine"),
-                    ): spec
-                    for spec in job_specs
-                }
-                completed = 0
-                for future in as_completed(futures):
-                    spec = futures[future]
+            def _run_job_serial(spec: dict[str, int | None]) -> None:
+                importer_name, job_result = _parallel_convert_worker(
+                    path,
+                    pipeline,
+                    run_mapping,
+                    start_page=spec.get("start_page"),
+                    end_page=spec.get("end_page"),
+                    start_spine=spec.get("start_spine"),
+                    end_spine=spec.get("end_spine"),
+                )
+                job_results.append(
+                    {**spec, "result": job_result, "importer_name": importer_name}
+                )
+
+            try:
+                with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {
+                        executor.submit(
+                            _parallel_convert_worker,
+                            path,
+                            pipeline,
+                            run_mapping,
+                            start_page=spec.get("start_page"),
+                            end_page=spec.get("end_page"),
+                            start_spine=spec.get("start_spine"),
+                            end_spine=spec.get("end_spine"),
+                        ): spec
+                        for spec in job_specs
+                    }
+                    completed = 0
+                    for future in as_completed(futures):
+                        spec = futures[future]
+                        try:
+                            importer_name, job_result = future.result()
+                        except Exception as exc:
+                            job_errors.append(
+                                f"job {spec.get('job_index', '?')}: {exc}"
+                            )
+                            continue
+                        job_results.append(
+                            {
+                                **spec,
+                                "result": job_result,
+                                "importer_name": importer_name,
+                            }
+                        )
+                        completed += 1
+                        _notify(f"Completed split job {completed}/{len(job_specs)}")
+            except PermissionError:
+                for spec in job_specs:
                     try:
-                        importer_name, job_result = future.result()
-                    except Exception as exc:
+                        _run_job_serial(spec)
+                    except Exception as exc:  # noqa: BLE001
                         job_errors.append(
                             f"job {spec.get('job_index', '?')}: {exc}"
                         )
-                        continue
-                    job_results.append(
-                        {**spec, "result": job_result, "importer_name": importer_name}
-                    )
-                    completed += 1
-                    _notify(f"Completed split job {completed}/{len(job_specs)}")
-        except PermissionError:
-            for spec in job_specs:
-                try:
-                    _run_job_serial(spec)
-                except Exception as exc:  # noqa: BLE001
-                    job_errors.append(
-                        f"job {spec.get('job_index', '?')}: {exc}"
-                    )
-                _notify(f"Completed split job {len(job_results)}/{len(job_specs)}")
+                    _notify(f"Completed split job {len(job_results)}/{len(job_specs)}")
 
-        if job_errors:
-            raise RuntimeError("Split conversion failed: " + "; ".join(job_errors))
-        if not job_results:
-            raise RuntimeError("Split conversion produced no results.")
+            if job_errors:
+                raise RuntimeError("Split conversion failed: " + "; ".join(job_errors))
+            if not job_results:
+                raise RuntimeError("Split conversion produced no results.")
 
-        importer_name = str(job_results[0].get("importer_name") or importer.name)
-        result = _merge_parallel_results(path, importer_name, job_results)
-        _notify("Merged split job results.")
+            importer_name = str(job_results[0].get("importer_name") or importer.name)
+            result = _merge_parallel_results(path, importer_name, job_results)
+            _notify("Merged split job results.")
 
     _notify("Building extracted archive...")
     archive = build_extracted_archive(result, result.raw_artifacts)
     _notify("Computing source file hash...")
     file_hash = compute_file_hash(path)
+    if auto_resolution_artifact is not None:
+        write_auto_extractor_artifact(
+            run_root=run_root,
+            source_hash=file_hash,
+            artifact={
+                **auto_resolution_artifact,
+                "source_file": str(path),
+                "source_hash": file_hash,
+            },
+        )
     book_id = result.workbook or path.stem
     processed_run_root: Path | None = None
     processed_report_path: Path | None = None

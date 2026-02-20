@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import shutil
+from types import SimpleNamespace
 from typer.testing import CliRunner
 from cookimport.cli import app
 import pytest
@@ -232,3 +233,102 @@ def test_stage_markitdown_epub_writes_backend_and_markdown_artifact(tmp_path, mo
         (timestamp_dir / "raw" / "epub").glob("**/markitdown_markdown.md")
     )
     assert markdown_artifacts
+
+
+def test_stage_markdown_epub_writes_backend_and_diagnostics(tmp_path):
+    fixtures_dir = Path(__file__).parent / "fixtures"
+    source_file = fixtures_dir / "sample.epub"
+    if not source_file.exists():
+        pytest.skip("sample.epub not found")
+
+    output_dir = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        [
+            "stage",
+            str(source_file),
+            "--out",
+            str(output_dir),
+            "--workers",
+            "1",
+            "--epub-split-workers",
+            "1",
+            "--epub-extractor",
+            "markdown",
+        ],
+    )
+    assert result.exit_code == 0
+
+    timestamp_dirs = [
+        path
+        for path in output_dir.glob("*")
+        if path.is_dir() and not path.name.startswith(".")
+    ]
+    assert len(timestamp_dirs) == 1
+    timestamp_dir = timestamp_dirs[0]
+
+    report_path = timestamp_dir / "sample.excel_import_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["runConfig"]["epub_extractor"] == "markdown"
+    assert report["runConfig"]["epub_extractor_requested"] == "markdown"
+    assert report["runConfig"]["epub_extractor_effective"] == "markdown"
+    assert report["epubBackend"] == "markdown"
+
+    markdown_diag = list((timestamp_dir / "raw" / "epub").glob("**/markdown_blocks.jsonl"))
+    assert markdown_diag
+
+
+def test_stage_auto_epub_records_effective_extractor(tmp_path, monkeypatch):
+    fixtures_dir = Path(__file__).parent / "fixtures"
+    source_file = fixtures_dir / "sample.epub"
+    if not source_file.exists():
+        pytest.skip("sample.epub not found")
+
+    monkeypatch.setattr(
+        "cookimport.cli.select_epub_extractor_auto",
+        lambda _path: SimpleNamespace(
+            effective_extractor="legacy",
+            artifact={
+                "requested_extractor": "auto",
+                "effective_extractor": "legacy",
+                "sample_indices": [0],
+                "candidates": [],
+            },
+        ),
+    )
+
+    output_dir = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        [
+            "stage",
+            str(source_file),
+            "--out",
+            str(output_dir),
+            "--workers",
+            "1",
+            "--epub-split-workers",
+            "2",
+            "--epub-extractor",
+            "auto",
+        ],
+    )
+    assert result.exit_code == 0
+
+    timestamp_dirs = [
+        path
+        for path in output_dir.glob("*")
+        if path.is_dir() and not path.name.startswith(".")
+    ]
+    assert len(timestamp_dirs) == 1
+    timestamp_dir = timestamp_dirs[0]
+
+    report_path = timestamp_dir / "sample.excel_import_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["runConfig"]["epub_extractor"] == "auto"
+    assert report["runConfig"]["epub_extractor_requested"] == "auto"
+    assert report["runConfig"]["epub_extractor_effective"] == "legacy"
+    assert report["epubBackend"] == "legacy"
+
+    auto_artifacts = list((timestamp_dir / "raw" / "epub").glob("**/epub_extractor_auto.json"))
+    assert auto_artifacts

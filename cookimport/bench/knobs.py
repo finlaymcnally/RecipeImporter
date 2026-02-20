@@ -13,9 +13,10 @@ class Tunable(BaseModel):
     """A single tunable parameter."""
 
     name: str
-    kind: Literal["float", "int", "bool"]
-    default: float | int | bool
+    kind: Literal["float", "int", "bool", "str"]
+    default: float | int | bool | str
     bounds: tuple[float | int, float | int] | None = None
+    choices: tuple[str, ...] | None = None
     description: str = ""
 
 
@@ -40,6 +41,13 @@ KNOB_REGISTRY: list[Tunable] = [
         default=1,
         bounds=(1, 8),
         description="Parallel conversion workers.",
+    ),
+    Tunable(
+        name="epub_extractor",
+        kind="str",
+        default="unstructured",
+        choices=("unstructured", "legacy", "markdown", "auto", "markitdown"),
+        description="EPUB extractor backend used during prediction-run generation.",
     ),
 ]
 
@@ -74,6 +82,13 @@ def validate_knobs(config: dict[str, Any]) -> list[str]:
     for key, value in config.items():
         knob = registry_map.get(key)
         if knob is None:
+            continue
+        if knob.kind == "str":
+            text = str(value).strip().lower()
+            if knob.choices and text not in {choice.lower() for choice in knob.choices}:
+                errors.append(
+                    f"{key}={value!r} not in allowed values {list(knob.choices)}"
+                )
             continue
         if knob.bounds is not None:
             lo, hi = knob.bounds

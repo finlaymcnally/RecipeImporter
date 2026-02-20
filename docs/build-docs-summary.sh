@@ -5,6 +5,7 @@
 #   docs/<timestamp>_<root_folder_name>-docs-summary.md
 # Note:
 #   Only .md and .txt files are included in the generated summary.
+#   Files ending with "_log.md" are skipped.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,6 +36,11 @@ EOF
 
   for file in "${files[@]}"; do
     if [[ "$file" == "$output" ]]; then
+      continue
+    fi
+
+    # Skip architecture/build/fix-attempt log docs.
+    if [[ "$file" == *"_log.md" ]]; then
       continue
     fi
 
