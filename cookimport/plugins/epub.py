@@ -193,6 +193,11 @@ def _resolve_unstructured_version() -> str:
 class EpubImporter:
     name = "epub"
 
+    def __init__(self) -> None:
+        # Auto-extractor probing calls _extract_docpack() directly without convert().
+        # Keep defaults initialized so probe paths share the same runtime contract.
+        self._overrides = None
+
     def detect(self, path: Path) -> float:
         if path.suffix.lower() == ".epub":
             return 0.95

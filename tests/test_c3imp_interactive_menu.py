@@ -38,3 +38,24 @@ def test_interactive_main_menu_includes_generate_dashboard(monkeypatch):
         cli._interactive_mode()
 
     assert "generate_dashboard" in captured_choice_values
+
+
+def test_interactive_main_menu_includes_epub_race_when_epub_available(monkeypatch, tmp_path):
+    captured_choice_values: list[str] = []
+    epub_path = tmp_path / "book.epub"
+    epub_path.write_text("dummy", encoding="utf-8")
+
+    def fake_menu_select(*args, choices, **kwargs):
+        for choice in choices:
+            if isinstance(choice, questionary.Separator):
+                continue
+            captured_choice_values.append(str(choice.value))
+        return "exit"
+
+    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [epub_path])
+
+    with pytest.raises(typer.Exit):
+        cli._interactive_mode()
+
+    assert "epub_race" in captured_choice_values

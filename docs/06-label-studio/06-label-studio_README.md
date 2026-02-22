@@ -41,13 +41,14 @@ CLI commands:
 
 - `cookimport labelstudio-import`
 - `cookimport labelstudio-export`
+- `cookimport labelstudio-decorate`
 - `cookimport labelstudio-eval`
 - `cookimport labelstudio-benchmark`
 
 Default output roots:
 
 - Non-interactive Label Studio commands default `--output-dir` to `data/golden`.
-- Interactive menu (`cookimport` with no subcommand) still uses `cookimport.json.output_dir` for stage output, but routes Label Studio import/export/benchmark artifact roots to `data/golden`.
+- Interactive menu (`cookimport` with no subcommand) still uses `cookimport.json.output_dir` for stage output, but routes Label Studio import/export/decorate/benchmark artifact roots to `data/golden`.
 - Benchmark also writes stage-style processed cookbook outputs to `data/output` by default via `--processed-output-dir`.
 
 ### 1.3 Write safety and consent
@@ -56,12 +57,15 @@ Uploads are intentionally gated.
 
 - Non-interactive:
   - `labelstudio-import` requires `--allow-labelstudio-write`.
+  - `labelstudio-decorate` requires `--allow-labelstudio-write` unless `--no-write` dry-run mode is used.
   - `labelstudio-benchmark` requires `--allow-labelstudio-write` only in upload mode.
   - `labelstudio-benchmark --no-upload` is fully offline and skips credential resolution + upload.
   - Otherwise they fail fast.
 - Interactive:
   - `labelstudio` import proceeds directly to upload (no separate upload confirmation prompt).
   - `labelstudio` import always uses overwrite semantics for resolved project names (`overwrite=True`, `resume=False`); there is no overwrite/resume chooser in this flow.
+  - Interactive freeform import can enable AI prelabel in the same flow (`Enable AI prelabel before upload?`) and prints `prelabel_report.json` on completion.
+  - Interactive `labelstudio_decorate` defaults to dry-run and only writes annotations after explicit write confirmation.
   - benchmark upload does not ask a second confirmation; choosing upload mode is treated as explicit intent.
   - benchmark supports eval-only fallback (no upload) in interactive flow.
 
@@ -136,6 +140,31 @@ Freeform export produces:
 - `exports/summary.json`
 
 Freeform span rows include offsets, label, touched block mapping, annotator/timestamp, and deterministic `span_id`.
+
+### 1.6.1 Freeform prelabel/decorate contracts
+
+- `labelstudio-import --task-scope freeform-spans --prelabel` can attach completed freeform annotations before upload.
+- Prelabel offset generation is block-index based and deterministic:
+  - LLM output -> `{block_index, label}`
+  - block index -> char offsets from `data.source_map.blocks[*].segment_start/end`
+  - no whitespace normalization is allowed in this path.
+- Import upload mode `--prelabel-upload-as`:
+  - `annotations` (default): attempts inline completed annotations in import payload.
+  - `predictions`: uploads model predictions instead of completed annotations.
+- If inline `annotations` upload fails, import auto-falls back to:
+  - upload plain tasks,
+  - then create annotations per task through Label Studio API.
+- Prelabel artifacts written in run root:
+  - `prelabel_report.json`
+  - `prelabel_errors.jsonl`
+- `labelstudio-decorate`:
+  - fetches existing tasks/annotations from a freeform project,
+  - requests additive labels only (for `--add-labels`),
+  - creates a new merged annotation (base spans preserved, new spans added),
+  - writes local report artifacts:
+    - `decorate_report.json`
+    - `decorate_errors.jsonl`
+  - supports dry-run mode via `--no-write`.
 
 ### 1.7 Evaluation behavior
 
@@ -221,6 +250,8 @@ Manifest includes:
 - Progress callbacks include post-merge phases (archive/hash, processed-output writes, chunk/task generation, upload batching) so long runs continue surfacing advancing status.
 - Interactive `labelstudio` export resolves credentials first, then fetches project titles for a picker UI (showing a detected type tag beside each project when available). It now auto-uses the selected project's detected type as export scope and only prompts for scope when detection is `unknown` (or when the project name is typed manually).
 - Interactive Label Studio import/export credential resolution order is: CLI/env values first, then saved `cookimport.json` values, then one-time prompt (which persists back to `cookimport.json`).
+- Interactive freeform `labelstudio` import can enable AI prelabel before upload and writes `prelabel_report.json` when enabled.
+- Interactive `labelstudio_decorate` is available as a dedicated main-menu action and supports dry-run preview before write mode.
 - Interactive benchmark upload uses the same per-run settings chooser as interactive Import (`global defaults` / `last benchmark` / `change run settings`) and writes successful selections to `<output_dir>/.history/last_run_settings_benchmark.json`.
 - Interactive benchmark upload follows the same env -> saved settings -> one-time prompt credential resolution path before invoking `labelstudio-benchmark`.
 

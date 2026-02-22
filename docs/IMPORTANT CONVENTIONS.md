@@ -37,7 +37,9 @@ Interactive file discovery and direct staging intentionally differ:
 - Direct staging (`cookimport stage <folder>`) scans recursively under the folder.
 - Interactive `labelstudio` import always recreates the resolved Label Studio project (`overwrite=True`, `resume=False`) and does not prompt for resume mode.
 - Interactive `labelstudio` import no longer asks for upload confirmation; once scope/options are chosen, it proceeds directly to upload (after credential resolution).
+- Interactive freeform `labelstudio` import can enable AI prelabel during the same prompt flow; do not require leaving interactive mode for first-pass AI annotations.
 - Interactive `labelstudio` export resolves credentials first, then lists project titles from Label Studio for selection, with manual entry fallback when discovery is unavailable. If the selected project has a detected task type, export uses that scope automatically and skips the separate scope prompt.
+- Interactive `labelstudio_decorate` is a main-menu action for additive freeform AI labels and should default to dry-run before write mode.
 - Label Studio export (interactive and non-interactive) writes to a stable project root by default: `data/golden/<project_slug>/exports/...`; it uses prior manifests for project/scope resolution, not for export destination. `--run-dir` still forces export into a specific run.
 - Interactive main menu is persistent: successful `import`, `labelstudio`, `labelstudio_export`, and `labelstudio_benchmark` actions all return to the main menu. The session exits only when the user selects `Exit`.
 - Interactive select menus should be wired through `_menu_select` so numbering, shortcuts, and Backspace-go-back behavior remain consistent.
@@ -47,6 +49,7 @@ Interactive file discovery and direct staging intentionally differ:
 - Interactive benchmark upload resolves Label Studio credentials through `_resolve_interactive_labelstudio_settings(settings)` (env -> saved config -> prompt) before calling `labelstudio_benchmark(...)`.
 - Typer command functions that are called directly from Python (interactive helpers/tests) must keep runtime defaults as plain Python values, typically via `Annotated[..., typer.Option(...)] = <default>`; avoid relying on `param: T = typer.Option(...)` defaults in those call paths.
 - Interactive `generate_dashboard` asks whether to open the dashboard in a browser, then runs `stats_dashboard(output_root=<settings.output_dir>, out_dir=<output_root>/.history/dashboard)` and returns to the main menu.
+- Interactive `epub_race` is a main-menu action shown only when top-level `data/input` includes at least one `.epub`; it prompts for output/candidates (default output root: `data/output/EPUBextractorRace/<book_stem>`), then runs `cookimport epub race` behavior and returns to the menu.
 - EPUB debug tooling lives under `cookimport epub ...` (sub-CLI module `cookimport/epubdebug`), and block/candidate debug commands must reuse production EPUB importer internals (`_extract_docpack`, `_detect_candidates`) to preserve stage/debug parity.
 
 When debugging "file missing from menu" reports, check whether the file is nested inside `data/input`.
@@ -57,6 +60,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - When a run-setting value changes split capability (for example `epub_extractor=markitdown`), update both split planners (`cookimport/cli.py:_plan_jobs`, `cookimport/labelstudio/ingest.py:_plan_parallel_convert_jobs`) and `compute_effective_workers(...)` together.
 - EPUB unstructured tuning knobs (`epub_unstructured_html_parser_version`, `epub_unstructured_skip_headers_footers`, `epub_unstructured_preprocess_mode`) are part of canonical run settings and must propagate in both stage and benchmark prediction paths; do not wire them only in one flow.
 - When `epub_extractor=auto` is supported, resolve it once in the parent orchestration layer (stage/benchmark prediction) and persist both `epub_extractor_requested` and `epub_extractor_effective` in run config/report surfaces.
+- Auto-selection probing calls `EpubImporter._extract_docpack(...)` directly (without `convert(...)`), so any importer runtime state used by `_extract_docpack` must be initialized in `EpubImporter.__init__` or guarded with safe defaults.
 - EPUB auto-selection metadata contract is explicit: stage/processed reports should persist `epubAutoSelection` + `epubAutoSelectedScore`, and analytics CSV should persist `epub_extractor_requested` + `epub_extractor_effective` + `epub_auto_selected_score` (dashboard reads these directly, CSV-first).
 - Runtime env overrides for EPUB extraction options in prediction/stage helper flows must be scoped and restored after conversion; do not leak `C3IMP_EPUB_*` values across runs/tests.
 - `stage(...)` should pass per-file effective extractor choices explicitly to workers (`stage_one_file` / `stage_epub_job`) instead of depending on persistent process-wide `C3IMP_EPUB_EXTRACTOR`.
@@ -76,6 +80,14 @@ When debugging "file missing from menu" reports, check whether the file is neste
   - `cookimport/analytics/perf_report.py`
   - `cookimport/analytics/dashboard_collect.py`
   - `cookimport/analytics/dashboard_render.py`
+
+## Label Studio Prelabel/Decorate Rule
+
+- Freeform prelabeling must derive span offsets from `data.source_map.blocks[*].segment_start/end`; never ask the model for raw character offsets.
+- Freeform prelabel/decorate flows must preserve `data.segment_text` exactly (no whitespace normalization) so exported offsets remain stable.
+- `labelstudio-decorate` must be additive and reversible:
+  - never overwrite prior annotations in place,
+  - create a new merged annotation and tag it with `meta.cookimport_prelabel=true`, `meta.mode=augment`, and `meta.added_labels`.
 
 ## Dependency Resolution Rule
 

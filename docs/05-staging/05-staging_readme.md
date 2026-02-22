@@ -138,6 +138,8 @@ Current enforced behavior:
 - Allowed output `quantity_kind`: `exact`, `approximate`, `unquantified`.
 - `exact`/`approximate` lines require positive `input_qty`; otherwise they are downgraded to `unquantified`.
 - `unquantified` lines must have `input_qty = null` and `input_unit_id = null`.
+- Blank `linked_recipe_id` values are cleared so lines do not violate one-of reference rules.
+- Recipe-line multipliers (`linked_recipe_id` + `input_qty`) are capped at `100` to satisfy Cookbook staging validation.
 - For unresolved units, `input_unit_id` is always set to `null` (raw unit text retained in `raw_unit_text`).
 - For unresolved ingredients, `ingredient_id` must be non-empty string; fallback uses `raw_ingredient_text`, then `raw_text`, then sentinel `__missing_ingredient__`.
 
@@ -156,6 +158,8 @@ Code refs:
 - If no instructions remain, fallback step is injected: `See original recipe for details.`
 - Unassigned ingredients create prep step at beginning: `Gather and prepare ingredients.`
 - Step time metadata from instruction parser is rolled up to `cook_time_seconds` when recipe cook time is missing.
+- Blank recipe titles are normalized to `Untitled Recipe`.
+- Blank `source` values are normalized to `null` to satisfy staging schema min-length rules.
 
 Code refs:
 

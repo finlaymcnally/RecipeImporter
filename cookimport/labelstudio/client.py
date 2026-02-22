@@ -179,6 +179,39 @@ class LabelStudioClient:
     def import_tasks(self, project_id: int, tasks: list[dict[str, Any]]) -> dict[str, Any]:
         return self._request_json("POST", f"/api/projects/{project_id}/import", tasks)
 
+    def list_project_tasks(self, project_id: int) -> list[dict[str, Any]]:
+        tasks: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            query = urllib.parse.urlencode(
+                {"project": project_id, "page": page, "page_size": 100}
+            )
+            payload = self._request_json("GET", f"/api/tasks?{query}")
+            if isinstance(payload, dict) and "results" in payload:
+                results = payload.get("results", [])
+                if isinstance(results, list):
+                    tasks.extend(
+                        [item for item in results if isinstance(item, dict)]
+                    )
+                if not payload.get("next"):
+                    break
+            elif isinstance(payload, list):
+                tasks.extend([item for item in payload if isinstance(item, dict)])
+                break
+            else:
+                break
+            page += 1
+        return tasks
+
+    def create_annotation(self, task_id: int, annotation: dict[str, Any]) -> dict[str, Any]:
+        payload = {
+            "result": annotation.get("result") or [],
+        }
+        meta = annotation.get("meta")
+        if isinstance(meta, dict):
+            payload["meta"] = meta
+        return self._request_json("POST", f"/api/tasks/{task_id}/annotations", payload)
+
     def export_tasks(self, project_id: int) -> list[dict[str, Any]]:
         paths = [
             f"/api/projects/{project_id}/export?download_all_tasks=true&exportType=JSON",

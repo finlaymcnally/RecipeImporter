@@ -1,0 +1,532 @@
+---
+summary: "ExecPlan for integrating optional LLM repair into the import pipeline."
+read_when:
+  - When enabling or auditing LLM repair behavior in stage workflows
+  - When updating LLM telemetry, gating, or fallback rules
+---
+
+# ExecPlan: I6 — Unmock + integrate LLM Repair into cookimport (ingredient parsing + step ↔ ingredient linking)
+
+This ExecPlan is a living document. The sections **Progress**, **Surprises & Discoveries**, **Decision Log**, and **Outcomes & Retrospective** must be kept up to date as work proceeds.
+
+This plan must be maintained in accordance with `docs/PLANS.md` at the repository root.
+
+## Purpose / Big Picture
+
+After this change, a user can optionally enable an “LLM Repair” layer when running the pipeline (for example via `cookimport stage ...`) to improve:
+
+* structured ingredient parsing for tricky ingredient lines, and
+* step ↔ ingredient linking for ingredients that the deterministic linker cannot confidently place.
+
+The default behavior remains deterministic and unchanged: **LLM Repair is OFF unless explicitly enabled**.
+
+A user can *see* the feature working by:
+
+* running the same golden-set evaluation twice (LLM OFF vs LLM ON) and observing improved freeform/canonical eval artifacts (for example fewer missed ingredient-line spans), and
+* opening the per-file conversion report and seeing an `llm` stats section (calls, cache hits, failures, repairs applied, time), and
+* inspecting per-run JSONL artifacts that show exactly which lines were repaired, what the deterministic output was, what the LLM suggested, and whether it was applied.
+
+## Progress
+
+* [ ] (2026-02-12) Record baseline golden-set benchmark metrics with LLM OFF; archive the eval output folder path(s).
+* [ ] (2026-02-12) Unmock `cookimport/llm/`: implement a real provider client, disk cache, and strict schema validation, with safe fallback behavior.
+* [ ] (2026-02-12) Wire ingredient-line repair (gated + patch-based) into `cookimport/parsing/ingredients.py`, and write `ingredient_repairs.jsonl`.
+* [ ] (2026-02-12) Extend per-file conversion report to include `llm` stats, and confirm it renders in existing perf/report flows.
+* [ ] (2026-02-12) Re-run golden-set benchmark with ingredient repair ON; compare eval artifacts to baseline; capture a small “before vs after” summary in this plan.
+* [ ] (2026-02-12) Wire step-link repair for unmatched/low-confidence cases into `cookimport/parsing/step_ingredients.py`, and write `step_link_repairs.jsonl`.
+* [ ] (2026-02-12) Add unit tests for cache, schema validation, gating, and “repair only applies when allowed.”
+* [ ] (2026-02-12) Re-run golden-set benchmark with ingredient + step-link repair ON; compare to baseline; tune thresholds/prompts with evidence.
+* [ ] (2026-02-12) Document how to enable/disable LLM repair safely (flags + env vars), including a dry-run mode.
+
+## Surprises & Discoveries
+
+(Empty — fill as you learn things that change the plan. Keep entries dated and include small evidence snippets like test output or a linkable artifact path.)
+
+## Decision Log
+
+(Empty — record decisions that would be hard to reconstruct later, like threshold defaults, schema shapes, prompt versioning, cache key design, or why a repair rule was added/removed. Keep entries dated.)
+
+## Outcomes & Retrospective
+
+(Empty — after completion, summarize what moved metrics, what didn’t, and what you’d do next.)
+
+## Context and Orientation
+
+### What “cookimport” is (relevant subset)
+
+`cookimport` is a Python 3.12 recipe ingestion + normalization pipeline:
+
+* Importers ingest many formats into a common `ConversionResult`.
+* Staging converts recipe candidates into final “cookbook3” drafts (internal model: `RecipeDraftV1`).
+* During staging, it runs deterministic parsing steps including:
+
+  * ingredient line parsing (`cookimport/parsing/ingredients.py`)
+  * step ↔ ingredient linking (`cookimport/parsing/step_ingredients.py`)
+
+The system is explicitly “deterministic-first”: ML/LLM features must not silently change the default pipeline outputs.
+
+### Where outputs and reports go (important for validation)
+
+A `cookimport stage ...` run writes outputs under:
+
+* `data/output/<YYYY-MM-DD_HH.MM.SS>/...`
+
+The per-file conversion report is written at the run root as:
+
+* `data/output/<run_ts>/<workbook_slug>.excel_import_report.json`
+
+Do not assume a `reports/` subfolder exists; many prior notes/docs drifted on this.
+
+### Label Studio benchmark behavior (critical footgun)
+
+The CLI benchmark command:
+
+* `cookimport labelstudio-benchmark`
+
+…is **upload-first** in non-interactive mode and will import/upload prediction tasks before evaluating, unless you’re using an interactive menu flow that supports eval-only. Non-interactive commands that write to Label Studio are gated by an explicit consent flag (see Concrete Steps).
+
+### Current state of LLM support
+
+There is already a directory `cookimport/llm/`, but it is currently **mocked** (calls return mock data). This plan replaces “mocked by default” with “real implementation available, but never used unless enabled.”
+
+## Plan of Work
+
+### Milestone 0 — Baseline: lock in “before” numbers
+
+Goal: produce a baseline evaluation run (LLM OFF) that you can diff against later.
+
+What exists at the end:
+
+* a known run folder path (or benchmark eval folder path) containing:
+
+  * `eval_report.json`
+  * `eval_report.md`
+  * `missed_gold_spans.jsonl`
+  * `false_positive_preds.jsonl`
+
+Work:
+
+* Run your standard golden-set evaluation workflow exactly as you normally do today.
+* Save the output directory path(s) in **Artifacts and Notes** in this plan (so future work can diff).
+
+Acceptance:
+
+* You can point to a concrete folder on disk that contains the eval artifacts above and is clearly labeled “baseline / LLM off”.
+
+### Milestone 1 — Unmock `cookimport/llm/`: real provider + cache + strict validation
+
+Goal: implement a safe, testable LLM client that only ever returns validated structured JSON, and that is fully cacheable and replayable.
+
+What exists at the end:
+
+* A real `cookimport/llm/` implementation that can:
+
+  * perform a JSON-returning request to a provider (or be swapped for a fake provider in tests),
+  * parse JSON strictly (no “best effort”),
+  * validate against a Pydantic schema (project already uses Pydantic v2),
+  * cache responses to disk with atomic writes, and
+  * expose per-run stats counters (calls, hits, failures, seconds, repairs applied).
+
+Design constraints (non-negotiable):
+
+* If disabled, **must not**:
+
+  * make network calls,
+  * require an API key,
+  * or change outputs.
+* Any failure (timeout, invalid JSON, schema mismatch, rate limit) must degrade to a safe “no repair applied” behavior.
+
+Implementation detail guidance:
+
+* Prefer Pydantic models (or `TypeAdapter`) for validation, because the project is already Pydantic-heavy.
+* Keep provider plumbing isolated (no provider-specific code in parsing modules).
+* Add a `PROMPT_VERSION` constant that is included in the cache key so you can intentionally bust cache when prompt/schema changes.
+
+Recommended interface (internal):
+
+* In `cookimport/llm/client.py` (or similar), define something like:
+
+  * `class LLMClient:`
+
+    * `def complete_json(self, *, task_name: str, schema_id: str, prompt: str, cache_key: str, timeout_s: float | None = None) -> dict | None:`
+
+Where:
+
+* returning `None` means “no valid repair available” (caller must fall back).
+* `schema_id` is a stable string like `ingredient_repair_v1` to help debugging.
+
+Caching guidance:
+
+* Cache key should include (at minimum):
+
+  * task name
+  * schema id
+  * model id
+  * prompt version
+  * normalized prompt text
+
+* Write cache files atomically (temp + rename).
+
+* Concurrency footgun: atomic rename prevents partial files, but does not prevent two workers from both calling the provider on a cold cache. If this matters in your workload, add a simple per-key lock file (atomic create of `<key>.lock`), or accept the possibility of occasional duplicate calls in parallel runs.
+
+### Milestone 2 — Ingredient-line repair (primary win)
+
+Goal: keep deterministic parsing as the base, but add an opt-in “repair” pass for low-confidence/suspicious ingredient lines.
+
+What exists at the end:
+
+* When `--llm-repair=ingredients` is enabled (and global LLM enable is on), low-confidence ingredient lines will:
+
+  * be sent to the LLM repair task,
+  * validated strictly against a known schema,
+  * sanity-checked against invariants,
+  * applied only as a patch if safe,
+  * and logged to `ingredient_repairs.jsonl`.
+
+Where to integrate:
+
+* `cookimport/parsing/ingredients.py` (the ingredient parsing entrypoint).
+* If the actual staging pipeline calls a helper like `parse_ingredient_line(...)`, integrate there so all importers benefit.
+
+Gating (default rules, tuned later with evidence):
+
+* Call the LLM only if:
+
+  * deterministic `confidence` is below a threshold (start at 0.75), or
+  * deterministic output is structurally broken for a non-header line (for example empty ingredient text), or
+  * a “looks like quantity” signal exists but the parse did not produce a plausible quantity kind.
+
+Hard limits:
+
+* Max repair calls per recipe (start: 6).
+* Never call for obvious section headers (`quantity_kind == "section_header"`), unless you can justify and test a header-uncertainty detector.
+
+Schema (ingredient repair v1):
+
+The LLM must return a JSON object with these fields aligned to what the parser already emits:
+
+* `quantity_kind`: `"exact" | "approximate" | "unquantified" | "section_header"`
+* `input_qty`: number or null
+* `raw_unit_text`: string or null
+* `raw_ingredient_text`: string (required unless section_header)
+* `preparation`: string or null
+* `note`: string or null
+* `is_optional`: boolean
+* `confidence`: number 0..1 (recorded; never blindly trusted)
+* `raw_text`: string (must exactly match the normalized input line you provided)
+
+Validation / invariants (non-negotiable):
+
+* If `quantity_kind == "exact"`, `input_qty` must be > 0.
+* If `quantity_kind != "exact"`, `input_qty` must be null.
+* `raw_text` must exactly match the input normalized line (reject if the LLM “edited” it).
+* If the repaired result is invalid or violates invariants, do not apply; fall back to deterministic parse.
+
+Patch application:
+
+* Store (in-memory and/or artifacts) both:
+
+  * deterministic parse (base),
+  * candidate repair parse (if any),
+  * final chosen parse.
+* Mark repair metadata including cache key, model, latency, and reason applied/rejected.
+
+Artifacts:
+
+* Under the run folder, write:
+
+  * `data/output/<run_ts>/rawArtifacts/llm/ingredient_repairs.jsonl`
+
+Each JSONL line should include enough to debug without rerunning:
+
+* recipe identifier (whatever stable ID exists in staging)
+* ingredient line index
+* input normalized line
+* base parse (structured)
+* llm output (structured or null)
+* validation result and rejection reason if any
+* final parse (structured)
+* cache metadata (cache_key, hit/miss, latency_ms)
+
+### Milestone 3 — Step ↔ ingredient linking repair (secondary, strict fallback)
+
+Goal: do not replace the deterministic two-phase linker. Only use the LLM to rescue cases the linker already considered “no good answer.”
+
+What exists at the end:
+
+* With `--llm-repair=step_link` or `--llm-repair=all`, the linker will optionally attempt repair for:
+
+  * ingredients that were not assigned to any step, and/or
+  * extremely low-confidence assignments (only if the code has such a concept; don’t invent one without evidence).
+
+Where to integrate:
+
+* `cookimport/parsing/step_ingredients.py`
+* Prefer to integrate at a point where you have:
+
+  * the list of steps (indexed) and their texts,
+  * normalized ingredient text and aliases (if the linker generates aliases),
+  * and the deterministic assignment results.
+
+Recommended approach (safe by design):
+
+* Only apply LLM suggestions to ingredients that are currently *unassigned*.
+* If you later decide to override assigned links, require:
+
+  * a very low deterministic confidence signal, and
+  * an explicit, tested rule that prevents duplication regressions.
+
+LLM task input (keep prompts small):
+
+* recipe title (if available)
+* steps: list of `{index, text}` (truncate overly long steps if needed)
+* one ingredient’s:
+
+  * original ingredient line (`raw_text`), plus
+  * parsed ingredient core (`raw_ingredient_text`) and aliases if available
+
+LLM output schema (step link repair v1):
+
+* `ingredient_line_index`: integer
+* `step_indices`: list of integers (length 1–3)
+* `split_fractions`: optional list of numbers (same length as step_indices; sums to ~1.0)
+* `reason`: string (debug only)
+
+Validation rules:
+
+* step indices must be in range.
+* max 3 steps.
+* if split fractions provided:
+
+  * same length as step indices,
+  * each fraction > 0,
+  * sum within [0.98, 1.02].
+
+Artifacts:
+
+* `data/output/<run_ts>/rawArtifacts/llm/step_link_repairs.jsonl` with analogous fields to ingredient repairs.
+
+### Milestone 4 — CLI/config wiring + reporting
+
+Goal: make LLM repair strictly opt-in, reproducible, and observable.
+
+What exists at the end:
+
+* `cookimport stage ...` (and any relevant entrypoints used by benchmark/prediction runs) can be run with explicit flags enabling repair.
+* The per-file conversion report includes an `llm` stats object.
+
+Opt-in gating (recommended double-gate):
+
+* Require both:
+
+  * a CLI flag selecting repairs, and
+  * an env var enabling LLM at all.
+
+This prevents accidental enabling in environments where flags may be defaulted.
+
+Proposed CLI flags:
+
+* `--llm-repair off|ingredients|step_link|all` (default: `off`)
+* `--llm-cache-dir <path>` (optional)
+* `--llm-max-calls-per-recipe N` (optional)
+* `--llm-model <model>` (optional)
+* `--llm-dryrun` (optional; never calls network, but still writes “would-have-called” artifacts)
+
+Proposed env vars (names may be adjusted to match repo conventions):
+
+* `COOKIMPORT_LLM_ENABLED=0|1` (default 0)
+* `COOKIMPORT_LLM_API_KEY` (required if enabled and not dry-run)
+* `COOKIMPORT_LLM_MODEL` (default to a known JSON-capable model)
+* `COOKIMPORT_LLM_BASE_URL` (optional; for OpenAI-compatible endpoints)
+* `COOKIMPORT_LLM_TIMEOUT_SECS` (default 30)
+* `COOKIMPORT_LLM_MAX_RETRIES` (default 2)
+* `COOKIMPORT_LLM_CACHE_DIR` (default: `data/output/.cache/llm`)
+
+Reporting:
+
+* Extend the per-file conversion report (the JSON written at run root) to include:
+
+  * `llm: { calls, cache_hits, failures, repairs_applied, seconds_total, tasks: {...} }`
+
+Where `tasks` can break down counts by `ingredient_repair_v1` and `step_link_repair_v1`.
+
+### Milestone 5 — Tests + benchmark iteration
+
+Goal: prove safety and value with deterministic tests and measured evaluation deltas.
+
+What exists at the end:
+
+* Unit tests cover:
+
+  * schema validation rejects bad outputs and falls back safely,
+  * cache prevents repeat provider calls for same key,
+  * gating prevents calls when disabled,
+  * step-link repair only applies to unassigned ingredients (by default rule),
+  * dry-run mode never calls network.
+
+* A benchmark comparison exists in **Artifacts and Notes**:
+
+  * baseline (LLM off) vs ingredients repair on vs all on.
+
+Test strategy notes:
+
+* Never call real LLM providers in unit tests.
+* Use a fake provider implementation that returns fixed JSON payloads.
+* Add at least one regression-style unit test that demonstrates a real improvement pattern (for example, a tricky ingredient line that deterministic parsing misreads but your repair schema + patch logic can fix).
+
+Benchmark strategy:
+
+* Run the golden-set workflow with:
+
+  * LLM OFF
+  * LLM ON (ingredients only)
+  * LLM ON (ingredients + step_link)
+
+* Compare:
+
+  * `eval_report.json` and `eval_report.md`
+  * `missed_gold_spans.jsonl`
+  * `false_positive_preds.jsonl`
+
+Tune:
+
+* Adjust thresholds and prompts only after you have artifact evidence (from the JSONLs) for why repairs were rejected or harmful.
+* Record threshold/prompt changes in the Decision Log with dates.
+
+## Concrete Steps
+
+All commands below assume you are at the repository root.
+
+1. Baseline stage run (LLM is off by default):
+
+   cookimport stage data/input/<YOUR_GOLDEN_SET_SOURCE_OR_FOLDER>
+
+Then locate the run folder created under `data/output/<timestamp>/` and note:
+
+* `<run_root>/<workbook_slug>.excel_import_report.json`
+
+2. Baseline Label Studio benchmark (only if that is your standard golden-set metric source):
+
+   cookimport labelstudio-benchmark --allow-labelstudio-write
+
+Notes:
+
+* This command is upload-first in non-interactive mode.
+* Its artifacts live under `data/golden/...` and should include `eval_report.json` and `eval_report.md`.
+* It may also write “prediction-run” artifacts co-located under the eval output directory.
+
+3. After implementing LLM repair, run staging with repair enabled (example):
+
+   export COOKIMPORT_LLM_ENABLED=1
+   export COOKIMPORT_LLM_API_KEY="<your key>"
+   export COOKIMPORT_LLM_MODEL="<your model>"
+
+   cookimport stage data/input/<YOUR_GOLDEN_SET_SOURCE_OR_FOLDER> --llm-repair ingredients
+
+4. After implementing step-link repair:
+
+   cookimport stage data/input/<YOUR_GOLDEN_SET_SOURCE_OR_FOLDER> --llm-repair all
+
+5. Run tests:
+
+   pytest -q
+
+Expected outcomes:
+
+* Tests pass.
+* When LLM repair is enabled, the run folder contains:
+
+  * `data/output/<run_ts>/rawArtifacts/llm/ingredient_repairs.jsonl`
+  * optionally `data/output/<run_ts>/rawArtifacts/llm/step_link_repairs.jsonl`
+
+## Validation and Acceptance
+
+This work is accepted when all of the following are true:
+
+1. Deterministic default preserved:
+
+* Running `cookimport stage ...` with no new flags produces the same outputs as before (no LLM calls, no repaired outputs).
+
+2. Safe opt-in behavior:
+
+* With `--llm-repair=ingredients` but `COOKIMPORT_LLM_ENABLED=0`, the pipeline does not call the network and reports “LLM disabled” in logs/stats (repairs are not applied).
+* With `COOKIMPORT_LLM_ENABLED=1` and `--llm-repair=ingredients`, LLM calls occur only for gated low-confidence lines and are capped per recipe.
+
+3. Cache and replay:
+
+* Re-running the same command with the same inputs and cache dir produces cache hits and does not re-call the provider for previously seen keys.
+
+4. Strict validation and fallback:
+
+* Invalid JSON, schema mismatches, or invariant violations never crash staging; they produce a “repair rejected” record and fall back to deterministic results.
+
+5. Observable reporting:
+
+* The per-file conversion report JSON includes an `llm` section with counts and seconds.
+* The run folder contains the JSONL repair artifacts as described.
+
+6. Measured quality impact:
+
+* On your existing golden set, the “LLM ON (ingredients)” run shows a measurable improvement in at least one ingredient-relevant metric in `eval_report.json` / `eval_report.md`, and does not introduce an unacceptable wave of false positives (document what “unacceptable” means for your use case).
+* Step-link repair improves unmatched/incorrect linking cases without reintroducing duplication regressions (confirm via eval artifacts and at least one targeted unit test).
+
+## Idempotence and Recovery
+
+* Cache files are safe to delete; deletion only causes re-calls on the next enabled run.
+* Repair JSONLs are purely diagnostic artifacts; deletion does not affect correctness.
+* If you hit rate limits or provider instability, set `--llm-repair off` (or `COOKIMPORT_LLM_ENABLED=0`) and rerun to get deterministic outputs.
+* Label Studio write operations remain gated by `--allow-labelstudio-write`; do not run benchmark/import commands “just to peek” unless you intend to upload.
+
+## Artifacts and Notes
+
+Fill these in as you execute the plan:
+
+* Baseline eval output dir (LLM OFF): `...`
+* Ingredients repair eval output dir (LLM ON): `...`
+* All repair eval output dir (LLM ON): `...`
+
+Record a short summary here (example format):
+
+* Baseline vs Ingredients:
+
+  * Key metric deltas: …
+  * Notable reductions in missed spans: …
+  * Notable new false positives (if any): …
+
+* Ingredients vs All:
+
+  * Step-link improvements observed: …
+  * Any regressions and how they were mitigated: …
+
+## Interfaces and Dependencies
+
+### Modules/files expected to be touched
+
+* `cookimport/llm/` — implement real client/provider abstraction, cache, schemas, stats
+* `cookimport/parsing/ingredients.py` — add gated repair pass after deterministic parse
+* `cookimport/parsing/step_ingredients.py` — add gated repair pass for unmatched/low-confidence
+* `cookimport/cli.py` (or wherever `cookimport stage` flags live) — add flags and wire config through
+* Conversion report model / writer (where `<workbook_slug>.excel_import_report.json` is generated) — add `llm` stats field
+* `tests/` — add deterministic unit tests for cache, gating, and validation
+
+### External dependencies
+
+* Prefer not adding new dependencies if existing ones suffice.
+* Use Pydantic v2 for schema validation.
+* For HTTP provider calls, prefer existing HTTP client dependency if present; otherwise `requests` is acceptable.
+* Do not add any dependency that forces an LLM provider at import time when LLM is disabled.
+
+## Footguns to Avoid (read before implementing)
+
+* Do not enable LLM repair by default. “It works on my machine” defaults are the fastest way to create silent regressions.
+* Do not accept “almost JSON” output. If you don’t validate strictly, you will eventually apply a malformed repair and corrupt downstream invariants.
+* Don’t let the LLM rewrite the input line. Require `raw_text` to match exactly, or you’ll drift provenance/traceability.
+* Watch out for parallelism: split jobs / multi-worker runs can cause duplicate provider calls without a lock. Atomic cache writes prevent corruption but not duplication.
+* Remember Label Studio benchmark is upload-first in non-interactive mode. Always use `--allow-labelstudio-write` intentionally.
+* Don’t assume old URN namespaces or old docs about output paths/timestamps are correct; verify current emitted IDs and file paths in the repo before hard-coding expectations.
+
+---
+
+Plan revision note (required):
+
+* 2026-02-12: Rewrote and expanded the plan to fully align with `docs/PLANS.md` (added required sections, milestone structure, concrete commands, explicit acceptance criteria, idempotence/recovery guidance, and an explicit “footguns” section). Removed `:contentReference[...]` placeholders so the document is clean, self-contained Markdown.

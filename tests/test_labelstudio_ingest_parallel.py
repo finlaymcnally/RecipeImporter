@@ -289,3 +289,182 @@ def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path:
     assert "Uploading 401 task(s) in 3 batch(es)..." in progress_messages
     assert "Uploaded 401/401 task(s)." in progress_messages
     assert progress_messages[-1] == "Label Studio import artifacts complete."
+
+
+def _fake_pred_result(tmp_path: Path, tasks: list[dict[str, object]]) -> dict[str, object]:
+    run_root = tmp_path / "2026-02-20_12.00.00" / "labelstudio" / "book"
+    run_root.mkdir(parents=True, exist_ok=True)
+    manifest_path = run_root / "manifest.json"
+    manifest_path.write_text(
+        "{}",
+        encoding="utf-8",
+    )
+    return {
+        "run_root": run_root,
+        "processed_run_root": None,
+        "processed_report_path": None,
+        "tasks_total": len(tasks),
+        "tasks": tasks,
+        "manifest_path": manifest_path,
+        "label_config": "<View/>",
+        "run_config": {},
+        "run_config_hash": None,
+        "run_config_summary": None,
+        "file_hash": "hash",
+        "importer_name": "fake",
+        "prelabel": {"enabled": True},
+        "prelabel_report_path": run_root / "prelabel_report.json",
+        "prelabel_errors_path": run_root / "prelabel_errors.jsonl",
+    }
+
+
+def test_run_labelstudio_import_falls_back_to_post_import_annotations(
+    monkeypatch, tmp_path: Path
+) -> None:
+    tasks = [
+        {
+            "data": {"segment_id": "seg-1"},
+            "annotations": [{"result": [{"value": {"start": 0, "end": 5, "labels": ["TIP"]}}]}],
+        },
+        {
+            "data": {"segment_id": "seg-2"},
+            "annotations": [{"result": [{"value": {"start": 6, "end": 11, "labels": ["NOTES"]}}]}],
+        },
+    ]
+
+    class FakeLabelStudioClient:
+        inline_rejections = 0
+        created_annotations: list[tuple[int, dict[str, object]]] = []
+        imported_batches: list[list[dict[str, object]]] = []
+
+        def __init__(self, _url: str, _key: str) -> None:
+            return None
+
+        def list_projects(self):
+            return []
+
+        def find_project_by_title(self, _title: str):
+            return None
+
+        def create_project(self, title: str, _label_config: str, description: str | None = None):
+            return {"id": 123, "title": title, "description": description}
+
+        def import_tasks(self, _project_id: int, tasks_payload):
+            payload = [dict(item) for item in tasks_payload]
+            self.imported_batches.append(payload)
+            if any("annotations" in item for item in payload):
+                FakeLabelStudioClient.inline_rejections += 1
+                raise RuntimeError("inline annotation import rejected")
+            return {"task_count": len(payload)}
+
+        def list_project_tasks(self, _project_id: int):
+            return [
+                {"id": 501, "data": {"segment_id": "seg-1"}},
+                {"id": 502, "data": {"segment_id": "seg-2"}},
+            ]
+
+        def create_annotation(self, task_id: int, annotation: dict[str, object]):
+            self.created_annotations.append((task_id, annotation))
+            return {"id": len(self.created_annotations)}
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.generate_pred_run_artifacts",
+        lambda **_kwargs: _fake_pred_result(tmp_path, tasks),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.LabelStudioClient",
+        FakeLabelStudioClient,
+    )
+
+    result = run_labelstudio_import(
+        path=tmp_path / "book.epub",
+        output_dir=tmp_path / "golden",
+        pipeline="auto",
+        project_name="prelabel test",
+        chunk_level="both",
+        task_scope="freeform-spans",
+        context_window=1,
+        segment_blocks=40,
+        segment_overlap=5,
+        overwrite=False,
+        resume=False,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="token",
+        limit=None,
+        sample=None,
+        prelabel=True,
+        prelabel_upload_as="annotations",
+        allow_labelstudio_write=True,
+    )
+
+    assert result["tasks_uploaded"] == 2
+    assert result["prelabel_inline_annotations_fallback"] is True
+    assert result["prelabel_post_import_annotations_created"] == 2
+    assert FakeLabelStudioClient.inline_rejections == 1
+    assert len(FakeLabelStudioClient.created_annotations) == 2
+
+
+def test_run_labelstudio_import_can_upload_prelabels_as_predictions(
+    monkeypatch, tmp_path: Path
+) -> None:
+    tasks = [
+        {
+            "data": {"segment_id": "seg-1"},
+            "annotations": [{"result": [{"value": {"start": 0, "end": 5, "labels": ["TIP"]}}]}],
+        }
+    ]
+
+    class FakeLabelStudioClient:
+        imported_batches: list[list[dict[str, object]]] = []
+
+        def __init__(self, _url: str, _key: str) -> None:
+            return None
+
+        def list_projects(self):
+            return []
+
+        def find_project_by_title(self, _title: str):
+            return None
+
+        def create_project(self, title: str, _label_config: str, description: str | None = None):
+            return {"id": 123, "title": title, "description": description}
+
+        def import_tasks(self, _project_id: int, tasks_payload):
+            payload = [dict(item) for item in tasks_payload]
+            self.imported_batches.append(payload)
+            return {"task_count": len(payload)}
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.generate_pred_run_artifacts",
+        lambda **_kwargs: _fake_pred_result(tmp_path, tasks),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.LabelStudioClient",
+        FakeLabelStudioClient,
+    )
+
+    run_labelstudio_import(
+        path=tmp_path / "book.epub",
+        output_dir=tmp_path / "golden",
+        pipeline="auto",
+        project_name="prelabel prediction test",
+        chunk_level="both",
+        task_scope="freeform-spans",
+        context_window=1,
+        segment_blocks=40,
+        segment_overlap=5,
+        overwrite=False,
+        resume=False,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="token",
+        limit=None,
+        sample=None,
+        prelabel=True,
+        prelabel_upload_as="predictions",
+        allow_labelstudio_write=True,
+    )
+
+    assert len(FakeLabelStudioClient.imported_batches) == 1
+    uploaded = FakeLabelStudioClient.imported_batches[0][0]
+    assert "predictions" in uploaded
+    assert "annotations" not in uploaded

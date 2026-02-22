@@ -17,6 +17,15 @@ _SECTION_HEADER_RE = re.compile(
 )
 _LOWERCASE_FIELDS = ("raw_text", "raw_ingredient_text", "raw_unit_text", "preparation", "note")
 _MISSING_INGREDIENT_LABEL = "__missing_ingredient__"
+_UNTITLED_RECIPE_TITLE = "Untitled Recipe"
+_MAX_RECIPE_LINE_MULTIPLIER = 100.0
+
+
+def _normalize_nonempty_text(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
 
 def _to_positive_number(value: Any) -> float | None:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -43,18 +52,24 @@ def _sanitize_staging_line(line: dict[str, Any]) -> dict[str, Any] | None:
 
     sanitized = dict(line)
 
-    linked_recipe_id = sanitized.get("linked_recipe_id")
-    has_linked_recipe = isinstance(linked_recipe_id, str) and bool(linked_recipe_id.strip())
+    linked_recipe_id = _normalize_nonempty_text(sanitized.get("linked_recipe_id"))
+    sanitized["linked_recipe_id"] = linked_recipe_id
+    has_linked_recipe = linked_recipe_id is not None
     input_qty = _to_positive_number(sanitized.get("input_qty"))
 
     if has_linked_recipe:
         sanitized["ingredient_id"] = None
         sanitized["input_unit_id"] = None
+        if input_qty is not None and input_qty > _MAX_RECIPE_LINE_MULTIPLIER:
+            input_qty = _MAX_RECIPE_LINE_MULTIPLIER
         sanitized["input_qty"] = input_qty
-        if input_qty is None:
+        if quantity_kind not in {"exact", "approximate", "unquantified"} or input_qty is None:
             sanitized["quantity_kind"] = "exact"
+        else:
+            sanitized["quantity_kind"] = quantity_kind
         return sanitized
 
+    sanitized["linked_recipe_id"] = None
     if quantity_kind not in {"exact", "approximate", "unquantified"}:
         quantity_kind = "unquantified"
 
@@ -165,7 +180,11 @@ def _split_variants(instructions: list[str]) -> tuple[list[str], list[str]]:
 
 def recipe_candidate_to_draft_v1(candidate: RecipeCandidate) -> dict[str, Any]:
     """Convert a RecipeCandidate into cookbook3 format (internal model: RecipeDraftV1)."""
-    
+
+    recipe_title = candidate.name.strip() if candidate.name else ""
+    if not recipe_title:
+        recipe_title = _UNTITLED_RECIPE_TITLE
+
     # 1. Prepare Recipe object
     notes_parts = []
     if candidate.source_url:
@@ -178,10 +197,10 @@ def recipe_candidate_to_draft_v1(candidate: RecipeCandidate) -> dict[str, Any]:
     notes_val = "\n".join(notes_parts) if notes_parts else None
 
     recipe_meta: dict[str, Any] = {
-        "title": candidate.name,
+        "title": recipe_title,
         "description": candidate.description,
         "notes": notes_val,
-        "yield_units": 1, # Default
+        "yield_units": 1,  # Default
         "yield_phrase": candidate.recipe_yield,
         "yield_unit_name": None,
         "yield_detail": None,
@@ -264,7 +283,7 @@ def recipe_candidate_to_draft_v1(candidate: RecipeCandidate) -> dict[str, Any]:
 
     return {
         "schema_v": 1,
-        "source": candidate.source,
+        "source": _normalize_nonempty_text(candidate.source),
         "recipe": recipe_meta,
         "steps": steps_data,
     }

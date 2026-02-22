@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "recipeDraftV1.schema.json",
-  "title": "RecipeDraftStagingV1",
+  "$id": "https://cookbook.dev/contracts/recipe_draft_staging.schema.v1.json",
+  "title": "Recipe Draft Staging V1",
   "description": "Staging import payload. Extends Recipe Draft V1 with review metadata and unresolved text fields.",
   "type": "object",
   "required": ["schema_v", "recipe", "steps"],

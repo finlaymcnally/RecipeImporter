@@ -1,8 +1,71 @@
-# Recipe Import
+# Recipe Import (cookimport)
 
-This project is now interactive-first.
+> README goal (for humans and future AIs editing this file)
+>
+> Keep this README as a simple, step-by-step, non-coder walkthrough for setting up, running, and tweaking an import pipeline.
+> Put deep reference material in `docs/` (especially `docs/02-cli/02-cli_README.md`) and link to it from here.
 
-## Quick Start (Interactive)
+## Choice Tree (Start Here)
+
+```text
+Start
+|-- Step 1) Put your file(s) in `data/input/`
+|   `-- Important: interactive mode only shows top-level files in `data/input/`
+|-- Step 2) Every time: launch the tool
+|   |-- `cd /home/mcnal/projects/recipeimport`
+|   |-- `. .venv/bin/activate`
+|   `-- `C3imp` (or `C3imp 10` for a small test run)
+`-- Step 3) In the menu, pick a workflow
+    |-- Import: stage files -> outputs in `data/output/<YYYY-MM-DD_HH.MM.SS>/`
+    |-- Settings: change defaults (saved in `cookimport.json`)
+    |-- EPUB debug: race extractors on one file (EPUB only)
+    |-- Label Studio: create labeling tasks (optional)
+    |-- Label Studio: export completed labels (optional)
+    |-- Label Studio: decorate with AI spans (optional)
+    |-- Evaluate predictions vs freeform gold (optional)
+    `-- Generate dashboard (optional)
+```
+
+## What This Tool Does (Plain English)
+
+You drop recipe sources into `data/input/` (EPUB/PDF/Excel/Word/text exports). Then you run the tool.
+
+Each import run creates a new timestamped folder under `data/output/` like:
+
+```text
+data/output/2026-02-20_21.45.00/
+```
+
+That run folder contains:
+- Converted recipe outputs (intermediate + final)
+- Tips/knowledge snippets (when found)
+- Raw extraction artifacts (useful for debugging)
+- A JSON report that summarizes what happened
+
+## Step 1: Put Your Source File(s) in `data/input/`
+
+1. Copy your file into:
+
+```text
+data/input/
+```
+
+2. Keep it top-level (no subfolders).
+   - Interactive mode only lists files directly inside `data/input/`.
+   - Batch mode (`cookimport stage <folder>`) scans folders recursively.
+
+Common inputs this project recognizes:
+- Excel workbooks: `.xlsx`, `.xlsm`
+- EPUB books: `.epub`
+- PDFs: `.pdf`
+- Word docs: `.docx`
+- Plain text: `.txt`, `.md`, `.markdown`
+- Paprika: `.paprikarecipes`
+- RecipeSage export: `.json` (expects a `recipes` array)
+
+## Step 2: Launch the Tool (Every Time)
+
+Run:
 
 ```bash
 cd /home/mcnal/projects/recipeimport
@@ -10,361 +73,378 @@ cd /home/mcnal/projects/recipeimport
 C3imp
 ```
 
-Optional: limit output during interactive runs:
+Optional: do a small "test run" first:
 
 ```bash
 C3imp 10
 ```
 
-`10` means: at most 10 recipes and 10 tips per imported file.
+That limits each imported file to at most 10 recipes and 10 tips (faster, less output).
 
-## Beginner Walkthrough: Import an EPUB with Auto Extractor
-
-This is the easiest path if you have never used this project before.
-
-1. Open a terminal and go to the project:
+Optional check (shows help instead of starting the menu):
 
 ```bash
-cd /home/mcnal/projects/recipeimport
+cookimport --help
 ```
 
-2. Activate the virtual environment:
+## Step 3: Pick a Workflow (What Each Menu Option Means)
 
-```bash
-. .venv/bin/activate
-```
+The menu shows different options depending on what is in `data/input/`:
+- **Stage files...** and **Label Studio: create labeling tasks...** only appear when at least one supported top-level file exists in `data/input/`.
+- **EPUB debug: race extractors...** only appears when at least one top-level `.epub` exists in `data/input/`.
 
-3. Put your EPUB file in:
+After you complete any workflow, the tool returns to the main menu. It only exits when you choose **Exit**.
+
+Tip: On list-style menus (where you pick from a list), Backspace goes back one level.
+
+### Choice Tree: Main Menu + Sub-Prompts
 
 ```text
-data/input
+Main Menu ("What would you like to do?")
+|-- Stage files from data/input - produce cookbook outputs
+|   |-- Which file(s) would you like to import?
+|   |   |-- Import All - process every supported file
+|   |   `-- <pick one file>
+|   |-- Run settings
+|   |   |-- Run with global defaults (...)
+|   |   |-- Run with last import settings (...) (disabled until you have a successful import)
+|   |   `-- Change run settings... (one-run editor; does not change global defaults)
+|   `-- Outputs written to: <output_dir>/<YYYY-MM-DD_HH.MM.SS>/
+|
+|-- Label Studio: create labeling tasks (uploads)
+|   |-- Select a file to import into Label Studio
+|   |-- Project name (leave blank to auto-name)
+|   |-- Task scope:
+|   |   |-- pipeline chunks -> Chunk level: both / structural only / atomic only
+|   |   |-- canonical blocks -> Canonical context window (blocks): 0,1,2,...
+|   |   `-- freeform spans -> Segment size + overlap (+ optional AI prelabel)
+|   `-- Label Studio URL + API key (prompted if missing)
+|
+|-- EPUB debug: race extractors on one file
+|   |-- Select an EPUB file for extractor race
+|   |-- Race output folder (default: data/output/EPUBextractorRace/<book>)
+|   |-- Output folder not empty? -> confirm overwrite
+|   `-- Candidate extractors (comma-separated) (default: unstructured,markdown,legacy)
+|
+|-- Label Studio: export completed labels to golden artifacts
+|   |-- Label Studio URL + API key (prompted if missing)
+|   |-- Select Label Studio project to export:
+|   |   |-- Type project name manually
+|   |   `-- <pick a project from the list (shows detected type when possible)>
+|   `-- Export scope (only if type is unknown): pipeline / canonical-blocks / freeform-spans
+|
+|-- Label Studio: decorate existing freeform project with AI spans
+|   |-- Label Studio URL + API key (prompted if missing)
+|   |-- Select Label Studio project (same picker as export)
+|   |-- Select label types to add (checkbox; defaults include YIELD_LINE, TIME_LINE)
+|   |-- Dry run only? (recommended first)
+|   `-- If writing: confirm creating new annotations in Label Studio
+|
+|-- Evaluate predictions vs freeform gold (re-score or generate)
+|   |-- If both gold exports and prediction runs exist: choose mode
+|   |   |-- Eval-only: pick gold export + pick prediction run (no upload)
+|   |   `-- Upload: generate predictions + evaluate (uploads to Label Studio)
+|   `-- Writes evaluation artifacts under data/golden/eval-vs-pipeline/<YYYY-MM-DD_HH.MM.SS>/
+|
+|-- Generate dashboard - build lifetime stats dashboard HTML
+|   |-- Open dashboard in your browser after generation?
+|   `-- Writes to <output_dir>/.history/dashboard/
+|
+|-- Settings - tune worker/OCR/output defaults
+|   `-- Settings Configuration
+|       |-- Workers / PDF Split Workers / EPUB Split Workers
+|       |-- EPUB Extractor + Unstructured tuning
+|       |-- OCR Device + OCR Batch Size
+|       |-- Output Folder
+|       |-- PDF Pages/Job + EPUB Spine Items/Job
+|       |-- Warm Models
+|       `-- Back to Main Menu
+|
+`-- Exit - close the tool
 ```
 
-Example:
+### Stage Files from `data/input/` (Import Pipeline)
 
-```bash
-cp /path/to/your-book.epub data/input/
+This is the main workflow. It reads file(s) from `data/input/` and writes a new run folder under your configured `output_dir`.
+
+Sub-prompts you will see:
+1. **Which file(s) would you like to import?**
+   - **Import All**: processes every supported file in `data/input/`
+   - Or pick one file: runs the import for that file only
+2. **Run settings**
+   - **Run with global defaults**: uses your saved defaults (from `cookimport.json`)
+   - **Run with last import settings**: repeats the settings from your last successful import
+   - **Change run settings...**: lets you experiment for this run only (it does not change your global defaults)
+3. If you choose **Change run settings...**, a full-screen editor opens.
+   - Up/Down moves between settings.
+   - Left/Right changes a value.
+   - Enter lets you type an exact value.
+   - `S` saves and starts the run; `Q`/Esc cancels.
+
+### Settings (Change Your Defaults)
+
+This edits your saved defaults and writes them to `cookimport.json`. It affects future imports and future benchmark "upload" runs.
+
+Sub-menu options (Settings Configuration):
+- **Workers**: how many files/jobs to process in parallel (higher = faster, but uses more CPU/RAM)
+- **PDF Split Workers**: how much parallelism is used to split one large PDF into parts
+- **EPUB Split Workers**: how much parallelism is used to split one large EPUB into parts
+- **EPUB Extractor**: how text is extracted from EPUBs (`auto` is a good first choice if you're unsure)
+- **Unstructured HTML Parser** / **Skip Headers/Footers** / **EPUB Preprocess**: extra knobs for the `unstructured` EPUB extractor
+- **OCR Device** / **OCR Batch Size**: only matters for scanned/image PDFs that need OCR
+- **Output Folder**: where new run folders are written (this is your `output_dir`)
+- **PDF Pages/Job** / **EPUB Spine Items/Job**: how large each split job is (smaller jobs can parallelize more)
+- **Warm Models**: pre-load heavy models before work starts (slower startup, sometimes faster overall)
+
+### EPUB Debug: Race Extractors on One File (EPUB Only)
+
+Use this when an EPUB import looks wrong and you want to compare extractors on that one book without running a full import.
+
+Sub-prompts you will see:
+- Pick an EPUB file.
+- Choose an output folder (default: `data/output/EPUBextractorRace/<book>`).
+- If the folder is not empty, confirm overwrite behavior.
+- Enter a comma-separated list of candidate extractors (default: `unstructured,markdown,legacy`).
+
+### Label Studio: Create Labeling Tasks (Uploads)
+
+Use this only if you want to do manual labeling in Label Studio.
+
+Important behavior:
+- This interactive flow always recreates the project if it already exists (it overwrites).
+- It uploads tasks immediately (there is no extra "are you sure?" prompt after you pick options).
+
+Sub-prompts you will see:
+1. Pick a source file (from `data/input/`).
+2. Pick a project name (or leave blank to auto-name it).
+3. Pick a **task scope**:
+   - **pipeline chunks**: label pipeline "chunks" (bigger or smaller units, depending on chunk level)
+   - **canonical blocks**: label every extracted block (with optional context around it)
+   - **freeform spans**: highlight arbitrary spans of text
+4. Scope-specific prompts:
+   - pipeline chunks: choose **Chunk level** (`both`, `structural`, `atomic`)
+   - canonical blocks: choose **Context window** (how many blocks of context to show)
+   - freeform spans: choose **Segment size** + **Overlap**; optionally enable **AI prelabel**
+5. Enter Label Studio URL + API key if you have not already.
+
+Choice tree (Label Studio upload):
+
+```text
+Label Studio: create labeling tasks (uploads)
+|-- Select a file
+|-- Project name (blank = auto-name)
+`-- Task scope
+    |-- pipeline chunks
+    |   `-- Chunk level: both / structural only / atomic only
+    |-- canonical blocks
+    |   `-- Context window (blocks): 0,1,2,...
+    `-- freeform spans
+        |-- Segment size (blocks per task): 1,2,3,...
+        |-- Segment overlap (blocks): 0,1,2,...
+        `-- Enable AI prelabel before upload? (optional; requires local `codex` command)
 ```
 
-4. Start interactive mode:
+If you enable **AI prelabel**:
+- It tries to generate initial AI annotations before upload.
+- If you do not have the `codex` command available on your machine, choose **No** to avoid errors.
 
-```bash
-C3imp
+### Label Studio: Export Completed Labels to Golden Artifacts
+
+Use this after you have labeled tasks in Label Studio and want the labeled data downloaded to files.
+
+Sub-prompts you will see:
+- Enter Label Studio URL + API key (if needed).
+- Pick a project from a list (or choose "Type project name manually").
+- If the tool cannot detect the project type, choose an export scope (pipeline vs canonical-blocks vs freeform-spans).
+
+Choice tree (Export):
+
+```text
+Label Studio: export completed labels to golden artifacts
+|-- Label Studio URL + API key (if needed)
+|-- Select project:
+|   |-- Pick from list (shows detected type when possible)
+|   `-- Type project name manually
+`-- Export scope (only if unknown): pipeline / canonical-blocks / freeform-spans
 ```
 
-5. In the interactive menu:
-   1. Choose `Settings`.
-   2. Set `epub_extractor` to `auto`.
-   3. Leave other values at defaults unless you know you need changes.
-   4. Go back to main menu.
+### Label Studio: Decorate Existing Freeform Project with AI Spans
 
-6. Choose `Import`, then select your EPUB file.
+Use this to add new AI labels to an existing freeform project without deleting your existing human work.
 
-7. Wait for completion, then check the newest run folder in:
+Sub-prompts you will see:
+- Pick a project (same picker as export).
+- If the project type does not look like `freeform-spans`, you will be warned and asked if you want to try anyway.
+- Choose which label types to add (checkbox list; defaults include `YIELD_LINE` and `TIME_LINE`).
+- Choose dry-run (recommended) or write mode.
+- If you choose write mode, it asks for a final confirmation before creating annotations in Label Studio.
+
+Choice tree (Decorate):
+
+```text
+Label Studio: decorate existing freeform project with AI spans
+|-- Select project
+|-- Select label types to add (checkbox list)
+|-- Dry run only? (recommended first)
+|   `-- Yes -> writes a report only
+`-- No -> confirm write -> creates new annotations in Label Studio
+```
+
+### Evaluate Predictions vs Freeform Gold (Re-Score or Generate)
+
+Use this to compare pipeline predictions against your freeform "gold" labels.
+
+Sub-prompts you may see:
+- If both gold exports and prior prediction runs exist, you can choose:
+  - **Eval-only**: re-score an existing prediction run (no upload)
+  - **Upload**: generate fresh predictions and evaluate them (uploads to Label Studio)
+- In eval-only mode, you pick:
+  - a freeform gold export file
+  - a prediction run folder
+- In upload mode, you pick benchmark run settings (similar editor to import), then it uploads tasks + evaluates them.
+
+Choice tree (Evaluate):
+
+```text
+Evaluate predictions vs freeform gold
+|-- Eval-only (no upload)
+|   |-- Select gold export
+|   `-- Select prediction run
+`-- Upload (generates predictions + uploads + evaluates)
+    |-- Choose benchmark run settings
+    `-- Label Studio URL + API key (if needed)
+```
+
+### Generate Dashboard
+
+This builds a static HTML dashboard of run history under `<output_dir>/.history/dashboard/`.
+
+Sub-prompt you will see:
+- "Open dashboard in your browser after generation?" (Yes/No)
+
+## Step 4: Run an Import (The Common Path)
+
+1. Put at least one supported file in `data/input/` (Step 1).
+2. Start `C3imp` (Step 2).
+3. Choose **Stage files from data/input**.
+4. Choose **Import All** or pick a single file.
+5. Choose which settings to use for this run:
+   - Use global defaults
+   - Reuse the last run's settings
+   - Change run settings (recommended when experimenting)
+6. Wait for completion.
+7. At the end, the tool prints an "Outputs written to:" path.
+
+## Step 5: Find and Understand the Output Folder
+
+Output root:
+
+```text
+data/output/
+```
+
+Each run creates a new timestamp folder:
 
 ```text
 data/output/<YYYY-MM-DD_HH.MM.SS>/
 ```
 
-Important files to look at:
-- Main report:
+Inside a run folder you will typically see:
+- `intermediate drafts/` (schema.org-style Recipe JSON)
+- `final drafts/` (cookbook outputs)
+- `tips/` (tip/knowledge snippets)
+- `raw/` (debug artifacts, including EPUB extraction artifacts)
+- `*.excel_import_report.json` (the main report for a source file)
 
-```text
-data/output/<run>/your-book.excel_import_report.json
-```
-
-- Auto extractor decision artifact:
+If you used `epub_extractor=auto`, look for the auto-selection artifact:
 
 ```text
 data/output/<run>/raw/epub/<source_hash>/epub_extractor_auto.json
 ```
 
-Inside the main report, look for:
-- `runConfig.epub_extractor_requested`
-- `runConfig.epub_extractor_effective`
-- `epubAutoSelection`
-- `epubAutoSelectedScore`
+In the report JSON, search for:
+- `runConfig` (the settings used)
+- `runConfig.epub_extractor_requested` / `runConfig.epub_extractor_effective`
 
-## Optional: Run a One-File Extractor Race (Debug)
+## Step 6: Tweak the Pipeline (Without "Coding")
 
-After an import, you can run a focused extractor comparison on one EPUB:
+### A) Change global defaults (saved in `cookimport.json`)
+
+Use **Settings** in the interactive menu when you want a default to stick for future runs.
+
+Common defaults to tweak:
+- `output_dir`: where new run folders are written
+- `workers`: how much parallelism to use (higher = faster, but uses more CPU)
+- `epub_extractor`: how EPUB text is extracted
+- `ocr_device`: only matters for scanned/image PDFs (auto/cpu/cuda/mps)
+
+### B) Change settings for just one run (recommended for experiments)
+
+When you start an import, choose the "Change run settings" option. This lets you try settings without permanently changing your defaults.
+
+### C) Choose an EPUB extractor (simple guidance)
+
+If you are importing an EPUB and results look messy, this is usually the first knob to try:
+- `auto`: recommended first; it runs a deterministic comparison and picks an extractor
+- `unstructured`: semantic extraction (often good, can be slower)
+- `legacy`: older HTML parsing approach (sometimes better for specific books)
+- `markdown`: converts HTML to Markdown before parsing
+- `markitdown`: whole-book EPUB->markdown mode (legacy)
+
+Tip: use the "EPUB debug: race extractors" menu item (next step) to compare extractors on one file.
+
+### D) Excel mappings (optional, but powerful)
+
+If an Excel workbook doesn't import correctly because the columns/headers don't match expectations:
+
+1. Generate a mapping stub:
 
 ```bash
-cookimport epub race data/input/your-book.epub --out /tmp/epub-race --force
+cookimport inspect data/input/your-workbook.xlsx --write-mapping
 ```
 
 This writes:
 
 ```text
-/tmp/epub-race/epub_race_report.json
+data/output/mappings/your-workbook.mapping.yaml
 ```
 
-Use this when you want a quick, deterministic backend comparison (`unstructured`, `markdown`, `legacy`) without running a full import.
+2. Use it in one of two ways:
+   - Batch mode: pass it directly with `--mapping`.
+   - Interactive mode: copy/rename it next to your workbook as `data/input/your-workbook.mapping.yaml` so the importer can discover it automatically.
 
-## Interactive Mode Walkthrough
+## Step 7 (Optional): Compare EPUB Extractors (Debug)
 
-```text
-Legend:
-  [X] = matching labeled section below
-  ~~> = one-level Backspace navigation (only on _menu_select prompts)
+Interactive path:
+1. Run `C3imp`.
+2. Choose **EPUB debug: race extractors on one file**.
+3. Pick an EPUB, an output folder, and a candidate list.
 
-[A] Enter interactive mode (`cookimport` with no subcommand)
-  |
-  v
-[B] Startup (load settings + scan top-level data/input files)
-  |
-  v
-[C] Main Menu
-  +--> [D] Import -------------------------> stage(...) ------------------> [C]
-  |
-  +--> [E] Label Studio import
-  |       `--> [E] Unified prompt + artifact generation + upload flow -> run_labelstudio_import(...) -> [C]
-  |
-  +--> [F] Label Studio export ------------> run_labelstudio_export(...) -> [C]
-  |
-  +--> [G] Benchmark vs freeform gold
-  |       +--> [G1] Eval-only -------------> labelstudio-eval -----------> [C]
-  |       `--> [G2] Upload ----------------> labelstudio-benchmark ------> [C]
-  |
-  +--> [H] Generate dashboard -------------> stats-dashboard -------------> [C]
-  |
-  +--> [I] Settings -----------------------> save `cookimport.json` ------> [C]
-  |
-  `--> [Z] Exit (user selects Exit)
-```
-
-### [A] Enter Interactive Mode
-
-Interactive mode is entered when `cookimport` is run without a subcommand.
-
-### [B] Startup
-
-Startup behavior:
-
-1. Loads settings from `cookimport.json` (or defaults if missing/invalid).
-2. Sets `input_folder = data/input`.
-3. Scans only top-level files in `data/input` for importer support (not recursive).
-4. Builds the main menu choices.
-5. Uses Backspace as one-level "go back" in prompts wired through `_menu_select`.
-
-Important divergence to remember:
-- interactive file selection is top-level only, but `cookimport stage <folder>` is recursive when a folder path is passed directly.
-
-### [C] Main Menu
-
-Menu options:
-
-- `Stage files from data/input - produce cookbook outputs`
-- `Label Studio: create labeling tasks (uploads)`
-- `Label Studio: export completed labels to golden artifacts`
-- `Evaluate predictions vs freeform gold (re-score or generate)`
-- `Generate dashboard - build lifetime stats dashboard HTML`
-- `Settings - tune worker/OCR/output defaults`
-- `Exit - close the tool`
-
-Availability rule:
-
-- `Import` and `Label Studio task upload` only appear when at least one supported top-level file exists in `data/input`.
-- `inspect` remains available as a direct command (`cookimport inspect <path>`), not as an interactive menu action.
-
-Menu numbering and shortcuts:
-
-- `_menu_select` now shows Questionary shortcut labels on all select-style menus (for example `1)`, `2)`, ...).
-- Numeric shortcuts (`1-9`, `0`) select immediately in interactive menus; non-numeric shortcuts still move focus and can be confirmed with Enter.
-
-### [I] Settings
-
-`Settings` edits global defaults in `cookimport.json`.
-
-Interactive `Import` and benchmark upload runs now include a per-run chooser (`global defaults` / `last run` / `change run settings`) so experiments do not mutate these global defaults.
-
-Config keys and defaults:
-
-- `workers` (default `7`)
-- `pdf_split_workers` (default `7`)
-- `epub_split_workers` (default `7`)
-- `epub_extractor` (default `unstructured`)
-- `epub_unstructured_html_parser_version` (default `v1`)
-- `epub_unstructured_skip_headers_footers` (default `false`)
-- `epub_unstructured_preprocess_mode` (default `br_split_v1`)
-- `ocr_device` (default `auto`)
-- `ocr_batch_size` (default `1`)
-- `output_dir` (default `data/output`)
-- `label_studio_url` (default unset; populated after first interactive Label Studio prompt)
-- `label_studio_api_key` (default unset; populated after first interactive Label Studio prompt)
-- `pdf_pages_per_job` (default `50`)
-- `epub_spine_items_per_job` (default `10`)
-- `warm_models` (default `false`)
-
-What each setting affects:
-
-- `workers`, split workers, page/spine split size: `stage` and benchmark import parallelism/sharding.
-- `epub_extractor`: runtime extractor choice (`unstructured`, `legacy`, `markdown`, `auto`, or `markitdown`) via `C3IMP_EPUB_EXTRACTOR`.
-- `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
-- `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
-- `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none`, `br_split_v1`, or `semantic_v1` alias).
-- `ocr_device`, `ocr_batch_size`: OCR path for PDFs.
-- `output_dir`: interactive `stage` target output root.
-- `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
-- `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
-
-Developer note:
-- Per-run toggle definitions live in `cookimport/config/run_settings.py`. Add new fields there with `ui_*` metadata so the interactive editor picks them up automatically.
-
-### [D] Import Flow
-
-`Import` steps:
-
-1. Prompt for `Import All` or one selected file from top-level `data/input`.
-2. Show `Run settings` mode picker:
-   - `Run with global defaults (...)`
-   - `Run with last import settings (...)` when available
-   - `Change run settings...` (full-screen arrow-key editor)
-3. Applies selected EPUB env vars:
-   - `C3IMP_EPUB_EXTRACTOR`
-   - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`
-   - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`
-   - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
-4. Calls `stage(...)` using selected per-run workers/OCR/split/warm-model values.
-5. Saves selected settings to `<output_dir>/.history/last_run_settings_import.json` after a successful run.
-6. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
-7. Prints `Outputs written to: <run_folder>`.
-8. Returns to the main menu after successful import.
-
-### [E] Label Studio Import Flow
-
-1. Choose a source file.
-   - The menu shows supported files from `data/input`.
-   - Pick the file you want to create labeling tasks from.
-2. Enter a project name (or leave it blank).
-   - If blank, the tool uses a name based on the file name.
-   - If a project with that final name already exists, this flow replaces it.
-3. Choose task type (`task_scope`).
-   - You are choosing what kind of labeling jobs the program will create.
-   - There are 5 practical choices:
-   - `pipeline` + `structural`:
-   - Creates bigger recipe-section tasks.
-   - Use this when you want a faster, higher-level labeling pass.
-   - `pipeline` + `atomic`:
-   - Creates smaller, line-like tasks.
-   - Use this when you want detailed labels on fine-grained chunks.
-   - `pipeline` + `both`:
-   - Creates both structural and atomic tasks in one run.
-   - Use this when you want broad coverage and can label more tasks.
-   - `canonical-blocks`:
-   - Creates one task per extracted text block, with one label per block.
-   - Asks for `context_window` (number `>= 0`), which controls how much nearby text is shown for context.
-   - Use this when you want complete block-by-block classification.
-   - `freeform-spans`:
-   - Creates segment tasks where you highlight exact text ranges (spans).
-   - Asks for `segment_blocks` (number `>= 1`) and `segment_overlap` (number `>= 0`) to control segment size and overlap.
-   - Use this when you need precise span annotations for downstream freeform export/eval.
-   - In all 5 cases, the output is a set of Label Studio tasks that gets uploaded and later exported/evaluated with the matching scope.
-4. Enter Label Studio URL and API key if needed.
-   - If `LABEL_STUDIO_URL` and `LABEL_STUDIO_API_KEY` are set, prompts are skipped.
-   - Otherwise, interactive mode uses saved `cookimport.json` values when present.
-   - If still missing, you are prompted once and the entered values are saved to `cookimport.json` for future interactive runs.
-5. The tool builds tasks on your machine.
-   - It prepares text/chunk or block/segment tasks based on your scope choice.
-   - It writes run files under `data/golden`:
-   - `label_studio_tasks.jsonl`
-   - `coverage.json`
-   - `extracted_archive.json`
-   - `extracted_text.txt`
-   - `manifest.json`
-6. The tool uploads tasks to Label Studio automatically.
-   - No extra "are you sure?" prompt in this interactive flow.
-   - Upload is batched in groups of 200 tasks.
-   - `manifest.json` is updated with project ID, upload count, and project URL.
-7. Review the summary shown in terminal.
-   - You get a quick recap of project/tasks/run location.
-8. Interactive mode returns to the main menu after the flow completes.
-
-### [F] Label Studio Export Flow
-
-`Label Studio export` steps:
-
-1. Uses `LABEL_STUDIO_URL` / `LABEL_STUDIO_API_KEY` env vars when present; otherwise prompts for them.
-   - If env vars are unset, interactive mode reuses saved `cookimport.json` values before prompting.
-   - Newly prompted values are saved to `cookimport.json`.
-2. Fetches Label Studio projects and shows a project picker.
-   - In plain English: choose an existing project title instead of typing it.
-   - The picker shows each project with a detected type tag (for example `pipeline`, `canonical-blocks`, `freeform-spans`) when available.
-   - Includes a manual-entry option when needed.
-3. Falls back to manual project-name entry when project discovery fails (or no projects exist).
-4. Uses the selected project's detected type as `export_scope` when available.
-   - If the selected project type is `unknown` (or project name is typed manually), interactive mode prompts for `export_scope` (`pipeline`, `canonical-blocks`, `freeform-spans`).
-5. Calls `run_labelstudio_export(...)` with `output_dir=data/golden`.
-   - By default, export writes to: `data/golden/<project_slug>/exports/`.
-   - If `--run-dir` is supplied in non-interactive mode, export writes to that run directory.
-6. Prints export summary path and returns to the main menu.
-
-### [G] Benchmark vs Freeform Gold Flow
-
-`Evaluate predictions vs freeform gold` supports two paths:
-
-- `eval-only` when both gold exports and prediction runs exist.
-- `upload` mode (default/fallback) for generating fresh predictions.
-- If either artifact set is missing, interactive mode skips the mode picker and goes straight to upload mode.
-
-Why both paths exist:
-
-1. Benchmark always needs two inputs:
-- labeled `gold` spans (`freeform_span_labels.jsonl`)
-- pipeline `predictions` (`label_studio_tasks.jsonl` run directory)
-2. `eval-only` is the "re-score" path:
-- no new upload
-- no new prediction generation
-- fastest way to compare an existing prediction run against updated gold labels or updated eval settings.
-3. `upload` is the "make predictions first" path:
-- creates a fresh prediction run
-- uploads tasks to Label Studio
-- then evaluates those fresh predictions against gold.
-
-Typical reasons to use `eval-only` again on an old run:
-
-- You corrected or expanded freeform gold labels and want updated scores.
-- You changed eval settings (`overlap_threshold` or `force_source_match`) and want a fresh report on the same predictions.
-- You changed evaluator/report formatting and want regenerated artifacts without creating new predictions.
-
-### [G1] Eval-Only Branch
-
-1. Select freeform gold export (`**/exports/freeform_span_labels.jsonl`).
-2. Select prediction run (`**/label_studio_tasks.jsonl` run directory).
-3. Prints `Eval-only mode: no pipeline run settings applied.`
-4. Runs `labelstudio-eval scope=freeform-spans` into `data/golden/eval-vs-pipeline/<timestamp>`.
-5. Returns to the main menu.
-
-### [G2] Upload Branch
-
-1. Shows benchmark `Run settings` mode picker (`global` / `last benchmark` / `change`), using the same editor flow as Import.
-2. Resolves Label Studio credentials from env (`LABEL_STUDIO_URL` / `LABEL_STUDIO_API_KEY`) or saved interactive settings; if still missing, prompts and saves values to `cookimport.json`.
-3. Calls `labelstudio-benchmark(...)` with selected per-run settings (extractor, workers/split controls, OCR options, warm-model flag).
-4. Saves selected settings to `<output_dir>/.history/last_run_settings_benchmark.json` after a successful upload/eval run.
-5. Returns to the main menu on completion.
-
-### [H] Generate Dashboard Flow
-
-1. Prompts `Open dashboard in your browser after generation?`.
-2. Runs `stats-dashboard` using the interactive `output_dir` setting as `--output-root`.
-3. Writes dashboard files to `<output_dir>/.history/dashboard`.
-4. Opens `index.html` automatically when you answer `Yes`.
-5. Returns to the main menu on completion.
-
-### [Z] Exit Conditions
-
-Interactive mode exits when:
-
-- user selects `Exit` from the main menu.
-
-## Label Studio Setup (Optional)
+Direct command path:
 
 ```bash
-cd /home/mcnal/projects/recipeimport
+cookimport epub race data/input/your-book.epub --out data/output/EPUBextractorRace/your-book --force
+```
+
+This writes:
+
+```text
+data/output/EPUBextractorRace/your-book/epub_race_report.json
+```
+
+## Step 8 (Optional): Label Studio (Manual Labeling + Evaluation)
+
+You only need this if you want to build a "golden set" of labels, add AI spans, or evaluate predictions.
+
+### A) Start Label Studio (Docker)
+
+If you already have a container:
+
+```bash
 docker start labelstudio
 ```
 
-If this is your first run and the container does not exist yet:
+First-time setup:
 
 ```bash
 docker run -d \
@@ -375,10 +455,63 @@ docker run -d \
   heartexlabs/label-studio:latest
 ```
 
-Then open `http://localhost:8080` and create/get your API token.
+Open `http://localhost:8080` in your browser and create/get your API token.
 
-## Advanced CLI Reference (Coding/Agent)
+### B) Create tasks (upload)
+
+1. Run `C3imp`.
+2. Choose **Label Studio: create labeling tasks (uploads)**.
+3. Pick your source file.
+4. Choose the task type (pipeline vs canonical-blocks vs freeform-spans).
+5. Follow the prompts.
+
+The tool writes local artifacts under:
+
+```text
+data/golden/
+```
+
+Note: Label Studio URL and API key can be saved in `cookimport.json`. Treat the API key like a password.
+
+### C) Export "gold" labels
+
+Use **Label Studio: export completed labels to golden artifacts** when you want your labeled data downloaded into files for evaluation.
+
+### D) Add AI spans (decorate)
+
+Use **Label Studio: decorate existing freeform project with AI spans** to add additional AI labels without deleting existing human work.
+
+### E) Evaluate predictions vs gold
+
+Use **Evaluate predictions vs freeform gold** to score pipeline predictions against your exported "gold" labels.
+
+## Advanced Reference
 
 Full command/flag/environment documentation lives in:
-
 - `docs/02-cli/02-cli_README.md`
+
+Cross-cutting "hidden rules" and conventions live in:
+- `docs/IMPORTANT CONVENTIONS.md`
+
+## Optional: One-Time Setup (Only If Needed)
+
+Most of the time, this repo already has a working `.venv/`. Only use this section if:
+- `.venv/` is missing (fresh clone, new machine, or your PC was wiped)
+- You activated the venv but `C3imp` / `cookimport` says "command not found"
+
+### Create `.venv` (one-time)
+
+```bash
+cd /home/mcnal/projects/recipeimport
+python3 -m venv .venv
+```
+
+### Install the tool (one-time, or after dependency changes)
+
+"Install the tool" means: install this project into your virtual environment so the CLI commands (`cookimport`, `C3imp`) exist inside that venv.
+
+```bash
+cd /home/mcnal/projects/recipeimport
+. .venv/bin/activate
+python -m pip install -e .
+```

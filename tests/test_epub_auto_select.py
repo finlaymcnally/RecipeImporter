@@ -7,6 +7,8 @@ import pytest
 
 from cookimport.core.blocks import Block
 from cookimport.parsing.epub_auto_select import selected_auto_score, select_epub_extractor_auto
+from cookimport.plugins.epub import EpubImporter
+from tests.fixtures.make_epub import make_synthetic_epub
 
 
 class _FakeImporter:
@@ -86,3 +88,31 @@ def test_selected_auto_score_reads_selected_candidate() -> None:
         ],
     }
     assert selected_auto_score(artifact) == pytest.approx(0.77)
+
+
+def test_select_epub_extractor_auto_real_importer_supports_direct_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = make_synthetic_epub(
+        tmp_path / "probe.epub",
+        spine_documents=[
+            (
+                "chapter1.xhtml",
+                """
+                <h1>Simple Soup</h1>
+                <h2>Ingredients</h2>
+                <ul><li>1 cup broth</li></ul>
+                <h2>Instructions</h2>
+                <p>Simmer and serve.</p>
+                """,
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.parsing.epub_auto_select.registry.get_importer",
+        lambda _name: EpubImporter(),
+    )
+
+    resolution = select_epub_extractor_auto(source, candidate_extractors=("legacy",))
+    assert resolution.effective_extractor == "legacy"

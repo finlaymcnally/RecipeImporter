@@ -46,7 +46,20 @@ from cookimport.labelstudio.chunking import (
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.label_config import LABEL_CONFIG_XML
 from cookimport.labelstudio.label_config_blocks import build_block_label_config
-from cookimport.labelstudio.label_config_freeform import build_freeform_label_config
+from cookimport.labelstudio.label_config_freeform import (
+    FREEFORM_ALLOWED_LABELS,
+    build_freeform_label_config,
+    normalize_freeform_label,
+)
+from cookimport.labelstudio.prelabel import (
+    CodexCliProvider,
+    annotation_is_cookimport_augment,
+    annotation_labels,
+    default_codex_cmd,
+    merge_annotation_results,
+    prelabel_freeform_task,
+    select_latest_annotation,
+)
 from cookimport.runs import RunManifest, RunSource, write_run_manifest
 from cookimport.staging.writer import (
     OutputStats,
@@ -216,6 +229,94 @@ def _task_id_key(task_scope: str) -> str:
     if task_scope == "freeform-spans":
         return "segment_id"
     return "chunk_id"
+
+
+def _task_id_value(task: dict[str, Any], task_scope: str) -> str | None:
+    key = _task_id_key(task_scope)
+    data = task.get("data")
+    if not isinstance(data, dict):
+        return None
+    value = data.get(key)
+    if not value:
+        return None
+    return str(value)
+
+
+def _normalize_prelabel_upload_as(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"annotations", "predictions"}:
+        raise ValueError(
+            "prelabel_upload_as must be one of: annotations, predictions"
+        )
+    return normalized
+
+
+def _strip_task_annotations(task: dict[str, Any]) -> dict[str, Any]:
+    cleaned = dict(task)
+    cleaned.pop("annotations", None)
+    cleaned.pop("predictions", None)
+    return cleaned
+
+
+def _task_annotation_pairs_for_upload(
+    tasks: list[dict[str, Any]],
+    *,
+    task_scope: str,
+) -> list[tuple[str, dict[str, Any]]]:
+    pairs: list[tuple[str, dict[str, Any]]] = []
+    for task in tasks:
+        task_id = _task_id_value(task, task_scope)
+        if not task_id:
+            continue
+        annotations = task.get("annotations")
+        if not isinstance(annotations, list) or not annotations:
+            continue
+        annotation = annotations[0]
+        if not isinstance(annotation, dict):
+            continue
+        pairs.append((task_id, annotation))
+    return pairs
+
+
+def _annotations_to_predictions(task: dict[str, Any]) -> dict[str, Any]:
+    converted = _strip_task_annotations(task)
+    annotations = task.get("annotations")
+    if not isinstance(annotations, list) or not annotations:
+        return converted
+    annotation = annotations[0]
+    if not isinstance(annotation, dict):
+        return converted
+    result = annotation.get("result")
+    if not isinstance(result, list) or not result:
+        return converted
+    prediction = {
+        "model_version": "cookimport-prelabel",
+        "score": 1.0,
+        "result": result,
+    }
+    meta = annotation.get("meta")
+    if isinstance(meta, dict):
+        prediction["meta"] = meta
+    converted["predictions"] = [prediction]
+    return converted
+
+
+def _build_prelabel_provider(
+    *,
+    prelabel_provider: str,
+    codex_cmd: str | None,
+    prelabel_timeout_seconds: int,
+    prelabel_cache_dir: Path | None,
+) -> CodexCliProvider:
+    normalized_provider = prelabel_provider.strip().lower()
+    if normalized_provider != "codex-cli":
+        raise ValueError("prelabel_provider must be 'codex-cli'")
+    resolved_cmd = (codex_cmd or default_codex_cmd()).strip()
+    return CodexCliProvider(
+        cmd=resolved_cmd,
+        timeout_s=prelabel_timeout_seconds,
+        cache_dir=prelabel_cache_dir,
+    )
 
 
 def _path_for_manifest(run_root: Path, path_like: Path | str | None) -> str | None:
@@ -654,6 +755,12 @@ def generate_pred_run_artifacts(
     ocr_batch_size: int = 1,
     warm_models: bool = False,
     processed_output_root: Path | None = None,
+    prelabel: bool = False,
+    prelabel_provider: str = "codex-cli",
+    codex_cmd: str | None = None,
+    prelabel_timeout_seconds: int = 120,
+    prelabel_cache_dir: Path | None = None,
+    prelabel_allow_partial: bool = False,
     progress_callback: Callable[[str], None] | None = None,
     run_manifest_kind: str = "bench_pred_run",
 ) -> dict[str, Any]:
@@ -908,6 +1015,8 @@ def generate_pred_run_artifacts(
         raise ValueError(
             "task_scope must be one of: pipeline, canonical-blocks, freeform-spans"
         )
+    if prelabel and task_scope != "freeform-spans":
+        raise ValueError("prelabel is only supported for task_scope=freeform-spans")
 
     tasks: list[dict[str, Any]] = []
     task_ids: list[str] = []
@@ -916,6 +1025,9 @@ def generate_pred_run_artifacts(
     chunk_ids: list[str] | None = None
     block_ids: list[str] | None = None
     segment_ids: list[str] | None = None
+    prelabel_report_path: Path | None = None
+    prelabel_errors_path: Path | None = None
+    prelabel_summary: dict[str, Any] | None = None
 
     if task_scope == "pipeline":
         levels = {"structural", "atomic", "both"}
@@ -1024,6 +1136,82 @@ def generate_pred_run_artifacts(
             raise RuntimeError(
                 "No freeform span tasks generated after limit/sample filters."
             )
+        if prelabel:
+            _notify("Running freeform prelabeling...")
+            provider_cache_dir = prelabel_cache_dir or (run_root / "prelabel_cache")
+            provider = _build_prelabel_provider(
+                prelabel_provider=prelabel_provider,
+                codex_cmd=codex_cmd,
+                prelabel_timeout_seconds=prelabel_timeout_seconds,
+                prelabel_cache_dir=provider_cache_dir,
+            )
+            prelabel_errors: list[dict[str, Any]] = []
+            prelabel_label_counts: dict[str, int] = {}
+            prelabel_success = 0
+            for task in tasks:
+                segment_id = _task_id_value(task, "freeform-spans") or "<unknown>"
+                try:
+                    annotation = prelabel_freeform_task(
+                        task,
+                        provider=provider,
+                        allowed_labels=set(FREEFORM_ALLOWED_LABELS),
+                        mode="full",
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    prelabel_errors.append(
+                        {"segment_id": segment_id, "reason": str(exc)}
+                    )
+                    continue
+                if annotation is None:
+                    prelabel_errors.append(
+                        {
+                            "segment_id": segment_id,
+                            "reason": "No valid labels produced by provider output.",
+                        }
+                    )
+                    continue
+                task["annotations"] = [annotation]
+                prelabel_success += 1
+                for label in sorted(annotation_labels(annotation)):
+                    prelabel_label_counts[label] = prelabel_label_counts.get(label, 0) + 1
+
+            prelabel_errors_path = run_root / "prelabel_errors.jsonl"
+            if prelabel_errors:
+                prelabel_errors_path.write_text(
+                    "\n".join(
+                        json.dumps(row, sort_keys=True) for row in prelabel_errors
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+            else:
+                prelabel_errors_path.write_text("", encoding="utf-8")
+
+            prelabel_summary = {
+                "enabled": True,
+                "provider": prelabel_provider,
+                "codex_cmd": (codex_cmd or default_codex_cmd()).strip(),
+                "cache_dir": str(provider_cache_dir),
+                "task_count": len(tasks),
+                "success_count": prelabel_success,
+                "failure_count": len(prelabel_errors),
+                "allow_partial": bool(prelabel_allow_partial),
+                "label_counts": prelabel_label_counts,
+                "errors_path": str(prelabel_errors_path),
+            }
+            prelabel_report_path = run_root / "prelabel_report.json"
+            prelabel_report_path.write_text(
+                json.dumps(prelabel_summary, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+
+            if prelabel_errors and not prelabel_allow_partial:
+                raise RuntimeError(
+                    "Prelabeling failed for one or more tasks. "
+                    "Re-run with prelabel_allow_partial=True to continue "
+                    "while recording failures."
+                )
+
         label_config = build_freeform_label_config()
         segment_ids = [task.get("data", {}).get("segment_id") for task in tasks if task]
         task_ids = [segment_id for segment_id in segment_ids if segment_id]
@@ -1094,6 +1282,13 @@ def generate_pred_run_artifacts(
         "block_ids": block_ids,
         "segment_ids": segment_ids,
         "coverage": coverage_payload,
+        "prelabel": prelabel_summary,
+        "prelabel_report_path": (
+            str(prelabel_report_path) if prelabel_report_path is not None else None
+        ),
+        "prelabel_errors_path": (
+            str(prelabel_errors_path) if prelabel_errors_path is not None else None
+        ),
     }
 
     manifest_path = run_root / "manifest.json"
@@ -1108,6 +1303,14 @@ def generate_pred_run_artifacts(
         "extracted_archive_json": "extracted_archive.json",
         "extracted_text": "extracted_text.txt",
     }
+    if prelabel_report_path is not None:
+        run_manifest_artifacts["prelabel_report_json"] = _path_for_manifest(
+            run_root, prelabel_report_path
+        )
+    if prelabel_errors_path is not None:
+        run_manifest_artifacts["prelabel_errors_jsonl"] = _path_for_manifest(
+            run_root, prelabel_errors_path
+        )
     processed_run_path = _path_for_manifest(run_root, processed_run_root)
     if processed_run_path:
         run_manifest_artifacts["processed_output_run_dir"] = processed_run_path
@@ -1144,6 +1347,9 @@ def generate_pred_run_artifacts(
         "block_ids": block_ids,
         "segment_ids": segment_ids,
         "coverage": coverage_payload,
+        "prelabel": prelabel_summary,
+        "prelabel_report_path": prelabel_report_path,
+        "prelabel_errors_path": prelabel_errors_path,
         "label_config": label_config,
         "importer_name": importer.name,
         "run_config": run_config,
@@ -1185,6 +1391,13 @@ def run_labelstudio_import(
     ocr_batch_size: int = 1,
     warm_models: bool = False,
     processed_output_root: Path | None = None,
+    prelabel: bool = False,
+    prelabel_provider: str = "codex-cli",
+    codex_cmd: str | None = None,
+    prelabel_timeout_seconds: int = 120,
+    prelabel_cache_dir: Path | None = None,
+    prelabel_upload_as: str = "annotations",
+    prelabel_allow_partial: bool = False,
     allow_labelstudio_write: bool = False,
 ) -> dict[str, Any]:
     def _notify(message: str) -> None:
@@ -1222,6 +1435,12 @@ def run_labelstudio_import(
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,
         processed_output_root=processed_output_root,
+        prelabel=prelabel,
+        prelabel_provider=prelabel_provider,
+        codex_cmd=codex_cmd,
+        prelabel_timeout_seconds=prelabel_timeout_seconds,
+        prelabel_cache_dir=prelabel_cache_dir,
+        prelabel_allow_partial=prelabel_allow_partial,
         progress_callback=progress_callback,
         run_manifest_kind="labelstudio_import",
     )
@@ -1229,6 +1448,7 @@ def run_labelstudio_import(
     run_root = pred["run_root"]
     tasks = pred["tasks"]
     label_config = pred["label_config"]
+    upload_as = _normalize_prelabel_upload_as(prelabel_upload_as)
 
     # Label Studio upload
     client = LabelStudioClient(label_studio_url, label_studio_api_key)
@@ -1283,14 +1503,21 @@ def run_labelstudio_import(
 
     upload_tasks: list[dict[str, Any]] = []
     for task in tasks:
-        task_id_key = _task_id_key(task_scope)
-        task_id = task.get("data", {}).get(task_id_key)
+        task_id = _task_id_value(task, task_scope)
         if task_id and task_id in existing_task_ids:
             continue
-        upload_tasks.append(task)
+        if prelabel and task_scope == "freeform-spans" and upload_as == "predictions":
+            upload_tasks.append(_annotations_to_predictions(task))
+        else:
+            upload_tasks.append(task)
 
     batch_size = 200
     uploaded_count = 0
+    inline_annotation_fallback = False
+    inline_annotation_fallback_error: str | None = None
+    post_import_annotation_pairs: list[tuple[str, dict[str, Any]]] = []
+    post_import_annotations_created = 0
+    post_import_annotation_errors: list[str] = []
     if upload_tasks:
         total_batches = (len(upload_tasks) + batch_size - 1) // batch_size
         _notify(f"Uploading {len(upload_tasks)} task(s) in {total_batches} batch(es)...")
@@ -1300,9 +1527,88 @@ def run_labelstudio_import(
         batch = upload_tasks[start : start + batch_size]
         if not batch:
             continue
-        client.import_tasks(project_id, batch)
+        use_inline_annotations = (
+            prelabel
+            and task_scope == "freeform-spans"
+            and upload_as == "annotations"
+        )
+        if use_inline_annotations:
+            if inline_annotation_fallback:
+                client.import_tasks(
+                    project_id,
+                    [_strip_task_annotations(task) for task in batch],
+                )
+                post_import_annotation_pairs.extend(
+                    _task_annotation_pairs_for_upload(batch, task_scope=task_scope)
+                )
+            else:
+                try:
+                    client.import_tasks(project_id, batch)
+                except Exception as exc:  # noqa: BLE001
+                    inline_annotation_fallback = True
+                    inline_annotation_fallback_error = str(exc)
+                    _notify(
+                        "Inline annotation import failed; retrying with "
+                        "task-only upload and post-import annotation creation."
+                    )
+                    client.import_tasks(
+                        project_id,
+                        [_strip_task_annotations(task) for task in batch],
+                    )
+                    post_import_annotation_pairs.extend(
+                        _task_annotation_pairs_for_upload(batch, task_scope=task_scope)
+                    )
+        else:
+            client.import_tasks(project_id, batch)
         uploaded_count += len(batch)
         _notify(f"Uploaded {uploaded_count}/{len(upload_tasks)} task(s).")
+
+    if inline_annotation_fallback and post_import_annotation_pairs:
+        _notify("Resolving task IDs for post-import annotation creation...")
+        remote_tasks = client.list_project_tasks(project_id)
+        remote_task_ids: dict[str, int] = {}
+        for remote_task in remote_tasks:
+            if not isinstance(remote_task, dict):
+                continue
+            task_id = _task_id_value(remote_task, task_scope)
+            if not task_id:
+                continue
+            remote_id = remote_task.get("id")
+            try:
+                remote_task_ids[task_id] = int(remote_id)
+            except (TypeError, ValueError):
+                continue
+
+        _notify(
+            f"Creating {len(post_import_annotation_pairs)} annotation(s) "
+            "through Label Studio API..."
+        )
+        for task_id_value, annotation in post_import_annotation_pairs:
+            labelstudio_task_id = remote_task_ids.get(task_id_value)
+            if labelstudio_task_id is None:
+                post_import_annotation_errors.append(
+                    f"task id lookup failed for {task_id_value}"
+                )
+                continue
+            try:
+                client.create_annotation(labelstudio_task_id, annotation)
+                post_import_annotations_created += 1
+            except Exception as exc:  # noqa: BLE001
+                post_import_annotation_errors.append(
+                    f"task {task_id_value}: {exc}"
+                )
+
+        if post_import_annotation_errors:
+            if prelabel_allow_partial:
+                _notify(
+                    "Warning: some post-import annotations failed and were skipped."
+                )
+            else:
+                joined = "; ".join(post_import_annotation_errors[:8])
+                raise RuntimeError(
+                    "Post-import annotation creation failed: "
+                    + joined
+                )
 
     # Update manifest with LS-specific fields
     manifest_path = pred["manifest_path"]
@@ -1313,6 +1619,12 @@ def run_labelstudio_import(
         "uploaded_task_count": uploaded_count,
         "resume_source": resume_source,
         "label_studio_url": label_studio_url,
+        "prelabel_enabled": bool(prelabel),
+        "prelabel_upload_as": upload_as if prelabel else None,
+        "prelabel_inline_annotations_fallback": inline_annotation_fallback,
+        "prelabel_inline_annotations_fallback_error": inline_annotation_fallback_error,
+        "prelabel_post_import_annotations_created": post_import_annotations_created,
+        "prelabel_post_import_annotation_error_count": len(post_import_annotation_errors),
     })
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
@@ -1335,7 +1647,24 @@ def run_labelstudio_import(
         "label_studio_project_name": project_title,
         "label_studio_project_id": project_id,
         "uploaded_task_count": uploaded_count,
+        "prelabel_enabled": bool(prelabel),
+        "prelabel_upload_as": upload_as if prelabel else None,
+        "prelabel_inline_annotations_fallback": inline_annotation_fallback,
+        "prelabel_post_import_annotations_created": post_import_annotations_created,
+        "prelabel_post_import_annotation_error_count": len(post_import_annotation_errors),
     }
+    prelabel_report_manifest_path = _path_for_manifest(
+        run_root,
+        pred.get("prelabel_report_path"),
+    )
+    if prelabel_report_manifest_path:
+        run_manifest_artifacts["prelabel_report_json"] = prelabel_report_manifest_path
+    prelabel_errors_manifest_path = _path_for_manifest(
+        run_root,
+        pred.get("prelabel_errors_path"),
+    )
+    if prelabel_errors_manifest_path:
+        run_manifest_artifacts["prelabel_errors_jsonl"] = prelabel_errors_manifest_path
     processed_run_manifest_path = _path_for_manifest(run_root, pred.get("processed_run_root"))
     if processed_run_manifest_path:
         run_manifest_artifacts["processed_output_run_dir"] = processed_run_manifest_path
@@ -1372,7 +1701,285 @@ def run_labelstudio_import(
         "run_config": pred.get("run_config"),
         "run_config_hash": pred.get("run_config_hash"),
         "run_config_summary": pred.get("run_config_summary"),
+        "prelabel": pred.get("prelabel"),
+        "prelabel_report_path": pred.get("prelabel_report_path"),
+        "prelabel_errors_path": pred.get("prelabel_errors_path"),
+        "prelabel_upload_as": upload_as if prelabel else None,
+        "prelabel_inline_annotations_fallback": inline_annotation_fallback,
+        "prelabel_post_import_annotations_created": post_import_annotations_created,
+        "prelabel_post_import_annotation_errors": post_import_annotation_errors,
         "tasks_total": pred["tasks_total"],
         "tasks_uploaded": uploaded_count,
         "manifest_path": manifest_path,
+    }
+
+
+def run_labelstudio_decorate(
+    *,
+    project_name: str,
+    output_dir: Path,
+    label_studio_url: str,
+    label_studio_api_key: str,
+    add_labels: set[str],
+    task_scope: str = "freeform-spans",
+    prelabel_provider: str = "codex-cli",
+    codex_cmd: str | None = None,
+    prelabel_timeout_seconds: int = 120,
+    prelabel_cache_dir: Path | None = None,
+    allow_labelstudio_write: bool = False,
+    no_write: bool = False,
+    progress_callback: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    """Decorate existing freeform tasks with additive LLM annotations."""
+
+    def _notify(message: str) -> None:
+        if progress_callback is not None:
+            progress_callback(message)
+
+    if task_scope != "freeform-spans":
+        raise ValueError("labelstudio-decorate currently supports task_scope=freeform-spans only")
+    if not no_write and not allow_labelstudio_write:
+        raise RuntimeError(
+            "Label Studio write blocked. Re-run with allow_labelstudio_write=True "
+            "or use no_write=True for a dry run."
+        )
+
+    normalized_add_labels = {
+        normalize_freeform_label(label) for label in add_labels
+    }
+    normalized_add_labels &= set(FREEFORM_ALLOWED_LABELS)
+    if not normalized_add_labels:
+        raise ValueError(
+            "No valid labels selected. Allowed labels: "
+            + ", ".join(sorted(FREEFORM_ALLOWED_LABELS))
+        )
+
+    run_dt = dt.datetime.now()
+    run_root = (
+        output_dir
+        / run_dt.strftime("%Y-%m-%d_%H.%M.%S")
+        / "labelstudio-decorate"
+        / _slugify_name(project_name)
+    )
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    provider_cache_dir = prelabel_cache_dir or (run_root / "prelabel_cache")
+    provider = _build_prelabel_provider(
+        prelabel_provider=prelabel_provider,
+        codex_cmd=codex_cmd,
+        prelabel_timeout_seconds=prelabel_timeout_seconds,
+        prelabel_cache_dir=provider_cache_dir,
+    )
+
+    _notify("Resolving Label Studio project...")
+    client = LabelStudioClient(label_studio_url, label_studio_api_key)
+    project = client.find_project_by_title(project_name)
+    if project is None:
+        raise RuntimeError(f"Label Studio project not found: {project_name}")
+    project_id_raw = project.get("id")
+    if project_id_raw is None:
+        raise RuntimeError("Label Studio project payload missing id")
+    project_id = int(project_id_raw)
+
+    _notify("Fetching project tasks and annotations...")
+    tasks = client.list_project_tasks(project_id)
+
+    created_count = 0
+    dry_run_count = 0
+    skipped_missing_data = 0
+    skipped_already_decorated = 0
+    skipped_labels_present = 0
+    skipped_no_suggestions = 0
+    skipped_no_changes = 0
+    failed_count = 0
+    errors: list[dict[str, Any]] = []
+    sample_changes: list[dict[str, Any]] = []
+
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        data = task.get("data")
+        if not isinstance(data, dict):
+            skipped_missing_data += 1
+            continue
+        segment_id = str(data.get("segment_id") or "")
+        segment_text = str(data.get("segment_text") or "")
+        source_map = data.get("source_map")
+        if not segment_id or not segment_text or not isinstance(source_map, dict):
+            skipped_missing_data += 1
+            continue
+
+        annotations = task.get("annotations")
+        if not isinstance(annotations, list):
+            annotations = []
+        annotations = [item for item in annotations if isinstance(item, dict)]
+        if any(
+            annotation_is_cookimport_augment(
+                annotation,
+                requested_labels=normalized_add_labels,
+            )
+            for annotation in annotations
+        ):
+            skipped_already_decorated += 1
+            continue
+
+        task_existing_labels: set[str] = set()
+        for annotation in annotations:
+            task_existing_labels.update(annotation_labels(annotation))
+        if normalized_add_labels.issubset(task_existing_labels):
+            skipped_labels_present += 1
+            continue
+
+        base_annotation = select_latest_annotation(task)
+        try:
+            added_annotation = prelabel_freeform_task(
+                task,
+                provider=provider,
+                allowed_labels=set(FREEFORM_ALLOWED_LABELS),
+                mode="augment",
+                augment_only_labels=normalized_add_labels,
+                base_annotation=base_annotation,
+            )
+        except Exception as exc:  # noqa: BLE001
+            failed_count += 1
+            errors.append({"segment_id": segment_id, "reason": str(exc)})
+            continue
+
+        if added_annotation is None:
+            skipped_no_suggestions += 1
+            continue
+
+        base_results = (
+            list(base_annotation.get("result") or [])
+            if isinstance(base_annotation, dict)
+            else []
+        )
+        added_results = list(added_annotation.get("result") or [])
+        merged_results = merge_annotation_results(base_results, added_results)
+        if len(merged_results) <= len(base_results):
+            skipped_no_changes += 1
+            continue
+
+        annotation_meta = (
+            dict(added_annotation.get("meta"))
+            if isinstance(added_annotation.get("meta"), dict)
+            else {}
+        )
+        annotation_meta.update(
+            {
+                "cookimport_prelabel": True,
+                "mode": "augment",
+                "added_labels": sorted(normalized_add_labels),
+            }
+        )
+        merged_annotation = {
+            "result": merged_results,
+            "meta": annotation_meta,
+        }
+
+        if len(sample_changes) < 10:
+            sample_changes.append(
+                {
+                    "segment_id": segment_id,
+                    "base_span_count": len(base_results),
+                    "added_span_count": len(added_results),
+                    "merged_span_count": len(merged_results),
+                }
+            )
+
+        task_id_raw = task.get("id")
+        try:
+            task_id = int(task_id_raw)
+        except (TypeError, ValueError):
+            failed_count += 1
+            errors.append(
+                {
+                    "segment_id": segment_id,
+                    "reason": f"Task id missing/invalid: {task_id_raw!r}",
+                }
+            )
+            continue
+
+        if no_write:
+            dry_run_count += 1
+            continue
+
+        try:
+            client.create_annotation(task_id, merged_annotation)
+            created_count += 1
+        except Exception as exc:  # noqa: BLE001
+            failed_count += 1
+            errors.append({"segment_id": segment_id, "reason": str(exc)})
+
+    errors_path = run_root / "decorate_errors.jsonl"
+    if errors:
+        errors_path.write_text(
+            "\n".join(json.dumps(row, sort_keys=True) for row in errors) + "\n",
+            encoding="utf-8",
+        )
+    else:
+        errors_path.write_text("", encoding="utf-8")
+
+    report = {
+        "project_name": project_name,
+        "project_id": project_id,
+        "task_scope": task_scope,
+        "mode": "dry-run" if no_write else "write",
+        "provider": prelabel_provider,
+        "codex_cmd": (codex_cmd or default_codex_cmd()).strip(),
+        "cache_dir": str(provider_cache_dir),
+        "add_labels": sorted(normalized_add_labels),
+        "counts": {
+            "tasks_total": len(tasks),
+            "created": created_count,
+            "dry_run_would_create": dry_run_count,
+            "failed": failed_count,
+            "skipped_missing_data": skipped_missing_data,
+            "skipped_already_decorated": skipped_already_decorated,
+            "skipped_labels_present": skipped_labels_present,
+            "skipped_no_suggestions": skipped_no_suggestions,
+            "skipped_no_changes": skipped_no_changes,
+        },
+        "errors_path": str(errors_path),
+        "sample_changes": sample_changes,
+    }
+    report_path = run_root / "decorate_report.json"
+    report_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    run_manifest = RunManifest(
+        run_kind="labelstudio_decorate",
+        run_id=run_root.name,
+        created_at=run_dt.isoformat(timespec="seconds"),
+        source=RunSource(path=project_name, source_hash=None, importer_name=None),
+        run_config={
+            "task_scope": task_scope,
+            "add_labels": sorted(normalized_add_labels),
+            "provider": prelabel_provider,
+            "codex_cmd": (codex_cmd or default_codex_cmd()).strip(),
+            "no_write": bool(no_write),
+        },
+        artifacts={
+            "decorate_report_json": "decorate_report.json",
+            "decorate_errors_jsonl": "decorate_errors.jsonl",
+            "label_studio_project_name": project_name,
+            "label_studio_project_id": project_id,
+            "created_count": created_count,
+            "dry_run_would_create_count": dry_run_count,
+        },
+        notes=(
+            "Decorated existing Label Studio freeform tasks with additive spans."
+        ),
+    )
+    _write_manifest_best_effort(run_root, run_manifest, notify=_notify)
+
+    return {
+        "project_name": project_name,
+        "project_id": project_id,
+        "run_root": run_root,
+        "report_path": report_path,
+        "errors_path": errors_path,
+        "report": report,
     }

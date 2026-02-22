@@ -39,7 +39,11 @@ from cookimport.core.slug import slugify_name
 from cookimport.core.timing import TimingStats, measure
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.export import run_labelstudio_export
-from cookimport.labelstudio.ingest import generate_pred_run_artifacts, run_labelstudio_import
+from cookimport.labelstudio.ingest import (
+    generate_pred_run_artifacts,
+    run_labelstudio_decorate,
+    run_labelstudio_import,
+)
 from cookimport.labelstudio.eval_canonical import (
     evaluate_structural_vs_gold,
     format_eval_report_md,
@@ -53,6 +57,7 @@ from cookimport.labelstudio.eval_freeform import (
     load_gold_freeform_ranges,
     load_predicted_labeled_ranges,
 )
+from cookimport.labelstudio.label_config_freeform import FREEFORM_LABELS
 from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
 from cookimport.runs import RunManifest, RunSource, write_run_manifest
@@ -83,7 +88,7 @@ bench_app = typer.Typer(name="bench", help="Offline benchmark suite tools.")
 app.add_typer(bench_app)
 
 from cookimport.tagging.cli import tag_catalog_app, tag_recipes_app  # noqa: E402
-from cookimport.epubdebug.cli import epub_app  # noqa: E402
+from cookimport.epubdebug.cli import epub_app, race_epub_extractors  # noqa: E402
 app.add_typer(tag_catalog_app)
 app.add_typer(tag_recipes_app)
 app.add_typer(epub_app, name="epub")
@@ -93,6 +98,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_INPUT = Path(__file__).parent.parent / "data" / "input"
 DEFAULT_OUTPUT = Path(__file__).parent.parent / "data" / "output"
 DEFAULT_INTERACTIVE_OUTPUT = DEFAULT_OUTPUT
+DEFAULT_EPUB_RACE_OUTPUT_ROOT = DEFAULT_OUTPUT / "EPUBextractorRace"
 DEFAULT_GOLDEN = Path(__file__).parent.parent / "data" / "golden"
 DEFAULT_BENCH_SUITES = DEFAULT_GOLDEN / "bench" / "suites"
 DEFAULT_BENCH_RUNS = DEFAULT_GOLDEN / "bench" / "runs"
@@ -571,6 +577,64 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 _save_settings(current_settings)
 
 
+def _interactive_epub_race(epub_files: list[Path]) -> None:
+    """Run the one-file EPUB extractor race flow from interactive mode."""
+    if not epub_files:
+        typer.secho("No EPUB files found in data/input.", fg=typer.colors.YELLOW)
+        return
+
+    selected_epub = _menu_select(
+        "Select an EPUB file for extractor race:",
+        choices=[questionary.Choice(path.name, value=path) for path in epub_files],
+        menu_help=(
+            "Runs the same deterministic auto-selection scorer used by "
+            "--epub-extractor auto and writes epub_race_report.json."
+        ),
+    )
+    if selected_epub in {None, BACK_ACTION}:
+        return
+
+    default_out = DEFAULT_EPUB_RACE_OUTPUT_ROOT / selected_epub.stem
+    out_raw = questionary.text(
+        "Race output folder:",
+        default=str(default_out),
+    ).ask()
+    if out_raw is None:
+        return
+    out_dir = Path(out_raw.strip() or str(default_out)).expanduser()
+
+    force = False
+    if out_dir.exists() and out_dir.is_dir() and any(out_dir.iterdir()):
+        overwrite = questionary.confirm(
+            "Output folder is not empty. Continue with overwrite behavior?",
+            default=False,
+        ).ask()
+        if overwrite is None or not overwrite:
+            typer.secho("EPUB race cancelled.", fg=typer.colors.YELLOW)
+            return
+        force = True
+
+    candidates_raw = questionary.text(
+        "Candidate extractors (comma-separated):",
+        default="unstructured,markdown,legacy",
+    ).ask()
+    if candidates_raw is None:
+        return
+    candidates = candidates_raw.strip() or "unstructured,markdown,legacy"
+
+    try:
+        race_epub_extractors(
+            path=selected_epub,
+            out=out_dir,
+            candidates=candidates,
+            json_output=False,
+            force=force,
+        )
+    except typer.Exit as exc:
+        if int(exc.exit_code or 0) != 0:
+            typer.secho("EPUB race failed. See error above.", fg=typer.colors.YELLOW)
+
+
 def _interactive_mode(*, limit: int | None = None) -> None:
     """Run the interactive guided flow."""
     typer.secho("\n  Recipe Import Tool\n", fg=typer.colors.CYAN, bold=True)
@@ -582,6 +646,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
         output_folder = Path(str(settings.get("output_dir") or DEFAULT_INTERACTIVE_OUTPUT)).expanduser()
         # Scan for importable files first to know what context to show
         importable_files = _list_importable_files(input_folder)
+        epub_files = [path for path in importable_files if path.suffix.lower() == ".epub"]
 
         choices = []
         if importable_files:
@@ -597,10 +662,23 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     value="labelstudio",
                 )
             )
+        if epub_files:
+            choices.append(
+                questionary.Choice(
+                    "EPUB debug: race extractors on one file",
+                    value="epub_race",
+                )
+            )
         choices.append(
             questionary.Choice(
                 "Label Studio: export completed labels to golden artifacts",
                 value="labelstudio_export",
+            )
+        )
+        choices.append(
+            questionary.Choice(
+                "Label Studio: decorate existing freeform project with AI spans",
+                value="labelstudio_decorate",
             )
         )
         choices.append(
@@ -629,6 +707,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             menu_help=(
                 "Choose a workflow. Stage produces cookbook outputs, Label Studio task "
                 "creation uploads annotation tasks, export pulls completed labels, "
+                "EPUB race runs a one-file extractor comparison, "
+                "decorate adds new AI spans to existing freeform projects, "
                 "and evaluate compares predictions against gold. "
                 "Dashboard builds a static lifetime summary."
             ),
@@ -660,7 +740,11 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 scan_reports=False,
             )
             continue
-            
+
+        if action == "epub_race":
+            _interactive_epub_race(epub_files)
+            continue
+
         if action == "settings":
             _settings_menu(settings)
             continue
@@ -812,6 +896,12 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             context_window = 1
             segment_blocks = 40
             segment_overlap = 5
+            prelabel = False
+            prelabel_provider = "codex-cli"
+            prelabel_timeout_seconds = 120
+            prelabel_cache_dir: Path | None = None
+            prelabel_upload_as = "annotations"
+            prelabel_allow_partial = False
 
             if task_scope == "pipeline":
                 chunk_level = _menu_select(
@@ -873,6 +963,15 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 if segment_overlap < 0:
                     typer.secho("Segment overlap must be >= 0.", fg=typer.colors.RED)
                     continue
+                prelabel_choice = questionary.confirm(
+                    "Enable AI prelabel before upload? (requires local `codex` command)",
+                    default=False,
+                ).ask()
+                if prelabel_choice is None:
+                    continue
+                prelabel = bool(prelabel_choice)
+                if prelabel:
+                    prelabel_upload_as = "annotations"
 
             # Interactive flow always recreates the project if it exists.
             overwrite = True
@@ -896,6 +995,13 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     label_studio_api_key=api_key,
                     limit=None,
                     sample=None,
+                    prelabel=prelabel,
+                    prelabel_provider=prelabel_provider,
+                    codex_cmd=None,
+                    prelabel_timeout_seconds=prelabel_timeout_seconds,
+                    prelabel_cache_dir=prelabel_cache_dir,
+                    prelabel_upload_as=prelabel_upload_as,
+                    prelabel_allow_partial=prelabel_allow_partial,
                     allow_labelstudio_write=True,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -909,6 +1015,13 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 f"Tasks created: {result['tasks_total']} (uploaded {result['tasks_uploaded']})",
                 fg=typer.colors.CYAN,
             )
+            if prelabel:
+                report_path = result.get("prelabel_report_path")
+                if report_path:
+                    typer.secho(
+                        f"Prelabel report: {report_path}",
+                        fg=typer.colors.CYAN,
+                    )
             typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
             continue
 
@@ -966,6 +1079,104 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 f"Export complete. Summary: {result['summary_path']}",
                 fg=typer.colors.GREEN,
             )
+            continue
+
+        elif action == "labelstudio_decorate":
+            url, api_key = _resolve_interactive_labelstudio_settings(settings)
+            project_name, detected_scope = _select_export_project(
+                label_studio_url=url,
+                label_studio_api_key=api_key,
+            )
+            if not project_name:
+                continue
+            if detected_scope and detected_scope != "freeform-spans":
+                typer.secho(
+                    (
+                        f"Selected project type looks like `{detected_scope}`. "
+                        "Decorate currently supports freeform-spans."
+                    ),
+                    fg=typer.colors.YELLOW,
+                )
+                proceed_anyway = questionary.confirm(
+                    "Try decorating this project as freeform-spans anyway?",
+                    default=False,
+                ).ask()
+                if proceed_anyway is not True:
+                    continue
+
+            label_choices = [
+                questionary.Choice(
+                    label,
+                    value=label,
+                    checked=label in {"YIELD_LINE", "TIME_LINE"},
+                )
+                for label in FREEFORM_LABELS
+            ]
+            selected_labels = questionary.checkbox(
+                "Select label types to add:",
+                choices=label_choices,
+                validate=lambda selected: bool(selected) or "Pick at least one label.",
+            ).ask()
+            if selected_labels is None:
+                continue
+            add_labels = {str(label) for label in selected_labels}
+            if not add_labels:
+                typer.secho("Pick at least one label.", fg=typer.colors.RED)
+                continue
+
+            no_write = questionary.confirm(
+                "Dry run only? (recommended first)",
+                default=True,
+            ).ask()
+            if no_write is None:
+                continue
+            no_write = bool(no_write)
+            if not no_write:
+                confirmed_write = questionary.confirm(
+                    "Create new annotations in Label Studio now?",
+                    default=False,
+                ).ask()
+                if confirmed_write is not True:
+                    typer.secho("Decorate cancelled.", fg=typer.colors.YELLOW)
+                    continue
+
+            try:
+                result = run_labelstudio_decorate(
+                    project_name=project_name,
+                    output_dir=DEFAULT_GOLDEN,
+                    label_studio_url=url,
+                    label_studio_api_key=api_key,
+                    add_labels=add_labels,
+                    task_scope="freeform-spans",
+                    prelabel_provider="codex-cli",
+                    codex_cmd=None,
+                    prelabel_timeout_seconds=120,
+                    prelabel_cache_dir=None,
+                    allow_labelstudio_write=not no_write,
+                    no_write=no_write,
+                )
+            except Exception as exc:  # noqa: BLE001
+                _fail(str(exc))
+
+            counts = result["report"]["counts"]
+            typer.secho(
+                f"Decorate complete ({'dry-run' if no_write else 'write'} mode).",
+                fg=typer.colors.GREEN,
+            )
+            typer.secho(f"Tasks scanned: {counts['tasks_total']}", fg=typer.colors.CYAN)
+            if no_write:
+                typer.secho(
+                    f"Would create annotations: {counts['dry_run_would_create']}",
+                    fg=typer.colors.CYAN,
+                )
+            else:
+                typer.secho(
+                    f"Annotations created: {counts['created']}",
+                    fg=typer.colors.CYAN,
+                )
+            if counts["failed"]:
+                typer.secho(f"Failures: {counts['failed']}", fg=typer.colors.YELLOW)
+            typer.secho(f"Report: {result['report_path']}", fg=typer.colors.CYAN)
             continue
 
         elif action == "labelstudio_benchmark":
@@ -1151,6 +1362,13 @@ def _normalize_ocr_device(value: str) -> str:
             "Expected one of: auto, cpu, cuda, mps."
         )
     return normalized
+
+
+def _parse_csv_labels(value: str) -> set[str]:
+    labels = {item.strip().upper() for item in value.split(",") if item.strip()}
+    if not labels:
+        _fail("At least one label is required (example: YIELD_LINE,TIME_LINE).")
+    return labels
 
 
 @contextmanager
@@ -3398,9 +3616,61 @@ def labelstudio_import(
     sample: int | None = typer.Option(
         None, "--sample", min=1, help="Randomly sample N chunks."
     ),
+    prelabel: bool = typer.Option(
+        False,
+        "--prelabel/--no-prelabel",
+        help=(
+            "For freeform-spans: ask local Codex CLI for first-pass labels and "
+            "attach completed annotations before upload."
+        ),
+    ),
+    prelabel_provider: str = typer.Option(
+        "codex-cli",
+        "--prelabel-provider",
+        help="LLM provider backend for prelabeling (currently: codex-cli).",
+    ),
+    codex_cmd: str | None = typer.Option(
+        None,
+        "--codex-cmd",
+        help=(
+            "Command used for Codex CLI prelabel calls. "
+            "Defaults to COOKIMPORT_CODEX_CMD or `codex`."
+        ),
+    ),
+    prelabel_timeout_seconds: int = typer.Option(
+        120,
+        "--prelabel-timeout-seconds",
+        min=1,
+        help="Timeout per prelabel provider call.",
+    ),
+    prelabel_cache_dir: Path | None = typer.Option(
+        None,
+        "--prelabel-cache-dir",
+        help="Optional cache directory for prompt/response snapshots.",
+    ),
+    prelabel_upload_as: str = typer.Option(
+        "annotations",
+        "--prelabel-upload-as",
+        help="Upload prelabels as completed annotations or predictions.",
+    ),
+    prelabel_allow_partial: bool = typer.Option(
+        False,
+        "--prelabel-allow-partial/--no-prelabel-allow-partial",
+        help=(
+            "Allow upload to continue when some prelabel tasks fail. "
+            "Failures are recorded in prelabel report files."
+        ),
+    ),
 ) -> None:
     """Create and upload Label Studio tasks for pipeline/canonical/freeform scopes."""
     _require_labelstudio_write_consent(allow_labelstudio_write)
+    if prelabel and task_scope != "freeform-spans":
+        _fail("--prelabel is only supported with --task-scope freeform-spans.")
+    normalized_prelabel_upload_as = prelabel_upload_as.strip().lower()
+    if normalized_prelabel_upload_as not in {"annotations", "predictions"}:
+        _fail(
+            "--prelabel-upload-as must be one of: annotations, predictions."
+        )
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     try:
         with console.status(f"[bold cyan]Running Label Studio import for {path.name}...[/bold cyan]", spinner="dots") as status:
@@ -3424,6 +3694,13 @@ def labelstudio_import(
                 limit=limit,
                 sample=sample,
                 progress_callback=update_progress,
+                prelabel=prelabel,
+                prelabel_provider=prelabel_provider,
+                codex_cmd=codex_cmd,
+                prelabel_timeout_seconds=prelabel_timeout_seconds,
+                prelabel_cache_dir=prelabel_cache_dir,
+                prelabel_upload_as=normalized_prelabel_upload_as,
+                prelabel_allow_partial=prelabel_allow_partial,
                 allow_labelstudio_write=True,
             )
     except Exception as exc:  # noqa: BLE001
@@ -3437,6 +3714,19 @@ def labelstudio_import(
         f"Tasks created: {result['tasks_total']} (uploaded {result['tasks_uploaded']})",
         fg=typer.colors.CYAN,
     )
+    if prelabel:
+        report_path = result.get("prelabel_report_path")
+        if report_path:
+            typer.secho(
+                f"Prelabel report: {report_path}",
+                fg=typer.colors.CYAN,
+            )
+        if result.get("prelabel_inline_annotations_fallback"):
+            typer.secho(
+                "Inline annotation upload fallback was used "
+                "(uploaded tasks first, then created annotations).",
+                fg=typer.colors.YELLOW,
+            )
     typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
     typer.echo("\nTo export labels:\n")
     typer.echo(
@@ -3482,6 +3772,124 @@ def labelstudio_export(
 
     summary_path = result["summary_path"]
     typer.secho(f"Export complete. Summary: {summary_path}", fg=typer.colors.GREEN)
+
+
+@app.command("labelstudio-decorate")
+def labelstudio_decorate(
+    project_name: str = typer.Option(
+        ..., "--project-name", help="Label Studio project name to decorate."
+    ),
+    output_dir: Path = typer.Option(
+        DEFAULT_GOLDEN,
+        "--output-dir",
+        help="Output folder for decorate reports.",
+    ),
+    task_scope: str = typer.Option(
+        "freeform-spans",
+        "--task-scope",
+        help="Task scope to decorate (currently only freeform-spans).",
+    ),
+    add_labels: str = typer.Option(
+        ...,
+        "--add-labels",
+        help="Comma-separated label names to add (example: YIELD_LINE,TIME_LINE).",
+    ),
+    label_studio_url: str | None = typer.Option(
+        None, "--label-studio-url", help="Label Studio base URL."
+    ),
+    label_studio_api_key: str | None = typer.Option(
+        None, "--label-studio-api-key", help="Label Studio API key."
+    ),
+    prelabel_provider: str = typer.Option(
+        "codex-cli",
+        "--prelabel-provider",
+        help="LLM provider backend (currently: codex-cli).",
+    ),
+    codex_cmd: str | None = typer.Option(
+        None,
+        "--codex-cmd",
+        help=(
+            "Command used for Codex CLI calls. "
+            "Defaults to COOKIMPORT_CODEX_CMD or `codex`."
+        ),
+    ),
+    prelabel_timeout_seconds: int = typer.Option(
+        120,
+        "--prelabel-timeout-seconds",
+        min=1,
+        help="Timeout per Codex CLI call.",
+    ),
+    prelabel_cache_dir: Path | None = typer.Option(
+        None,
+        "--prelabel-cache-dir",
+        help="Optional cache directory for prompt/response snapshots.",
+    ),
+    no_write: bool = typer.Option(
+        False,
+        "--no-write",
+        help="Dry run only: compute and report changes without creating annotations.",
+    ),
+    allow_labelstudio_write: bool = typer.Option(
+        False,
+        "--allow-labelstudio-write/--no-allow-labelstudio-write",
+        help=(
+            "Explicitly allow creating annotations in Label Studio "
+            "(ignored in --no-write mode)."
+        ),
+    ),
+) -> None:
+    """Decorate existing freeform tasks with additive LLM annotations."""
+    if task_scope != "freeform-spans":
+        _fail("labelstudio-decorate currently supports --task-scope freeform-spans only.")
+    if not no_write:
+        _require_labelstudio_write_consent(allow_labelstudio_write)
+    labels = _parse_csv_labels(add_labels)
+    url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
+
+    try:
+        with console.status(
+            f"[bold cyan]Running Label Studio decorate for {project_name}...[/bold cyan]",
+            spinner="dots",
+        ) as status:
+            def update_progress(msg: str) -> None:
+                status.update(
+                    f"[bold cyan]Label Studio decorate ({project_name}): {msg}[/bold cyan]"
+                )
+
+            result = run_labelstudio_decorate(
+                project_name=project_name,
+                output_dir=output_dir,
+                label_studio_url=url,
+                label_studio_api_key=api_key,
+                add_labels=labels,
+                task_scope=task_scope,
+                prelabel_provider=prelabel_provider,
+                codex_cmd=codex_cmd,
+                prelabel_timeout_seconds=prelabel_timeout_seconds,
+                prelabel_cache_dir=prelabel_cache_dir,
+                allow_labelstudio_write=allow_labelstudio_write,
+                no_write=no_write,
+                progress_callback=update_progress,
+            )
+    except Exception as exc:  # noqa: BLE001
+        _fail(str(exc))
+
+    counts = result["report"]["counts"]
+    typer.secho(
+        f"Decorate complete ({'dry-run' if no_write else 'write'} mode).",
+        fg=typer.colors.GREEN,
+    )
+    typer.secho(f"Tasks scanned: {counts['tasks_total']}", fg=typer.colors.CYAN)
+    if no_write:
+        typer.secho(
+            f"Would create annotations: {counts['dry_run_would_create']}",
+            fg=typer.colors.CYAN,
+        )
+    else:
+        typer.secho(f"Annotations created: {counts['created']}", fg=typer.colors.CYAN)
+    if counts["failed"]:
+        typer.secho(f"Failures: {counts['failed']}", fg=typer.colors.YELLOW)
+    typer.secho(f"Report: {result['report_path']}", fg=typer.colors.CYAN)
 
 
 @app.command("labelstudio-eval")

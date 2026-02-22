@@ -33,7 +33,8 @@ How to see it working (human-verifiable):
 
 ## Progress
 
-- [ ] (2026-02-19_14.58.00) Milestone 0: Partial. Synthetic EPUB fixture path is covered through existing test fixture builders, but local real-EPUB baseline run roots were not recorded in this workspace.
+- [x] (2026-02-20_12.29.09) Milestone 0: Completed with local baseline captures for `data/input/saltfatacidheatCUTDOWN.epub` across `legacy`, `unstructured`, `markdown`, and `auto`; run roots and comparison notes are recorded in `Artifacts and Notes`.
+- [x] (2026-02-20_12.29.09) Fixed auto-selection probe bug discovered during Milestone 0 capture: `EpubImporter` now initializes `_overrides` for direct `_extract_docpack(...)` probe paths, and regression coverage was added in `tests/test_epub_auto_select.py`.
 - [x] (2026-02-19_14.58.00) Milestone 1: Added explicit backend extraction module (`cookimport/parsing/epub_extractors.py`) and wired importer diagnostics/meta through one backend interface.
 - [x] (2026-02-19_14.58.00) Milestone 2: Added `markdown` backend (Pandoc-if-present, `markdownify` fallback), deterministic markdown block parsing provenance fields, and markdown diagnostics artifacts.
 - [x] (2026-02-19_14.58.00) Milestone 3: Added deterministic `auto` scoring/selection (`cookimport/parsing/extraction_quality.py`, `cookimport/parsing/epub_auto_select.py`) and persisted auto-selection rationale artifacts.
@@ -50,6 +51,9 @@ How to see it working (human-verifiable):
 
 - Observation: Auto-selection should only resolve when the active importer is the real EPUB importer.
   Evidence: non-EPUB fake importer tests still pass once auto-resolution is gated on `importer.name == "epub"` and env overrides are scoped.
+
+- Observation: Real `stage --epub-extractor auto` runs could fail when auto probing called `_extract_docpack(...)` before `convert(...)` initialized importer runtime fields.
+  Evidence: baseline run on `saltfatacidheatCUTDOWN.epub` failed with `RuntimeError: ... 'EpubImporter' object has no attribute '_overrides'` until `EpubImporter.__init__` initialized `_overrides=None`.
 
 
 ## Decision Log
@@ -68,13 +72,17 @@ How to see it working (human-verifiable):
   Rationale: Prevent cross-run/test contamination from ambient `C3IMP_EPUB_*` state.
   Date/Author: 2026-02-19 / Codex
 
+- Decision: Initialize `_overrides` in `EpubImporter.__init__` so direct probe paths (auto-selection sampling) and full convert paths share the same baseline runtime contract.
+  Rationale: Auto probing intentionally calls `_extract_docpack(...)` without `convert(...)`; importer state must still be safe/defaulted.
+  Date/Author: 2026-02-20 / Codex
+
 
 ## Outcomes & Retrospective
 
 (Fill in at the end of major milestones and at completion.)
 
 - Outcome: Implemented multi-backend EPUB extraction (`legacy`, `unstructured`, `markdown`), deterministic `auto` backend selection with rationale artifacts, and benchmark extractor control/reporting.
-  What remains: Optional local manual baseline captures for a real copyrighted EPUB were not recorded in this workspace.
+  What remains: no open Milestone 0 baseline-recording gap; local baseline run roots for `saltfatacidheatCUTDOWN.epub` are now captured below.
   Lessons learned: extractor-selection logic and runtime env setting must be treated as part of orchestration contracts, not just importer internals.
 
 
@@ -493,17 +501,42 @@ Recovery / debugging:
 ## Artifacts and Notes
 
 During Milestone 0, record (in this plan) the following for your “known bad” local EPUB:
-- run root path for legacy extraction
-- run root path for unstructured extraction
-- (after this plan) run root path for markdown extraction
-- (after this plan) run root path for auto extraction
-Also record which outputs regressed or improved (e.g., recipe boundary examples), but do not paste copyrighted text.
-Status: not completed in this workspace (no real local EPUB baseline run roots recorded).
+- legacy run root: `data/output/m0-baseline/2026-02-20_12.26.03`
+- unstructured run root: `data/output/m0-baseline/2026-02-20_12.26.47`
+- markdown run root: `data/output/m0-baseline/2026-02-20_12.27.25`
+- auto run root: `data/output/m0-baseline/2026-02-20_12.29.09`
+
+Local baseline comparison (no copyrighted text):
+
+- Recipe count stayed stable across all extractors (`23` recipes).
+- `legacy` produced slightly fewer tips (`167`) than `unstructured`/`markdown`/`auto` (`168`).
+- Topic-candidate volume differed by extractor:
+  - `legacy`: `1608`
+  - `unstructured`: `1190`
+  - `markdown`: `1396`
+  - `auto`: `1396` (selected backend `markdown`)
+- All four runs emitted the same warning key: `epub_too_many_super_long_blocks`.
+- Auto-selection candidate averages (from `epubAutoSelection` / `epub_extractor_auto.json`):
+  - `unstructured`: `0.544`
+  - `markdown`: `0.692` (selected)
+  - `legacy`: `0.524`
+
+Timing snapshot from report JSON:
+
+- `legacy`: total `40.96s`, parsing `36.21s`, writing `0.66s`
+- `unstructured`: total `35.62s`, parsing `29.32s`, writing `0.57s`
+- `markdown`: total `38.67s`, parsing `34.04s`, writing `0.59s`
+- `auto`: total `42.20s`, parsing `37.06s`, writing `0.83s` (includes probe overhead)
 
 For the synthetic EPUB fixture, include in this plan:
 - the expected number of Blocks per spine doc (approximate),
 - which headings/lists should exist,
 - and which extractor `auto` should choose in that scenario.
+
+Current fixture expectations:
+
+- `tests/fixtures/make_epub.py` synthetic chapter fixtures with `h1` + `h2` + list + paragraph should yield non-zero heading and list-item blocks, typically ~`4-8` blocks per spine doc after postprocess.
+- Deterministic auto-selection fixture contract in `tests/test_epub_auto_select.py::test_select_epub_extractor_auto_is_deterministic` expects `auto` to choose `markdown`.
 
 
 ## Interfaces and Dependencies

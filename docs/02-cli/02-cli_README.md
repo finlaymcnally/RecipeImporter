@@ -49,18 +49,22 @@ Legend:
 [C] Main Menu
   +--> [D] Import -------------------------> stage(...) ------------------> [C]
   |
+  +--> [R] EPUB extractor race (debug) ----> cookimport epub race --------> [C]
+  |
   +--> [E] Label Studio import
   |       `--> [E] Unified prompt + artifact generation + upload flow -> run_labelstudio_import(...) -> [C]
   |
   +--> [F] Label Studio export ------------> run_labelstudio_export(...) -> [C]
   |
-  +--> [G] Benchmark vs freeform gold
-  |       +--> [G1] Eval-only -------------> labelstudio-eval -----------> [C]
-  |       `--> [G2] Upload ----------------> labelstudio-benchmark ------> [C]
+  +--> [G] Label Studio decorate ----------> run_labelstudio_decorate(...) -> [C]
   |
-  +--> [H] Generate dashboard -------------> stats-dashboard -------------> [C]
+  +--> [H] Benchmark vs freeform gold
+  |       +--> [H1] Eval-only -------------> labelstudio-eval -----------> [C]
+  |       `--> [H2] Upload ----------------> labelstudio-benchmark ------> [C]
   |
-  +--> [I] Settings -----------------------> save `cookimport.json` ------> [C]
+  +--> [I] Generate dashboard -------------> stats-dashboard -------------> [C]
+  |
+  +--> [J] Settings -----------------------> save `cookimport.json` ------> [C]
   |
   `--> [Z] Exit (user selects Exit)
 ```
@@ -88,7 +92,9 @@ Menu options:
 
 - `Stage files from data/input - produce cookbook outputs`
 - `Label Studio: create labeling tasks (uploads)`
+- `EPUB debug: race extractors on one file`
 - `Label Studio: export completed labels to golden artifacts`
+- `Label Studio: decorate existing freeform project with AI spans`
 - `Evaluate predictions vs freeform gold (re-score or generate)`
 - `Generate dashboard - build lifetime stats dashboard HTML`
 - `Settings - tune worker/OCR/output defaults`
@@ -97,6 +103,7 @@ Menu options:
 Availability rule:
 
 - `Import` and `Label Studio task upload` only appear when at least one supported top-level file exists in `data/input`.
+- `EPUB debug: race extractors on one file` appears only when at least one top-level `.epub` exists in `data/input`.
 - `inspect` remains available as a direct command (`cookimport inspect <path>`), not as an interactive menu action.
 
 Menu numbering and shortcuts:
@@ -104,7 +111,7 @@ Menu numbering and shortcuts:
 - `_menu_select` now shows Questionary shortcut labels on all select-style menus (for example `1)`, `2)`, ...).
 - Numeric shortcuts (`1-9`, `0`) select immediately in interactive menus; non-numeric shortcuts still move focus and can be confirmed with Enter.
 
-### [I] Settings
+### [J] Settings
 
 `Settings` edits global defaults in `cookimport.json`.
 
@@ -163,6 +170,16 @@ Developer note:
 7. Prints `Outputs written to: <run_folder>`.
 8. Returns to the main menu after successful import.
 
+### [R] EPUB Extractor Race Flow (Debug)
+
+1. Choose one EPUB from top-level `data/input`.
+2. Confirm the output folder (default: `data/output/EPUBextractorRace/<book_stem>`).
+3. Confirm candidate list (default: `unstructured,markdown,legacy`).
+4. If output folder is non-empty, choose whether to continue with overwrite behavior.
+5. Interactive mode runs the same deterministic scorer used by `--epub-extractor auto`.
+6. It writes `epub_race_report.json` and prints a backend/score summary.
+7. Returns to the main menu.
+
 ### [E] Label Studio Import Flow
 
 1. Choose a source file.
@@ -171,32 +188,16 @@ Developer note:
 2. Enter a project name (or leave it blank).
    - If blank, the tool uses a name based on the file name.
    - If a project with that final name already exists, this flow replaces it.
-3. Choose task type (`task_scope`).
-   - You are choosing what kind of labeling jobs the program will create.
-   - There are 5 practical choices:
-   - `pipeline` + `structural`:
-   - Creates bigger recipe-section tasks.
-   - Use this when you want a faster, higher-level labeling pass.
-   - `pipeline` + `atomic`:
-   - Creates smaller, line-like tasks.
-   - Use this when you want detailed labels on fine-grained chunks.
-   - `pipeline` + `both`:
-   - Creates both structural and atomic tasks in one run.
-   - Use this when you want broad coverage and can label more tasks.
-   - `canonical-blocks`:
-   - Creates one task per extracted text block, with one label per block.
-   - Asks for `context_window` (number `>= 0`), which controls how much nearby text is shown for context.
-   - Use this when you want complete block-by-block classification.
-   - `freeform-spans`:
-   - Creates segment tasks where you highlight exact text ranges (spans).
-   - Asks for `segment_blocks` (number `>= 1`) and `segment_overlap` (number `>= 0`) to control segment size and overlap.
-   - Use this when you need precise span annotations for downstream freeform export/eval.
-   - In all 5 cases, the output is a set of Label Studio tasks that gets uploaded and later exported/evaluated with the matching scope.
-4. Enter Label Studio URL and API key if needed.
+3. Choose task type (`task_scope`): `pipeline`, `canonical-blocks`, or `freeform-spans`.
+4. Scope-specific prompts:
+   - `pipeline`: choose `chunk_level` (`both`, `structural`, `atomic`).
+   - `canonical-blocks`: enter `context_window` (integer `>= 0`).
+   - `freeform-spans`: enter `segment_blocks` (integer `>= 1`) and `segment_overlap` (integer `>= 0`), then choose whether to enable AI prelabel before upload.
+5. Enter Label Studio URL and API key if needed.
    - If `LABEL_STUDIO_URL` and `LABEL_STUDIO_API_KEY` are set, prompts are skipped.
    - Otherwise, interactive mode uses saved `cookimport.json` values when present.
    - If still missing, you are prompted once and the entered values are saved to `cookimport.json` for future interactive runs.
-5. The tool builds tasks on your machine.
+6. The tool builds tasks on your machine.
    - It prepares text/chunk or block/segment tasks based on your scope choice.
    - It writes run files under `data/golden`:
    - `label_studio_tasks.jsonl`
@@ -204,13 +205,14 @@ Developer note:
    - `extracted_archive.json`
    - `extracted_text.txt`
    - `manifest.json`
-6. The tool uploads tasks to Label Studio automatically.
+7. The tool uploads tasks to Label Studio automatically.
    - No extra "are you sure?" prompt in this interactive flow.
    - Upload is batched in groups of 200 tasks.
    - `manifest.json` is updated with project ID, upload count, and project URL.
-7. Review the summary shown in terminal.
+8. Review the summary shown in terminal.
    - You get a quick recap of project/tasks/run location.
-8. Interactive mode returns to the main menu after the flow completes.
+   - If AI prelabel was enabled for `freeform-spans`, the summary also prints `prelabel_report.json`.
+9. Interactive mode returns to the main menu after the flow completes.
 
 ### [F] Label Studio Export Flow
 
@@ -231,7 +233,20 @@ Developer note:
    - If `--run-dir` is supplied in non-interactive mode, export writes to that run directory.
 6. Prints export summary path and returns to the main menu.
 
-### [G] Benchmark vs Freeform Gold Flow
+### [G] Label Studio Decorate Flow
+
+Use this to add AI spans to an existing freeform project without replacing prior annotations.
+
+1. Choose an existing Label Studio project from the project picker.
+2. If project type is not detected as `freeform-spans`, interactive mode warns and asks if you want to continue anyway.
+3. Pick one or more labels to add (default checked: `YIELD_LINE`, `TIME_LINE`).
+4. Choose dry-run or write mode.
+   - Dry-run is default and writes only a report.
+   - Write mode creates new merged annotations in Label Studio.
+5. Review the summary (`tasks_total`, created/would-create, failures) and report path.
+6. Returns to the main menu.
+
+### [H] Benchmark vs Freeform Gold Flow
 
 `Evaluate predictions vs freeform gold` supports two paths:
 
@@ -259,7 +274,7 @@ Typical reasons to use `eval-only` again on an old run:
 - You changed eval settings (`overlap_threshold` or `force_source_match`) and want a fresh report on the same predictions.
 - You changed evaluator/report formatting and want regenerated artifacts without creating new predictions.
 
-### [G1] Eval-Only Branch
+### [H1] Eval-Only Branch
 
 1. Select freeform gold export (`**/exports/freeform_span_labels.jsonl`).
 2. Select prediction run (`**/label_studio_tasks.jsonl` run directory).
@@ -267,7 +282,7 @@ Typical reasons to use `eval-only` again on an old run:
 4. Runs `labelstudio-eval scope=freeform-spans` into `data/golden/eval-vs-pipeline/<timestamp>`.
 5. Returns to the main menu.
 
-### [G2] Upload Branch
+### [H2] Upload Branch
 
 1. Shows benchmark `Run settings` mode picker (`global` / `last benchmark` / `change`), using the same editor flow as Import.
 2. Resolves Label Studio credentials from env (`LABEL_STUDIO_URL` / `LABEL_STUDIO_API_KEY`) or saved interactive settings; if still missing, prompts and saves values to `cookimport.json`.
@@ -275,7 +290,7 @@ Typical reasons to use `eval-only` again on an old run:
 4. Saves selected settings to `<output_dir>/.history/last_run_settings_benchmark.json` after a successful upload/eval run.
 5. Returns to the main menu on completion.
 
-### [H] Generate Dashboard Flow
+### [I] Generate Dashboard Flow
 
 1. Prompts `Open dashboard in your browser after generation?`.
 2. Runs `stats-dashboard` using the interactive `output_dir` setting as `--output-root`.
@@ -298,6 +313,7 @@ Top-level command groups:
 - `cookimport inspect`
 - `cookimport labelstudio-import`
 - `cookimport labelstudio-export`
+- `cookimport labelstudio-decorate`
 - `cookimport labelstudio-eval`
 - `cookimport labelstudio-benchmark`
 - `cookimport perf-report`
@@ -320,6 +336,7 @@ cookimport perf-report --help
 cookimport inspect --help
 cookimport labelstudio-import --help
 cookimport labelstudio-export --help
+cookimport labelstudio-decorate --help
 cookimport labelstudio-eval --help
 cookimport labelstudio-benchmark --help
 ```
@@ -504,6 +521,17 @@ Options:
 - `--allow-labelstudio-write / --no-allow-labelstudio-write` (default disabled): required gate for upload.
 - `--limit, -n INTEGER>=1`: cap chunks generated.
 - `--sample INTEGER>=1`: randomly sample chunks.
+- `--prelabel / --no-prelabel` (default disabled): freeform-only first-pass LLM labeling.
+- `--prelabel-provider TEXT` (default `codex-cli`): provider backend for prelabeling.
+- `--codex-cmd TEXT`: override Codex CLI command (defaults to `COOKIMPORT_CODEX_CMD` or `codex`).
+- `--prelabel-timeout-seconds INTEGER>=1` (default `120`): timeout per provider call.
+- `--prelabel-cache-dir PATH`: optional prompt/response cache directory.
+- `--prelabel-upload-as TEXT` (default `annotations`): `annotations|predictions`.
+- `--prelabel-allow-partial / --no-prelabel-allow-partial` (default disabled): continue upload when some prelabels fail.
+
+Prelabel behavior notes:
+- `--prelabel` is only valid with `--task-scope freeform-spans`.
+- `--prelabel-upload-as annotations` first tries inline annotation upload and falls back to task-only upload + per-task annotation create when needed.
 
 Hard requirement:
 
@@ -521,6 +549,25 @@ Options:
 - `--export-scope TEXT` (default `pipeline`): `pipeline|canonical-blocks|freeform-spans`.
 - `--label-studio-url TEXT`: explicit Label Studio URL.
 - `--label-studio-api-key TEXT`: explicit Label Studio API key.
+
+### `cookimport labelstudio-decorate`
+
+Decorates existing freeform projects with additive LLM-generated labels (creates a new merged annotation, does not overwrite old ones).
+
+Options:
+
+- `--project-name TEXT` (required): Label Studio project name.
+- `--output-dir PATH` (default `data/golden`): output root for decorate reports.
+- `--task-scope TEXT` (default `freeform-spans`): currently only `freeform-spans`.
+- `--add-labels TEXT` (required): comma-separated labels to add (example: `YIELD_LINE,TIME_LINE`).
+- `--label-studio-url TEXT`: explicit Label Studio URL.
+- `--label-studio-api-key TEXT`: explicit Label Studio API key.
+- `--prelabel-provider TEXT` (default `codex-cli`): provider backend.
+- `--codex-cmd TEXT`: override Codex CLI command.
+- `--prelabel-timeout-seconds INTEGER>=1` (default `120`): timeout per provider call.
+- `--prelabel-cache-dir PATH`: optional prompt/response cache directory.
+- `--no-write` (default `false`): dry-run report only; no annotation writes.
+- `--allow-labelstudio-write / --no-allow-labelstudio-write` (default disabled): required unless `--no-write` is set.
 
 ### `cookimport labelstudio-eval SCOPE`
 
