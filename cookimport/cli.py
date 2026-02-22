@@ -839,6 +839,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 "llm_recipe_pipeline": selected_run_settings.llm_recipe_pipeline.value,
                 "codex_farm_cmd": selected_run_settings.codex_farm_cmd,
                 "codex_farm_root": selected_run_settings.codex_farm_root,
+                "codex_farm_workspace_root": selected_run_settings.codex_farm_workspace_root,
+                "codex_farm_pipeline_pass1": selected_run_settings.codex_farm_pipeline_pass1,
+                "codex_farm_pipeline_pass2": selected_run_settings.codex_farm_pipeline_pass2,
+                "codex_farm_pipeline_pass3": selected_run_settings.codex_farm_pipeline_pass3,
                 "codex_farm_context_blocks": selected_run_settings.codex_farm_context_blocks,
                 "codex_farm_failure_mode": selected_run_settings.codex_farm_failure_mode.value,
             }
@@ -1402,6 +1406,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 llm_recipe_pipeline=selected_benchmark_settings.llm_recipe_pipeline.value,
                 codex_farm_cmd=selected_benchmark_settings.codex_farm_cmd,
                 codex_farm_root=selected_benchmark_settings.codex_farm_root,
+                codex_farm_workspace_root=selected_benchmark_settings.codex_farm_workspace_root,
+                codex_farm_pipeline_pass1=selected_benchmark_settings.codex_farm_pipeline_pass1,
+                codex_farm_pipeline_pass2=selected_benchmark_settings.codex_farm_pipeline_pass2,
+                codex_farm_pipeline_pass3=selected_benchmark_settings.codex_farm_pipeline_pass3,
                 codex_farm_context_blocks=selected_benchmark_settings.codex_farm_context_blocks,
                 codex_farm_failure_mode=selected_benchmark_settings.codex_farm_failure_mode.value,
             )
@@ -1515,6 +1523,13 @@ def _normalize_codex_farm_failure_mode(value: str) -> str:
             f"Invalid codex-farm failure mode: {value!r}. "
             "Expected one of: fail, fallback."
         )
+    return normalized
+
+
+def _normalize_codex_farm_pipeline_id(value: str, *, option: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        _fail(f"{option} must be a non-empty pipeline id.")
     return normalized
 
 
@@ -3122,6 +3137,29 @@ def stage(
         "--codex-farm-root",
         help="Optional codex-farm pipeline-pack root. Defaults to <repo_root>/llm_pipelines.",
     ),
+    codex_farm_workspace_root: Path | None = typer.Option(
+        None,
+        "--codex-farm-workspace-root",
+        help=(
+            "Optional workspace root passed to codex-farm. "
+            "When omitted, codex-farm pipeline codex_cd_mode decides."
+        ),
+    ),
+    codex_farm_pipeline_pass1: str = typer.Option(
+        "recipe.chunking.v1",
+        "--codex-farm-pipeline-pass1",
+        help="Pass-1 codex-farm pipeline id (recipe boundary refinement).",
+    ),
+    codex_farm_pipeline_pass2: str = typer.Option(
+        "recipe.schemaorg.v1",
+        "--codex-farm-pipeline-pass2",
+        help="Pass-2 codex-farm pipeline id (schema.org extraction).",
+    ),
+    codex_farm_pipeline_pass3: str = typer.Option(
+        "recipe.final.v1",
+        "--codex-farm-pipeline-pass3",
+        help="Pass-3 codex-farm pipeline id (final draft generation).",
+    ),
     codex_farm_context_blocks: int = typer.Option(
         30,
         "--codex-farm-context-blocks",
@@ -3154,6 +3192,18 @@ def stage(
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
+    )
+    selected_codex_farm_pipeline_pass1 = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass1,
+        option="--codex-farm-pipeline-pass1",
+    )
+    selected_codex_farm_pipeline_pass2 = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass2,
+        option="--codex-farm-pipeline-pass2",
+    )
+    selected_codex_farm_pipeline_pass3 = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass3,
+        option="--codex-farm-pipeline-pass3",
     )
 
     # Apply EPUB unstructured runtime options for this run.
@@ -3255,6 +3305,10 @@ def stage(
         llm_recipe_pipeline=selected_llm_recipe_pipeline,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_root=codex_farm_root,
+        codex_farm_workspace_root=codex_farm_workspace_root,
+        codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
+        codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
+        codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
         codex_farm_context_blocks=codex_farm_context_blocks,
         codex_farm_failure_mode=selected_codex_farm_failure_mode,
         mapping_path=mapping,
@@ -4197,6 +4251,29 @@ def labelstudio_import(
         "--codex-farm-root",
         help="Optional codex-farm pipeline-pack root. Defaults to <repo_root>/llm_pipelines.",
     ),
+    codex_farm_workspace_root: Path | None = typer.Option(
+        None,
+        "--codex-farm-workspace-root",
+        help=(
+            "Optional workspace root passed to codex-farm. "
+            "When omitted, codex-farm pipeline codex_cd_mode decides."
+        ),
+    ),
+    codex_farm_pipeline_pass1: str = typer.Option(
+        "recipe.chunking.v1",
+        "--codex-farm-pipeline-pass1",
+        help="Pass-1 codex-farm pipeline id (recipe boundary refinement).",
+    ),
+    codex_farm_pipeline_pass2: str = typer.Option(
+        "recipe.schemaorg.v1",
+        "--codex-farm-pipeline-pass2",
+        help="Pass-2 codex-farm pipeline id (schema.org extraction).",
+    ),
+    codex_farm_pipeline_pass3: str = typer.Option(
+        "recipe.final.v1",
+        "--codex-farm-pipeline-pass3",
+        help="Pass-3 codex-farm pipeline id (final draft generation).",
+    ),
     codex_farm_context_blocks: int = typer.Option(
         30,
         "--codex-farm-context-blocks",
@@ -4221,6 +4298,18 @@ def labelstudio_import(
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
+    )
+    selected_codex_farm_pipeline_pass1 = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass1,
+        option="--codex-farm-pipeline-pass1",
+    )
+    selected_codex_farm_pipeline_pass2 = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass2,
+        option="--codex-farm-pipeline-pass2",
+    )
+    selected_codex_farm_pipeline_pass3 = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass3,
+        option="--codex-farm-pipeline-pass3",
     )
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     try:
@@ -4255,6 +4344,10 @@ def labelstudio_import(
                 llm_recipe_pipeline=selected_llm_recipe_pipeline,
                 codex_farm_cmd=codex_farm_cmd,
                 codex_farm_root=codex_farm_root,
+                codex_farm_workspace_root=codex_farm_workspace_root,
+                codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
+                codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
+                codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                 codex_farm_context_blocks=codex_farm_context_blocks,
                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                 allow_labelstudio_write=True,
@@ -4965,6 +5058,25 @@ def labelstudio_benchmark(
         "--codex-farm-root",
         help="Optional codex-farm pipeline-pack root. Defaults to <repo_root>/llm_pipelines.",
     )] = None,
+    codex_farm_workspace_root: Annotated[Path | None, typer.Option(
+        "--codex-farm-workspace-root",
+        help=(
+            "Optional workspace root passed to codex-farm. "
+            "When omitted, codex-farm pipeline codex_cd_mode decides."
+        ),
+    )] = None,
+    codex_farm_pipeline_pass1: Annotated[str, typer.Option(
+        "--codex-farm-pipeline-pass1",
+        help="Pass-1 codex-farm pipeline id (recipe boundary refinement).",
+    )] = "recipe.chunking.v1",
+    codex_farm_pipeline_pass2: Annotated[str, typer.Option(
+        "--codex-farm-pipeline-pass2",
+        help="Pass-2 codex-farm pipeline id (schema.org extraction).",
+    )] = "recipe.schemaorg.v1",
+    codex_farm_pipeline_pass3: Annotated[str, typer.Option(
+        "--codex-farm-pipeline-pass3",
+        help="Pass-3 codex-farm pipeline id (final draft generation).",
+    )] = "recipe.final.v1",
     codex_farm_context_blocks: Annotated[int, typer.Option(
         "--codex-farm-context-blocks",
         min=0,
@@ -4988,6 +5100,18 @@ def labelstudio_benchmark(
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
+    )
+    selected_codex_farm_pipeline_pass1 = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass1,
+        option="--codex-farm-pipeline-pass1",
+    )
+    selected_codex_farm_pipeline_pass2 = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass2,
+        option="--codex-farm-pipeline-pass2",
+    )
+    selected_codex_farm_pipeline_pass3 = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass3,
+        option="--codex-farm-pipeline-pass3",
     )
     url: str | None = None
     api_key: str | None = None
@@ -5112,6 +5236,10 @@ def labelstudio_benchmark(
                             llm_recipe_pipeline=selected_llm_recipe_pipeline,
                             codex_farm_cmd=codex_farm_cmd,
                             codex_farm_root=codex_farm_root,
+                            codex_farm_workspace_root=codex_farm_workspace_root,
+                            codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
+                            codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
+                            codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                             codex_farm_context_blocks=codex_farm_context_blocks,
                             codex_farm_failure_mode=selected_codex_farm_failure_mode,
                             processed_output_root=processed_output_dir,
@@ -5151,6 +5279,10 @@ def labelstudio_benchmark(
                             llm_recipe_pipeline=selected_llm_recipe_pipeline,
                             codex_farm_cmd=codex_farm_cmd,
                             codex_farm_root=codex_farm_root,
+                            codex_farm_workspace_root=codex_farm_workspace_root,
+                            codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
+                            codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
+                            codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                             codex_farm_context_blocks=codex_farm_context_blocks,
                             codex_farm_failure_mode=selected_codex_farm_failure_mode,
                             processed_output_root=processed_output_dir,
@@ -5232,11 +5364,18 @@ def labelstudio_benchmark(
         "warm_models": warm_models,
         "llm_recipe_pipeline": selected_llm_recipe_pipeline,
         "codex_farm_cmd": codex_farm_cmd,
+        "codex_farm_pipeline_pass1": selected_codex_farm_pipeline_pass1,
+        "codex_farm_pipeline_pass2": selected_codex_farm_pipeline_pass2,
+        "codex_farm_pipeline_pass3": selected_codex_farm_pipeline_pass3,
         "codex_farm_context_blocks": codex_farm_context_blocks,
         "codex_farm_failure_mode": selected_codex_farm_failure_mode,
     }
     if codex_farm_root is not None:
         benchmark_run_config["codex_farm_root"] = str(codex_farm_root)
+    if codex_farm_workspace_root is not None:
+        benchmark_run_config["codex_farm_workspace_root"] = str(
+            codex_farm_workspace_root
+        )
     if pred_context.run_config is not None:
         benchmark_run_config["prediction_run_config"] = pred_context.run_config
     if pred_context.run_config_hash:

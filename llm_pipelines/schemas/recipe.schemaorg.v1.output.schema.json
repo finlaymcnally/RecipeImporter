@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "recipe.schemaorg.v1 output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bundle_version",
+    "recipe_id",
+    "schemaorg_recipe",
+    "extracted_ingredients",
+    "extracted_instructions",
+    "field_evidence",
+    "warnings"
+  ],
+  "properties": {
+    "bundle_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "recipe_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schemaorg_recipe": {
+      "type": "object"
+    },
+    "extracted_ingredients": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "extracted_instructions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "field_evidence": {
+      "type": "object"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

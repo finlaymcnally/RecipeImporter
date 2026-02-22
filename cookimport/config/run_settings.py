@@ -30,6 +30,9 @@ _SUMMARY_ORDER = (
     "warm_models",
     "llm_recipe_pipeline",
     "codex_farm_cmd",
+    "codex_farm_pipeline_pass1",
+    "codex_farm_pipeline_pass2",
+    "codex_farm_pipeline_pass3",
     "codex_farm_context_blocks",
     "codex_farm_failure_mode",
     "mapping_path",
@@ -270,6 +273,45 @@ class RunSettings(BaseModel):
             description="Optional pipeline-pack root for codex-farm. Blank uses repo_root/llm_pipelines.",
         ),
     )
+    codex_farm_workspace_root: str | None = Field(
+        default=None,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Workspace Root",
+            order=125,
+            description=(
+                "Optional workspace root passed to codex-farm so Codex `--cd` is fixed. "
+                "Blank lets pipeline codex_cd_mode decide."
+            ),
+        ),
+    )
+    codex_farm_pipeline_pass1: str = Field(
+        default="recipe.chunking.v1",
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Pass1 Pipeline",
+            order=126,
+            description="codex-farm pipeline id used for recipe boundary refinement (pass1).",
+        ),
+    )
+    codex_farm_pipeline_pass2: str = Field(
+        default="recipe.schemaorg.v1",
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Pass2 Pipeline",
+            order=127,
+            description="codex-farm pipeline id used for schema.org extraction (pass2).",
+        ),
+    )
+    codex_farm_pipeline_pass3: str = Field(
+        default="recipe.final.v1",
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Pass3 Pipeline",
+            order=128,
+            description="codex-farm pipeline id used for final draft generation (pass3).",
+        ),
+    )
     codex_farm_context_blocks: int = Field(
         default=30,
         ge=0,
@@ -481,6 +523,10 @@ def build_run_settings(
     llm_recipe_pipeline: str | LlmRecipePipeline = LlmRecipePipeline.off,
     codex_farm_cmd: str = "codex-farm",
     codex_farm_root: Path | str | None = None,
+    codex_farm_workspace_root: Path | str | None = None,
+    codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
+    codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
+    codex_farm_pipeline_pass3: str = "recipe.final.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_failure_mode: str | CodexFarmFailureMode = CodexFarmFailureMode.fail,
     mapping_path: Path | None = None,
@@ -522,6 +568,20 @@ def build_run_settings(
             "codex_farm_cmd": str(codex_farm_cmd).strip() or "codex-farm",
             "codex_farm_root": (
                 str(codex_farm_root) if codex_farm_root is not None else None
+            ),
+            "codex_farm_workspace_root": (
+                str(codex_farm_workspace_root)
+                if codex_farm_workspace_root is not None
+                else None
+            ),
+            "codex_farm_pipeline_pass1": (
+                str(codex_farm_pipeline_pass1).strip() or "recipe.chunking.v1"
+            ),
+            "codex_farm_pipeline_pass2": (
+                str(codex_farm_pipeline_pass2).strip() or "recipe.schemaorg.v1"
+            ),
+            "codex_farm_pipeline_pass3": (
+                str(codex_farm_pipeline_pass3).strip() or "recipe.final.v1"
             ),
             "codex_farm_context_blocks": int(codex_farm_context_blocks),
             "codex_farm_failure_mode": _normalized_value(codex_farm_failure_mode),

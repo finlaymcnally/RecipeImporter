@@ -5,11 +5,13 @@
 #   docs/<timestamp>_<root_folder_name>-docs-summary.md
 # Note:
 #   Only .md and .txt files are included in the generated summary.
+#   Sources include docs/ and llm_pipelines/prompts/ (if that folder exists).
 #   Files ending with "_log.md" are skipped.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 docs_dir="${repo_root}/docs"
+prompts_dir="${repo_root}/llm_pipelines/prompts"
 repo_name="$(basename "$repo_root")"
 timestamp="$(date +"%Y-%m-%d_%H.%M.%S")"
 output="${docs_dir}/${timestamp}_${repo_name}-docs-summary.md"
@@ -19,7 +21,18 @@ if [[ ! -d "$docs_dir" ]]; then
   exit 1
 fi
 
-mapfile -d '' files < <(find "$docs_dir" -type f -print0 | sort -z)
+find_roots=("$docs_dir")
+source_roots=("docs/")
+
+if [[ -d "$prompts_dir" ]]; then
+  find_roots+=("$prompts_dir")
+  source_roots+=("llm_pipelines/prompts/")
+fi
+
+source_roots_display="$(printf '%s, ' "${source_roots[@]}")"
+source_roots_display="${source_roots_display%, }"
+
+mapfile -d '' files < <(find "${find_roots[@]}" -type f -print0 | sort -z)
 
 {
   cat <<EOF
@@ -30,7 +43,7 @@ read_when:
 ---
 # ${repo_name} Docs Summary
 Generated: ${timestamp}
-Source root: docs/
+Source roots: ${source_roots_display}
 
 EOF
 

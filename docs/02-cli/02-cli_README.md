@@ -137,6 +137,10 @@ Config keys and defaults:
 - `llm_recipe_pipeline` (default `off`)
 - `codex_farm_cmd` (default `codex-farm`)
 - `codex_farm_root` (default unset; falls back to `<repo_root>/llm_pipelines`)
+- `codex_farm_workspace_root` (default unset; pipeline `codex_cd_mode` decides Codex `--cd`)
+- `codex_farm_pipeline_pass1` (default `recipe.chunking.v1`)
+- `codex_farm_pipeline_pass2` (default `recipe.schemaorg.v1`)
+- `codex_farm_pipeline_pass3` (default `recipe.final.v1`)
 - `codex_farm_context_blocks` (default `30`)
 - `codex_farm_failure_mode` (default `fail`)
 
@@ -152,7 +156,7 @@ What each setting affects:
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
 - `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
 - `llm_recipe_pipeline`: optional recipe codex-farm flow (`off` or `codex-farm-3pass-v1`).
-- `codex_farm_*`: codex-farm command/root/context/failure behavior used by stage and benchmark prediction generation when LLM mode is enabled.
+- `codex_farm_*`: codex-farm command/root/workspace/pipeline-id/context/failure behavior used by stage and benchmark prediction generation when LLM mode is enabled.
 
 Developer note:
 - Per-run toggle definitions live in `cookimport/config/run_settings.py`. Add new fields there with `ui_*` metadata so the interactive editor picks them up automatically.
@@ -381,6 +385,10 @@ Options:
 - `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
+- `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
+- `--codex-farm-pipeline-pass1 TEXT` (default `recipe.chunking.v1`): pass-1 pipeline id (recipe chunking/boundary).
+- `--codex-farm-pipeline-pass2 TEXT` (default `recipe.schemaorg.v1`): pass-2 pipeline id (schema.org extraction).
+- `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.v1`): pass-3 pipeline id (final draft generation).
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - `markitdown` note: EPUB split jobs are disabled for this extractor because conversion is whole-book EPUB -> markdown (no spine-range mode).
@@ -639,6 +647,10 @@ Options:
 - `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm during prediction generation.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
+- `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
+- `--codex-farm-pipeline-pass1 TEXT` (default `recipe.chunking.v1`): pass-1 pipeline id (recipe chunking/boundary).
+- `--codex-farm-pipeline-pass2 TEXT` (default `recipe.schemaorg.v1`): pass-2 pipeline id (schema.org extraction).
+- `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.v1`): pass-3 pipeline id (final draft generation).
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - `markitdown` note: prediction EPUB split jobs are disabled for this extractor for the same reason as stage runs.

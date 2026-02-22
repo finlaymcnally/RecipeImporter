@@ -193,24 +193,30 @@ Where it happens:
 
 **What the model is asked to do (the literal prompt template):**
 
-Built in `cookimport/labelstudio/prelabel.py:_build_prompt(...)`. The prompt is plain text and contains one JSON object per block (with `block_index` and the block’s exact text slice).
+Built in `cookimport/labelstudio/prelabel.py:_build_prompt(...)`, but the text now comes from file-backed templates in `llm_pipelines/prompts/`:
+
+- `freeform-prelabel-full.prompt.md`
+- `freeform-prelabel-augment.prompt.md`
+
+This makes prompt iteration text-only: edit those files and rerun prelabel/decorate.
+Runtime replaces placeholders such as `{{SEGMENT_ID}}` and `{{BLOCKS_JSON_LINES}}` per task.
+If files are missing/empty, runtime falls back to built-in defaults.
 
 ```text
-You label cookbook text blocks.
-Return STRICT JSON only.
-Output format: [{"block_index": <int>, "label": "<LABEL>"}].
-Allowed labels: RECIPE_TITLE, INGREDIENT_LINE, INSTRUCTION_LINE, YIELD_LINE, TIME_LINE, RECIPE_NOTES, RECIPE_VARIANT, KNOWLEDGE, OTHER.
-Segment id: urn:cookimport:segment:<source_hash>:<start_block_index>:<end_block_index>
-Blocks:
-{"block_index": 12, "text": "…exact block text…"}
-{"block_index": 13, "text": "…exact block text…"}
+You are labeling cookbook text BLOCKS for a "freeform spans" golden set.
 ...
+...
+Segment id: {{SEGMENT_ID}}
+Blocks:
+{{BLOCKS_JSON_LINES}}
 ```
 
 Decorate (“augment”) mode adds extra instructions + current labels per block to the same one-shot prompt:
 
 ```text
 Mode: augment existing annotations.
+Only return blocks that should receive a NEW additional label.
+Do not return labels that already exist on a block.
 Only add labels from: KNOWLEDGE, RECIPE_NOTES.
 Existing labels per block:
 - block_index=12: ['INGREDIENT_LINE']
@@ -281,7 +287,7 @@ Important:
 - Offline mode is explicit via `--no-upload`.
 - Eval-only mode against an existing prediction run is available via `labelstudio-eval` and interactive benchmark eval-only.
 - Benchmark prediction manifests include run-config metadata (`run_config`, `run_config_hash`, `run_config_summary`) so analytics/dashboard rows can be grouped by configuration.
-- Non-interactive benchmark knobs include worker/split controls, OCR/warmup flags, and optional codex-farm recipe controls (`--ocr-device`, `--ocr-batch-size`, `--warm-models`, `--epub-extractor`, `--llm-recipe-pipeline`, `--codex-farm-cmd`, `--codex-farm-root`, `--codex-farm-context-blocks`, `--codex-farm-failure-mode`).
+- Non-interactive benchmark knobs include worker/split controls, OCR/warmup flags, and optional codex-farm recipe controls (`--ocr-device`, `--ocr-batch-size`, `--warm-models`, `--epub-extractor`, `--llm-recipe-pipeline`, `--codex-farm-cmd`, `--codex-farm-root`, `--codex-farm-workspace-root`, `--codex-farm-pipeline-pass1`, `--codex-farm-pipeline-pass2`, `--codex-farm-pipeline-pass3`, `--codex-farm-context-blocks`, `--codex-farm-failure-mode`).
 - When benchmark prediction generation runs with codex-farm enabled, processed report payloads include `llmCodexFarm` and prediction-run artifacts include `llm_manifest.json` when produced.
 
 ### 1.9 Parallel split-job behavior and reindexing

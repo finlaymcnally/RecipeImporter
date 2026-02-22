@@ -34,3 +34,13 @@ Recipe codex-farm integration:
 
 Primary stage imports remain deterministic by default; LLM behavior should be explicitly gated and auditable.
 `llm_recipe_pipeline` defaults to `off`; when enabled (`codex-farm-3pass-v1`), failures can either fail-fast or deterministic-fallback via `codex_farm_failure_mode`.
+
+codex-farm orchestration settings are run-config surfaced and shared between stage and benchmark prediction generation:
+- command/root/workspace: `codex_farm_cmd`, `codex_farm_root`, `codex_farm_workspace_root`
+- pass pipeline ids: `codex_farm_pipeline_pass1`, `codex_farm_pipeline_pass2`, `codex_farm_pipeline_pass3`
+- pass1 context size: `codex_farm_context_blocks`
+
+Default local pack assets for those pass ids live in `llm_pipelines/`:
+- pipeline specs: `llm_pipelines/pipelines/recipe.{chunking,schemaorg,final}.v1.json`
+- editable prompts: `llm_pipelines/prompts/recipe.{chunking,schemaorg,final}.v1.prompt.md`
+- output schemas: `llm_pipelines/schemas/recipe.{chunking,schemaorg,final}.v1.output.schema.json`

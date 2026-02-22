@@ -29,9 +29,14 @@ from .codex_farm_runner import (
 
 logger = logging.getLogger(__name__)
 
-PASS1_PIPELINE_ID = "recipe.chunking.v1"
-PASS2_PIPELINE_ID = "recipe.schemaorg.v1"
-PASS3_PIPELINE_ID = "recipe.final.v1"
+DEFAULT_PASS1_PIPELINE_ID = "recipe.chunking.v1"
+DEFAULT_PASS2_PIPELINE_ID = "recipe.schemaorg.v1"
+DEFAULT_PASS3_PIPELINE_ID = "recipe.final.v1"
+
+# Backward-compatible exports used by tests/docs.
+PASS1_PIPELINE_ID = DEFAULT_PASS1_PIPELINE_ID
+PASS2_PIPELINE_ID = DEFAULT_PASS2_PIPELINE_ID
+PASS3_PIPELINE_ID = DEFAULT_PASS3_PIPELINE_ID
 
 
 @dataclass
@@ -110,15 +115,17 @@ def run_codex_farm_recipe_pipeline(
 
     source_hash = _resolve_source_hash(conversion_result)
     states = _build_states(conversion_result, workbook_slug=workbook_slug)
+    pipelines = _resolve_pipeline_ids(run_settings)
     if not states:
         llm_manifest = {
             "enabled": True,
             "pipeline": run_settings.llm_recipe_pipeline.value,
-            "pipelines": {
-                "pass1": PASS1_PIPELINE_ID,
-                "pass2": PASS2_PIPELINE_ID,
-                "pass3": PASS3_PIPELINE_ID,
-            },
+            "pipelines": dict(pipelines),
+            "codex_farm_cmd": run_settings.codex_farm_cmd,
+            "codex_farm_root": run_settings.codex_farm_root,
+            "codex_farm_workspace_root": run_settings.codex_farm_workspace_root,
+            "codex_farm_context_blocks": run_settings.codex_farm_context_blocks,
+            "codex_farm_failure_mode": run_settings.codex_farm_failure_mode.value,
             "counts": {
                 "recipes_total": 0,
                 "pass1_inputs": 0,
@@ -152,6 +159,7 @@ def run_codex_farm_recipe_pipeline(
         )
 
     pipeline_root = _resolve_pipeline_root(run_settings)
+    workspace_root = _resolve_workspace_root(run_settings)
     env = {"CODEX_FARM_ROOT": str(pipeline_root)}
     codex_runner: CodexFarmRunner = runner or SubprocessCodexFarmRunner(
         cmd=run_settings.codex_farm_cmd
@@ -198,7 +206,14 @@ def run_codex_farm_recipe_pipeline(
         )
 
     pass1_started = time.perf_counter()
-    codex_runner.run_pipeline(PASS1_PIPELINE_ID, pass1_in_dir, pass1_out_dir, env)
+    codex_runner.run_pipeline(
+        pipelines["pass1"],
+        pass1_in_dir,
+        pass1_out_dir,
+        env,
+        root_dir=pipeline_root,
+        workspace_root=workspace_root,
+    )
     pass_timing["pass1_seconds"] = round(time.perf_counter() - pass1_started, 3)
     _consume_pass1_outputs(states, pass1_out_dir, total_blocks=total_blocks)
     _apply_pass1_midpoint_clamps(states, total_blocks=total_blocks)
@@ -240,7 +255,14 @@ def run_codex_farm_recipe_pipeline(
         )
     if any(path.suffix == ".json" for path in pass2_in_dir.iterdir()):
         pass2_started = time.perf_counter()
-        codex_runner.run_pipeline(PASS2_PIPELINE_ID, pass2_in_dir, pass2_out_dir, env)
+        codex_runner.run_pipeline(
+            pipelines["pass2"],
+            pass2_in_dir,
+            pass2_out_dir,
+            env,
+            root_dir=pipeline_root,
+            workspace_root=workspace_root,
+        )
         pass_timing["pass2_seconds"] = round(time.perf_counter() - pass2_started, 3)
     for state in pass2_states:
         if state.pass2_status == "error":
@@ -284,7 +306,14 @@ def run_codex_farm_recipe_pipeline(
         )
     if any(path.suffix == ".json" for path in pass3_in_dir.iterdir()):
         pass3_started = time.perf_counter()
-        codex_runner.run_pipeline(PASS3_PIPELINE_ID, pass3_in_dir, pass3_out_dir, env)
+        codex_runner.run_pipeline(
+            pipelines["pass3"],
+            pass3_in_dir,
+            pass3_out_dir,
+            env,
+            root_dir=pipeline_root,
+            workspace_root=workspace_root,
+        )
         pass_timing["pass3_seconds"] = round(time.perf_counter() - pass3_started, 3)
     for state in pass3_states:
         out_path = pass3_out_dir / state.bundle_name
@@ -328,12 +357,14 @@ def run_codex_farm_recipe_pipeline(
         pass3_in_dir=pass3_in_dir,
         pass3_out_dir=pass3_out_dir,
         llm_manifest_path=llm_manifest_path,
+        pipelines=pipelines,
     )
     _write_json(llm_manifest, llm_manifest_path)
 
     llm_report = {
         "enabled": True,
         "pipeline": run_settings.llm_recipe_pipeline.value,
+        "pipelines": dict(pipelines),
         "llmRawDir": str(llm_raw_dir),
         "counts": llm_manifest["counts"],
         "timing": llm_manifest["timing"],
@@ -383,6 +414,7 @@ def _build_llm_manifest(
     pass3_in_dir: Path,
     pass3_out_dir: Path,
     llm_manifest_path: Path,
+    pipelines: dict[str, str],
 ) -> dict[str, Any]:
     recipe_rows: dict[str, dict[str, Any]] = {}
     failures: list[dict[str, Any]] = []
@@ -415,13 +447,10 @@ def _build_llm_manifest(
         "pipeline": run_settings.llm_recipe_pipeline.value,
         "codex_farm_cmd": run_settings.codex_farm_cmd,
         "codex_farm_root": run_settings.codex_farm_root,
+        "codex_farm_workspace_root": run_settings.codex_farm_workspace_root,
         "codex_farm_context_blocks": run_settings.codex_farm_context_blocks,
         "codex_farm_failure_mode": run_settings.codex_farm_failure_mode.value,
-        "pipelines": {
-            "pass1": PASS1_PIPELINE_ID,
-            "pass2": PASS2_PIPELINE_ID,
-            "pass3": PASS3_PIPELINE_ID,
-        },
+        "pipelines": dict(pipelines),
         "counts": counts,
         "timing": pass_timing,
         "paths": _paths_payload(
@@ -460,6 +489,41 @@ def _resolve_pipeline_root(run_settings: RunSettings) -> Path:
             f"{root}: missing {', '.join(missing)}."
         )
     return root
+
+
+def _resolve_workspace_root(run_settings: RunSettings) -> Path | None:
+    value = run_settings.codex_farm_workspace_root
+    if not value:
+        return None
+    root = Path(value).expanduser()
+    if not root.exists() or not root.is_dir():
+        raise CodexFarmRunnerError(
+            "Invalid codex-farm workspace root "
+            f"{root}: path does not exist or is not a directory."
+        )
+    return root
+
+
+def _resolve_pipeline_ids(run_settings: RunSettings) -> dict[str, str]:
+    return {
+        "pass1": _non_empty(
+            run_settings.codex_farm_pipeline_pass1,
+            fallback=DEFAULT_PASS1_PIPELINE_ID,
+        ),
+        "pass2": _non_empty(
+            run_settings.codex_farm_pipeline_pass2,
+            fallback=DEFAULT_PASS2_PIPELINE_ID,
+        ),
+        "pass3": _non_empty(
+            run_settings.codex_farm_pipeline_pass3,
+            fallback=DEFAULT_PASS3_PIPELINE_ID,
+        ),
+    }
+
+
+def _non_empty(value: Any, *, fallback: str) -> str:
+    rendered = str(value).strip() if value is not None else ""
+    return rendered or fallback
 
 
 def _resolve_source_hash(result: ConversionResult) -> str:

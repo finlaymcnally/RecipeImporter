@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "recipe.chunking.v1 output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bundle_version",
+    "recipe_id",
+    "is_recipe",
+    "start_block_index",
+    "end_block_index",
+    "title",
+    "reasoning_tags",
+    "excluded_block_ids"
+  ],
+  "properties": {
+    "bundle_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "recipe_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "is_recipe": {
+      "type": "boolean"
+    },
+    "start_block_index": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "end_block_index": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "title": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "reasoning_tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "excluded_block_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

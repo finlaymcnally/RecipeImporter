@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "recipe.final.v1 output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bundle_version",
+    "recipe_id",
+    "draft_v1",
+    "ingredient_step_mapping",
+    "warnings"
+  ],
+  "properties": {
+    "bundle_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "recipe_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "draft_v1": {
+      "type": "object"
+    },
+    "ingredient_step_mapping": {
+      "type": "object"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

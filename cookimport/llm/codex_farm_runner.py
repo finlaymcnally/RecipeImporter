@@ -22,6 +22,9 @@ class CodexFarmRunner(Protocol):
         in_dir: Path,
         out_dir: Path,
         env: Mapping[str, str],
+        *,
+        root_dir: Path | None = None,
+        workspace_root: Path | None = None,
     ) -> None:
         """Run a codex-farm pipeline over input/output directories."""
 
@@ -36,6 +39,9 @@ class SubprocessCodexFarmRunner:
         in_dir: Path,
         out_dir: Path,
         env: Mapping[str, str],
+        *,
+        root_dir: Path | None = None,
+        workspace_root: Path | None = None,
     ) -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
         command = [
@@ -49,6 +55,10 @@ class SubprocessCodexFarmRunner:
             str(out_dir),
             "--json",
         ]
+        if root_dir is not None:
+            command.extend(["--root", str(root_dir)])
+        if workspace_root is not None:
+            command.extend(["--workspace-root", str(workspace_root)])
         merged_env = os.environ.copy()
         for key, value in env.items():
             merged_env[str(key)] = str(value)

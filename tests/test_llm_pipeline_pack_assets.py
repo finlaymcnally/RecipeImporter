@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PACK_ROOT = REPO_ROOT / "llm_pipelines"
+PIPELINES_DIR = PACK_ROOT / "pipelines"
+
+EXPECTED_PIPELINES = {
+    "recipe.chunking.v1": {
+        "pipeline_file": "recipe.chunking.v1.json",
+        "prompt_path": "prompts/recipe.chunking.v1.prompt.md",
+        "schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+    },
+    "recipe.schemaorg.v1": {
+        "pipeline_file": "recipe.schemaorg.v1.json",
+        "prompt_path": "prompts/recipe.schemaorg.v1.prompt.md",
+        "schema_path": "schemas/recipe.schemaorg.v1.output.schema.json",
+    },
+    "recipe.final.v1": {
+        "pipeline_file": "recipe.final.v1.json",
+        "prompt_path": "prompts/recipe.final.v1.prompt.md",
+        "schema_path": "schemas/recipe.final.v1.output.schema.json",
+    },
+}
+
+
+def _load_json(path: Path) -> dict[str, object]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_default_codex_farm_pass_assets_exist_and_link() -> None:
+    assert PACK_ROOT.exists()
+    assert PIPELINES_DIR.exists()
+
+    for pipeline_id, expected in EXPECTED_PIPELINES.items():
+        pipeline_path = PIPELINES_DIR / str(expected["pipeline_file"])
+        assert pipeline_path.exists(), f"Missing pipeline file: {pipeline_path}"
+
+        payload = _load_json(pipeline_path)
+        assert payload["pipeline_id"] == pipeline_id
+        assert payload["prompt_template_path"] == expected["prompt_path"]
+        assert payload["output_schema_path"] == expected["schema_path"]
+
+        prompt_path = PACK_ROOT / str(payload["prompt_template_path"])
+        schema_path = PACK_ROOT / str(payload["output_schema_path"])
+        assert prompt_path.exists(), f"Missing prompt template: {prompt_path}"
+        assert schema_path.exists(), f"Missing schema file: {schema_path}"
+
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+        assert "{{INPUT_PATH}}" in prompt_text
+
+        schema_payload = _load_json(schema_path)
+        assert schema_payload["type"] == "object"
+        assert schema_payload["additionalProperties"] is False
+        assert "bundle_version" in schema_payload["required"]
+        assert "recipe_id" in schema_payload["required"]

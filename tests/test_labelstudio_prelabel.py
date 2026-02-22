@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import cookimport.labelstudio.prelabel as prelabel_module
 from cookimport.labelstudio.ingest import run_labelstudio_decorate
 from cookimport.labelstudio.prelabel import (
     CodexCliProvider,
@@ -22,6 +23,16 @@ class _StaticProvider:
         self._response = response
 
     def complete(self, _prompt: str) -> str:
+        return self._response
+
+
+class _CaptureProvider:
+    def __init__(self, response: str) -> None:
+        self._response = response
+        self.prompts: list[str] = []
+
+    def complete(self, prompt: str) -> str:
+        self.prompts.append(prompt)
         return self._response
 
 
@@ -94,6 +105,97 @@ def test_prelabel_freeform_task_uses_block_offsets_and_exact_text() -> None:
     assert results[0]["from_name"] == "span_labels"
     assert results[0]["to_name"] == "segment_text"
     assert results[0]["type"] == "labels"
+
+
+def test_prelabel_full_prompt_uses_ai_instruction_template() -> None:
+    task = _freeform_task()
+    provider = _CaptureProvider(
+        '[{"block_index": 0, "label": "YIELD_LINE"}, {"block_index": 1, "label": "INGREDIENT_LINE"}]'
+    )
+
+    annotation = prelabel_freeform_task(task, provider=provider)
+    assert annotation is not None
+    assert len(provider.prompts) == 1
+    prompt = provider.prompts[0]
+    assert "Segment id: urn:cookimport:segment:testhash:0:1" in prompt
+    assert '{"block_index": 0, "text": "Serves 4"}' in prompt
+    assert '{"block_index": 1, "text": "1 cup flour"}' in prompt
+
+
+def test_prelabel_augment_prompt_keeps_additive_instructions() -> None:
+    task = _freeform_task()
+    provider = _CaptureProvider('[{"block_index": 0, "label": "YIELD_LINE"}]')
+
+    annotation = prelabel_freeform_task(
+        task,
+        provider=provider,
+        mode="augment",
+        augment_only_labels={"YIELD_LINE"},
+        base_annotation={
+            "result": [
+                {
+                    "value": {
+                        "start": 10,
+                        "end": 21,
+                        "labels": ["INGREDIENT_LINE"],
+                    }
+                }
+            ]
+        },
+    )
+    assert annotation is not None
+    assert len(provider.prompts) == 1
+    prompt = provider.prompts[0]
+    assert "Segment id: urn:cookimport:segment:testhash:0:1" in prompt
+    assert '{"block_index": 0, "text": "Serves 4"}' in prompt
+    assert "block_index=1" in prompt
+
+
+def test_prelabel_prompt_uses_file_templates(monkeypatch, tmp_path: Path) -> None:
+    assert str(prelabel_module._PROMPT_TEMPLATE_DIR).endswith("llm_pipelines/prompts")
+    full_path = tmp_path / "freeform-prelabel-full.prompt.md"
+    augment_path = tmp_path / "freeform-prelabel-augment.prompt.md"
+    full_path.write_text(
+        "FULL {{SEGMENT_ID}} | {{ALLOWED_LABELS}} | {{UNCERTAINTY_HINT}}\n{{BLOCKS_JSON_LINES}}",
+        encoding="utf-8",
+    )
+    augment_path.write_text(
+        "AUG {{SEGMENT_ID}} | {{ADD_LABELS}} | {{EXISTING_LABELS_PER_BLOCK}}\n{{BLOCKS_JSON_LINES}}",
+        encoding="utf-8",
+    )
+    prelabel_module._PROMPT_TEMPLATE_CACHE.clear()
+    monkeypatch.setattr(prelabel_module, "_FULL_PROMPT_TEMPLATE_PATH", full_path)
+    monkeypatch.setattr(prelabel_module, "_AUGMENT_PROMPT_TEMPLATE_PATH", augment_path)
+
+    task = _freeform_task()
+    full_provider = _CaptureProvider('[{"block_index": 0, "label": "YIELD_LINE"}]')
+    full_annotation = prelabel_freeform_task(task, provider=full_provider)
+    assert full_annotation is not None
+    assert "FULL urn:cookimport:segment:testhash:0:1" in full_provider.prompts[0]
+    assert '{"block_index": 0, "text": "Serves 4"}' in full_provider.prompts[0]
+
+    augment_provider = _CaptureProvider('[{"block_index": 0, "label": "YIELD_LINE"}]')
+    augment_annotation = prelabel_freeform_task(
+        task,
+        provider=augment_provider,
+        mode="augment",
+        augment_only_labels={"YIELD_LINE"},
+        base_annotation={
+            "result": [
+                {
+                    "value": {
+                        "start": 10,
+                        "end": 21,
+                        "labels": ["INGREDIENT_LINE"],
+                    }
+                }
+            ]
+        },
+    )
+    assert augment_annotation is not None
+    assert "AUG urn:cookimport:segment:testhash:0:1" in augment_provider.prompts[0]
+    assert "YIELD_LINE" in augment_provider.prompts[0]
+    assert "block_index=1" in augment_provider.prompts[0]
 
 
 def test_merge_annotation_results_dedupes_exact_matches() -> None:

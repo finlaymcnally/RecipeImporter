@@ -21,6 +21,9 @@ class FakeCodexFarmRunner:
         in_dir: Path,
         out_dir: Path,
         env: Mapping[str, str],  # noqa: ARG002 - parity with subprocess runner
+        *,
+        root_dir: Path | None = None,  # noqa: ARG002 - parity with subprocess runner
+        workspace_root: Path | None = None,  # noqa: ARG002 - parity with subprocess runner
     ) -> None:
         self.calls.append(pipeline_id)
         out_dir.mkdir(parents=True, exist_ok=True)

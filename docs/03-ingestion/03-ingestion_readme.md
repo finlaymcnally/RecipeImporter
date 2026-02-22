@@ -74,7 +74,7 @@ OCR:
   - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
 - Creates run output directory using timestamp format `%Y-%m-%d_%H.%M.%S`.
 - Builds `base_mapping` once and always passes it to workers.
-- Normalizes optional LLM recipe settings (`llm_recipe_pipeline`, `codex_farm_*`) into `RunSettings` and threads them into workers/merge.
+- Normalizes optional LLM recipe settings (`llm_recipe_pipeline`, `codex_farm_cmd`, `codex_farm_root`, `codex_farm_workspace_root`, `codex_farm_pipeline_pass1/2/3`, `codex_farm_context_blocks`, `codex_farm_failure_mode`) into `RunSettings` and threads them into workers/merge.
 - Plans jobs with `_plan_jobs(...)`.
 - Executes with `ProcessPoolExecutor`; on `PermissionError`, falls back to serial execution.
 

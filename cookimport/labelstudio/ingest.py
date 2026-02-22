@@ -151,6 +151,13 @@ def _normalize_codex_farm_failure_mode(value: str) -> str:
     return normalized
 
 
+def _normalize_codex_farm_pipeline_id(value: str, *, field_name: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"Invalid {field_name}. Expected a non-empty pipeline id.")
+    return normalized
+
+
 @contextmanager
 def _temporary_epub_runtime_env(
     *,
@@ -806,6 +813,10 @@ def generate_pred_run_artifacts(
     llm_recipe_pipeline: str = "off",
     codex_farm_cmd: str = "codex-farm",
     codex_farm_root: Path | str | None = None,
+    codex_farm_workspace_root: Path | str | None = None,
+    codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
+    codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
+    codex_farm_pipeline_pass3: str = "recipe.final.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_failure_mode: str = "fail",
     processed_output_root: Path | None = None,
@@ -886,6 +897,18 @@ def generate_pred_run_artifacts(
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
+    selected_codex_farm_pipeline_pass1 = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass1,
+        field_name="codex_farm_pipeline_pass1",
+    )
+    selected_codex_farm_pipeline_pass2 = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass2,
+        field_name="codex_farm_pipeline_pass2",
+    )
+    selected_codex_farm_pipeline_pass3 = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass3,
+        field_name="codex_farm_pipeline_pass3",
+    )
     run_settings = build_run_settings(
         workers=workers,
         pdf_split_workers=pdf_split_workers,
@@ -902,6 +925,10 @@ def generate_pred_run_artifacts(
         llm_recipe_pipeline=selected_llm_recipe_pipeline,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_root=codex_farm_root,
+        codex_farm_workspace_root=codex_farm_workspace_root,
+        codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
+        codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
+        codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
         codex_farm_context_blocks=codex_farm_context_blocks,
         codex_farm_failure_mode=selected_codex_farm_failure_mode,
         all_epub=path.suffix.lower() == ".epub",
@@ -1546,6 +1573,10 @@ def run_labelstudio_import(
     llm_recipe_pipeline: str = "off",
     codex_farm_cmd: str = "codex-farm",
     codex_farm_root: Path | str | None = None,
+    codex_farm_workspace_root: Path | str | None = None,
+    codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
+    codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
+    codex_farm_pipeline_pass3: str = "recipe.final.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_failure_mode: str = "fail",
     processed_output_root: Path | None = None,
@@ -1597,6 +1628,10 @@ def run_labelstudio_import(
         llm_recipe_pipeline=llm_recipe_pipeline,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_root=codex_farm_root,
+        codex_farm_workspace_root=codex_farm_workspace_root,
+        codex_farm_pipeline_pass1=codex_farm_pipeline_pass1,
+        codex_farm_pipeline_pass2=codex_farm_pipeline_pass2,
+        codex_farm_pipeline_pass3=codex_farm_pipeline_pass3,
         codex_farm_context_blocks=codex_farm_context_blocks,
         codex_farm_failure_mode=codex_farm_failure_mode,
         processed_output_root=processed_output_root,

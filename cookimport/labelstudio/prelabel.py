@@ -230,6 +230,134 @@ class CodexCliProvider:
 
 _MODEL_CONFIG_LINE_RE = re.compile(r"^\s*model\s*=\s*['\"]([^'\"]+)['\"]\s*$")
 _CODEX_EXECUTABLES = {"codex", "codex.exe"}
+_PROMPT_TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "llm_pipelines" / "prompts"
+_FULL_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-full.prompt.md"
+_AUGMENT_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-augment.prompt.md"
+_PROMPT_TEMPLATE_CACHE: dict[Path, tuple[int, str]] = {}
+
+_FULL_PROMPT_TEMPLATE_FALLBACK = """You are labeling cookbook text BLOCKS for a "freeform spans" golden set.
+
+IMPORTANT IMPLEMENTATION CONSTRAINT
+- You must assign exactly ONE label to EACH block.
+- Downstream will highlight the ENTIRE block for the label you choose.
+  So do NOT try to label substrings. Choose the best single label for the whole block.
+
+GOAL
+For each block, choose the label that best describes what the block IS, using local context
+(neighboring blocks) to determine whether we are inside a recipe or in general/narrative text.
+
+RETURN FORMAT (STRICT)
+Return STRICT JSON ONLY. No markdown, no commentary, no extra keys.
+Output format exactly:
+[{"block_index": <int>, "label": "<LABEL>"}]
+
+HARD RULES
+1) Include EVERY input block_index exactly once.
+2) Keep the SAME ORDER as the blocks are listed.
+3) label must be exactly one of:
+   {{ALLOWED_LABELS}}
+{{UNCERTAINTY_HINT}}
+
+HOW TO DECIDE (STEP-BY-STEP)
+A) First, detect whether a recipe is present nearby:
+   - Strong recipe signals: RECIPE_TITLE, a run of INGREDIENT_LINE blocks, numbered steps,
+     imperative cooking verbs ("mix", "bake", "stir"), "Serves/Makes", "Prep/Cook/Total".
+   - If those signals are present, treat contiguous nearby blocks as part of that recipe
+     unless they are clearly unrelated noise (page number, copyright, photo credit, etc).
+
+B) Then label each block using the definitions + tie-break rules below.
+
+LABEL DEFINITIONS (WITH HEURISTICS)
+
+RECIPE_TITLE
+- The NAME of a specific dish/recipe (usually short).
+- Often Title Case or ALL CAPS; may include descriptors like "Classic...", "Quick...".
+- NOT this: chapter/section headers ("Sauces", "Breakfast"), running headers/footers,
+  "Ingredients", "Directions", "Method", "Notes" by themselves.
+
+INGREDIENT_LINE
+- A line (or block mostly composed of lines) listing ingredients, typically with:
+  - a quantity and/or unit (1, 1/2, 200 g, tbsp, cup, oz, ml),
+  - an ingredient noun (flour, butter, garlic),
+  - optional prep descriptors (chopped, minced, room temperature).
+- Also includes ingredient sub-lists that are still ingredients (e.g., "For the sauce: ...").
+- If the block is a MIX of ingredients and instructions, label OTHER (see "Mixed blocks").
+
+INSTRUCTION_LINE
+- A preparation step: actions to perform, often imperative verbs and sentences:
+  "Preheat...", "Whisk...", "Bake...", "Stir...", "Serve..."
+- Numbered steps ("1.", "Step 2") are instructions.
+- Also includes short imperative fragments ("Let rest 10 minutes.").
+
+YIELD_LINE
+- Statements about servings or yield / amount produced:
+  "Serves 4", "Makes 24 cookies", "Yield: 2 loaves", "Feeds a crowd", "About 1 quart".
+- If yield is embedded with time in the SAME block, use the tie-break rule under TIME_LINE.
+
+TIME_LINE
+- Statements about time durations, prep/cook/total/chill/rest times:
+  "Prep: 10 min", "Cook time 1 hour", "Total: 1:15", "Chill overnight".
+- If a single block contains BOTH time and yield:
+  - Choose TIME_LINE if any explicit time durations or "prep/cook/total" appear.
+  - Otherwise choose YIELD_LINE.
+
+RECIPE_NOTES
+- Extra notes specific to the CURRENT recipe (not a distinct alternate version):
+- tips, storage, make-ahead, serving suggestions, substitutions that do not define a new variant,
+  warnings ("do not overmix"), sourcing for an ingredient used above, etc.
+- Often introduced by: "Note:", "Notes:", "Tip:", "Chef's note:", "Serving suggestion:".
+- IMPORTANT: If we are clearly inside a recipe, prefer RECIPE_NOTES instead of KNOWLEDGE.
+
+RECIPE_VARIANT
+- An alternate version of the recipe that changes ingredients/method in a defined way:
+  "Variation: ...", "Variations: ...", "For a vegan version...", "To make it spicy...", "Option B..."
+- If it is a small tip and not a distinct version, use RECIPE_NOTES instead.
+
+KNOWLEDGE
+- General cooking knowledge NOT tied to a specific recipe instance:
+  technique explanations, ingredient/tool background, how-to guidance, rules of thumb.
+  Example: "Searing builds flavor by...", "How to choose ripe avocados..."
+- Use KNOWLEDGE mainly when the surrounding text is NOT a recipe (chapter intro, technique section).
+- If it appears inside a recipe section, only use KNOWLEDGE if it is clearly a standalone
+  general sidebar; otherwise use RECIPE_NOTES.
+
+OTHER
+- Anything that does not fit the above labels, including:
+- chapter titles/section headers, narrative fluff unrelated to cooking knowledge,
+- page numbers, headers/footers, copyright, photo credits,
+- indexes, tables of contents, references,
+- "Ingredients"/"Directions"/"Method" headers by themselves,
+- mixed-content blocks where no single recipe label dominates.
+
+MIXED BLOCKS (IMPORTANT)
+Because you can only choose ONE label per block:
+- If the block is mostly ingredient lines -> INGREDIENT_LINE.
+- If the block is mostly instruction steps -> INSTRUCTION_LINE.
+- If it is truly mixed (e.g., ingredients + instructions interleaved, or recipe + narrative) -> OTHER.
+
+FINAL CHECK BEFORE YOU ANSWER
+- Did you label every provided block_index exactly once?
+- Are labels exactly from the allowed set?
+- Is the output STRICT JSON only (no trailing commas, no comments)?
+
+Segment id: {{SEGMENT_ID}}
+Blocks:
+{{BLOCKS_JSON_LINES}}"""
+
+_AUGMENT_PROMPT_TEMPLATE_FALLBACK = """You are labeling cookbook text BLOCKS for an additive annotation pass.
+Return STRICT JSON only.
+Output format exactly:
+[{"block_index": <int>, "label": "<LABEL>"}]
+Mode: augment existing annotations.
+Only return blocks that should receive a NEW additional label.
+Do not return labels that already exist on a block.
+Allowed labels: {{ALLOWED_LABELS}}.
+Only add labels from: {{ADD_LABELS}}.
+Segment id: {{SEGMENT_ID}}
+Existing labels per block:
+{{EXISTING_LABELS_PER_BLOCK}}
+Blocks:
+{{BLOCKS_JSON_LINES}}"""
 
 
 def _is_codex_executable(executable: str) -> bool:
@@ -568,6 +696,33 @@ def _annotation_to_block_labels(
     return block_labels
 
 
+def _load_prompt_template(path: Path, *, fallback: str) -> str:
+    cached = _PROMPT_TEMPLATE_CACHE.get(path)
+    try:
+        mtime_ns = path.stat().st_mtime_ns
+        if cached is not None and cached[0] == mtime_ns:
+            return cached[1]
+        text = path.read_text(encoding="utf-8").strip()
+        if text:
+            _PROMPT_TEMPLATE_CACHE[path] = (mtime_ns, text)
+            return text
+    except OSError:
+        pass
+    return fallback
+
+
+def _render_prompt_template(
+    *,
+    path: Path,
+    fallback: str,
+    replacements: dict[str, str],
+) -> str:
+    rendered = _load_prompt_template(path, fallback=fallback)
+    for token, value in replacements.items():
+        rendered = rendered.replace(token, value)
+    return rendered
+
+
 def _build_prompt(
     *,
     task: dict[str, Any],
@@ -611,40 +766,56 @@ def _build_prompt(
             )
         )
 
-    mode_suffix = ""
+    ordered_allowed_labels = [
+        label for label in FREEFORM_LABELS if label in set(allowed_labels)
+    ]
+    allowed_labels_text = ", ".join(ordered_allowed_labels)
+    blocks_json_lines = "\n".join(lines)
     if mode == "augment":
         augment_set = set(augment_only_labels or [])
         add_labels = [label for label in FREEFORM_LABELS if label in augment_set]
-        mode_suffix = (
-            "\nMode: augment existing annotations.\n"
-            f"Only add labels from: {', '.join(add_labels) if add_labels else '(none)'}.\n"
-        )
         existing = _annotation_to_block_labels(
             annotation=base_annotation,
             source_map=source_map,
         )
-        if existing:
-            existing_rows = "\n".join(
+        existing_rows = (
+            "\n".join(
                 f"- block_index={block_index}: {sorted(labels)}"
                 for block_index, labels in sorted(existing.items())
             )
-            mode_suffix += f"Existing labels per block:\n{existing_rows}\n"
-        else:
-            mode_suffix += "Existing labels per block: (none)\n"
+            if existing
+            else "(none)"
+        )
+        return _render_prompt_template(
+            path=_AUGMENT_PROMPT_TEMPLATE_PATH,
+            fallback=_AUGMENT_PROMPT_TEMPLATE_FALLBACK,
+            replacements={
+                "{{ALLOWED_LABELS}}": allowed_labels_text,
+                "{{ADD_LABELS}}": ", ".join(add_labels) if add_labels else "(none)",
+                "{{SEGMENT_ID}}": segment_id,
+                "{{EXISTING_LABELS_PER_BLOCK}}": existing_rows,
+                "{{BLOCKS_JSON_LINES}}": blocks_json_lines,
+            },
+        )
 
-    ordered_allowed_labels = [
-        label for label in FREEFORM_LABELS if label in set(allowed_labels)
-    ]
-    return (
-        "You label cookbook text blocks.\n"
-        "Return STRICT JSON only.\n"
-        "Output format: "
-        '[{"block_index": <int>, "label": "<LABEL>"}].\n'
-        f"Allowed labels: {', '.join(ordered_allowed_labels)}.\n"
-        f"Segment id: {segment_id}\n"
-        f"{mode_suffix}"
-        "Blocks:\n"
-        + "\n".join(lines)
+    if "OTHER" in ordered_allowed_labels and "RECIPE_NOTES" in ordered_allowed_labels:
+        uncertainty_hint = (
+            "4) If uncertain, prefer OTHER (or RECIPE_NOTES if clearly inside a recipe)."
+        )
+    elif "OTHER" in ordered_allowed_labels:
+        uncertainty_hint = "4) If uncertain, prefer OTHER."
+    else:
+        uncertainty_hint = "4) If uncertain, choose the closest allowed label."
+
+    return _render_prompt_template(
+        path=_FULL_PROMPT_TEMPLATE_PATH,
+        fallback=_FULL_PROMPT_TEMPLATE_FALLBACK,
+        replacements={
+            "{{ALLOWED_LABELS}}": allowed_labels_text,
+            "{{UNCERTAINTY_HINT}}": uncertainty_hint,
+            "{{SEGMENT_ID}}": segment_id,
+            "{{BLOCKS_JSON_LINES}}": blocks_json_lines,
+        },
     )
 
 

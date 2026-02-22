@@ -71,8 +71,11 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - `cookimport/cli_ui/run_settings_flow.py` and `cookimport/cli_ui/toggle_editor.py` must derive editor rows/options from `RunSettings` metadata; do not maintain a separate hard-coded field list.
 - Last-run snapshots are stored in `<output_dir>/.history/last_run_settings_{import|benchmark}.json` via `cookimport/config/last_run_store.py`.
 - Schema evolution contract for stored run settings: missing keys default, unknown keys are ignored (warn once), and corrupt payloads degrade to `None` (treated as no saved run settings).
-- Recipe codex-farm knobs (`llm_recipe_pipeline`, `codex_farm_cmd`, `codex_farm_root`, `codex_farm_context_blocks`, `codex_farm_failure_mode`) must be wired through both stage and benchmark prediction-generation paths, and persisted in run-config surfaces (manifest/report/history).
+- Recipe codex-farm knobs (`llm_recipe_pipeline`, `codex_farm_cmd`, `codex_farm_root`, `codex_farm_workspace_root`, `codex_farm_pipeline_pass1`, `codex_farm_pipeline_pass2`, `codex_farm_pipeline_pass3`, `codex_farm_context_blocks`, `codex_farm_failure_mode`) must be wired through both stage and benchmark prediction-generation paths, and persisted in run-config surfaces (manifest/report/history).
 - `llm_recipe_pipeline` must default to `off`; codex-farm subprocess calls are opt-in only and should never run in default pipeline mode.
+- codex-farm orchestration should pass explicit `--root`/`--workspace-root` when those run settings are provided, and `llm_manifest.json` should record the effective pass pipeline ids.
+- Default local codex-farm recipe pass prompts live in `llm_pipelines/prompts/recipe.{chunking,schemaorg,final}.v1.prompt.md`; text-only tuning should happen there without touching orchestration code.
+- For local codex-farm packs, pipeline JSON `prompt_template_path` / `output_schema_path` entries are the source of truth; avoid keeping duplicate filename schemes in `llm_pipelines/prompts/` that are not referenced by those pipeline specs.
 - New processing-option contract (do all, or the feature is incomplete):
   - add option to `RunSettings` + interactive selectors,
   - pass it through both run-producing command paths (`stage` and benchmark prediction generation),
@@ -91,6 +94,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 
 - Freeform prelabeling must derive span offsets from `data.source_map.blocks[*].segment_start/end`; never ask the model for raw character offsets.
 - Freeform prelabel/decorate flows must preserve `data.segment_text` exactly (no whitespace normalization) so exported offsets remain stable.
+- Prompt text for freeform prelabel/decorate lives in `llm_pipelines/prompts/freeform-prelabel-*.prompt.md`; iterate prompt wording there and keep required placeholder tokens (`{{SEGMENT_ID}}`, `{{BLOCKS_JSON_LINES}}`, etc.) intact.
 - Freeform canonical label names are `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`; normalize legacy `TIP`/`NOTES`/`VARIANT` labels to those names.
 - Codex prelabel/decorate invocations must use non-interactive CLI mode (`codex exec -`); plain `codex` is interactive and fails in pipeline subprocess calls without a TTY.
 - Codex model resolution order for prelabel/decorate is: explicit `--codex-model` -> `COOKIMPORT_CODEX_MODEL` -> Codex config `model` (`~/.codex-alt/config.toml`, `~/.codex/config.toml`).
