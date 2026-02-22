@@ -113,7 +113,7 @@ Canonical labels (`cookimport/labelstudio/label_config_blocks.py`):
 
 Freeform labels (`cookimport/labelstudio/label_config_freeform.py`):
 
-- `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `TIP`, `NOTES`, `VARIANT`, `YIELD_LINE`, `TIME_LINE`, `OTHER`
+- `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`
 - explicitly preserves whitespace with `style="white-space: pre-wrap;"` for stable offsets.
 
 ### 1.6 Export contracts
@@ -171,6 +171,72 @@ Freeform span rows include offsets, label, touched block mapping, annotator/time
     - `decorate_errors.jsonl`
   - supports dry-run mode via `--no-write`.
   - progress callbacks report `Decorating freeform tasks... task X/Y` while scanning tasks.
+
+#### 1.6.1.1 Prompt, parsing, and context management (code-verified)
+
+AI prelabeling for `freeform-spans` is **one fresh prompt per task** (per segment) with **no cross-task conversation memory**.
+The only “context window” is the task’s segment text (a chunk of consecutive extracted blocks).
+
+Where it happens:
+
+- Task segmentation: `cookimport/labelstudio/freeform_tasks.py` (`segment_blocks`, `segment_overlap`)
+- Prompt + parsing + span construction: `cookimport/labelstudio/prelabel.py`
+- End-to-end wiring (generate artifacts, then upload + fallback): `cookimport/labelstudio/ingest.py`
+
+**Context management (your question):**
+
+- Each segment task is labeled independently. There is no rolling chat history; every call is a brand new Codex CLI subprocess fed a single prompt string on stdin (`subprocess.run(..., input=prompt, ...)`).
+- The “chunking” is done before the LLM call: freeform tasks are built by concatenating `segment_blocks` extracted blocks (default 40) with a separator (`\\n\\n`), and `segment_overlap` repeats the last N blocks into the next task (default 5). Overlap repeats text *across tasks*, but the model never sees prior prompts unless that text is repeated inside the current prompt.
+- There is no incremental “continue where you left off” prompting. It’s many small/fixed prompts, not one ever-growing prompt.
+- A prompt/response cache can make reruns *look* stateful: `CodexCliProvider` stores `{prompt, response}` JSON files under `prelabel_cache/` keyed by a hash of `(codex_cmd, track_usage flag, prompt text)`. Delete the cache dir to force fresh completions.
+
+**What the model is asked to do (the literal prompt template):**
+
+Built in `cookimport/labelstudio/prelabel.py:_build_prompt(...)`. The prompt is plain text and contains one JSON object per block (with `block_index` and the block’s exact text slice).
+
+```text
+You label cookbook text blocks.
+Return STRICT JSON only.
+Output format: [{"block_index": <int>, "label": "<LABEL>"}].
+Allowed labels: RECIPE_TITLE, INGREDIENT_LINE, INSTRUCTION_LINE, YIELD_LINE, TIME_LINE, RECIPE_NOTES, RECIPE_VARIANT, KNOWLEDGE, OTHER.
+Segment id: urn:cookimport:segment:<source_hash>:<start_block_index>:<end_block_index>
+Blocks:
+{"block_index": 12, "text": "…exact block text…"}
+{"block_index": 13, "text": "…exact block text…"}
+...
+```
+
+Decorate (“augment”) mode adds extra instructions + current labels per block to the same one-shot prompt:
+
+```text
+Mode: augment existing annotations.
+Only add labels from: KNOWLEDGE, RECIPE_NOTES.
+Existing labels per block:
+- block_index=12: ['INGREDIENT_LINE']
+- block_index=13: ['INSTRUCTION_LINE']
+```
+
+**Output parsing (tolerant, but prompt asks for strict JSON):**
+
+- The parser extracts the first JSON array/object embedded anywhere in stdout (`extract_first_json_value(...)`), then accepts a few wrapper shapes (top-level list, or dict with keys like `selections` / `labels` / `items` / `blocks`).
+- Each item must include `block_index` and `label` (aliases like `tag`/`category` are also accepted). Labels are normalized (`TIME` -> `TIME_LINE`, `YIELD` -> `YIELD_LINE`, etc) and anything not in `FREEFORM_ALLOWED_LABELS` is dropped.
+
+**Span generation (important nuance):**
+
+- Although the Label Studio project is a “freeform span highlight” UI, the AI prelabeler currently generates **block-level spans**: each `{block_index, label}` becomes a span covering the *entire* extracted block text range inside the segment (`start/end` come directly from `data.source_map.blocks[*].segment_start/segment_end`).
+- The annotation `result[].value.text` is taken from `segment_text[start:end]` and must match exactly; this is why no whitespace normalization is allowed and the LS `<Text ... style="white-space: pre-wrap;">` config is required.
+
+#### 1.6.1.2 Upload modes + fallback (mechanics)
+
+When `--prelabel` is enabled:
+
+1. `generate_pred_run_artifacts(...)` attaches `task["annotations"] = [annotation]` for each successfully prelabelled segment task.
+2. `run_labelstudio_import(...)` uploads tasks in batches:
+   - `--prelabel-upload-as annotations` (default): try importing tasks with inline `annotations`.
+   - If Label Studio rejects inline annotations, it automatically:
+     - re-uploads the same tasks with annotations stripped,
+     - then creates annotations per task via the Label Studio API by mapping deterministic `segment_id` to Label Studio’s internal `task.id`.
+   - `--prelabel-upload-as predictions` (advanced): converts the first annotation into a Label Studio `predictions[]` entry (`model_version="cookimport-prelabel"`, `score=1.0`), which is useful for debugging/model comparison but won’t necessarily mark tasks “completed”.
 
 ### 1.7 Evaluation behavior
 
@@ -290,13 +356,18 @@ Mitigation:
 
 ### 2.4 Freeform taxonomy drift
 
-Historical docs/labels used `NARRATIVE` and/or `KNOWLEDGE` in freeform contexts.
+Historical freeform exports used `TIP` / `NOTES` / `VARIANT` before the
+`KNOWLEDGE` / `RECIPE_NOTES` / `RECIPE_VARIANT` rename.
 
-Current freeform config does not include those labels. Eval normalizes legacy exports:
+Eval normalizes legacy exports:
 
-- `KNOWLEDGE -> TIP`
-- `NOTE -> NOTES`
+- `TIP -> KNOWLEDGE`
+- `NOTES -> RECIPE_NOTES`
+- `NOTE -> RECIPE_NOTES`
+- `VARIANT -> RECIPE_VARIANT`
 - `NARRATIVE -> OTHER`
+- `YIELD -> YIELD_LINE`
+- `TIME -> TIME_LINE`
 
 ### 2.5 Incomplete live validation risk
 

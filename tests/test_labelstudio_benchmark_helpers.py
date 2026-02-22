@@ -98,12 +98,26 @@ def test_infer_source_file_from_gold_row_uses_default_input(
     exports.mkdir(parents=True, exist_ok=True)
     gold_path = exports / "freeform_span_labels.jsonl"
     gold_path.write_text(
-        json.dumps({"source_file": "book.epub", "label": "NOTES"}) + "\n",
+        json.dumps({"source_file": "book.epub", "label": "RECIPE_NOTES"}) + "\n",
         encoding="utf-8",
     )
 
     inferred = cli._infer_source_file_from_freeform_gold(gold_path)
     assert inferred == source
+
+
+def test_infer_scope_from_project_payload_detects_new_freeform_labels() -> None:
+    scope = cli._infer_scope_from_project_payload(
+        {"label_config": "<View><Label value='RECIPE_VARIANT'/></View>"}
+    )
+    assert scope == "freeform-spans"
+
+
+def test_infer_scope_from_project_payload_keeps_legacy_freeform_detection() -> None:
+    scope = cli._infer_scope_from_project_payload(
+        {"label_config": "<View><Label value='VARIANT'/></View>"}
+    )
+    assert scope == "freeform-spans"
 
 
 def test_labelstudio_benchmark_direct_call_uses_real_defaults(
@@ -841,7 +855,7 @@ def test_select_export_project_name_prefers_manifest_scope_over_payload_inferenc
 
         def list_projects(self):
             return [
-                {"title": "Alpha", "label_config": "<Label value='VARIANT'/>"},
+                {"title": "Alpha", "label_config": "<Label value='RECIPE_VARIANT'/>"},
             ]
 
     def fake_menu_select(*_args, **_kwargs):

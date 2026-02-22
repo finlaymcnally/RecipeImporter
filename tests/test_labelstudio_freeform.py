@@ -11,7 +11,10 @@ from cookimport.labelstudio.freeform_tasks import (
     build_freeform_span_tasks,
     map_span_offsets_to_blocks,
 )
-from cookimport.labelstudio.label_config_freeform import build_freeform_label_config
+from cookimport.labelstudio.label_config_freeform import (
+    FREEFORM_LABELS,
+    build_freeform_label_config,
+)
 
 
 def test_build_freeform_tasks_offsets_are_deterministic() -> None:
@@ -54,16 +57,29 @@ def test_build_freeform_tasks_offsets_are_deterministic() -> None:
     assert [item["block_index"] for item in touched] == [0]
 
 
-def test_freeform_label_config_uses_tip_notes_variant_without_narrative() -> None:
+def test_freeform_label_config_uses_expected_label_order_and_names() -> None:
+    assert FREEFORM_LABELS == (
+        "RECIPE_TITLE",
+        "INGREDIENT_LINE",
+        "INSTRUCTION_LINE",
+        "YIELD_LINE",
+        "TIME_LINE",
+        "RECIPE_NOTES",
+        "RECIPE_VARIANT",
+        "KNOWLEDGE",
+        "OTHER",
+    )
     config = build_freeform_label_config()
-    assert '<Label value="TIP"/>' in config
-    assert '<Label value="NOTES"/>' in config
-    assert '<Label value="VARIANT"/>' in config
+    assert '<Label value="RECIPE_NOTES"/>' in config
+    assert '<Label value="RECIPE_VARIANT"/>' in config
+    assert '<Label value="KNOWLEDGE"/>' in config
     assert '<Label value="YIELD_LINE"/>' in config
     assert '<Label value="TIME_LINE"/>' in config
     assert '<Label value="OTHER"/>' in config
     assert '<Label value="NARRATIVE"/>' not in config
-    assert '<Label value="KNOWLEDGE"/>' not in config
+    assert '<Label value="TIP"/>' not in config
+    assert '<Label value="NOTES"/>' not in config
+    assert '<Label value="VARIANT"/>' not in config
     assert '<Label value="NOTE"/>' not in config
 
 
@@ -405,7 +421,7 @@ def test_eval_freeform_ranges_smoke(tmp_path) -> None:
             "span_id": "gold-3",
             "source_hash": "deadbeefcafebabe",
             "source_file": "book.epub",
-            "label": "NOTES",
+            "label": "RECIPE_NOTES",
             "touched_block_indices": [5],
         },
     ]
@@ -465,7 +481,7 @@ def test_eval_freeform_app_aligned_summary_and_md_section(tmp_path) -> None:
                 "location": {"start_block": 20, "end_block": 25},
             }
         },
-        # Overlaps TIP span but with wrong label (OTHER), so classification-only can surface mismatch.
+        # Overlaps KNOWLEDGE span but with wrong label (OTHER), so classification-only can surface mismatch.
         {
             "data": {
                 "chunk_id": "urn:recipeimport:chunk:text:deadbeef:atomic:loc:block_index=30:d",
@@ -504,7 +520,7 @@ def test_eval_freeform_app_aligned_summary_and_md_section(tmp_path) -> None:
             "span_id": "gold-tip",
             "source_hash": "deadbeefcafebabe",
             "source_file": "book.epub",
-            "label": "TIP",
+            "label": "KNOWLEDGE",
             "touched_block_indices": [30],
         },
     ]
@@ -547,7 +563,7 @@ def test_eval_freeform_app_aligned_summary_and_md_section(tmp_path) -> None:
     assert classification_only["supported_gold_total"] == 2
     assert classification_only["supported_gold_with_same_label_any_overlap"] == 2
     assert classification_only["supported_same_label_any_overlap_rate"] == 1.0
-    assert classification_only["confusion_by_gold_label"]["TIP"]["OTHER"] == 1
+    assert classification_only["confusion_by_gold_label"]["KNOWLEDGE"]["OTHER"] == 1
 
     report_md = format_freeform_eval_report_md(report)
     assert "App-aligned diagnostics:" in report_md
@@ -568,8 +584,17 @@ def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
                         "span_id": "gold-tip",
                         "source_hash": "h1",
                         "source_file": "book.epub",
-                        "label": "KNOWLEDGE",
+                        "label": "TIP",
                         "touched_block_indices": [10],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "span_id": "gold-notes",
+                        "source_hash": "h1",
+                        "source_file": "book.epub",
+                        "label": "NOTES",
+                        "touched_block_indices": [11],
                     }
                 ),
                 json.dumps(
@@ -578,7 +603,16 @@ def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
                         "source_hash": "h1",
                         "source_file": "book.epub",
                         "label": "NOTE",
-                        "touched_block_indices": [11],
+                        "touched_block_indices": [12],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "span_id": "gold-variant",
+                        "source_hash": "h1",
+                        "source_file": "book.epub",
+                        "label": "VARIANT",
+                        "touched_block_indices": [13],
                     }
                 ),
                 json.dumps(
@@ -587,7 +621,7 @@ def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
                         "source_hash": "h1",
                         "source_file": "book.epub",
                         "label": "NARRATIVE",
-                        "touched_block_indices": [12],
+                        "touched_block_indices": [14],
                     }
                 ),
                 json.dumps(
@@ -596,7 +630,7 @@ def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
                         "source_hash": "h1",
                         "source_file": "book.epub",
                         "label": "YIELD",
-                        "touched_block_indices": [13],
+                        "touched_block_indices": [15],
                     }
                 ),
                 json.dumps(
@@ -605,7 +639,7 @@ def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
                         "source_hash": "h1",
                         "source_file": "book.epub",
                         "label": "TIME",
-                        "touched_block_indices": [14],
+                        "touched_block_indices": [16],
                     }
                 ),
             ]
@@ -615,12 +649,14 @@ def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
     )
 
     gold = load_gold_freeform_ranges(gold_path)
-    assert len(gold) == 5
-    assert gold[0].label == "TIP"
-    assert gold[1].label == "NOTES"
-    assert gold[2].label == "OTHER"
-    assert gold[3].label == "YIELD_LINE"
-    assert gold[4].label == "TIME_LINE"
+    assert len(gold) == 7
+    assert gold[0].label == "KNOWLEDGE"
+    assert gold[1].label == "RECIPE_NOTES"
+    assert gold[2].label == "RECIPE_NOTES"
+    assert gold[3].label == "RECIPE_VARIANT"
+    assert gold[4].label == "OTHER"
+    assert gold[5].label == "YIELD_LINE"
+    assert gold[6].label == "TIME_LINE"
 
 
 def test_eval_freeform_yield_time_are_additive_diagnostics(tmp_path) -> None:

@@ -1628,7 +1628,19 @@ def _infer_scope_from_project_payload(project: dict[str, Any]) -> str | None:
     if not label_config:
         return None
 
-    if "YIELD_LINE" in label_config or "VARIANT" in label_config:
+    if any(
+        marker in label_config
+        for marker in (
+            "YIELD_LINE",
+            "TIME_LINE",
+            "RECIPE_NOTES",
+            "RECIPE_VARIANT",
+            "KNOWLEDGE",
+            # Backward compatibility with older freeform projects.
+            "NOTES",
+            "VARIANT",
+        )
+    ):
         return "freeform-spans"
     if (
         "RECIPE_TITLE" in label_config
@@ -1636,6 +1648,7 @@ def _infer_scope_from_project_payload(project: dict[str, Any]) -> str | None:
         and "INSTRUCTION_LINE" in label_config
         and "NARRATIVE" in label_config
         and "VARIANT" not in label_config
+        and "RECIPE_VARIANT" not in label_config
     ):
         return "canonical-blocks"
     if "mixed" in label_config and "value_usefulness" in label_config:

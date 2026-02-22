@@ -55,13 +55,20 @@ def _freeform_task() -> dict[str, object]:
 def test_parse_block_label_output_extracts_embedded_json() -> None:
     raw = (
         "Here is the answer:\n"
-        '[{"block_index": 0, "label": "YIELD"}, {"block_index": 1, "label": "time"}]\n'
+        '[{"block_index": 0, "label": "YIELD"}, '
+        '{"block_index": 1, "label": "time"}, '
+        '{"block_index": 2, "label": "TIP"}, '
+        '{"block_index": 3, "label": "notes"}, '
+        '{"block_index": 4, "label": "variant"}]\n'
         "done."
     )
     parsed = parse_block_label_output(raw)
     assert parsed == [
         {"block_index": 0, "label": "YIELD_LINE"},
         {"block_index": 1, "label": "TIME_LINE"},
+        {"block_index": 2, "label": "KNOWLEDGE"},
+        {"block_index": 3, "label": "RECIPE_NOTES"},
+        {"block_index": 4, "label": "RECIPE_VARIANT"},
     ]
 
 

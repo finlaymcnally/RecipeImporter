@@ -3,6 +3,7 @@ Label Studio benchmark mode helpers.
 - `ingest.py` builds a full extracted text archive and uploads chunk tasks (pipeline), block tasks (canonical), or freeform span tasks.
 - `label_config_blocks.py` defines the block-classification labeling UI.
 - `label_config_freeform.py` defines text-span highlighting labels for freeform projects.
+- Freeform canonical labels are `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER` (legacy `TIP`/`NOTES`/`VARIANT` normalize to the new names).
 - `block_tasks.py` generates canonical block tasks with stable block IDs and context windows.
 - `freeform_tasks.py` builds segment-based freeform tasks with stable segment IDs and block offset mappings.
 - `prelabel.py` adds Codex-CLI prelabel support: block-index suggestions -> deterministic span offsets, plus merge/idempotence helpers for decorate mode. Default command is non-interactive (`codex exec -`) and plain `codex` auto-retries with `exec -` on TTY errors.

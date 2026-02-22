@@ -7,19 +7,23 @@ FREEFORM_LABELS: tuple[str, ...] = (
     "RECIPE_TITLE",
     "INGREDIENT_LINE",
     "INSTRUCTION_LINE",
-    "TIP",
-    "NOTES",
-    "VARIANT",
     "YIELD_LINE",
     "TIME_LINE",
+    "RECIPE_NOTES",
+    "RECIPE_VARIANT",
+    "KNOWLEDGE",
     "OTHER",
 )
 FREEFORM_ALLOWED_LABELS = frozenset(FREEFORM_LABELS)
 FREEFORM_LABEL_ALIASES: dict[str, str] = {
     "TIME": "TIME_LINE",
     "YIELD": "YIELD_LINE",
-    "NOTE": "NOTES",
-    "KNOWLEDGE": "TIP",
+    "NOTE": "RECIPE_NOTES",
+    "NOTES": "RECIPE_NOTES",
+    "RECIPE_NOTE": "RECIPE_NOTES",
+    "VARIANT": "RECIPE_VARIANT",
+    "TIP": "KNOWLEDGE",
+    "TIPS": "KNOWLEDGE",
     "NARRATIVE": "OTHER",
 }
 

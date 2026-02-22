@@ -5,6 +5,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from cookimport.labelstudio.label_config_freeform import (
+    normalize_freeform_label as _normalize_config_freeform_label,
+)
+
 
 @dataclass(frozen=True)
 class LabeledRange:
@@ -179,12 +183,12 @@ def _map_chunk_to_label(data: dict[str, Any]) -> str | None:
     ):
         return "INSTRUCTION_LINE"
     if chunk_type == "note" or chunk_hint == "note":
-        return "NOTES"
+        return "RECIPE_NOTES"
     if (
         "variant" in chunk_type
         or "variant" in chunk_hint
     ):
-        return "VARIANT"
+        return "RECIPE_VARIANT"
     if (
         "tip" in chunk_type
         or "tip" in chunk_hint
@@ -193,7 +197,7 @@ def _map_chunk_to_label(data: dict[str, Any]) -> str | None:
         or "advice" in chunk_type
         or "advice" in chunk_hint
     ):
-        return "TIP"
+        return "KNOWLEDGE"
     if (
         "yield" in chunk_type
         or "yield" in chunk_hint
@@ -221,18 +225,7 @@ def _map_chunk_to_label(data: dict[str, Any]) -> str | None:
 
 
 def _normalize_freeform_label(label: str) -> str:
-    normalized = label.strip().upper()
-    if normalized == "KNOWLEDGE":
-        return "TIP"
-    if normalized == "NOTE":
-        return "NOTES"
-    if normalized == "NARRATIVE":
-        return "OTHER"
-    if normalized == "YIELD":
-        return "YIELD_LINE"
-    if normalized == "TIME":
-        return "TIME_LINE"
-    return normalized
+    return _normalize_config_freeform_label(label)
 
 
 def _parse_chunk_id(chunk_id: str) -> str | None:

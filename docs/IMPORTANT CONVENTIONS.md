@@ -88,6 +88,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 
 - Freeform prelabeling must derive span offsets from `data.source_map.blocks[*].segment_start/end`; never ask the model for raw character offsets.
 - Freeform prelabel/decorate flows must preserve `data.segment_text` exactly (no whitespace normalization) so exported offsets remain stable.
+- Freeform canonical label names are `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`; normalize legacy `TIP`/`NOTES`/`VARIANT` labels to those names.
 - Codex prelabel/decorate invocations must use non-interactive CLI mode (`codex exec -`); plain `codex` is interactive and fails in pipeline subprocess calls without a TTY.
 - Codex model resolution order for prelabel/decorate is: explicit `--codex-model` -> `COOKIMPORT_CODEX_MODEL` -> Codex config `model` (`~/.codex-alt/config.toml`, `~/.codex/config.toml`).
 - Token usage accounting for prelabel/decorate is always on and should be persisted as aggregate totals in `prelabel_report.json` / `decorate_report.json` without changing annotation semantics.

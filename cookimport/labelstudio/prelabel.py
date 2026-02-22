@@ -12,6 +12,7 @@ from typing import Any, Protocol
 from cookimport.labelstudio.freeform_tasks import map_span_offsets_to_blocks
 from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_ALLOWED_LABELS,
+    FREEFORM_LABELS,
     FREEFORM_LABEL_CONTROL_NAME,
     FREEFORM_LABEL_RESULT_TYPE,
     FREEFORM_TEXT_NAME,
@@ -612,7 +613,8 @@ def _build_prompt(
 
     mode_suffix = ""
     if mode == "augment":
-        add_labels = sorted(augment_only_labels or [])
+        augment_set = set(augment_only_labels or [])
+        add_labels = [label for label in FREEFORM_LABELS if label in augment_set]
         mode_suffix = (
             "\nMode: augment existing annotations.\n"
             f"Only add labels from: {', '.join(add_labels) if add_labels else '(none)'}.\n"
@@ -630,12 +632,15 @@ def _build_prompt(
         else:
             mode_suffix += "Existing labels per block: (none)\n"
 
+    ordered_allowed_labels = [
+        label for label in FREEFORM_LABELS if label in set(allowed_labels)
+    ]
     return (
         "You label cookbook text blocks.\n"
         "Return STRICT JSON only.\n"
         "Output format: "
         '[{"block_index": <int>, "label": "<LABEL>"}].\n'
-        f"Allowed labels: {', '.join(sorted(allowed_labels))}.\n"
+        f"Allowed labels: {', '.join(ordered_allowed_labels)}.\n"
         f"Segment id: {segment_id}\n"
         f"{mode_suffix}"
         "Blocks:\n"

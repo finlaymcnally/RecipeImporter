@@ -117,7 +117,7 @@ The relevant code areas (repository-relative paths) are:
 - `cookimport/labelstudio/freeform_tasks.py`: builds freeform segment tasks and owns the mapping between “blocks” and “segment text offsets” (this is critical for span correctness).
 - `cookimport/labelstudio/client.py`: a Label Studio API client wrapper used by import/export flows.
 - `cookimport/labelstudio/export.py`: exports completed labels from a Label Studio project and writes golden artifacts.
-- `cookimport/labelstudio/label_config_freeform.py`: defines the Label Studio XML config and the allowed freeform label set (currently includes `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `TIP`, `NOTES`, `VARIANT`, `YIELD_LINE`, `TIME_LINE`, `OTHER`).
+- `cookimport/labelstudio/label_config_freeform.py`: defines the Label Studio XML config and the allowed freeform label set (currently includes `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`).
 
 Important behavioral constraints already present in the repo:
 
