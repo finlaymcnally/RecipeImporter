@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shlex
 import subprocess
 from pathlib import Path
@@ -34,20 +35,32 @@ class CodexCliProvider:
         cmd: str,
         timeout_s: int,
         cache_dir: Path | None = None,
+        track_usage: bool = False,
+        model: str | None = None,
     ) -> None:
         normalized_cmd = cmd.strip()
         if not normalized_cmd:
             raise ValueError("codex command cannot be empty")
         self.cmd = normalized_cmd
         self.timeout_s = max(1, int(timeout_s))
+        self.track_usage = bool(track_usage)
+        self.model = resolve_codex_model(model)
         if cache_dir is None:
             cache_dir = Path.home() / ".cache" / "cookimport" / "prelabel"
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._calls_total = 0
+        self._usage_totals = {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "calls_with_usage": 0,
+        }
 
     def complete(self, prompt: str) -> str:
+        self._calls_total += 1
         cache_key = hashlib.sha256(
-            f"{self.cmd}\n{prompt}".encode("utf-8")
+            f"{self.cmd}\ntrack_usage={self.track_usage}\n{prompt}".encode("utf-8")
         ).hexdigest()
         cache_path = self.cache_dir / f"{cache_key}.json"
         if cache_path.exists():
@@ -55,6 +68,7 @@ class CodexCliProvider:
                 cached = json.loads(cache_path.read_text(encoding="utf-8"))
                 response = cached.get("response")
                 if isinstance(response, str):
+                    self._record_usage(cached.get("usage"))
                     return response
             except (json.JSONDecodeError, OSError):
                 pass
@@ -63,33 +77,43 @@ class CodexCliProvider:
         if not argv:
             raise RuntimeError(f"Unable to parse codex command: {self.cmd!r}")
 
-        completed = subprocess.run(
-            argv,
-            input=prompt,
-            text=True,
-            capture_output=True,
-            timeout=self.timeout_s,
-            check=False,
-        )
-        if completed.returncode != 0:
-            stderr = (completed.stderr or "").strip()
-            stdout = (completed.stdout or "").strip()
-            detail = stderr or stdout or "unknown error"
-            raise RuntimeError(
-                f"Codex command failed (exit={completed.returncode}): {detail}"
+        run_argv = self._argv_with_json_events(argv)
+        completed = self._run(run_argv, prompt)
+        if (
+            completed.returncode != 0
+            and self._is_stdin_tty_error(completed)
+            and self._is_plain_codex_command(argv)
+        ):
+            completed = self._run(
+                self._argv_with_json_events([argv[0], "exec", "-"]),
+                prompt,
             )
 
-        response = completed.stdout.strip()
+        response, usage = self._response_and_usage(completed)
+        if completed.returncode != 0:
+            allow_nonzero_with_response = self.track_usage and bool(response)
+            if not allow_nonzero_with_response:
+                stderr = (completed.stderr or "").strip()
+                stdout = (completed.stdout or "").strip()
+                detail = stderr or stdout or "unknown error"
+                raise RuntimeError(
+                    f"Codex command failed (exit={completed.returncode}): {detail}"
+                )
+
         if not response:
             raise RuntimeError("Codex command returned empty stdout")
 
+        self._record_usage(usage)
         try:
             cache_path.write_text(
                 json.dumps(
                     {
                         "cmd": self.cmd,
+                        "track_usage": self.track_usage,
+                        "model": self.model,
                         "prompt": prompt,
                         "response": response,
+                        "usage": usage,
                     },
                     indent=2,
                     sort_keys=True,
@@ -99,6 +123,235 @@ class CodexCliProvider:
         except OSError:
             pass
         return response
+
+    def _run(self, argv: list[str], prompt: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            argv,
+            input=prompt,
+            text=True,
+            capture_output=True,
+            timeout=self.timeout_s,
+            check=False,
+        )
+
+    @staticmethod
+    def _is_plain_codex_command(argv: list[str]) -> bool:
+        if len(argv) != 1:
+            return False
+        executable = Path(argv[0]).name.lower()
+        return executable in {"codex", "codex.exe"}
+
+    def _argv_with_json_events(self, argv: list[str]) -> list[str]:
+        if not self.track_usage:
+            return list(argv)
+        if "--json" in argv:
+            return list(argv)
+        if len(argv) >= 2 and argv[1].lower() in {"exec", "e"}:
+            return [argv[0], argv[1], "--json", *argv[2:]]
+        return [argv[0], "--json", *argv[1:]]
+
+    def _response_and_usage(
+        self, completed: subprocess.CompletedProcess[str]
+    ) -> tuple[str, dict[str, int] | None]:
+        if self.track_usage:
+            response, usage = self._extract_json_event_response_and_usage(completed)
+            if response:
+                return response, usage
+        response = (completed.stdout or "").strip()
+        if not response:
+            return "", None
+        return response, None
+
+    @staticmethod
+    def _extract_json_event_response_and_usage(
+        completed: subprocess.CompletedProcess[str],
+    ) -> tuple[str, dict[str, int] | None]:
+        response = ""
+        usage: dict[str, int] | None = None
+        streams = [completed.stdout or "", completed.stderr or ""]
+        for stream in streams:
+            for raw_line in stream.splitlines():
+                line = raw_line.strip()
+                if not line or not line.startswith("{"):
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                event_type = payload.get("type")
+                if event_type == "item.completed":
+                    item = payload.get("item")
+                    if not isinstance(item, dict):
+                        continue
+                    if item.get("type") != "agent_message":
+                        continue
+                    text = item.get("text")
+                    if isinstance(text, str) and text.strip():
+                        response = text.strip()
+                if event_type == "turn.completed":
+                    usage = CodexCliProvider._normalize_usage(payload.get("usage"))
+        return response, usage
+
+    @staticmethod
+    def _normalize_usage(payload: Any) -> dict[str, int] | None:
+        if not isinstance(payload, dict):
+            return None
+        usage: dict[str, int] = {}
+        for key in ("input_tokens", "cached_input_tokens", "output_tokens"):
+            value = payload.get(key)
+            try:
+                usage[key] = int(value)
+            except (TypeError, ValueError):
+                usage[key] = 0
+        return usage
+
+    def _record_usage(self, usage: Any) -> None:
+        normalized = self._normalize_usage(usage)
+        if normalized is None:
+            return
+        for key in ("input_tokens", "cached_input_tokens", "output_tokens"):
+            self._usage_totals[key] += normalized.get(key, 0)
+        self._usage_totals["calls_with_usage"] += 1
+
+    def usage_summary(self) -> dict[str, int]:
+        return {
+            **self._usage_totals,
+            "calls_total": self._calls_total,
+        }
+
+    @staticmethod
+    def _is_stdin_tty_error(completed: subprocess.CompletedProcess[str]) -> bool:
+        detail = f"{completed.stderr or ''}\n{completed.stdout or ''}".lower()
+        return "stdin is not a terminal" in detail
+
+
+_MODEL_CONFIG_LINE_RE = re.compile(r"^\s*model\s*=\s*['\"]([^'\"]+)['\"]\s*$")
+_CODEX_EXECUTABLES = {"codex", "codex.exe"}
+
+
+def _is_codex_executable(executable: str) -> bool:
+    return Path(executable).name.lower() in _CODEX_EXECUTABLES
+
+
+def _extract_model_from_config_override(value: str) -> str | None:
+    stripped = value.strip()
+    if not stripped.startswith("model="):
+        return None
+    parsed = stripped.split("=", 1)[1].strip()
+    if len(parsed) >= 2 and parsed[0] == parsed[-1] and parsed[0] in {"'", '"'}:
+        parsed = parsed[1:-1]
+    normalized = parsed.strip()
+    return normalized or None
+
+
+def _argv_has_model_setting(argv: list[str]) -> bool:
+    index = 1
+    while index < len(argv):
+        token = argv[index]
+        if token in {"-m", "--model"}:
+            return True
+        if token.startswith("--model="):
+            return True
+        if token == "-c" and index + 1 < len(argv):
+            if _extract_model_from_config_override(argv[index + 1]):
+                return True
+            index += 2
+            continue
+        if token.startswith("-c"):
+            candidate = token[2:]
+            if _extract_model_from_config_override(candidate):
+                return True
+        index += 1
+    return False
+
+
+def codex_cmd_with_model(cmd: str, model: str | None) -> str:
+    """Append `--model` when command is codex-based and no model override exists."""
+    normalized_cmd = cmd.strip()
+    normalized_model = (model or "").strip()
+    if not normalized_cmd or not normalized_model:
+        return normalized_cmd
+    try:
+        argv = shlex.split(normalized_cmd)
+    except ValueError:
+        return normalized_cmd
+    if not argv or not _is_codex_executable(argv[0]):
+        return normalized_cmd
+    if _argv_has_model_setting(argv):
+        return normalized_cmd
+    if len(argv) >= 2 and argv[1].lower() in {"exec", "e"}:
+        updated = [argv[0], argv[1], "--model", normalized_model, *argv[2:]]
+        return shlex.join(updated)
+    if len(argv) == 1:
+        return shlex.join([argv[0], "--model", normalized_model])
+    return normalized_cmd
+
+
+def codex_model_from_cmd(cmd: str) -> str | None:
+    """Best-effort extraction of `--model` from a codex command string."""
+    try:
+        argv = shlex.split(cmd)
+    except ValueError:
+        return None
+    if not argv or not _is_codex_executable(argv[0]):
+        return None
+    index = 1
+    while index < len(argv):
+        token = argv[index]
+        if token in {"-m", "--model"} and index + 1 < len(argv):
+            candidate = str(argv[index + 1]).strip()
+            return candidate or None
+        if token.startswith("--model="):
+            candidate = token.split("=", 1)[1].strip()
+            return candidate or None
+        if token == "-c" and index + 1 < len(argv):
+            candidate = _extract_model_from_config_override(str(argv[index + 1]))
+            if candidate:
+                return candidate
+            index += 2
+            continue
+        if token.startswith("-c"):
+            candidate = _extract_model_from_config_override(token[2:])
+            if candidate:
+                return candidate
+        index += 1
+    return None
+
+
+def default_codex_model() -> str | None:
+    """Resolve default codex model from env then Codex config file."""
+    env_model = os.environ.get("COOKIMPORT_CODEX_MODEL")
+    if env_model and env_model.strip():
+        return env_model.strip()
+
+    config_paths = [
+        Path.home() / ".codex-alt" / "config.toml",
+        Path.home() / ".codex" / "config.toml",
+    ]
+    for path in config_paths:
+        if not path.exists():
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            match = _MODEL_CONFIG_LINE_RE.match(line)
+            if not match:
+                continue
+            model = match.group(1).strip()
+            if model:
+                return model
+    return None
+
+
+def resolve_codex_model(value: str | None) -> str | None:
+    normalized = (value or "").strip()
+    if normalized:
+        return normalized
+    return default_codex_model()
 
 
 def extract_first_json_value(raw: str) -> Any:
@@ -516,4 +769,4 @@ def annotation_is_cookimport_augment(
 
 def default_codex_cmd() -> str:
     """Resolve default codex command used by prelabel/decorate flows."""
-    return os.environ.get("COOKIMPORT_CODEX_CMD", "codex")
+    return os.environ.get("COOKIMPORT_CODEX_CMD", "codex exec -")

@@ -9,6 +9,7 @@ Requires-Dist: ebooklib>=0.17
 Requires-Dist: ingredient-parser-nlp>=0.1.0
 Requires-Dist: lxml>=5.0
 Requires-Dist: markitdown<0.2,>=0.1.4
+Requires-Dist: markdownify<2,>=1.2
 Requires-Dist: openpyxl>=3.1
 Requires-Dist: pymupdf>=1.23
 Requires-Dist: pydantic<3,>=2.5

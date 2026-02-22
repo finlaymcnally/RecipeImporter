@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from cookimport.config.run_settings import build_run_settings, compute_effective_workers
+from cookimport.core.progress_messages import format_task_counter
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
 from cookimport.parsing.tips import partition_tip_candidates
@@ -55,9 +56,12 @@ from cookimport.labelstudio.prelabel import (
     CodexCliProvider,
     annotation_is_cookimport_augment,
     annotation_labels,
+    codex_cmd_with_model,
+    codex_model_from_cmd,
     default_codex_cmd,
     merge_annotation_results,
     prelabel_freeform_task,
+    resolve_codex_model,
     select_latest_annotation,
 )
 from cookimport.runs import RunManifest, RunSource, write_run_manifest
@@ -78,6 +82,10 @@ from cookimport.staging.pdf_jobs import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _task_progress_message(phase: str, current: int, total: int) -> str:
+    return format_task_counter(phase, current, total, noun="task")
 
 
 def _coerce_bool(value: bool | str | None, *, default: bool) -> bool:
@@ -305,17 +313,24 @@ def _build_prelabel_provider(
     *,
     prelabel_provider: str,
     codex_cmd: str | None,
+    codex_model: str | None,
     prelabel_timeout_seconds: int,
     prelabel_cache_dir: Path | None,
+    prelabel_track_token_usage: bool,
 ) -> CodexCliProvider:
     normalized_provider = prelabel_provider.strip().lower()
     if normalized_provider != "codex-cli":
         raise ValueError("prelabel_provider must be 'codex-cli'")
-    resolved_cmd = (codex_cmd or default_codex_cmd()).strip()
+    base_cmd = (codex_cmd or default_codex_cmd()).strip()
+    resolved_model = resolve_codex_model(codex_model)
+    resolved_cmd = codex_cmd_with_model(base_cmd, resolved_model)
+    effective_model = codex_model_from_cmd(resolved_cmd) or resolved_model
     return CodexCliProvider(
         cmd=resolved_cmd,
         timeout_s=prelabel_timeout_seconds,
         cache_dir=prelabel_cache_dir,
+        track_usage=prelabel_track_token_usage,
+        model=effective_model,
     )
 
 
@@ -758,9 +773,11 @@ def generate_pred_run_artifacts(
     prelabel: bool = False,
     prelabel_provider: str = "codex-cli",
     codex_cmd: str | None = None,
+    codex_model: str | None = None,
     prelabel_timeout_seconds: int = 120,
     prelabel_cache_dir: Path | None = None,
     prelabel_allow_partial: bool = False,
+    prelabel_track_token_usage: bool = True,
     progress_callback: Callable[[str], None] | None = None,
     run_manifest_kind: str = "bench_pred_run",
 ) -> dict[str, Any]:
@@ -1137,18 +1154,34 @@ def generate_pred_run_artifacts(
                 "No freeform span tasks generated after limit/sample filters."
             )
         if prelabel:
-            _notify("Running freeform prelabeling...")
+            total_prelabel_tasks = len(tasks)
+            _notify(
+                _task_progress_message(
+                    "Running freeform prelabeling...",
+                    0,
+                    total_prelabel_tasks,
+                )
+            )
             provider_cache_dir = prelabel_cache_dir or (run_root / "prelabel_cache")
             provider = _build_prelabel_provider(
                 prelabel_provider=prelabel_provider,
                 codex_cmd=codex_cmd,
+                codex_model=codex_model,
                 prelabel_timeout_seconds=prelabel_timeout_seconds,
                 prelabel_cache_dir=provider_cache_dir,
+                prelabel_track_token_usage=prelabel_track_token_usage,
             )
             prelabel_errors: list[dict[str, Any]] = []
             prelabel_label_counts: dict[str, int] = {}
             prelabel_success = 0
-            for task in tasks:
+            for task_index, task in enumerate(tasks, start=1):
+                _notify(
+                    _task_progress_message(
+                        "Running freeform prelabeling...",
+                        task_index,
+                        total_prelabel_tasks,
+                    )
+                )
                 segment_id = _task_id_value(task, "freeform-spans") or "<unknown>"
                 try:
                     annotation = prelabel_freeform_task(
@@ -1187,15 +1220,31 @@ def generate_pred_run_artifacts(
             else:
                 prelabel_errors_path.write_text("", encoding="utf-8")
 
+            provider_cmd = str(
+                getattr(provider, "cmd", (codex_cmd or default_codex_cmd()).strip())
+            )
+            provider_model = getattr(
+                provider,
+                "model",
+                resolve_codex_model(codex_model),
+            )
+            provider_usage = None
+            usage_summary = getattr(provider, "usage_summary", None)
+            if callable(usage_summary):
+                provider_usage = usage_summary()
+
             prelabel_summary = {
                 "enabled": True,
                 "provider": prelabel_provider,
-                "codex_cmd": (codex_cmd or default_codex_cmd()).strip(),
+                "codex_cmd": provider_cmd,
+                "codex_model": provider_model,
                 "cache_dir": str(provider_cache_dir),
                 "task_count": len(tasks),
                 "success_count": prelabel_success,
                 "failure_count": len(prelabel_errors),
                 "allow_partial": bool(prelabel_allow_partial),
+                "token_usage_enabled": bool(prelabel_track_token_usage),
+                "token_usage": provider_usage if prelabel_track_token_usage else None,
                 "label_counts": prelabel_label_counts,
                 "errors_path": str(prelabel_errors_path),
             }
@@ -1208,7 +1257,8 @@ def generate_pred_run_artifacts(
             if prelabel_errors and not prelabel_allow_partial:
                 raise RuntimeError(
                     "Prelabeling failed for one or more tasks. "
-                    "Re-run with prelabel_allow_partial=True to continue "
+                    "Re-run with prelabel_allow_partial=True "
+                    "(CLI: --prelabel-allow-partial) to continue "
                     "while recording failures."
                 )
 
@@ -1394,10 +1444,12 @@ def run_labelstudio_import(
     prelabel: bool = False,
     prelabel_provider: str = "codex-cli",
     codex_cmd: str | None = None,
+    codex_model: str | None = None,
     prelabel_timeout_seconds: int = 120,
     prelabel_cache_dir: Path | None = None,
     prelabel_upload_as: str = "annotations",
     prelabel_allow_partial: bool = False,
+    prelabel_track_token_usage: bool = True,
     allow_labelstudio_write: bool = False,
 ) -> dict[str, Any]:
     def _notify(message: str) -> None:
@@ -1438,9 +1490,11 @@ def run_labelstudio_import(
         prelabel=prelabel,
         prelabel_provider=prelabel_provider,
         codex_cmd=codex_cmd,
+        codex_model=codex_model,
         prelabel_timeout_seconds=prelabel_timeout_seconds,
         prelabel_cache_dir=prelabel_cache_dir,
         prelabel_allow_partial=prelabel_allow_partial,
+        prelabel_track_token_usage=prelabel_track_token_usage,
         progress_callback=progress_callback,
         run_manifest_kind="labelstudio_import",
     )
@@ -1724,8 +1778,10 @@ def run_labelstudio_decorate(
     task_scope: str = "freeform-spans",
     prelabel_provider: str = "codex-cli",
     codex_cmd: str | None = None,
+    codex_model: str | None = None,
     prelabel_timeout_seconds: int = 120,
     prelabel_cache_dir: Path | None = None,
+    prelabel_track_token_usage: bool = True,
     allow_labelstudio_write: bool = False,
     no_write: bool = False,
     progress_callback: Callable[[str], None] | None = None,
@@ -1767,8 +1823,10 @@ def run_labelstudio_decorate(
     provider = _build_prelabel_provider(
         prelabel_provider=prelabel_provider,
         codex_cmd=codex_cmd,
+        codex_model=codex_model,
         prelabel_timeout_seconds=prelabel_timeout_seconds,
         prelabel_cache_dir=provider_cache_dir,
+        prelabel_track_token_usage=prelabel_track_token_usage,
     )
 
     _notify("Resolving Label Studio project...")
@@ -1783,6 +1841,8 @@ def run_labelstudio_decorate(
 
     _notify("Fetching project tasks and annotations...")
     tasks = client.list_project_tasks(project_id)
+    total_tasks = len(tasks)
+    _notify(_task_progress_message("Decorating freeform tasks...", 0, total_tasks))
 
     created_count = 0
     dry_run_count = 0
@@ -1795,7 +1855,14 @@ def run_labelstudio_decorate(
     errors: list[dict[str, Any]] = []
     sample_changes: list[dict[str, Any]] = []
 
-    for task in tasks:
+    for task_index, task in enumerate(tasks, start=1):
+        _notify(
+            _task_progress_message(
+                "Decorating freeform tasks...",
+                task_index,
+                total_tasks,
+            )
+        )
         if not isinstance(task, dict):
             continue
         data = task.get("data")
@@ -1926,8 +1993,21 @@ def run_labelstudio_decorate(
         "task_scope": task_scope,
         "mode": "dry-run" if no_write else "write",
         "provider": prelabel_provider,
-        "codex_cmd": (codex_cmd or default_codex_cmd()).strip(),
+        "codex_cmd": str(
+            getattr(provider, "cmd", (codex_cmd or default_codex_cmd()).strip())
+        ),
+        "codex_model": getattr(
+            provider,
+            "model",
+            resolve_codex_model(codex_model),
+        ),
         "cache_dir": str(provider_cache_dir),
+        "token_usage_enabled": bool(prelabel_track_token_usage),
+        "token_usage": (
+            provider.usage_summary()
+            if prelabel_track_token_usage and callable(getattr(provider, "usage_summary", None))
+            else None
+        ),
         "add_labels": sorted(normalized_add_labels),
         "counts": {
             "tasks_total": len(tasks),
@@ -1958,7 +2038,9 @@ def run_labelstudio_decorate(
             "task_scope": task_scope,
             "add_labels": sorted(normalized_add_labels),
             "provider": prelabel_provider,
-            "codex_cmd": (codex_cmd or default_codex_cmd()).strip(),
+            "codex_cmd": report["codex_cmd"],
+            "codex_model": report["codex_model"],
+            "prelabel_track_token_usage": bool(prelabel_track_token_usage),
             "no_write": bool(no_write),
         },
         artifacts={

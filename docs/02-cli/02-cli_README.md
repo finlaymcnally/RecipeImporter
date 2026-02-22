@@ -192,13 +192,14 @@ Developer note:
 4. Scope-specific prompts:
    - `pipeline`: choose `chunk_level` (`both`, `structural`, `atomic`).
    - `canonical-blocks`: enter `context_window` (integer `>= 0`).
-   - `freeform-spans`: enter `segment_blocks` (integer `>= 1`) and `segment_overlap` (integer `>= 0`), then choose whether to enable AI prelabel before upload.
+   - `freeform-spans`: enter `segment_blocks` (integer `>= 1`) and `segment_overlap` (integer `>= 0`), then choose AI prelabel mode (`off`, strict/allow-partial annotations, or advanced predictions mode variants).
 5. Enter Label Studio URL and API key if needed.
    - If `LABEL_STUDIO_URL` and `LABEL_STUDIO_API_KEY` are set, prompts are skipped.
    - Otherwise, interactive mode uses saved `cookimport.json` values when present.
    - If still missing, you are prompted once and the entered values are saved to `cookimport.json` for future interactive runs.
 6. The tool builds tasks on your machine.
    - It prepares text/chunk or block/segment tasks based on your scope choice.
+   - A status spinner shows live phase updates with `task X/Y` progress for known-size loops (including freeform prelabeling when AI prelabel is enabled).
    - It writes run files under `data/golden`:
    - `label_studio_tasks.jsonl`
    - `coverage.json`
@@ -374,7 +375,7 @@ Options:
 - `auto` note: stage resolves one effective extractor per EPUB before worker launch, writes `raw/epub/<source_hash>/epub_extractor_auto.json`, and then uses the resolved backend consistently for split planning/workers.
 
 Split-merge progress detail:
-- After split workers finish, the worker dashboard `MainProcess` row now advances through merge phases (payload merge, ID reassignment, output writes, raw merge) instead of staying on a single static `Merging ...` label.
+- After split workers finish, the worker dashboard `MainProcess` row now advances with explicit `merge phase X/Y: ...` status messages (payload merge, ID reassignment, output writes, raw merge) instead of staying on a single static `Merging ...` label.
 
 ### `cookimport debug-epub-extract PATH`
 
@@ -523,7 +524,7 @@ Options:
 - `--sample INTEGER>=1`: randomly sample chunks.
 - `--prelabel / --no-prelabel` (default disabled): freeform-only first-pass LLM labeling.
 - `--prelabel-provider TEXT` (default `codex-cli`): provider backend for prelabeling.
-- `--codex-cmd TEXT`: override Codex CLI command (defaults to `COOKIMPORT_CODEX_CMD` or `codex`).
+- `--codex-cmd TEXT`: override Codex CLI command (defaults to `COOKIMPORT_CODEX_CMD` or `codex exec -`).
 - `--prelabel-timeout-seconds INTEGER>=1` (default `120`): timeout per provider call.
 - `--prelabel-cache-dir PATH`: optional prompt/response cache directory.
 - `--prelabel-upload-as TEXT` (default `annotations`): `annotations|predictions`.
@@ -563,7 +564,7 @@ Options:
 - `--label-studio-url TEXT`: explicit Label Studio URL.
 - `--label-studio-api-key TEXT`: explicit Label Studio API key.
 - `--prelabel-provider TEXT` (default `codex-cli`): provider backend.
-- `--codex-cmd TEXT`: override Codex CLI command.
+- `--codex-cmd TEXT`: override Codex CLI command (defaults to `COOKIMPORT_CODEX_CMD` or `codex exec -`).
 - `--prelabel-timeout-seconds INTEGER>=1` (default `120`): timeout per provider call.
 - `--prelabel-cache-dir PATH`: optional prompt/response cache directory.
 - `--no-write` (default `false`): dry-run report only; no annotation writes.
@@ -645,6 +646,10 @@ Options:
 
 Runs offline benchmark suite and writes report/metrics/iteration packet.
 
+Status behavior:
+
+- Spinner updates include `item X/Y` counters for per-suite-item work, with item id prefixes in nested prediction/eval messages.
+
 Options:
 
 - `--suite PATH` (required): suite JSON path.
@@ -655,6 +660,11 @@ Options:
 ### `cookimport bench sweep`
 
 Runs random/configured sweep over suite knobs.
+
+Status behavior:
+
+- Spinner updates include `config X/Y` counters.
+- Nested suite updates are forwarded as `config X/Y | item X/Y [item_id] ...` so both loop levels are visible.
 
 Options:
 

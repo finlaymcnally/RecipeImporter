@@ -10,6 +10,7 @@ from cookimport.core.models import (
     RecipeCandidate,
 )
 from cookimport.labelstudio.ingest import (
+    generate_pred_run_artifacts,
     _merge_parallel_results,
     _plan_parallel_convert_jobs,
     run_labelstudio_import,
@@ -289,6 +290,113 @@ def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path:
     assert "Uploading 401 task(s) in 3 batch(es)..." in progress_messages
     assert "Uploaded 401/401 task(s)." in progress_messages
     assert progress_messages[-1] == "Label Studio import artifacts complete."
+
+
+def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+
+    fake_result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    tasks = [
+        {"data": {"segment_id": "seg-1"}},
+        {"data": {"segment_id": "seg-2"}},
+    ]
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            SimpleNamespace(
+                index=0,
+                text="hello",
+                location={"block_index": 0},
+                source_kind="raw",
+            )
+        ],
+    )
+    monkeypatch.setattr("cookimport.labelstudio.ingest.compute_file_hash", lambda _path: "hash")
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: tasks,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 100,
+            "chunked_chars": 90,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks_in, **_kwargs: tasks_in,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._build_prelabel_provider",
+        lambda **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.prelabel_freeform_task",
+        lambda *_args, **_kwargs: {
+            "result": [
+                {
+                    "value": {
+                        "start": 0,
+                        "end": 5,
+                        "labels": ["TIP"],
+                    }
+                }
+            ]
+        },
+    )
+
+    progress_messages: list[str] = []
+    generate_pred_run_artifacts(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        task_scope="freeform-spans",
+        prelabel=True,
+        progress_callback=progress_messages.append,
+    )
+
+    assert any(
+        "Running freeform prelabeling... task 0/2" in msg
+        for msg in progress_messages
+    )
+    assert any(
+        "Running freeform prelabeling... task 1/2" in msg
+        for msg in progress_messages
+    )
+    assert any(
+        "Running freeform prelabeling... task 2/2" in msg
+        for msg in progress_messages
+    )
 
 
 def _fake_pred_result(tmp_path: Path, tasks: list[dict[str, object]]) -> dict[str, object]:

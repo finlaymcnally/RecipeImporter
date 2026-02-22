@@ -423,7 +423,16 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
     selected_file = tmp_path / "book.epub"
     selected_file.write_text("dummy", encoding="utf-8")
 
-    menu_answers = iter(["labelstudio", selected_file, "freeform-spans", "exit"])
+    menu_answers = iter(
+        [
+            "labelstudio",
+            selected_file,
+            "freeform-spans",
+            (True, "annotations", True),
+            "__default__",
+            "exit",
+        ]
+    )
 
     def fake_menu_select(*_args, **_kwargs):
         return next(menu_answers)
@@ -449,12 +458,6 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
         "text",
         lambda *args, **kwargs: _Prompt(next(text_answers)),
     )
-    confirm_answers = iter([True])
-    monkeypatch.setattr(
-        cli.questionary,
-        "confirm",
-        lambda *args, **kwargs: _Prompt(next(confirm_answers)),
-    )
 
     captured: dict[str, object] = {}
 
@@ -477,6 +480,12 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
     assert captured["chunk_level"] == "both"
     assert captured["segment_blocks"] == 42
     assert captured["segment_overlap"] == 6
+    assert captured["prelabel"] is True
+    assert captured["prelabel_upload_as"] == "annotations"
+    assert captured["prelabel_allow_partial"] is True
+    assert captured["codex_model"] is None
+    assert captured["prelabel_track_token_usage"] is True
+    assert callable(captured["progress_callback"])
     assert captured["output_dir"] == tmp_path / "golden"
     assert captured["overwrite"] is True
     assert captured["resume"] is False
@@ -545,6 +554,7 @@ def test_interactive_labelstudio_import_forces_overwrite_without_prompt(
     assert confirm_prompts == []
     assert captured["overwrite"] is True
     assert captured["resume"] is False
+    assert callable(captured["progress_callback"])
 
 
 def test_interactive_benchmark_uses_golden_output_roots(

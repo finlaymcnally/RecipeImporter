@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from cookimport.labelstudio.ingest import run_labelstudio_decorate
 from cookimport.labelstudio.prelabel import (
+    CodexCliProvider,
     annotation_is_cookimport_augment,
+    codex_cmd_with_model,
+    default_codex_model,
+    default_codex_cmd,
     merge_annotation_results,
     parse_block_label_output,
     prelabel_freeform_task,
@@ -131,6 +136,94 @@ def test_annotation_is_cookimport_augment_checks_added_labels() -> None:
     )
 
 
+def test_default_codex_cmd_uses_noninteractive_exec(monkeypatch) -> None:
+    monkeypatch.delenv("COOKIMPORT_CODEX_CMD", raising=False)
+    assert default_codex_cmd() == "codex exec -"
+
+
+def test_codex_provider_retries_plain_codex_with_exec(monkeypatch, tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+
+    def _fake_run(argv, **_kwargs):
+        calls.append(list(argv))
+        if len(calls) == 1:
+            return SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr="Error: stdin is not a terminal",
+            )
+        return SimpleNamespace(
+            returncode=0,
+            stdout='[{"block_index": 0, "label": "OTHER"}]',
+            stderr="",
+        )
+
+    monkeypatch.setattr("cookimport.labelstudio.prelabel.subprocess.run", _fake_run)
+    provider = CodexCliProvider(cmd="codex", timeout_s=10, cache_dir=tmp_path)
+    response = provider.complete("label this")
+
+    assert response == '[{"block_index": 0, "label": "OTHER"}]'
+    assert calls == [["codex"], ["codex", "exec", "-"]]
+
+
+def test_codex_provider_tracks_usage_from_json_events(monkeypatch, tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+
+    def _fake_run(argv, **_kwargs):
+        calls.append(list(argv))
+        return SimpleNamespace(
+            returncode=0,
+            stdout=(
+                '{"type":"thread.started"}\n'
+                '{"type":"item.completed","item":{"type":"agent_message","text":"[{\\"block_index\\": 0, \\"label\\": \\"OTHER\\"}]"}}\n'
+                '{"type":"turn.completed","usage":{"input_tokens":11,"cached_input_tokens":7,"output_tokens":3}}\n'
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("cookimport.labelstudio.prelabel.subprocess.run", _fake_run)
+    provider = CodexCliProvider(
+        cmd="codex exec -",
+        timeout_s=10,
+        cache_dir=tmp_path,
+        track_usage=True,
+    )
+
+    response = provider.complete("label this")
+    usage = provider.usage_summary()
+
+    assert response == '[{"block_index": 0, "label": "OTHER"}]'
+    assert calls == [["codex", "exec", "--json", "-"]]
+    assert usage["input_tokens"] == 11
+    assert usage["cached_input_tokens"] == 7
+    assert usage["output_tokens"] == 3
+    assert usage["calls_with_usage"] == 1
+    assert usage["calls_total"] == 1
+
+
+def test_codex_cmd_with_model_injects_model_for_exec() -> None:
+    assert (
+        codex_cmd_with_model("codex exec -", "gpt-5.3-codex")
+        == "codex exec --model gpt-5.3-codex -"
+    )
+    assert (
+        codex_cmd_with_model("codex exec --model gpt-5.3-codex -", "gpt-5-codex")
+        == "codex exec --model gpt-5.3-codex -"
+    )
+
+
+def test_default_codex_model_reads_codex_config(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("COOKIMPORT_CODEX_MODEL", raising=False)
+    config_dir = tmp_path / ".codex-alt"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "config.toml").write_text(
+        'approval_policy = "never"\nmodel = "gpt-test-codex"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("cookimport.labelstudio.prelabel.Path.home", lambda: tmp_path)
+    assert default_codex_model() == "gpt-test-codex"
+
+
 def test_run_labelstudio_decorate_dry_run(monkeypatch, tmp_path: Path) -> None:
     task = _freeform_task()
     task["annotations"] = [
@@ -186,6 +279,7 @@ def test_run_labelstudio_decorate_dry_run(monkeypatch, tmp_path: Path) -> None:
         "cookimport.labelstudio.ingest._build_prelabel_provider",
         lambda **_kwargs: provider,
     )
+    progress_messages: list[str] = []
 
     result = run_labelstudio_decorate(
         project_name="test",
@@ -194,9 +288,12 @@ def test_run_labelstudio_decorate_dry_run(monkeypatch, tmp_path: Path) -> None:
         label_studio_api_key="token",
         add_labels={"YIELD_LINE", "TIME_LINE"},
         no_write=True,
+        progress_callback=progress_messages.append,
     )
 
     report = json.loads(result["report_path"].read_text(encoding="utf-8"))
     assert report["counts"]["tasks_total"] == 2
     assert report["counts"]["dry_run_would_create"] == 1
     assert report["counts"]["skipped_already_decorated"] == 1
+    assert any("Decorating freeform tasks... task 1/2" in msg for msg in progress_messages)
+    assert any("Decorating freeform tasks... task 2/2" in msg for msg in progress_messages)

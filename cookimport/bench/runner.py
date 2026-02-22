@@ -15,6 +15,7 @@ from cookimport.bench.pred_run import build_pred_run_for_source
 from cookimport.bench.report import aggregate_metrics, format_suite_report_md
 from cookimport.bench.suite import BenchSuite
 from cookimport.bench.trace import TraceCollector
+from cookimport.core.progress_messages import format_task_counter
 from cookimport.labelstudio.eval_freeform import (
     evaluate_predicted_vs_freeform,
     format_freeform_eval_report_md,
@@ -95,9 +96,12 @@ def run_suite(
 
     per_item_results: list[dict[str, Any]] = []
     all_cost_estimates: list[dict[str, Any]] = []
+    total_items = len(suite.items)
 
-    for item in suite.items:
-        _notify(f"Processing {item.item_id}...")
+    for item_index, item in enumerate(suite.items, start=1):
+        item_progress = format_task_counter("", item_index, total_items, noun="item")
+        item_prefix = f"{item_progress} [{item.item_id}]"
+        _notify(f"{item_prefix} Processing...")
         item_dir = run_root / "per_item" / item.item_id
 
         # Build pred run
@@ -105,12 +109,12 @@ def run_suite(
         pred_run_staging = item_dir / "_pred_staging"
         pred_run_staging.mkdir(parents=True, exist_ok=True)
 
-        _notify(f"  [{item.item_id}] Generating prediction run...")
+        _notify(f"{item_prefix} Generating prediction run...")
         pred_run_dir = build_pred_run_for_source(
             source_path,
             pred_run_staging,
             config=config,
-            progress_callback=lambda msg, iid=item.item_id: _notify(f"  [{iid}] {msg}"),
+            progress_callback=lambda msg, prefix=item_prefix: _notify(f"{prefix} {msg}"),
         )
 
         # Move pred-run into per_item/<item_id>/pred_run/
@@ -124,10 +128,10 @@ def run_suite(
         # Load gold + predicted
         gold_dir = repo_root / item.gold_dir
         gold_spans_path = gold_dir / "exports" / "freeform_span_labels.jsonl"
-        _notify(f"  [{item.item_id}] Loading gold spans...")
+        _notify(f"{item_prefix} Loading gold spans...")
         gold = load_gold_freeform_ranges(gold_spans_path)
 
-        _notify(f"  [{item.item_id}] Loading predicted ranges...")
+        _notify(f"{item_prefix} Loading predicted ranges...")
         predicted = load_predicted_labeled_ranges(target_pred)
 
         # Noise reduction: load raw prediction dicts, dedupe + consolidate
@@ -147,7 +151,7 @@ def run_suite(
         )
 
         # Evaluate
-        _notify(f"  [{item.item_id}] Evaluating...")
+        _notify(f"{item_prefix} Evaluating...")
         eval_result = evaluate_predicted_vs_freeform(
             predicted,
             gold,
@@ -289,7 +293,7 @@ def run_suite(
             "effective_epub_extractor": effective_extractor,
         })
         _notify(
-            f"  [{item.item_id}] Done. "
+            f"{item_prefix} Done. "
             f"recall={eval_result['report'].get('recall', 0):.3f}, "
             f"precision={eval_result['report'].get('precision', 0):.3f}"
         )

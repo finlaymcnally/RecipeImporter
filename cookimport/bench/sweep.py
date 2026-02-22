@@ -11,6 +11,7 @@ from typing import Any, Callable
 from cookimport.bench.knobs import KNOB_REGISTRY, effective_knobs
 from cookimport.bench.runner import run_suite
 from cookimport.bench.suite import BenchSuite
+from cookimport.core.progress_messages import format_task_counter
 
 
 def _generate_configs(
@@ -65,10 +66,13 @@ def run_sweep(
     _notify(f"Generated {len(configs)} configurations to evaluate.")
 
     leaderboard: list[dict[str, Any]] = []
+    total_configs = len(configs)
 
-    for i, config in enumerate(configs):
-        _notify(f"Config {i + 1}/{len(configs)}: {config}")
-        config_dir = sweep_root / f"config_{i:03d}"
+    for config_position, config in enumerate(configs, start=1):
+        config_index = config_position - 1
+        config_progress = format_task_counter("", config_position, total_configs, noun="config")
+        _notify(f"{config_progress}: {config}")
+        config_dir = sweep_root / f"config_{config_index:03d}"
 
         try:
             run_root, metrics = run_suite(
@@ -76,8 +80,8 @@ def run_sweep(
                 config_dir,
                 repo_root=repo_root,
                 config=config,
-                progress_callback=lambda msg, idx=i: _notify(
-                    f"  [config {idx}] {msg}"
+                progress_callback=lambda msg, prefix=config_progress: _notify(
+                    f"{prefix} | {msg}"
                 ),
             )
 
@@ -90,7 +94,7 @@ def run_sweep(
                 score = (2 * r * p / (r + p)) if (r + p) > 0 else 0.0
 
             leaderboard.append({
-                "config_index": i,
+                "config_index": config_index,
                 "config": config,
                 "score": score,
                 "recall": metrics.get("recall", 0.0),
@@ -98,9 +102,9 @@ def run_sweep(
                 "run_root": str(run_root),
             })
         except Exception as exc:
-            _notify(f"  Config {i} failed: {exc}")
+            _notify(f"{config_progress} failed: {exc}")
             leaderboard.append({
-                "config_index": i,
+                "config_index": config_index,
                 "config": config,
                 "score": 0.0,
                 "error": str(exc),
@@ -119,9 +123,18 @@ def run_sweep(
             encoding="utf-8",
         )
 
-    _notify(
-        f"Sweep complete. Best score={leaderboard[0]['score']:.3f} "
-        f"(config {leaderboard[0]['config_index']})"
-        if leaderboard else "Sweep complete (no results)."
-    )
+    if leaderboard:
+        best_config_position = int(leaderboard[0]["config_index"]) + 1
+        best_config_progress = format_task_counter(
+            "",
+            best_config_position,
+            total_configs,
+            noun="config",
+        )
+        _notify(
+            f"Sweep complete. Best score={leaderboard[0]['score']:.3f} "
+            f"({best_config_progress})"
+        )
+    else:
+        _notify("Sweep complete (no results).")
     return sweep_root

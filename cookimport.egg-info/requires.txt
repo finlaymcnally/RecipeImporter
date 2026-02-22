@@ -3,6 +3,7 @@ ebooklib>=0.17
 ingredient-parser-nlp>=0.1.0
 lxml>=5.0
 markitdown<0.2,>=0.1.4
+markdownify<2,>=1.2
 openpyxl>=3.1
 pymupdf>=1.23
 pydantic<3,>=2.5

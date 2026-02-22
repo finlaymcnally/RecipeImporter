@@ -33,6 +33,7 @@ from cookimport.config.last_run_store import save_last_run_settings
 from cookimport.config.run_settings import RunSettings, build_run_settings, compute_effective_workers
 from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
+from cookimport.core.progress_messages import format_phase_counter
 from cookimport.core.overrides_io import load_parsing_overrides
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
 from cookimport.core.slug import slugify_name
@@ -58,6 +59,7 @@ from cookimport.labelstudio.eval_freeform import (
     load_predicted_labeled_ranges,
 )
 from cookimport.labelstudio.label_config_freeform import FREEFORM_LABELS
+from cookimport.labelstudio.prelabel import default_codex_model
 from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
 from cookimport.runs import RunManifest, RunSource, write_run_manifest
@@ -902,6 +904,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             prelabel_cache_dir: Path | None = None
             prelabel_upload_as = "annotations"
             prelabel_allow_partial = False
+            codex_model: str | None = None
+            prelabel_track_token_usage = True
 
             if task_scope == "pipeline":
                 chunk_level = _menu_select(
@@ -963,15 +967,71 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 if segment_overlap < 0:
                     typer.secho("Segment overlap must be >= 0.", fg=typer.colors.RED)
                     continue
-                prelabel_choice = questionary.confirm(
-                    "Enable AI prelabel before upload? (requires local `codex` command)",
-                    default=False,
-                ).ask()
-                if prelabel_choice is None:
+                prelabel_mode = _menu_select(
+                    "AI prelabel mode before upload:",
+                    menu_help=(
+                        "Choose strict vs allow-partial behavior for AI prelabels. "
+                        "Predictions mode is an advanced/debug option."
+                    ),
+                    choices=[
+                        questionary.Choice(
+                            "off - upload tasks without AI prelabels",
+                            value=(False, "annotations", False),
+                        ),
+                        questionary.Choice(
+                            "strict annotations - fail upload if any prelabel task fails",
+                            value=(True, "annotations", False),
+                        ),
+                        questionary.Choice(
+                            "allow-partial annotations - continue upload and record failures",
+                            value=(True, "annotations", True),
+                        ),
+                        questionary.Choice(
+                            "strict predictions (advanced) - upload AI output as predictions",
+                            value=(True, "predictions", False),
+                        ),
+                        questionary.Choice(
+                            "allow-partial predictions (advanced) - predictions + partial failures",
+                            value=(True, "predictions", True),
+                        ),
+                    ],
+                )
+                if prelabel_mode in {None, BACK_ACTION}:
                     continue
-                prelabel = bool(prelabel_choice)
+                prelabel, prelabel_upload_as, prelabel_allow_partial = prelabel_mode
                 if prelabel:
-                    prelabel_upload_as = "annotations"
+                    detected_model = default_codex_model()
+                    detected_label = detected_model or "Codex CLI default"
+                    model_choice = _menu_select(
+                        "Codex model for AI prelabeling:",
+                        menu_help=(
+                            "Pick a model explicitly for this run, or leave it on the "
+                            "Codex CLI default."
+                        ),
+                        choices=[
+                            questionary.Choice(
+                                f"use Codex default ({detected_label})",
+                                value="__default__",
+                            ),
+                            questionary.Choice("gpt-5.3-codex", value="gpt-5.3-codex"),
+                            questionary.Choice("custom model id...", value="__custom__"),
+                        ],
+                    )
+                    if model_choice in {None, BACK_ACTION}:
+                        continue
+                    if model_choice == "__custom__":
+                        custom_default = detected_model or ""
+                        custom_model = questionary.text(
+                            "Codex model id:",
+                            default=custom_default,
+                        ).ask()
+                        if custom_model is None:
+                            continue
+                        codex_model = custom_model.strip() or None
+                    elif model_choice == "__default__":
+                        codex_model = None
+                    else:
+                        codex_model = str(model_choice)
 
             # Interactive flow always recreates the project if it exists.
             overwrite = True
@@ -979,30 +1039,36 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             url, api_key = _resolve_interactive_labelstudio_settings(settings)
 
             try:
-                result = run_labelstudio_import(
-                    path=selected_file,
-                    output_dir=DEFAULT_GOLDEN,
-                    pipeline="auto",
-                    project_name=project_name,
-                    chunk_level=chunk_level,
-                    task_scope=task_scope,
-                    context_window=context_window,
-                    segment_blocks=segment_blocks,
-                    segment_overlap=segment_overlap,
-                    overwrite=overwrite,
-                    resume=False,
-                    label_studio_url=url,
-                    label_studio_api_key=api_key,
-                    limit=None,
-                    sample=None,
-                    prelabel=prelabel,
-                    prelabel_provider=prelabel_provider,
-                    codex_cmd=None,
-                    prelabel_timeout_seconds=prelabel_timeout_seconds,
-                    prelabel_cache_dir=prelabel_cache_dir,
-                    prelabel_upload_as=prelabel_upload_as,
-                    prelabel_allow_partial=prelabel_allow_partial,
-                    allow_labelstudio_write=True,
+                result = _run_labelstudio_import_with_status(
+                    source_name=selected_file.name,
+                    run_import=lambda update_progress: run_labelstudio_import(
+                        path=selected_file,
+                        output_dir=DEFAULT_GOLDEN,
+                        pipeline="auto",
+                        project_name=project_name,
+                        chunk_level=chunk_level,
+                        task_scope=task_scope,
+                        context_window=context_window,
+                        segment_blocks=segment_blocks,
+                        segment_overlap=segment_overlap,
+                        overwrite=overwrite,
+                        resume=False,
+                        label_studio_url=url,
+                        label_studio_api_key=api_key,
+                        limit=None,
+                        sample=None,
+                        progress_callback=update_progress,
+                        prelabel=prelabel,
+                        prelabel_provider=prelabel_provider,
+                        codex_cmd=None,
+                        codex_model=codex_model,
+                        prelabel_timeout_seconds=prelabel_timeout_seconds,
+                        prelabel_cache_dir=prelabel_cache_dir,
+                        prelabel_upload_as=prelabel_upload_as,
+                        prelabel_allow_partial=prelabel_allow_partial,
+                        prelabel_track_token_usage=prelabel_track_token_usage,
+                        allow_labelstudio_write=True,
+                    ),
                 )
             except Exception as exc:  # noqa: BLE001
                 _fail(str(exc))
@@ -1017,6 +1083,28 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             )
             if prelabel:
                 report_path = result.get("prelabel_report_path")
+                prelabel_summary = result.get("prelabel") or {}
+                usage_payload: Any = None
+                usage_enabled = prelabel_track_token_usage
+                if isinstance(prelabel_summary, dict):
+                    model_label = prelabel_summary.get("codex_model")
+                    if model_label:
+                        typer.secho(
+                            f"Prelabel model: {model_label}",
+                            fg=typer.colors.CYAN,
+                        )
+                    usage_payload = prelabel_summary.get("token_usage")
+                    usage_enabled = bool(
+                        prelabel_summary.get(
+                            "token_usage_enabled",
+                            prelabel_track_token_usage,
+                        )
+                    )
+                _print_token_usage_summary(
+                    prefix="Prelabel token usage",
+                    usage=usage_payload,
+                    enabled=usage_enabled,
+                )
                 if report_path:
                     typer.secho(
                         f"Prelabel report: {report_path}",
@@ -1324,6 +1412,36 @@ def _fail(message: str) -> None:
     raise typer.Exit(1)
 
 
+def _format_token_usage_line(prefix: str, usage: dict[str, Any]) -> str:
+    return (
+        f"{prefix}: "
+        f"input={usage.get('input_tokens', 0)} "
+        f"cached_input={usage.get('cached_input_tokens', 0)} "
+        f"output={usage.get('output_tokens', 0)} "
+        f"calls_with_usage={usage.get('calls_with_usage', 0)}"
+    )
+
+
+def _print_token_usage_summary(
+    *,
+    prefix: str,
+    usage: Any,
+    enabled: bool,
+) -> None:
+    if not enabled:
+        return
+    if isinstance(usage, dict):
+        typer.secho(
+            _format_token_usage_line(prefix, usage),
+            fg=typer.colors.CYAN,
+        )
+        return
+    typer.secho(
+        f"{prefix}: unavailable (Codex did not emit usage totals)",
+        fg=typer.colors.YELLOW,
+    )
+
+
 def _normalize_epub_extractor(value: str) -> str:
     normalized = value.strip().lower()
     if normalized not in {"unstructured", "legacy", "markdown", "auto", "markitdown"}:
@@ -1599,6 +1717,24 @@ def _require_labelstudio_write_consent(allow_labelstudio_write: bool) -> None:
             "Label Studio uploads are blocked by default. "
             "Re-run with --allow-labelstudio-write to push tasks."
         )
+
+
+def _run_labelstudio_import_with_status(
+    *,
+    source_name: str,
+    run_import: Callable[[Callable[[str], None]], dict[str, Any]],
+) -> dict[str, Any]:
+    with console.status(
+        f"[bold cyan]Running Label Studio import for {source_name}...[/bold cyan]",
+        spinner="dots",
+    ) as status:
+
+        def update_progress(msg: str) -> None:
+            status.update(
+                f"[bold cyan]Label Studio import ({source_name}): {msg}[/bold cyan]"
+            )
+
+        return run_import(update_progress)
 
 
 def _discover_freeform_gold_exports(output_dir: Path) -> list[Path]:
@@ -2305,8 +2441,46 @@ def _merge_split_jobs(
         except Exception:
             return
 
-    _report_status("Merging job payloads...")
     ordered_jobs = sorted(job_results, key=_job_range_start)
+    should_write_chunks = False
+    for job in ordered_jobs:
+        result = job.get("result")
+        if result is None:
+            continue
+        if result.non_recipe_blocks or result.topic_candidates:
+            should_write_chunks = True
+            break
+
+    phase_labels = [
+        "Merging job payloads...",
+        "Reassigning recipe IDs...",
+        "Building chunks...",
+        "Writing merged outputs...",
+        "Writing intermediate drafts...",
+        "Writing final drafts...",
+        "Writing tips...",
+        "Writing topic candidates...",
+    ]
+    if should_write_chunks:
+        phase_labels.append("Writing chunks...")
+    phase_labels.extend(
+        [
+            "Writing report...",
+            "Merging raw artifacts...",
+            "Merge done",
+        ]
+    )
+    phase_total = len(phase_labels)
+    phase_current = 0
+
+    def _report_phase(label: str) -> None:
+        nonlocal phase_current
+        phase_current += 1
+        _report_status(
+            format_phase_counter("merge", phase_current, phase_total, label=label)
+        )
+
+    _report_phase("Merging job payloads...")
     merged_recipes: list[Any] = []
     merged_tip_candidates: list[Any] = []
     merged_topic_candidates: list[Any] = []
@@ -2335,7 +2509,7 @@ def _merge_split_jobs(
             standalone_block_total += result.report.total_standalone_blocks
             standalone_topic_block_total += result.report.total_standalone_topic_blocks
 
-    _report_status("Reassigning recipe IDs...")
+    _report_phase("Reassigning recipe IDs...")
     file_hash = compute_file_hash(file_path)
     sorted_recipes, _ = reassign_recipe_ids(
         merged_recipes,
@@ -2411,7 +2585,7 @@ def _merge_split_jobs(
     parsing_overrides = (
         mapping_config.parsing_overrides if mapping_config and mapping_config.parsing_overrides else None
     )
-    _report_status("Building chunks...")
+    _report_phase("Building chunks...")
     if merged_result.non_recipe_blocks:
         merged_result.chunks = chunks_from_non_recipe_blocks(
             merged_result.non_recipe_blocks,
@@ -2427,30 +2601,31 @@ def _merge_split_jobs(
     enrich_report_with_stats(report, merged_result, file_path)
 
     output_stats = OutputStats(out)
-    _report_status("Writing merged outputs...")
+    _report_phase("Writing merged outputs...")
     with measure(merge_stats, "writing"):
         intermediate_dir = out / "intermediate drafts" / workbook_slug
         final_dir = out / "final drafts" / workbook_slug
         tips_dir = out / "tips" / workbook_slug
 
-        _report_status("Writing intermediate drafts...")
+        _report_phase("Writing intermediate drafts...")
         with measure(merge_stats, "write_intermediate_seconds"):
             write_intermediate_outputs(merged_result, intermediate_dir, output_stats=output_stats)
-        _report_status("Writing final drafts...")
+        _report_phase("Writing final drafts...")
         with measure(merge_stats, "write_final_seconds"):
             write_draft_outputs(merged_result, final_dir, output_stats=output_stats)
-        _report_status("Writing tips...")
+        _report_phase("Writing tips...")
         with measure(merge_stats, "write_tips_seconds"):
             write_tip_outputs(merged_result, tips_dir, output_stats=output_stats)
-        _report_status("Writing topic candidates...")
+        _report_phase("Writing topic candidates...")
         with measure(merge_stats, "write_topic_candidates_seconds"):
             write_topic_candidate_outputs(merged_result, tips_dir, output_stats=output_stats)
 
-        if merged_result.chunks:
-            chunks_dir = out / "chunks" / workbook_slug
-            _report_status("Writing chunks...")
-            with measure(merge_stats, "write_chunks_seconds"):
-                write_chunk_outputs(merged_result.chunks, chunks_dir, output_stats=output_stats)
+        if should_write_chunks:
+            _report_phase("Writing chunks...")
+            if merged_result.chunks:
+                chunks_dir = out / "chunks" / workbook_slug
+                with measure(merge_stats, "write_chunks_seconds"):
+                    write_chunk_outputs(merged_result.chunks, chunks_dir, output_stats=output_stats)
 
     merge_stats.parsing_seconds = sum(
         float(job.get("timing", {}).get("parsing_seconds", 0.0)) for job in job_results
@@ -2467,12 +2642,12 @@ def _merge_split_jobs(
     if output_stats.file_counts:
         report.output_stats = output_stats.to_report()
     report.timing = merge_stats.to_dict()
-    _report_status("Writing report...")
+    _report_phase("Writing report...")
     write_report(report, out, file_path.stem)
 
-    _report_status("Merging raw artifacts...")
+    _report_phase("Merging raw artifacts...")
     _merge_raw_artifacts(out, workbook_slug, job_results)
-    _report_status("Merge done")
+    _report_phase("Merge done")
 
     return {
         "file": file_path.name,
@@ -3634,7 +3809,15 @@ def labelstudio_import(
         "--codex-cmd",
         help=(
             "Command used for Codex CLI prelabel calls. "
-            "Defaults to COOKIMPORT_CODEX_CMD or `codex`."
+            "Defaults to COOKIMPORT_CODEX_CMD or `codex exec -`."
+        ),
+    ),
+    codex_model: str | None = typer.Option(
+        None,
+        "--codex-model",
+        help=(
+            "Explicit Codex model for prelabel calls. "
+            "When omitted, uses COOKIMPORT_CODEX_MODEL or your Codex CLI default model."
         ),
     ),
     prelabel_timeout_seconds: int = typer.Option(
@@ -3673,11 +3856,9 @@ def labelstudio_import(
         )
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     try:
-        with console.status(f"[bold cyan]Running Label Studio import for {path.name}...[/bold cyan]", spinner="dots") as status:
-            def update_progress(msg: str) -> None:
-                status.update(f"[bold cyan]Label Studio import ({path.name}): {msg}[/bold cyan]")
-
-            result = run_labelstudio_import(
+        result = _run_labelstudio_import_with_status(
+            source_name=path.name,
+            run_import=lambda update_progress: run_labelstudio_import(
                 path=path,
                 output_dir=output_dir,
                 pipeline=pipeline,
@@ -3697,12 +3878,15 @@ def labelstudio_import(
                 prelabel=prelabel,
                 prelabel_provider=prelabel_provider,
                 codex_cmd=codex_cmd,
+                codex_model=codex_model,
                 prelabel_timeout_seconds=prelabel_timeout_seconds,
                 prelabel_cache_dir=prelabel_cache_dir,
                 prelabel_upload_as=normalized_prelabel_upload_as,
                 prelabel_allow_partial=prelabel_allow_partial,
+                prelabel_track_token_usage=True,
                 allow_labelstudio_write=True,
-            )
+            ),
+        )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
 
@@ -3715,6 +3899,25 @@ def labelstudio_import(
         fg=typer.colors.CYAN,
     )
     if prelabel:
+        prelabel_summary = result.get("prelabel") or {}
+        usage_payload: Any = None
+        usage_enabled = True
+        if isinstance(prelabel_summary, dict):
+            model_label = prelabel_summary.get("codex_model")
+            if model_label:
+                typer.secho(f"Prelabel model: {model_label}", fg=typer.colors.CYAN)
+            usage_payload = prelabel_summary.get("token_usage")
+            usage_enabled = bool(
+                prelabel_summary.get(
+                    "token_usage_enabled",
+                    True,
+                )
+            )
+        _print_token_usage_summary(
+            prefix="Prelabel token usage",
+            usage=usage_payload,
+            enabled=usage_enabled,
+        )
         report_path = result.get("prelabel_report_path")
         if report_path:
             typer.secho(
@@ -3810,7 +4013,15 @@ def labelstudio_decorate(
         "--codex-cmd",
         help=(
             "Command used for Codex CLI calls. "
-            "Defaults to COOKIMPORT_CODEX_CMD or `codex`."
+            "Defaults to COOKIMPORT_CODEX_CMD or `codex exec -`."
+        ),
+    ),
+    codex_model: str | None = typer.Option(
+        None,
+        "--codex-model",
+        help=(
+            "Explicit Codex model for decorate calls. "
+            "When omitted, uses COOKIMPORT_CODEX_MODEL or your Codex CLI default model."
         ),
     ),
     prelabel_timeout_seconds: int = typer.Option(
@@ -3865,8 +4076,10 @@ def labelstudio_decorate(
                 task_scope=task_scope,
                 prelabel_provider=prelabel_provider,
                 codex_cmd=codex_cmd,
+                codex_model=codex_model,
                 prelabel_timeout_seconds=prelabel_timeout_seconds,
                 prelabel_cache_dir=prelabel_cache_dir,
+                prelabel_track_token_usage=True,
                 allow_labelstudio_write=allow_labelstudio_write,
                 no_write=no_write,
                 progress_callback=update_progress,
@@ -3889,6 +4102,19 @@ def labelstudio_decorate(
         typer.secho(f"Annotations created: {counts['created']}", fg=typer.colors.CYAN)
     if counts["failed"]:
         typer.secho(f"Failures: {counts['failed']}", fg=typer.colors.YELLOW)
+    report_payload = result.get("report") if isinstance(result.get("report"), dict) else {}
+    usage = report_payload.get("token_usage")
+    usage_enabled = bool(
+        report_payload.get(
+            "token_usage_enabled",
+            True,
+        )
+    )
+    _print_token_usage_summary(
+        prefix="Decorate token usage",
+        usage=usage,
+        enabled=usage_enabled,
+    )
     typer.secho(f"Report: {result['report_path']}", fg=typer.colors.CYAN)
 
 

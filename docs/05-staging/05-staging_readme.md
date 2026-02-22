@@ -179,6 +179,11 @@ When PDFs/EPUBs are split into jobs, merge flow:
 5. Writes merged outputs through standard writer functions.
 6. Moves raw artifacts from temporary `.job_parts/<workbook_slug>/job_{i}/raw/...` into final `raw/...` path.
 
+Main-process merge status callback contract:
+
+- Status text is phase-counted as `merge phase X/Y: <label>`.
+- Phase totals are deterministic for a run and include optional chunk-write phase when chunk sources exist.
+
 Code refs:
 
 - `cookimport/cli.py:1260`

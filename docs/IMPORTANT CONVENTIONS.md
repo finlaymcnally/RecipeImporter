@@ -37,7 +37,10 @@ Interactive file discovery and direct staging intentionally differ:
 - Direct staging (`cookimport stage <folder>`) scans recursively under the folder.
 - Interactive `labelstudio` import always recreates the resolved Label Studio project (`overwrite=True`, `resume=False`) and does not prompt for resume mode.
 - Interactive `labelstudio` import no longer asks for upload confirmation; once scope/options are chosen, it proceeds directly to upload (after credential resolution).
-- Interactive freeform `labelstudio` import can enable AI prelabel during the same prompt flow; do not require leaving interactive mode for first-pass AI annotations.
+- Interactive freeform `labelstudio` import prompts for AI prelabel mode (`off`, `strict`, `allow-partial`, plus advanced predictions modes) during the same prompt flow; do not require leaving interactive mode for first-pass AI annotations.
+- Interactive freeform `labelstudio` prelabel flow includes explicit Codex model selection; token-usage tracking is always enabled and should not be a prompt.
+- Interactive and non-interactive `labelstudio` import must use the same status/progress callback wiring so long-running phases (especially AI prelabeling) show a live spinner/status update path.
+- Spinner/progress text for known-size worklists should include `<noun> X/Y` counters (for example `task`, `item`, `config`, `phase`) rather than phase-only text so operators can track throughput.
 - Interactive `labelstudio` export resolves credentials first, then lists project titles from Label Studio for selection, with manual entry fallback when discovery is unavailable. If the selected project has a detected task type, export uses that scope automatically and skips the separate scope prompt.
 - Interactive `labelstudio_decorate` is a main-menu action for additive freeform AI labels and should default to dry-run before write mode.
 - Label Studio export (interactive and non-interactive) writes to a stable project root by default: `data/golden/<project_slug>/exports/...`; it uses prior manifests for project/scope resolution, not for export destination. `--run-dir` still forces export into a specific run.
@@ -85,6 +88,9 @@ When debugging "file missing from menu" reports, check whether the file is neste
 
 - Freeform prelabeling must derive span offsets from `data.source_map.blocks[*].segment_start/end`; never ask the model for raw character offsets.
 - Freeform prelabel/decorate flows must preserve `data.segment_text` exactly (no whitespace normalization) so exported offsets remain stable.
+- Codex prelabel/decorate invocations must use non-interactive CLI mode (`codex exec -`); plain `codex` is interactive and fails in pipeline subprocess calls without a TTY.
+- Codex model resolution order for prelabel/decorate is: explicit `--codex-model` -> `COOKIMPORT_CODEX_MODEL` -> Codex config `model` (`~/.codex-alt/config.toml`, `~/.codex/config.toml`).
+- Token usage accounting for prelabel/decorate is always on and should be persisted as aggregate totals in `prelabel_report.json` / `decorate_report.json` without changing annotation semantics.
 - `labelstudio-decorate` must be additive and reversible:
   - never overwrite prior annotations in place,
   - create a new merged annotation and tag it with `meta.cookimport_prelabel=true`, `meta.mode=augment`, and `meta.added_labels`.

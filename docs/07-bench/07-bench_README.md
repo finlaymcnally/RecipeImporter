@@ -107,12 +107,15 @@ No scoring step is included in this command.
 ### 4.3 Offline suite flow (`cookimport bench run`)
 
 1. For each suite item, call `generate_pred_run_artifacts` (offline, no upload)
+   - CLI spinner/progress now reports `item X/Y [item_id] ...` through the full per-item loop.
 2. Load predictions from `pred_run/label_studio_tasks.jsonl`
 3. Load gold spans from `<gold_dir>/exports/freeform_span_labels.jsonl`
 4. Evaluate + aggregate
 5. Write `report.md`, `metrics.json`, `iteration_packet/*`
 
 This is the "no Label Studio write" benchmark loop.
+
+`cookimport bench sweep` wraps this same loop with outer `config X/Y` status updates and forwards nested item progress as `config X/Y | item X/Y ...`.
 
 ## 5. Where processed/staged outputs still fit in benchmark
 

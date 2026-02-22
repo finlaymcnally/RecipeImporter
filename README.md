@@ -224,8 +224,9 @@ Sub-prompts you will see:
 4. Scope-specific prompts:
    - pipeline chunks: choose **Chunk level** (`both`, `structural`, `atomic`)
    - canonical blocks: choose **Context window** (how many blocks of context to show)
-   - freeform spans: choose **Segment size** + **Overlap**; optionally enable **AI prelabel**
+   - freeform spans: choose **Segment size** + **Overlap**, then choose **AI prelabel mode**
 5. Enter Label Studio URL + API key if you have not already.
+6. During task generation/upload, a spinner shows live phase updates and `task X/Y` progress when the total work count is known (including AI prelabeling).
 
 Choice tree (Label Studio upload):
 
@@ -241,12 +242,12 @@ Label Studio: create labeling tasks (uploads)
     `-- freeform spans
         |-- Segment size (blocks per task): 1,2,3,...
         |-- Segment overlap (blocks): 0,1,2,...
-        `-- Enable AI prelabel before upload? (optional; requires local `codex` command)
+        `-- AI prelabel mode (off / strict / allow-partial; requires local Codex CLI with `exec` support)
 ```
 
 If you enable **AI prelabel**:
 - It tries to generate initial AI annotations before upload.
-- If you do not have the `codex` command available on your machine, choose **No** to avoid errors.
+- If you do not have the Codex CLI available (`codex exec -`), choose **No** to avoid errors.
 
 ### Label Studio: Export Completed Labels to Golden Artifacts
 

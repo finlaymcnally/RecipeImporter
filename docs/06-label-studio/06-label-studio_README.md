@@ -64,7 +64,8 @@ Uploads are intentionally gated.
 - Interactive:
   - `labelstudio` import proceeds directly to upload (no separate upload confirmation prompt).
   - `labelstudio` import always uses overwrite semantics for resolved project names (`overwrite=True`, `resume=False`); there is no overwrite/resume chooser in this flow.
-  - Interactive freeform import can enable AI prelabel in the same flow (`Enable AI prelabel before upload?`) and prints `prelabel_report.json` on completion.
+  - Interactive freeform import includes an AI prelabel mode picker (off, strict/allow-partial annotations, advanced predictions modes) and prints `prelabel_report.json` when prelabel is enabled.
+  - Interactive freeform import also includes a Codex model picker (`use default`, `gpt-5.3-codex`, `custom`); token usage tracking is always enabled for AI labeling runs.
   - Interactive `labelstudio_decorate` defaults to dry-run and only writes annotations after explicit write confirmation.
   - benchmark upload does not ask a second confirmation; choosing upload mode is treated as explicit intent.
   - benchmark supports eval-only fallback (no upload) in interactive flow.
@@ -157,6 +158,10 @@ Freeform span rows include offsets, label, touched block mapping, annotator/time
 - Prelabel artifacts written in run root:
   - `prelabel_report.json`
   - `prelabel_errors.jsonl`
+- Progress callbacks now report `Running freeform prelabeling... task X/Y` so CLI spinners show per-task progress while AI labels are generated.
+- Codex CLI invocation for prelabel/decorate defaults to non-interactive `codex exec -`; plain `codex` values auto-retry with `exec -` when stderr reports `stdin is not a terminal`.
+- Prelabel/decorate runs accept explicit model selection via `--codex-model`; when omitted they resolve model from `COOKIMPORT_CODEX_MODEL` then Codex config (`~/.codex-alt/config.toml`, `~/.codex/config.toml`).
+- Token usage tracking is always enabled for prelabel/decorate runs, using Codex JSON event parsing to record aggregate `input_tokens`, `cached_input_tokens`, and `output_tokens` in run reports.
 - `labelstudio-decorate`:
   - fetches existing tasks/annotations from a freeform project,
   - requests additive labels only (for `--add-labels`),
@@ -165,6 +170,7 @@ Freeform span rows include offsets, label, touched block mapping, annotator/time
     - `decorate_report.json`
     - `decorate_errors.jsonl`
   - supports dry-run mode via `--no-write`.
+  - progress callbacks report `Decorating freeform tasks... task X/Y` while scanning tasks.
 
 ### 1.7 Evaluation behavior
 
@@ -250,7 +256,7 @@ Manifest includes:
 - Progress callbacks include post-merge phases (archive/hash, processed-output writes, chunk/task generation, upload batching) so long runs continue surfacing advancing status.
 - Interactive `labelstudio` export resolves credentials first, then fetches project titles for a picker UI (showing a detected type tag beside each project when available). It now auto-uses the selected project's detected type as export scope and only prompts for scope when detection is `unknown` (or when the project name is typed manually).
 - Interactive Label Studio import/export credential resolution order is: CLI/env values first, then saved `cookimport.json` values, then one-time prompt (which persists back to `cookimport.json`).
-- Interactive freeform `labelstudio` import can enable AI prelabel before upload and writes `prelabel_report.json` when enabled.
+- Interactive freeform `labelstudio` import uses an AI prelabel mode selector before upload and writes `prelabel_report.json` when prelabel is enabled.
 - Interactive `labelstudio_decorate` is available as a dedicated main-menu action and supports dry-run preview before write mode.
 - Interactive benchmark upload uses the same per-run settings chooser as interactive Import (`global defaults` / `last benchmark` / `change run settings`) and writes successful selections to `<output_dir>/.history/last_run_settings_benchmark.json`.
 - Interactive benchmark upload follows the same env -> saved settings -> one-time prompt credential resolution path before invoking `labelstudio-benchmark`.

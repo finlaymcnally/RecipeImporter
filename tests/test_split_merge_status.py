@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from pathlib import Path
 
 from cookimport.cli import _merge_split_jobs
@@ -60,7 +61,19 @@ def test_merge_split_jobs_reports_main_process_phases(tmp_path: Path) -> None:
     )
 
     assert merged["status"] == "success"
-    assert statuses[-1] == "Merge done"
-    assert "Writing topic candidates..." in statuses
-    assert "Writing report..." in statuses
-    assert "Merging raw artifacts..." in statuses
+    assert statuses
+
+    phase_pattern = re.compile(r"^merge phase (\d+)/(\d+): .+")
+    parsed = []
+    for message in statuses:
+        match = phase_pattern.match(message)
+        assert match is not None
+        parsed.append((int(match.group(1)), int(match.group(2)), message))
+
+    assert parsed[0][0] == 1
+    assert parsed[-1][2].endswith(": Merge done")
+    assert parsed[-1][0] == len(parsed)
+    assert all(total == parsed[0][1] for _, total, _ in parsed)
+    assert any(message.endswith(": Writing topic candidates...") for _, _, message in parsed)
+    assert any(message.endswith(": Writing report...") for _, _, message in parsed)
+    assert any(message.endswith(": Merging raw artifacts...") for _, _, message in parsed)
