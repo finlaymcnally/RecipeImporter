@@ -42,7 +42,6 @@ from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.export import run_labelstudio_export
 from cookimport.labelstudio.ingest import (
     generate_pred_run_artifacts,
-    run_labelstudio_decorate,
     run_labelstudio_import,
 )
 from cookimport.labelstudio.eval_canonical import (
@@ -58,8 +57,16 @@ from cookimport.labelstudio.eval_freeform import (
     load_gold_freeform_ranges,
     load_predicted_labeled_ranges,
 )
-from cookimport.labelstudio.label_config_freeform import FREEFORM_LABELS
-from cookimport.labelstudio.prelabel import default_codex_model
+from cookimport.labelstudio.prelabel import (
+    PRELABEL_GRANULARITY_BLOCK,
+    PRELABEL_GRANULARITY_SPAN,
+    codex_account_summary,
+    default_codex_cmd,
+    default_codex_model,
+    list_codex_models,
+    normalize_prelabel_granularity,
+)
+from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_knowledge_harvest
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.plugins import registry
@@ -685,12 +692,6 @@ def _interactive_mode(*, limit: int | None = None) -> None:
         )
         choices.append(
             questionary.Choice(
-                "Label Studio: decorate existing freeform project with AI spans",
-                value="labelstudio_decorate",
-            )
-        )
-        choices.append(
-            questionary.Choice(
                 "Evaluate predictions vs freeform gold (re-score or generate)",
                 value="labelstudio_benchmark",
             )
@@ -716,7 +717,6 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 "Choose a workflow. Stage produces cookbook outputs, Label Studio task "
                 "creation uploads annotation tasks, export pulls completed labels, "
                 "EPUB race runs a one-file extractor comparison, "
-                "decorate adds new AI spans to existing freeform projects, "
                 "and evaluate compares predictions against gold. "
                 "Dashboard builds a static lifetime summary."
             ),
@@ -918,7 +918,9 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             prelabel_timeout_seconds = 120
             prelabel_cache_dir: Path | None = None
             prelabel_upload_as = "annotations"
+            prelabel_granularity = PRELABEL_GRANULARITY_BLOCK
             prelabel_allow_partial = False
+            codex_cmd: str | None = None
             codex_model: str | None = None
             prelabel_track_token_usage = True
 
@@ -1015,22 +1017,71 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     continue
                 prelabel, prelabel_upload_as, prelabel_allow_partial = prelabel_mode
                 if prelabel:
-                    detected_model = default_codex_model()
+                    prelabel_granularity_choice = _menu_select(
+                        "AI prelabel labeling style:",
+                        menu_help=(
+                            "Choose between real freeform span highlighting and "
+                            "the older one-label-per-block behavior."
+                        ),
+                        choices=[
+                            questionary.Choice(
+                                "actual freeform - allow sub-block span highlights",
+                                value=PRELABEL_GRANULARITY_SPAN,
+                            ),
+                            questionary.Choice(
+                                "legacy, block based - one label per block",
+                                value=PRELABEL_GRANULARITY_BLOCK,
+                            ),
+                        ],
+                    )
+                    if prelabel_granularity_choice in {None, BACK_ACTION}:
+                        continue
+                    prelabel_granularity = str(prelabel_granularity_choice)
+                    codex_cmd = default_codex_cmd()
+                    resolved_account = codex_account_summary(codex_cmd)
+                    if resolved_account:
+                        typer.secho(
+                            f"Prelabel account: {resolved_account}",
+                            fg=typer.colors.CYAN,
+                        )
+                    else:
+                        typer.secho(
+                            "Prelabel account: unavailable for selected command.",
+                            fg=typer.colors.YELLOW,
+                        )
+
+                    detected_model = default_codex_model(cmd=codex_cmd)
                     detected_label = detected_model or "Codex CLI default"
+                    discovered_models = list_codex_models(cmd=codex_cmd)
+                    model_choices: list[QuestionaryChoice] = [
+                        questionary.Choice(
+                            f"use Codex default ({detected_label})",
+                            value="__default__",
+                        )
+                    ]
+                    seen_model_ids: set[str] = set()
+                    for entry in discovered_models:
+                        model_id = str(entry.get("slug") or "").strip()
+                        if not model_id or model_id in seen_model_ids:
+                            continue
+                        description = str(entry.get("description") or "").strip()
+                        label = model_id if not description else f"{model_id} - {description}"
+                        model_choices.append(questionary.Choice(label, value=model_id))
+                        seen_model_ids.add(model_id)
+                    if not seen_model_ids:
+                        model_choices.append(
+                            questionary.Choice("gpt-5.3-codex", value="gpt-5.3-codex")
+                        )
+                    model_choices.append(
+                        questionary.Choice("custom model id...", value="__custom__")
+                    )
                     model_choice = _menu_select(
                         "Codex model for AI prelabeling:",
                         menu_help=(
                             "Pick a model explicitly for this run, or leave it on the "
                             "Codex CLI default."
                         ),
-                        choices=[
-                            questionary.Choice(
-                                f"use Codex default ({detected_label})",
-                                value="__default__",
-                            ),
-                            questionary.Choice("gpt-5.3-codex", value="gpt-5.3-codex"),
-                            questionary.Choice("custom model id...", value="__custom__"),
-                        ],
+                        choices=model_choices,
                     )
                     if model_choice in {None, BACK_ACTION}:
                         continue
@@ -1053,6 +1104,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
 
             url, api_key = _resolve_interactive_labelstudio_settings(settings)
 
+            import_started_at = time.monotonic()
             try:
                 result = _run_labelstudio_import_with_status(
                     source_name=selected_file.name,
@@ -1075,11 +1127,12 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                         progress_callback=update_progress,
                         prelabel=prelabel,
                         prelabel_provider=prelabel_provider,
-                        codex_cmd=None,
+                        codex_cmd=codex_cmd,
                         codex_model=codex_model,
                         prelabel_timeout_seconds=prelabel_timeout_seconds,
                         prelabel_cache_dir=prelabel_cache_dir,
                         prelabel_upload_as=prelabel_upload_as,
+                        prelabel_granularity=prelabel_granularity,
                         prelabel_allow_partial=prelabel_allow_partial,
                         prelabel_track_token_usage=prelabel_track_token_usage,
                         allow_labelstudio_write=True,
@@ -1087,6 +1140,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 )
             except Exception as exc:  # noqa: BLE001
                 _fail(str(exc))
+            processing_time_seconds = max(0.0, time.monotonic() - import_started_at)
 
             typer.secho(
                 f"Label Studio project: {result['project_name']} (id={result['project_id']})",
@@ -1096,16 +1150,38 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 f"Tasks created: {result['tasks_total']} (uploaded {result['tasks_uploaded']})",
                 fg=typer.colors.CYAN,
             )
+            typer.secho(
+                f"Processing time: {_format_processing_time(processing_time_seconds)}",
+                fg=typer.colors.CYAN,
+            )
             if prelabel:
                 report_path = result.get("prelabel_report_path")
                 prelabel_summary = result.get("prelabel") or {}
                 usage_payload: Any = None
                 usage_enabled = prelabel_track_token_usage
                 if isinstance(prelabel_summary, dict):
+                    command_label = prelabel_summary.get("codex_cmd")
+                    if command_label:
+                        typer.secho(
+                            f"Prelabel command: {command_label}",
+                            fg=typer.colors.CYAN,
+                        )
+                    account_label = prelabel_summary.get("codex_account")
+                    if account_label:
+                        typer.secho(
+                            f"Prelabel account: {account_label}",
+                            fg=typer.colors.CYAN,
+                        )
                     model_label = prelabel_summary.get("codex_model")
                     if model_label:
                         typer.secho(
                             f"Prelabel model: {model_label}",
+                            fg=typer.colors.CYAN,
+                        )
+                    granularity_label = prelabel_summary.get("granularity")
+                    if granularity_label:
+                        typer.secho(
+                            f"Prelabel style: {granularity_label}",
                             fg=typer.colors.CYAN,
                         )
                     usage_payload = prelabel_summary.get("token_usage")
@@ -1182,104 +1258,6 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 f"Export complete. Summary: {result['summary_path']}",
                 fg=typer.colors.GREEN,
             )
-            continue
-
-        elif action == "labelstudio_decorate":
-            url, api_key = _resolve_interactive_labelstudio_settings(settings)
-            project_name, detected_scope = _select_export_project(
-                label_studio_url=url,
-                label_studio_api_key=api_key,
-            )
-            if not project_name:
-                continue
-            if detected_scope and detected_scope != "freeform-spans":
-                typer.secho(
-                    (
-                        f"Selected project type looks like `{detected_scope}`. "
-                        "Decorate currently supports freeform-spans."
-                    ),
-                    fg=typer.colors.YELLOW,
-                )
-                proceed_anyway = questionary.confirm(
-                    "Try decorating this project as freeform-spans anyway?",
-                    default=False,
-                ).ask()
-                if proceed_anyway is not True:
-                    continue
-
-            label_choices = [
-                questionary.Choice(
-                    label,
-                    value=label,
-                    checked=label in {"YIELD_LINE", "TIME_LINE"},
-                )
-                for label in FREEFORM_LABELS
-            ]
-            selected_labels = questionary.checkbox(
-                "Select label types to add:",
-                choices=label_choices,
-                validate=lambda selected: bool(selected) or "Pick at least one label.",
-            ).ask()
-            if selected_labels is None:
-                continue
-            add_labels = {str(label) for label in selected_labels}
-            if not add_labels:
-                typer.secho("Pick at least one label.", fg=typer.colors.RED)
-                continue
-
-            no_write = questionary.confirm(
-                "Dry run only? (recommended first)",
-                default=True,
-            ).ask()
-            if no_write is None:
-                continue
-            no_write = bool(no_write)
-            if not no_write:
-                confirmed_write = questionary.confirm(
-                    "Create new annotations in Label Studio now?",
-                    default=False,
-                ).ask()
-                if confirmed_write is not True:
-                    typer.secho("Decorate cancelled.", fg=typer.colors.YELLOW)
-                    continue
-
-            try:
-                result = run_labelstudio_decorate(
-                    project_name=project_name,
-                    output_dir=DEFAULT_GOLDEN,
-                    label_studio_url=url,
-                    label_studio_api_key=api_key,
-                    add_labels=add_labels,
-                    task_scope="freeform-spans",
-                    prelabel_provider="codex-cli",
-                    codex_cmd=None,
-                    prelabel_timeout_seconds=120,
-                    prelabel_cache_dir=None,
-                    allow_labelstudio_write=not no_write,
-                    no_write=no_write,
-                )
-            except Exception as exc:  # noqa: BLE001
-                _fail(str(exc))
-
-            counts = result["report"]["counts"]
-            typer.secho(
-                f"Decorate complete ({'dry-run' if no_write else 'write'} mode).",
-                fg=typer.colors.GREEN,
-            )
-            typer.secho(f"Tasks scanned: {counts['tasks_total']}", fg=typer.colors.CYAN)
-            if no_write:
-                typer.secho(
-                    f"Would create annotations: {counts['dry_run_would_create']}",
-                    fg=typer.colors.CYAN,
-                )
-            else:
-                typer.secho(
-                    f"Annotations created: {counts['created']}",
-                    fg=typer.colors.CYAN,
-                )
-            if counts["failed"]:
-                typer.secho(f"Failures: {counts['failed']}", fg=typer.colors.YELLOW)
-            typer.secho(f"Report: {result['report_path']}", fg=typer.colors.CYAN)
             continue
 
         elif action == "labelstudio_benchmark":
@@ -1512,6 +1490,16 @@ def _normalize_llm_recipe_pipeline(value: str) -> str:
         _fail(
             f"Invalid LLM recipe pipeline: {value!r}. "
             "Expected one of: off, codex-farm-3pass-v1."
+        )
+    return normalized
+
+
+def _normalize_llm_knowledge_pipeline(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"off", "codex-farm-knowledge-v1"}:
+        _fail(
+            f"Invalid LLM knowledge pipeline: {value!r}. "
+            "Expected one of: off, codex-farm-knowledge-v1."
         )
     return normalized
 
@@ -1796,6 +1784,17 @@ def _format_status_progress_message(
     if elapsed_seconds < max(0, elapsed_threshold_seconds):
         return trimmed
     return f"{trimmed} ({elapsed_seconds}s)"
+
+
+def _format_processing_time(elapsed_seconds: float) -> str:
+    total_seconds = max(0, int(round(elapsed_seconds)))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours > 0:
+        return f"{hours}h {minutes}m {seconds}s"
+    if minutes > 0:
+        return f"{minutes}m {seconds}s"
+    return f"{seconds}s"
 
 
 def _run_with_progress_status(
@@ -2211,11 +2210,15 @@ def _write_stage_run_manifest(
         ("final drafts", "final_drafts_dir"),
         ("tips", "tips_dir"),
         ("chunks", "chunks_dir"),
+        ("knowledge", "knowledge_dir"),
         ("raw", "raw_dir"),
     ):
         target = run_root / path_key
         if target.exists():
             artifacts[artifact_key] = path_key
+    knowledge_index = run_root / "knowledge" / "knowledge_index.json"
+    if knowledge_index.exists():
+        artifacts["knowledge_index"] = str(knowledge_index.relative_to(run_root))
     history_csv = output_root / ".history" / "performance_history.csv"
     if history_csv.exists():
         artifacts["history_csv"] = str(history_csv)
@@ -2234,6 +2237,46 @@ def _write_stage_run_manifest(
         notes="Stage run outputs for cookbook import.",
     )
     _write_run_manifest_best_effort(run_root, manifest)
+
+
+def _write_knowledge_index_best_effort(run_root: Path) -> None:
+    knowledge_root = run_root / "knowledge"
+    if not knowledge_root.exists():
+        return
+    workbooks: dict[str, dict[str, Any]] = {}
+    total_snippets = 0
+    for workbook_dir in sorted(path for path in knowledge_root.iterdir() if path.is_dir()):
+        snippets_path = workbook_dir / "snippets.jsonl"
+        preview_path = workbook_dir / "knowledge.md"
+        if not snippets_path.exists() and not preview_path.exists():
+            continue
+        snippets_count = 0
+        if snippets_path.exists():
+            snippets_count = sum(
+                1 for line in snippets_path.read_text(encoding="utf-8").splitlines() if line.strip()
+            )
+        total_snippets += snippets_count
+        workbook_slug = workbook_dir.name
+        workbooks[workbook_slug] = {
+            "snippets": snippets_count,
+            "snippets_path": str(snippets_path.relative_to(run_root)) if snippets_path.exists() else None,
+            "preview_path": str(preview_path.relative_to(run_root)) if preview_path.exists() else None,
+        }
+    if not workbooks:
+        return
+    index_path = knowledge_root / "knowledge_index.json"
+    index_payload = {
+        "version": 1,
+        "total_snippets": total_snippets,
+        "workbooks": workbooks,
+    }
+    try:
+        index_path.write_text(
+            json.dumps(index_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to write knowledge_index.json in %s: %s", knowledge_root, exc)
 
 
 def _write_eval_run_manifest(
@@ -2681,6 +2724,7 @@ def _merge_split_jobs(
     ordered_jobs = sorted(job_results, key=_job_range_start)
     run_settings = RunSettings.from_dict(run_config, warn_context="split merge run config")
     llm_enabled = run_settings.llm_recipe_pipeline.value != "off"
+    knowledge_enabled = run_settings.llm_knowledge_pipeline.value != "off"
     merged_full_blocks, job_offsets, _job_block_counts = _build_split_full_blocks(
         out=out,
         workbook_slug=workbook_slug,
@@ -2708,14 +2752,16 @@ def _merge_split_jobs(
     ]
     if llm_enabled:
         phase_labels.append("Running codex-farm recipe pipeline...")
+    phase_labels.append("Building chunks...")
+    if knowledge_enabled:
+        phase_labels.append("Running codex-farm knowledge harvest...")
     phase_labels.extend(
         [
-        "Building chunks...",
-        "Writing merged outputs...",
-        "Writing intermediate drafts...",
-        "Writing final drafts...",
-        "Writing tips...",
-        "Writing topic candidates...",
+            "Writing merged outputs...",
+            "Writing intermediate drafts...",
+            "Writing final drafts...",
+            "Writing tips...",
+            "Writing topic candidates...",
         ]
     )
     if should_write_chunks:
@@ -2904,6 +2950,35 @@ def _merge_split_jobs(
             merged_result.topic_candidates,
             overrides=parsing_overrides,
         )
+    if run_settings.llm_knowledge_pipeline.value != "off":
+        _report_phase("Running codex-farm knowledge harvest...")
+        try:
+            knowledge_apply = run_codex_farm_knowledge_harvest(
+                conversion_result=merged_result,
+                run_settings=run_settings,
+                run_root=out,
+                workbook_slug=workbook_slug,
+                overrides=parsing_overrides,
+                full_blocks=merged_full_blocks or None,
+            )
+        except CodexFarmRunnerError as exc:
+            if run_settings.codex_farm_failure_mode.value == "fallback":
+                warning = (
+                    "LLM knowledge harvest failed; continuing without knowledge artifacts: "
+                    f"{exc}"
+                )
+                report.warnings.append(warning)
+                llm_report["knowledge"] = {
+                    "enabled": True,
+                    "pipeline": run_settings.llm_knowledge_pipeline.value,
+                    "fallbackApplied": True,
+                    "fatalError": str(exc),
+                }
+            else:
+                raise
+        else:
+            llm_report["knowledge"] = dict(knowledge_apply.llm_report)
+        report.llm_codex_farm = llm_report
 
     report.run_timestamp = run_dt.isoformat(timespec="seconds")
     enrich_report_with_stats(report, merged_result, file_path)
@@ -3127,6 +3202,11 @@ def stage(
         "--llm-recipe-pipeline",
         help="Optional recipe LLM pipeline: off or codex-farm-3pass-v1.",
     ),
+    llm_knowledge_pipeline: str = typer.Option(
+        "off",
+        "--llm-knowledge-pipeline",
+        help="Optional knowledge LLM pipeline: off or codex-farm-knowledge-v1.",
+    ),
     codex_farm_cmd: str = typer.Option(
         "codex-farm",
         "--codex-farm-cmd",
@@ -3160,11 +3240,22 @@ def stage(
         "--codex-farm-pipeline-pass3",
         help="Pass-3 codex-farm pipeline id (final draft generation).",
     ),
+    codex_farm_pipeline_pass4_knowledge: str = typer.Option(
+        "recipe.knowledge.v1",
+        "--codex-farm-pipeline-pass4-knowledge",
+        help="Pass-4 codex-farm pipeline id (non-recipe knowledge harvesting).",
+    ),
     codex_farm_context_blocks: int = typer.Option(
         30,
         "--codex-farm-context-blocks",
         min=0,
         help="Blocks before/after each recipe candidate included in pass-1 codex-farm bundles.",
+    ),
+    codex_farm_knowledge_context_blocks: int = typer.Option(
+        12,
+        "--codex-farm-knowledge-context-blocks",
+        min=0,
+        help="Blocks before/after each non-recipe chunk included as context in pass-4 bundles.",
     ),
     codex_farm_failure_mode: str = typer.Option(
         "fail",
@@ -3190,6 +3281,7 @@ def stage(
     selected_skip_headers_footers = bool(epub_unstructured_skip_headers_footers)
     selected_ocr_device = _normalize_ocr_device(ocr_device)
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
+    selected_llm_knowledge_pipeline = _normalize_llm_knowledge_pipeline(llm_knowledge_pipeline)
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
@@ -3204,6 +3296,10 @@ def stage(
     selected_codex_farm_pipeline_pass3 = _normalize_codex_farm_pipeline_id(
         codex_farm_pipeline_pass3,
         option="--codex-farm-pipeline-pass3",
+    )
+    selected_codex_farm_pipeline_pass4_knowledge = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass4_knowledge,
+        option="--codex-farm-pipeline-pass4-knowledge",
     )
 
     # Apply EPUB unstructured runtime options for this run.
@@ -3303,13 +3399,16 @@ def stage(
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,
         llm_recipe_pipeline=selected_llm_recipe_pipeline,
+        llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_root=codex_farm_root,
         codex_farm_workspace_root=codex_farm_workspace_root,
         codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
         codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
         codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
+        codex_farm_pipeline_pass4_knowledge=selected_codex_farm_pipeline_pass4_knowledge,
         codex_farm_context_blocks=codex_farm_context_blocks,
+        codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
         codex_farm_failure_mode=selected_codex_farm_failure_mode,
         mapping_path=mapping,
         overrides_path=overrides,
@@ -3887,6 +3986,8 @@ def stage(
     except Exception as exc:
         logger.warning("Performance summary skipped: %s", exc)
 
+    _write_knowledge_index_best_effort(out)
+
     _write_stage_run_manifest(
         run_root=out,
         output_root=output_root,
@@ -4228,6 +4329,14 @@ def labelstudio_import(
         "--prelabel-upload-as",
         help="Upload prelabels as completed annotations or predictions.",
     ),
+    prelabel_granularity: str = typer.Option(
+        PRELABEL_GRANULARITY_BLOCK,
+        "--prelabel-granularity",
+        help=(
+            "Freeform prelabel style: block (legacy, block based) or span "
+            "(actual freeform highlights)."
+        ),
+    ),
     prelabel_allow_partial: bool = typer.Option(
         False,
         "--prelabel-allow-partial/--no-prelabel-allow-partial",
@@ -4295,6 +4404,12 @@ def labelstudio_import(
         _fail(
             "--prelabel-upload-as must be one of: annotations, predictions."
         )
+    try:
+        normalized_prelabel_granularity = normalize_prelabel_granularity(
+            prelabel_granularity
+        )
+    except ValueError as exc:
+        _fail(f"--prelabel-granularity invalid: {exc}")
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
@@ -4312,6 +4427,7 @@ def labelstudio_import(
         option="--codex-farm-pipeline-pass3",
     )
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
+    import_started_at = time.monotonic()
     try:
         result = _run_labelstudio_import_with_status(
             source_name=path.name,
@@ -4339,6 +4455,7 @@ def labelstudio_import(
                 prelabel_timeout_seconds=prelabel_timeout_seconds,
                 prelabel_cache_dir=prelabel_cache_dir,
                 prelabel_upload_as=normalized_prelabel_upload_as,
+                prelabel_granularity=normalized_prelabel_granularity,
                 prelabel_allow_partial=prelabel_allow_partial,
                 prelabel_track_token_usage=True,
                 llm_recipe_pipeline=selected_llm_recipe_pipeline,
@@ -4355,6 +4472,7 @@ def labelstudio_import(
         )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
+    processing_time_seconds = max(0.0, time.monotonic() - import_started_at)
 
     typer.secho(
         f"Label Studio project: {result['project_name']} (id={result['project_id']})",
@@ -4364,14 +4482,30 @@ def labelstudio_import(
         f"Tasks created: {result['tasks_total']} (uploaded {result['tasks_uploaded']})",
         fg=typer.colors.CYAN,
     )
+    typer.secho(
+        f"Processing time: {_format_processing_time(processing_time_seconds)}",
+        fg=typer.colors.CYAN,
+    )
     if prelabel:
         prelabel_summary = result.get("prelabel") or {}
         usage_payload: Any = None
         usage_enabled = True
         if isinstance(prelabel_summary, dict):
+            command_label = prelabel_summary.get("codex_cmd")
+            if command_label:
+                typer.secho(f"Prelabel command: {command_label}", fg=typer.colors.CYAN)
+            account_label = prelabel_summary.get("codex_account")
+            if account_label:
+                typer.secho(f"Prelabel account: {account_label}", fg=typer.colors.CYAN)
             model_label = prelabel_summary.get("codex_model")
             if model_label:
                 typer.secho(f"Prelabel model: {model_label}", fg=typer.colors.CYAN)
+            granularity_label = prelabel_summary.get("granularity")
+            if granularity_label:
+                typer.secho(
+                    f"Prelabel style: {granularity_label}",
+                    fg=typer.colors.CYAN,
+                )
             usage_payload = prelabel_summary.get("token_usage")
             usage_enabled = bool(
                 prelabel_summary.get(
@@ -4441,142 +4575,6 @@ def labelstudio_export(
 
     summary_path = result["summary_path"]
     typer.secho(f"Export complete. Summary: {summary_path}", fg=typer.colors.GREEN)
-
-
-@app.command("labelstudio-decorate")
-def labelstudio_decorate(
-    project_name: str = typer.Option(
-        ..., "--project-name", help="Label Studio project name to decorate."
-    ),
-    output_dir: Path = typer.Option(
-        DEFAULT_GOLDEN,
-        "--output-dir",
-        help="Output folder for decorate reports.",
-    ),
-    task_scope: str = typer.Option(
-        "freeform-spans",
-        "--task-scope",
-        help="Task scope to decorate (currently only freeform-spans).",
-    ),
-    add_labels: str = typer.Option(
-        ...,
-        "--add-labels",
-        help="Comma-separated label names to add (example: YIELD_LINE,TIME_LINE).",
-    ),
-    label_studio_url: str | None = typer.Option(
-        None, "--label-studio-url", help="Label Studio base URL."
-    ),
-    label_studio_api_key: str | None = typer.Option(
-        None, "--label-studio-api-key", help="Label Studio API key."
-    ),
-    prelabel_provider: str = typer.Option(
-        "codex-cli",
-        "--prelabel-provider",
-        help="LLM provider backend (currently: codex-cli).",
-    ),
-    codex_cmd: str | None = typer.Option(
-        None,
-        "--codex-cmd",
-        help=(
-            "Command used for Codex CLI calls. "
-            "Defaults to COOKIMPORT_CODEX_CMD or `codex exec -`."
-        ),
-    ),
-    codex_model: str | None = typer.Option(
-        None,
-        "--codex-model",
-        help=(
-            "Explicit Codex model for decorate calls. "
-            "When omitted, uses COOKIMPORT_CODEX_MODEL or your Codex CLI default model."
-        ),
-    ),
-    prelabel_timeout_seconds: int = typer.Option(
-        120,
-        "--prelabel-timeout-seconds",
-        min=1,
-        help="Timeout per Codex CLI call.",
-    ),
-    prelabel_cache_dir: Path | None = typer.Option(
-        None,
-        "--prelabel-cache-dir",
-        help="Optional cache directory for prompt/response snapshots.",
-    ),
-    no_write: bool = typer.Option(
-        False,
-        "--no-write",
-        help="Dry run only: compute and report changes without creating annotations.",
-    ),
-    allow_labelstudio_write: bool = typer.Option(
-        False,
-        "--allow-labelstudio-write/--no-allow-labelstudio-write",
-        help=(
-            "Explicitly allow creating annotations in Label Studio "
-            "(ignored in --no-write mode)."
-        ),
-    ),
-) -> None:
-    """Decorate existing freeform tasks with additive LLM annotations."""
-    if task_scope != "freeform-spans":
-        _fail("labelstudio-decorate currently supports --task-scope freeform-spans only.")
-    if not no_write:
-        _require_labelstudio_write_consent(allow_labelstudio_write)
-    labels = _parse_csv_labels(add_labels)
-    url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
-
-    try:
-        result = _run_with_progress_status(
-            initial_status=f"Running Label Studio decorate for {project_name}...",
-            progress_prefix=f"Label Studio decorate ({project_name})",
-            run=lambda update_progress: run_labelstudio_decorate(
-                project_name=project_name,
-                output_dir=output_dir,
-                label_studio_url=url,
-                label_studio_api_key=api_key,
-                add_labels=labels,
-                task_scope=task_scope,
-                prelabel_provider=prelabel_provider,
-                codex_cmd=codex_cmd,
-                codex_model=codex_model,
-                prelabel_timeout_seconds=prelabel_timeout_seconds,
-                prelabel_cache_dir=prelabel_cache_dir,
-                prelabel_track_token_usage=True,
-                allow_labelstudio_write=allow_labelstudio_write,
-                no_write=no_write,
-                progress_callback=update_progress,
-            ),
-        )
-    except Exception as exc:  # noqa: BLE001
-        _fail(str(exc))
-
-    counts = result["report"]["counts"]
-    typer.secho(
-        f"Decorate complete ({'dry-run' if no_write else 'write'} mode).",
-        fg=typer.colors.GREEN,
-    )
-    typer.secho(f"Tasks scanned: {counts['tasks_total']}", fg=typer.colors.CYAN)
-    if no_write:
-        typer.secho(
-            f"Would create annotations: {counts['dry_run_would_create']}",
-            fg=typer.colors.CYAN,
-        )
-    else:
-        typer.secho(f"Annotations created: {counts['created']}", fg=typer.colors.CYAN)
-    if counts["failed"]:
-        typer.secho(f"Failures: {counts['failed']}", fg=typer.colors.YELLOW)
-    report_payload = result.get("report") if isinstance(result.get("report"), dict) else {}
-    usage = report_payload.get("token_usage")
-    usage_enabled = bool(
-        report_payload.get(
-            "token_usage_enabled",
-            True,
-        )
-    )
-    _print_token_usage_summary(
-        prefix="Decorate token usage",
-        usage=usage,
-        enabled=usage_enabled,
-    )
-    typer.secho(f"Report: {result['report_path']}", fg=typer.colors.CYAN)
 
 
 @app.command("labelstudio-eval")
@@ -5286,6 +5284,7 @@ def labelstudio_benchmark(
                             codex_farm_context_blocks=codex_farm_context_blocks,
                             codex_farm_failure_mode=selected_codex_farm_failure_mode,
                             processed_output_root=processed_output_dir,
+                            auto_project_name_on_scope_mismatch=True,
                             allow_labelstudio_write=True,
                         )
                     ),

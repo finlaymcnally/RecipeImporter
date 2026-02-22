@@ -12,16 +12,25 @@ EXPECTED_PIPELINES = {
         "pipeline_file": "recipe.chunking.v1.json",
         "prompt_path": "prompts/recipe.chunking.v1.prompt.md",
         "schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+        "required_keys": {"bundle_version", "recipe_id"},
     },
     "recipe.schemaorg.v1": {
         "pipeline_file": "recipe.schemaorg.v1.json",
         "prompt_path": "prompts/recipe.schemaorg.v1.prompt.md",
         "schema_path": "schemas/recipe.schemaorg.v1.output.schema.json",
+        "required_keys": {"bundle_version", "recipe_id"},
     },
     "recipe.final.v1": {
         "pipeline_file": "recipe.final.v1.json",
         "prompt_path": "prompts/recipe.final.v1.prompt.md",
         "schema_path": "schemas/recipe.final.v1.output.schema.json",
+        "required_keys": {"bundle_version", "recipe_id"},
+    },
+    "recipe.knowledge.v1": {
+        "pipeline_file": "recipe.knowledge.v1.json",
+        "prompt_path": "prompts/recipe.knowledge.v1.prompt.md",
+        "schema_path": "schemas/recipe.knowledge.v1.output.schema.json",
+        "required_keys": {"bundle_version", "chunk_id"},
     },
 }
 
@@ -54,5 +63,5 @@ def test_default_codex_farm_pass_assets_exist_and_link() -> None:
         schema_payload = _load_json(schema_path)
         assert schema_payload["type"] == "object"
         assert schema_payload["additionalProperties"] is False
-        assert "bundle_version" in schema_payload["required"]
-        assert "recipe_id" in schema_payload["required"]
+        required = set(schema_payload.get("required") or [])
+        assert expected["required_keys"].issubset(required)

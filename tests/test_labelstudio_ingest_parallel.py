@@ -361,8 +361,14 @@ def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
         lambda **_kwargs: object(),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.prelabel_freeform_task",
-        lambda *_args, **_kwargs: {
+        "cookimport.labelstudio.ingest.preflight_codex_model_access",
+        lambda **_kwargs: None,
+    )
+    seen_granularity: list[str] = []
+
+    def _fake_prelabel(_task, **kwargs):
+        seen_granularity.append(str(kwargs.get("prelabel_granularity")))
+        return {
             "result": [
                 {
                     "value": {
@@ -372,16 +378,21 @@ def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
                     }
                 }
             ]
-        },
+        }
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.prelabel_freeform_task",
+        _fake_prelabel,
     )
 
     progress_messages: list[str] = []
-    generate_pred_run_artifacts(
+    result = generate_pred_run_artifacts(
         path=source,
         output_dir=output_dir,
         pipeline="fake",
         task_scope="freeform-spans",
         prelabel=True,
+        prelabel_granularity="span",
         progress_callback=progress_messages.append,
     )
 
@@ -397,6 +408,8 @@ def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
         "Running freeform prelabeling... task 2/2" in msg
         for msg in progress_messages
     )
+    assert seen_granularity == ["span", "span"]
+    assert result["prelabel"]["granularity"] == "span"
 
 
 def _fake_pred_result(tmp_path: Path, tasks: list[dict[str, object]]) -> dict[str, object]:
@@ -576,3 +589,142 @@ def test_run_labelstudio_import_can_upload_prelabels_as_predictions(
     uploaded = FakeLabelStudioClient.imported_batches[0][0]
     assert "predictions" in uploaded
     assert "annotations" not in uploaded
+
+
+def test_run_labelstudio_import_skips_resume_manifest_when_project_is_new(
+    monkeypatch, tmp_path: Path
+) -> None:
+    output_dir = tmp_path / "golden"
+    stale_manifest = output_dir / "2026-02-10_00.00.00" / "labelstudio" / "book" / "manifest.json"
+    stale_manifest.parent.mkdir(parents=True, exist_ok=True)
+    stale_manifest.write_text(
+        '{"project_name":"benchmark-project","task_scope":"freeform-spans"}',
+        encoding="utf-8",
+    )
+
+    tasks = [{"data": {"chunk_id": "chunk-1"}}]
+
+    class FakeLabelStudioClient:
+        imported_batches: list[list[dict[str, object]]] = []
+
+        def __init__(self, _url: str, _key: str) -> None:
+            return None
+
+        def list_projects(self):
+            return []
+
+        def find_project_by_title(self, _title: str):
+            return None
+
+        def create_project(self, title: str, _label_config: str, description: str | None = None):
+            return {"id": 123, "title": title, "description": description}
+
+        def import_tasks(self, _project_id: int, tasks_payload):
+            payload = [dict(item) for item in tasks_payload]
+            self.imported_batches.append(payload)
+            return {"task_count": len(payload)}
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.generate_pred_run_artifacts",
+        lambda **_kwargs: _fake_pred_result(tmp_path, tasks),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.LabelStudioClient",
+        FakeLabelStudioClient,
+    )
+
+    result = run_labelstudio_import(
+        path=tmp_path / "book.epub",
+        output_dir=output_dir,
+        pipeline="auto",
+        project_name="benchmark-project",
+        chunk_level="both",
+        task_scope="pipeline",
+        context_window=1,
+        segment_blocks=40,
+        segment_overlap=5,
+        overwrite=False,
+        resume=True,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="token",
+        limit=None,
+        sample=None,
+        allow_labelstudio_write=True,
+    )
+
+    assert result["tasks_uploaded"] == 1
+    assert len(FakeLabelStudioClient.imported_batches) == 1
+
+
+def test_run_labelstudio_import_scope_mismatch_auto_dedupes_project_for_benchmark(
+    monkeypatch, tmp_path: Path
+) -> None:
+    output_dir = tmp_path / "golden"
+    stale_manifest = (
+        output_dir / "2026-02-10_00.00.00" / "labelstudio" / "benchmark_project" / "manifest.json"
+    )
+    stale_manifest.parent.mkdir(parents=True, exist_ok=True)
+    stale_manifest.write_text(
+        '{"project_name":"benchmark_project","task_scope":"freeform-spans"}',
+        encoding="utf-8",
+    )
+
+    tasks = [{"data": {"chunk_id": "chunk-1"}}]
+
+    class FakeLabelStudioClient:
+        imported_batches: list[list[dict[str, object]]] = []
+        created_titles: list[str] = []
+
+        def __init__(self, _url: str, _key: str) -> None:
+            return None
+
+        def list_projects(self):
+            return [{"id": 42, "title": "benchmark_project"}]
+
+        def find_project_by_title(self, title: str):
+            if title == "benchmark_project":
+                return {"id": 42, "title": title}
+            return None
+
+        def create_project(self, title: str, _label_config: str, description: str | None = None):
+            self.created_titles.append(title)
+            return {"id": 123, "title": title, "description": description}
+
+        def import_tasks(self, _project_id: int, tasks_payload):
+            payload = [dict(item) for item in tasks_payload]
+            self.imported_batches.append(payload)
+            return {"task_count": len(payload)}
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.generate_pred_run_artifacts",
+        lambda **_kwargs: _fake_pred_result(tmp_path, tasks),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.LabelStudioClient",
+        FakeLabelStudioClient,
+    )
+
+    result = run_labelstudio_import(
+        path=tmp_path / "benchmark_project.epub",
+        output_dir=output_dir,
+        pipeline="auto",
+        project_name=None,
+        chunk_level="both",
+        task_scope="pipeline",
+        context_window=1,
+        segment_blocks=40,
+        segment_overlap=5,
+        overwrite=False,
+        resume=True,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="token",
+        limit=None,
+        sample=None,
+        auto_project_name_on_scope_mismatch=True,
+        allow_labelstudio_write=True,
+    )
+
+    assert result["project_name"] == "benchmark_project-1"
+    assert FakeLabelStudioClient.created_titles == ["benchmark_project-1"]
+    assert result["tasks_uploaded"] == 1
+    assert len(FakeLabelStudioClient.imported_batches) == 1

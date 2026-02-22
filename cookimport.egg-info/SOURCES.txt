@@ -68,9 +68,16 @@ cookimport/llm/__init__.py
 cookimport/llm/client.py
 cookimport/llm/codex_farm_contracts.py
 cookimport/llm/codex_farm_ids.py
+cookimport/llm/codex_farm_knowledge_contracts.py
+cookimport/llm/codex_farm_knowledge_ingest.py
+cookimport/llm/codex_farm_knowledge_jobs.py
+cookimport/llm/codex_farm_knowledge_models.py
+cookimport/llm/codex_farm_knowledge_orchestrator.py
+cookimport/llm/codex_farm_knowledge_writer.py
 cookimport/llm/codex_farm_orchestrator.py
 cookimport/llm/codex_farm_runner.py
 cookimport/llm/fake_codex_farm_runner.py
+cookimport/llm/non_recipe_spans.py
 cookimport/llm/prompts.py
 cookimport/llm/repair.py
 cookimport/ocr/__init__.py
@@ -138,6 +145,7 @@ tests/test_cli_limits.py
 tests/test_cli_llm_flags.py
 tests/test_cli_output_structure.py
 tests/test_codex_farm_contracts.py
+tests/test_codex_farm_knowledge_orchestrator.py
 tests/test_codex_farm_orchestrator.py
 tests/test_draft_v1_lowercase.py
 tests/test_draft_v1_staging_alignment.py
@@ -153,6 +161,9 @@ tests/test_excel_importer.py
 tests/test_extraction_quality.py
 tests/test_ingredient_parser.py
 tests/test_instruction_parser.py
+tests/test_knowledge_job_bundles.py
+tests/test_knowledge_output_ingest.py
+tests/test_knowledge_writer.py
 tests/test_labelstudio_benchmark_helpers.py
 tests/test_labelstudio_canonical.py
 tests/test_labelstudio_chunking.py
@@ -164,6 +175,7 @@ tests/test_labelstudio_prelabel.py
 tests/test_llm_pipeline_pack.py
 tests/test_llm_pipeline_pack_assets.py
 tests/test_markdown_blocks.py
+tests/test_non_recipe_spans.py
 tests/test_paprika_importer.py
 tests/test_paprika_merge.py
 tests/test_pdf_importer.py

@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import cookimport.labelstudio.prelabel as prelabel_module
-from cookimport.labelstudio.ingest import run_labelstudio_decorate
 from cookimport.labelstudio.prelabel import (
     CodexCliProvider,
-    annotation_is_cookimport_augment,
+    codex_account_summary,
     codex_cmd_with_model,
     default_codex_model,
     default_codex_cmd,
-    merge_annotation_results,
+    list_codex_models,
     parse_block_label_output,
+    parse_span_label_output,
+    preflight_codex_model_access,
     prelabel_freeform_task,
 )
 
@@ -63,6 +65,27 @@ def _freeform_task() -> dict[str, object]:
     }
 
 
+def _single_block_task(text: str) -> dict[str, object]:
+    return {
+        "id": 200,
+        "data": {
+            "segment_id": "urn:cookimport:segment:testhash:5:5",
+            "segment_text": text,
+            "source_map": {
+                "separator": "\n\n",
+                "blocks": [
+                    {
+                        "block_id": "urn:cookimport:block:testhash:5",
+                        "block_index": 5,
+                        "segment_start": 0,
+                        "segment_end": len(text),
+                    }
+                ],
+            },
+        },
+    }
+
+
 def test_parse_block_label_output_extracts_embedded_json() -> None:
     raw = (
         "Here is the answer:\n"
@@ -80,6 +103,38 @@ def test_parse_block_label_output_extracts_embedded_json() -> None:
         {"block_index": 2, "label": "KNOWLEDGE"},
         {"block_index": 3, "label": "RECIPE_NOTES"},
         {"block_index": 4, "label": "RECIPE_VARIANT"},
+    ]
+
+
+def test_parse_span_label_output_extracts_quote_and_absolute_items() -> None:
+    raw = (
+        "extra text\n"
+        '[{"block_index": 5, "label": "time", "quote": "Prep 10 min"},'
+        '{"block_index": 5, "label": "yield", "quote": "Serves 4", "occurrence": 1},'
+        '{"label": "notes", "start": 2, "end": 8}]'
+    )
+    parsed = parse_span_label_output(raw)
+    assert parsed == [
+        {
+            "kind": "quote",
+            "block_index": 5,
+            "label": "TIME_LINE",
+            "quote": "Prep 10 min",
+            "occurrence": None,
+        },
+        {
+            "kind": "quote",
+            "block_index": 5,
+            "label": "YIELD_LINE",
+            "quote": "Serves 4",
+            "occurrence": 1,
+        },
+        {
+            "kind": "absolute",
+            "label": "RECIPE_NOTES",
+            "start": 2,
+            "end": 8,
+        },
     ]
 
 
@@ -107,6 +162,65 @@ def test_prelabel_freeform_task_uses_block_offsets_and_exact_text() -> None:
     assert results[0]["type"] == "labels"
 
 
+def test_prelabel_freeform_task_span_mode_creates_partial_block_spans() -> None:
+    task = _single_block_task("Serves 4 • Prep 10 min")
+    provider = _StaticProvider(
+        '[{"block_index": 5, "label": "YIELD_LINE", "quote": "Serves 4"},'
+        '{"block_index": 5, "label": "TIME_LINE", "quote": "Prep 10 min"}]'
+    )
+
+    annotation = prelabel_freeform_task(
+        task,
+        provider=provider,
+        prelabel_granularity="span",
+    )
+    assert annotation is not None
+    results = annotation["result"]
+    assert len(results) == 2
+
+    by_label = {
+        result["value"]["labels"][0]: result["value"]
+        for result in results
+    }
+    assert by_label["YIELD_LINE"]["text"] == "Serves 4"
+    assert by_label["TIME_LINE"]["text"] == "Prep 10 min"
+    assert by_label["YIELD_LINE"]["start"] == 0
+    assert by_label["YIELD_LINE"]["end"] == 8
+    assert by_label["TIME_LINE"]["start"] > 0
+    assert (
+        by_label["TIME_LINE"]["start"],
+        by_label["TIME_LINE"]["end"],
+    ) != (0, len(task["data"]["segment_text"]))
+
+
+def test_span_resolution_requires_occurrence_for_ambiguous_quote() -> None:
+    task = _single_block_task("Prep 10 min; Prep 10 min")
+
+    ambiguous_provider = _StaticProvider(
+        '[{"block_index": 5, "label": "TIME_LINE", "quote": "Prep 10 min"}]'
+    )
+    ambiguous_annotation = prelabel_freeform_task(
+        task,
+        provider=ambiguous_provider,
+        prelabel_granularity="span",
+    )
+    assert ambiguous_annotation is None
+
+    disambiguated_provider = _StaticProvider(
+        '[{"block_index": 5, "label": "TIME_LINE", "quote": "Prep 10 min", "occurrence": 2}]'
+    )
+    disambiguated_annotation = prelabel_freeform_task(
+        task,
+        provider=disambiguated_provider,
+        prelabel_granularity="span",
+    )
+    assert disambiguated_annotation is not None
+    value = disambiguated_annotation["result"][0]["value"]
+    assert value["text"] == "Prep 10 min"
+    assert value["start"] == 13
+    assert value["end"] == 24
+
+
 def test_prelabel_full_prompt_uses_ai_instruction_template() -> None:
     task = _freeform_task()
     provider = _CaptureProvider(
@@ -122,50 +236,21 @@ def test_prelabel_full_prompt_uses_ai_instruction_template() -> None:
     assert '{"block_index": 1, "text": "1 cup flour"}' in prompt
 
 
-def test_prelabel_augment_prompt_keeps_additive_instructions() -> None:
-    task = _freeform_task()
-    provider = _CaptureProvider('[{"block_index": 0, "label": "YIELD_LINE"}]')
-
-    annotation = prelabel_freeform_task(
-        task,
-        provider=provider,
-        mode="augment",
-        augment_only_labels={"YIELD_LINE"},
-        base_annotation={
-            "result": [
-                {
-                    "value": {
-                        "start": 10,
-                        "end": 21,
-                        "labels": ["INGREDIENT_LINE"],
-                    }
-                }
-            ]
-        },
-    )
-    assert annotation is not None
-    assert len(provider.prompts) == 1
-    prompt = provider.prompts[0]
-    assert "Segment id: urn:cookimport:segment:testhash:0:1" in prompt
-    assert '{"block_index": 0, "text": "Serves 4"}' in prompt
-    assert "block_index=1" in prompt
-
-
 def test_prelabel_prompt_uses_file_templates(monkeypatch, tmp_path: Path) -> None:
     assert str(prelabel_module._PROMPT_TEMPLATE_DIR).endswith("llm_pipelines/prompts")
     full_path = tmp_path / "freeform-prelabel-full.prompt.md"
-    augment_path = tmp_path / "freeform-prelabel-augment.prompt.md"
+    span_path = tmp_path / "freeform-prelabel-span.prompt.md"
     full_path.write_text(
         "FULL {{SEGMENT_ID}} | {{ALLOWED_LABELS}} | {{UNCERTAINTY_HINT}}\n{{BLOCKS_JSON_LINES}}",
         encoding="utf-8",
     )
-    augment_path.write_text(
-        "AUG {{SEGMENT_ID}} | {{ADD_LABELS}} | {{EXISTING_LABELS_PER_BLOCK}}\n{{BLOCKS_JSON_LINES}}",
+    span_path.write_text(
+        "SPAN {{SEGMENT_ID}} | {{ALLOWED_LABELS}}\n{{BLOCKS_JSON_LINES}}",
         encoding="utf-8",
     )
     prelabel_module._PROMPT_TEMPLATE_CACHE.clear()
     monkeypatch.setattr(prelabel_module, "_FULL_PROMPT_TEMPLATE_PATH", full_path)
-    monkeypatch.setattr(prelabel_module, "_AUGMENT_PROMPT_TEMPLATE_PATH", augment_path)
+    monkeypatch.setattr(prelabel_module, "_SPAN_PROMPT_TEMPLATE_PATH", span_path)
 
     task = _freeform_task()
     full_provider = _CaptureProvider('[{"block_index": 0, "label": "YIELD_LINE"}]')
@@ -174,80 +259,26 @@ def test_prelabel_prompt_uses_file_templates(monkeypatch, tmp_path: Path) -> Non
     assert "FULL urn:cookimport:segment:testhash:0:1" in full_provider.prompts[0]
     assert '{"block_index": 0, "text": "Serves 4"}' in full_provider.prompts[0]
 
-    augment_provider = _CaptureProvider('[{"block_index": 0, "label": "YIELD_LINE"}]')
-    augment_annotation = prelabel_freeform_task(
+    span_provider = _CaptureProvider(
+        '[{"block_index": 0, "label": "YIELD_LINE", "quote": "Serves 4"}]'
+    )
+    span_annotation = prelabel_freeform_task(
         task,
-        provider=augment_provider,
-        mode="augment",
-        augment_only_labels={"YIELD_LINE"},
-        base_annotation={
-            "result": [
-                {
-                    "value": {
-                        "start": 10,
-                        "end": 21,
-                        "labels": ["INGREDIENT_LINE"],
-                    }
-                }
-            ]
-        },
+        provider=span_provider,
+        prelabel_granularity="span",
     )
-    assert augment_annotation is not None
-    assert "AUG urn:cookimport:segment:testhash:0:1" in augment_provider.prompts[0]
-    assert "YIELD_LINE" in augment_provider.prompts[0]
-    assert "block_index=1" in augment_provider.prompts[0]
-
-
-def test_merge_annotation_results_dedupes_exact_matches() -> None:
-    base = [
-        {
-            "value": {
-                "start": 0,
-                "end": 8,
-                "labels": ["YIELD_LINE"],
-            }
-        }
-    ]
-    additions = [
-        {
-            "value": {
-                "start": 0,
-                "end": 8,
-                "labels": ["YIELD_LINE"],
-            }
-        },
-        {
-            "value": {
-                "start": 10,
-                "end": 21,
-                "labels": ["INGREDIENT_LINE"],
-            }
-        },
-    ]
-
-    merged = merge_annotation_results(base, additions)
-    assert len(merged) == 2
-
-
-def test_annotation_is_cookimport_augment_checks_added_labels() -> None:
-    annotation = {
-        "meta": {
-            "cookimport_prelabel": True,
-            "mode": "augment",
-            "added_labels": ["YIELD_LINE", "TIME_LINE"],
-        }
-    }
-    assert annotation_is_cookimport_augment(
-        annotation, requested_labels={"YIELD_LINE"}
-    )
-    assert not annotation_is_cookimport_augment(
-        annotation, requested_labels={"INGREDIENT_LINE"}
-    )
+    assert span_annotation is not None
+    assert "SPAN urn:cookimport:segment:testhash:0:1" in span_provider.prompts[0]
 
 
 def test_default_codex_cmd_uses_noninteractive_exec(monkeypatch) -> None:
     monkeypatch.delenv("COOKIMPORT_CODEX_CMD", raising=False)
     assert default_codex_cmd() == "codex exec -"
+
+
+def test_default_codex_cmd_uses_env_override(monkeypatch) -> None:
+    monkeypatch.setenv("COOKIMPORT_CODEX_CMD", "codex2 exec -")
+    assert default_codex_cmd() == "codex2 exec -"
 
 
 def test_codex_provider_retries_plain_codex_with_exec(monkeypatch, tmp_path: Path) -> None:
@@ -316,6 +347,10 @@ def test_codex_cmd_with_model_injects_model_for_exec() -> None:
         == "codex exec --model gpt-5.3-codex -"
     )
     assert (
+        codex_cmd_with_model("codex2 exec -", "gpt-5.3-codex")
+        == "codex2 exec --model gpt-5.3-codex -"
+    )
+    assert (
         codex_cmd_with_model("codex exec --model gpt-5.3-codex -", "gpt-5-codex")
         == "codex exec --model gpt-5.3-codex -"
     )
@@ -323,7 +358,8 @@ def test_codex_cmd_with_model_injects_model_for_exec() -> None:
 
 def test_default_codex_model_reads_codex_config(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("COOKIMPORT_CODEX_MODEL", raising=False)
-    config_dir = tmp_path / ".codex-alt"
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    config_dir = tmp_path / ".codex"
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "config.toml").write_text(
         'approval_policy = "never"\nmodel = "gpt-test-codex"\n',
@@ -333,76 +369,223 @@ def test_default_codex_model_reads_codex_config(monkeypatch, tmp_path: Path) -> 
     assert default_codex_model() == "gpt-test-codex"
 
 
-def test_run_labelstudio_decorate_dry_run(monkeypatch, tmp_path: Path) -> None:
-    task = _freeform_task()
-    task["annotations"] = [
-        {
-            "id": 1,
-            "result": [
-                {
-                    "id": "base-1",
-                    "from_name": "span_labels",
-                    "to_name": "segment_text",
-                    "type": "labels",
-                    "value": {
-                        "start": 10,
-                        "end": 21,
-                        "text": "1 cup flour",
-                        "labels": ["INGREDIENT_LINE"],
+def test_default_codex_model_prefers_codex_over_codex_alt(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("COOKIMPORT_CODEX_MODEL", raising=False)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    codex_dir = tmp_path / ".codex"
+    codex_alt_dir = tmp_path / ".codex-alt"
+    codex_dir.mkdir(parents=True, exist_ok=True)
+    codex_alt_dir.mkdir(parents=True, exist_ok=True)
+    (codex_dir / "config.toml").write_text(
+        'approval_policy = "never"\nmodel = "gpt-codex-primary"\n',
+        encoding="utf-8",
+    )
+    (codex_alt_dir / "config.toml").write_text(
+        'approval_policy = "never"\nmodel = "gpt-codex-alt"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("cookimport.labelstudio.prelabel.Path.home", lambda: tmp_path)
+    assert default_codex_model() == "gpt-codex-primary"
+
+
+def test_default_codex_model_reads_command_specific_codex_home(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("COOKIMPORT_CODEX_MODEL", raising=False)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    (tmp_path / ".codex2").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".codex2" / "config.toml").write_text(
+        'approval_policy = "never"\nmodel = "gpt-codex2-default"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("cookimport.labelstudio.prelabel.Path.home", lambda: tmp_path)
+    assert default_codex_model(cmd="codex2 exec -") == "gpt-codex2-default"
+
+
+def test_list_codex_models_reads_models_cache(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "custom_codex"))
+    custom_root = tmp_path / "custom_codex"
+    custom_root.mkdir(parents=True, exist_ok=True)
+    (custom_root / "models_cache.json").write_text(
+        json.dumps(
+            {
+                "models": [
+                    {
+                        "slug": "gpt-5.3-codex",
+                        "display_name": "gpt-5.3-codex",
+                        "description": "Latest coding model",
+                        "visibility": "list",
                     },
-                }
-            ],
-        }
-    ]
-    already_done = _freeform_task()
-    already_done["id"] = 200
-    already_done["data"]["segment_id"] = "urn:cookimport:segment:testhash:2:3"
-    already_done["annotations"] = [
+                    {
+                        "slug": "private-model",
+                        "display_name": "private-model",
+                        "description": "hidden",
+                        "visibility": "hidden",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("cookimport.labelstudio.prelabel.Path.home", lambda: tmp_path)
+
+    models = list_codex_models()
+
+    assert models == [
         {
-            "id": 4,
-            "meta": {
-                "cookimport_prelabel": True,
-                "mode": "augment",
-                "added_labels": ["YIELD_LINE", "TIME_LINE"],
-            },
-            "result": [],
+            "slug": "gpt-5.3-codex",
+            "display_name": "gpt-5.3-codex",
+            "description": "Latest coding model",
         }
     ]
 
-    class FakeClient:
-        def __init__(self, *_args, **_kwargs) -> None:
-            return None
 
-        def find_project_by_title(self, _title: str) -> dict[str, object]:
-            return {"id": 10, "title": "test"}
-
-        def list_project_tasks(self, _project_id: int) -> list[dict[str, object]]:
-            return [task, already_done]
-
-        def create_annotation(self, *_args, **_kwargs):
-            raise AssertionError("create_annotation should not be called in dry-run mode")
-
-    provider = _StaticProvider('[{"block_index": 0, "label": "YIELD_LINE"}]')
-    monkeypatch.setattr("cookimport.labelstudio.ingest.LabelStudioClient", FakeClient)
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._build_prelabel_provider",
-        lambda **_kwargs: provider,
+def test_list_codex_models_reads_command_specific_cache(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    (tmp_path / ".codex2").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".codex2" / "models_cache.json").write_text(
+        json.dumps(
+            {
+                "models": [
+                    {
+                        "slug": "gpt-5.3-codex-pro",
+                        "display_name": "gpt-5.3-codex-pro",
+                        "description": "Pro model",
+                        "visibility": "list",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
     )
-    progress_messages: list[str] = []
+    monkeypatch.setattr("cookimport.labelstudio.prelabel.Path.home", lambda: tmp_path)
+    models = list_codex_models(cmd="codex2 exec -")
+    assert models == [
+        {
+            "slug": "gpt-5.3-codex-pro",
+            "display_name": "gpt-5.3-codex-pro",
+            "description": "Pro model",
+        }
+    ]
 
-    result = run_labelstudio_decorate(
-        project_name="test",
-        output_dir=tmp_path,
-        label_studio_url="http://localhost:8080",
-        label_studio_api_key="token",
-        add_labels={"YIELD_LINE", "TIME_LINE"},
-        no_write=True,
-        progress_callback=progress_messages.append,
+
+def test_codex_account_summary_reads_email_from_command_home(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    claims = {
+        "email": "pro-account@example.com",
+        "https://api.openai.com/auth": {"chatgpt_plan_type": "pro"},
+    }
+    encoded = base64.urlsafe_b64encode(json.dumps(claims).encode("utf-8")).decode("ascii")
+    token = f"header.{encoded.rstrip('=')}.signature"
+    auth_path = tmp_path / ".codex2" / "auth.json"
+    auth_path.parent.mkdir(parents=True, exist_ok=True)
+    auth_path.write_text(
+        json.dumps(
+            {
+                "OPENAI_API_KEY": None,
+                "tokens": {"id_token": token, "access_token": token},
+            }
+        ),
+        encoding="utf-8",
     )
+    monkeypatch.setattr("cookimport.labelstudio.prelabel.Path.home", lambda: tmp_path)
+    assert codex_account_summary("codex2 exec -") == "pro-account@example.com (pro)"
 
-    report = json.loads(result["report_path"].read_text(encoding="utf-8"))
-    assert report["counts"]["tasks_total"] == 2
-    assert report["counts"]["dry_run_would_create"] == 1
-    assert report["counts"]["skipped_already_decorated"] == 1
-    assert any("Decorating freeform tasks... task 1/2" in msg for msg in progress_messages)
-    assert any("Decorating freeform tasks... task 2/2" in msg for msg in progress_messages)
+
+def test_codex_account_summary_prefers_codex_over_codex_alt(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    primary_claims = {
+        "email": "primary@example.com",
+        "https://api.openai.com/auth": {"chatgpt_plan_type": "pro"},
+    }
+    alt_claims = {
+        "email": "alt@example.com",
+        "https://api.openai.com/auth": {"chatgpt_plan_type": "plus"},
+    }
+    primary_token = (
+        "header."
+        + base64.urlsafe_b64encode(json.dumps(primary_claims).encode("utf-8"))
+        .decode("ascii")
+        .rstrip("=")
+        + ".signature"
+    )
+    alt_token = (
+        "header."
+        + base64.urlsafe_b64encode(json.dumps(alt_claims).encode("utf-8"))
+        .decode("ascii")
+        .rstrip("=")
+        + ".signature"
+    )
+    primary_auth = tmp_path / ".codex" / "auth.json"
+    alt_auth = tmp_path / ".codex-alt" / "auth.json"
+    primary_auth.parent.mkdir(parents=True, exist_ok=True)
+    alt_auth.parent.mkdir(parents=True, exist_ok=True)
+    primary_auth.write_text(
+        json.dumps(
+            {
+                "OPENAI_API_KEY": None,
+                "tokens": {"id_token": primary_token, "access_token": primary_token},
+            }
+        ),
+        encoding="utf-8",
+    )
+    alt_auth.write_text(
+        json.dumps(
+            {
+                "OPENAI_API_KEY": None,
+                "tokens": {"id_token": alt_token, "access_token": alt_token},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("cookimport.labelstudio.prelabel.Path.home", lambda: tmp_path)
+    assert codex_account_summary("codex exec -") == "primary@example.com (pro)"
+
+
+def test_preflight_codex_model_access_raises_on_turn_failed(monkeypatch) -> None:
+    def _fake_run(_argv, **_kwargs):
+        return SimpleNamespace(
+            returncode=0,
+            stdout=(
+                '{"type":"thread.started"}\n'
+                '{"type":"turn.started"}\n'
+                '{"type":"turn.failed","error":{"message":"{\\"detail\\":\\"Model not supported\\"}"}}\n'
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("cookimport.labelstudio.prelabel.subprocess.run", _fake_run)
+
+    try:
+        preflight_codex_model_access(cmd="codex exec -", timeout_s=5)
+        raise AssertionError("expected preflight failure")
+    except RuntimeError as exc:
+        assert "Model not supported" in str(exc)
+
+
+def test_codex_provider_raises_turn_failed_message(monkeypatch, tmp_path: Path) -> None:
+    def _fake_run(_argv, **_kwargs):
+        return SimpleNamespace(
+            returncode=0,
+            stdout=(
+                '{"type":"thread.started"}\n'
+                '{"type":"turn.started"}\n'
+                '{"type":"turn.failed","error":{"message":"{\\"detail\\":\\"Model denied\\"}"}}\n'
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("cookimport.labelstudio.prelabel.subprocess.run", _fake_run)
+    provider = CodexCliProvider(cmd="codex exec -", timeout_s=5, cache_dir=tmp_path)
+
+    try:
+        provider.complete("label this")
+        raise AssertionError("expected provider failure")
+    except RuntimeError as exc:
+        assert "Model denied" in str(exc)

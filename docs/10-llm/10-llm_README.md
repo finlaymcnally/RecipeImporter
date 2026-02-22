@@ -44,3 +44,10 @@ Default local pack assets for those pass ids live in `llm_pipelines/`:
 - pipeline specs: `llm_pipelines/pipelines/recipe.{chunking,schemaorg,final}.v1.json`
 - editable prompts: `llm_pipelines/prompts/recipe.{chunking,schemaorg,final}.v1.prompt.md`
 - output schemas: `llm_pipelines/schemas/recipe.{chunking,schemaorg,final}.v1.output.schema.json`
+
+Pass 4 knowledge harvesting:
+
+- `docs/10-llm/knowledge_harvest.md`
+- pipeline spec: `llm_pipelines/pipelines/recipe.knowledge.v1.json`
+- prompt: `llm_pipelines/prompts/recipe.knowledge.v1.prompt.md`
+- output schema: `llm_pipelines/schemas/recipe.knowledge.v1.output.schema.json`

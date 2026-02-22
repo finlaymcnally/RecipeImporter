@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "recipe.knowledge.v1 output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bundle_version",
+    "chunk_id",
+    "is_useful",
+    "snippets"
+  ],
+  "properties": {
+    "bundle_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "chunk_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "is_useful": {
+      "type": "boolean"
+    },
+    "snippets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "body",
+          "tags",
+          "evidence"
+        ],
+        "properties": {
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "block_index",
+                "quote"
+              ],
+              "properties": {
+                "block_index": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "quote": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

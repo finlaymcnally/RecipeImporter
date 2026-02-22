@@ -29,11 +29,14 @@ _SUMMARY_ORDER = (
     "epub_spine_items_per_job",
     "warm_models",
     "llm_recipe_pipeline",
+    "llm_knowledge_pipeline",
     "codex_farm_cmd",
     "codex_farm_pipeline_pass1",
     "codex_farm_pipeline_pass2",
     "codex_farm_pipeline_pass3",
+    "codex_farm_pipeline_pass4_knowledge",
     "codex_farm_context_blocks",
+    "codex_farm_knowledge_context_blocks",
     "codex_farm_failure_mode",
     "mapping_path",
     "overrides_path",
@@ -69,6 +72,11 @@ class OcrDevice(str, Enum):
 class LlmRecipePipeline(str, Enum):
     off = "off"
     codex_farm_3pass_v1 = "codex-farm-3pass-v1"
+
+
+class LlmKnowledgePipeline(str, Enum):
+    off = "off"
+    codex_farm_knowledge_v1 = "codex-farm-knowledge-v1"
 
 
 class CodexFarmFailureMode(str, Enum):
@@ -255,6 +263,18 @@ class RunSettings(BaseModel):
             description="Optional recipe correction pipeline. Off keeps deterministic behavior.",
         ),
     )
+    llm_knowledge_pipeline: LlmKnowledgePipeline = Field(
+        default=LlmKnowledgePipeline.off,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Knowledge LLM Pipeline",
+            order=105,
+            description=(
+                "Optional non-recipe knowledge harvesting pipeline. "
+                "Off keeps deterministic behavior."
+            ),
+        ),
+    )
     codex_farm_cmd: str = Field(
         default="codex-farm",
         json_schema_extra=_ui_meta(
@@ -312,6 +332,15 @@ class RunSettings(BaseModel):
             description="codex-farm pipeline id used for final draft generation (pass3).",
         ),
     )
+    codex_farm_pipeline_pass4_knowledge: str = Field(
+        default="recipe.knowledge.v1",
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Pass4 Knowledge Pipeline",
+            order=129,
+            description="codex-farm pipeline id used for knowledge harvesting (pass4).",
+        ),
+    )
     codex_farm_context_blocks: int = Field(
         default=30,
         ge=0,
@@ -321,6 +350,20 @@ class RunSettings(BaseModel):
             label="Codex Farm Context Blocks",
             order=130,
             description="Blocks before/after a candidate included in pass-1 bundles.",
+            step=1,
+            minimum=0,
+            maximum=500,
+        ),
+    )
+    codex_farm_knowledge_context_blocks: int = Field(
+        default=12,
+        ge=0,
+        le=500,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Knowledge Context Blocks",
+            order=131,
+            description="Blocks before/after a knowledge chunk included as context in pass-4 bundles.",
             step=1,
             minimum=0,
             maximum=500,
@@ -521,13 +564,16 @@ def build_run_settings(
     ocr_batch_size: int,
     warm_models: bool,
     llm_recipe_pipeline: str | LlmRecipePipeline = LlmRecipePipeline.off,
+    llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
     codex_farm_cmd: str = "codex-farm",
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
     codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
     codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
     codex_farm_pipeline_pass3: str = "recipe.final.v1",
+    codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.v1",
     codex_farm_context_blocks: int = 30,
+    codex_farm_knowledge_context_blocks: int = 12,
     codex_farm_failure_mode: str | CodexFarmFailureMode = CodexFarmFailureMode.fail,
     mapping_path: Path | None = None,
     overrides_path: Path | None = None,
@@ -565,6 +611,7 @@ def build_run_settings(
             "ocr_batch_size": ocr_batch_size,
             "warm_models": bool(warm_models),
             "llm_recipe_pipeline": _normalized_value(llm_recipe_pipeline),
+            "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
             "codex_farm_cmd": str(codex_farm_cmd).strip() or "codex-farm",
             "codex_farm_root": (
                 str(codex_farm_root) if codex_farm_root is not None else None
@@ -583,7 +630,12 @@ def build_run_settings(
             "codex_farm_pipeline_pass3": (
                 str(codex_farm_pipeline_pass3).strip() or "recipe.final.v1"
             ),
+            "codex_farm_pipeline_pass4_knowledge": (
+                str(codex_farm_pipeline_pass4_knowledge).strip()
+                or "recipe.knowledge.v1"
+            ),
             "codex_farm_context_blocks": int(codex_farm_context_blocks),
+            "codex_farm_knowledge_context_blocks": int(codex_farm_knowledge_context_blocks),
             "codex_farm_failure_mode": _normalized_value(codex_farm_failure_mode),
             "effective_workers": resolved_effective_workers,
             "mapping_path": str(mapping_path) if mapping_path is not None else None,

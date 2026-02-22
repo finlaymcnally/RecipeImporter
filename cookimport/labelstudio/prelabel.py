@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -9,7 +11,6 @@ import subprocess
 from pathlib import Path
 from typing import Any, Protocol
 
-from cookimport.labelstudio.freeform_tasks import map_span_offsets_to_blocks
 from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_ALLOWED_LABELS,
     FREEFORM_LABELS,
@@ -45,7 +46,7 @@ class CodexCliProvider:
         self.cmd = normalized_cmd
         self.timeout_s = max(1, int(timeout_s))
         self.track_usage = bool(track_usage)
-        self.model = resolve_codex_model(model)
+        self.model = resolve_codex_model(model, cmd=self.cmd)
         if cache_dir is None:
             cache_dir = Path.home() / ".cache" / "cookimport" / "prelabel"
         self.cache_dir = Path(cache_dir)
@@ -90,13 +91,16 @@ class CodexCliProvider:
                 prompt,
             )
 
+        turn_failed_message = self._extract_turn_failed_message(completed)
+        if turn_failed_message:
+            raise RuntimeError(f"Codex command failed: {turn_failed_message}")
         response, usage = self._response_and_usage(completed)
         if completed.returncode != 0:
             allow_nonzero_with_response = self.track_usage and bool(response)
             if not allow_nonzero_with_response:
                 stderr = (completed.stderr or "").strip()
                 stdout = (completed.stdout or "").strip()
-                detail = stderr or stdout or "unknown error"
+                detail = _normalize_codex_error_detail(stderr or stdout or "unknown error")
                 raise RuntimeError(
                     f"Codex command failed (exit={completed.returncode}): {detail}"
                 )
@@ -139,17 +143,10 @@ class CodexCliProvider:
     def _is_plain_codex_command(argv: list[str]) -> bool:
         if len(argv) != 1:
             return False
-        executable = Path(argv[0]).name.lower()
-        return executable in {"codex", "codex.exe"}
+        return _is_codex_executable(argv[0])
 
     def _argv_with_json_events(self, argv: list[str]) -> list[str]:
-        if not self.track_usage:
-            return list(argv)
-        if "--json" in argv:
-            return list(argv)
-        if len(argv) >= 2 and argv[1].lower() in {"exec", "e"}:
-            return [argv[0], argv[1], "--json", *argv[2:]]
-        return [argv[0], "--json", *argv[1:]]
+        return _argv_with_json_events(argv, track_usage=self.track_usage)
 
     def _response_and_usage(
         self, completed: subprocess.CompletedProcess[str]
@@ -208,6 +205,38 @@ class CodexCliProvider:
                 usage[key] = 0
         return usage
 
+    @staticmethod
+    def _extract_turn_failed_message(completed: subprocess.CompletedProcess[str]) -> str | None:
+        streams = [completed.stdout or "", completed.stderr or ""]
+        for stream in streams:
+            for raw_line in stream.splitlines():
+                line = raw_line.strip()
+                if not line or not line.startswith("{"):
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                if payload.get("type") != "turn.failed":
+                    continue
+                error_payload = payload.get("error")
+                if isinstance(error_payload, dict):
+                    message = str(
+                        error_payload.get("message")
+                        or error_payload.get("detail")
+                        or ""
+                    ).strip()
+                    normalized = _normalize_codex_error_detail(message)
+                    if normalized:
+                        return normalized
+                if isinstance(error_payload, str):
+                    normalized = _normalize_codex_error_detail(error_payload)
+                    if normalized:
+                        return normalized
+        return None
+
     def _record_usage(self, usage: Any) -> None:
         normalized = self._normalize_usage(usage)
         if normalized is None:
@@ -229,11 +258,65 @@ class CodexCliProvider:
 
 
 _MODEL_CONFIG_LINE_RE = re.compile(r"^\s*model\s*=\s*['\"]([^'\"]+)['\"]\s*$")
-_CODEX_EXECUTABLES = {"codex", "codex.exe"}
+_CODEX_EXECUTABLES = {"codex", "codex.exe", "codex2", "codex2.exe"}
+_CODEX_ALT_EXECUTABLE_RE = re.compile(r"^codex[0-9]+(?:\.exe)?$")
+_ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
 _PROMPT_TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "llm_pipelines" / "prompts"
 _FULL_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-full.prompt.md"
-_AUGMENT_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-augment.prompt.md"
+_SPAN_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-span.prompt.md"
 _PROMPT_TEMPLATE_CACHE: dict[Path, tuple[int, str]] = {}
+
+PRELABEL_GRANULARITY_BLOCK = "block"
+PRELABEL_GRANULARITY_SPAN = "span"
+_PRELABEL_GRANULARITY_ALIASES = {
+    PRELABEL_GRANULARITY_BLOCK: PRELABEL_GRANULARITY_BLOCK,
+    "legacy": PRELABEL_GRANULARITY_BLOCK,
+    "legacy_block": PRELABEL_GRANULARITY_BLOCK,
+    "legacy_block_based": PRELABEL_GRANULARITY_BLOCK,
+    "legacy,_block_based": PRELABEL_GRANULARITY_BLOCK,
+    "legacy,_block-based": PRELABEL_GRANULARITY_BLOCK,
+    PRELABEL_GRANULARITY_SPAN: PRELABEL_GRANULARITY_SPAN,
+    "actual_freeform": PRELABEL_GRANULARITY_SPAN,
+    "actual_freeform_spans": PRELABEL_GRANULARITY_SPAN,
+}
+
+
+def normalize_prelabel_granularity(value: str | None) -> str:
+    normalized = (value or PRELABEL_GRANULARITY_BLOCK).strip().lower()
+    normalized = normalized.replace("-", "_").replace(" ", "_")
+    resolved = _PRELABEL_GRANULARITY_ALIASES.get(normalized)
+    if resolved is None:
+        raise ValueError(
+            "prelabel_granularity must be one of: block, span "
+            "(aliases: legacy, actual_freeform)."
+        )
+    return resolved
+
+
+def _normalize_codex_error_detail(value: str) -> str:
+    raw = value.strip()
+    if not raw:
+        return ""
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+    if isinstance(payload, dict):
+        for key in ("detail", "message", "error"):
+            candidate = payload.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+    return raw
+
+
+def _argv_with_json_events(argv: list[str], *, track_usage: bool) -> list[str]:
+    if not track_usage:
+        return list(argv)
+    if "--json" in argv:
+        return list(argv)
+    if len(argv) >= 2 and argv[1].lower() in {"exec", "e"}:
+        return [argv[0], argv[1], "--json", *argv[2:]]
+    return [argv[0], "--json", *argv[1:]]
 
 _FULL_PROMPT_TEMPLATE_FALLBACK = """You are labeling cookbook text BLOCKS for a "freeform spans" golden set.
 
@@ -344,24 +427,72 @@ Segment id: {{SEGMENT_ID}}
 Blocks:
 {{BLOCKS_JSON_LINES}}"""
 
-_AUGMENT_PROMPT_TEMPLATE_FALLBACK = """You are labeling cookbook text BLOCKS for an additive annotation pass.
-Return STRICT JSON only.
-Output format exactly:
-[{"block_index": <int>, "label": "<LABEL>"}]
-Mode: augment existing annotations.
-Only return blocks that should receive a NEW additional label.
-Do not return labels that already exist on a block.
-Allowed labels: {{ALLOWED_LABELS}}.
-Only add labels from: {{ADD_LABELS}}.
+_SPAN_PROMPT_TEMPLATE_FALLBACK = """You are labeling cookbook text spans for a "freeform spans" golden set.
+
+GOAL
+- Return only the specific spans that should be labeled.
+- You may return zero, one, or many spans per block.
+- Use only these labels:
+  {{ALLOWED_LABELS}}
+
+RETURN FORMAT (STRICT JSON ONLY)
+Return ONLY a JSON array. No markdown. No commentary.
+Each item must be one of:
+1) quote-anchored span (preferred):
+   {"block_index": <int>, "label": "<LABEL>", "quote": "<exact text from that block>", "occurrence": <int optional, 1-based>}
+2) absolute offset span (advanced fallback):
+   {"label": "<LABEL>", "start": <int>, "end": <int>}
+
+RULES
+- quote text must be copied exactly from block text (case and internal whitespace must match).
+- You may omit leading/trailing spaces in quote.
+- If the quote appears multiple times in the same block, include occurrence.
+- Do not return labels outside the allowed list.
+
 Segment id: {{SEGMENT_ID}}
-Existing labels per block:
-{{EXISTING_LABELS_PER_BLOCK}}
 Blocks:
 {{BLOCKS_JSON_LINES}}"""
 
 
 def _is_codex_executable(executable: str) -> bool:
-    return Path(executable).name.lower() in _CODEX_EXECUTABLES
+    name = Path(executable).name.lower()
+    if name in _CODEX_EXECUTABLES:
+        return True
+    if name in {"codex-farm", "codex-farm.exe"}:
+        return False
+    return bool(_CODEX_ALT_EXECUTABLE_RE.match(name))
+
+
+def _split_command_env_and_argv(cmd: str) -> tuple[dict[str, str], list[str]]:
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        return {}, []
+    if not tokens:
+        return {}, []
+    env_vars: dict[str, str] = {}
+    index = 0
+    if tokens[0] == "env":
+        index = 1
+        while index < len(tokens):
+            token = tokens[index]
+            if token == "--":
+                index += 1
+                break
+            if token.startswith("-"):
+                index += 1
+                continue
+            if not _ENV_ASSIGNMENT_RE.match(token):
+                break
+            key, value = token.split("=", 1)
+            env_vars[key] = value
+            index += 1
+        return env_vars, tokens[index:]
+    while index < len(tokens) and _ENV_ASSIGNMENT_RE.match(tokens[index]):
+        key, value = tokens[index].split("=", 1)
+        env_vars[key] = value
+        index += 1
+    return env_vars, tokens[index:]
 
 
 def _extract_model_from_config_override(value: str) -> str | None:
@@ -373,6 +504,139 @@ def _extract_model_from_config_override(value: str) -> str | None:
         parsed = parsed[1:-1]
     normalized = parsed.strip()
     return normalized or None
+
+
+def _dedupe_paths(paths: list[Path]) -> list[Path]:
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        resolved = path.resolve(strict=False)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(path)
+    return unique
+
+
+def _codex_home_roots(cmd: str | None = None) -> list[Path]:
+    roots: list[Path] = []
+    if cmd:
+        env_vars, argv = _split_command_env_and_argv(cmd)
+        cmd_codex_home = (env_vars.get("CODEX_HOME") or "").strip()
+        if cmd_codex_home:
+            roots.append(Path(cmd_codex_home).expanduser())
+        if argv:
+            executable = Path(argv[0]).name.lower()
+            if _is_codex_executable(executable):
+                stem = executable[:-4] if executable.endswith(".exe") else executable
+                if stem != "codex":
+                    roots.append((Path.home() / f".{stem}").expanduser())
+    env_root = (os.environ.get("CODEX_HOME") or "").strip()
+    if env_root:
+        roots.append(Path(env_root).expanduser())
+    # Default to primary Codex login first, then alt home.
+    roots.extend([Path.home() / ".codex", Path.home() / ".codex-alt"])
+    for path in sorted(Path.home().glob(".codex*")):
+        if path.is_dir():
+            roots.append(path)
+    return _dedupe_paths(roots)
+
+
+def _codex_config_paths(cmd: str | None = None) -> list[Path]:
+    return [root / "config.toml" for root in _codex_home_roots(cmd=cmd)]
+
+
+def _codex_models_cache_paths(cmd: str | None = None) -> list[Path]:
+    return [root / "models_cache.json" for root in _codex_home_roots(cmd=cmd)]
+
+
+def _codex_auth_paths(cmd: str | None = None) -> list[Path]:
+    return [root / "auth.json" for root in _codex_home_roots(cmd=cmd)]
+
+
+def _decode_jwt_claims(token: str) -> dict[str, Any] | None:
+    pieces = token.split(".")
+    if len(pieces) < 2:
+        return None
+    payload = pieces[1].strip()
+    if not payload:
+        return None
+    pad = "=" * (-len(payload) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode((payload + pad).encode("ascii"))
+    except (binascii.Error, UnicodeError):
+        return None
+    try:
+        parsed = json.loads(decoded.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    return None
+
+
+def _claims_email(claims: dict[str, Any]) -> str | None:
+    candidate = claims.get("email")
+    if isinstance(candidate, str) and candidate.strip():
+        return candidate.strip()
+    profile_payload = claims.get("https://api.openai.com/profile")
+    if isinstance(profile_payload, dict):
+        profile_email = profile_payload.get("email")
+        if isinstance(profile_email, str) and profile_email.strip():
+            return profile_email.strip()
+    return None
+
+
+def _claims_plan(claims: dict[str, Any]) -> str | None:
+    auth_payload = claims.get("https://api.openai.com/auth")
+    if isinstance(auth_payload, dict):
+        plan = auth_payload.get("chatgpt_plan_type") or auth_payload.get("plan_type")
+        if isinstance(plan, str) and plan.strip():
+            return plan.strip()
+    return None
+
+
+def codex_account_info(cmd: str | None = None) -> dict[str, str] | None:
+    """Best-effort account identity for a codex command from local auth files."""
+    for auth_path in _codex_auth_paths(cmd=cmd):
+        if not auth_path.exists():
+            continue
+        try:
+            payload = json.loads(auth_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        tokens = payload.get("tokens")
+        if not isinstance(tokens, dict):
+            continue
+        for token_key in ("id_token", "access_token"):
+            raw_token = tokens.get(token_key)
+            if not isinstance(raw_token, str) or not raw_token.strip():
+                continue
+            claims = _decode_jwt_claims(raw_token)
+            if not claims:
+                continue
+            email = _claims_email(claims)
+            if not email:
+                continue
+            info = {"email": email, "auth_path": str(auth_path)}
+            plan = _claims_plan(claims)
+            if plan:
+                info["plan"] = plan
+            return info
+    return None
+
+
+def codex_account_summary(cmd: str | None = None) -> str | None:
+    info = codex_account_info(cmd=cmd)
+    if not info:
+        return None
+    plan = (info.get("plan") or "").strip()
+    email = info.get("email") or ""
+    if not email:
+        return None
+    if plan:
+        return f"{email} ({plan})"
+    return email
 
 
 def _argv_has_model_setting(argv: list[str]) -> bool:
@@ -449,17 +713,13 @@ def codex_model_from_cmd(cmd: str) -> str | None:
     return None
 
 
-def default_codex_model() -> str | None:
+def default_codex_model(cmd: str | None = None) -> str | None:
     """Resolve default codex model from env then Codex config file."""
     env_model = os.environ.get("COOKIMPORT_CODEX_MODEL")
     if env_model and env_model.strip():
         return env_model.strip()
 
-    config_paths = [
-        Path.home() / ".codex-alt" / "config.toml",
-        Path.home() / ".codex" / "config.toml",
-    ]
-    for path in config_paths:
+    for path in _codex_config_paths(cmd=cmd):
         if not path.exists():
             continue
         try:
@@ -476,11 +736,87 @@ def default_codex_model() -> str | None:
     return None
 
 
-def resolve_codex_model(value: str | None) -> str | None:
+def list_codex_models(cmd: str | None = None) -> list[dict[str, str]]:
+    """Read visible Codex model rows from local Codex model cache files."""
+    models: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for cache_path in _codex_models_cache_paths(cmd=cmd):
+        if not cache_path.exists():
+            continue
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        rows = payload.get("models")
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            slug = str(row.get("slug") or "").strip()
+            if not slug or slug in seen:
+                continue
+            visibility = str(row.get("visibility") or "").strip().lower()
+            if visibility and visibility not in {"list", "default"}:
+                continue
+            display_name = str(row.get("display_name") or slug).strip() or slug
+            description = str(row.get("description") or "").strip()
+            models.append(
+                {
+                    "slug": slug,
+                    "display_name": display_name,
+                    "description": description,
+                }
+            )
+            seen.add(slug)
+    return models
+
+
+def resolve_codex_model(value: str | None, *, cmd: str | None = None) -> str | None:
     normalized = (value or "").strip()
     if normalized:
         return normalized
-    return default_codex_model()
+    return default_codex_model(cmd=cmd)
+
+
+def preflight_codex_model_access(*, cmd: str, timeout_s: int = 30) -> None:
+    """Run one Codex probe call and fail fast for invalid model/account access."""
+    normalized_cmd = cmd.strip()
+    if not normalized_cmd:
+        raise RuntimeError("codex command cannot be empty")
+    try:
+        argv = shlex.split(normalized_cmd)
+    except ValueError as exc:
+        raise RuntimeError(f"Unable to parse codex command: {normalized_cmd!r}") from exc
+    if not argv:
+        raise RuntimeError(f"Unable to parse codex command: {normalized_cmd!r}")
+
+    def _run_probe(argv_probe: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            _argv_with_json_events(argv_probe, track_usage=True),
+            input='Return EXACTLY this JSON array and nothing else: []',
+            text=True,
+            capture_output=True,
+            timeout=max(1, int(timeout_s)),
+            check=False,
+        )
+
+    completed = _run_probe(argv)
+    if (
+        completed.returncode != 0
+        and CodexCliProvider._is_stdin_tty_error(completed)
+        and CodexCliProvider._is_plain_codex_command(argv)
+    ):
+        completed = _run_probe([argv[0], "exec", "-"])
+
+    turn_failed_message = CodexCliProvider._extract_turn_failed_message(completed)
+    if turn_failed_message:
+        raise RuntimeError(turn_failed_message)
+    if completed.returncode != 0:
+        stderr = (completed.stderr or "").strip()
+        stdout = (completed.stdout or "").strip()
+        detail = _normalize_codex_error_detail(stderr or stdout or "unknown error")
+        raise RuntimeError(detail)
 
 
 def extract_first_json_value(raw: str) -> Any:
@@ -530,6 +866,81 @@ def parse_block_label_output(raw: str) -> list[dict[str, Any]]:
             continue
         seen.add(key)
         parsed.append({"block_index": block_index, "label": label})
+    return parsed
+
+
+def _parse_optional_occurrence(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        occurrence = int(value)
+    except (TypeError, ValueError):
+        return None
+    if occurrence < 1:
+        return None
+    return occurrence
+
+
+def parse_span_label_output(raw: str) -> list[dict[str, Any]]:
+    """Parse model output into quote-anchored and absolute span selections."""
+    payload = extract_first_json_value(raw)
+    items = _coerce_selection_items(payload)
+    parsed: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for item in items:
+        label_raw = item.get("label") or item.get("tag") or item.get("category")
+        if not label_raw:
+            continue
+        label = normalize_freeform_label(str(label_raw))
+        start_raw = item.get("start")
+        end_raw = item.get("end")
+        if start_raw is not None and end_raw is not None:
+            try:
+                start = int(start_raw)
+                end = int(end_raw)
+            except (TypeError, ValueError):
+                continue
+            key = ("absolute", label, start, end)
+            if key in seen:
+                continue
+            seen.add(key)
+            parsed.append(
+                {
+                    "kind": "absolute",
+                    "label": label,
+                    "start": start,
+                    "end": end,
+                }
+            )
+            continue
+
+        block_index_raw = item.get("block_index")
+        quote_raw = item.get("quote")
+        if quote_raw is None:
+            quote_raw = item.get("text") or item.get("span")
+        if block_index_raw is None or quote_raw is None:
+            continue
+        try:
+            block_index = int(block_index_raw)
+        except (TypeError, ValueError):
+            continue
+        quote = str(quote_raw)
+        if not quote:
+            continue
+        occurrence = _parse_optional_occurrence(item.get("occurrence"))
+        key = ("quote", block_index, label, quote, occurrence)
+        if key in seen:
+            continue
+        seen.add(key)
+        parsed.append(
+            {
+                "kind": "quote",
+                "block_index": block_index,
+                "label": label,
+                "quote": quote,
+                "occurrence": occurrence,
+            }
+        )
     return parsed
 
 
@@ -588,36 +999,6 @@ def _result_key(result_item: dict[str, Any]) -> tuple[str, int, int]:
     return (label, start, end)
 
 
-def merge_annotation_results(
-    base_results: list[dict[str, Any]],
-    new_results: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Merge base + new span results, deduping exact label/range duplicates."""
-    merged: list[dict[str, Any]] = []
-    seen: set[tuple[str, int, int]] = set()
-    for item in [*base_results, *new_results]:
-        if not isinstance(item, dict):
-            continue
-        key = _result_key(item)
-        if key in seen or key[1] < 0:
-            continue
-        seen.add(key)
-        merged.append(item)
-    return merged
-
-
-def select_latest_annotation(task: dict[str, Any]) -> dict[str, Any] | None:
-    """Pick the latest annotation attached to a Label Studio task."""
-    annotations = task.get("annotations") or task.get("completions") or []
-    if not isinstance(annotations, list):
-        return None
-    candidates = [item for item in annotations if isinstance(item, dict)]
-    if not candidates:
-        return None
-    candidates.sort(key=lambda item: item.get("id") or 0)
-    return candidates[-1]
-
-
 def annotation_labels(annotation: dict[str, Any] | None) -> set[str]:
     """Return canonical label names used in an annotation."""
     if not isinstance(annotation, dict):
@@ -661,39 +1042,147 @@ def _build_annotation_result_item(
     }
 
 
-def _annotation_to_block_labels(
+def _find_substring_matches(text: str, needle: str) -> list[tuple[int, int]]:
+    if not needle:
+        return []
+    matches: list[tuple[int, int]] = []
+    cursor = 0
+    while cursor <= len(text) - len(needle):
+        found = text.find(needle, cursor)
+        if found < 0:
+            break
+        matches.append((found, found + len(needle)))
+        cursor = found + 1
+    return matches
+
+
+def _resolve_quote_offsets(
     *,
-    annotation: dict[str, Any] | None,
-    source_map: dict[str, Any],
-) -> dict[int, set[str]]:
-    block_labels: dict[int, set[str]] = {}
-    if not isinstance(annotation, dict):
-        return block_labels
-    for item in annotation.get("result") or []:
-        if not isinstance(item, dict):
+    block_text: str,
+    quote: str,
+    occurrence: int | None,
+) -> tuple[int, int] | None:
+    candidates = [quote]
+    stripped = quote.strip()
+    if stripped and stripped != quote:
+        candidates.append(stripped)
+
+    for needle in candidates:
+        matches = _find_substring_matches(block_text, needle)
+        if not matches:
             continue
-        value = item.get("value")
-        if not isinstance(value, dict):
+        if len(matches) == 1:
+            return matches[0]
+        if occurrence is None:
+            return None
+        if 1 <= occurrence <= len(matches):
+            return matches[occurrence - 1]
+        return None
+    return None
+
+
+def _build_results_for_block_mode(
+    *,
+    selections: list[dict[str, Any]],
+    segment_id: str,
+    segment_text: str,
+    block_map: dict[int, tuple[int, int]],
+    allowed_labels: set[str],
+) -> list[dict[str, Any]]:
+    seen_keys: set[tuple[str, int, int]] = set()
+    generated: list[dict[str, Any]] = []
+    for selection in selections:
+        block_index = int(selection["block_index"])
+        label = normalize_freeform_label(str(selection["label"]))
+        if label not in allowed_labels:
             continue
-        labels = value.get("labels")
-        if not isinstance(labels, list) or not labels:
+        block_offsets = block_map.get(block_index)
+        if block_offsets is None:
             continue
-        label = normalize_freeform_label(str(labels[0]))
-        try:
-            start = int(value.get("start"))
-            end = int(value.get("end"))
-        except (TypeError, ValueError):
+        start, end = block_offsets
+        result_item = _build_annotation_result_item(
+            segment_id=segment_id,
+            segment_text=segment_text,
+            block_index=block_index,
+            start=start,
+            end=end,
+            label=label,
+        )
+        result_key = _result_key(result_item)
+        if result_key in seen_keys:
             continue
-        for touched in map_span_offsets_to_blocks(source_map, start, end):
-            if not isinstance(touched, dict):
-                continue
-            block_index_raw = touched.get("block_index")
+        generated.append(result_item)
+        seen_keys.add(result_key)
+    return generated
+
+
+def _build_results_for_span_mode(
+    *,
+    selections: list[dict[str, Any]],
+    segment_id: str,
+    segment_text: str,
+    block_map: dict[int, tuple[int, int]],
+    allowed_labels: set[str],
+) -> list[dict[str, Any]]:
+    seen_keys: set[tuple[str, int, int]] = set()
+    generated: list[dict[str, Any]] = []
+    for selection in selections:
+        label = normalize_freeform_label(str(selection.get("label") or ""))
+        if label not in allowed_labels:
+            continue
+        kind = str(selection.get("kind") or "")
+        block_index = -1
+        start = -1
+        end = -1
+        if kind == "absolute":
             try:
-                block_index = int(block_index_raw)
+                start = int(selection.get("start"))
+                end = int(selection.get("end"))
             except (TypeError, ValueError):
                 continue
-            block_labels.setdefault(block_index, set()).add(label)
-    return block_labels
+            if start < 0 or end <= start or end > len(segment_text):
+                continue
+        elif kind == "quote":
+            try:
+                block_index = int(selection.get("block_index"))
+            except (TypeError, ValueError):
+                continue
+            block_offsets = block_map.get(block_index)
+            if block_offsets is None:
+                continue
+            block_start, block_end = block_offsets
+            block_text = segment_text[block_start:block_end]
+            quote = str(selection.get("quote") or "")
+            if not quote:
+                continue
+            occurrence = _parse_optional_occurrence(selection.get("occurrence"))
+            resolved = _resolve_quote_offsets(
+                block_text=block_text,
+                quote=quote,
+                occurrence=occurrence,
+            )
+            if resolved is None:
+                continue
+            start = block_start + resolved[0]
+            end = block_start + resolved[1]
+        else:
+            continue
+        if start < 0 or end <= start or end > len(segment_text):
+            continue
+        result_item = _build_annotation_result_item(
+            segment_id=segment_id,
+            segment_text=segment_text,
+            block_index=block_index,
+            start=start,
+            end=end,
+            label=label,
+        )
+        result_key = _result_key(result_item)
+        if result_key in seen_keys:
+            continue
+        generated.append(result_item)
+        seen_keys.add(result_key)
+    return generated
 
 
 def _load_prompt_template(path: Path, *, fallback: str) -> str:
@@ -727,9 +1216,7 @@ def _build_prompt(
     *,
     task: dict[str, Any],
     allowed_labels: set[str],
-    mode: str,
-    augment_only_labels: set[str] | None,
-    base_annotation: dict[str, Any] | None,
+    prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
 ) -> str:
     data = task.get("data") if isinstance(task, dict) else {}
     if not isinstance(data, dict):
@@ -771,29 +1258,14 @@ def _build_prompt(
     ]
     allowed_labels_text = ", ".join(ordered_allowed_labels)
     blocks_json_lines = "\n".join(lines)
-    if mode == "augment":
-        augment_set = set(augment_only_labels or [])
-        add_labels = [label for label in FREEFORM_LABELS if label in augment_set]
-        existing = _annotation_to_block_labels(
-            annotation=base_annotation,
-            source_map=source_map,
-        )
-        existing_rows = (
-            "\n".join(
-                f"- block_index={block_index}: {sorted(labels)}"
-                for block_index, labels in sorted(existing.items())
-            )
-            if existing
-            else "(none)"
-        )
+    normalized_granularity = normalize_prelabel_granularity(prelabel_granularity)
+    if normalized_granularity == PRELABEL_GRANULARITY_SPAN:
         return _render_prompt_template(
-            path=_AUGMENT_PROMPT_TEMPLATE_PATH,
-            fallback=_AUGMENT_PROMPT_TEMPLATE_FALLBACK,
+            path=_SPAN_PROMPT_TEMPLATE_PATH,
+            fallback=_SPAN_PROMPT_TEMPLATE_FALLBACK,
             replacements={
                 "{{ALLOWED_LABELS}}": allowed_labels_text,
-                "{{ADD_LABELS}}": ", ".join(add_labels) if add_labels else "(none)",
                 "{{SEGMENT_ID}}": segment_id,
-                "{{EXISTING_LABELS_PER_BLOCK}}": existing_rows,
                 "{{BLOCKS_JSON_LINES}}": blocks_json_lines,
             },
         )
@@ -824,14 +1296,9 @@ def prelabel_freeform_task(
     *,
     provider: LlmProvider,
     allowed_labels: set[str] | None = None,
-    mode: str = "full",
-    augment_only_labels: set[str] | None = None,
-    base_annotation: dict[str, Any] | None = None,
+    prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
 ) -> dict[str, Any] | None:
-    """Generate one Label Studio annotation from LLM block-label suggestions."""
-    if mode not in {"full", "augment"}:
-        raise ValueError("mode must be 'full' or 'augment'")
-
+    """Generate one Label Studio annotation from LLM prelabel suggestions."""
     normalized_allowed = {
         normalize_freeform_label(label)
         for label in (allowed_labels or set(FREEFORM_ALLOWED_LABELS))
@@ -841,15 +1308,7 @@ def prelabel_freeform_task(
     }
     if not normalized_allowed:
         raise ValueError("allowed_labels cannot be empty")
-
-    normalized_augment_only: set[str] | None = None
-    if augment_only_labels is not None:
-        normalized_augment_only = {
-            normalize_freeform_label(label) for label in augment_only_labels
-        }
-        normalized_augment_only &= normalized_allowed
-        if not normalized_augment_only:
-            return None
+    normalized_granularity = normalize_prelabel_granularity(prelabel_granularity)
 
     segment_id, segment_text, _source_blocks = _extract_task_data(task)
     block_map = _build_block_map(task)
@@ -859,90 +1318,48 @@ def prelabel_freeform_task(
     prompt = _build_prompt(
         task=task,
         allowed_labels=normalized_allowed,
-        mode=mode,
-        augment_only_labels=normalized_augment_only,
-        base_annotation=base_annotation,
+        prelabel_granularity=normalized_granularity,
     )
     prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
 
     raw = provider.complete(prompt)
-    selections = parse_block_label_output(raw)
-    if not selections:
-        return None
-
-    existing_results = (
-        list(base_annotation.get("result") or [])
-        if isinstance(base_annotation, dict)
-        else []
-    )
-    existing_keys = {_result_key(item) for item in existing_results if isinstance(item, dict)}
-    generated: list[dict[str, Any]] = []
-    for selection in selections:
-        block_index = int(selection["block_index"])
-        label = normalize_freeform_label(str(selection["label"]))
-        if label not in normalized_allowed:
-            continue
-        if mode == "augment" and normalized_augment_only is not None:
-            if label not in normalized_augment_only:
-                continue
-        block_offsets = block_map.get(block_index)
-        if block_offsets is None:
-            continue
-        start, end = block_offsets
-        result_item = _build_annotation_result_item(
+    if normalized_granularity == PRELABEL_GRANULARITY_SPAN:
+        selections = parse_span_label_output(raw)
+        generated = _build_results_for_span_mode(
+            selections=selections,
             segment_id=segment_id,
             segment_text=segment_text,
-            block_index=block_index,
-            start=start,
-            end=end,
-            label=label,
+            block_map=block_map,
+            allowed_labels=normalized_allowed,
         )
-        result_key = _result_key(result_item)
-        if result_key in existing_keys:
-            continue
-        generated.append(result_item)
-        existing_keys.add(result_key)
+    else:
+        selections = parse_block_label_output(raw)
+        generated = _build_results_for_block_mode(
+            selections=selections,
+            segment_id=segment_id,
+            segment_text=segment_text,
+            block_map=block_map,
+            allowed_labels=normalized_allowed,
+        )
 
     if not generated:
         return None
 
-    meta: dict[str, Any] = {
-        "cookimport_prelabel": True,
-        "mode": mode,
-        "provider": provider.__class__.__name__,
-        "prompt_hash": prompt_hash,
-    }
-    if normalized_augment_only:
-        meta["added_labels"] = sorted(normalized_augment_only)
     return {
         "result": generated,
-        "meta": meta,
+        "meta": {
+            "cookimport_prelabel": True,
+            "mode": "full",
+            "provider": provider.__class__.__name__,
+            "prompt_hash": prompt_hash,
+            "granularity": normalized_granularity,
+        },
     }
-
-
-def annotation_is_cookimport_augment(
-    annotation: dict[str, Any] | None,
-    *,
-    requested_labels: set[str],
-) -> bool:
-    """Return True when annotation metadata indicates this exact augment pass ran."""
-    if not isinstance(annotation, dict):
-        return False
-    meta = annotation.get("meta")
-    if not isinstance(meta, dict):
-        return False
-    if not meta.get("cookimport_prelabel"):
-        return False
-    if str(meta.get("mode") or "") != "augment":
-        return False
-    labels = meta.get("added_labels")
-    if not isinstance(labels, list):
-        return False
-    normalized = {normalize_freeform_label(str(item)) for item in labels}
-    wanted = {normalize_freeform_label(item) for item in requested_labels}
-    return wanted.issubset(normalized)
 
 
 def default_codex_cmd() -> str:
-    """Resolve default codex command used by prelabel/decorate flows."""
-    return os.environ.get("COOKIMPORT_CODEX_CMD", "codex exec -")
+    """Resolve default codex command used by prelabel flows."""
+    explicit = (os.environ.get("COOKIMPORT_CODEX_CMD") or "").strip()
+    if explicit:
+        return explicit
+    return "codex exec -"

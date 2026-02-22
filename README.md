@@ -1,5 +1,85 @@
 # Recipe Import (cookimport)
 
+## Full Processing Flowchart (File Types + Label Studio)
+
+```text
+START
+|-- Put source(s) in `data/input/`
+|   |-- Interactive mode: top-level files only
+|   `-- `cookimport stage <folder>`: recursive scan
+|-- Launch
+|   |-- Interactive menu: `C3imp` (or `C3imp <N>` for a test-limit run)
+|   `-- Direct CLI: `cookimport <command>`
+|
+|-- Choose workflow
+|   |-- A) Stage/import pipeline (writes cookbook outputs)
+|   |   |-- File selection: Import All / one file
+|   |   |-- Run settings mode: global defaults / last import / one-run custom
+|   |   |-- Optional runtime toggles: warm models, OCR device, EPUB extractor, split sizes/workers, optional codex-farm recipe/knowledge passes
+|   |   `-- Per-file execution path
+|   |       |-- `.xlsx` / `.xlsm` (Excel importer)
+|   |       |   `-- single conversion -> write intermediate/final/tips/chunks/raw/report
+|   |       |-- `.txt` / `.md` / `.markdown` / `.docx` (Text importer)
+|   |       |   `-- single conversion -> write outputs
+|   |       |-- `.paprikarecipes` (Paprika importer)
+|   |       |   `-- single conversion -> write outputs
+|   |       |-- `.json` with RecipeSage shape (RecipeSage importer)
+|   |       |   `-- single conversion -> write outputs
+|   |       |-- `.pdf` (PDF importer)
+|   |       |   |-- Split eligible? (`pdf_split_workers > 1`, `pdf_pages_per_job > 0`, multi-range plan)
+|   |       |   |   |-- yes -> parallel page-range jobs -> merge -> reassign IDs -> merge raw -> write once
+|   |       |   |   `-- no  -> single conversion -> write once
+|   |       |   `-- OCR path (`auto`/`cpu`/`cuda`/`mps`) used when scanned/image pages need OCR
+|   |       `-- `.epub` (EPUB importer)
+|   |           |-- Extractor requested: `unstructured` | `legacy` | `markdown` | `auto` | `markitdown`
+|   |           |   |-- `auto` -> deterministic pre-selection -> effective extractor + auto artifact
+|   |           |   `-- effective extractor runs
+|   |           |-- Split eligible?
+|   |           |   |-- `unstructured` / `legacy` / `markdown` + split settings -> parallel spine jobs -> merge
+|   |           |   `-- `markitdown` -> whole-book conversion (no spine split)
+|   |           `-- write outputs + report (auto-selection fields when auto is used)
+|   |
+|   |-- B) EPUB debug race (EPUB only)
+|   |   `-- choose EPUB -> choose output folder -> choose candidate extractors -> race report
+|   |
+|   |-- C) Label Studio: create labeling tasks (uploads)
+|   |   |-- choose file -> project name (blank auto-name) -> overwrite existing project
+|   |   |-- choose task scope
+|   |   |   |-- `pipeline` -> chunk level: `both` / `structural` / `atomic`
+|   |   |   |-- `canonical-blocks` -> context window (`0..N` blocks)
+|   |   |   `-- `freeform-spans`
+|   |   |       |-- segment size + overlap
+|   |   |       `-- AI prelabel mode
+|   |   |           |-- off
+|   |   |           |-- strict/allow-partial annotations
+|   |   |           |-- strict/allow-partial predictions
+|   |   |           `-- if enabled: prelabel granularity = `span` (actual freeform) or `block` (legacy)
+|   |   |-- conversion under the hood uses the same importer/file-type branches as Stage (including PDF/EPUB split and EPUB extractor logic)
+|   |   |-- credentials resolution: env -> `cookimport.json` -> prompt/save
+|   |   `-- uploads tasks and writes artifacts (`manifest.json`, tasks JSONL, coverage, extracted files, prelabel reports if used)
+|   |
+|   |-- D) Label Studio: export completed labels
+|   |   |-- choose project (or type project name)
+|   |   |-- scope auto-detected when possible; else prompt: `pipeline` / `canonical-blocks` / `freeform-spans`
+|   |   `-- write export artifacts by scope
+|   |       |-- pipeline -> `labeled_chunks.jsonl`, `golden_set_tip_eval.jsonl`, `summary.json`
+|   |       |-- canonical-blocks -> `canonical_block_labels.jsonl`, `canonical_gold_spans.jsonl`, `summary.json`
+|   |       `-- freeform-spans -> `freeform_span_labels.jsonl`, `freeform_segment_manifest.jsonl`, `summary.json`
+|   |
+|   |-- E) Evaluate predictions vs freeform gold
+|   |   |-- eval-only: pick existing gold + prediction run -> `labelstudio-eval` (no upload)
+|   |   `-- upload path: generate fresh predictions + upload + evaluate
+|   |       `-- CLI-only extra permutation: `--no-upload` (fully offline benchmark path)
+|   |
+|   `-- F) Generate dashboard
+|       `-- build lifetime HTML dashboard from output history
+|
+`-- Output roots
+    |-- Stage/import runs: `data/output/<YYYY-MM-DD_HH.MM.SS>/`
+    |-- Label Studio import/benchmark prediction runs: `data/golden/<YYYY-MM-DD_HH.MM.SS>/labelstudio/<book_slug>/`
+    `-- Label Studio exports: `data/golden/<project_slug>/exports/`
+```
+
 > README goal (for humans and future AIs editing this file)
 >
 > Keep this README as a simple, step-by-step, non-coder walkthrough for setting up, running, and tweaking an import pipeline.

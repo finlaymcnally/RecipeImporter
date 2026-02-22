@@ -85,4 +85,30 @@ def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]
             "ingredient_step_mapping": {},
             "warnings": [],
         }
+    if pipeline_id == "recipe.knowledge.v1":
+        chunk = payload.get("chunk") or {}
+        chunk_id = chunk.get("chunk_id")
+        chunk_blocks = chunk.get("blocks") or []
+        first_block = chunk_blocks[0] if isinstance(chunk_blocks, list) and chunk_blocks else {}
+        block_index = first_block.get("block_index", 0)
+        block_text = str(first_block.get("text") or "").strip()
+        quote = block_text[:80].strip() or "evidence"
+        return {
+            "bundle_version": "1",
+            "chunk_id": chunk_id,
+            "is_useful": True,
+            "snippets": [
+                {
+                    "title": None,
+                    "body": "Fake knowledge snippet.",
+                    "tags": ["fake-runner"],
+                    "evidence": [
+                        {
+                            "block_index": block_index,
+                            "quote": quote,
+                        }
+                    ],
+                }
+            ],
+        }
     raise ValueError(f"Unsupported fake pipeline id: {pipeline_id}")

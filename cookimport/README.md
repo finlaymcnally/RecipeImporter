@@ -24,7 +24,7 @@ to scan a folder and write schema.org Recipe JSON under
 report JSON files at the run root (`data/output/<timestamp>/<workbook>.excel_import_report.json`).
 During `cookimport stage`, the CLI shows a per-worker status panel that refreshes
 about every 5 seconds with the latest progress message.
-Callback-driven spinners (Label Studio import/decorate, benchmark import, bench
+Callback-driven spinners (Label Studio import, benchmark import, bench
 run/sweep) now append elapsed seconds after about 10 seconds on the same phase
 message so long-running steps remain visibly active.
 Interactive `C3imp`/`cookimport` menu `select` prompts now support Backspace as a

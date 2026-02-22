@@ -56,8 +56,6 @@ Legend:
   |
   +--> [F] Label Studio export ------------> run_labelstudio_export(...) -> [C]
   |
-  +--> [G] Label Studio decorate ----------> run_labelstudio_decorate(...) -> [C]
-  |
   +--> [H] Benchmark vs freeform gold
   |       +--> [H1] Eval-only -------------> labelstudio-eval -----------> [C]
   |       `--> [H2] Upload ----------------> labelstudio-benchmark ------> [C]
@@ -94,7 +92,6 @@ Menu options:
 - `Label Studio: create labeling tasks (uploads)`
 - `EPUB debug: race extractors on one file`
 - `Label Studio: export completed labels to golden artifacts`
-- `Label Studio: decorate existing freeform project with AI spans`
 - `Evaluate predictions vs freeform gold (re-score or generate)`
 - `Generate dashboard - build lifetime stats dashboard HTML`
 - `Settings - tune worker/OCR/output defaults`
@@ -203,13 +200,14 @@ Developer note:
 4. Scope-specific prompts:
    - `pipeline`: choose `chunk_level` (`both`, `structural`, `atomic`).
    - `canonical-blocks`: enter `context_window` (integer `>= 0`).
-   - `freeform-spans`: enter `segment_blocks` (integer `>= 1`) and `segment_overlap` (integer `>= 0`), then choose AI prelabel mode (`off`, strict/allow-partial annotations, or advanced predictions mode variants).
+   - `freeform-spans`: enter `segment_blocks` (integer `>= 1`) and `segment_overlap` (integer `>= 0`), then choose AI prelabel mode (`off`, strict/allow-partial annotations, or advanced predictions mode variants). If prelabel is enabled, interactive mode then asks for labeling style (`actual freeform` span mode vs `legacy, block based` mode), uses the resolved Codex command (`COOKIMPORT_CODEX_CMD` or `codex exec -`), shows the resolved account email when available, then prompts for model (`use default`, discovered models from that command's Codex home / `CODEX_HOME`, or custom model id).
 5. Enter Label Studio URL and API key if needed.
    - If `LABEL_STUDIO_URL` and `LABEL_STUDIO_API_KEY` are set, prompts are skipped.
    - Otherwise, interactive mode uses saved `cookimport.json` values when present.
    - If still missing, you are prompted once and the entered values are saved to `cookimport.json` for future interactive runs.
 6. The tool builds tasks on your machine.
    - It prepares text/chunk or block/segment tasks based on your scope choice.
+   - Before per-task AI labeling starts, it runs a single Codex model-access preflight call and fails fast when the selected model/account combination is invalid.
    - A status spinner shows live phase updates with `task X/Y` progress for known-size loops (including freeform prelabeling when AI prelabel is enabled).
    - It writes run files under `data/golden`:
    - `label_studio_tasks.jsonl`
@@ -222,7 +220,7 @@ Developer note:
    - Upload is batched in groups of 200 tasks.
    - `manifest.json` is updated with project ID, upload count, and project URL.
 8. Review the summary shown in terminal.
-   - You get a quick recap of project/tasks/run location.
+   - You get a quick recap of project/tasks/run location, including total processing time.
    - If AI prelabel was enabled for `freeform-spans`, the summary also prints `prelabel_report.json`.
 9. Interactive mode returns to the main menu after the flow completes.
 
@@ -244,19 +242,6 @@ Developer note:
    - By default, export writes to: `data/golden/<project_slug>/exports/`.
    - If `--run-dir` is supplied in non-interactive mode, export writes to that run directory.
 6. Prints export summary path and returns to the main menu.
-
-### [G] Label Studio Decorate Flow
-
-Use this to add AI spans to an existing freeform project without replacing prior annotations.
-
-1. Choose an existing Label Studio project from the project picker.
-2. If project type is not detected as `freeform-spans`, interactive mode warns and asks if you want to continue anyway.
-3. Pick one or more labels to add (default checked: `YIELD_LINE`, `TIME_LINE`).
-4. Choose dry-run or write mode.
-   - Dry-run is default and writes only a report.
-   - Write mode creates new merged annotations in Label Studio.
-5. Review the summary (`tasks_total`, created/would-create, failures) and report path.
-6. Returns to the main menu.
 
 ### [H] Benchmark vs Freeform Gold Flow
 
@@ -325,7 +310,6 @@ Top-level command groups:
 - `cookimport inspect`
 - `cookimport labelstudio-import`
 - `cookimport labelstudio-export`
-- `cookimport labelstudio-decorate`
 - `cookimport labelstudio-eval`
 - `cookimport labelstudio-benchmark`
 - `cookimport perf-report`
@@ -348,7 +332,6 @@ cookimport perf-report --help
 cookimport inspect --help
 cookimport labelstudio-import --help
 cookimport labelstudio-export --help
-cookimport labelstudio-decorate --help
 cookimport labelstudio-eval --help
 cookimport labelstudio-benchmark --help
 ```
@@ -548,6 +531,7 @@ Options:
 - `--prelabel-timeout-seconds INTEGER>=1` (default `120`): timeout per provider call.
 - `--prelabel-cache-dir PATH`: optional prompt/response cache directory.
 - `--prelabel-upload-as TEXT` (default `annotations`): `annotations|predictions`.
+- `--prelabel-granularity TEXT` (default `block`): `block|span` (`block` = legacy, block based; `span` = actual freeform).
 - `--prelabel-allow-partial / --no-prelabel-allow-partial` (default disabled): continue upload when some prelabels fail.
 
 Prelabel behavior notes:
@@ -570,25 +554,6 @@ Options:
 - `--export-scope TEXT` (default `pipeline`): `pipeline|canonical-blocks|freeform-spans`.
 - `--label-studio-url TEXT`: explicit Label Studio URL.
 - `--label-studio-api-key TEXT`: explicit Label Studio API key.
-
-### `cookimport labelstudio-decorate`
-
-Decorates existing freeform projects with additive LLM-generated labels (creates a new merged annotation, does not overwrite old ones).
-
-Options:
-
-- `--project-name TEXT` (required): Label Studio project name.
-- `--output-dir PATH` (default `data/golden`): output root for decorate reports.
-- `--task-scope TEXT` (default `freeform-spans`): currently only `freeform-spans`.
-- `--add-labels TEXT` (required): comma-separated labels to add (example: `YIELD_LINE,TIME_LINE`).
-- `--label-studio-url TEXT`: explicit Label Studio URL.
-- `--label-studio-api-key TEXT`: explicit Label Studio API key.
-- `--prelabel-provider TEXT` (default `codex-cli`): provider backend.
-- `--codex-cmd TEXT`: override Codex CLI command (defaults to `COOKIMPORT_CODEX_CMD` or `codex exec -`).
-- `--prelabel-timeout-seconds INTEGER>=1` (default `120`): timeout per provider call.
-- `--prelabel-cache-dir PATH`: optional prompt/response cache directory.
-- `--no-write` (default `false`): dry-run report only; no annotation writes.
-- `--allow-labelstudio-write / --no-allow-labelstudio-write` (default disabled): required unless `--no-write` is set.
 
 ### `cookimport labelstudio-eval SCOPE`
 

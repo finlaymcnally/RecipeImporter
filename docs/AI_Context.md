@@ -47,7 +47,6 @@ From `pyproject.toml`:
 - `inspect`
 - `labelstudio-import`
 - `labelstudio-export`
-- `labelstudio-decorate`
 - `labelstudio-eval`
 - `debug-epub-extract`
 - `labelstudio-benchmark`
@@ -173,11 +172,10 @@ All run-producing paths now rely on `run_manifest.json` as a stable traceability
 - `canonical-blocks`
 - `freeform-spans`
 
-### 6.2 Freeform AI prelabel and decorate
+### 6.2 Freeform AI prelabel
 
-- prelabel/decorate runs use local Codex CLI invocation (`codex exec -`) via `cookimport/labelstudio/prelabel.py`.
+- prelabel runs use local Codex CLI invocation (`codex exec -`) via `cookimport/labelstudio/prelabel.py`.
 - token usage tracking is implemented and persisted in report artifacts.
-- decorate path is additive (does not overwrite existing annotations in place).
 
 ### 6.3 Evaluation and offline suite
 
@@ -214,7 +212,7 @@ Important clarification:
 ## 9. LLM Boundary (current)
 
 - `cookimport/llm/repair.py` and `cookimport/llm/client.py` still exist as optional/legacy repair plumbing; `LLMClient` provider path remains mock-backed.
-- active operational LLM usage today is concentrated in Label Studio freeform prelabel/decorate flows (Codex CLI).
+- active operational LLM usage today is concentrated in Label Studio freeform prelabel flows (Codex CLI).
 - deterministic extraction is still the default stage pipeline behavior.
 
 ## 10. Current Health Snapshot (review run on 2026-02-22)
@@ -250,7 +248,7 @@ cookimport/
 ├── plugins/                  # Importers (excel/text/pdf/epub/paprika/recipesage)
 ├── parsing/                  # Signals, ingredient parsing, tips, chunks, EPUB helpers
 ├── staging/                  # JSON-LD + draft writers and output stats
-├── labelstudio/              # Import/export/eval/prelabel/decorate
+├── labelstudio/              # Import/export/eval/prelabel
 ├── analytics/                # perf history + dashboard collection/render
 ├── bench/                    # Offline benchmark suite tooling
 ├── tagging/                  # Tag catalog + suggestion/apply pipelines

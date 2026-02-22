@@ -1,7 +1,7 @@
 ---
-summary: "ExecPlan and implementation record for Codex-CLI freeform prelabeling plus additive Label Studio decorate workflows."
+summary: "ExecPlan and implementation record for Codex-CLI freeform prelabeling (decorate removed 2026-02-22)."
 read_when:
-  - "When implementing or debugging freeform prelabel/decorate behavior"
+  - "When implementing or debugging freeform prelabel behavior"
   - "When changing Label Studio import payload semantics for completed annotations"
 ---
 
@@ -16,13 +16,12 @@ Maintain this plan in accordance with `PLANS.md` at the repository root (the “
 
 Today, creating a freeform-spans “golden set” in Label Studio is slow because every segment must be manually highlighted and labeled. After this change, a developer can run `cookimport labelstudio-import ... --task-scope freeform-spans --prelabel` and get a Label Studio project where tasks already contain completed annotations (created via the API), so opening Label Studio is mostly review and correction instead of first-pass labeling.
 
-We also need a “decorate” path for existing projects: if a human already labeled tasks and later the label set expands (or we just want an LLM to add missing label types), we can run a CLI command that fetches existing tasks/annotations and creates a new “augmented” annotation per task that merges the prior human work with the LLM’s additional spans.
+Update (2026-02-22): `labelstudio-decorate` / augment mode was removed from runtime; this plan remains as a historical record of the original design.
 
 You can see it working when:
 
 - Label Studio shows a freeform-spans project where most tasks are already marked completed, and opening a task shows pre-highlighted spans.
 - Running `cookimport labelstudio-export --export-scope freeform-spans` on that project produces the normal golden artifacts (`freeform_span_labels.jsonl`, `freeform_segment_manifest.jsonl`) without crashing.
-- Running the new “decorate” command against an existing project creates new annotations that include newly-added label types (for example `YIELD_LINE`, `TIME_LINE`) without deleting prior human annotations.
 
 
 ## Progress

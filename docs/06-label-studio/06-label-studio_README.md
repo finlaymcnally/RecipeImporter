@@ -41,14 +41,13 @@ CLI commands:
 
 - `cookimport labelstudio-import`
 - `cookimport labelstudio-export`
-- `cookimport labelstudio-decorate`
 - `cookimport labelstudio-eval`
 - `cookimport labelstudio-benchmark`
 
 Default output roots:
 
 - Non-interactive Label Studio commands default `--output-dir` to `data/golden`.
-- Interactive menu (`cookimport` with no subcommand) still uses `cookimport.json.output_dir` for stage output, but routes Label Studio import/export/decorate/benchmark artifact roots to `data/golden`.
+- Interactive menu (`cookimport` with no subcommand) still uses `cookimport.json.output_dir` for stage output, but routes Label Studio import/export/benchmark artifact roots to `data/golden`.
 - Benchmark also writes stage-style processed cookbook outputs to `data/output` by default via `--processed-output-dir`.
 
 ### 1.3 Write safety and consent
@@ -57,18 +56,18 @@ Uploads are intentionally gated.
 
 - Non-interactive:
   - `labelstudio-import` requires `--allow-labelstudio-write`.
-  - `labelstudio-decorate` requires `--allow-labelstudio-write` unless `--no-write` dry-run mode is used.
   - `labelstudio-benchmark` requires `--allow-labelstudio-write` only in upload mode.
   - `labelstudio-benchmark --no-upload` is fully offline and skips credential resolution + upload.
   - Otherwise they fail fast.
 - Interactive:
   - `labelstudio` import proceeds directly to upload (no separate upload confirmation prompt).
   - `labelstudio` import always uses overwrite semantics for resolved project names (`overwrite=True`, `resume=False`); there is no overwrite/resume chooser in this flow.
-  - Interactive freeform import includes an AI prelabel mode picker (off, strict/allow-partial annotations, advanced predictions modes) and prints `prelabel_report.json` when prelabel is enabled.
-  - Interactive freeform import also includes a Codex model picker (`use default`, `gpt-5.3-codex`, `custom`); token usage tracking is always enabled for AI labeling runs.
-  - Interactive `labelstudio_decorate` defaults to dry-run and only writes annotations after explicit write confirmation.
-  - benchmark upload does not ask a second confirmation; choosing upload mode is treated as explicit intent.
-  - benchmark supports eval-only fallback (no upload) in interactive flow.
+  - Interactive freeform import includes an AI prelabel mode picker (off, strict/allow-partial annotations, advanced predictions modes), then a style picker (`actual freeform` span mode vs `legacy, block based` mode), prints total processing time in the import summary, and prints `prelabel_report.json` when prelabel is enabled.
+  - Interactive freeform prelabel does not prompt for command selection; it resolves command from `COOKIMPORT_CODEX_CMD` or `codex exec -`, displays the resolved account email when available, then prompts for model using metadata from that command's Codex home cache (`CODEX_HOME` honored).
+  - Token usage tracking is always enabled for AI labeling runs.
+- benchmark upload does not ask a second confirmation; choosing upload mode is treated as explicit intent.
+- benchmark supports eval-only fallback (no upload) in interactive flow.
+- benchmark upload auto-recovers from project scope collisions when project name is auto-generated: if an existing project+manifest resolves to a different task scope, it creates a deduped project name instead of failing interactive flow.
 
 Non-interactive overwrite/resume behavior is unchanged:
 - `cookimport labelstudio-import` still exposes `--overwrite / --resume`.
@@ -98,6 +97,8 @@ Resume behavior:
 
 - prior manifests and/or prior `label_studio_tasks.jsonl` are scanned,
 - already-seen IDs are skipped.
+- resume metadata is only applied when the target Label Studio project already exists; if a new project is created for this run, stale local manifests are ignored.
+- benchmark upload passes `auto_project_name_on_scope_mismatch=True`, so auto-named benchmark projects that collide with existing freeform/canonical scope names are auto-suffixed (`-1`, `-2`, ...).
 
 ### 1.5 Label configs (actual current sets)
 
@@ -142,13 +143,13 @@ Freeform export produces:
 
 Freeform span rows include offsets, label, touched block mapping, annotator/timestamp, and deterministic `span_id`.
 
-### 1.6.1 Freeform prelabel/decorate contracts
+### 1.6.1 Freeform prelabel contracts
 
 - `labelstudio-import --task-scope freeform-spans --prelabel` can attach completed freeform annotations before upload.
-- Prelabel offset generation is block-index based and deterministic:
-  - LLM output -> `{block_index, label}`
-  - block index -> char offsets from `data.source_map.blocks[*].segment_start/end`
-  - no whitespace normalization is allowed in this path.
+- Prelabel supports two granularity modes (`--prelabel-granularity block|span`, interactive style picker):
+  - `block` (legacy, block based): LLM output `{block_index, label}` -> full-block span.
+  - `span` (actual freeform): LLM output quote-anchored spans (`{block_index, label, quote, occurrence?}`) and optional absolute spans (`{label, start, end}`) resolved deterministically to exact offsets.
+  - no whitespace normalization is allowed in either mode.
 - Import upload mode `--prelabel-upload-as`:
   - `annotations` (default): attempts inline completed annotations in import payload.
   - `predictions`: uploads model predictions instead of completed annotations.
@@ -158,20 +159,15 @@ Freeform span rows include offsets, label, touched block mapping, annotator/time
 - Prelabel artifacts written in run root:
   - `prelabel_report.json`
   - `prelabel_errors.jsonl`
+- Prelabel performs a single Codex model-access preflight probe before task labeling so invalid model/account combinations fail once up front instead of repeating task-level failures.
 - Progress callbacks now report `Running freeform prelabeling... task X/Y` so CLI spinners show per-task progress while AI labels are generated.
 - CLI status wrappers now add a live elapsed suffix (for example `(17s)`) after ~10 seconds with no phase-message change, so long steps remain visibly active instead of appearing stuck.
-- Codex CLI invocation for prelabel/decorate defaults to non-interactive `codex exec -`; plain `codex` values auto-retry with `exec -` when stderr reports `stdin is not a terminal`.
-- Prelabel/decorate runs accept explicit model selection via `--codex-model`; when omitted they resolve model from `COOKIMPORT_CODEX_MODEL` then Codex config (`~/.codex-alt/config.toml`, `~/.codex/config.toml`).
-- Token usage tracking is always enabled for prelabel/decorate runs, using Codex JSON event parsing to record aggregate `input_tokens`, `cached_input_tokens`, and `output_tokens` in run reports.
-- `labelstudio-decorate`:
-  - fetches existing tasks/annotations from a freeform project,
-  - requests additive labels only (for `--add-labels`),
-  - creates a new merged annotation (base spans preserved, new spans added),
-  - writes local report artifacts:
-    - `decorate_report.json`
-    - `decorate_errors.jsonl`
-  - supports dry-run mode via `--no-write`.
-  - progress callbacks report `Decorating freeform tasks... task X/Y` while scanning tasks.
+- Codex CLI invocation for prelabel uses non-interactive `... exec -`; plain `codex`/`codex2` values auto-retry with `exec -` when stderr reports `stdin is not a terminal`.
+- Default Codex command resolution is: `--codex-cmd` -> `COOKIMPORT_CODEX_CMD` -> `codex exec -`.
+- Prelabel runs accept explicit model selection via `--codex-model`; when omitted they resolve model from `COOKIMPORT_CODEX_MODEL` then Codex config (`~/.codex/config.toml`, `~/.codex-alt/config.toml`).
+- Prelabel model/config/cache discovery is command-aware: it resolves from the selected command's Codex home roots rather than assuming one global login.
+- Provider errors reported via Codex JSON events (`turn.failed`) are treated as hard failures and recorded with their normalized provider detail (for example unsupported model/account messages) instead of generic "no labels" parse failures.
+- Token usage tracking is always enabled for prelabel runs, using Codex JSON event parsing to record aggregate `input_tokens`, `cached_input_tokens`, and `output_tokens` in run reports (`prelabel_report.json` also records resolved command/account metadata).
 
 #### 1.6.1.1 Prompt, parsing, and context management (code-verified)
 
@@ -193,12 +189,12 @@ Where it happens:
 
 **What the model is asked to do (the literal prompt template):**
 
-Built in `cookimport/labelstudio/prelabel.py:_build_prompt(...)`, but the text now comes from file-backed templates in `llm_pipelines/prompts/`:
+Built in `cookimport/labelstudio/prelabel.py:_build_prompt(...)`. Prompt text is loaded from file-backed templates in `llm_pipelines/prompts/`:
 
 - `freeform-prelabel-full.prompt.md`
-- `freeform-prelabel-augment.prompt.md`
+- `freeform-prelabel-span.prompt.md`
 
-This makes prompt iteration text-only: edit those files and rerun prelabel/decorate.
+This makes full-mode prompt iteration text-only: edit the file and rerun prelabel.
 Runtime replaces placeholders such as `{{SEGMENT_ID}}` and `{{BLOCKS_JSON_LINES}}` per task.
 If files are missing/empty, runtime falls back to built-in defaults.
 
@@ -211,29 +207,82 @@ Blocks:
 {{BLOCKS_JSON_LINES}}
 ```
 
-Decorate (“augment”) mode adds extra instructions + current labels per block to the same one-shot prompt:
-
-```text
-Mode: augment existing annotations.
-Only return blocks that should receive a NEW additional label.
-Do not return labels that already exist on a block.
-Only add labels from: KNOWLEDGE, RECIPE_NOTES.
-Existing labels per block:
-- block_index=12: ['INGREDIENT_LINE']
-- block_index=13: ['INSTRUCTION_LINE']
-```
-
 **Output parsing (tolerant, but prompt asks for strict JSON):**
 
 - The parser extracts the first JSON array/object embedded anywhere in stdout (`extract_first_json_value(...)`), then accepts a few wrapper shapes (top-level list, or dict with keys like `selections` / `labels` / `items` / `blocks`).
-- Each item must include `block_index` and `label` (aliases like `tag`/`category` are also accepted). Labels are normalized (`TIME` -> `TIME_LINE`, `YIELD` -> `YIELD_LINE`, etc) and anything not in `FREEFORM_ALLOWED_LABELS` is dropped.
+- Block mode items require `block_index` + `label` (aliases like `tag`/`category` are accepted).
+- Span mode items accept quote-anchored spans (`block_index`, `label`, `quote`, optional `occurrence`) and absolute spans (`label`, `start`, `end`).
+- Labels are normalized (`TIME` -> `TIME_LINE`, `YIELD` -> `YIELD_LINE`, etc) and anything not in `FREEFORM_ALLOWED_LABELS` is dropped.
 
 **Span generation (important nuance):**
 
-- Although the Label Studio project is a “freeform span highlight” UI, the AI prelabeler currently generates **block-level spans**: each `{block_index, label}` becomes a span covering the *entire* extracted block text range inside the segment (`start/end` come directly from `data.source_map.blocks[*].segment_start/segment_end`).
-- The annotation `result[].value.text` is taken from `segment_text[start:end]` and must match exactly; this is why no whitespace normalization is allowed and the LS `<Text ... style="white-space: pre-wrap;">` config is required.
+- `block` mode keeps legacy behavior: each `{block_index, label}` becomes a span covering the entire block text range.
+- `span` mode resolves partial spans deterministically:
+  - quote-anchored spans are matched against the literal block substring inside `segment_text`.
+  - repeated quotes require `occurrence` (1-based) to disambiguate.
+  - unresolved/ambiguous items are dropped; valid items for the same task still upload.
+- The annotation `result[].value.text` is always derived from `segment_text[start:end]` and must match exactly; this is why no whitespace normalization is allowed and the LS `<Text ... style="white-space: pre-wrap;">` config is required.
 
-#### 1.6.1.2 Upload modes + fallback (mechanics)
+#### 1.6.1.2 Detailed mode behavior: `actual freeform` vs `legacy, block based` (code-verified)
+
+Interactive style labels and runtime mode values are intentionally separate:
+
+- Interactive choice `actual freeform - allow sub-block span highlights` (sometimes called `actual, freeform`) maps to `prelabel_granularity=span`.
+- Interactive choice `legacy, block based - one label per block` maps to `prelabel_granularity=block`.
+- CLI accepts `--prelabel-granularity block|span`; normalization also accepts aliases like `legacy` and `actual_freeform`.
+
+`prelabel_granularity` only changes **how AI output is interpreted into spans**. It does not change segmentation (`segment_blocks`, `segment_overlap`), label config, or upload command shape.
+
+**Option A: `actual freeform` (`span`)**
+
+1. Prompt used:
+   - Runtime loads `llm_pipelines/prompts/freeform-prelabel-span.prompt.md`.
+   - Prompt asks for selective span output (zero/one/many spans per block).
+2. Accepted model output item shapes:
+   - Quote-anchored (preferred): `{"block_index": <int>, "label": "<LABEL>", "quote": "<exact text>", "occurrence": <optional int>}`.
+   - Absolute offsets (fallback): `{"label": "<LABEL>", "start": <int>, "end": <int>}` (segment-global offsets).
+3. Parsing and normalization:
+   - Parser tolerates prose-wrapped JSON by extracting first JSON value.
+   - Wrapper keys `selections`, `labels`, `items`, `blocks` are accepted.
+   - Label aliases are normalized (`TIME` -> `TIME_LINE`, `TIP` -> `KNOWLEDGE`, etc) and non-allowed labels are dropped.
+4. Offset resolution behavior:
+   - Quote mode resolves inside the selected block’s exact substring from `segment_text`.
+   - Resolver tries exact `quote`, then stripped `quote` (leading/trailing whitespace only).
+   - If quote appears multiple times in that block, `occurrence` is required (1-based). Missing/invalid ambiguity resolution drops that selection.
+   - Absolute mode validates `0 <= start < end <= len(segment_text)`; invalid bounds are dropped.
+5. Emitted Label Studio results:
+   - Multiple spans for the same block are allowed.
+   - Duplicate spans (same normalized label + start + end) are deduped.
+   - `value.text` is always recomputed from `segment_text[start:end]` to keep exact LS offset/text integrity.
+6. Failure semantics:
+   - Bad selections are dropped item-by-item.
+   - Task prelabel only fails when no valid spans survive (`annotation is None`) or provider call raises.
+
+**Option B: `legacy, block based` (`block`)**
+
+1. Prompt used:
+   - Runtime loads `llm_pipelines/prompts/freeform-prelabel-full.prompt.md`.
+   - Prompt instructs model to assign one label per block and implies full-block coverage.
+2. Accepted model output item shape:
+   - `{"block_index": <int>, "label": "<LABEL>"}` (`tag`/`category` aliases accepted for label field).
+3. Mapping behavior:
+   - For each accepted record, runtime looks up the block’s `segment_start`/`segment_end` and emits one span covering the entire block.
+   - This reproduces pre-span rollout behavior (one region per labeled block suggestion, full width of that block).
+4. Enforcement nuance:
+   - Prompt asks for exactly one label per block and ordered output, but runtime is tolerant.
+   - Missing blocks are simply unlabeled.
+   - If model returns multiple different labels for the same block, each distinct label can produce its own full-block span result.
+5. Failure semantics:
+   - Same as span mode: item-level drops are tolerated; task fails only if no valid spans remain or provider raises.
+
+**Shared across both options**
+
+- Same task construction and context boundaries (segment text + source map).
+- Same provider path (`codex-cli`), model preflight check, cache behavior, and token tracking.
+- Same prelabel artifacts (`prelabel_report.json`, `prelabel_errors.jsonl`).
+- Same upload mode handling (`--prelabel-upload-as annotations|predictions`) and inline-annotation fallback path.
+
+#### 1.6.1.3 Upload modes + fallback (mechanics)
 
 When `--prelabel` is enabled:
 
@@ -257,6 +306,10 @@ Freeform eval (`labelstudio-eval freeform-spans`):
 
 - compares predicted labeled ranges (mapped from pipeline chunks) vs gold freeform spans (mapped by touched block indices).
 - strict metrics remain canonical benchmark numbers.
+- gold spans are deduped by default before scoring using `(source_hash, source_file, start_block_index, end_block_index)` keys.
+- when deduped gold groups contain conflicting labels:
+  - majority label wins (deterministic by count),
+  - exact ties are dropped from scored gold and reported under `gold_dedupe.conflicts`.
 - adds:
   - `app_aligned` diagnostics
   - `classification_only` diagnostics
@@ -330,8 +383,7 @@ Manifest includes:
 - Progress callbacks include post-merge phases (archive/hash, processed-output writes, chunk/task generation, upload batching) so long runs continue surfacing advancing status.
 - Interactive `labelstudio` export resolves credentials first, then fetches project titles for a picker UI (showing a detected type tag beside each project when available). It now auto-uses the selected project's detected type as export scope and only prompts for scope when detection is `unknown` (or when the project name is typed manually).
 - Interactive Label Studio import/export credential resolution order is: CLI/env values first, then saved `cookimport.json` values, then one-time prompt (which persists back to `cookimport.json`).
-- Interactive freeform `labelstudio` import uses an AI prelabel mode selector before upload and writes `prelabel_report.json` when prelabel is enabled.
-- Interactive `labelstudio_decorate` is available as a dedicated main-menu action and supports dry-run preview before write mode.
+- Interactive freeform `labelstudio` import uses an AI prelabel mode selector before upload, prints summary processing time, and writes `prelabel_report.json` when prelabel is enabled.
 - Interactive benchmark upload uses the same per-run settings chooser as interactive Import (`global defaults` / `last benchmark` / `change run settings`) and writes successful selections to `<output_dir>/.history/last_run_settings_benchmark.json`.
 - Interactive benchmark upload follows the same env -> saved settings -> one-time prompt credential resolution path before invoking `labelstudio-benchmark`.
 
@@ -542,13 +594,15 @@ Optional tuning:
 - Prelabel mode picker maps directly to backend controls:
   - `prelabel`
   - `prelabel_upload_as` (`annotations` or `predictions`)
+  - `prelabel_granularity` (`block` or `span`)
   - `prelabel_allow_partial`
 - This keeps interactive behavior aligned with non-interactive flags:
   - `--prelabel`
   - `--prelabel-upload-as`
+  - `--prelabel-granularity`
   - `--prelabel-allow-partial`
 
-### 8.2 Prelabel upload fallback and decorate additivity
+### 8.2 Prelabel upload fallback
 
 - Freeform prelabel generation happens in `generate_pred_run_artifacts(...)` after tasks are sampled and before `label_studio_tasks.jsonl` is written.
 - Default upload behavior tries inline completed `annotations` first.
@@ -557,17 +611,13 @@ Optional tuning:
   - fetch Label Studio task IDs,
   - map deterministic `segment_id` to Label Studio `task.id`,
   - create annotations per task via API.
-- `labelstudio-decorate` remains additive:
-  - base annotation preserved,
-  - new merged annotation created,
-  - metadata tags include `meta.cookimport_prelabel=true`, `mode=augment`, `added_labels`.
 
 ### 8.3 Codex command, model, and token-usage propagation
 
-- Prelabel/decorate default command should be non-interactive `codex exec -`.
+- Prelabel default command should be non-interactive `codex exec -`.
 - Keep compatibility fallback from legacy `codex` commands when stderr indicates `stdin is not a terminal`.
 - Effective command/model resolution belongs in provider construction (`_build_prelabel_provider(...)`), not only in interactive prompt plumbing.
-- Token usage tracking is provider-level and always-on for prelabel/decorate runs; aggregate totals flow into `prelabel_report.json` / `decorate_report.json`.
+- Token usage tracking is provider-level and always-on for prelabel runs; aggregate totals flow into `prelabel_report.json`.
 
 ### 8.4 Progress callback ownership and spinner counters
 
@@ -580,18 +630,17 @@ Optional tuning:
 - Prelabeling is one-shot per segment task (fresh subprocess call per prompt); there is no cross-task in-memory conversation history.
 - Context size is controlled by segmentation settings (`segment_blocks`, `segment_overlap`), not persistent chat state.
 - Apparent rerun statefulness is typically prompt cache reuse (`prelabel_cache/`), not model memory.
-- Canonical freeform label taxonomy and normalization are centralized in `label_config_freeform.py`; prelabel, decorate, export/eval normalization, and project-type inference should reuse that source.
+- Canonical freeform label taxonomy and normalization are centralized in `label_config_freeform.py`; prelabel, export/eval normalization, and project-type inference should reuse that source.
 
 ## 9) Merged Task Specs (2026-02-20 to 2026-02-22)
 
-### 9.1 2026-02-20_21.45.00 freeform prelabel + decorate baseline
+### 9.1 2026-02-20_21.45.00 freeform prelabel baseline
 
 Durable contracts from the initial AI-labeling rollout:
 
 - `labelstudio-import --task-scope freeform-spans --prelabel` can generate AI labels and upload them as completed annotations.
 - Inline annotation upload remains best-effort; if rejected by Label Studio, fallback path uploads tasks first and creates annotations after import.
-- `labelstudio-decorate` is additive and should never delete/replace prior human annotations.
-- `labelstudio-decorate --no-write` remains mandatory dry-run surface for safe previewing.
+- Note: `labelstudio-decorate` was removed from runtime on 2026-02-22.
 
 Guardrails:
 
@@ -616,7 +665,7 @@ Interactive freeform import contract:
 
 Codex provider execution contract:
 
-- Default command for prelabel/decorate is non-interactive `codex exec -`.
+- Default command for prelabel is non-interactive `codex exec -`.
 - If user config/env still points to plain `codex`, provider auto-retries with `codex exec -` when stderr reports `stdin is not a terminal`.
 - Existing override surfaces remain unchanged (`--codex-cmd`, `COOKIMPORT_CODEX_CMD`).
 
@@ -632,7 +681,6 @@ Interactive and non-interactive import behavior must share callback plumbing:
 Progress message contract where totals are known:
 
 - Freeform prelabel loop emits `Running freeform prelabeling... task X/Y`.
-- Freeform decorate loop emits `Decorating freeform tasks... task X/Y`.
 - Counter text ownership stays in runtime loops (`ingest.py` / provider calls), not UI wrappers.
 
 ### 9.6 2026-02-22_13.56.20 freeform label taxonomy refresh
@@ -650,4 +698,4 @@ Back-compat normalization rules to preserve:
 - `YIELD -> YIELD_LINE`
 - `TIME -> TIME_LINE`
 
-Project-type inference, prelabel/decorate normalization, and freeform eval/export mapping should continue using shared freeform label-config normalization logic.
+Project-type inference, prelabel normalization, and freeform eval/export mapping should continue using shared freeform label-config normalization logic.

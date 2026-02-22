@@ -37,13 +37,13 @@ Interactive file discovery and direct staging intentionally differ:
 - Direct staging (`cookimport stage <folder>`) scans recursively under the folder.
 - Interactive `labelstudio` import always recreates the resolved Label Studio project (`overwrite=True`, `resume=False`) and does not prompt for resume mode.
 - Interactive `labelstudio` import no longer asks for upload confirmation; once scope/options are chosen, it proceeds directly to upload (after credential resolution).
-- Interactive freeform `labelstudio` import prompts for AI prelabel mode (`off`, `strict`, `allow-partial`, plus advanced predictions modes) during the same prompt flow; do not require leaving interactive mode for first-pass AI annotations.
+- Interactive freeform `labelstudio` import prompts for AI prelabel mode (`off`, `strict`, `allow-partial`, plus advanced predictions modes) during the same prompt flow, then prompts for labeling style (`actual freeform` span mode vs `legacy, block based` mode); do not require leaving interactive mode for first-pass AI annotations.
 - Interactive freeform `labelstudio` prelabel flow includes explicit Codex model selection; token-usage tracking is always enabled and should not be a prompt.
 - Interactive and non-interactive `labelstudio` import must use the same status/progress callback wiring so long-running phases (especially AI prelabeling) show a live spinner/status update path.
+- `labelstudio` resume semantics apply only when the target Label Studio project already exists; if a run creates a new project, do not reuse local manifest task IDs from older runs.
 - Spinner/progress text for known-size worklists should include `<noun> X/Y` counters (for example `task`, `item`, `config`, `phase`) rather than phase-only text so operators can track throughput.
-- Callback-driven CLI spinners (`labelstudio` import/decorate, benchmark import, bench run/sweep) should append elapsed seconds after prolonged unchanged phases (default threshold: 10s) so users can see that work is still running when a phase message is stale.
+- Callback-driven CLI spinners (`labelstudio` import, benchmark import, bench run/sweep) should append elapsed seconds after prolonged unchanged phases (default threshold: 10s) so users can see that work is still running when a phase message is stale.
 - Interactive `labelstudio` export resolves credentials first, then lists project titles from Label Studio for selection, with manual entry fallback when discovery is unavailable. If the selected project has a detected task type, export uses that scope automatically and skips the separate scope prompt.
-- Interactive `labelstudio_decorate` is a main-menu action for additive freeform AI labels and should default to dry-run before write mode.
 - Label Studio export (interactive and non-interactive) writes to a stable project root by default: `data/golden/<project_slug>/exports/...`; it uses prior manifests for project/scope resolution, not for export destination. `--run-dir` still forces export into a specific run.
 - Interactive main menu is persistent: successful `import`, `labelstudio`, `labelstudio_export`, and `labelstudio_benchmark` actions all return to the main menu. The session exits only when the user selects `Exit`.
 - Interactive select menus should be wired through `_menu_select` so numbering, shortcuts, and Backspace-go-back behavior remain consistent.
@@ -51,6 +51,7 @@ Interactive file discovery and direct staging intentionally differ:
 - Interactive Import and interactive benchmark upload both go through a per-run settings chooser (`global defaults`, `last run settings`, `change run settings`) before execution.
 - Interactive benchmark eval-only mode must not apply/save pipeline run settings and should emit `Eval-only mode: no pipeline run settings applied.`
 - Interactive benchmark upload resolves Label Studio credentials through `_resolve_interactive_labelstudio_settings(settings)` (env -> saved config -> prompt) before calling `labelstudio_benchmark(...)`.
+- Benchmark upload should pass `auto_project_name_on_scope_mismatch=True` into `run_labelstudio_import(...)` so auto-named benchmark projects recover by suffixing project titles instead of failing on prior freeform/canonical scope collisions.
 - Typer command functions that are called directly from Python (interactive helpers/tests) must keep runtime defaults as plain Python values, typically via `Annotated[..., typer.Option(...)] = <default>`; avoid relying on `param: T = typer.Option(...)` defaults in those call paths.
 - Interactive `generate_dashboard` asks whether to open the dashboard in a browser, then runs `stats_dashboard(output_root=<settings.output_dir>, out_dir=<output_root>/.history/dashboard)` and returns to the main menu.
 - Interactive `epub_race` is a main-menu action shown only when top-level `data/input` includes at least one `.epub`; it prompts for output/candidates (default output root: `data/output/EPUBextractorRace/<book_stem>`), then runs `cookimport epub race` behavior and returns to the menu.
@@ -71,7 +72,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - `cookimport/cli_ui/run_settings_flow.py` and `cookimport/cli_ui/toggle_editor.py` must derive editor rows/options from `RunSettings` metadata; do not maintain a separate hard-coded field list.
 - Last-run snapshots are stored in `<output_dir>/.history/last_run_settings_{import|benchmark}.json` via `cookimport/config/last_run_store.py`.
 - Schema evolution contract for stored run settings: missing keys default, unknown keys are ignored (warn once), and corrupt payloads degrade to `None` (treated as no saved run settings).
-- Recipe codex-farm knobs (`llm_recipe_pipeline`, `codex_farm_cmd`, `codex_farm_root`, `codex_farm_workspace_root`, `codex_farm_pipeline_pass1`, `codex_farm_pipeline_pass2`, `codex_farm_pipeline_pass3`, `codex_farm_context_blocks`, `codex_farm_failure_mode`) must be wired through both stage and benchmark prediction-generation paths, and persisted in run-config surfaces (manifest/report/history).
+- codex-farm knobs (`llm_recipe_pipeline`, `llm_knowledge_pipeline`, `codex_farm_cmd`, `codex_farm_root`, `codex_farm_workspace_root`, `codex_farm_pipeline_pass1`, `codex_farm_pipeline_pass2`, `codex_farm_pipeline_pass3`, `codex_farm_pipeline_pass4_knowledge`, `codex_farm_context_blocks`, `codex_farm_knowledge_context_blocks`, `codex_farm_failure_mode`) must be wired through stage and benchmark prediction-generation paths, and persisted in run-config surfaces (manifest/report/history).
 - `llm_recipe_pipeline` must default to `off`; codex-farm subprocess calls are opt-in only and should never run in default pipeline mode.
 - codex-farm orchestration should pass explicit `--root`/`--workspace-root` when those run settings are provided, and `llm_manifest.json` should record the effective pass pipeline ids.
 - Default local codex-farm recipe pass prompts live in `llm_pipelines/prompts/recipe.{chunking,schemaorg,final}.v1.prompt.md`; text-only tuning should happen there without touching orchestration code.
@@ -90,18 +91,22 @@ When debugging "file missing from menu" reports, check whether the file is neste
   - `cookimport/analytics/dashboard_collect.py`
   - `cookimport/analytics/dashboard_render.py`
 
-## Label Studio Prelabel/Decorate Rule
+## Label Studio Prelabel Rule
 
-- Freeform prelabeling must derive span offsets from `data.source_map.blocks[*].segment_start/end`; never ask the model for raw character offsets.
-- Freeform prelabel/decorate flows must preserve `data.segment_text` exactly (no whitespace normalization) so exported offsets remain stable.
-- Prompt text for freeform prelabel/decorate lives in `llm_pipelines/prompts/freeform-prelabel-*.prompt.md`; iterate prompt wording there and keep required placeholder tokens (`{{SEGMENT_ID}}`, `{{BLOCKS_JSON_LINES}}`, etc.) intact.
+- Freeform prelabeling must derive final span offsets from task-local `segment_text` + `data.source_map.blocks[*].segment_start/end`; `block` mode uses block bounds directly and `span` mode resolves quotes against block text (with strict validation for optional absolute `start`/`end` fallbacks).
+- Freeform prelabel flows must preserve `data.segment_text` exactly (no whitespace normalization) so exported offsets remain stable.
+- Prompt text for freeform prelabel lives in `llm_pipelines/prompts/freeform-prelabel-full.prompt.md`; iterate prompt wording there and keep required placeholder tokens (`{{SEGMENT_ID}}`, `{{BLOCKS_JSON_LINES}}`, etc.) intact.
+- Freeform prelabel granularity contract: `block` mode is legacy, block based full-block spans; `span` mode is actual freeform quote-anchored spans (`block_index` + `quote` + optional `occurrence`) with optional validated absolute fallback (`start`/`end`).
+- Prompt text for actual freeform mode lives in `llm_pipelines/prompts/freeform-prelabel-span.prompt.md`; keep placeholder tokens intact.
 - Freeform canonical label names are `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`; normalize legacy `TIP`/`NOTES`/`VARIANT` labels to those names.
-- Codex prelabel/decorate invocations must use non-interactive CLI mode (`codex exec -`); plain `codex` is interactive and fails in pipeline subprocess calls without a TTY.
-- Codex model resolution order for prelabel/decorate is: explicit `--codex-model` -> `COOKIMPORT_CODEX_MODEL` -> Codex config `model` (`~/.codex-alt/config.toml`, `~/.codex/config.toml`).
-- Token usage accounting for prelabel/decorate is always on and should be persisted as aggregate totals in `prelabel_report.json` / `decorate_report.json` without changing annotation semantics.
-- `labelstudio-decorate` must be additive and reversible:
-  - never overwrite prior annotations in place,
-  - create a new merged annotation and tag it with `meta.cookimport_prelabel=true`, `meta.mode=augment`, and `meta.added_labels`.
+- Codex prelabel invocations must use non-interactive CLI mode (`codex exec -`); plain `codex` is interactive and fails in pipeline subprocess calls without a TTY.
+- Codex command resolution for prelabel is: explicit `--codex-cmd` -> `COOKIMPORT_CODEX_CMD` -> `codex exec -`.
+- Interactive freeform prelabel should use that resolved command directly (no command chooser prompt) and display the resolved account email when available.
+- Codex model resolution order for prelabel is: explicit `--codex-model` -> `COOKIMPORT_CODEX_MODEL` -> Codex config `model` (`~/.codex/config.toml`, `~/.codex-alt/config.toml`).
+- Interactive prelabel model choices should be sourced from the selected command's Codex home cache metadata (`models_cache.json`) when available, with custom-id fallback.
+- Prelabel runs should perform one model-access preflight probe before task loops; account/model mismatches should fail once up front with provider detail.
+- Codex JSON `turn.failed` errors must be surfaced as provider failures (not collapsed into generic "no labels produced" parse misses).
+- Token usage accounting for prelabel is always on and should be persisted as aggregate totals in `prelabel_report.json` (including resolved command/account metadata) without changing annotation semantics.
 
 ## Dependency Resolution Rule
 
@@ -136,6 +141,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 ## Benchmark Contract Rule
 
 - Freeform benchmark scoring (`labelstudio-benchmark`, interactive eval-only, and `bench run`) evaluates prediction task artifacts (`label_studio_tasks.jsonl`) against freeform gold spans (`freeform_span_labels.jsonl`), not staged cookbook outputs; optional processed outputs written during benchmark are review artifacts only.
+- Freeform eval dedupes overlapping gold spans by default before scoring using `(source_hash, source_file, start_block_index, end_block_index)` keys. If duplicate groups disagree on label, use majority-vote label resolution; if label counts tie, drop that gold group from scoring and report it in `eval_report.json` `gold_dedupe.conflicts`.
 - Non-interactive `labelstudio-benchmark` supports an explicit offline path via `--no-upload`; this mode must skip Label Studio credential resolution and never call upload APIs.
 - Run-producing flows must emit `run_manifest.json` so source identity (`path` + `source_hash`), effective config, and key artifacts are inspectable without reading code.
 - When codex-farm is enabled for stage/pred-run, report + manifest payloads should expose `llmCodexFarm`/`llm_codex_farm` metadata, and deterministic fallback semantics must be explicit (`codex_farm_failure_mode=fail|fallback`).

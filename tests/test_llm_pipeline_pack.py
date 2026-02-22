@@ -16,6 +16,7 @@ def test_local_recipe_pipeline_pack_has_editable_prompt_files() -> None:
         settings.codex_farm_pipeline_pass1,
         settings.codex_farm_pipeline_pass2,
         settings.codex_farm_pipeline_pass3,
+        settings.codex_farm_pipeline_pass4_knowledge,
     )
 
     for pipeline_id in pipeline_ids:

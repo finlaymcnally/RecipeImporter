@@ -141,6 +141,8 @@ Evaluation input B (gold):
 - `freeform_span_labels.jsonl`
 - Parsed via `load_gold_freeform_ranges(...)`
 - Uses touched block indices from export payload
+- Gold rows are deduped before scoring by `(source_hash, source_file, start_block_index, end_block_index)`.
+- Conflicting duplicate labels resolve by majority vote; exact ties are dropped from scored gold and reported in eval `gold_dedupe.conflicts`.
 
 Matching:
 - Jaccard overlap threshold (default `0.5`)

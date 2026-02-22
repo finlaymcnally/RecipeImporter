@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
@@ -40,6 +41,18 @@ class LabeledMatch:
     predicted: LabeledRange
     overlap: float
     classification: str
+
+
+@dataclass(frozen=True)
+class GoldConflict:
+    source_hash: str | None
+    source_file: str
+    start_block_index: int
+    end_block_index: int
+    label_counts: dict[str, int]
+    resolution: str
+    selected_label: str | None
+    span_ids: list[str]
 
 
 _APP_SUPPORTED_LABELS = (
@@ -435,6 +448,100 @@ def _dedupe_predicted_ranges(predicted: list[LabeledRange]) -> list[LabeledRange
     return deduped
 
 
+def _gold_dedupe_key(span: LabeledRange) -> tuple[str, str, int, int]:
+    return (
+        str(span.source_hash or ""),
+        span.source_file,
+        span.start_block_index,
+        span.end_block_index,
+    )
+
+
+def _dedupe_gold_ranges(gold: list[LabeledRange]) -> tuple[list[LabeledRange], dict[str, Any]]:
+    grouped: dict[tuple[str, str, int, int], list[LabeledRange]] = {}
+    for span in gold:
+        grouped.setdefault(_gold_dedupe_key(span), []).append(span)
+
+    deduped: list[LabeledRange] = []
+    conflicts: list[GoldConflict] = []
+    duplicate_groups = 0
+    conflict_groups = 0
+    resolved_conflicts = 0
+    dropped_tie_groups = 0
+    dropped_tie_rows = 0
+
+    for spans in grouped.values():
+        if len(spans) == 1:
+            deduped.append(spans[0])
+            continue
+
+        duplicate_groups += 1
+        label_counts = Counter(span.label for span in spans)
+        if len(label_counts) == 1:
+            deduped.append(spans[0])
+            continue
+
+        conflict_groups += 1
+        highest = max(label_counts.values())
+        winning_labels = sorted(
+            label for label, count in label_counts.items() if count == highest
+        )
+        exemplar = spans[0]
+        if len(winning_labels) == 1:
+            winning_label = winning_labels[0]
+            selected = next(span for span in spans if span.label == winning_label)
+            deduped.append(selected)
+            resolved_conflicts += 1
+            conflicts.append(
+                GoldConflict(
+                    source_hash=exemplar.source_hash,
+                    source_file=exemplar.source_file,
+                    start_block_index=exemplar.start_block_index,
+                    end_block_index=exemplar.end_block_index,
+                    label_counts=dict(label_counts),
+                    resolution="majority_vote",
+                    selected_label=winning_label,
+                    span_ids=[span.span_id for span in spans],
+                )
+            )
+            continue
+
+        dropped_tie_groups += 1
+        dropped_tie_rows += len(spans)
+        conflicts.append(
+            GoldConflict(
+                source_hash=exemplar.source_hash,
+                source_file=exemplar.source_file,
+                start_block_index=exemplar.start_block_index,
+                end_block_index=exemplar.end_block_index,
+                label_counts=dict(label_counts),
+                resolution="dropped_tie",
+                selected_label=None,
+                span_ids=[span.span_id for span in spans],
+            )
+        )
+
+    input_total = len(gold)
+    deduped_total = len(deduped)
+    rows_removed = input_total - deduped_total
+    conflict_rows_total = sum(sum(item.label_counts.values()) for item in conflicts)
+
+    return deduped, {
+        "enabled": True,
+        "key": "source_hash+source_file+start_block_index+end_block_index",
+        "input_gold_total": input_total,
+        "deduped_gold_total": deduped_total,
+        "rows_removed": rows_removed,
+        "duplicate_groups": duplicate_groups,
+        "conflict_groups": conflict_groups,
+        "conflict_groups_resolved_majority": resolved_conflicts,
+        "conflict_groups_dropped_tie": dropped_tie_groups,
+        "conflict_rows_total": conflict_rows_total,
+        "conflict_rows_dropped_tie": dropped_tie_rows,
+        "conflicts": [asdict(item) for item in conflicts],
+    }
+
+
 def _count_gold_any_overlap(
     predicted: list[LabeledRange],
     gold: list[LabeledRange],
@@ -706,15 +813,16 @@ def evaluate_predicted_vs_freeform(
     overlap_threshold: float = 0.5,
     force_source_match: bool = False,
 ) -> dict[str, Any]:
+    gold_deduped, gold_dedupe = _dedupe_gold_ranges(gold)
     strict = _evaluate_ranges(
         predicted,
-        gold,
+        gold_deduped,
         overlap_threshold=overlap_threshold,
         force_source_match=force_source_match,
     )
     app_aligned = _build_app_aligned_report(
         predicted,
-        gold,
+        gold_deduped,
         overlap_threshold=overlap_threshold,
         force_source_match=force_source_match,
     )
@@ -722,9 +830,10 @@ def evaluate_predicted_vs_freeform(
     strict["report"]["source_matching_mode"] = (
         "forced" if force_source_match else "strict"
     )
+    strict["report"]["gold_dedupe"] = gold_dedupe
     strict["report"]["classification_only"] = _build_classification_only_report(
         predicted,
-        gold,
+        gold_deduped,
         force_source_match=force_source_match,
     )
     return {
@@ -746,14 +855,44 @@ def format_freeform_eval_report_md(report: dict[str, Any]) -> str:
         f"Recall (gold matched): {report.get('recall', 0):.3f} ({counts.get('gold_matched', 0)}/{counts.get('gold_total', 0)})",
         f"Precision (pred matched): {report.get('precision', 0):.3f} ({counts.get('pred_matched', 0)}/{counts.get('pred_total', 0)})",
         "",
-        "Boundary diagnostics:",
-        f"- correct: {boundary.get('correct', 0)}",
-        f"- over: {boundary.get('over', 0)}",
-        f"- under: {boundary.get('under', 0)}",
-        f"- partial: {boundary.get('partial', 0)}",
-        "",
-        "Per-label metrics:",
     ]
+    gold_dedupe = report.get("gold_dedupe")
+    if isinstance(gold_dedupe, dict):
+        lines.extend(
+            [
+                "Gold dedupe:",
+                "- Default dedupe: enabled",
+                (
+                    "- Input -> deduped gold: "
+                    + f"{gold_dedupe.get('input_gold_total', 0)} -> "
+                    + f"{gold_dedupe.get('deduped_gold_total', 0)} "
+                    + f"(removed {gold_dedupe.get('rows_removed', 0)} rows)"
+                ),
+                (
+                    "- Conflict groups: "
+                    + f"{gold_dedupe.get('conflict_groups', 0)} "
+                    + f"(majority resolved {gold_dedupe.get('conflict_groups_resolved_majority', 0)}, "
+                    + f"tie dropped {gold_dedupe.get('conflict_groups_dropped_tie', 0)})"
+                ),
+            ]
+        )
+        conflict_rows_dropped_tie = int(gold_dedupe.get("conflict_rows_dropped_tie", 0))
+        if conflict_rows_dropped_tie > 0:
+            lines.append(
+                f"- Dropped rows from tie conflicts: {conflict_rows_dropped_tie}"
+            )
+        lines.append("")
+    lines.extend(
+        [
+            "Boundary diagnostics:",
+            f"- correct: {boundary.get('correct', 0)}",
+            f"- over: {boundary.get('over', 0)}",
+            f"- under: {boundary.get('under', 0)}",
+            f"- partial: {boundary.get('partial', 0)}",
+            "",
+            "Per-label metrics:",
+        ]
+    )
     for label in sorted(per_label):
         row = per_label[label]
         lines.append(

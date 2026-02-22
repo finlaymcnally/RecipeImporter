@@ -74,6 +74,9 @@ Per workbook (slugified file stem):
 - `tips/<workbook_slug>/topic_candidates.md` (if any)
 - `chunks/<workbook_slug>/c{index}.json` (if any)
 - `chunks/<workbook_slug>/chunks.md` (if any)
+- `knowledge/<workbook_slug>/snippets.jsonl` (if pass4 knowledge harvesting is enabled)
+- `knowledge/<workbook_slug>/knowledge.md` (if pass4 knowledge harvesting is enabled)
+- `knowledge/knowledge_index.json` (if any knowledge artifacts were written in the run)
 - `raw/<importer>/<source_hash>/<location_id>.<ext>` (if any)
 - `<workbook_slug>.excel_import_report.json` at run root
 

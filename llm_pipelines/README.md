@@ -33,9 +33,9 @@ To tune pass behavior, edit prompt text files in `prompts/` and keep `{{INPUT_PA
 
 ## Label Studio freeform AI templates
 
-These are also file-backed and editable:
+Freeform prelabel (full mode) is file-backed and editable:
 
 - `prompts/freeform-prelabel-full.prompt.md`
-- `prompts/freeform-prelabel-augment.prompt.md`
+- `prompts/freeform-prelabel-span.prompt.md` (actual freeform span mode)
 
 For external packs, pass `--codex-farm-root <path>`.

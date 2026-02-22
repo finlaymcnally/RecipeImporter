@@ -6,7 +6,7 @@ read_when:
 
 # Simple Changelog (from docs/plans)
 
-Snapshot date: 2026-02-20
+Snapshot date: 2026-02-22
 
 - Added per-run settings selection/editing, with saved last-used settings for `import` and `benchmark` flows.
 - Added stable run-config hash/summary fields and propagated them through reports, benchmark outputs, CSV history, and dashboard data.
@@ -19,8 +19,8 @@ Snapshot date: 2026-02-20
 - Shipped the major I-series foundations: stats dashboard, offline benchmark suite, unstructured extraction path, and deterministic catalog-driven auto-tagging.
 - Added freeform Label Studio AI assist workflows:
   - `labelstudio-import --prelabel` (Codex CLI block-labeling -> deterministic span annotations),
-  - inline-annotation upload fallback to post-import annotation creation,
-  - `labelstudio-decorate` additive re-annotation command with dry-run reporting.
+  - inline-annotation upload fallback to post-import annotation creation.
+  - new dual-mode prelabel style selection: `--prelabel-granularity block|span` and interactive choice (`actual freeform` vs `legacy, block based`).
 
 Still open / partial:
 

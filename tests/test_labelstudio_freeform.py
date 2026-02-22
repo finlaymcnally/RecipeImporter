@@ -444,6 +444,212 @@ def test_eval_freeform_ranges_smoke(tmp_path) -> None:
     assert "classification_only" in report
 
 
+def test_eval_freeform_dedupes_duplicate_gold_ranges_by_default(tmp_path) -> None:
+    pred_run = tmp_path / "pred_run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "label_studio_tasks.jsonl").write_text(
+        json.dumps(
+            {
+                "data": {
+                    "chunk_id": "urn:recipeimport:chunk:text:h1:atomic:loc:block_index=3:a",
+                    "chunk_level": "atomic",
+                    "chunk_type": "ingredient_line",
+                    "chunk_type_hint": "ingredient",
+                    "source_hash": "h1",
+                    "source_file": "book.epub",
+                    "location": {"block_index": 3},
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    gold_path = tmp_path / "gold.jsonl"
+    gold_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "span_id": "gold-1",
+                        "source_hash": "h1",
+                        "source_file": "book.epub",
+                        "label": "INGREDIENT_LINE",
+                        "touched_block_indices": [3],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "span_id": "gold-2",
+                        "source_hash": "h1",
+                        "source_file": "book.epub",
+                        "label": "INGREDIENT_LINE",
+                        "touched_block_indices": [3],
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = evaluate_predicted_vs_freeform(
+        load_predicted_labeled_ranges(pred_run),
+        load_gold_freeform_ranges(gold_path),
+        overlap_threshold=0.5,
+    )
+    report = result["report"]
+    dedupe = report["gold_dedupe"]
+
+    assert report["counts"]["gold_total"] == 1
+    assert report["counts"]["gold_matched"] == 1
+    assert report["counts"]["pred_matched"] == 1
+    assert dedupe["rows_removed"] == 1
+    assert dedupe["duplicate_groups"] == 1
+    assert dedupe["conflict_groups"] == 0
+    assert dedupe["conflicts"] == []
+
+
+def test_eval_freeform_gold_dedupe_conflict_majority_vote(tmp_path) -> None:
+    pred_run = tmp_path / "pred_run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "label_studio_tasks.jsonl").write_text(
+        json.dumps(
+            {
+                "data": {
+                    "chunk_id": "urn:recipeimport:chunk:text:h2:atomic:loc:block_index=4:a",
+                    "chunk_level": "atomic",
+                    "chunk_type": "ingredient_line",
+                    "chunk_type_hint": "ingredient",
+                    "source_hash": "h2",
+                    "source_file": "book.epub",
+                    "location": {"block_index": 4},
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    gold_path = tmp_path / "gold.jsonl"
+    gold_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "span_id": "gold-a",
+                        "source_hash": "h2",
+                        "source_file": "book.epub",
+                        "label": "INGREDIENT_LINE",
+                        "touched_block_indices": [4],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "span_id": "gold-b",
+                        "source_hash": "h2",
+                        "source_file": "book.epub",
+                        "label": "OTHER",
+                        "touched_block_indices": [4],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "span_id": "gold-c",
+                        "source_hash": "h2",
+                        "source_file": "book.epub",
+                        "label": "INGREDIENT_LINE",
+                        "touched_block_indices": [4],
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = evaluate_predicted_vs_freeform(
+        load_predicted_labeled_ranges(pred_run),
+        load_gold_freeform_ranges(gold_path),
+        overlap_threshold=0.5,
+    )
+    report = result["report"]
+    dedupe = report["gold_dedupe"]
+
+    assert report["counts"]["gold_total"] == 1
+    assert report["counts"]["gold_matched"] == 1
+    assert dedupe["conflict_groups"] == 1
+    assert dedupe["conflict_groups_resolved_majority"] == 1
+    assert dedupe["conflict_groups_dropped_tie"] == 0
+    assert dedupe["conflicts"][0]["resolution"] == "majority_vote"
+    assert dedupe["conflicts"][0]["selected_label"] == "INGREDIENT_LINE"
+
+
+def test_eval_freeform_gold_dedupe_conflict_tie_is_dropped(tmp_path) -> None:
+    pred_run = tmp_path / "pred_run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "label_studio_tasks.jsonl").write_text(
+        json.dumps(
+            {
+                "data": {
+                    "chunk_id": "urn:recipeimport:chunk:text:h3:atomic:loc:block_index=5:a",
+                    "chunk_level": "atomic",
+                    "chunk_type": "ingredient_line",
+                    "chunk_type_hint": "ingredient",
+                    "source_hash": "h3",
+                    "source_file": "book.epub",
+                    "location": {"block_index": 5},
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    gold_path = tmp_path / "gold.jsonl"
+    gold_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "span_id": "gold-a",
+                        "source_hash": "h3",
+                        "source_file": "book.epub",
+                        "label": "INGREDIENT_LINE",
+                        "touched_block_indices": [5],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "span_id": "gold-b",
+                        "source_hash": "h3",
+                        "source_file": "book.epub",
+                        "label": "OTHER",
+                        "touched_block_indices": [5],
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = evaluate_predicted_vs_freeform(
+        load_predicted_labeled_ranges(pred_run),
+        load_gold_freeform_ranges(gold_path),
+        overlap_threshold=0.5,
+    )
+    report = result["report"]
+    dedupe = report["gold_dedupe"]
+
+    assert report["counts"]["gold_total"] == 0
+    assert report["counts"]["gold_matched"] == 0
+    assert report["counts"]["pred_false_positive"] == 1
+    assert dedupe["conflict_groups"] == 1
+    assert dedupe["conflict_groups_resolved_majority"] == 0
+    assert dedupe["conflict_groups_dropped_tie"] == 1
+    assert dedupe["conflict_rows_dropped_tie"] == 2
+    assert dedupe["conflicts"][0]["resolution"] == "dropped_tie"
+    assert dedupe["conflicts"][0]["selected_label"] is None
+
+
 def test_eval_freeform_app_aligned_summary_and_md_section(tmp_path) -> None:
     predicted = [
         # Duplicate ingredient span (same range/label) should dedupe in app-aligned metrics.
@@ -566,6 +772,8 @@ def test_eval_freeform_app_aligned_summary_and_md_section(tmp_path) -> None:
     assert classification_only["confusion_by_gold_label"]["KNOWLEDGE"]["OTHER"] == 1
 
     report_md = format_freeform_eval_report_md(report)
+    assert "Gold dedupe:" in report_md
+    assert "Default dedupe: enabled" in report_md
     assert "App-aligned diagnostics:" in report_md
     assert "Supported labels only (relaxed)" in report_md
     assert "Any-overlap coverage (same label, IoU>0):" in report_md

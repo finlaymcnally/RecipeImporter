@@ -15,6 +15,7 @@ from cookimport.core.models import ConversionReport, MappingConfig
 from cookimport.core.slug import slugify_name
 from cookimport.core.reporting import enrich_report_with_stats
 from cookimport.core.timing import TimingStats, measure
+from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_knowledge_harvest
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.plugins import registry
@@ -304,6 +305,33 @@ def stage_one_file(
                 result.topic_candidates,
                 overrides=parsing_overrides,
             )
+        if run_settings.llm_knowledge_pipeline.value != "off":
+            _report_progress("Running codex-farm knowledge harvest...")
+            try:
+                knowledge_apply = run_codex_farm_knowledge_harvest(
+                    conversion_result=result,
+                    run_settings=run_settings,
+                    run_root=out,
+                    workbook_slug=workbook_slug,
+                    overrides=parsing_overrides,
+                )
+            except CodexFarmRunnerError as exc:
+                if run_settings.codex_farm_failure_mode.value == "fallback":
+                    warning = (
+                        "LLM knowledge harvest failed; continuing without knowledge artifacts: "
+                        f"{exc}"
+                    )
+                    result.report.warnings.append(warning)
+                    llm_report["knowledge"] = {
+                        "enabled": True,
+                        "pipeline": run_settings.llm_knowledge_pipeline.value,
+                        "fallbackApplied": True,
+                        "fatalError": str(exc),
+                    }
+                else:
+                    raise
+            else:
+                llm_report["knowledge"] = dict(knowledge_apply.llm_report)
 
         # Enrich report
         result.report.importer_name = importer.name
