@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import pytest
 from pathlib import Path
+from cookimport.core.blocks import Block
+from cookimport.core.models import RecipeCandidate
+from cookimport.parsing import signals
 from cookimport.plugins.pdf import PdfImporter
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -38,6 +41,67 @@ def test_convert_pdf():
     assert recipe.name == "PDF Pancakes"
     assert "1 cup flour" in recipe.ingredients
     assert "Mix it all." in recipe.instructions
+
+
+def test_convert_pdf_emits_post_candidate_progress(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "book.pdf"
+    source.write_bytes(b"%PDF-1.4 dummy")
+    importer = PdfImporter()
+    blocks = [
+        Block(text="PDF Pancakes", page=0),
+        Block(text="Ingredients", page=0),
+        Block(text="1 cup flour", page=0),
+        Block(text="Instructions", page=0),
+        Block(text="Mix it all.", page=0),
+    ]
+    for block in blocks:
+        signals.enrich_block(block)
+
+    monkeypatch.setattr(
+        importer,
+        "_extract_blocks_from_page",
+        lambda _page, _abs_page: list(blocks),
+    )
+    monkeypatch.setattr(importer, "_needs_ocr", lambda _doc: False)
+    monkeypatch.setattr(importer, "_detect_candidates", lambda _blocks: [(0, len(blocks), 0.9)])
+    monkeypatch.setattr(
+        importer,
+        "_extract_fields",
+        lambda _candidate_blocks: RecipeCandidate(
+            name="PDF Pancakes",
+            ingredients=["1 cup flour"],
+            instructions=["Mix it all."],
+        ),
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_standalone_tips",
+        lambda *_args, **_kwargs: ([], [], 0, 0),
+    )
+
+    class _FakeDoc:
+        def __init__(self) -> None:
+            self._closed = False
+
+        def __len__(self) -> int:
+            return 1
+
+        def __getitem__(self, _index: int) -> object:
+            return object()
+
+        def close(self) -> None:
+            self._closed = True
+
+    monkeypatch.setattr("cookimport.plugins.pdf.fitz.open", lambda _path: _FakeDoc())
+
+    progress_messages: list[str] = []
+    result = importer.convert(source, None, progress_callback=progress_messages.append)
+
+    assert result.recipes
+    assert any(msg.startswith("Extracting candidate 1/1") for msg in progress_messages)
+    assert "Analyzing standalone knowledge blocks..." in progress_messages
+    assert "Finalizing PDF extraction results..." in progress_messages
+    assert progress_messages[-1] == "PDF conversion complete."
 
 
 def test_inspect_scanned_pdf():

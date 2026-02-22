@@ -206,3 +206,12 @@ Until that exists, task-artifact scoring remains the most deterministic way to c
 
 For quick command examples and output interpretation:
 - `docs/07-bench/runbook.md`
+
+## 12. Progress Counter Ownership (Merged 2026-02-22_13.15.24)
+
+Progress counters must be emitted in runtime loops that actually know totals:
+
+- `bench run`: emit `item X/Y` from `cookimport/bench/runner.py:run_suite(...)`.
+- `bench sweep`: emit outer `config X/Y` from `cookimport/bench/sweep.py` and forward nested runner messages as `config X/Y | <runner message>`.
+- Split-merge progress shown in worker dashboards should be emitted by `status_callback` inside `cookimport/cli.py:_merge_split_jobs(...)`, not assembled in dashboard renderer/UI layers.
+- Use `cookimport/core/progress_messages.py` for consistent `X/Y` formatting and clamping across Label Studio, bench, and merge flows.

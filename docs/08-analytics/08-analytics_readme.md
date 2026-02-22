@@ -257,3 +257,29 @@ Collector exclusions/filters:
 5. `cookimport/analytics/dashboard_render.py` (UI fields)
 6. `tests/test_stats_dashboard.py` (coverage for schema/collector/renderer/CSV compatibility)
 7. this README
+
+## 9) EPUB auto metadata propagation contract (Merged 2026-02-20_14.40.00)
+
+Extractor auto metadata is only reliable when all four layers are wired together:
+
+1. Stage orchestration (`cookimport/cli.py`)
+- Resolve `auto` once per file.
+- Persist per-file rationale payload.
+- Pass effective extractor metadata through worker/split-merge write paths.
+
+2. Report writers
+- `cookimport/cli_worker.py`, `cookimport/cli.py:_merge_split_jobs`, and `cookimport/labelstudio/ingest.py:_write_processed_outputs` should populate:
+  - `epubAutoSelection`
+  - `epubAutoSelectedScore`
+
+3. History CSV (`cookimport/analytics/perf_report.py`)
+- Persist explicit columns:
+  - `epub_extractor_requested`
+  - `epub_extractor_effective`
+  - `epub_auto_selected_score`
+
+4. Dashboard schema/collector/rendering
+- Map these fields directly into stage records and UI filters/tables.
+- Do not rely on inference from nested run-config blobs.
+
+If one layer is skipped, extractor visibility drifts across stage report JSON, CSV history, and dashboard tables.

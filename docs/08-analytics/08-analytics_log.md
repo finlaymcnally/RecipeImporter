@@ -335,3 +335,17 @@ This README replaced and merged:
 Intentional preservation policy used during merge:
 - Keep implementation history and failed/stale assumptions in “Historical timeline” and “Known bad”.
 - Prefer code-verified current behavior when old docs conflict.
+
+### 2026-02-20_14.40.00 EPUB auto report/analytics wiring map
+
+Merged source file:
+- `docs/understandings/2026-02-20_14.40.00-epub-auto-report-analytics-wiring.md`
+
+Preserved cross-layer contract:
+1. Stage orchestration resolves `auto` and forwards effective extractor metadata into worker/split-merge write paths.
+2. Report writers must emit `epubAutoSelection` and `epubAutoSelectedScore`.
+3. CSV history must persist `epub_extractor_requested`, `epub_extractor_effective`, and `epub_auto_selected_score`.
+4. Dashboard schema/collector/render should map and display those explicit fields directly.
+
+Anti-loop note:
+- Writing auto metadata only to raw artifacts is incomplete; if one of these layers is skipped, users see extractor state in some analytics surfaces but not others.

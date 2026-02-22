@@ -183,3 +183,17 @@ Constraints and rollback notes:
 - Keep env-var credential behavior unchanged.
 - Preserve back-navigation semantics (`BACK_ACTION`).
 - Rollback path was restoring manual-only project-name prompt in interactive export.
+
+### 2026-02-20_13.20.47 interactive EPUB race routing contract
+
+Merged source file:
+- `docs/understandings/2026-02-20_13.20.47-interactive-epub-race-routing.md`
+
+Preserved rules:
+- Keep EPUB race as a main-menu action (not Settings).
+- Show it only when top-level `data/input` discovery finds at least one `.epub`.
+- Reuse existing command behavior (`race_epub_extractors(...)`) instead of cloning scoring/report code in interactive mode.
+- Interactive prompt scope should remain menu concerns only (file/output/candidates/overwrite), then return to main menu regardless of success/failure.
+
+Anti-loop note:
+- If interactive race behavior drifts from `cookimport epub race`, route interactive branch back to the shared command function instead of patching two separate implementations.

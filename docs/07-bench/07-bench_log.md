@@ -172,3 +172,17 @@ Merged source file:
 Preserved rule:
 - Prediction generation path reads `C3IMP_EPUB_EXTRACTOR`.
 - Benchmark flows that need deterministic extractor choice must set this explicitly for run scope (CLI flag + scoped env override), not rely on whatever environment happened to be set earlier.
+
+### 3.8 2026-02-22_13.15.24 bench + merge progress counter wiring
+
+Merged source file:
+- `docs/understandings/2026-02-22_13.15.24-bench-and-merge-progress-counter-wiring.md`
+
+Preserved rules:
+- `bench run` per-item counters (`item X/Y`) belong in `cookimport/bench/runner.py:run_suite(...)`.
+- `bench sweep` owns outer `config X/Y` counters in `cookimport/bench/sweep.py` and should forward nested runner updates as `config X/Y | ...`.
+- Split-job merge status counters shown in worker dashboards belong in `cookimport/cli.py:_merge_split_jobs(...)` callback emission, not in renderer/UI code.
+- Shared formatter usage (`cookimport/core/progress_messages.py`) keeps message shape and counter clamping consistent across runtime paths.
+
+Anti-loop note:
+- Do not "patch in" counters at display-only layers when totals are unknown there; counters should originate at runtime loop boundaries.

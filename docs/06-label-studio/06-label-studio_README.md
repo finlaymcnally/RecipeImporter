@@ -159,6 +159,7 @@ Freeform span rows include offsets, label, touched block mapping, annotator/time
   - `prelabel_report.json`
   - `prelabel_errors.jsonl`
 - Progress callbacks now report `Running freeform prelabeling... task X/Y` so CLI spinners show per-task progress while AI labels are generated.
+- CLI status wrappers now add a live elapsed suffix (for example `(17s)`) after ~8 seconds with no phase-message change, so long steps remain visibly active instead of appearing stuck.
 - Codex CLI invocation for prelabel/decorate defaults to non-interactive `codex exec -`; plain `codex` values auto-retry with `exec -` when stderr reports `stdin is not a terminal`.
 - Prelabel/decorate runs accept explicit model selection via `--codex-model`; when omitted they resolve model from `COOKIMPORT_CODEX_MODEL` then Codex config (`~/.codex-alt/config.toml`, `~/.codex/config.toml`).
 - Token usage tracking is always enabled for prelabel/decorate runs, using Codex JSON event parsing to record aggregate `input_tokens`, `cached_input_tokens`, and `output_tokens` in run reports.
@@ -525,3 +526,51 @@ Optional tuning:
 
 - Add stronger live-manual validation transcripts for each scope after config changes.
 - If PDF page box workflow is revived, treat as a separate task scope and keep this doc explicit about status.
+
+## 8) Merged Understandings Addendum (2026-02-20 to 2026-02-22)
+
+### 8.1 Interactive freeform AI flow and prelabel mode mapping
+
+- Interactive Label Studio import supports full freeform AI prelabel flow without leaving the main menu.
+- Prelabel mode picker maps directly to backend controls:
+  - `prelabel`
+  - `prelabel_upload_as` (`annotations` or `predictions`)
+  - `prelabel_allow_partial`
+- This keeps interactive behavior aligned with non-interactive flags:
+  - `--prelabel`
+  - `--prelabel-upload-as`
+  - `--prelabel-allow-partial`
+
+### 8.2 Prelabel upload fallback and decorate additivity
+
+- Freeform prelabel generation happens in `generate_pred_run_artifacts(...)` after tasks are sampled and before `label_studio_tasks.jsonl` is written.
+- Default upload behavior tries inline completed `annotations` first.
+- If inline annotations are rejected by Label Studio, flow falls back to:
+  - upload tasks without annotations,
+  - fetch Label Studio task IDs,
+  - map deterministic `segment_id` to Label Studio `task.id`,
+  - create annotations per task via API.
+- `labelstudio-decorate` remains additive:
+  - base annotation preserved,
+  - new merged annotation created,
+  - metadata tags include `meta.cookimport_prelabel=true`, `mode=augment`, `added_labels`.
+
+### 8.3 Codex command, model, and token-usage propagation
+
+- Prelabel/decorate default command should be non-interactive `codex exec -`.
+- Keep compatibility fallback from legacy `codex` commands when stderr indicates `stdin is not a terminal`.
+- Effective command/model resolution belongs in provider construction (`_build_prelabel_provider(...)`), not only in interactive prompt plumbing.
+- Token usage tracking is provider-level and always-on for prelabel/decorate runs; aggregate totals flow into `prelabel_report.json` / `decorate_report.json`.
+
+### 8.4 Progress callback ownership and spinner counters
+
+- `run_labelstudio_import(...)` emits phase/status messages through `progress_callback`.
+- Interactive and non-interactive wrappers should share this callback path rather than maintain separate spinner logic.
+- Task-level counters (`task X/Y`) must be emitted where totals exist (ingest runtime loops), not inferred in CLI wrappers.
+
+### 8.5 Prompt/context mechanics and taxonomy enforcement
+
+- Prelabeling is one-shot per segment task (fresh subprocess call per prompt); there is no cross-task in-memory conversation history.
+- Context size is controlled by segmentation settings (`segment_blocks`, `segment_overlap`), not persistent chat state.
+- Apparent rerun statefulness is typically prompt cache reuse (`prelabel_cache/`), not model memory.
+- Canonical freeform label taxonomy and normalization are centralized in `label_config_freeform.py`; prelabel, decorate, export/eval normalization, and project-type inference should reuse that source.

@@ -173,9 +173,12 @@ class PdfImporter:
         self._overrides = overrides
         ocr_used = False
 
-        try:
+        def _notify(message: str) -> None:
             if progress_callback:
-                progress_callback("Computing hash...")
+                progress_callback(message)
+
+        try:
+            _notify("Computing hash...")
             file_hash = compute_file_hash(path)
             doc = fitz.open(path)
             total_pages = len(doc)
@@ -207,8 +210,7 @@ class PdfImporter:
 
             if needs_ocr and _ocr_available():
                 # Use OCR for scanned PDFs
-                if progress_callback:
-                    progress_callback("Running OCR (this may take a while)...")
+                _notify("Running OCR (this may take a while)...")
                 doc.close()
                 ocr_device = mapping.ocr_device if mapping else "auto"
                 ocr_batch_size = mapping.ocr_batch_size if mapping else 1
@@ -226,10 +228,8 @@ class PdfImporter:
                 slice_total = slice_end - slice_start
                 for page_num, abs_page in enumerate(range(slice_start, slice_end)):
                     page = doc[abs_page]
-                    if progress_callback and page_num % 5 == 0:
-                        progress_callback(
-                            f"Extracting text from page {page_num + 1}/{slice_total}..."
-                        )
+                    if page_num % 5 == 0:
+                        _notify(f"Extracting text from page {page_num + 1}/{slice_total}...")
                     page_blocks = self._extract_blocks_from_page(page, abs_page)
                     all_blocks.extend(page_blocks)
                 doc.close()
@@ -262,15 +262,13 @@ class PdfImporter:
             )
             
             # 2. Segment into Candidates
-            if progress_callback:
-                progress_callback(f"Segmenting {len(all_blocks)} blocks...")
+            _notify(f"Segmenting {len(all_blocks)} blocks...")
             candidates_ranges = self._detect_candidates(all_blocks)
             
             # 3. Extract Fields
             total_candidates = len(candidates_ranges)
             for i, (start, end, segmentation_score) in enumerate(candidates_ranges):
-                if progress_callback:
-                    progress_callback(f"Extracting candidate {i + 1}/{total_candidates}...")
+                _notify(f"Extracting candidate {i + 1}/{total_candidates}...")
                 try:
                     candidate_blocks = all_blocks[start:end]
                     candidate = self._extract_fields(candidate_blocks)
@@ -351,6 +349,7 @@ class PdfImporter:
                     logger.warning(f"Failed to extract candidate {i} in {path}: {e}")
                     report.warnings.append(f"Failed to parse candidate {i}: {e}")
 
+            _notify("Analyzing standalone knowledge blocks...")
             (
                 standalone_tips,
                 standalone_topics,
@@ -360,6 +359,7 @@ class PdfImporter:
             tip_candidates.extend(standalone_tips)
             topic_candidates.extend(standalone_topics)
 
+            _notify("Finalizing PDF extraction results...")
             tips, recipe_specific, not_tips = partition_tip_candidates(tip_candidates)
             report.total_recipes = len(recipes)
             report.total_tips = len(tips)
@@ -388,6 +388,7 @@ class PdfImporter:
                         f"represented ({standalone_coverage:.0%})."
                     )
 
+            _notify("PDF conversion complete.")
             return ConversionResult(
                 recipes=recipes,
                 tips=tips,

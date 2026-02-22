@@ -161,3 +161,95 @@ From `PDF-freeform-DO-LATER.md`:
 - Split EPUB/PDF job merges must rebase block indices globally before chunk/task generation; otherwise eval can produce false zero-match results.
 - Freeform eval has three layers now: strict metrics, `app_aligned` diagnostics, and `classification_only` diagnostics.
 - Current timestamp folders in code use dot-separated time (`%Y-%m-%d_%H.%M.%S`), which previously drifted from some docs.
+
+### 2026-02-20_12.59.26 interactive Label Studio AI flow map
+
+Merged source:
+- `docs/understandings/2026-02-20_12.59.26-interactive-labelstudio-ai-flow.md`
+
+Preserved outcomes:
+- Interactive main menu now covers both freeform AI entrypoints:
+  - prelabel during import,
+  - decorate existing freeform projects.
+- Freeform import prompt flow includes segmentation + AI mode selection in one pass.
+- Completion summaries should include `prelabel_report.json` when prelabeling is enabled.
+
+Anti-loop note:
+- Do not reintroduce "leave interactive mode and run separate command" guidance for normal AI labeling workflows.
+
+### 2026-02-20_13.05.00 prelabel upload fallback wiring map
+
+Merged source:
+- `docs/understandings/2026-02-20_13.05.00-labelstudio-prelabel-upload-fallback-map.md`
+
+Preserved rules:
+- Prelabel spans are generated during `generate_pred_run_artifacts(...)` before task JSONL write.
+- Offset mapping is deterministic from `source_map.blocks[*].segment_start/end` + exact `segment_text`.
+- Default upload mode (`annotations`) should auto-fallback to task upload + per-task annotation create when inline annotations are rejected.
+- Fallback mapping key is deterministic `segment_id` -> Label Studio `task.id`.
+
+### 2026-02-22_11.50.45 interactive prelabel mode mapping
+
+Merged source:
+- `docs/understandings/2026-02-22_11.50.45-interactive-prelabel-mode-mapping.md`
+
+Preserved rule:
+- One interactive prelabel mode selector maps directly to `prelabel`, `prelabel_upload_as`, and `prelabel_allow_partial`.
+- Keep this mapping aligned with non-interactive CLI flags to avoid mode drift.
+
+### 2026-02-22_12.26.42 Codex stdin/TTY compatibility fix
+
+Merged source:
+- `docs/understandings/2026-02-22_12.26.42-prelabel-codex-stdin-tty.md`
+
+Preserved rule:
+- Non-interactive prelabel/decorate subprocesses must default to `codex exec -`.
+- `stdin is not a terminal` in `prelabel_errors.jsonl` usually means interactive `codex` was invoked in a non-TTY subprocess.
+- Keep fallback retry (`codex` -> `codex exec -`) for backward compatibility with stale env/config overrides.
+
+### 2026-02-22_12.36.11 interactive progress-callback wiring
+
+Merged source:
+- `docs/understandings/2026-02-22_12.36.11-interactive-labelstudio-import-progress-callback.md`
+
+Preserved rule:
+- Interactive Label Studio import should pass `progress_callback` through the same helper path as non-interactive flows so long-running prelabel phases surface spinner updates consistently.
+
+### 2026-02-22_12.55.48 spinner task-counter ownership
+
+Merged source:
+- `docs/understandings/2026-02-22_12.55.48-spinner-task-counter-wiring.md`
+
+Preserved rule:
+- Task counters (`task X/Y`) belong in ingest runtime loops (where totals are known), not CLI wrapper-only logic.
+- CLI should render callback messages; ingest owns message content.
+
+### 2026-02-22_13.15.12 Codex model + token-usage propagation
+
+Merged source:
+- `docs/understandings/2026-02-22_13.15.12-prelabel-codex-model-and-token-usage.md`
+
+Preserved outcomes:
+- Model selection must propagate through import/decorate runtime provider construction, not only prompt/UI layers.
+- Effective command (`codex exec -` plus optional `--model`) should be resolved centrally and reported in run artifacts.
+- Token usage remains provider-level aggregation (`usage_summary`) and is always enabled for prelabel/decorate runs.
+
+### 2026-02-22_13.50.20 freeform prelabel prompt/context mechanics
+
+Merged source:
+- `docs/understandings/2026-02-22_13.50.20-freeform-prelabel-prompt-and-context.md`
+
+Preserved map:
+- Prompt template source is `_build_prompt(...)` in `cookimport/labelstudio/prelabel.py`.
+- One subprocess call labels one segment task; no cross-task conversation context.
+- Segment context window is controlled by `segment_blocks` + `segment_overlap`.
+- Apparent statefulness usually comes from prompt cache keys, not in-process model memory.
+
+### 2026-02-22_13.56.33 freeform taxonomy wiring
+
+Merged source:
+- `docs/understandings/2026-02-22_13.56.33-freeform-label-taxonomy-wiring.md`
+
+Preserved rule:
+- Canonical label names and alias normalization are centralized in `label_config_freeform.py`.
+- Prelabel, decorate, export/eval label normalization, and interactive project-type inference should all reuse that shared normalization logic.

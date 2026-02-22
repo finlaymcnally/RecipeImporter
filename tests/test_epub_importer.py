@@ -5,6 +5,7 @@ import types
 import pytest
 from pathlib import Path
 from cookimport.core.blocks import Block
+from cookimport.core.models import RecipeCandidate
 from cookimport.parsing import signals
 from cookimport.plugins.epub import EpubImporter, _resolve_unstructured_version
 from tests.fixtures.make_epub import make_synthetic_epub
@@ -47,6 +48,56 @@ def test_convert_epub():
     r2 = result.recipes[1]
     assert r2.name == "Simple Salad"
     assert "Lettuce" in r2.ingredients
+
+
+def test_convert_epub_emits_post_candidate_progress(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "book.epub"
+    source.write_bytes(b"dummy-epub")
+    importer = EpubImporter()
+    importer._extractor_diagnostics = {"legacy": [], "unstructured": [], "markdown": []}
+    importer._extractor_meta = {"legacy": {}, "unstructured": {}, "markdown": {}}
+    importer._unstructured_spine_xhtml = []
+    importer._markitdown_markdown = None
+    blocks = [
+        Block(text="Skillet Bread"),
+        Block(text="Ingredients"),
+        Block(text="1 cup flour"),
+        Block(text="Instructions"),
+        Block(text="Mix ingredients."),
+    ]
+    for block in blocks:
+        signals.enrich_block(block)
+
+    monkeypatch.setenv("C3IMP_EPUB_EXTRACTOR", "legacy")
+    monkeypatch.setattr(importer, "_extract_docpack", lambda *_args, **_kwargs: blocks)
+    monkeypatch.setattr(
+        importer,
+        "_detect_candidates",
+        lambda _blocks: [(0, len(blocks), 0.9)],
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_fields",
+        lambda _candidate_blocks: RecipeCandidate(
+            name="Skillet Bread",
+            ingredients=["1 cup flour"],
+            instructions=["Mix ingredients."],
+        ),
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_standalone_tips",
+        lambda *_args, **_kwargs: ([], [], 0, 0),
+    )
+
+    progress_messages: list[str] = []
+    result = importer.convert(source, None, progress_callback=progress_messages.append)
+
+    assert result.recipes
+    assert any(msg.startswith("Extracting candidate 1/1") for msg in progress_messages)
+    assert "Analyzing standalone knowledge blocks..." in progress_messages
+    assert "Finalizing EPUB extraction results..." in progress_messages
+    assert progress_messages[-1] == "EPUB conversion complete."
 
 
 def test_convert_epub_markitdown_writes_markdown_artifact(monkeypatch, tmp_path: Path):

@@ -241,3 +241,15 @@ When editing staging behavior, confirm:
 - Ingestion details feeding staging: `docs/03-ingestion/03-ingestion_readme.md`
 - Parsing behavior feeding staging normalization: `docs/04-parsing/04-parsing_readme.md`
 - Metrics and report surfaces consuming staging outputs: `docs/08-analytics/08-analytics_readme.md`
+
+## Additional Cookbook Contract Edge Cases (Merged 2026-02-20_12.46.28)
+
+These invariants are easy to miss because outputs can look structurally valid while still failing Cookbook staging validation:
+
+- `source` must be `null` when blank; empty string is rejected.
+- For linked-recipe ingredient lines:
+  - blank `linked_recipe_id` must normalize to `null`,
+  - `input_qty` must remain `> 0` and `<= 100`,
+  - `input_unit_id` should remain `null`.
+
+Treat these as mandatory shaping rules in `recipe_candidate_to_draft_v1(...)`, not optional cleanup.

@@ -160,3 +160,18 @@ These are the loops we should avoid repeating.
 6. Reporting only a generic merge status after worker completion
 - Why bad: long post-merge phases can look like a hang and trigger false debugging loops.
 - Keep: phase-level merge status callbacks for report/raw/topic-candidate stages.
+
+### 2026-02-20_12.46.28 staging contract alignment edge cases
+
+Merged source:
+- `docs/understandings/2026-02-20_12.46.28-staging-contract-alignment-edge-cases.md`
+
+Preserved rules:
+- Cookbook staging schema allows `source=null` but rejects empty-string source values; normalize blank source to `null`.
+- Linked-recipe ingredient lines require stricter normalization:
+  - blank `linked_recipe_id` must become `null`,
+  - `input_qty` for recipe-line multipliers must stay within `> 0` and `<= 100`,
+  - `input_unit_id` should stay `null` for these rows.
+
+Anti-loop note:
+- "Looks valid locally" is not enough for staging alignment; enforce these normalizations in `draft_v1.py` before output writes to avoid downstream contract parser failures.

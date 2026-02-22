@@ -269,10 +269,13 @@ class EpubImporter:
         raw_artifacts: list[RawArtifact] = []
         overrides = mapping.parsing_overrides if mapping else None
         self._overrides = overrides
+
+        def _notify(message: str) -> None:
+            if progress_callback:
+                progress_callback(message)
         
         try:
-            if progress_callback:
-                progress_callback("Computing hash...")
+            _notify("Computing hash...")
             file_hash = compute_file_hash(path)
             selected_extractor = _get_epub_extractor()
             if selected_extractor == "auto":
@@ -283,8 +286,7 @@ class EpubImporter:
             report.epub_backend = selected_extractor
             
             # 1. Extract Blocks (DocPack)
-            if progress_callback:
-                progress_callback("Extracting blocks from EPUB...")
+            _notify("Extracting blocks from EPUB...")
             blocks = self._extract_docpack(
                 path,
                 start_spine=start_spine,
@@ -414,15 +416,13 @@ class EpubImporter:
                 )
 
             # 2. Segment into Candidates
-            if progress_callback:
-                progress_callback(f"Segmenting {len(blocks)} blocks...")
+            _notify(f"Segmenting {len(blocks)} blocks...")
             candidates_ranges = self._detect_candidates(blocks)
             
             # 3. Extract Fields
             total_candidates = len(candidates_ranges)
             for i, (start, end, segmentation_score) in enumerate(candidates_ranges):
-                if progress_callback:
-                    progress_callback(f"Extracting candidate {i + 1}/{total_candidates}...")
+                _notify(f"Extracting candidate {i + 1}/{total_candidates}...")
                 try:
                     candidate_blocks = blocks[start:end]
                     candidate = self._extract_fields(candidate_blocks)
@@ -485,6 +485,7 @@ class EpubImporter:
                     logger.warning(f"Failed to extract candidate {i} in {path}: {e}")
                     report.warnings.append(f"Failed to parse candidate {i}: {e}")
 
+            _notify("Analyzing standalone knowledge blocks...")
             (
                 standalone_tips,
                 standalone_topics,
@@ -504,6 +505,7 @@ class EpubImporter:
                 if idx not in covered and block.text.strip()
             ]
 
+            _notify("Finalizing EPUB extraction results...")
             tips, recipe_specific, not_tips = partition_tip_candidates(tip_candidates)
 
             report.total_recipes = len(recipes)
@@ -533,6 +535,7 @@ class EpubImporter:
                         f"represented ({standalone_coverage:.0%})."
                     )
 
+            _notify("EPUB conversion complete.")
             return ConversionResult(
                 recipes=recipes,
                 tips=tips,

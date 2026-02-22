@@ -498,3 +498,33 @@ If working in this area, keep these invariants:
 - Preserve deterministic ordering keys used for merge and ID assignment.
 - Preserve raw artifact traceability and avoid silent data loss during merge moves.
 - Treat `.job_parts` cleanup behavior as diagnostic signal, not noise.
+
+## EPUB Extractor Wiring Addendum (Merged 2026-02-19/2026-02-20 understandings)
+
+### Shared postprocess and health join points
+
+- `_extract_docpack(...)` in `cookimport/plugins/epub.py` is the extractor join point.
+- `legacy`, `unstructured`, and `markdown` backends run shared cleanup (`postprocess_epub_blocks(...)`) before signal enrichment.
+- `markitdown` intentionally skips shared HTML postprocess and only gets normal signal enrichment.
+- Conversion-level health is attached in `EpubImporter.convert(...)`:
+  - writes raw artifact `epub_extraction_health.json`,
+  - appends stable warning keys into `ConversionReport.warnings`.
+
+### Spine metadata contract
+
+- Spine metadata contract uses typed records (`EpubSpineItem(path, media_type, item_id, properties)`) rather than tuple slots.
+- This keeps nav/TOC skip behavior aligned between ebooklib and zip-fallback spine readers.
+
+### Auto extractor resolution + env scope
+
+- `auto` should resolve once in parent orchestration (`stage` and benchmark prediction generation), then workers receive the concrete backend (`legacy|unstructured|markdown`).
+- Stage path persists per-file auto rationale to `raw/epub/<source_hash>/epub_extractor_auto.json` and passes effective extractor explicitly to worker calls.
+- Prediction-generation helper flows should apply `C3IMP_EPUB_*` overrides in scoped contexts and restore previous env values after conversion to avoid run/test leakage.
+
+### Probe-path initialization rule (critical)
+
+- `select_epub_extractor_auto(...)` probes via direct calls to `EpubImporter._extract_docpack(...)`; this path does not run `convert(...)`.
+- Any runtime state consumed by `_extract_docpack(...)` must be initialized in `EpubImporter.__init__` (or safely defaulted), not only inside `convert(...)`.
+- Known regression: missing `self._overrides` caused real stage `--epub-extractor auto` failures (`'EpubImporter' object has no attribute '_overrides'`).
+- Regression anchor:
+  - `tests/test_epub_auto_select.py::test_select_epub_extractor_auto_real_importer_supports_direct_probe`

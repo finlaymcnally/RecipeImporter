@@ -119,3 +119,55 @@ Durable contract:
 
 Debugging evidence worth preserving:
 - Per-spine `raw_spine_xhtml_*.xhtml` and `norm_spine_xhtml_*.xhtml` artifacts made parser-shape failures and preprocessing effects visible quickly without reopening EPUB internals repeatedly.
+
+### 2026-02-19_14.19.06: EPUB postprocess + health wiring map
+
+Merged source:
+- `docs/understandings/2026-02-19_14.19.06-epub-postprocess-health-wiring-map.md`
+
+Preserved contract:
+- `cookimport/plugins/epub.py:_extract_docpack(...)` is the shared join point where extractor-specific block extraction converges before downstream segmentation.
+- Shared EPUB postprocess (`postprocess_epub_blocks`) applies to `legacy`/`unstructured`/`markdown`; `markitdown` intentionally bypasses this cleanup path.
+- EPUB extraction health is computed from final blocks and persisted as `epub_extraction_health.json`; warning keys are promoted into `ConversionReport.warnings`.
+- Spine metadata now uses typed `EpubSpineItem` records so zip-fallback and ebooklib flows apply the same nav/TOC skip logic.
+
+Anti-loop note:
+- Do not duplicate cleanup logic per extractor backend; keep common cleanup centralized in the shared join point.
+
+### 2026-02-19_14.55.51: auto extractor resolution + scoped env overrides
+
+Merged source:
+- `docs/understandings/2026-02-19_14.55.51-auto-extractor-resolution-and-env-scope.md`
+
+Preserved rule:
+- Resolve `auto` once per EPUB in parent orchestration, then pass effective backend (`legacy|unstructured|markdown`) explicitly to worker jobs.
+- Persist requested/effective selection rationale for reproducibility (`epub_extractor_auto.json` and run-config/report surfaces).
+- Prediction generation must scope and restore `C3IMP_EPUB_*` env vars to prevent cross-run/test drift.
+
+Rejected path:
+- Setting extractor env vars globally without restoration causes later runs/tests to inherit stale settings and produce inconsistent behavior.
+
+### 2026-02-20_12.31.31: direct-probe importer-init rule
+
+Merged source:
+- `docs/understandings/2026-02-20_12.31.31-auto-probe-overrides-init.md`
+
+Preserved discovery:
+- Auto-selection probe path uses direct `_extract_docpack(...)` calls and does not execute `convert(...)`.
+- Runtime fields consumed by `_extract_docpack(...)` (for example `_overrides`) must be initialized in `EpubImporter.__init__`.
+
+Concrete regression captured:
+- `stage --epub-extractor auto` failed on real runs with missing `_overrides`.
+- Fix was to initialize `self._overrides = None` in importer constructor.
+- Regression test anchor:
+  - `tests/test_epub_auto_select.py::test_select_epub_extractor_auto_real_importer_supports_direct_probe`
+
+### Undated durable reference: EPUB extractor mode semantics
+
+Merged source:
+- `docs/understandings/IMPORTANT-UNDERSTANDING-epub-extractor-types.md`
+
+Preserved baseline:
+- Extractor modes are mutually exclusive (`unstructured`, `legacy`, `markdown`, `auto`, `markitdown`) and feed one downstream segmentation pipeline.
+- `markitdown` remains whole-book only (no spine-range split support).
+- `auto` uses deterministic sampled-spine scoring and persists rationale artifacts for auditability.

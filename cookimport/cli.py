@@ -16,7 +16,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Dict, Any, Annotated, Callable
+from typing import Iterable, Dict, Any, Annotated, Callable, TypeVar
 
 import questionary
 import typer
@@ -146,6 +146,10 @@ _MENU_SHORTCUT_KEYS = (
     "y",
     "z",
 )
+
+_STATUS_ELAPSED_THRESHOLD_SECONDS = 8
+_STATUS_TICK_SECONDS = 1.0
+_StatusReturn = TypeVar("_StatusReturn")
 
 
 def _menu_option_count(choices: list[Any]) -> int:
@@ -1732,22 +1736,87 @@ def _require_labelstudio_write_consent(allow_labelstudio_write: bool) -> None:
         )
 
 
+def _format_status_progress_message(
+    message: str,
+    *,
+    elapsed_seconds: int,
+    elapsed_threshold_seconds: int = _STATUS_ELAPSED_THRESHOLD_SECONDS,
+) -> str:
+    """Append elapsed time for long-running phases."""
+    trimmed = message.strip()
+    if not trimmed:
+        return ""
+    if elapsed_seconds < max(0, elapsed_threshold_seconds):
+        return trimmed
+    return f"{trimmed} ({elapsed_seconds}s)"
+
+
+def _run_with_progress_status(
+    *,
+    initial_status: str,
+    progress_prefix: str,
+    run: Callable[[Callable[[str], None]], _StatusReturn],
+    elapsed_threshold_seconds: int = _STATUS_ELAPSED_THRESHOLD_SECONDS,
+    tick_seconds: float = _STATUS_TICK_SECONDS,
+) -> _StatusReturn:
+    latest_message = ""
+    latest_message_started = time.monotonic()
+    state_lock = threading.Lock()
+    stop_event = threading.Event()
+
+    def render(now: float | None = None) -> str:
+        current = now if now is not None else time.monotonic()
+        with state_lock:
+            message = latest_message
+            started_at = latest_message_started
+        if not message:
+            return f"[bold cyan]{initial_status}[/bold cyan]"
+        elapsed = max(0, int(current - started_at))
+        decorated = _format_status_progress_message(
+            message,
+            elapsed_seconds=elapsed,
+            elapsed_threshold_seconds=elapsed_threshold_seconds,
+        )
+        return f"[bold cyan]{progress_prefix}: {decorated}[/bold cyan]"
+
+    with console.status(render(), spinner="dots") as status:
+
+        def tick() -> None:
+            while not stop_event.wait(max(0.05, tick_seconds)):
+                status.update(render())
+
+        ticker = threading.Thread(
+            target=tick,
+            name="cli-status-progress-ticker",
+            daemon=True,
+        )
+        ticker.start()
+
+        def update_progress(msg: str) -> None:
+            nonlocal latest_message, latest_message_started
+            now = time.monotonic()
+            with state_lock:
+                latest_message = msg.strip()
+                latest_message_started = now
+            status.update(render(now))
+
+        try:
+            return run(update_progress)
+        finally:
+            stop_event.set()
+            ticker.join(timeout=max(0.2, tick_seconds * 2))
+
+
 def _run_labelstudio_import_with_status(
     *,
     source_name: str,
     run_import: Callable[[Callable[[str], None]], dict[str, Any]],
 ) -> dict[str, Any]:
-    with console.status(
-        f"[bold cyan]Running Label Studio import for {source_name}...[/bold cyan]",
-        spinner="dots",
-    ) as status:
-
-        def update_progress(msg: str) -> None:
-            status.update(
-                f"[bold cyan]Label Studio import ({source_name}): {msg}[/bold cyan]"
-            )
-
-        return run_import(update_progress)
+    return _run_with_progress_status(
+        initial_status=f"Running Label Studio import for {source_name}...",
+        progress_prefix=f"Label Studio import ({source_name})",
+        run=run_import,
+    )
 
 
 def _discover_freeform_gold_exports(output_dir: Path) -> list[Path]:
@@ -4071,16 +4140,10 @@ def labelstudio_decorate(
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
 
     try:
-        with console.status(
-            f"[bold cyan]Running Label Studio decorate for {project_name}...[/bold cyan]",
-            spinner="dots",
-        ) as status:
-            def update_progress(msg: str) -> None:
-                status.update(
-                    f"[bold cyan]Label Studio decorate ({project_name}): {msg}[/bold cyan]"
-                )
-
-            result = run_labelstudio_decorate(
+        result = _run_with_progress_status(
+            initial_status=f"Running Label Studio decorate for {project_name}...",
+            progress_prefix=f"Label Studio decorate ({project_name})",
+            run=lambda update_progress: run_labelstudio_decorate(
                 project_name=project_name,
                 output_dir=output_dir,
                 label_studio_url=url,
@@ -4096,7 +4159,8 @@ def labelstudio_decorate(
                 allow_labelstudio_write=allow_labelstudio_write,
                 no_write=no_write,
                 progress_callback=update_progress,
-            )
+            ),
+        )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
 
@@ -4700,17 +4764,13 @@ def labelstudio_benchmark(
                 skip_headers_footers=selected_skip_headers_footers,
                 preprocess_mode=selected_preprocess_mode,
             ):
-                with console.status(
-                    f"[bold cyan]Generating prediction tasks for {selected_source.name}...[/bold cyan]",
-                    spinner="dots",
-                ) as status:
-                    def update_progress(msg: str) -> None:
-                        status.update(
-                            f"[bold cyan]Benchmark import ({selected_source.name}): {msg}[/bold cyan]"
-                        )
-
-                    if no_upload:
-                        import_result = generate_pred_run_artifacts(
+                import_result = _run_with_progress_status(
+                    initial_status=(
+                        f"Generating prediction tasks for {selected_source.name}..."
+                    ),
+                    progress_prefix=f"Benchmark import ({selected_source.name})",
+                    run=lambda update_progress: (
+                        generate_pred_run_artifacts(
                             path=selected_source,
                             output_dir=output_dir,
                             pipeline=pipeline,
@@ -4737,8 +4797,8 @@ def labelstudio_benchmark(
                             progress_callback=update_progress,
                             run_manifest_kind="bench_pred_run",
                         )
-                    else:
-                        import_result = run_labelstudio_import(
+                        if no_upload
+                        else run_labelstudio_import(
                             path=selected_source,
                             output_dir=output_dir,
                             pipeline=pipeline,
@@ -4770,6 +4830,8 @@ def labelstudio_benchmark(
                             processed_output_root=processed_output_dir,
                             allow_labelstudio_write=True,
                         )
+                    ),
+                )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
 
@@ -4959,20 +5021,18 @@ def bench_run(
         config = json.loads(config_path.read_text(encoding="utf-8"))
 
     try:
-        with console.status(
-            "[bold cyan]Running bench suite...[/bold cyan]", spinner="dots"
-        ) as status:
-            def update_progress(msg: str) -> None:
-                status.update(f"[bold cyan]Bench: {msg}[/bold cyan]")
-
-            run_root, agg_metrics = run_suite(
+        run_root, agg_metrics = _run_with_progress_status(
+            initial_status="Running bench suite...",
+            progress_prefix="Bench",
+            run=lambda update_progress: run_suite(
                 s,
                 out_dir,
                 repo_root=REPO_ROOT,
                 config=config,
                 baseline_run_dir=baseline,
                 progress_callback=update_progress,
-            )
+            ),
+        )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
 
@@ -5033,13 +5093,10 @@ def bench_sweep(
         raise typer.Exit(1)
 
     try:
-        with console.status(
-            "[bold cyan]Running parameter sweep...[/bold cyan]", spinner="dots"
-        ) as status:
-            def update_progress(msg: str) -> None:
-                status.update(f"[bold cyan]Sweep: {msg}[/bold cyan]")
-
-            sweep_root = run_sweep(
+        sweep_root = _run_with_progress_status(
+            initial_status="Running parameter sweep...",
+            progress_prefix="Sweep",
+            run=lambda update_progress: run_sweep(
                 s,
                 out_dir,
                 repo_root=REPO_ROOT,
@@ -5047,7 +5104,8 @@ def bench_sweep(
                 seed=seed,
                 objective=objective,
                 progress_callback=update_progress,
-            )
+            ),
+        )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
 

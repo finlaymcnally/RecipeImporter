@@ -3,11 +3,82 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
 
 import cookimport.cli as cli
+
+
+def test_format_status_progress_message_appends_elapsed_after_threshold() -> None:
+    assert (
+        cli._format_status_progress_message(
+            "Working on upload...",
+            elapsed_seconds=7,
+            elapsed_threshold_seconds=8,
+        )
+        == "Working on upload..."
+    )
+    assert (
+        cli._format_status_progress_message(
+            "Working on upload...",
+            elapsed_seconds=8,
+            elapsed_threshold_seconds=8,
+        )
+        == "Working on upload... (8s)"
+    )
+
+
+def test_run_with_progress_status_shows_elapsed_for_long_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    recorded: list[str] = []
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots") -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("Extracting candidate 46/46...")
+        time.sleep(1.2)
+        recorded.append("done")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Import",
+        run=_run,
+        elapsed_threshold_seconds=1,
+        tick_seconds=0.1,
+    )
+
+    assert result == {"ok": True}
+    assert recorded == ["done"]
+    assert any(
+        "Import: Extracting candidate 46/46... (" in message and "s)" in message
+        for message in capture.messages
+    )
 
 
 def test_discover_freeform_gold_exports_orders_newest_first(tmp_path: Path) -> None:

@@ -778,3 +778,36 @@ Use that file to check prior attempts before retrying a fix path.
 - Labeling and eval workflows: `docs/06-label-studio/README.md`
 - Offline bench suite: `docs/07-bench/README.md`
 - Tagging workflows: `docs/09-tagging/README.md`
+
+## Merged Understandings (2026-02-20 and durable checklist)
+
+### Interactive EPUB race routing contract (2026-02-20_13.20.47)
+
+- Keep `epub_race` as a top-level main-menu action, not a settings sub-flow.
+- Show it only when top-level `data/input` has at least one `.epub`.
+- Prompt only for interactive concerns (file, output path, candidate set, overwrite handling).
+- Route to shared command behavior (`race_epub_extractors(...)`) instead of duplicating scorer/report logic in interactive code.
+- Always return to main menu after completion/failure.
+
+### New pipeline-option wiring checklist (IMPORTANT-INSTRUCTION-pipeline-option-edit-map)
+
+When introducing a new processing option, complete all four surfaces together:
+
+1. Definition + selection:
+- Add it to `RunSettings` in `cookimport/config/run_settings.py` (metadata, canonical builder, summary order when needed).
+- Ensure interactive selector/editor surfaces (`cookimport/cli_ui/run_settings_flow.py`, `cookimport/cli_ui/toggle_editor.py`) expose it.
+- Update `compute_effective_workers(...)` when the option changes split capability or effective parallelism.
+
+2. Runtime propagation:
+- Wire option handling through `cookimport/cli.py` stage and benchmark command paths.
+- Keep split-planner parity between `cookimport/cli.py:_plan_jobs(...)` and `cookimport/labelstudio/ingest.py:_plan_parallel_convert_jobs(...)`.
+- Propagate through prediction artifact generation in `cookimport/labelstudio/ingest.py:generate_pred_run_artifacts(...)`.
+
+3. Analytics persistence:
+- Preserve run-config/report fields (`runConfig`, `runConfigHash`, `runConfigSummary`) in stage/benchmark artifacts.
+- Keep CSV + dashboard visibility aligned (`cookimport/analytics/perf_report.py`, `dashboard_collect.py`, `dashboard_render.py`).
+
+4. Both execution lanes:
+- Import lane (`cookimport stage`).
+- Prediction-generation lane for benchmark/freeform eval (`labelstudio-benchmark` prediction run creation).
+- Reminder: `labelstudio-eval` is eval-only and does not rerun pipeline options.
