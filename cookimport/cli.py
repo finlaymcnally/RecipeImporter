@@ -60,6 +60,8 @@ from cookimport.labelstudio.eval_freeform import (
 )
 from cookimport.labelstudio.label_config_freeform import FREEFORM_LABELS
 from cookimport.labelstudio.prelabel import default_codex_model
+from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
+from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
 from cookimport.runs import RunManifest, RunSource, write_run_manifest
@@ -147,7 +149,7 @@ _MENU_SHORTCUT_KEYS = (
     "z",
 )
 
-_STATUS_ELAPSED_THRESHOLD_SECONDS = 8
+_STATUS_ELAPSED_THRESHOLD_SECONDS = 10
 _STATUS_TICK_SECONDS = 1.0
 _StatusReturn = TypeVar("_StatusReturn")
 
@@ -834,6 +836,11 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 "pdf_pages_per_job": selected_run_settings.pdf_pages_per_job,
                 "epub_spine_items_per_job": selected_run_settings.epub_spine_items_per_job,
                 "warm_models": selected_run_settings.warm_models,
+                "llm_recipe_pipeline": selected_run_settings.llm_recipe_pipeline.value,
+                "codex_farm_cmd": selected_run_settings.codex_farm_cmd,
+                "codex_farm_root": selected_run_settings.codex_farm_root,
+                "codex_farm_context_blocks": selected_run_settings.codex_farm_context_blocks,
+                "codex_farm_failure_mode": selected_run_settings.codex_farm_failure_mode.value,
             }
 
             if selection == "all":
@@ -1392,6 +1399,11 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 epub_split_workers=selected_benchmark_settings.epub_split_workers,
                 pdf_pages_per_job=selected_benchmark_settings.pdf_pages_per_job,
                 epub_spine_items_per_job=selected_benchmark_settings.epub_spine_items_per_job,
+                llm_recipe_pipeline=selected_benchmark_settings.llm_recipe_pipeline.value,
+                codex_farm_cmd=selected_benchmark_settings.codex_farm_cmd,
+                codex_farm_root=selected_benchmark_settings.codex_farm_root,
+                codex_farm_context_blocks=selected_benchmark_settings.codex_farm_context_blocks,
+                codex_farm_failure_mode=selected_benchmark_settings.codex_farm_failure_mode.value,
             )
             save_last_run_settings("benchmark", output_folder, selected_benchmark_settings)
             continue
@@ -1482,6 +1494,26 @@ def _normalize_ocr_device(value: str) -> str:
         _fail(
             f"Invalid OCR device: {value!r}. "
             "Expected one of: auto, cpu, cuda, mps."
+        )
+    return normalized
+
+
+def _normalize_llm_recipe_pipeline(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"off", "codex-farm-3pass-v1"}:
+        _fail(
+            f"Invalid LLM recipe pipeline: {value!r}. "
+            "Expected one of: off, codex-farm-3pass-v1."
+        )
+    return normalized
+
+
+def _normalize_codex_farm_failure_mode(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"fail", "fallback"}:
+        _fail(
+            f"Invalid codex-farm failure mode: {value!r}. "
+            "Expected one of: fail, fallback."
         )
     return normalized
 
@@ -2496,6 +2528,114 @@ def _job_range_start(job: dict[str, Any]) -> int:
     return 0
 
 
+def _coerce_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _offset_mapping_int(payload: dict[str, Any], key: str, offset: int) -> None:
+    value = _coerce_int(payload.get(key))
+    if value is None:
+        return
+    payload[key] = value + offset
+
+
+def _offset_location_fields(location: dict[str, Any], offset: int) -> None:
+    for key in (
+        "start_block",
+        "end_block",
+        "block_index",
+        "startBlock",
+        "endBlock",
+        "blockIndex",
+        "tip_block_index",
+        "tipBlockIndex",
+    ):
+        _offset_mapping_int(location, key, offset)
+
+
+def _offset_result_block_indices(result: ConversionResult, offset: int) -> None:
+    if offset <= 0:
+        return
+    for recipe in result.recipes:
+        provenance = recipe.provenance if isinstance(recipe.provenance, dict) else {}
+        location = provenance.get("location")
+        if isinstance(location, dict):
+            _offset_location_fields(location, offset)
+
+    for tip in result.tip_candidates:
+        provenance = tip.provenance if isinstance(tip.provenance, dict) else {}
+        location = provenance.get("location")
+        if isinstance(location, dict):
+            _offset_location_fields(location, offset)
+
+    for topic in result.topic_candidates:
+        provenance = topic.provenance if isinstance(topic.provenance, dict) else {}
+        location = provenance.get("location")
+        if isinstance(location, dict):
+            _offset_location_fields(location, offset)
+
+    for block in result.non_recipe_blocks:
+        if not isinstance(block, dict):
+            continue
+        _offset_mapping_int(block, "index", offset)
+        location = block.get("location")
+        if isinstance(location, dict):
+            _offset_location_fields(location, offset)
+
+
+def _load_split_job_full_blocks(job_raw_root: Path) -> list[dict[str, Any]]:
+    full_text_paths = sorted(job_raw_root.glob("**/full_text.json"))
+    for full_text_path in full_text_paths:
+        try:
+            payload = json.loads(full_text_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        blocks = payload.get("blocks")
+        if not isinstance(blocks, list):
+            continue
+        return [dict(block) for block in blocks if isinstance(block, dict)]
+    return []
+
+
+def _build_split_full_blocks(
+    *,
+    out: Path,
+    workbook_slug: str,
+    ordered_jobs: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[int, int], dict[int, int]]:
+    merged: list[dict[str, Any]] = []
+    job_offsets: dict[int, int] = {}
+    job_block_counts: dict[int, int] = {}
+    running_offset = 0
+
+    for job in ordered_jobs:
+        job_index = int(job.get("job_index", 0))
+        job_offsets[job_index] = running_offset
+        job_raw_root = out / ".job_parts" / workbook_slug / f"job_{job_index}" / "raw"
+        blocks = _load_split_job_full_blocks(job_raw_root)
+        adjusted_count = 0
+        for fallback_index, block in enumerate(blocks):
+            index = _coerce_int(block.get("index"))
+            if index is None:
+                index = fallback_index
+            adjusted_block = dict(block)
+            adjusted_block["index"] = index + running_offset
+            merged.append(adjusted_block)
+            adjusted_count += 1
+        job_block_counts[job_index] = adjusted_count
+        running_offset += adjusted_count
+
+    merged.sort(key=lambda block: int(_coerce_int(block.get("index")) or 0))
+    return merged, job_offsets, job_block_counts
+
+
 def _merge_split_jobs(
     file_path: Path,
     job_results: list[dict[str, Any]],
@@ -2524,6 +2664,20 @@ def _merge_split_jobs(
             return
 
     ordered_jobs = sorted(job_results, key=_job_range_start)
+    run_settings = RunSettings.from_dict(run_config, warn_context="split merge run config")
+    llm_enabled = run_settings.llm_recipe_pipeline.value != "off"
+    merged_full_blocks, job_offsets, _job_block_counts = _build_split_full_blocks(
+        out=out,
+        workbook_slug=workbook_slug,
+        ordered_jobs=ordered_jobs,
+    )
+    for job in ordered_jobs:
+        result = job.get("result")
+        if result is None:
+            continue
+        offset = job_offsets.get(int(job.get("job_index", 0)), 0)
+        _offset_result_block_indices(result, offset)
+
     should_write_chunks = False
     for job in ordered_jobs:
         result = job.get("result")
@@ -2536,13 +2690,19 @@ def _merge_split_jobs(
     phase_labels = [
         "Merging job payloads...",
         "Reassigning recipe IDs...",
+    ]
+    if llm_enabled:
+        phase_labels.append("Running codex-farm recipe pipeline...")
+    phase_labels.extend(
+        [
         "Building chunks...",
         "Writing merged outputs...",
         "Writing intermediate drafts...",
         "Writing final drafts...",
         "Writing tips...",
         "Writing topic candidates...",
-    ]
+        ]
+    )
     if should_write_chunks:
         phase_labels.append("Writing chunks...")
     phase_labels.extend(
@@ -2593,6 +2753,20 @@ def _merge_split_jobs(
 
     _report_phase("Reassigning recipe IDs...")
     file_hash = compute_file_hash(file_path)
+    if merged_full_blocks:
+        merged_full_text_path = out / "raw" / importer_name / file_hash / "full_text.json"
+        merged_full_text_path.parent.mkdir(parents=True, exist_ok=True)
+        merged_full_text_path.write_text(
+            json.dumps(
+                {
+                    "blocks": merged_full_blocks,
+                    "block_count": len(merged_full_blocks),
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
     sorted_recipes, _ = reassign_recipe_ids(
         merged_recipes,
         merged_tip_candidates,
@@ -2646,6 +2820,9 @@ def _merge_split_jobs(
         workbook=file_path.stem,
         workbook_path=str(file_path),
     )
+    llm_schema_overrides: dict[str, dict[str, Any]] | None = None
+    llm_draft_overrides: dict[str, dict[str, Any]] | None = None
+    llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
 
     from cookimport.cli_worker import apply_result_limits
     apply_result_limits(merged_result, limit, limit, limit_label=limit)
@@ -2663,6 +2840,40 @@ def _merge_split_jobs(
                 f"{standalone_topic_block_total} of {standalone_block_total} blocks "
                 f"represented ({standalone_coverage:.0%})."
             )
+
+    if llm_enabled:
+        _report_phase("Running codex-farm recipe pipeline...")
+        try:
+            llm_apply = run_codex_farm_recipe_pipeline(
+                conversion_result=merged_result,
+                run_settings=run_settings,
+                run_root=out,
+                workbook_slug=workbook_slug,
+                full_blocks=merged_full_blocks or None,
+            )
+        except CodexFarmRunnerError as exc:
+            if run_settings.codex_farm_failure_mode.value == "fallback":
+                warning = (
+                    "LLM recipe pipeline failed; falling back to deterministic outputs: "
+                    f"{exc}"
+                )
+                report.warnings.append(warning)
+                llm_report = {
+                    "enabled": True,
+                    "pipeline": run_settings.llm_recipe_pipeline.value,
+                    "fallbackApplied": True,
+                    "fatalError": str(exc),
+                }
+            else:
+                raise
+        else:
+            merged_result = llm_apply.updated_conversion_result
+            llm_schema_overrides = llm_apply.intermediate_overrides_by_recipe_id
+            llm_draft_overrides = llm_apply.final_overrides_by_recipe_id
+            llm_report = dict(llm_apply.llm_report)
+
+    report = merged_result.report
+    report.llm_codex_farm = llm_report
 
     parsing_overrides = (
         mapping_config.parsing_overrides if mapping_config and mapping_config.parsing_overrides else None
@@ -2691,10 +2902,20 @@ def _merge_split_jobs(
 
         _report_phase("Writing intermediate drafts...")
         with measure(merge_stats, "write_intermediate_seconds"):
-            write_intermediate_outputs(merged_result, intermediate_dir, output_stats=output_stats)
+            write_intermediate_outputs(
+                merged_result,
+                intermediate_dir,
+                output_stats=output_stats,
+                schemaorg_overrides_by_recipe_id=llm_schema_overrides,
+            )
         _report_phase("Writing final drafts...")
         with measure(merge_stats, "write_final_seconds"):
-            write_draft_outputs(merged_result, final_dir, output_stats=output_stats)
+            write_draft_outputs(
+                merged_result,
+                final_dir,
+                output_stats=output_stats,
+                draft_overrides_by_recipe_id=llm_draft_overrides,
+            )
         _report_phase("Writing tips...")
         with measure(merge_stats, "write_tips_seconds"):
             write_tip_outputs(merged_result, tips_dir, output_stats=output_stats)
@@ -2886,6 +3107,32 @@ def stage(
         "--epub-unstructured-preprocess-mode",
         help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1, semantic_v1.",
     ),
+    llm_recipe_pipeline: str = typer.Option(
+        "off",
+        "--llm-recipe-pipeline",
+        help="Optional recipe LLM pipeline: off or codex-farm-3pass-v1.",
+    ),
+    codex_farm_cmd: str = typer.Option(
+        "codex-farm",
+        "--codex-farm-cmd",
+        help="Executable used for codex-farm calls when LLM recipe pipeline is enabled.",
+    ),
+    codex_farm_root: Path | None = typer.Option(
+        None,
+        "--codex-farm-root",
+        help="Optional codex-farm pipeline-pack root. Defaults to <repo_root>/llm_pipelines.",
+    ),
+    codex_farm_context_blocks: int = typer.Option(
+        30,
+        "--codex-farm-context-blocks",
+        min=0,
+        help="Blocks before/after each recipe candidate included in pass-1 codex-farm bundles.",
+    ),
+    codex_farm_failure_mode: str = typer.Option(
+        "fail",
+        "--codex-farm-failure-mode",
+        help="Behavior when codex-farm setup/invocation fails: fail or fallback.",
+    ),
 ) -> Path:
     """Stage recipes from a source file or folder.
 
@@ -2904,6 +3151,10 @@ def stage(
     )
     selected_skip_headers_footers = bool(epub_unstructured_skip_headers_footers)
     selected_ocr_device = _normalize_ocr_device(ocr_device)
+    selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
+    selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
+        codex_farm_failure_mode
+    )
 
     # Apply EPUB unstructured runtime options for this run.
     # Extractor choice is passed explicitly into worker calls.
@@ -3001,6 +3252,11 @@ def stage(
         ocr_device=selected_ocr_device,
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,
+        llm_recipe_pipeline=selected_llm_recipe_pipeline,
+        codex_farm_cmd=codex_farm_cmd,
+        codex_farm_root=codex_farm_root,
+        codex_farm_context_blocks=codex_farm_context_blocks,
+        codex_farm_failure_mode=selected_codex_farm_failure_mode,
         mapping_path=mapping,
         overrides_path=overrides,
         all_epub=all_epub,
@@ -3926,6 +4182,32 @@ def labelstudio_import(
             "Failures are recorded in prelabel report files."
         ),
     ),
+    llm_recipe_pipeline: str = typer.Option(
+        "off",
+        "--llm-recipe-pipeline",
+        help="Optional recipe LLM pipeline: off or codex-farm-3pass-v1.",
+    ),
+    codex_farm_cmd: str = typer.Option(
+        "codex-farm",
+        "--codex-farm-cmd",
+        help="Executable used for codex-farm calls when LLM recipe pipeline is enabled.",
+    ),
+    codex_farm_root: Path | None = typer.Option(
+        None,
+        "--codex-farm-root",
+        help="Optional codex-farm pipeline-pack root. Defaults to <repo_root>/llm_pipelines.",
+    ),
+    codex_farm_context_blocks: int = typer.Option(
+        30,
+        "--codex-farm-context-blocks",
+        min=0,
+        help="Blocks before/after each recipe candidate included in pass-1 codex-farm bundles.",
+    ),
+    codex_farm_failure_mode: str = typer.Option(
+        "fail",
+        "--codex-farm-failure-mode",
+        help="Behavior when codex-farm setup/invocation fails: fail or fallback.",
+    ),
 ) -> None:
     """Create and upload Label Studio tasks for pipeline/canonical/freeform scopes."""
     _require_labelstudio_write_consent(allow_labelstudio_write)
@@ -3936,6 +4218,10 @@ def labelstudio_import(
         _fail(
             "--prelabel-upload-as must be one of: annotations, predictions."
         )
+    selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
+    selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
+        codex_farm_failure_mode
+    )
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     try:
         result = _run_labelstudio_import_with_status(
@@ -3966,6 +4252,11 @@ def labelstudio_import(
                 prelabel_upload_as=normalized_prelabel_upload_as,
                 prelabel_allow_partial=prelabel_allow_partial,
                 prelabel_track_token_usage=True,
+                llm_recipe_pipeline=selected_llm_recipe_pipeline,
+                codex_farm_cmd=codex_farm_cmd,
+                codex_farm_root=codex_farm_root,
+                codex_farm_context_blocks=codex_farm_context_blocks,
+                codex_farm_failure_mode=selected_codex_farm_failure_mode,
                 allow_labelstudio_write=True,
             ),
         )
@@ -4662,6 +4953,27 @@ def labelstudio_benchmark(
         "--epub-unstructured-preprocess-mode",
         help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1, semantic_v1.",
     )] = "br_split_v1",
+    llm_recipe_pipeline: Annotated[str, typer.Option(
+        "--llm-recipe-pipeline",
+        help="Optional recipe LLM pipeline: off or codex-farm-3pass-v1.",
+    )] = "off",
+    codex_farm_cmd: Annotated[str, typer.Option(
+        "--codex-farm-cmd",
+        help="Executable used for codex-farm calls when LLM recipe pipeline is enabled.",
+    )] = "codex-farm",
+    codex_farm_root: Annotated[Path | None, typer.Option(
+        "--codex-farm-root",
+        help="Optional codex-farm pipeline-pack root. Defaults to <repo_root>/llm_pipelines.",
+    )] = None,
+    codex_farm_context_blocks: Annotated[int, typer.Option(
+        "--codex-farm-context-blocks",
+        min=0,
+        help="Blocks before/after each recipe candidate included in pass-1 codex-farm bundles.",
+    )] = 30,
+    codex_farm_failure_mode: Annotated[str, typer.Option(
+        "--codex-farm-failure-mode",
+        help="Behavior when codex-farm setup/invocation fails: fail or fallback.",
+    )] = "fail",
 ) -> None:
     """Run benchmark eval against freeform gold, with optional upload step."""
     selected_epub_extractor = _normalize_epub_extractor(epub_extractor)
@@ -4673,6 +4985,10 @@ def labelstudio_benchmark(
     )
     selected_skip_headers_footers = bool(epub_unstructured_skip_headers_footers)
     selected_ocr_device = _normalize_ocr_device(ocr_device)
+    selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
+    selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
+        codex_farm_failure_mode
+    )
     url: str | None = None
     api_key: str | None = None
     if not no_upload:
@@ -4793,6 +5109,11 @@ def labelstudio_benchmark(
                             ocr_device=selected_ocr_device,
                             ocr_batch_size=ocr_batch_size,
                             warm_models=warm_models,
+                            llm_recipe_pipeline=selected_llm_recipe_pipeline,
+                            codex_farm_cmd=codex_farm_cmd,
+                            codex_farm_root=codex_farm_root,
+                            codex_farm_context_blocks=codex_farm_context_blocks,
+                            codex_farm_failure_mode=selected_codex_farm_failure_mode,
                             processed_output_root=processed_output_dir,
                             progress_callback=update_progress,
                             run_manifest_kind="bench_pred_run",
@@ -4827,6 +5148,11 @@ def labelstudio_benchmark(
                             ocr_device=selected_ocr_device,
                             ocr_batch_size=ocr_batch_size,
                             warm_models=warm_models,
+                            llm_recipe_pipeline=selected_llm_recipe_pipeline,
+                            codex_farm_cmd=codex_farm_cmd,
+                            codex_farm_root=codex_farm_root,
+                            codex_farm_context_blocks=codex_farm_context_blocks,
+                            codex_farm_failure_mode=selected_codex_farm_failure_mode,
                             processed_output_root=processed_output_dir,
                             allow_labelstudio_write=True,
                         )
@@ -4904,7 +5230,13 @@ def labelstudio_benchmark(
         "pdf_pages_per_job": pdf_pages_per_job,
         "epub_spine_items_per_job": epub_spine_items_per_job,
         "warm_models": warm_models,
+        "llm_recipe_pipeline": selected_llm_recipe_pipeline,
+        "codex_farm_cmd": codex_farm_cmd,
+        "codex_farm_context_blocks": codex_farm_context_blocks,
+        "codex_farm_failure_mode": selected_codex_farm_failure_mode,
     }
+    if codex_farm_root is not None:
+        benchmark_run_config["codex_farm_root"] = str(codex_farm_root)
     if pred_context.run_config is not None:
         benchmark_run_config["prediction_run_config"] = pred_context.run_config
     if pred_context.run_config_hash:

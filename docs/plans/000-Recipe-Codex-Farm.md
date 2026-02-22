@@ -8,6 +8,7 @@ read_when:
 
 # ExecPlan: RecipeImport — 3-pass codex-farm integration for recipe chunking + schema.org + final drafts
 
+IT IS INCREDIBLY IMPORTANT TO NOTE THAT YOU MUST NOT RUN THE CODEX FARM INTEGRAITON. BUILD THIS BUT DO NOT TEST IT "LIVE" BY ACTUALLY SUMMONING CODEX INSTANCES UNTIL I HAVE HAD A TIME TO THINK ABOUT HOW I WANT TO MANAGE TOKEN USE. DO NOT TEST THIS IN A WAY THAT CAUSES THE CODEX FARM PROGRAM TO USE TOKENS PLEASE!!!
 
 This ExecPlan is a living document. The sections **Progress**, **Surprises & Discoveries**, **Decision Log**, and **Outcomes & Retrospective** must be kept up to date as work proceeds.
 
@@ -631,38 +632,55 @@ Expected:
 ## Progress
 
 
-- [ ] (2026-02-22) Add new RunSettings fields for llm_recipe_pipeline + codex-farm config; wire into CLI flags and interactive UI.
-- [ ] (2026-02-22) Apply new run setting in both stage and pred-run generation paths; update run manifest parity test.
-- [ ] (2026-02-22) Define Pydantic contracts for pass1/pass2/pass3 job bundles and outputs; add guardrail validations.
-- [ ] (2026-02-22) Implement SubprocessCodexFarmRunner and FakeCodexFarmRunner; add tests for “calls 3 times in order”.
-- [ ] (2026-02-22) Implement codex-farm orchestrator (write jobs, run 3 passes, apply boundaries, recompute nonRecipeBlocks, build overrides).
-- [ ] (2026-02-22) Integrate orchestrator into stage worker and split-job merge flows; ensure merged full_text artifact exists when needed.
-- [ ] (2026-02-22) Extend staging writer to accept intermediate/final overrides; update per-file report with llmCodexFarm stats.
-- [ ] (2026-02-22) End-to-end manual run with codex-farm installed; verify artifacts and outputs exist as specified.
+- [x] (2026-02-22_14.30.00) Added `RunSettings` codex-farm fields (`llm_recipe_pipeline`, `codex_farm_cmd`, `codex_farm_root`, `codex_farm_context_blocks`, `codex_farm_failure_mode`) and wired stage/benchmark CLI options.
+- [x] (2026-02-22_14.31.00) Applied run-setting plumbing across stage + pred-run generation and updated run-manifest parity coverage.
+- [x] (2026-02-22_14.26.00) Added strict Pydantic pass contracts (`pass1/pass2/pass3`) and bundle ID helpers under `cookimport/llm/`.
+- [x] (2026-02-22_14.26.00) Implemented `SubprocessCodexFarmRunner` + `FakeCodexFarmRunner` and tests for pipeline ordering/missing-binary behavior.
+- [x] (2026-02-22_14.30.00) Implemented 3-pass orchestrator including bundle write/read, pass boundary application, non-recipe recompute, override maps, and `llm_manifest.json`.
+- [x] (2026-02-22_14.31.00) Integrated orchestrator into single-file stage path and split-merge path, including merged `full_text.json` assembly for split runs.
+- [x] (2026-02-22_14.31.00) Extended writer interfaces to support schema.org/final draft override maps and report `llmCodexFarm`.
+- [x] (2026-02-22_14.38.00) Verified with targeted tests (no live codex-farm): `tests/test_run_settings.py`, `tests/test_cli_llm_flags.py`, `tests/test_writer_overrides.py`, `tests/test_codex_farm_contracts.py`, `tests/test_codex_farm_orchestrator.py`, `tests/test_run_manifest_parity.py`.
+- [ ] (deferred by instruction) Live codex-farm end-to-end run remains intentionally unexecuted to avoid burning tokens before explicit approval.
 
 
 ## Surprises & Discoveries
 
 
-(Keep this section updated as implementation proceeds. Examples of what belongs here: “split-job merge did not produce a merged full_text artifact; we had to add it”, “writer assumes deterministic schema.org generation and needed refactor”, “candidate provenance doesn’t expose block indices in one importer”.)
+- Observation: Rich Typer help truncates long option names in default-width tests, which hid full `--llm-recipe-pipeline` in stdout assertions.
+  Evidence: `tests/test_cli_llm_flags.py` failed until help invocation forced wider columns (`env={"COLUMNS": "240"}`).
+- Observation: Split-merge payloads had rebased recipe/tip/topic indices but no merged full block artifact suitable for pass1 codex-farm context building.
+  Evidence: `_merge_split_jobs(...)` now rebuilds `raw/<importer>/<source_hash>/full_text.json` from `.job_parts/.../raw/**/full_text.json` before invoking codex-farm.
+- Observation: Per-recipe contract failures should degrade locally (deterministic fallback) while still allowing successful recipes to keep LLM outputs.
+  Evidence: `test_orchestrator_recipe_level_failures_fallback_without_crashing` validates pass2 failure isolation and run continuation.
 
 
 ## Decision Log
 
 
-(Keep this section updated as decisions are finalized.)
-
-Initial decisions made by this plan:
-
-- Use a 3-pass design (chunking → schema.org → final) and call codex-farm three times when enabled.
-- Treat codex-farm as a black box subprocess dependency; do not read its internal DB.
-- Keep LLM artifacts under `raw/llm/...` so they are captured by existing outputStats rawArtifacts accounting.
-- Use “override maps” so writer output paths remain unchanged and deterministic mode remains default.
-- Recompute `nonRecipeBlocks` after pass 1 when full blocks are available, so downstream chunking reflects improved boundaries.
-- Make per-recipe failures fall back to deterministic outputs to keep the run usable, while still recording failures in manifest/report.
+- Decision: Keep default pipeline deterministic (`llm_recipe_pipeline=off`) and gate codex-farm with explicit opt-in settings only.
+  Rationale: Preserves existing behavior and avoids accidental token usage.
+  Date/Author: 2026-02-22 / Codex
+- Decision: Use fail-fast for subprocess/setup errors by default (`codex_farm_failure_mode=fail`) with explicit `fallback` mode for graceful degradation.
+  Rationale: Missing binary/pipeline-pack is usually a configuration error that should be obvious unless caller explicitly requests fallback.
+  Date/Author: 2026-02-22 / Codex
+- Decision: Apply pass2/pass3 outputs via writer override maps keyed by stable recipe IDs rather than replacing writer paths.
+  Rationale: Keeps canonical output layout untouched while allowing LLM payload substitution.
+  Date/Author: 2026-02-22 / Codex
+- Decision: Execute codex-farm orchestration in both stage single-file path and split-merge path, with merged full-block reconstruction for split jobs.
+  Rationale: Avoids stage-vs-split behavioral divergence and keeps pass1 context semantics consistent.
+  Date/Author: 2026-02-22 / Codex
+- Decision: Do not run live codex-farm in validation for this implementation pass.
+  Rationale: Explicit user instruction to avoid token burn until approved.
+  Date/Author: 2026-02-22 / Codex
 
 
 ## Outcomes & Retrospective
 
 
-(To be completed after implementation. Include: what improved, what remained brittle, what follow-up work should be planned next such as tip/topic recomputation, patch-mode outputs, or richer codex-farm progress reporting.)
+Implemented the recipeimport-side codex-farm integration end-to-end for code/test/doc wiring: new run settings + CLI exposure, strict pass contracts, subprocess/fake runners, 3-pass orchestration with manifest emission, split-merge compatibility, writer overrides, and report/run-config parity surfaces across stage and pred-run flows.
+
+This materially improves readiness for LLM-assisted recipe correction while keeping deterministic behavior as the default and preserving existing output paths.
+
+Remaining gap is intentional: no live codex-farm run was executed in this pass because token-spend testing was explicitly deferred. When approved, the next step is one controlled end-to-end validation run to verify actual codex-farm subprocess behavior and real output quality.
+
+Revision note (2026-02-22_14.41.28): Updated this ExecPlan from design-only state to implementation-complete status, including concrete test evidence and explicit deferment rationale for live codex-farm execution.

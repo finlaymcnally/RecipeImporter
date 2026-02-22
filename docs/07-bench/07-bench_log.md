@@ -186,3 +186,37 @@ Preserved rules:
 
 Anti-loop note:
 - Do not "patch in" counters at display-only layers when totals are unknown there; counters should originate at runtime loop boundaries.
+
+## 4. 2026-02-22_13.16.17 spinner-progress-counters second pass (build record)
+
+Source task file:
+- `docs/tasks/2026-02-22_13.16.17 - spinner-progress-counters-second-pass-build.md`
+
+Problem captured:
+- Known-size loops outside Label Studio prelabel/decorate still emitted phase-only text, so bench and split-merge throughput looked opaque.
+
+Behavior contract preserved:
+- Keep shared helper for counter formatting (`task`/`item`/`config`/`phase`).
+- `bench run` emits `item X/Y` progress.
+- `bench sweep` emits `config X/Y` and forwards nested runner updates as `config X/Y | item X/Y ...`.
+- Split-merge status callback emits deterministic `merge phase X/Y: ...` updates and accounts for optional chunk-write phase in totals.
+
+Verification and evidence preserved:
+- Recorded command set:
+  - `python -m pip install -e .[dev]`
+  - `pytest -q tests/test_progress_messages.py tests/test_bench_progress.py tests/test_split_merge_status.py tests/test_labelstudio_ingest_parallel.py tests/test_labelstudio_prelabel.py -k 'prelabel_task_progress or decorate_dry_run or test_'`
+  - `npm run docs:list`
+- Recorded result: `23 passed`.
+- Recorded emitted-message examples:
+  - `item 1/2 [alpha] Processing...`
+  - `config 1/2 | item 1/1 [alpha] Evaluating...`
+  - `merge phase 1/12: Merging job payloads...`
+  - `merge phase 12/12: Merge done`
+
+Constraints and anti-loop notes:
+- Counters should be generated in runtime loops where totals are truly known, then forwarded by wrappers.
+- Shared formatter adoption is additive and dependency-free; avoid forking counter format logic in separate domains.
+- Split-merge phase totals must remain monotonic when optional phases are present.
+
+Rollback path preserved:
+- Revert helper adoption in `cookimport/bench/runner.py`, `cookimport/bench/sweep.py`, and `cookimport/cli.py` plus associated tests/docs if contract needs reversal.

@@ -15,9 +15,16 @@ LLM integrations are optional and live under `cookimport/llm/`.
 - `cookimport/llm/prompts.py`
 - `cookimport/llm/repair.py`
 
+Recipe codex-farm integration:
+
+- `cookimport/llm/codex_farm_contracts.py` (Pydantic pass1/pass2/pass3 bundle contracts)
+- `cookimport/llm/codex_farm_runner.py` (subprocess boundary + actionable runner errors)
+- `cookimport/llm/codex_farm_orchestrator.py` (3-pass orchestration + manifest/override application)
+- `cookimport/llm/fake_codex_farm_runner.py` (deterministic test runner)
+
 ## Design and rollout plan
 
-- `docs/12-plans/I6.1-integrate-LLM.md`
+- `docs/plans/000-Recipe-Codex-Farm.md`
 
 ## History and anti-loop log
 
@@ -26,3 +33,4 @@ LLM integrations are optional and live under `cookimport/llm/`.
 ## Important boundary
 
 Primary stage imports remain deterministic by default; LLM behavior should be explicitly gated and auditable.
+`llm_recipe_pipeline` defaults to `off`; when enabled (`codex-farm-3pass-v1`), failures can either fail-fast or deterministic-fallback via `codex_farm_failure_mode`.

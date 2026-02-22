@@ -550,6 +550,35 @@ class ConversionReport(BaseModel):
     run_config: dict[str, Any] | None = Field(default=None, alias="runConfig")
     run_config_hash: str | None = Field(default=None, alias="runConfigHash")
     run_config_summary: str | None = Field(default=None, alias="runConfigSummary")
+    llm_codex_farm: dict[str, Any] | None = Field(default=None, alias="llmCodexFarm")
+
+
+class RecipeDraftStep(BaseModel):
+    """Cookbook3 step payload (internal model: RecipeDraftV1)."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    instruction: str
+    ingredient_lines: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class RecipeDraftRecipeMeta(BaseModel):
+    """Cookbook3 recipe metadata payload (internal model: RecipeDraftV1)."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    title: str
+
+
+class RecipeDraftV1(BaseModel):
+    """Internal model for final cookbook3 draft payloads."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    schema_v: int = Field(alias="schema_v")
+    source: str | None = None
+    recipe: RecipeDraftRecipeMeta
+    steps: list[RecipeDraftStep] = Field(default_factory=list)
 
 
 class RawArtifact(BaseModel):

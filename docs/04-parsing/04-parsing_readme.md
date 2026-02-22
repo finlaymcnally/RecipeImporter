@@ -400,3 +400,25 @@ Under a run output folder:
 - Tip scope drift: `cookimport/parsing/tips.py`
 - Lane drift and chunk boundary shifts: `cookimport/parsing/chunks.py`
 - Output formatting/selection confusion: `cookimport/staging/writer.py`
+
+## Merged Task Specs (2026-02-19 quick wins)
+
+### 2026-02-19_14.22.11 EPUB common-issues quick wins
+
+Durable parsing-side contract from the quick-win pass:
+
+- Shared EPUB text normalization now handles high-frequency extraction noise classes:
+  - soft hyphen and zero-width cleanup,
+  - Unicode fraction and punctuation normalization,
+  - whitespace stability needed for ingredient/segment heuristics.
+- Shared postprocess pass is used after extractor block generation to reduce structural noise:
+  - BR-collapsed block splitting into deterministic line blocks,
+  - bullet-prefix stripping,
+  - nav/TOC and obvious pagebreak noise suppression.
+- EPUB extraction health metrics/warnings (`epub_*`) are generated and persisted as diagnostics for downstream triage.
+
+Decision boundaries that should stay explicit:
+
+- Shared postprocess/health pass is intentionally focused on HTML-style extractor outputs (`legacy`, `unstructured`, `markdown`).
+- `markitdown` remains intentionally outside this exact postprocess path and should not be silently forced through incompatible cleanup logic.
+- Debug extraction tooling should keep parity by calling the same postprocess stage used in importer flow.

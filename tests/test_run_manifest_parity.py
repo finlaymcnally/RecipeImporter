@@ -136,6 +136,10 @@ def test_stage_and_pred_run_manifests_share_source_identity_and_coords(tmp_path:
         "ocr_device",
         "ocr_batch_size",
         "warm_models",
+        "llm_recipe_pipeline",
+        "codex_farm_cmd",
+        "codex_farm_context_blocks",
+        "codex_farm_failure_mode",
     }
     for key in parity_keys:
         assert stage_cfg[key] == pred_cfg[key]

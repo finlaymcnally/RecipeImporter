@@ -297,6 +297,7 @@ def write_intermediate_outputs(
     out_dir: Path,
     *,
     output_stats: OutputStats | None = None,
+    schemaorg_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     """Write intermediate schema.org Recipe JSON outputs.
 
@@ -314,7 +315,15 @@ def write_intermediate_outputs(
         # Ensure stable ID for the candidate
         _ensure_candidate_id(candidate, file_hash, sheet_slug, row_index)
 
-        jsonld = recipe_candidate_to_jsonld(candidate)
+        override_payload = None
+        if schemaorg_overrides_by_recipe_id is not None:
+            override_payload = schemaorg_overrides_by_recipe_id.get(candidate.identifier)
+        if isinstance(override_payload, dict):
+            jsonld = dict(override_payload)
+        elif hasattr(override_payload, "model_dump"):
+            jsonld = override_payload.model_dump(mode="json", by_alias=True, exclude_none=True)
+        else:
+            jsonld = recipe_candidate_to_jsonld(candidate)
 
         out_path = out_dir / f"r{index}.jsonld"
         _write_json_payload(
@@ -330,6 +339,7 @@ def write_draft_outputs(
     out_dir: Path,
     *,
     output_stats: OutputStats | None = None,
+    draft_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     """Write cookbook3 outputs (internal model name: RecipeDraftV1).
 
@@ -337,8 +347,22 @@ def write_draft_outputs(
     """
     for index, candidate in enumerate(results.recipes):
         _ensure_source(results, candidate)
-        _ensure_provenance(candidate)
-        draft = recipe_candidate_to_draft_v1(candidate)
+        provenance = _ensure_provenance(candidate)
+        sheet_name = _resolve_sheet_name(provenance)
+        row_index = _resolve_row_index(provenance)
+        sheet_slug = _slugify(sheet_name)
+        file_hash = _resolve_file_hash(results, provenance)
+        recipe_id = _ensure_candidate_id(candidate, file_hash, sheet_slug, row_index)
+
+        override_payload = None
+        if draft_overrides_by_recipe_id is not None:
+            override_payload = draft_overrides_by_recipe_id.get(recipe_id)
+        if isinstance(override_payload, dict):
+            draft = dict(override_payload)
+        elif hasattr(override_payload, "model_dump"):
+            draft = override_payload.model_dump(mode="json", by_alias=True, exclude_none=True)
+        else:
+            draft = recipe_candidate_to_draft_v1(candidate)
         out_path = out_dir / f"r{index}.json"
         _write_json_payload(
             draft,

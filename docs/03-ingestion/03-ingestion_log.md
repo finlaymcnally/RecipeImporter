@@ -171,3 +171,33 @@ Preserved baseline:
 - Extractor modes are mutually exclusive (`unstructured`, `legacy`, `markdown`, `auto`, `markitdown`) and feed one downstream segmentation pipeline.
 - `markitdown` remains whole-book only (no spine-range split support).
 - `auto` uses deterministic sampled-spine scoring and persists rationale artifacts for auditability.
+
+### 2026-02-22_14.08.34 - elapsed spinner ticker + post-candidate importer progress
+
+Source task file:
+- `docs/tasks/2026-02-22_14.08.34 - spinner-elapsed-ticker-and-post-candidate-progress.md`
+
+Problem captured:
+- After `candidate X/Y` extraction completed, long importer phases could continue with unchanged status text, making CLI spinners appear stalled.
+
+Behavior contract preserved:
+- Callback-driven CLI status wrappers append elapsed seconds when phase text remains unchanged long enough.
+- Shared wrapper usage was expanded across Label Studio import/decorate, benchmark import, and bench run/sweep flows.
+- EPUB and PDF converters emit explicit post-candidate callbacks before finalization so visible progress continues past extraction counters.
+
+Verification and evidence preserved:
+- Recorded command set includes:
+  - `pytest -q tests/test_labelstudio_benchmark_helpers.py -k "status_progress_message or run_with_progress_status"`
+  - `pytest -q tests/test_epub_importer.py tests/test_pdf_importer.py -k post_candidate_progress`
+  - `pytest -q tests/test_bench_progress.py`
+- Recorded evidence includes examples such as:
+  - unchanged phase text receiving elapsed suffix (for example `... (17s)`),
+  - post-candidate callbacks (`Analyzing standalone knowledge blocks...`, `Finalizing ... extraction results...`).
+
+Key constraints and anti-loop notes:
+- Reuse existing `progress_callback` plumbing; do not introduce separate indicator systems.
+- Default elapsed ticker threshold is 10 seconds with one-second updates for readability.
+- Progress update additions are text-only; do not treat this as a data-contract/output-contract change.
+
+Rollback path preserved:
+- Revert shared `_run_with_progress_status` callback wrappers in `cookimport/cli.py` and importer post-candidate `_notify(...)` additions.

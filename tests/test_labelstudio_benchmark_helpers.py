@@ -15,18 +15,18 @@ def test_format_status_progress_message_appends_elapsed_after_threshold() -> Non
     assert (
         cli._format_status_progress_message(
             "Working on upload...",
-            elapsed_seconds=7,
-            elapsed_threshold_seconds=8,
+            elapsed_seconds=9,
+            elapsed_threshold_seconds=10,
         )
         == "Working on upload..."
     )
     assert (
         cli._format_status_progress_message(
             "Working on upload...",
-            elapsed_seconds=8,
-            elapsed_threshold_seconds=8,
+            elapsed_seconds=10,
+            elapsed_threshold_seconds=10,
         )
-        == "Working on upload... (8s)"
+        == "Working on upload... (10s)"
     )
 
 

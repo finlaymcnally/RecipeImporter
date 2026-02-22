@@ -41,7 +41,7 @@ Interactive file discovery and direct staging intentionally differ:
 - Interactive freeform `labelstudio` prelabel flow includes explicit Codex model selection; token-usage tracking is always enabled and should not be a prompt.
 - Interactive and non-interactive `labelstudio` import must use the same status/progress callback wiring so long-running phases (especially AI prelabeling) show a live spinner/status update path.
 - Spinner/progress text for known-size worklists should include `<noun> X/Y` counters (for example `task`, `item`, `config`, `phase`) rather than phase-only text so operators can track throughput.
-- Callback-driven CLI spinners (`labelstudio` import/decorate, benchmark import, bench run/sweep) should append elapsed seconds after prolonged unchanged phases (default threshold: 8s) so users can see that work is still running when a phase message is stale.
+- Callback-driven CLI spinners (`labelstudio` import/decorate, benchmark import, bench run/sweep) should append elapsed seconds after prolonged unchanged phases (default threshold: 10s) so users can see that work is still running when a phase message is stale.
 - Interactive `labelstudio` export resolves credentials first, then lists project titles from Label Studio for selection, with manual entry fallback when discovery is unavailable. If the selected project has a detected task type, export uses that scope automatically and skips the separate scope prompt.
 - Interactive `labelstudio_decorate` is a main-menu action for additive freeform AI labels and should default to dry-run before write mode.
 - Label Studio export (interactive and non-interactive) writes to a stable project root by default: `data/golden/<project_slug>/exports/...`; it uses prior manifests for project/scope resolution, not for export destination. `--run-dir` still forces export into a specific run.
@@ -71,6 +71,8 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - `cookimport/cli_ui/run_settings_flow.py` and `cookimport/cli_ui/toggle_editor.py` must derive editor rows/options from `RunSettings` metadata; do not maintain a separate hard-coded field list.
 - Last-run snapshots are stored in `<output_dir>/.history/last_run_settings_{import|benchmark}.json` via `cookimport/config/last_run_store.py`.
 - Schema evolution contract for stored run settings: missing keys default, unknown keys are ignored (warn once), and corrupt payloads degrade to `None` (treated as no saved run settings).
+- Recipe codex-farm knobs (`llm_recipe_pipeline`, `codex_farm_cmd`, `codex_farm_root`, `codex_farm_context_blocks`, `codex_farm_failure_mode`) must be wired through both stage and benchmark prediction-generation paths, and persisted in run-config surfaces (manifest/report/history).
+- `llm_recipe_pipeline` must default to `off`; codex-farm subprocess calls are opt-in only and should never run in default pipeline mode.
 - New processing-option contract (do all, or the feature is incomplete):
   - add option to `RunSettings` + interactive selectors,
   - pass it through both run-producing command paths (`stage` and benchmark prediction generation),
@@ -122,6 +124,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - EPUB extraction reports should always emit raw artifact `epub_extraction_health.json` plus stable warning keys (`epub_*`) in `ConversionReport.warnings` when thresholds trip.
 - Unstructured HTML parser `v2` requires `body.Document`/`div.Page`-style inputs; adapter-level compatibility wrapping is required before `partition_html(..., html_parser_version=\"v2\")` on generic EPUB XHTML.
 - `.job_parts` should be removed after successful merge; if it remains, treat it as evidence of merge failure/interruption.
+- Split-merge paths that run codex-farm must rebuild merged `raw/<importer>/<source_hash>/full_text.json` and rebase block indices before pass1 bundle generation.
 - `stage` builds and passes a base `MappingConfig` to workers, so worker conversion typically skips importer `inspect()` unless planning/split metadata requires it.
 - Topic/Tip writer paths may call file-hash resolution many times; when provenance lacks `file_hash`, hashing must be cached by source file metadata to avoid repeated whole-file reads in high-cardinality merge runs.
 - Any payload returned from split workers (especially `ConversionResult.raw_artifacts[*].metadata`) must stay process-pickle-safe primitives; module objects in metadata will fail split benchmark/stage merges with `cannot pickle 'module' object`.
@@ -131,6 +134,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - Freeform benchmark scoring (`labelstudio-benchmark`, interactive eval-only, and `bench run`) evaluates prediction task artifacts (`label_studio_tasks.jsonl`) against freeform gold spans (`freeform_span_labels.jsonl`), not staged cookbook outputs; optional processed outputs written during benchmark are review artifacts only.
 - Non-interactive `labelstudio-benchmark` supports an explicit offline path via `--no-upload`; this mode must skip Label Studio credential resolution and never call upload APIs.
 - Run-producing flows must emit `run_manifest.json` so source identity (`path` + `source_hash`), effective config, and key artifacts are inspectable without reading code.
+- When codex-farm is enabled for stage/pred-run, report + manifest payloads should expose `llmCodexFarm`/`llm_codex_farm` metadata, and deterministic fallback semantics must be explicit (`codex_farm_failure_mode=fail|fallback`).
 
 ## Analytics Caveats
 

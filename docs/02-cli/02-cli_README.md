@@ -134,6 +134,11 @@ Config keys and defaults:
 - `pdf_pages_per_job` (default `50`)
 - `epub_spine_items_per_job` (default `10`)
 - `warm_models` (default `false`)
+- `llm_recipe_pipeline` (default `off`)
+- `codex_farm_cmd` (default `codex-farm`)
+- `codex_farm_root` (default unset; falls back to `<repo_root>/llm_pipelines`)
+- `codex_farm_context_blocks` (default `30`)
+- `codex_farm_failure_mode` (default `fail`)
 
 What each setting affects:
 
@@ -146,6 +151,8 @@ What each setting affects:
 - `output_dir`: interactive `stage` target output root.
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
 - `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
+- `llm_recipe_pipeline`: optional recipe codex-farm flow (`off` or `codex-farm-3pass-v1`).
+- `codex_farm_*`: codex-farm command/root/context/failure behavior used by stage and benchmark prediction generation when LLM mode is enabled.
 
 Developer note:
 - Per-run toggle definitions live in `cookimport/config/run_settings.py`. Add new fields there with `ui_*` metadata so the interactive editor picks them up automatically.
@@ -287,7 +294,7 @@ Typical reasons to use `eval-only` again on an old run:
 
 1. Shows benchmark `Run settings` mode picker (`global` / `last benchmark` / `change`), using the same editor flow as Import.
 2. Resolves Label Studio credentials from env (`LABEL_STUDIO_URL` / `LABEL_STUDIO_API_KEY`) or saved interactive settings; if still missing, prompts and saves values to `cookimport.json`.
-3. Calls `labelstudio-benchmark(...)` with selected per-run settings (extractor, workers/split controls, OCR options, warm-model flag).
+3. Calls `labelstudio-benchmark(...)` with selected per-run settings (extractor, workers/split controls, OCR options, warm-model flag, and optional codex-farm LLM recipe pipeline settings).
 4. Saves selected settings to `<output_dir>/.history/last_run_settings_benchmark.json` after a successful upload/eval run.
 5. Returns to the main menu on completion.
 
@@ -371,6 +378,11 @@ Options:
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
 - `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
+- `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.
+- `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
+- `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
+- `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - `markitdown` note: EPUB split jobs are disabled for this extractor because conversion is whole-book EPUB -> markdown (no spine-range mode).
 - `auto` note: stage resolves one effective extractor per EPUB before worker launch, writes `raw/epub/<source_hash>/epub_extractor_auto.json`, and then uses the resolved backend consistently for split planning/workers.
 
@@ -624,6 +636,11 @@ Options:
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
 - `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
+- `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm during prediction generation.
+- `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
+- `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
+- `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - `markitdown` note: prediction EPUB split jobs are disabled for this extractor for the same reason as stage runs.
 - `auto` note: prediction generation resolves one effective backend per EPUB up front and records requested/effective extractor in run config plus `raw/epub/<source_hash>/epub_extractor_auto.json`.
 - `--ocr-device TEXT` (default `auto`): `auto|cpu|cuda|mps`.
@@ -811,3 +828,44 @@ When introducing a new processing option, complete all four surfaces together:
 - Import lane (`cookimport stage`).
 - Prediction-generation lane for benchmark/freeform eval (`labelstudio-benchmark` prediction run creation).
 - Reminder: `labelstudio-eval` is eval-only and does not rerun pipeline options.
+
+## Merged Task Specs (2026-02-16 to 2026-02-22)
+
+### 2026-02-16_14.31.00 EPUB debug CLI (`cookimport epub ...`)
+
+Durable behavior added for debug workflows:
+
+- Subcommands: `inspect`, `dump`, `unpack`, `blocks`, `candidates`, `validate`.
+- `blocks` and `candidates` must stay pipeline-faithful by reusing production EPUB extraction/segmentation logic.
+- Deterministic debug artifacts are part of the command contract:
+  - `inspect_report.json`
+  - `blocks.jsonl`, `blocks_preview.md`, `blocks_stats.json`
+  - `candidates.json`, `candidates_preview.md`
+
+Important implementation constraints:
+
+- Direct calls to `EpubImporter._extract_docpack(...)` require `_overrides` initialized (current rule: default `None` in importer init).
+- `epub-utils` is optional and may require pre-release install handling (`epub-utils==0.1.0a1`); ZIP/OPF fallback must remain available.
+- EPUBCheck support stays optional; strict failure is opt-in with `--strict`.
+
+### 2026-02-20_13.21.49 interactive EPUB race menu
+
+Interactive CLI behavior contract:
+
+- Main menu exposes `EPUB debug: race extractors on one file` only when top-level `data/input` contains at least one `.epub`.
+- Interactive flow prompts for:
+  - source EPUB,
+  - output folder,
+  - candidate extractors,
+  - overwrite handling.
+- Runtime logic must continue to call shared `race_epub_extractors(...)` rather than duplicating race internals.
+- Flow always returns to the main menu.
+
+### 2026-02-22_10.14.15 interactive EPUB race default output root
+
+Current default path contract:
+
+- Interactive race default output path is:
+  - `data/output/EPUBextractorRace/<book_stem>`
+- The previous `/tmp/epub-race/<book_stem>` default is retired for interactive mode.
+- Direct non-interactive command behavior remains unchanged (`cookimport epub race --out ...` still user-controlled).

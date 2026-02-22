@@ -10,10 +10,13 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionReport, MappingConfig
 from cookimport.core.slug import slugify_name
 from cookimport.core.reporting import enrich_report_with_stats
 from cookimport.core.timing import TimingStats, measure
+from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
+from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.plugins import registry
 # Ensure plugins are registered in workers
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
@@ -229,6 +232,7 @@ def stage_one_file(
     try:
         start_total = dt.datetime.now()
         workbook_slug = slugify_name(file_path.stem)
+        run_settings = RunSettings.from_dict(run_config, warn_context="stage run config")
         
         intermediate_dir = out / "intermediate drafts" / workbook_slug
         final_dir = out / "final drafts" / workbook_slug
@@ -252,6 +256,39 @@ def stage_one_file(
                 limit_label=limit,
             )
 
+        llm_schema_overrides: dict[str, dict[str, Any]] | None = None
+        llm_draft_overrides: dict[str, dict[str, Any]] | None = None
+        llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
+        if run_settings.llm_recipe_pipeline.value != "off":
+            _report_progress("Running codex-farm recipe pipeline...")
+            try:
+                llm_apply = run_codex_farm_recipe_pipeline(
+                    conversion_result=result,
+                    run_settings=run_settings,
+                    run_root=out,
+                    workbook_slug=workbook_slug,
+                )
+            except CodexFarmRunnerError as exc:
+                if run_settings.codex_farm_failure_mode.value == "fallback":
+                    warning = (
+                        "LLM recipe pipeline failed; falling back to deterministic outputs: "
+                        f"{exc}"
+                    )
+                    result.report.warnings.append(warning)
+                    llm_report = {
+                        "enabled": True,
+                        "pipeline": run_settings.llm_recipe_pipeline.value,
+                        "fallbackApplied": True,
+                        "fatalError": str(exc),
+                    }
+                else:
+                    raise
+            else:
+                result = llm_apply.updated_conversion_result
+                llm_schema_overrides = llm_apply.intermediate_overrides_by_recipe_id
+                llm_draft_overrides = llm_apply.final_overrides_by_recipe_id
+                llm_report = dict(llm_apply.llm_report)
+
         # Generate knowledge chunks
         _report_progress("Generating knowledge chunks...")
         parsing_overrides = None
@@ -274,6 +311,7 @@ def stage_one_file(
             result.report.run_config = dict(run_config)
         result.report.run_config_hash = run_config_hash
         result.report.run_config_summary = run_config_summary
+        result.report.llm_codex_farm = llm_report
         _apply_epub_auto_metadata(
             result.report,
             epub_auto_selection=epub_auto_selection,
@@ -286,9 +324,19 @@ def stage_one_file(
         with measure(file_stats, "writing"):
             _report_progress("Writing outputs...")
             with measure(file_stats, "write_intermediate_seconds"):
-                write_intermediate_outputs(result, intermediate_dir, output_stats=output_stats)
+                write_intermediate_outputs(
+                    result,
+                    intermediate_dir,
+                    output_stats=output_stats,
+                    schemaorg_overrides_by_recipe_id=llm_schema_overrides,
+                )
             with measure(file_stats, "write_final_seconds"):
-                write_draft_outputs(result, final_dir, output_stats=output_stats)
+                write_draft_outputs(
+                    result,
+                    final_dir,
+                    output_stats=output_stats,
+                    draft_overrides_by_recipe_id=llm_draft_overrides,
+                )
             with measure(file_stats, "write_tips_seconds"):
                 write_tip_outputs(result, tips_dir, output_stats=output_stats)
             with measure(file_stats, "write_topic_candidates_seconds"):

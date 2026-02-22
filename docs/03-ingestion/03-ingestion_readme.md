@@ -74,6 +74,7 @@ OCR:
   - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
 - Creates run output directory using timestamp format `%Y-%m-%d_%H.%M.%S`.
 - Builds `base_mapping` once and always passes it to workers.
+- Normalizes optional LLM recipe settings (`llm_recipe_pipeline`, `codex_farm_*`) into `RunSettings` and threads them into workers/merge.
 - Plans jobs with `_plan_jobs(...)`.
 - Executes with `ProcessPoolExecutor`; on `PermissionError`, falls back to serial execution.
 
@@ -106,6 +107,7 @@ Non-split file:
 - `stage_one_file(...)`
 - Runs importer conversion
 - Applies optional `--limit` to recipes and tips
+- If `llm_recipe_pipeline != off`, runs the 3-pass codex-farm orchestrator before chunking/writes and captures `report.llmCodexFarm`
 - Builds chunks from `non_recipe_blocks` or topic fallback
 - Writes intermediate/final/tips/topics/chunks/raw/report
 
@@ -125,6 +127,8 @@ Split job:
   - Sorts job payloads by start range (`start_spine` then fallback / `start_page` path)
   - Concatenates recipes/tip candidates/topic candidates/non-recipe blocks
   - Reassigns recipe IDs globally (single sequence) via `reassign_recipe_ids(...)`
+  - Rebuilds merged `raw/<importer>/<source_hash>/full_text.json` from split-job `full_text` artifacts and rebases block indices
+  - If `llm_recipe_pipeline != off`, runs the same 3-pass codex-farm orchestrator on the merged result before chunking/writes
   - Re-partitions tips from merged `tip_candidates`
   - Rebuilds chunks once from merged non-recipe/topic data
   - Emits phase-by-phase main-process status updates (merge payloads, IDs, chunk build, write phases, raw merge)
@@ -528,3 +532,18 @@ If working in this area, keep these invariants:
 - Known regression: missing `self._overrides` caused real stage `--epub-extractor auto` failures (`'EpubImporter' object has no attribute '_overrides'`).
 - Regression anchor:
   - `tests/test_epub_auto_select.py::test_select_epub_extractor_auto_real_importer_supports_direct_probe`
+
+## Merged Task Specs (2026-02-22 spinner visibility)
+
+### 2026-02-22_14.08.34 elapsed ticker + post-candidate progress phases
+
+Long-running conversion phases after candidate extraction can look frozen if callback text never changes.
+Current contract from the spinner visibility pass:
+
+- Shared callback-driven status wrappers append elapsed-time suffixes (for example `(17s)`) when a phase message stays unchanged past threshold.
+- The elapsed ticker contract is shared across CLI wrappers used by Label Studio import/decorate and benchmark flows.
+- Importer callbacks now continue after `candidate X/Y` with explicit post-candidate phase updates in EPUB/PDF flows (for example knowledge-block analysis and finalization steps).
+
+Operational boundary:
+
+- These are visibility-only progress message changes; extraction semantics and output artifact contracts are unchanged.

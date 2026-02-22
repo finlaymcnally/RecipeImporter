@@ -5,468 +5,268 @@ read_when:
   - When you need to understand how recipe ingestion and parsing works in this codebase
 ---
 
-# AI Onboarding & Project Summary: Recipe Import Pipeline
+# AI Onboarding & Project Summary: `cookimport` (code-verified on 2026-02-22)
 
-This document provides a technical overview of the `cookimport` project. It is designed to help AI developers and AI chatbots (who may not have direct access to the codebase) understand the architecture, data flow, and key algorithms.
+This file is the high-level orientation map for the current implementation.
+For subsystem details, use the stage docs in `docs/01-architecture` through `docs/11-reference`.
 
 ## 1. Project Purpose
 
-The `cookimport` project is a **recipe ingestion and normalization pipeline** that transforms messy, real-world recipe sources into structured, high-fidelity data. It handles:
-
-- **Legacy Excel spreadsheets** with varying layouts (wide, tall, template-based)
-- **EPUB cookbooks** with unstructured text requiring segmentation
-- **PDF documents** (including scanned images with OCR)
-- **Proprietary app archives**: Paprika (.paprikarecipes) and RecipeSage (.zip/JSON)
-- **Plain text/Word documents**
+`cookimport` is a deterministic-first local pipeline that imports recipe data from mixed source formats and writes:
 
-### Key Objectives
+- structured recipe outputs (`schema.org`-shaped intermediate + final draft JSON),
+- knowledge artifacts (tips, topic candidates, chunks),
+- provenance-heavy debug artifacts and reports,
+- optional Label Studio artifacts for annotation/evaluation,
+- run history metrics for dashboarding and benchmark trend tracking.
 
-1. **Universal Ingestion**: Handle diverse formats and layouts through a plugin-based architecture where each source type has a dedicated importer.
+Primary roots:
 
-2. **Two-Phase Pipeline**:
-   - **Phase 1 (Ingestion)**: Extract raw content and normalize to an intermediate **schema.org Recipe JSON** format.
-   - **Phase 2 (Transformation)**: Parse ingredients into structured fields, link ingredients to instruction steps, and produce the final **cookbook3** format (internal model name: `RecipeDraftV1`).
-
-3. **100% Traceability**: Every output field is traceable back to its source via a `provenance` metadata system that records file hashes, block indices, and extraction methods.
-
-4. **Knowledge Extraction**: Beyond recipe scraping, the system identifies and extracts standalone "Kitchen Tips" and topical content.
-
-## 2. Tech Stack & Active Dependencies
-
-The project is built with **Python 3.12**. Key libraries:
+- source input: `data/input`
+- staging output: `data/output`
+- annotation/benchmark output: `data/golden`
 
-### Core Frameworks
-| Library | Purpose |
-|---------|---------|
-| **[Typer](https://typer.tiangolo.com/)** | Powers the CLI interface (`cookimport`, `C3imp`, `C3import` commands) |
-| **[Pydantic V2](https://docs.pydantic.dev/)** | Strict data validation, schema enforcement, and JSON serialization for all models |
-| **[Rich](https://rich.readthedocs.io/)** | Console output formatting, progress spinners, and status updates during processing |
-| **[Questionary](https://questionary.readthedocs.io/)** | Interactive CLI prompts for guided workflows |
+## 2. Runtime Surface
 
-### Specialized Parsers (Production Use)
-| Library | Purpose |
-|---------|---------|
-| **[Ingredient Parser](https://ingredient-parser.readthedocs.io/)** | NLP-based decomposition of ingredient strings into quantity, unit, item, preparation, and notes |
-| **[PyMuPDF (fitz)](https://pymupdf.readthedocs.io/)** | High-performance PDF text and layout extraction |
-| **[python-doctr](https://mindee.github.io/doctr/)** | Deep learning OCR for scanned PDFs (uses CRNN + ResNet architectures) |
-| **[BeautifulSoup4](https://www.crummy.com/software/BeautifulSoup/) + [lxml](https://lxml.de/)** | HTML parsing for EPUB content and app archive formats |
-| **[EbookLib](https://github.com/aerkalov/ebooklib)** | EPUB container structure management with fallback to raw ZIP parsing |
-| **[Openpyxl](https://openpyxl.readthedocs.io/)** | Excel file processing with complex layout detection |
-| **[python-docx](https://python-docx.readthedocs.io/)** | Word document text and table extraction |
+### 2.1 Entrypoints
 
-### Quality Assurance & Evaluation
-| Library | Purpose |
-|---------|---------|
-| **[Label Studio SDK](https://labelstud.io/)** | Creating ground-truth datasets for benchmarking parser accuracy |
+From `pyproject.toml`:
 
-## 3. Architecture Overview
+- `cookimport` -> full Typer CLI (`cookimport/cli.py`)
+- `import` and `C3import` -> wrapper that stages default input when called with no subcommand (`cookimport/entrypoint.py`)
+- `C3imp` -> interactive wrapper with optional `C3IMP_LIMIT` shortcut (`cookimport/c3imp_entrypoint.py`)
 
-### 3.1 Plugin System
+### 2.2 Top-level CLI commands
 
-The project uses a **registry-based plugin architecture** where each source format has a dedicated importer class:
-
-```
-cookimport/plugins/
-  ├── registry.py      # Plugin registry with best_importer_for_path()
-  ├── epub.py          # EPUB cookbook importer
-  ├── pdf.py           # PDF document importer
-  ├── excel.py         # Excel spreadsheet importer
-  ├── paprika.py       # Paprika app archive importer
-  ├── recipesage.py    # RecipeSage JSON archive importer
-  └── text.py          # Plain text / Word document importer
-```
+`cookimport --help` currently exposes:
 
-Each plugin implements:
-- `detect(path) -> float`: Returns confidence score (0.0-1.0) that this plugin can handle the file
-- `inspect(path) -> WorkbookInspection`: Quick analysis of file structure
-- `convert(path, mapping, progress_callback) -> ConversionResult`: Full extraction
-
-### 3.2 Core Data Models
+- `stage`
+- `perf-report`
+- `stats-dashboard`
+- `benchmark-csv-backfill`
+- `inspect`
+- `labelstudio-import`
+- `labelstudio-export`
+- `labelstudio-decorate`
+- `labelstudio-eval`
+- `debug-epub-extract`
+- `labelstudio-benchmark`
+- `bench` (subcommands: `validate`, `run`, `sweep`, `knobs`)
+- `tag-catalog` (subcommand: `export`)
+- `tag-recipes` (subcommands: `debug-signals`, `suggest`, `apply`)
+- `epub` (subcommands: `inspect`, `dump`, `unpack`, `blocks`, `candidates`, `validate`, `race`)
 
-The system uses Pydantic models for type-safe data flow (see `cookimport/core/models.py`):
+## 3. Architecture (current)
 
-| Model | Purpose |
-|-------|---------|
-| `RecipeCandidate` | Intermediate format (schema.org Recipe JSON-compatible) with name, ingredients, instructions, metadata |
-| `TipCandidate` | Extracted kitchen tip with scope (general, recipe_specific, not_tip) and taxonomy tags |
-| `TopicCandidate` | Topical content block (sections about techniques, ingredient guides, etc.) |
-| `ConversionResult` | Container for recipes, tips, topics, raw artifacts, and conversion report |
-| `Block` | Low-level text block with type, HTML source, font weight, and feature flags |
+### 3.1 Importer contract and registry
 
-### 3.3 Block, Candidate, and Chunk Vocabulary
+Importers implement:
 
-These three terms are easy to confuse, so this is the practical definition used in code:
+- `detect(path) -> float`
+- `inspect(path) -> WorkbookInspection`
+- `convert(path, mapping, progress_callback) -> ConversionResult`
 
-- `Block` (`cookimport/core/blocks.py`):
-  - The shared low-level text unit used during extraction from unstructured sources.
-  - Typical fields: `text`, `type`, `page`, `bbox`, `font_size`, `font_weight`, `alignment`, `features`.
-  - Think: one paragraph/list/header line plus layout/style metadata.
+Registry selection is score-based (`best_importer_for_path` in `cookimport/plugins/registry.py`).
 
-- `RecipeCandidate` (`cookimport/core/models.py`):
-  - A segmented recipe record in schema-like form (`name`, `recipeIngredient`, `recipeInstructions`, `provenance`, etc.).
-  - Produced by importers after they decide which block ranges are recipes.
+### 3.2 Two broad phases
 
-- `KnowledgeChunk` (`cookimport/core/models.py`, created by `cookimport/parsing/chunks.py`):
-  - A coherent non-recipe text region used for knowledge extraction.
-  - Built from `nonRecipeBlocks` after recipe ranges are removed.
-  - Contains lane (`knowledge`/`noise`), `sectionPath`, boundary reasons, highlights, and tags.
+1. Source conversion
+- format-specific importer returns `ConversionResult` with recipes/tips/topic candidates/non-recipe blocks/raw artifacts/report.
 
-### 3.4 Block & Signals Architecture
+2. Shared staging/write path
+- `cookimport/cli.py` orchestrates workers and split-job merge.
+- `cookimport/staging/writer.py` writes standardized outputs.
+- `cookimport/staging/draft_v1.py` performs shared recipe shaping (ingredient parsing, instruction parsing, step-ingredient linking, variants, tag helpers).
 
-For EPUB/PDF (and line-based text heuristics), extraction relies on a linear content stream + signal enrichment:
+### 3.3 Run settings + config propagation
 
-1. **Block extraction**
-   - EPUB: HTML spine documents -> block tags (`h1..h6`, `p`, `li`, etc.) -> `Block`.
-   - PDF: PyMuPDF line extraction (or docTR OCR) -> `Block` with page/bbox/style metadata.
+Canonical per-run settings live in `cookimport/config/run_settings.py` (`RunSettings`), including:
 
-2. **Signal enrichment** (`cookimport/parsing/signals.py`)
-   - Each block is annotated with features used by segmentation/parsing:
-   - `is_heading`, `heading_level`
-   - `is_ingredient_header`, `is_instruction_header`
-   - `is_yield`, `is_time`
-   - `starts_with_quantity`, `has_unit`
-   - `is_instruction_likely`, `is_ingredient_likely`
+- worker topology (`workers`, split workers, pages/spine items per job),
+- EPUB extractor choices (`unstructured`, `legacy`, `markdown`, `auto`, `markitdown`),
+- unstructured tuning options,
+- OCR options (`ocr_device`, `ocr_batch_size`).
 
-3. **Recipe segmentation**
-   - Importers compute candidate ranges (`start_block`, `end_block`, `segmentation_score`) over the block stream.
-   - Each range becomes one `RecipeCandidate` after field extraction.
+Interactive flows use the same run settings model and persist last-run snapshots via `cookimport/config/last_run_store.py`.
 
-## 4. Key Algorithms
+### 3.4 Split-job model
 
-### 4.1 Ingredient-Step Linking (Two-Phase Algorithm)
+Large PDF/EPUB runs can split into worker jobs and merge back:
 
-The step-ingredient linking algorithm (`cookimport/parsing/step_ingredients.py`) assigns each ingredient to the instruction step(s) where it's used:
+- temporary artifacts in `.job_parts/...`,
+- merged output written once at run root,
+- recipe IDs and coordinate spaces normalized post-merge.
 
-**Phase 1: Candidate Collection**
-- For each step, scan for mentions of each ingredient using multiple aliases (full text, cleaned text, head/tail tokens)
-- Classify verb context: "use" verbs (add, mix, stir), "reference" verbs (cook, let rest), "split" signals (half, remaining)
-- Score matches based on alias length, token overlap, and context
+`markitdown` EPUB extraction is intentionally whole-book only (no spine split support).
 
-**Phase 2: Resolution**
-- Default: Single best step wins (highest score)
-- Exception: Multi-step assignment when split language detected ("add half the butter... add remaining butter")
-- Fraction calculation for split ingredients (e.g., 0.5 each for "half/remaining" pattern)
+## 4. Source Format Coverage
 
-This approach handles:
-- Section headers grouping ingredients (e.g., "For the Sauce")
-- "All ingredients" phrases that assign everything to a step
-- Weak match filtering to avoid false positives
+Active importers:
 
-### 4.2 Ingredient Parsing
+- `cookimport/plugins/excel.py`:
+  - layout detection (`wide-table`, `template`, `tall`),
+  - sheet-level inspection metadata + mapping stubs.
+- `cookimport/plugins/text.py`:
+  - `.txt`, `.md`, `.markdown`, `.docx` (and guarded `.doc` fallback behavior),
+  - markdown/frontmatter/yield heuristics and DOCX table handling.
+- `cookimport/plugins/pdf.py`:
+  - PyMuPDF text extraction + layout heuristics,
+  - docTR OCR fallback for scanned/low-text PDFs.
+- `cookimport/plugins/epub.py`:
+  - multi-backend extraction (`legacy`, `unstructured`, `markdown`, `markitdown`),
+  - `auto` resolved by orchestration layers before convert,
+  - extraction diagnostics and EPUB health artifacts.
+- `cookimport/plugins/paprika.py`:
+  - `.paprikarecipes` zip/gzip JSON and HTML export merge path.
+- `cookimport/plugins/recipesage.py`:
+  - JSON export ingestion with recipe normalization.
 
-The ingredient parser (`cookimport/parsing/ingredients.py`) wraps the `ingredient-parser-nlp` library:
+## 5. Output Contracts
 
-```python
-"3 stalks celery, sliced" -> {
-    "quantity_kind": "exact",
-    "input_qty": 3.0,
-    "raw_unit_text": "stalks",
-    "raw_ingredient_text": "celery",
-    "preparation": "sliced",
-    "is_optional": False,
-    "confidence": 0.92
-}
-```
+### 5.1 Stage run outputs
 
-Special handling for:
-- Section headers (e.g., "MARINADE:", "For the Filling")
-- Range quantities (e.g., "3-4 cups" -> midpoint rounded up)
-- Approximate quantities ("to taste", "as needed")
+`cookimport stage` writes a timestamped run root:
 
-### 4.3 Variant Extraction
+`data/output/<YYYY-MM-DD_HH.MM.SS>/`
 
-Recipes may contain variant instructions. The system (`cookimport/staging/draft_v1.py`) extracts these:
+Main artifacts:
 
-- Detects "Variation:" or "Variant:" headers
-- Separates variant content from main instructions
-- Stores variants as a separate array in the recipe output
+- `intermediate drafts/<workbook>/r*.jsonld`
+- `final drafts/<workbook>/r*.json`
+- `tips/<workbook>/...`
+- `chunks/<workbook>/...`
+- `raw/<importer>/<source_hash>/...`
+- `<workbook>.excel_import_report.json`
+- `run_manifest.json`
 
-### 4.4 Tip Classification
+### 5.2 Performance history + dashboard
 
-Tips are classified by scope (`cookimport/parsing/tips.py`):
-- **general**: Standalone kitchen wisdom (reusable across recipes)
-- **recipe_specific**: Notes tied to a particular recipe
-- **not_tip**: Content that looks like a tip but isn't (copyright notices, ads)
+Stage runs summarize and append history rows to:
 
-## 5. Data Flow & Processing Stages (Detailed)
+- `data/output/.history/performance_history.csv`
 
-### 5.1 End-to-end walkthrough: importing one EPUB
+Dashboard output:
 
-When you run `cookimport stage data/input/book.epub`, the concrete flow is:
+- `cookimport stats-dashboard` writes to `<output_root>/.history/dashboard/`
+- emits `index.html` + local assets + embedded inline JSON fallback for `file://` usage.
 
-1. **Importer selection**
-   - `registry.best_importer_for_path()` picks `EpubImporter` based on `detect()` score.
+### 5.3 Label Studio / benchmark artifacts
 
-2. **Inspect (optional)**
-   - `EpubImporter.inspect()` reads spine metadata and returns `WorkbookInspection` + mapping stub.
+- `labelstudio-import` run root pattern:
+  - `<output_dir>/<timestamp>/labelstudio/<book_slug>/...`
+  - includes `manifest.json`, coverage, tasks JSONL, and optional prelabel report/error artifacts.
+- `labelstudio-export` default root when `--run-dir` is not set:
+  - `<output_dir>/<project_slug>/exports/...`
+- `labelstudio-benchmark` eval roots:
+  - default under `data/golden/eval-vs-pipeline/<timestamp>/`
+  - may co-locate prediction artifacts under `prediction-run/`.
 
-3. **Convert**
-   - `EpubImporter.convert()` computes file hash and extracts a linear block stream via `_extract_docpack(...)`.
-   - Each block gets normalized text + signal features.
-   - Raw artifact `full_text` is recorded as extracted blocks JSON.
+All run-producing paths now rely on `run_manifest.json` as a stable traceability record (`cookimport/runs/manifest.py`).
 
-4. **Recipe candidate segmentation**
-   - `_detect_candidates(blocks)` returns candidate ranges over block indices.
-   - For each range, `_extract_fields(...)` builds a `RecipeCandidate` and provenance.
-   - Stable IDs are assigned if missing (based on source hash + chunk index semantics).
+## 6. Label Studio and Benchmarking Capabilities
 
-5. **Tip/topic candidate extraction**
-   - Recipe-local tip candidates come from `extract_tip_candidates_from_candidate(...)`.
-   - Standalone (non-recipe) text is atomized and mined for tip/topic candidates.
+### 6.1 Import scopes
 
-6. **Non-recipe block capture**
-   - Blocks not covered by recipe ranges are collected as `nonRecipeBlocks`.
-   - This is the main input to chunking later.
+`labelstudio-import` supports:
 
-7. **Return unified conversion payload**
-   - Importer returns one `ConversionResult` containing recipes, tip candidates, topic candidates, non-recipe blocks, raw artifacts, and report metrics.
+- `pipeline`
+- `canonical-blocks`
+- `freeform-spans`
 
-8. **Shared post-import stage path (all formats)**
-   - In `cli_worker.stage_one_file(...)`, chunking runs from `nonRecipeBlocks` when present.
-   - Writers emit:
-   - intermediate schema.org Recipe JSON (`intermediate drafts/<workbook>/r{index}.jsonld`)
-   - final cookbook3 (`final drafts/<workbook>/r{index}.json`)
-   - tips/topics/chunks/raw/report
+### 6.2 Freeform AI prelabel and decorate
 
-### 5.2 What determines blocks, candidates, and chunks
+- prelabel/decorate runs use local Codex CLI invocation (`codex exec -`) via `cookimport/labelstudio/prelabel.py`.
+- token usage tracking is implemented and persisted in report artifacts.
+- decorate path is additive (does not overwrite existing annotations in place).
 
-- **Blocks** are determined by importer-specific extraction rules:
-  - EPUB uses HTML structure.
-  - PDF uses visual text lines (or OCR lines) plus layout reordering.
-  - Text importer mostly works line/chunk-first and does not build the same persisted `nonRecipeBlocks` stream.
+### 6.3 Evaluation and offline suite
 
-- **Recipe candidates** are determined by segmentation heuristics over ordered content:
-  - Yield anchors, ingredient/instruction headers, title backtracking, and boundary checks.
-  - Candidate quality is scored (`score_recipe_candidate`), and provenance captures location ranges.
+- `labelstudio-eval` and `labelstudio-benchmark` support canonical/freeform evaluation paths.
+- `bench run/sweep` provide fully offline prediction+eval loops from suite manifests in `data/golden/bench/suites`.
 
-- **Chunks** are determined after recipe segmentation:
-  - Input: only non-recipe content (`nonRecipeBlocks`) or fallback topic candidates.
-  - Engine: `cookimport/parsing/chunks.py`.
-  - Boundary drivers: heading levels, callout starts (`TIP:`, `NOTE:`), format-mode changes (prose/list), max-char limits, and stop headings (index/credits/etc.).
-  - Lane assignment: chunk lanes are classified and written as `knowledge` or `noise` behavior in outputs.
-  - Highlights inside chunks are mined with tip extraction logic and stored with offsets/block IDs.
+## 7. Tagging Subsystem
 
-### 5.3 Where file-type behavior differs
+Tagging is now a first-class command surface:
 
-Before convergence, importer behavior is format-specific:
+- catalog export from DB (`tag-catalog export`)
+- deterministic suggestion + optional LLM second pass (`tag-recipes suggest`)
+- DB apply path with dry-run default (`tag-recipes apply`)
 
-- **EPUB (`plugins/epub.py`)**
-  - Parses EPUB spine documents and HTML blocks.
-  - Carries `spine_index` features for deterministic ordering and split-job merges.
+Core modules: `cookimport/tagging/*`.
 
-- **PDF (`plugins/pdf.py`)**
-  - Uses PyMuPDF text extraction and column ordering.
-  - Falls back to docTR OCR for scanned pages.
-  - Preserves `page`, `bbox`, and OCR confidence metadata in blocks/provenance.
+## 8. Tech Stack (active dependencies)
 
-- **Text/Markdown/Word (`plugins/text.py`)**
-  - Splits by markdown headers, yield lines, or table layouts (DOCX tables).
-  - Produces `RecipeCandidate` records directly from text chunks/rows.
+From `pyproject.toml`:
 
-- **Excel (`plugins/excel.py`)**
-  - Layout detection (`wide-table`, `tall`, `template`) then row/cell normalization.
-  - Provenance is row/sheet-centric, not block-centric.
+- CLI/UI: Typer, Rich, Questionary
+- models/validation: Pydantic v2
+- source parsing: BeautifulSoup4, lxml, EbookLib, PyMuPDF, openpyxl, python-docx
+- OCR: python-doctr
+- EPUB extraction helpers: unstructured, markitdown, markdownify
+- parsing heuristics: ingredient-parser-nlp, rapidfuzz
+- tests: pytest
+- optional DB flows: psycopg
 
-- **Paprika/RecipeSage (`plugins/paprika.py`, `plugins/recipesage.py`)**
-  - Parse structured exports (ZIP/GZIP JSON or JSON objects).
-  - Less segmentation work because source is already near recipe schema.
+Important clarification:
 
-### 5.4 Where all file types converge
+- Label Studio integration uses an internal REST client (`cookimport/labelstudio/client.py`), not the Label Studio SDK package.
 
-Convergence happens in two major places:
+## 9. LLM Boundary (current)
 
-1. **Common conversion contract**
-   - Every importer returns the same `ConversionResult` model.
-   - This lets stage orchestration and writers treat all importers uniformly.
+- `cookimport/llm/repair.py` and `cookimport/llm/client.py` still exist as optional/legacy repair plumbing; `LLMClient` provider path remains mock-backed.
+- active operational LLM usage today is concentrated in Label Studio freeform prelabel/decorate flows (Codex CLI).
+- deterministic extraction is still the default stage pipeline behavior.
 
-2. **Common writer/transform path**
-   - `write_intermediate_outputs(...)`: recipe candidates -> JSON-LD.
-   - `write_draft_outputs(...)`: each `RecipeCandidate` -> `recipe_candidate_to_draft_v1(...)`.
-   - During cookbook3 conversion, all sources go through the same:
-   - ingredient parsing (`parse_ingredient_line`)
-   - instruction metadata extraction (`parse_instruction`)
-   - ingredient-step linking (`assign_ingredient_lines_to_steps`)
-   - variant extraction and draft shaping
+## 10. Current Health Snapshot (review run on 2026-02-22)
 
-So: EPUB/PDF are very different early (block extraction + segmentation), but once they emit `RecipeCandidate`, they follow the same downstream transformation and output contracts as Excel/text/app exports.
+Test sweep in project venv:
 
-### 5.5 Split-job behavior (PDF/EPUB only)
+- command run: `pytest`
+- result: `450 passed`, `5 failed`, `21 warnings` (455 collected)
 
-For large sources, PDF/EPUB can be split into page/spine jobs:
+Current failing area:
 
-- workers convert ranges in parallel and emit mergeable results,
-- main process merges candidates, rebases IDs/order, merges raw artifacts, then writes once,
-- chunk generation happens after merge on the unified non-recipe stream.
+1. Missing importer fixture files
+- tests reference `docs/template/examples/...` paths that do not exist in repo.
+- affected tests:
+  - `tests/test_paprika_importer.py`
+  - `tests/test_recipesage_importer.py`
 
-This preserves one global coordinate space (`start_page`/`start_spine` + block ordering) across the final run outputs.
+2. Error-path validation bug in importer `inspect(...)`
+- `WorkbookInspection` does not allow a top-level `warnings` field, but exception handlers in:
+  - `cookimport/plugins/paprika.py`
+  - `cookimport/plugins/recipesage.py`
+  return `WorkbookInspection(..., warnings=[...])`, which raises a Pydantic validation error instead of returning a graceful inspection payload.
 
-## 6. Label Studio Integration
+3. RecipeSage convert pre-try hash call
+- `cookimport/plugins/recipesage.py` computes `file_hash = compute_file_hash(path)` before its `try` block, so missing-path errors raise immediately instead of returning a normal `ConversionResult` with report errors.
 
-The project includes deep integration with Label Studio for building ground-truth datasets:
+## 11. Directory Map
 
-### Chunking Strategies
-- **Structural Chunks**: Recipe-level units for validating segmentation
-- **Atomic Chunks**: Line-level units for validating ingredient parsing
-
-### Workflow
-1. `cookimport labelstudio-import`: Upload chunks to Label Studio project
-2. Annotate in Label Studio UI
-3. `cookimport labelstudio-export`: Export labeled data as JSONL golden set
-
-## 7. Current Status
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Excel Ingestion | **Active** | Wide, Tall, and Template layouts |
-| App Archives | **Active** | Paprika and RecipeSage support |
-| EPUB/PDF/Text | **Active** | Heuristic segmentation with variant extraction |
-| OCR (docTR) | **Active** | For scanned PDFs, uses CRNN + ResNet |
-| Ingredient Parsing | **Active** | NLP-based with confidence scores |
-| Step-Ingredient Linking | **Active** | Two-phase algorithm with split detection |
-| Tip Extraction | **Active** | Taxonomy tagging and scope classification |
-| Label Studio | **Active** | Benchmarking and dataset export |
-| LLM Repair | **Mocked** | Structure exists, calls return mock data |
-
-## 8. Directory Map
-
-```
+```text
 cookimport/
-├── core/           # Engine: Models, Reporting, Registry, Scoring
-├── plugins/        # Adapters: Source-specific extraction (Excel, EPUB, etc.)
-├── parsing/        # Brains: Ingredient parsing, Tip taxonomy, Step linking
-│   ├── ingredients.py      # Ingredient line parsing
-│   ├── step_ingredients.py # Two-phase step linking
-│   ├── signals.py          # Block feature enrichment
-│   ├── tips.py             # Tip extraction and classification
-│   └── atoms.py            # Atomic text unit handling
-├── staging/        # Output: Writers, schema.org intermediate, cookbook3 final
-├── labelstudio/    # Benchmarking: Chunking, client, export
-├── llm/            # (Mocked) LLM integration layer
-└── ocr/            # docTR OCR engine for scanned documents
-
-data/
-├── input/          # Place source files here
-└── output/         # Generated outputs appear here
-
-tests/              # Comprehensive test suite
+├── cli.py                    # Main command surface + interactive mode
+├── cli_worker.py             # Worker-side stage/split execution
+├── plugins/                  # Importers (excel/text/pdf/epub/paprika/recipesage)
+├── parsing/                  # Signals, ingredient parsing, tips, chunks, EPUB helpers
+├── staging/                  # JSON-LD + draft writers and output stats
+├── labelstudio/              # Import/export/eval/prelabel/decorate
+├── analytics/                # perf history + dashboard collection/render
+├── bench/                    # Offline benchmark suite tooling
+├── tagging/                  # Tag catalog + suggestion/apply pipelines
+├── epubdebug/                # EPUB inspection/race/debug commands
+├── config/                   # Run settings + last-run persistence
+├── runs/                     # run_manifest model/writer
+├── llm/                      # Optional/legacy LLM repair boundary
+└── core/                     # Shared models/reporting/timing/IDs
 ```
 
-## 9. CLI Commands
+## 12. Recommended Deep Docs
 
-| Command | Purpose |
-|---------|---------|
-| `cookimport` | Interactive mode with guided prompts |
-| `cookimport stage <path>` | Stage recipes from file/folder |
-| `cookimport perf-report` | Summarize per-file timing and append to `data/output/.history/performance_history.csv` |
-| `cookimport inspect <path>` | Preview file structure and layout |
-| `cookimport labelstudio-import` | Upload to Label Studio |
-| `cookimport labelstudio-export` | Export labeled data |
-
-Environment variables:
-- `C3IMP_LIMIT`: Limit recipes per file (for testing)
-- `LABEL_STUDIO_URL`: Label Studio server URL
-- `LABEL_STUDIO_API_KEY`: Label Studio API key
-
-## 10. Metrics & Observability
-
-The pipeline tracks metrics in a few different places, each for a different purpose: conversion health, performance trending, and labeling/evaluation quality.
-
-### 10.1 Per-file conversion report (`*.excel_import_report.json`)
-
-Each staged source file writes one report at:
-- `data/output/<YYYY-MM-DD_HH.MM.SS>/<workbook_slug>.excel_import_report.json`
-
-Primary fields (from `ConversionReport`):
-- Volume counts: `totalRecipes`, `totalTips`, `totalTipCandidates`, `totalTopicCandidates`
-- Standalone/chunk coverage: `totalStandaloneBlocks`, `totalStandaloneTopicBlocks`, `standaloneTopicCoverage`
-- Data quality: `missingFieldCounts`, `skippedRows`, `lowConfidenceSheets`, `warnings`, `errors`
-- Confidence aggregates: `averageConfidence`, `categoryConfidence`
-- Runtime timing: `timing.total_seconds`, `timing.parsing_seconds`, `timing.writing_seconds`, `timing.ocr_seconds`, and `timing.checkpoints`
-- Output footprint: `outputStats.files` and `outputStats.largestFiles`
-
-Why these are tracked:
-- Counts and missing-field stats catch extraction regressions quickly.
-- Confidence and warnings/errors support triage without opening every recipe output.
-- Timing and output size stats show where runtime and disk usage are going.
-
-How `outputStats` is structured:
-- Per-category file/byte totals for:
-  - `intermediateDrafts`
-  - `finalDrafts`
-  - `tips`
-  - `topicCandidates`
-  - `chunks`
-  - `rawArtifacts`
-- `files.total` aggregates all categories.
-- `largestFiles` keeps the top 5 largest written files with `{path, bytes, category}`.
-
-Split job note (PDF/EPUB):
-- For merged split runs, report timing is aggregated from job timings and adds `timing.checkpoints.merge_seconds` for merge overhead.
-
-### 10.2 Performance summary + history CSV
-
-`cookimport stage` auto-runs a performance summary, and `cookimport perf-report` can be run manually.
-
-Storage:
-- History CSV: `data/output/.history/performance_history.csv`
-- Source data: per-file `*.excel_import_report.json` files from each run folder.
-
-Tracked/derived metrics include:
-- Base timing: total/parsing/writing/OCR seconds
-- Volume: recipes, tips, tip candidates, topic candidates
-- Derived rates: per-recipe, per-tip, per-tip-candidate, per-topic-candidate, and per-unit seconds
-- Knowledge skew: `knowledge_share` and `knowledge_heavy`
-- Standalone-topic coverage carry-through
-- Dominant stage/checkpoint indicators
-
-Why:
-- Gives trendable performance data across runs.
-- Flags outliers (`>3x` median) for total/parsing/writing/per-unit and recipe-heavy per-recipe cases.
-
-### 10.3 Label Studio ingestion coverage metrics
-
-Label Studio ingest workflows write coverage artifacts to the Label Studio run folder (for example `.../coverage.json` and `manifest.json`):
-- `extracted_chars`
-- `chunked_chars`
-- `warnings`
-- plus task upload counts in manifest (`task_count`, `uploaded_task_count`)
-
-Why:
-- Verifies how much extracted text is actually represented in labeling tasks.
-- Detects sampling/chunking gaps before annotation effort is spent.
-
-### 10.4 Label Studio evaluation metrics (canonical + freeform)
-
-Evaluation commands emit:
-- `eval_report.json`
-- `eval_report.md`
-
-Canonical block eval tracks:
-- `counts` (gold/pred totals, matched, missed, false positives)
-- `recall`, `precision`
-- boundary classifications (`correct`, `over`, `under`, `partial`)
-
-Freeform eval tracks all of the above plus:
-- per-label metrics
-- `app_aligned` diagnostics (deduped and supported-label strict/relaxed views)
-- `classification_only` diagnostics (label-match and overlap-focused views)
-
-Why:
-- Separates strict benchmark metrics from diagnostic metrics, so model/pipeline changes can be evaluated without losing root-cause visibility.
-
-
-## SOME IDEAS FOR FUTURE
-  - recipe-scrapers / gourmet-style web importers (e.g., github.com/hhursev/recipe-scrapers) for
-    multi-site structured recipe extraction.
-  - Mealie recipes app (github.com/mealie-recipes/mealie) for workflow ideas: recipe import,
-    tagging, scaling, and meal planning.
-  - Tandoor Recipes (github.com/TandoorRecipes/recipes) for shopping list + meal prep + pantry
-    integration patterns.
-  - Spoonacular API (spoonacular.com/food-api) for recipe search, nutrition, ingredient parsing,
-    and substitution suggestions.
-  - Edamam Recipe/Nutrition API (developer.edamam.com) for nutrition labeling and ingredient
-    analysis.
-  - Open Food Facts (openfoodfacts.org) if you want barcode/product metadata enrichment.
-  - Nutritionix API (developer.nutritionix.com) for food/nutrition lookups.
-  - OpenAI/LLM-based ingredient standardization (if you want fuzzy ingredient normalization and
-    quantity cleanup).
+- architecture source of truth: `docs/01-architecture/01-architecture_README.md`
+- CLI behavior + interactive flow: `docs/02-cli/02-cli_README.md`
+- ingestion specifics: `docs/03-ingestion/03-ingestion_readme.md`
+- parsing specifics: `docs/04-parsing/04-parsing_readme.md`
+- staging contracts: `docs/05-staging/05-staging_readme.md`
+- Label Studio and benchmark semantics: `docs/06-label-studio/06-label-studio_README.md` and `docs/07-bench/07-bench_README.md`
+- analytics/dashboard contracts: `docs/08-analytics/08-analytics_readme.md`

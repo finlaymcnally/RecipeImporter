@@ -28,6 +28,10 @@ _SUMMARY_ORDER = (
     "pdf_pages_per_job",
     "epub_spine_items_per_job",
     "warm_models",
+    "llm_recipe_pipeline",
+    "codex_farm_cmd",
+    "codex_farm_context_blocks",
+    "codex_farm_failure_mode",
     "mapping_path",
     "overrides_path",
 )
@@ -57,6 +61,16 @@ class OcrDevice(str, Enum):
     cpu = "cpu"
     cuda = "cuda"
     mps = "mps"
+
+
+class LlmRecipePipeline(str, Enum):
+    off = "off"
+    codex_farm_3pass_v1 = "codex-farm-3pass-v1"
+
+
+class CodexFarmFailureMode(str, Enum):
+    fail = "fail"
+    fallback = "fallback"
 
 
 def _ui_meta(
@@ -227,6 +241,56 @@ class RunSettings(BaseModel):
             label="Warm Models",
             order=90,
             description="Preload heavy OCR/parsing models before processing.",
+        ),
+    )
+    llm_recipe_pipeline: LlmRecipePipeline = Field(
+        default=LlmRecipePipeline.off,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Recipe LLM Pipeline",
+            order=100,
+            description="Optional recipe correction pipeline. Off keeps deterministic behavior.",
+        ),
+    )
+    codex_farm_cmd: str = Field(
+        default="codex-farm",
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Command",
+            order=110,
+            description="Executable used when running codex-farm subprocesses.",
+        ),
+    )
+    codex_farm_root: str | None = Field(
+        default=None,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Root",
+            order=120,
+            description="Optional pipeline-pack root for codex-farm. Blank uses repo_root/llm_pipelines.",
+        ),
+    )
+    codex_farm_context_blocks: int = Field(
+        default=30,
+        ge=0,
+        le=500,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Context Blocks",
+            order=130,
+            description="Blocks before/after a candidate included in pass-1 bundles.",
+            step=1,
+            minimum=0,
+            maximum=500,
+        ),
+    )
+    codex_farm_failure_mode: CodexFarmFailureMode = Field(
+        default=CodexFarmFailureMode.fail,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Failure Mode",
+            order=140,
+            description="Fail the run on codex-farm setup errors or fallback to deterministic outputs.",
         ),
     )
     # Derived from workload shape; not directly edited in the run settings UI.
@@ -414,6 +478,11 @@ def build_run_settings(
     ocr_device: str | OcrDevice,
     ocr_batch_size: int,
     warm_models: bool,
+    llm_recipe_pipeline: str | LlmRecipePipeline = LlmRecipePipeline.off,
+    codex_farm_cmd: str = "codex-farm",
+    codex_farm_root: Path | str | None = None,
+    codex_farm_context_blocks: int = 30,
+    codex_farm_failure_mode: str | CodexFarmFailureMode = CodexFarmFailureMode.fail,
     mapping_path: Path | None = None,
     overrides_path: Path | None = None,
     file_paths: Sequence[Path] | None = None,
@@ -449,6 +518,13 @@ def build_run_settings(
             "ocr_device": _normalized_value(ocr_device),
             "ocr_batch_size": ocr_batch_size,
             "warm_models": bool(warm_models),
+            "llm_recipe_pipeline": _normalized_value(llm_recipe_pipeline),
+            "codex_farm_cmd": str(codex_farm_cmd).strip() or "codex-farm",
+            "codex_farm_root": (
+                str(codex_farm_root) if codex_farm_root is not None else None
+            ),
+            "codex_farm_context_blocks": int(codex_farm_context_blocks),
+            "codex_farm_failure_mode": _normalized_value(codex_farm_failure_mode),
             "effective_workers": resolved_effective_workers,
             "mapping_path": str(mapping_path) if mapping_path is not None else None,
             "overrides_path": str(overrides_path) if overrides_path is not None else None,

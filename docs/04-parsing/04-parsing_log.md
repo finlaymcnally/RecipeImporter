@@ -130,3 +130,34 @@ Important caveat:
 - Tip/chunk lane decisions are heuristic and unstable around narrative-advice hybrids.
 - `ingredients.py` has duplicate function definition for `parse_ingredient_line` (early stub + final function).
 - `chunks.md` output currently includes emoji lane markers; harmless but noisy for strictly ASCII consumers.
+
+### 2026-02-19_14.22.11 - EPUB common issues quick wins
+
+Source task file:
+- `docs/tasks/2026-02-19_14.22.11 - epub-common-issues-quickwins.md`
+
+Problem captured:
+- EPUB extraction quality regressed on common noise classes (soft hyphens, BR-collapsed lines, bullet prefixes, nav/pagebreak noise), causing downstream segmentation and parsing errors.
+
+Behavior contract preserved:
+- Add shared text normalization for Unicode/whitespace/fraction cleanup.
+- Add shared EPUB postprocess pass reused by extractor paths.
+- Suppress nav/TOC spine docs and obvious pagebreak noise.
+- Compute and emit extraction health metrics and warning keys.
+- Keep regression coverage for known quick-win bug classes.
+
+Verification and evidence preserved:
+- Recorded command set includes:
+  - `pytest -q tests/test_cleaning_epub.py tests/test_epub_extraction_quickwins.py tests/test_epub_importer.py tests/test_epub_debug_cli.py tests/test_epub_debug_extract_cli.py`
+  - `pytest -q tests/test_unstructured_adapter.py tests/test_cli_output_structure.py tests/test_epub_job_merge.py`
+- Recorded results:
+  - targeted suite `33 passed`,
+  - additional affected suites `34 passed`.
+
+Key constraints and anti-loop notes:
+- Shared cleanup intentionally limited to HTML-based extractor outputs; avoid forcing `markitdown` through this path without dedicated design.
+- Spine metadata needed typed `item_id`/`properties` coverage so zip fallback and ebooklib paths apply consistent nav skipping.
+- Debug extraction path must call shared postprocess for parity with importer behavior.
+
+Rollback path preserved:
+- Revert `cookimport/parsing/epub_postprocess.py` and `cookimport/parsing/epub_health.py` plus importer/debug wiring and associated tests.

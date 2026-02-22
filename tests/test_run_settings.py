@@ -21,6 +21,10 @@ def test_run_settings_hash_and_summary_are_stable() -> None:
     )
     assert settings.to_run_config_dict()["epub_unstructured_skip_headers_footers"] is False
     assert settings.to_run_config_dict()["epub_unstructured_preprocess_mode"] == "br_split_v1"
+    assert settings.to_run_config_dict()["llm_recipe_pipeline"] == "off"
+    assert settings.to_run_config_dict()["codex_farm_cmd"] == "codex-farm"
+    assert settings.to_run_config_dict()["codex_farm_context_blocks"] == 30
+    assert settings.to_run_config_dict()["codex_farm_failure_mode"] == "fail"
     assert "workers=7" in settings.summary()
 
 

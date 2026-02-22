@@ -159,7 +159,7 @@ Freeform span rows include offsets, label, touched block mapping, annotator/time
   - `prelabel_report.json`
   - `prelabel_errors.jsonl`
 - Progress callbacks now report `Running freeform prelabeling... task X/Y` so CLI spinners show per-task progress while AI labels are generated.
-- CLI status wrappers now add a live elapsed suffix (for example `(17s)`) after ~8 seconds with no phase-message change, so long steps remain visibly active instead of appearing stuck.
+- CLI status wrappers now add a live elapsed suffix (for example `(17s)`) after ~10 seconds with no phase-message change, so long steps remain visibly active instead of appearing stuck.
 - Codex CLI invocation for prelabel/decorate defaults to non-interactive `codex exec -`; plain `codex` values auto-retry with `exec -` when stderr reports `stdin is not a terminal`.
 - Prelabel/decorate runs accept explicit model selection via `--codex-model`; when omitted they resolve model from `COOKIMPORT_CODEX_MODEL` then Codex config (`~/.codex-alt/config.toml`, `~/.codex/config.toml`).
 - Token usage tracking is always enabled for prelabel/decorate runs, using Codex JSON event parsing to record aggregate `input_tokens`, `cached_input_tokens`, and `output_tokens` in run reports.
@@ -281,7 +281,8 @@ Important:
 - Offline mode is explicit via `--no-upload`.
 - Eval-only mode against an existing prediction run is available via `labelstudio-eval` and interactive benchmark eval-only.
 - Benchmark prediction manifests include run-config metadata (`run_config`, `run_config_hash`, `run_config_summary`) so analytics/dashboard rows can be grouped by configuration.
-- Non-interactive benchmark knobs include worker/split controls plus OCR and warmup flags (`--ocr-device`, `--ocr-batch-size`, `--warm-models`, `--epub-extractor`).
+- Non-interactive benchmark knobs include worker/split controls, OCR/warmup flags, and optional codex-farm recipe controls (`--ocr-device`, `--ocr-batch-size`, `--warm-models`, `--epub-extractor`, `--llm-recipe-pipeline`, `--codex-farm-cmd`, `--codex-farm-root`, `--codex-farm-context-blocks`, `--codex-farm-failure-mode`).
+- When benchmark prediction generation runs with codex-farm enabled, processed report payloads include `llmCodexFarm` and prediction-run artifacts include `llm_manifest.json` when produced.
 
 ### 1.9 Parallel split-job behavior and reindexing
 
@@ -574,3 +575,73 @@ Optional tuning:
 - Context size is controlled by segmentation settings (`segment_blocks`, `segment_overlap`), not persistent chat state.
 - Apparent rerun statefulness is typically prompt cache reuse (`prelabel_cache/`), not model memory.
 - Canonical freeform label taxonomy and normalization are centralized in `label_config_freeform.py`; prelabel, decorate, export/eval normalization, and project-type inference should reuse that source.
+
+## 9) Merged Task Specs (2026-02-20 to 2026-02-22)
+
+### 9.1 2026-02-20_21.45.00 freeform prelabel + decorate baseline
+
+Durable contracts from the initial AI-labeling rollout:
+
+- `labelstudio-import --task-scope freeform-spans --prelabel` can generate AI labels and upload them as completed annotations.
+- Inline annotation upload remains best-effort; if rejected by Label Studio, fallback path uploads tasks first and creates annotations after import.
+- `labelstudio-decorate` is additive and should never delete/replace prior human annotations.
+- `labelstudio-decorate --no-write` remains mandatory dry-run surface for safe previewing.
+
+Guardrails:
+
+- Offset integrity depends on exact `segment_text` plus `source_map.blocks` positions.
+- Provider output parsing must tolerate prose-wrapped JSON by extracting the first valid JSON payload.
+
+### 9.2 2026-02-22_11.51.30 interactive prelabel mode selector
+
+Interactive freeform import contract:
+
+- Replace binary prelabel prompt with a mode picker that includes:
+  - no prelabel,
+  - strict annotation prelabel,
+  - allow-partial annotation prelabel,
+  - advanced predictions modes.
+- Selected mode maps directly to runtime flags:
+  - `prelabel`
+  - `prelabel_upload_as`
+  - `prelabel_allow_partial`
+
+### 9.3 2026-02-22_12.25.10 Codex non-interactive default and TTY fallback
+
+Codex provider execution contract:
+
+- Default command for prelabel/decorate is non-interactive `codex exec -`.
+- If user config/env still points to plain `codex`, provider auto-retries with `codex exec -` when stderr reports `stdin is not a terminal`.
+- Existing override surfaces remain unchanged (`--codex-cmd`, `COOKIMPORT_CODEX_CMD`).
+
+### 9.4 2026-02-22_12.36.08 interactive import spinner wiring
+
+Interactive and non-interactive import behavior must share callback plumbing:
+
+- Interactive Label Studio import passes a callable `progress_callback` into `run_labelstudio_import(...)`.
+- Spinner/status rendering should stay in one shared helper path to avoid drift.
+
+### 9.5 2026-02-22_12.55.46 task X/Y counters for AI labeling
+
+Progress message contract where totals are known:
+
+- Freeform prelabel loop emits `Running freeform prelabeling... task X/Y`.
+- Freeform decorate loop emits `Decorating freeform tasks... task X/Y`.
+- Counter text ownership stays in runtime loops (`ingest.py` / provider calls), not UI wrappers.
+
+### 9.6 2026-02-22_13.56.20 freeform label taxonomy refresh
+
+Canonical freeform labels and ordering:
+
+- `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`
+
+Back-compat normalization rules to preserve:
+
+- `TIP -> KNOWLEDGE`
+- `NOTES` / `NOTE -> RECIPE_NOTES`
+- `VARIANT -> RECIPE_VARIANT`
+- `NARRATIVE -> OTHER`
+- `YIELD -> YIELD_LINE`
+- `TIME -> TIME_LINE`
+
+Project-type inference, prelabel/decorate normalization, and freeform eval/export mapping should continue using shared freeform label-config normalization logic.

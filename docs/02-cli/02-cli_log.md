@@ -197,3 +197,83 @@ Preserved rules:
 
 Anti-loop note:
 - If interactive race behavior drifts from `cookimport epub race`, route interactive branch back to the shared command function instead of patching two separate implementations.
+
+### 2026-02-16_14.31.00 - EPUB debug CLI
+
+Source task file:
+- `docs/tasks/2026-02-16_14.31.00 - epub-debug-cli.md`
+
+Problem captured:
+- EPUB debugging required ad hoc ZIP/manual inspection with no first-class CLI for spine inspection, extraction diagnostics, or candidate segmentation checks.
+
+Behavior contract preserved:
+- Add `cookimport epub` subcommands: `inspect`, `dump`, `unpack`, `blocks`, `candidates`, `validate`.
+- Keep `blocks` and `candidates` behavior tied to production importer extraction/segmentation logic to avoid debug-vs-stage drift.
+- Keep deterministic artifact outputs for inspect/blocks/candidates/validate workflows.
+
+Verification and evidence preserved:
+- Recorded test command:
+  - `source .venv/bin/activate && pytest -q tests/test_epub_debug_cli.py tests/test_epub_debug_extract_cli.py tests/test_epub_importer.py`
+- Recorded result: `19 passed`.
+- Recorded artifact outputs:
+  - `inspect_report.json`
+  - `blocks.jsonl`, `blocks_preview.md`, `blocks_stats.json`
+  - `candidates.json`, `candidates_preview.md`
+
+Constraints and anti-loop notes:
+- Direct `_extract_docpack(...)` usage requires importer `_overrides` to be initialized.
+- `epub-utils` remains optional and pre-release aware; keep ZIP/OPF fallback path.
+- EPUBCheck strictness remains opt-in (`--strict`).
+
+Rollback path preserved:
+- Remove `cookimport/epubdebug/` module + root CLI wiring and associated tests/docs if debug CLI must be fully reverted.
+
+### 2026-02-20_13.21.49 - interactive EPUB race menu
+
+Source task file:
+- `docs/tasks/2026-02-20_13.21.49 - interactive-epub-race-menu.md`
+
+Problem captured:
+- `cookimport epub race` existed, but interactive mode had no in-menu route to run it.
+
+Behavior contract preserved:
+- Add top-level interactive menu action for EPUB race when top-level `data/input` has `.epub` files.
+- Prompt for file/output/candidates in interactive flow.
+- Reuse shared `race_epub_extractors(...)` behavior instead of cloning logic.
+- Return to main menu after execution.
+
+Verification and evidence preserved:
+- Recorded command:
+  - `source .venv/bin/activate && pytest -q tests/test_labelstudio_benchmark_helpers.py tests/test_c3imp_interactive_menu.py`
+- Recorded result: `37 passed`.
+
+Constraints and anti-loop notes:
+- Keep race visibility scoped to top-level EPUB discovery behavior used by interactive mode.
+- Do not fork race scoring/report code inside interactive path.
+
+Rollback path preserved:
+- Remove `_interactive_epub_race(...)` and corresponding menu branch + tests/docs.
+
+### 2026-02-22_10.14.15 - interactive EPUB race default output root
+
+Source task file:
+- `docs/tasks/2026-02-22_10.14.15 - epub-race-default-output-root.md`
+
+Problem captured:
+- Interactive race defaulted to `/tmp/epub-race/<book>`, which was easy to lose and hard to find.
+
+Behavior contract preserved:
+- Interactive race default output root moved to:
+  - `data/output/EPUBextractorRace/<book_stem>`
+- Prompt/custom output/candidate/overwrite behavior otherwise unchanged.
+
+Verification and evidence preserved:
+- Recorded command:
+  - `source .venv/bin/activate && pytest -q tests/test_labelstudio_benchmark_helpers.py -k interactive_epub_race`
+- Recorded result: `1 passed, 33 deselected`.
+
+Constraint preserved:
+- Scope change to interactive default only; direct `cookimport epub race --out` semantics unchanged.
+
+Rollback path preserved:
+- Restore previous interactive default root (`/tmp/epub-race/<book_stem>`) and revert related docs/test assertions.

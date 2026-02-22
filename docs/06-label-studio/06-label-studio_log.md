@@ -253,3 +253,165 @@ Merged source:
 Preserved rule:
 - Canonical label names and alias normalization are centralized in `label_config_freeform.py`.
 - Prelabel, decorate, export/eval label normalization, and interactive project-type inference should all reuse that shared normalization logic.
+
+### 2026-02-20_21.45.00 - labelstudio prelabel + decorate
+
+Source task file:
+- `docs/tasks/2026-02-20_21.45.00-labelstudio-prelabel-and-decorate.md`
+
+Problem captured:
+- Freeform golden-set creation was too manual; needed AI first-pass span labeling plus additive decoration for existing projects.
+
+Behavior contract preserved:
+- `labelstudio-import --task-scope freeform-spans --prelabel` can generate/upload completed annotations.
+- Inline annotation rejection must trigger fallback to task upload followed by per-task annotation creation.
+- `labelstudio-decorate` adds requested labels without deleting prior annotations.
+- `labelstudio-decorate --no-write` provides dry-run output and report artifacts.
+
+Verification and evidence preserved:
+- Recorded test commands:
+  - `pytest -q tests/test_labelstudio_prelabel.py tests/test_labelstudio_ingest_parallel.py tests/test_labelstudio_benchmark_helpers.py`
+  - `pytest -q tests/test_labelstudio_freeform.py`
+- Recorded coverage includes prelabel, parallel ingest, benchmark helper routing, and freeform contracts.
+
+Key constraints and anti-loop notes:
+- Offset correctness is tied to exact `segment_text` and `source_map.blocks` positions.
+- Inline `annotations` payload support can vary by Label Studio version/config; fallback path is not optional.
+- Codex output parsing must handle JSON wrapped in prose.
+
+Rollback path preserved:
+- Disable `--prelabel` and use standard import; use `labelstudio-decorate --no-write` for safe inspection.
+
+### 2026-02-22_11.51.30 - interactive prelabel mode selector (including allow-partial)
+
+Source task file:
+- `docs/tasks/2026-02-22_11.51.30 - interactive-prelabel-mode-partial.md`
+
+Problem captured:
+- Interactive freeform import exposed only yes/no prelabel, hiding partial-failure upload mode.
+
+Behavior contract preserved:
+- Interactive freeform import uses a select menu with at least:
+  - no prelabel,
+  - strict annotation prelabel,
+  - allow-partial annotation prelabel.
+- Mode selection must route to `run_labelstudio_import(...)` via `prelabel`, `prelabel_upload_as`, and `prelabel_allow_partial`.
+
+Verification and evidence preserved:
+- Recorded tests assert interactive flow forwards:
+  - `prelabel=True`
+  - `prelabel_upload_as='annotations'`
+  - `prelabel_allow_partial=True`
+- Recorded command anchors:
+  - `pytest -q tests/test_labelstudio_benchmark_helpers.py -k interactive_labelstudio_freeform_scope_routes_to_freeform_import`
+  - `pytest -q tests/test_labelstudio_benchmark_helpers.py -k interactive_labelstudio_import_forces_overwrite_without_prompt`
+
+Constraint preserved:
+- Keep `_menu_select` usage so numeric shortcut/back navigation behavior remains consistent.
+
+Rollback path preserved:
+- Revert interactive prelabel prompt block and related tests/docs.
+
+### 2026-02-22_12.25.10 - non-interactive Codex default for prelabel/decorate
+
+Source task file:
+- `docs/tasks/2026-02-22_12.25.10 - prelabel-codex-exec-default.md`
+
+Problem captured:
+- Prelabel runs could produce `success_count=0` due to plain `codex` in subprocess mode (`stdin is not a terminal`).
+
+Behavior contract preserved:
+- Default command resolves to `codex exec -`.
+- Plain `codex` overrides auto-retry to `codex exec -` only when TTY error is detected.
+- Override surfaces remain available (`--codex-cmd`, `COOKIMPORT_CODEX_CMD`).
+
+Verification and evidence preserved:
+- Recorded test anchors:
+  - `pytest -q tests/test_labelstudio_prelabel.py -k codex`
+  - `pytest -q tests/test_labelstudio_prelabel.py -k prelabel_freeform_task_uses_block_offsets_and_exact_text`
+- Recorded assertions include default command value and retry path behavior.
+
+Constraint preserved:
+- Fallback rewrite is intentionally limited to plain-`codex` commands; do not rewrite arbitrary custom command lines.
+
+Rollback path preserved:
+- Revert fallback/default command changes in `cookimport/labelstudio/prelabel.py` and matching tests/docs.
+
+### 2026-02-22_12.36.08 - interactive Label Studio spinner/progress callback wiring
+
+Source task file:
+- `docs/tasks/2026-02-22_12.36.08 - interactive-labelstudio-prelabel-spinner.md`
+
+Problem captured:
+- Interactive import called `run_labelstudio_import(...)` without progress callback, so long AI prelabel runs showed no live indicator.
+
+Behavior contract preserved:
+- Interactive import must pass a callable `progress_callback`.
+- Spinner rendering should reuse shared callback/status helper path used by non-interactive `labelstudio-import`.
+
+Verification and evidence preserved:
+- Recorded command anchors:
+  - `pytest -q tests/test_labelstudio_benchmark_helpers.py -k interactive_labelstudio_import`
+  - `pytest -q tests/test_labelstudio_benchmark_helpers.py -k interactive_labelstudio_freeform_scope_routes_to_freeform_import`
+- Recorded assertions ensure `progress_callback` is callable in interactive paths.
+
+Constraint preserved:
+- Keep status wording style aligned with existing `Label Studio import (...)` spinner text.
+
+Rollback path preserved:
+- Revert shared helper usage in `cookimport/cli.py` and callback assertions in tests.
+
+### 2026-02-22_12.55.46 - spinner task X/Y counters for AI labeling
+
+Source task file:
+- `docs/tasks/2026-02-22_12.55.46 - spinner-task-progress-counters.md`
+
+Problem captured:
+- AI prelabel spinner text showed phase-only status and hid per-task throughput.
+
+Behavior contract preserved:
+- Prelabel loop emits `task X/Y` counters.
+- Decorate loop emits `task X/Y` counters.
+- Counter shape is normalized as `task X/Y`.
+
+Verification and evidence preserved:
+- Recorded command anchors:
+  - `pytest -q tests/test_labelstudio_ingest_parallel.py -k prelabel_task_progress`
+  - `pytest -q tests/test_labelstudio_prelabel.py -k decorate_dry_run`
+  - `pytest -q tests/test_labelstudio_benchmark_helpers.py -k interactive_labelstudio_import`
+- Recorded evidence includes examples from `task 0/N` through `task N/N` and dry-run assertions (`task 1/2`, `task 2/2`).
+
+Constraints and anti-loop notes:
+- Keep callback-driven spinner flow; do not add second indicator systems.
+- Counter ownership remains in ingest/runtime loops where totals are known.
+
+Rollback path preserved:
+- Revert ingest progress message changes and related tests/docs/conventions updates.
+
+### 2026-02-22_13.56.20 - freeform label taxonomy refresh
+
+Source task file:
+- `docs/tasks/2026-02-22_13.56.20 - freeform-label-taxonomy-refresh.md`
+
+Problem captured:
+- Older freeform labels (`TIP` / `NOTES` / `VARIANT`) were ambiguous and mismatched desired golden-set taxonomy.
+
+Behavior contract preserved:
+- Canonical labels are now:
+  - `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`
+- Label config order must match canonical list.
+- Legacy aliases normalize to new names (`TIP`, `NOTES`/`NOTE`, `VARIANT`, `YIELD`, `TIME`, `NARRATIVE`).
+- Eval chunk mapping and CLI scope inference must continue to recognize both new and legacy forms.
+
+Verification and evidence preserved:
+- Recorded commands:
+  - `pip install -e .[dev]`
+  - `pytest -q tests/test_labelstudio_freeform.py tests/test_labelstudio_prelabel.py tests/test_labelstudio_benchmark_helpers.py`
+- Recorded result: `56 passed, 2 warnings in 1.99s`.
+
+Constraints and anti-loop notes:
+- Preserve back-compat through alias normalization instead of dropping legacy labels.
+- Keep app-aligned metrics contracts unchanged (structural labels + `OTHER` subset semantics remain).
+
+Rollback path preserved:
+- Revert taxonomy mapping changes in freeform label config/eval/CLI and associated test/docs updates.

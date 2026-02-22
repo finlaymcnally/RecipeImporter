@@ -10,10 +10,12 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from cookimport.config.run_settings import build_run_settings, compute_effective_workers
+from cookimport.config.run_settings import RunSettings, build_run_settings, compute_effective_workers
 from cookimport.core.progress_messages import format_task_counter
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
+from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
+from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.parsing.tips import partition_tip_candidates
 from cookimport.parsing.chunks import (
     chunks_from_non_recipe_blocks,
@@ -127,6 +129,24 @@ def _normalize_epub_extractor(value: str) -> str:
         raise ValueError(
             "Invalid epub_extractor. "
             "Expected one of: unstructured, legacy, markdown, auto, markitdown."
+        )
+    return normalized
+
+
+def _normalize_llm_recipe_pipeline(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"off", "codex-farm-3pass-v1"}:
+        raise ValueError(
+            "Invalid llm_recipe_pipeline. Expected one of: off, codex-farm-3pass-v1."
+        )
+    return normalized
+
+
+def _normalize_codex_farm_failure_mode(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"fail", "fallback"}:
+        raise ValueError(
+            "Invalid codex_farm_failure_mode. Expected one of: fail, fallback."
         )
     return normalized
 
@@ -371,6 +391,9 @@ def _write_processed_outputs(
     run_config_summary: str | None = None,
     epub_auto_selection: dict[str, Any] | None = None,
     epub_auto_selected_score: float | None = None,
+    schemaorg_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
+    draft_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
+    llm_codex_farm: dict[str, Any] | None = None,
 ) -> Path:
     timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
     run_root = output_root / timestamp
@@ -393,6 +416,7 @@ def _write_processed_outputs(
         result.report.run_config = dict(run_config)
     result.report.run_config_hash = run_config_hash
     result.report.run_config_summary = run_config_summary
+    result.report.llm_codex_farm = llm_codex_farm
     if epub_auto_selection is not None:
         result.report.epub_auto_selection = dict(epub_auto_selection)
     if epub_auto_selected_score is not None:
@@ -401,8 +425,18 @@ def _write_processed_outputs(
     enrich_report_with_stats(result.report, result, path)
 
     output_stats = OutputStats(run_root)
-    write_intermediate_outputs(result, intermediate_dir, output_stats=output_stats)
-    write_draft_outputs(result, final_dir, output_stats=output_stats)
+    write_intermediate_outputs(
+        result,
+        intermediate_dir,
+        output_stats=output_stats,
+        schemaorg_overrides_by_recipe_id=schemaorg_overrides_by_recipe_id,
+    )
+    write_draft_outputs(
+        result,
+        final_dir,
+        output_stats=output_stats,
+        draft_overrides_by_recipe_id=draft_overrides_by_recipe_id,
+    )
     write_tip_outputs(result, tips_dir, output_stats=output_stats)
     write_topic_candidate_outputs(result, tips_dir, output_stats=output_stats)
     if result.chunks:
@@ -769,6 +803,11 @@ def generate_pred_run_artifacts(
     ocr_device: str = "auto",
     ocr_batch_size: int = 1,
     warm_models: bool = False,
+    llm_recipe_pipeline: str = "off",
+    codex_farm_cmd: str = "codex-farm",
+    codex_farm_root: Path | str | None = None,
+    codex_farm_context_blocks: int = 30,
+    codex_farm_failure_mode: str = "fail",
     processed_output_root: Path | None = None,
     prelabel: bool = False,
     prelabel_provider: str = "codex-cli",
@@ -843,6 +882,10 @@ def generate_pred_run_artifacts(
         ),
         default=False,
     )
+    selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
+    selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
+        codex_farm_failure_mode
+    )
     run_settings = build_run_settings(
         workers=workers,
         pdf_split_workers=pdf_split_workers,
@@ -856,6 +899,11 @@ def generate_pred_run_artifacts(
         ocr_device=ocr_device,
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,
+        llm_recipe_pipeline=selected_llm_recipe_pipeline,
+        codex_farm_cmd=codex_farm_cmd,
+        codex_farm_root=codex_farm_root,
+        codex_farm_context_blocks=codex_farm_context_blocks,
+        codex_farm_failure_mode=selected_codex_farm_failure_mode,
         all_epub=path.suffix.lower() == ".epub",
         effective_workers=compute_effective_workers(
             workers=workers,
@@ -983,6 +1031,44 @@ def generate_pred_run_artifacts(
             result = _merge_parallel_results(path, importer_name, job_results)
             _notify("Merged split job results.")
 
+    llm_schema_overrides: dict[str, dict[str, Any]] | None = None
+    llm_draft_overrides: dict[str, dict[str, Any]] | None = None
+    llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
+    if run_settings.llm_recipe_pipeline.value != "off":
+        _notify("Running codex-farm recipe pipeline...")
+        try:
+            llm_apply = run_codex_farm_recipe_pipeline(
+                conversion_result=result,
+                run_settings=run_settings,
+                run_root=run_root,
+                workbook_slug=book_slug,
+            )
+        except CodexFarmRunnerError as exc:
+            if run_settings.codex_farm_failure_mode.value == "fallback":
+                warning = (
+                    "LLM recipe pipeline failed; falling back to deterministic outputs: "
+                    f"{exc}"
+                )
+                if result.report is None:
+                    result.report = ConversionReport()
+                result.report.warnings.append(warning)
+                llm_report = {
+                    "enabled": True,
+                    "pipeline": run_settings.llm_recipe_pipeline.value,
+                    "fallbackApplied": True,
+                    "fatalError": str(exc),
+                }
+            else:
+                raise
+        else:
+            result = llm_apply.updated_conversion_result
+            llm_schema_overrides = llm_apply.intermediate_overrides_by_recipe_id
+            llm_draft_overrides = llm_apply.final_overrides_by_recipe_id
+            llm_report = dict(llm_apply.llm_report)
+    if result.report is None:
+        result.report = ConversionReport()
+    result.report.llm_codex_farm = llm_report
+
     _notify("Building extracted archive...")
     archive = build_extracted_archive(result, result.raw_artifacts)
     _notify("Computing source file hash...")
@@ -1021,6 +1107,9 @@ def generate_pred_run_artifacts(
             run_config_summary=run_config_summary,
             epub_auto_selection=auto_selection_payload,
             epub_auto_selected_score=auto_selection_score,
+            schemaorg_overrides_by_recipe_id=llm_schema_overrides,
+            draft_overrides_by_recipe_id=llm_draft_overrides,
+            llm_codex_farm=llm_report,
         )
         processed_report_path = (
             processed_run_root / f"{path.stem}.excel_import_report.json"
@@ -1313,6 +1402,7 @@ def generate_pred_run_artifacts(
         "run_config": run_config,
         "run_config_hash": run_config_hash,
         "run_config_summary": run_config_summary,
+        "llm_codex_farm": llm_report,
         "epub_auto_selection": auto_selection_payload,
         "epub_auto_selected_score": auto_selection_score,
         "processed_run_root": (
@@ -1367,6 +1457,18 @@ def generate_pred_run_artifacts(
     processed_report_manifest_path = _path_for_manifest(run_root, processed_report_path)
     if processed_report_manifest_path:
         run_manifest_artifacts["processed_report_json"] = processed_report_manifest_path
+    llm_manifest_path = (
+        run_root
+        / "raw"
+        / "llm"
+        / _slugify_name(path.stem)
+        / "llm_manifest.json"
+    )
+    if llm_manifest_path.exists():
+        run_manifest_artifacts["llm_manifest_json"] = _path_for_manifest(
+            run_root,
+            llm_manifest_path,
+        )
 
     run_manifest_payload = RunManifest(
         run_kind=run_manifest_kind,
@@ -1405,6 +1507,7 @@ def generate_pred_run_artifacts(
         "run_config": run_config,
         "run_config_hash": run_config_hash,
         "run_config_summary": run_config_summary,
+        "llm_codex_farm": llm_report,
         "book_id": book_id,
         "file_hash": file_hash,
     }
@@ -1440,6 +1543,11 @@ def run_labelstudio_import(
     ocr_device: str = "auto",
     ocr_batch_size: int = 1,
     warm_models: bool = False,
+    llm_recipe_pipeline: str = "off",
+    codex_farm_cmd: str = "codex-farm",
+    codex_farm_root: Path | str | None = None,
+    codex_farm_context_blocks: int = 30,
+    codex_farm_failure_mode: str = "fail",
     processed_output_root: Path | None = None,
     prelabel: bool = False,
     prelabel_provider: str = "codex-cli",
@@ -1486,6 +1594,11 @@ def run_labelstudio_import(
         ocr_device=ocr_device,
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,
+        llm_recipe_pipeline=llm_recipe_pipeline,
+        codex_farm_cmd=codex_farm_cmd,
+        codex_farm_root=codex_farm_root,
+        codex_farm_context_blocks=codex_farm_context_blocks,
+        codex_farm_failure_mode=codex_farm_failure_mode,
         processed_output_root=processed_output_root,
         prelabel=prelabel,
         prelabel_provider=prelabel_provider,
