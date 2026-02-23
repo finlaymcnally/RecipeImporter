@@ -16,6 +16,7 @@ from cookimport.labelstudio.prelabel import (
     default_codex_reasoning_effort,
     codex_reasoning_effort_from_cmd,
     list_codex_models,
+    is_rate_limit_message,
     parse_block_label_output,
     parse_span_label_output,
     preflight_codex_model_access,
@@ -145,6 +146,12 @@ def test_parse_span_label_output_extracts_quote_and_absolute_items() -> None:
             "end": 8,
         },
     ]
+
+
+def test_is_rate_limit_message_matches_common_429_shapes() -> None:
+    assert is_rate_limit_message("HTTP 429 Too Many Requests: rate limit exceeded")
+    assert is_rate_limit_message("provider error: rate-limited")
+    assert not is_rate_limit_message("model access denied")
 
 
 def test_prelabel_freeform_task_uses_block_offsets_and_exact_text() -> None:
@@ -337,6 +344,55 @@ def test_prelabel_span_prompt_marks_context_before_and_after() -> None:
     assert "<<<CONTEXT_AFTER_LABELING_ONLY>>>" in prompt
 
 
+def test_prelabel_span_prompt_reads_context_blocks_for_focus_only_segment() -> None:
+    task = {
+        "id": 301,
+        "data": {
+            "segment_id": "urn:cookimport:segment:testhash:0:2",
+            "segment_text": "B",
+            "source_map": {
+                "separator": "\n\n",
+                "focus_start_block_index": 1,
+                "focus_end_block_index": 1,
+                "focus_block_indices": [1],
+                "context_before_blocks": [{"block_index": 0, "text": "A"}],
+                "context_after_blocks": [{"block_index": 2, "text": "C"}],
+                "blocks": [
+                    {
+                        "block_id": "urn:cookimport:block:testhash:1",
+                        "block_index": 1,
+                        "segment_start": 0,
+                        "segment_end": 1,
+                    }
+                ],
+            },
+        },
+    }
+    provider = _CaptureProvider(
+        '[{"block_index": 1, "label": "INGREDIENT_LINE", "quote": "B"}]'
+    )
+
+    annotation = prelabel_freeform_task(
+        task,
+        provider=provider,
+        prelabel_granularity="span",
+    )
+    assert annotation is not None
+    value = annotation["result"][0]["value"]
+    assert value["start"] == 0
+    assert value["end"] == 1
+    assert value["text"] == "B"
+
+    prompt = provider.prompts[0]
+    assert "<<<CONTEXT_BEFORE_LABELING_ONLY>>>" in prompt
+    assert "<<<START_LABELING_BLOCKS_HERE>>>" in prompt
+    assert "<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>" in prompt
+    assert "<<<CONTEXT_AFTER_LABELING_ONLY>>>" in prompt
+    assert "0\tA" in prompt
+    assert "1\tB" in prompt
+    assert "2\tC" in prompt
+
+
 def test_prelabel_prompt_log_callback_captures_prompt_context() -> None:
     task = _freeform_task()
     provider = _StaticProvider('[{"block_index": 1, "label": "INGREDIENT_LINE"}]')
@@ -357,6 +413,8 @@ def test_prelabel_prompt_log_callback_captures_prompt_context() -> None:
     included = entry["included_with_prompt"]
     assert included["focus_block_indices"] == [0, 1]
     assert included["segment_block_count"] == 2
+    assert included["context_before_block_count"] == 0
+    assert included["context_after_block_count"] == 0
     assert included["allowed_labels"][0] == "RECIPE_TITLE"
     assert "Prompt includes allowed labels" in entry["included_with_prompt_description"]
 

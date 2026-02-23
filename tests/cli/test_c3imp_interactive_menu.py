@@ -11,6 +11,7 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from cookimport import cli
+from cookimport import entrypoint
 
 
 def test_menu_shortcuts_assign_numeric_keys():
@@ -157,3 +158,104 @@ def test_prompt_text_escape_returns_none() -> None:
 
     assert "exc" not in error, f"Prompt crashed instead of handling Esc: {error.get('exc')}"
     assert result["value"] is None
+
+
+def test_interactive_import_passes_knowledge_pipeline_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    selected_file = tmp_path / "Hix written.docx"
+    selected_file.write_text("dummy", encoding="utf-8")
+    selected_settings = cli.RunSettings.from_dict(
+        {
+            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "codex_farm_pipeline_pass4_knowledge": "recipe.knowledge.custom.v9",
+            "codex_farm_knowledge_context_blocks": 37,
+        },
+        warn_context="test settings",
+    )
+    menu_answers = iter(["import", selected_file, "exit"])
+    captured: dict[str, object] = {}
+
+    def fake_menu_select(*_args, **_kwargs):
+        return next(menu_answers)
+
+    def fake_stage(*, path, **kwargs):
+        captured["path"] = path
+        captured.update(kwargs)
+        return tmp_path / "out" / "2026-02-23_13.00.00"
+
+    monkeypatch.setattr(cli, "_load_settings", lambda: {})
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [selected_file])
+    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
+    monkeypatch.setattr(cli, "choose_run_settings", lambda **_kwargs: selected_settings)
+    monkeypatch.setattr(cli, "save_last_run_settings", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli, "stage", fake_stage)
+
+    with pytest.raises(typer.Exit):
+        cli._interactive_mode()
+
+    assert captured["path"] == selected_file
+    assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
+    assert captured["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.custom.v9"
+    assert captured["codex_farm_knowledge_context_blocks"] == 37
+
+
+def test_import_entrypoint_passes_extended_stage_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    captured: dict[str, object] = {}
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    settings = {
+        "epub_extractor": "legacy",
+        "epub_unstructured_html_parser_version": "v2",
+        "epub_unstructured_skip_headers_footers": True,
+        "epub_unstructured_preprocess_mode": "semantic_v1",
+        "llm_recipe_pipeline": "off",
+        "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+        "codex_farm_pipeline_pass4_knowledge": "recipe.knowledge.custom.v9",
+        "codex_farm_knowledge_context_blocks": 42,
+    }
+
+    def fake_stage(*, path, limit, **kwargs):
+        captured["path"] = path
+        captured["limit"] = limit
+        captured.update(kwargs)
+
+    monkeypatch.setattr(entrypoint, "DEFAULT_INPUT", input_dir)
+    monkeypatch.setattr(entrypoint, "DEFAULT_OUTPUT", output_dir)
+    monkeypatch.setattr(entrypoint, "_load_settings", lambda: settings)
+    monkeypatch.setattr(entrypoint, "stage", fake_stage)
+    monkeypatch.setattr(
+        entrypoint,
+        "app",
+        lambda: (_ for _ in ()).throw(AssertionError("entrypoint.app should not run")),
+    )
+    monkeypatch.setattr(entrypoint.sys, "argv", ["import"])
+
+    entrypoint.main()
+
+    assert captured["path"] == input_dir
+    assert captured["limit"] is None
+    assert captured["out"] == output_dir
+    assert captured["epub_extractor"] == "legacy"
+    assert captured["epub_unstructured_html_parser_version"] == "v2"
+    assert captured["epub_unstructured_skip_headers_footers"] is True
+    assert captured["epub_unstructured_preprocess_mode"] == "semantic_v1"
+    assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
+    assert captured["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.custom.v9"
+    assert captured["codex_farm_knowledge_context_blocks"] == 42
+
+
+def test_stage_direct_call_uses_plain_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    source_file = tmp_path / "source.txt"
+    source_file.write_text("hello", encoding="utf-8")
+    output_root = tmp_path / "output"
+
+    monkeypatch.setattr(cli, "_iter_files", lambda _path: [])
+
+    run_folder = cli.stage(path=source_file, out=output_root)
+
+    assert run_folder.parent == output_root

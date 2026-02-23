@@ -162,6 +162,7 @@ What each setting affects:
 Developer note:
 - Per-run toggle definitions live in `cookimport/config/run_settings.py`. Add new fields there with `ui_*` metadata so the interactive editor picks them up automatically.
 - The full-screen run-settings editor auto-scrolls to keep the selected row visible when the settings list exceeds terminal height.
+- `stage(...)` is called both by Typer CLI dispatch and direct Python callers (interactive helpers/entrypoints/tests); it must coerce any Typer `OptionInfo` default objects back to plain values before normalization/building run settings.
 
 ### [D] Import Flow
 
@@ -177,7 +178,7 @@ Developer note:
    - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`
    - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`
    - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
-4. Calls `stage(...)` using selected per-run workers/OCR/split/warm-model values.
+4. Calls `stage(...)` using the full selected run settings payload (workers/OCR/extractor + LLM/codex-farm knobs).
 5. Saves selected settings to `<output_dir>/.history/last_run_settings_import.json` after a successful run.
 6. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
 7. Prints `Outputs written to: <run_folder>`.

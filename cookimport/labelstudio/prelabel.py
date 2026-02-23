@@ -379,6 +379,22 @@ def _normalize_codex_error_detail(value: str) -> str:
     return raw
 
 
+_RATE_LIMIT_MESSAGE_RE = re.compile(
+    r"\b429\b|too many requests|rate[ -]?limit(?:ed|ing)?",
+    re.IGNORECASE,
+)
+
+
+def is_rate_limit_message(value: str | None) -> bool:
+    """Return True when provider text indicates HTTP 429/rate limiting."""
+    if value is None:
+        return False
+    text = str(value).strip()
+    if not text:
+        return False
+    return _RATE_LIMIT_MESSAGE_RE.search(text) is not None
+
+
 def _argv_with_json_events(argv: list[str], *, track_usage: bool) -> list[str]:
     if not track_usage:
         return list(argv)
@@ -1573,6 +1589,47 @@ def _build_focus_marked_block_lines(
     return marked
 
 
+def _extract_valid_blocks_from_segment_text(
+    *,
+    segment_text: str,
+    blocks: list[Any],
+) -> list[tuple[int, str]]:
+    valid_blocks: list[tuple[int, str]] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        block_index_raw = block.get("block_index")
+        start_raw = block.get("segment_start")
+        end_raw = block.get("segment_end")
+        try:
+            block_index = int(block_index_raw)
+            start = int(start_raw)
+            end = int(end_raw)
+        except (TypeError, ValueError):
+            continue
+        if start < 0 or end <= start or end > len(segment_text):
+            continue
+        block_text = segment_text[start:end]
+        valid_blocks.append((block_index, block_text))
+    return valid_blocks
+
+
+def _extract_prompt_context_blocks(raw_blocks: Any) -> list[tuple[int, str]]:
+    if not isinstance(raw_blocks, list):
+        return []
+    parsed: list[tuple[int, str]] = []
+    for item in raw_blocks:
+        if not isinstance(item, dict):
+            continue
+        block_index_raw = item.get("block_index")
+        try:
+            block_index = int(block_index_raw)
+        except (TypeError, ValueError):
+            continue
+        parsed.append((block_index, str(item.get("text") or "")))
+    return parsed
+
+
 def _build_prompt(
     *,
     task: dict[str, Any],
@@ -1591,32 +1648,34 @@ def _build_prompt(
     if not isinstance(blocks, list):
         raise ValueError("task source_map.blocks missing")
 
-    valid_blocks: list[tuple[int, str]] = []
-    lines: list[str] = []
-    for block in blocks:
-        if not isinstance(block, dict):
-            continue
-        block_index_raw = block.get("block_index")
-        start_raw = block.get("segment_start")
-        end_raw = block.get("segment_end")
-        try:
-            block_index = int(block_index_raw)
-            start = int(start_raw)
-            end = int(end_raw)
-        except (TypeError, ValueError):
-            continue
-        if start < 0 or end <= start or end > len(segment_text):
-            continue
-        block_text = segment_text[start:end]
-        valid_blocks.append((block_index, block_text))
-        lines.append(
-            json.dumps(
-                {"block_index": block_index, "text": block_text},
-                ensure_ascii=False,
-            )
-        )
+    focus_valid_blocks = _extract_valid_blocks_from_segment_text(
+        segment_text=segment_text,
+        blocks=blocks,
+    )
+    context_before_blocks = _extract_prompt_context_blocks(
+        source_map.get("context_before_blocks")
+    )
+    context_after_blocks = _extract_prompt_context_blocks(
+        source_map.get("context_after_blocks")
+    )
 
-    available_block_indices = [block_index for block_index, _text in valid_blocks]
+    if context_before_blocks or context_after_blocks:
+        valid_blocks = [
+            *context_before_blocks,
+            *focus_valid_blocks,
+            *context_after_blocks,
+        ]
+    else:
+        valid_blocks = list(focus_valid_blocks)
+
+    lines = [
+        json.dumps({"block_index": block_index, "text": block_text}, ensure_ascii=False)
+        for block_index, block_text in valid_blocks
+    ]
+
+    available_block_indices = [
+        block_index for block_index, _text in focus_valid_blocks
+    ]
     focus_block_indices = _resolve_focus_block_indices(
         source_map=source_map,
         available_block_indices=available_block_indices,
@@ -1624,7 +1683,7 @@ def _build_prompt(
     focus_block_index_set = set(focus_block_indices)
     focus_lines = [
         json.dumps({"block_index": block_index, "text": block_text}, ensure_ascii=False)
-        for block_index, block_text in valid_blocks
+        for block_index, block_text in focus_valid_blocks
         if block_index in focus_block_index_set
     ]
     if not focus_lines:
@@ -1748,12 +1807,34 @@ def _build_prompt_log_entry(
     source_blocks = source_map.get("blocks")
     if not isinstance(source_blocks, list):
         source_blocks = []
+    context_before_blocks = source_map.get("context_before_blocks")
+    if not isinstance(context_before_blocks, list):
+        context_before_blocks = []
+    context_after_blocks = source_map.get("context_after_blocks")
+    if not isinstance(context_after_blocks, list):
+        context_after_blocks = []
     block_indices: list[int] = []
     for block in source_blocks:
         if not isinstance(block, dict):
             continue
         try:
             block_indices.append(int(block.get("block_index")))
+        except (TypeError, ValueError):
+            continue
+    context_before_indices: list[int] = []
+    for block in context_before_blocks:
+        if not isinstance(block, dict):
+            continue
+        try:
+            context_before_indices.append(int(block.get("block_index")))
+        except (TypeError, ValueError):
+            continue
+    context_after_indices: list[int] = []
+    for block in context_after_blocks:
+        if not isinstance(block, dict):
+            continue
+        try:
+            context_after_indices.append(int(block.get("block_index")))
         except (TypeError, ValueError):
             continue
     ordered_allowed_labels = [
@@ -1791,6 +1872,10 @@ def _build_prompt_log_entry(
             "segment_text_char_count": len(str(data.get("segment_text") or "")),
             "segment_block_count": len(block_indices),
             "segment_block_indices": block_indices,
+            "context_before_block_count": len(context_before_indices),
+            "context_before_block_indices": context_before_indices,
+            "context_after_block_count": len(context_after_indices),
+            "context_after_block_indices": context_after_indices,
             "focus_block_count": len(focus_block_indices),
             "focus_block_indices": sorted(focus_block_indices),
             "allowed_labels": ordered_allowed_labels,

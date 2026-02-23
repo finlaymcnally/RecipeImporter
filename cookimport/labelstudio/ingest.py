@@ -76,6 +76,7 @@ from cookimport.labelstudio.prelabel import (
     codex_reasoning_effort_from_cmd,
     default_codex_cmd,
     default_codex_reasoning_effort,
+    is_rate_limit_message,
     normalize_codex_reasoning_effort,
     normalize_prelabel_granularity,
     preflight_codex_model_access,
@@ -1512,6 +1513,11 @@ def generate_pred_run_artifacts(
             prelabel_errors: list[dict[str, Any]] = []
             prelabel_label_counts: dict[str, int] = {}
             prelabel_success = 0
+            rate_limit_stop_event = threading.Event()
+            rate_limit_warning_emitted = False
+            rate_limit_skip_reason = (
+                "Skipped after prior HTTP 429 rate-limit failure from another task."
+            )
             effective_prelabel_workers = min(
                 total_prelabel_tasks,
                 max(1, int(prelabel_workers)),
@@ -1556,6 +1562,36 @@ def generate_pred_run_artifacts(
                     next_worker_slot += 1
                     return slot
 
+            def _emit_rate_limit_warning() -> None:
+                nonlocal rate_limit_warning_emitted
+                if rate_limit_warning_emitted:
+                    return
+                _notify(
+                    "WARNING: freeform prelabel rate limit (HTTP 429) detected; "
+                    "halting additional prelabel task requests."
+                )
+                rate_limit_warning_emitted = True
+
+            def _rate_limit_skip_result(
+                *,
+                task_index: int,
+                task_payload: dict[str, Any],
+                segment_id: str | None = None,
+            ) -> dict[str, Any]:
+                resolved_segment_id = segment_id or (
+                    _task_id_value(task_payload, "freeform-spans") or "<unknown>"
+                )
+                return {
+                    "task_index": task_index,
+                    "segment_id": resolved_segment_id,
+                    "annotation": None,
+                    "error": rate_limit_skip_reason,
+                    "prompt_entries": [],
+                    "task": task_payload,
+                    "rate_limit": False,
+                    "rate_limit_skipped": True,
+                }
+
             if effective_prelabel_workers > 1:
                 _notify(format_worker_activity_reset())
             _notify(_prelabel_progress_status(0))
@@ -1566,6 +1602,12 @@ def generate_pred_run_artifacts(
                 task_payload: dict[str, Any],
             ) -> dict[str, Any]:
                 segment_id = _task_id_value(task_payload, "freeform-spans") or "<unknown>"
+                if rate_limit_stop_event.is_set():
+                    return _rate_limit_skip_result(
+                        task_index=task_index,
+                        task_payload=task_payload,
+                        segment_id=segment_id,
+                    )
                 prompt_entries: list[dict[str, Any]] = []
                 worker_slot: int | None = None
                 if effective_prelabel_workers > 1:
@@ -1591,13 +1633,19 @@ def generate_pred_run_artifacts(
                             prompt_log_callback=_collect_prompt_log,
                         )
                     except Exception as exc:  # noqa: BLE001
+                        error_message = str(exc)
+                        rate_limited = is_rate_limit_message(error_message)
+                        if rate_limited:
+                            rate_limit_stop_event.set()
                         return {
                             "task_index": task_index,
                             "segment_id": segment_id,
                             "annotation": None,
-                            "error": str(exc),
+                            "error": error_message,
                             "prompt_entries": prompt_entries,
                             "task": task_payload,
+                            "rate_limit": rate_limited,
+                            "rate_limit_skipped": False,
                         }
                     if annotation is None:
                         return {
@@ -1607,6 +1655,8 @@ def generate_pred_run_artifacts(
                             "error": "No valid labels produced by provider output.",
                             "prompt_entries": prompt_entries,
                             "task": task_payload,
+                            "rate_limit": False,
+                            "rate_limit_skipped": False,
                         }
                     return {
                         "task_index": task_index,
@@ -1615,6 +1665,8 @@ def generate_pred_run_artifacts(
                         "error": None,
                         "prompt_entries": prompt_entries,
                         "task": task_payload,
+                        "rate_limit": False,
+                        "rate_limit_skipped": False,
                     }
                 finally:
                     if worker_slot is not None:
@@ -1629,9 +1681,10 @@ def generate_pred_run_artifacts(
             task_results: list[dict[str, Any]] = []
             if effective_prelabel_workers == 1:
                 for task_index, task in enumerate(tasks, start=1):
-                    task_results.append(
-                        _run_prelabel_task(task_index=task_index, task_payload=task)
-                    )
+                    row = _run_prelabel_task(task_index=task_index, task_payload=task)
+                    task_results.append(row)
+                    if bool(row.get("rate_limit")):
+                        _emit_rate_limit_warning()
                     _notify(_prelabel_progress_status(task_index))
             else:
                 with ThreadPoolExecutor(max_workers=effective_prelabel_workers) as executor:
@@ -1647,19 +1700,26 @@ def generate_pred_run_artifacts(
                     for future in as_completed(futures):
                         task_index, task = futures[future]
                         try:
-                            task_results.append(future.result())
+                            row = future.result()
                         except Exception as exc:  # noqa: BLE001
-                            task_results.append(
-                                {
-                                    "task_index": task_index,
-                                    "segment_id": _task_id_value(task, "freeform-spans")
-                                    or "<unknown>",
-                                    "annotation": None,
-                                    "error": str(exc),
-                                    "prompt_entries": [],
-                                    "task": task,
-                                }
-                            )
+                            error_message = str(exc)
+                            rate_limited = is_rate_limit_message(error_message)
+                            if rate_limited:
+                                rate_limit_stop_event.set()
+                            row = {
+                                "task_index": task_index,
+                                "segment_id": _task_id_value(task, "freeform-spans")
+                                or "<unknown>",
+                                "annotation": None,
+                                "error": error_message,
+                                "prompt_entries": [],
+                                "task": task,
+                                "rate_limit": rate_limited,
+                                "rate_limit_skipped": False,
+                            }
+                        task_results.append(row)
+                        if bool(row.get("rate_limit")):
+                            _emit_rate_limit_warning()
                         completed_tasks += 1
                         _notify(_prelabel_progress_status(completed_tasks))
             if effective_prelabel_workers > 1:
@@ -1689,13 +1749,23 @@ def generate_pred_run_artifacts(
                         handle.write(_format_prelabel_prompt_log_entry_markdown(payload))
                     prelabel_prompt_log_count += 1
 
+            rate_limit_failure_count = 0
+            rate_limit_skipped_count = 0
             for row in task_results:
                 segment_id = str(row.get("segment_id") or "<unknown>")
                 error = row.get("error")
                 if error:
-                    prelabel_errors.append(
-                        {"segment_id": segment_id, "reason": str(error)}
-                    )
+                    error_payload: dict[str, Any] = {
+                        "segment_id": segment_id,
+                        "reason": str(error),
+                    }
+                    if bool(row.get("rate_limit")):
+                        error_payload["rate_limit"] = True
+                        rate_limit_failure_count += 1
+                    if bool(row.get("rate_limit_skipped")):
+                        error_payload["rate_limit_skipped"] = True
+                        rate_limit_skipped_count += 1
+                    prelabel_errors.append(error_payload)
                     continue
                 annotation = row.get("annotation")
                 if not isinstance(annotation, dict):
@@ -1742,6 +1812,9 @@ def generate_pred_run_artifacts(
                 "task_count": len(tasks),
                 "success_count": prelabel_success,
                 "failure_count": len(prelabel_errors),
+                "rate_limit_stop_triggered": bool(rate_limit_stop_event.is_set()),
+                "rate_limit_failure_count": rate_limit_failure_count,
+                "rate_limit_skipped_count": rate_limit_skipped_count,
                 "allow_partial": bool(prelabel_allow_partial),
                 "token_usage_enabled": bool(prelabel_track_token_usage),
                 "token_usage": provider_usage if prelabel_track_token_usage else None,
@@ -1756,6 +1829,13 @@ def generate_pred_run_artifacts(
                 encoding="utf-8",
             )
 
+            if rate_limit_stop_event.is_set() and not prelabel_allow_partial:
+                raise RuntimeError(
+                    "Prelabeling stopped after HTTP 429 rate-limit response. "
+                    "No additional prelabel task calls were sent after the first 429. "
+                    "Re-run later, or use --prelabel-allow-partial to continue upload "
+                    "with recorded prelabel failures."
+                )
             if prelabel_errors and not prelabel_allow_partial:
                 raise RuntimeError(
                     "Prelabeling failed for one or more tasks. "

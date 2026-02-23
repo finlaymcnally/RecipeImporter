@@ -596,3 +596,21 @@ cd /home/mcnal/projects/recipeimport
 . .venv/bin/activate
 python -m pip install -e .
 ```
+
+## Delete stuff in label studio en mass
+As of February 23, 2026, Label Studio’s web UI still routes project deletion through Project Settings → Danger Zone with confirmation, so there isn’t a built-in “skip typing” toggle.
+
+  Faster options:
+
+  1. Use the API instead of UI clicks/typing
+     DELETE /api/projects/:id/
+     Example:
+
+  # find project IDs first
+  curl -s "$LS_URL/api/projects/?search=my-project" -H "Authorization: Token $LS_TOKEN"
+
+  # delete one project by ID
+  curl -X DELETE "$LS_URL/api/projects/123/" -H "Authorization: Token $LS_TOKEN"
+
+  2. Use Ctrl+K / Cmd+K command palette to jump around faster in UI (less clicking), though delete confirmation still applies.
+  3. If you’re on Enterprise and just want less clutter, move projects into an archive workspace and archive that workspace (soft-hide instead of hard delete)

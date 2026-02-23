@@ -162,6 +162,7 @@ Freeform span rows include offsets, label, touched block mapping, annotator/time
   - `prelabel_prompt_log.md` (human-readable Markdown, one section per `codex exec` prompt with full prompt text plus prompt-context description/metadata)
 - Prelabel performs a single Codex model-access preflight probe before task labeling so invalid model/account combinations fail once up front instead of repeating task-level failures.
 - Freeform prelabel task calls run with bounded concurrency (`--prelabel-workers`, default `15`; set `1` to force serial behavior).
+- Freeform prelabel treats provider `HTTP 429`/rate-limit failures as a stop condition: once one task returns 429, no additional queued tasks should call the provider, remaining queued tasks are marked skipped, and progress emits an explicit 429 warning.
 - Progress callbacks now report `Running freeform prelabeling... task X/Y` so CLI spinners show per-task progress while AI labels are generated; parallel mode appends `(workers=N)` on kickoff and completion updates, and emits worker-activity telemetry so the spinner can render one line per worker under the main status. Split conversion loops emit the same worker-activity telemetry (`job X/Y`) when split workers are active.
 - Progress callbacks are best-effort telemetry: callback exceptions are logged and ignored so extraction/task generation/upload logic is not aborted by spinner/UI callback failures.
 - CLI status wrappers now add a live elapsed suffix (for example `(17s)`) after ~10 seconds with no phase-message change, so long steps remain visibly active instead of appearing stuck.
@@ -177,7 +178,7 @@ Freeform span rows include offsets, label, touched block mapping, annotator/time
 #### 1.6.1.1 Prompt, parsing, and context management (code-verified)
 
 AI prelabeling for `freeform-spans` is **one fresh prompt per task** (per segment) with **no cross-task conversation memory**.
-The only “context window” is the task’s segment text (a chunk of consecutive extracted blocks).
+The task’s AI context window is the prompt block stream (context-before blocks + focus blocks + context-after blocks).
 
 Where it happens:
 
@@ -188,8 +189,9 @@ Where it happens:
 **Context management (your question):**
 
 - Each segment task is labeled independently. There is no rolling chat history; every call is a brand new Codex CLI subprocess fed a single prompt string on stdin (`subprocess.run(..., input=prompt, ...)`). Tasks may run concurrently (`--prelabel-workers`), but each prompt remains task-local.
-- The “chunking” is done before the LLM call: freeform tasks are built by concatenating `segment_blocks` extracted blocks (default 40) with a separator (`\\n\\n`). `segment_overlap` repeats the last N blocks into the next task (default 5), and optional `target_task_count` can auto-tune the effective overlap per file. For focus-mode prelabel runs, effective overlap is also clamped to at least `segment_blocks - segment_focus_blocks` so focus coverage can hand off cleanly between adjacent tasks. Overlap repeats text *across tasks*, but the model never sees prior prompts unless that text is repeated inside the current prompt.
-- Freeform tasks now include a focus subset (`segment_focus_blocks`) inside each context window, centered when possible so tasks carry context before and after the labelable range. Span prompts provide one block stream with explicit context-before/context-after markers plus `START/STOP` focus markers (instead of repeating focus block text separately), and prelabel output is filtered so only focus blocks can be labeled.
+- The “chunking” is done before the LLM call: freeform tasks still use `segment_blocks` + `segment_overlap` (defaults `40` + `5`) to choose each task’s neighborhood and optional `target_task_count` to auto-tune effective overlap per file. For focus-mode prelabel runs, effective overlap is also clamped to at least `segment_blocks - segment_focus_blocks` so focus coverage can hand off cleanly between adjacent tasks.
+- Label Studio payload is now focus-only: `data.segment_text` and `data.source_map.blocks` include only focus blocks (the rows that should be labeled). Neighboring context rows are stored separately in `data.source_map.context_before_blocks` / `data.source_map.context_after_blocks` and injected into prompts, so AI keeps boundary context while the UI shows only labelable text.
+- Span prompts provide one block stream with explicit context-before/context-after markers plus `START/STOP` focus markers (instead of repeating focus block text separately), and prelabel output is filtered so only focus blocks can be labeled.
 - There is no incremental “continue where you left off” prompting. It’s many small/fixed prompts, not one ever-growing prompt.
 - A prompt/response cache can make reruns *look* stateful: `CodexCliProvider` stores `{prompt, response}` JSON files under `prelabel_cache/` keyed by a hash of `(codex_cmd, track_usage flag, prompt text)`. Delete the cache dir to force fresh completions.
 - Run-level prompt logging is explicit: prelabel writes `prelabel_prompt_log.md` under the run root in `data/golden/.../labelstudio/<book_slug>/`, including the full prompt text and `included_with_prompt_description` + `included_with_prompt` metadata (labels, block/focus context, template, command/model/account fields).
@@ -309,7 +311,8 @@ This is the most common point of confusion: both styles (`block` and `span`) use
 **Q: Does the model see one block at a time?**
 
 - No. It sees one **segment task** at a time.
-- A segment task contains multiple nearby blocks (default `segment_blocks=40`), concatenated into `segment_text` and also provided as per-block JSON lines (`{"block_index","text"}`) in the prompt.
+- A segment task is still built from multiple nearby blocks (default `segment_blocks=40`), but Label Studio now receives only focus blocks in `segment_text`.
+- Prompt context still includes the wider neighborhood: prelabel builds prompt lines from `source_map.context_before_blocks` + focus blocks (`source_map.blocks`) + `source_map.context_after_blocks`.
 - Each task also carries a focus block list (`source_map.focus_block_indices`) plus precomputed scope summaries (`focus_scope_hint`, focus/context-before/context-after ranges) used by prelabel prompt instructions, parser-side filtering, and Label Studio headers.
 - Both prelabel styles use this same task context.
 

@@ -5,7 +5,7 @@ Label Studio benchmark mode helpers.
 - `label_config_freeform.py` defines text-span highlighting labels for freeform projects.
 - Freeform canonical labels are `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER` (legacy `TIP`/`NOTES`/`VARIANT` normalize to the new names).
 - `block_tasks.py` generates canonical block tasks with stable block IDs and context windows.
-- `freeform_tasks.py` builds segment-based freeform tasks with stable segment IDs and block offset mappings; focus windows are centered inside each segment (when possible) so tasks carry context before and after the labelable block range.
+- `freeform_tasks.py` builds segment-based freeform tasks with stable segment IDs; Label Studio `segment_text` + `source_map.blocks` now contain only focus (labelable) rows, while `source_map.context_before_blocks` / `source_map.context_after_blocks` preserve neighboring context rows for AI prompt construction.
 - `prelabel.py` adds Codex-CLI prelabel support: block-index suggestions -> deterministic span offsets. Default command is non-interactive (`codex exec -`) unless overridden by `COOKIMPORT_CODEX_CMD`, and plain `codex`/`codex2` auto-retry with `exec -` on TTY errors.
 - Span prelabel prompts now include explicit context-before/context-after marker lines around the START/STOP focus markers to make label scope boundaries easier to scan in prompt logs.
 - Freeform Label Studio projects now show per-task scope headers (`focus_scope_hint`, focus range, context-before range, context-after range) so annotators can see what to label vs read as context.
@@ -21,6 +21,7 @@ Label Studio benchmark mode helpers.
 - Split conversion workers now emit the same telemetry (`job X/Y`) so worker-aware spinner summaries work before merge phases too.
 - Progress callback exceptions are now treated as non-fatal telemetry failures (logged + ignored) so extraction and task generation continue even if a UI/status renderer crashes.
 - Freeform prelabel task generation runs with bounded parallelism (`--prelabel-workers`, default `15`; use `1` for serial behavior).
+- Freeform prelabel now treats provider `HTTP 429`/rate-limit errors as a stop signal: after the first 429, remaining queued tasks are skipped (no new provider calls), and progress logs include an explicit 429 warning.
 - Interactive freeform import now exposes prelabel modes (`off`, strict/allow-partial annotations, plus predictions variants) that map directly to `--prelabel-upload-as` and `--prelabel-allow-partial`.
 - Interactive freeform prelabel now resolves command from `COOKIMPORT_CODEX_CMD` or default `codex exec -`, shows the resolved account email when available, and offers model selection from that command's Codex home metadata (`CODEX_HOME` honored).
 - Freeform prelabel supports explicit `--codex-model` selection (or command-specific Codex CLI default discovery), and token usage totals are captured into `prelabel_report.json` with command/account fields (including `reasoning_tokens` when Codex emits them).

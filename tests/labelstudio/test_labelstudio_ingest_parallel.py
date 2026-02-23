@@ -638,6 +638,129 @@ def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
     assert "test prompt" in content
 
 
+def test_generate_pred_run_artifacts_stops_prelabel_after_rate_limit_429(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+
+    fake_result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    tasks = [
+        {"data": {"segment_id": "seg-1"}},
+        {"data": {"segment_id": "seg-2"}},
+        {"data": {"segment_id": "seg-3"}},
+    ]
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            SimpleNamespace(
+                index=0,
+                text="hello",
+                location={"block_index": 0},
+                source_kind="raw",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_file_hash",
+        lambda _path: "hash",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: tasks,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 100,
+            "chunked_chars": 90,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks_in, **_kwargs: tasks_in,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._build_prelabel_provider",
+        lambda **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.preflight_codex_model_access",
+        lambda **_kwargs: None,
+    )
+
+    prelabel_calls: list[str] = []
+
+    def _fake_prelabel(task_payload, **_kwargs):
+        segment_id = str(task_payload.get("data", {}).get("segment_id") or "")
+        prelabel_calls.append(segment_id)
+        raise RuntimeError("HTTP 429 Too Many Requests: rate limit exceeded")
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.prelabel_freeform_task",
+        _fake_prelabel,
+    )
+
+    progress_messages: list[str] = []
+    result = generate_pred_run_artifacts(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        task_scope="freeform-spans",
+        prelabel=True,
+        prelabel_workers=1,
+        prelabel_allow_partial=True,
+        progress_callback=progress_messages.append,
+    )
+
+    assert prelabel_calls == ["seg-1"]
+    assert any("HTTP 429" in message for message in progress_messages)
+    prelabel_summary = result["prelabel"]
+    assert prelabel_summary["rate_limit_stop_triggered"] is True
+    assert prelabel_summary["rate_limit_failure_count"] == 1
+    assert prelabel_summary["rate_limit_skipped_count"] == 2
+    assert prelabel_summary["failure_count"] == 3
+    assert prelabel_summary["success_count"] == 0
+
+    errors_path = result["prelabel_errors_path"]
+    assert errors_path is not None
+    rows = [
+        json.loads(line)
+        for line in errors_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(rows) == 3
+    assert rows[0]["segment_id"] == "seg-1"
+    assert rows[0]["rate_limit"] is True
+
+
 def test_generate_pred_run_artifacts_ignores_progress_callback_errors(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -823,6 +946,7 @@ def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(
     assert manifest["target_task_count"] == 4
     assert manifest["task_count"] == 4
 
+    assert result["tasks"][0]["data"]["segment_text"] == "block 1\n\nblock 2"
     first_source_map = result["tasks"][0]["data"]["source_map"]
     assert first_source_map["focus_start_block_index"] == 1
     assert first_source_map["focus_end_block_index"] == 2

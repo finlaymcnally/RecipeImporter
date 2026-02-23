@@ -903,6 +903,12 @@ class TestRenderer:
         assert 'class="warn-note"' in js
         assert "[warn] " in js
 
+    def test_js_escapes_run_config_hash_newline(self, tmp_path):
+        render_dashboard(tmp_path / "dash", DashboardData())
+        js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
+        assert 'title = (title ? title + "\\n" : "") + "hash=" + hash;' in js
+        assert 'title = (title ? title + "\n" : "") + "hash=" + hash;' not in js
+
     def test_idempotent(self, tmp_path):
         data = DashboardData()
         render_dashboard(tmp_path / "dash", data)

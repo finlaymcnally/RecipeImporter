@@ -810,7 +810,7 @@ _JS = """\
       title = summary;
     }
     if (hash) {
-      title = (title ? title + "\n" : "") + "hash=" + hash;
+      title = (title ? title + "\\n" : "") + "hash=" + hash;
     }
     if (summary) {
       const shortHash = hash ? " [" + hash.slice(0, 10) + "]" : "";

@@ -251,6 +251,23 @@ def _build_segment_text(
     return SEGMENT_SEPARATOR.join(parts), source_blocks
 
 
+def _build_context_prompt_blocks(
+    blocks: Sequence[ArchiveBlock], *, source_hash: str
+) -> list[dict[str, Any]]:
+    prompt_blocks: list[dict[str, Any]] = []
+    for block in blocks:
+        prompt_blocks.append(
+            {
+                "block_id": build_block_id(source_hash, block.index),
+                "block_index": block.index,
+                "text": block.text or "",
+                "location": block.location,
+                "source_kind": block.source_kind,
+            }
+        )
+    return prompt_blocks
+
+
 def build_freeform_span_tasks(
     archive: Iterable[ArchiveBlock | dict[str, Any]],
     source_hash: str,
@@ -283,10 +300,18 @@ def build_freeform_span_tasks(
         start_block_index = segment_blocks_slice[0].index
         end_block_index = segment_blocks_slice[-1].index
         segment_id = build_segment_id(source_hash, start_block_index, end_block_index)
-        segment_text, source_blocks = _build_segment_text(
-            segment_blocks_slice, source_hash=source_hash
-        )
         focus_blocks_slice = segment_blocks_slice[focus_start_offset:focus_end_offset]
+        segment_text, source_blocks = _build_segment_text(
+            focus_blocks_slice, source_hash=source_hash
+        )
+        context_before_blocks = _build_context_prompt_blocks(
+            segment_blocks_slice[:focus_start_offset],
+            source_hash=source_hash,
+        )
+        context_after_blocks = _build_context_prompt_blocks(
+            segment_blocks_slice[focus_end_offset:],
+            source_hash=source_hash,
+        )
         focus_indices = [block.index for block in focus_blocks_slice]
         context_before_indices = [
             block.index for block in segment_blocks_slice[:focus_start_offset]
@@ -317,6 +342,8 @@ def build_freeform_span_tasks(
             "context_after_block_indices": context_after_indices,
             "context_before_block_range": context_before_block_range,
             "context_after_block_range": context_after_block_range,
+            "context_before_blocks": context_before_blocks,
+            "context_after_blocks": context_after_blocks,
             "blocks": source_blocks,
         }
         task_data = SegmentTaskData(
@@ -391,17 +418,18 @@ def compute_freeform_task_coverage(
         source_map = data.get("source_map")
         if not isinstance(source_map, dict):
             continue
-        source_blocks = source_map.get("blocks")
-        if not isinstance(source_blocks, list):
-            continue
-        for item in source_blocks:
-            if not isinstance(item, dict):
+        for key in ("blocks", "context_before_blocks", "context_after_blocks"):
+            source_blocks = source_map.get(key)
+            if not isinstance(source_blocks, list):
                 continue
-            block_index = item.get("block_index")
-            try:
-                covered_block_indices.add(int(block_index))
-            except (TypeError, ValueError):
-                continue
+            for item in source_blocks:
+                if not isinstance(item, dict):
+                    continue
+                block_index = item.get("block_index")
+                try:
+                    covered_block_indices.add(int(block_index))
+                except (TypeError, ValueError):
+                    continue
 
     chunked_chars = sum(block_text_lengths.get(index, 0) for index in covered_block_indices)
     warnings: list[str] = []

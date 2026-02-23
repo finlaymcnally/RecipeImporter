@@ -114,6 +114,8 @@ def test_build_freeform_tasks_include_focus_metadata() -> None:
 
     first_source_map = tasks[0]["data"]["source_map"]
     second_source_map = tasks[1]["data"]["source_map"]
+    assert tasks[0]["data"]["segment_text"] == "B\n\nC"
+    assert tasks[1]["data"]["segment_text"] == "E\n\nF"
     assert first_source_map["focus_start_block_index"] == 1
     assert first_source_map["focus_end_block_index"] == 2
     assert first_source_map["focus_block_indices"] == [1, 2]
@@ -122,6 +124,30 @@ def test_build_freeform_tasks_include_focus_metadata() -> None:
     assert first_source_map["focus_block_range"] == "1-2"
     assert first_source_map["context_before_block_range"] == "0"
     assert first_source_map["context_after_block_range"] == "3"
+    assert first_source_map["blocks"][0]["block_index"] == 1
+    assert first_source_map["blocks"][0]["segment_start"] == 0
+    assert first_source_map["blocks"][0]["segment_end"] == 1
+    assert first_source_map["blocks"][1]["block_index"] == 2
+    assert first_source_map["blocks"][1]["segment_start"] == 3
+    assert first_source_map["blocks"][1]["segment_end"] == 4
+    assert first_source_map["context_before_blocks"] == [
+        {
+            "block_id": "urn:cookimport:block:hash123:0",
+            "block_index": 0,
+            "text": "A",
+            "location": {"block_index": 0},
+            "source_kind": None,
+        }
+    ]
+    assert first_source_map["context_after_blocks"] == [
+        {
+            "block_id": "urn:cookimport:block:hash123:3",
+            "block_index": 3,
+            "text": "D",
+            "location": {"block_index": 3},
+            "source_kind": None,
+        }
+    ]
     assert tasks[0]["data"]["focus_scope_hint"] == (
         "Label only blocks 1-2. Context only: before 0; after 3."
     )
@@ -134,6 +160,16 @@ def test_build_freeform_tasks_include_focus_metadata() -> None:
     assert second_source_map["focus_block_range"] == "4-5"
     assert second_source_map["context_before_block_range"] == "3"
     assert second_source_map["context_after_block_range"] == "none"
+    assert second_source_map["context_before_blocks"] == [
+        {
+            "block_id": "urn:cookimport:block:hash123:3",
+            "block_index": 3,
+            "text": "D",
+            "location": {"block_index": 3},
+            "source_kind": None,
+        }
+    ]
+    assert second_source_map["context_after_blocks"] == []
     assert tasks[1]["data"]["focus_scope_hint"] == (
         "Label only blocks 4-5. Context only: before 3; after none."
     )

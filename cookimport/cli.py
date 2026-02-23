@@ -20,6 +20,7 @@ from typing import Iterable, Dict, Any, Annotated, Callable, TypeVar
 
 import questionary
 import typer
+from typer.models import OptionInfo
 from prompt_toolkit.key_binding.key_bindings import KeyBindings, merge_key_bindings
 from prompt_toolkit.keys import Keys
 from questionary.prompts.common import Choice as QuestionaryChoice, Separator as QuestionarySeparator
@@ -1059,13 +1060,20 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 "epub_spine_items_per_job": selected_run_settings.epub_spine_items_per_job,
                 "warm_models": selected_run_settings.warm_models,
                 "llm_recipe_pipeline": selected_run_settings.llm_recipe_pipeline.value,
+                "llm_knowledge_pipeline": selected_run_settings.llm_knowledge_pipeline.value,
                 "codex_farm_cmd": selected_run_settings.codex_farm_cmd,
                 "codex_farm_root": selected_run_settings.codex_farm_root,
                 "codex_farm_workspace_root": selected_run_settings.codex_farm_workspace_root,
                 "codex_farm_pipeline_pass1": selected_run_settings.codex_farm_pipeline_pass1,
                 "codex_farm_pipeline_pass2": selected_run_settings.codex_farm_pipeline_pass2,
                 "codex_farm_pipeline_pass3": selected_run_settings.codex_farm_pipeline_pass3,
+                "codex_farm_pipeline_pass4_knowledge": (
+                    selected_run_settings.codex_farm_pipeline_pass4_knowledge
+                ),
                 "codex_farm_context_blocks": selected_run_settings.codex_farm_context_blocks,
+                "codex_farm_knowledge_context_blocks": (
+                    selected_run_settings.codex_farm_knowledge_context_blocks
+                ),
                 "codex_farm_failure_mode": selected_run_settings.codex_farm_failure_mode.value,
             }
 
@@ -1787,6 +1795,12 @@ def _print_prelabel_completion_summary(
             "(uploaded tasks first, then created annotations).",
             fg=typer.colors.YELLOW,
         )
+
+
+def _unwrap_typer_option_default(value: Any) -> Any:
+    if isinstance(value, OptionInfo):
+        return value.default
+    return value
 
 
 def _normalize_epub_extractor(value: str) -> str:
@@ -3750,6 +3764,45 @@ def stage(
       {out}/{timestamp}/tips/{filename}/                 - Tip/knowledge snippets
       {out}/{timestamp}/<workbook>.excel_import_report.json - Conversion report
     """
+    out = _unwrap_typer_option_default(out)
+    mapping = _unwrap_typer_option_default(mapping)
+    overrides = _unwrap_typer_option_default(overrides)
+    limit = _unwrap_typer_option_default(limit)
+    ocr_device = _unwrap_typer_option_default(ocr_device)
+    ocr_batch_size = _unwrap_typer_option_default(ocr_batch_size)
+    pdf_pages_per_job = _unwrap_typer_option_default(pdf_pages_per_job)
+    epub_spine_items_per_job = _unwrap_typer_option_default(epub_spine_items_per_job)
+    warm_models = _unwrap_typer_option_default(warm_models)
+    workers = _unwrap_typer_option_default(workers)
+    pdf_split_workers = _unwrap_typer_option_default(pdf_split_workers)
+    epub_split_workers = _unwrap_typer_option_default(epub_split_workers)
+    epub_extractor = _unwrap_typer_option_default(epub_extractor)
+    epub_unstructured_html_parser_version = _unwrap_typer_option_default(
+        epub_unstructured_html_parser_version
+    )
+    epub_unstructured_skip_headers_footers = _unwrap_typer_option_default(
+        epub_unstructured_skip_headers_footers
+    )
+    epub_unstructured_preprocess_mode = _unwrap_typer_option_default(
+        epub_unstructured_preprocess_mode
+    )
+    llm_recipe_pipeline = _unwrap_typer_option_default(llm_recipe_pipeline)
+    llm_knowledge_pipeline = _unwrap_typer_option_default(llm_knowledge_pipeline)
+    codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
+    codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
+    codex_farm_workspace_root = _unwrap_typer_option_default(codex_farm_workspace_root)
+    codex_farm_pipeline_pass1 = _unwrap_typer_option_default(codex_farm_pipeline_pass1)
+    codex_farm_pipeline_pass2 = _unwrap_typer_option_default(codex_farm_pipeline_pass2)
+    codex_farm_pipeline_pass3 = _unwrap_typer_option_default(codex_farm_pipeline_pass3)
+    codex_farm_pipeline_pass4_knowledge = _unwrap_typer_option_default(
+        codex_farm_pipeline_pass4_knowledge
+    )
+    codex_farm_context_blocks = _unwrap_typer_option_default(codex_farm_context_blocks)
+    codex_farm_knowledge_context_blocks = _unwrap_typer_option_default(
+        codex_farm_knowledge_context_blocks
+    )
+    codex_farm_failure_mode = _unwrap_typer_option_default(codex_farm_failure_mode)
+
     selected_epub_extractor = _normalize_epub_extractor(epub_extractor)
     selected_html_parser_version = _normalize_unstructured_html_parser_version(
         epub_unstructured_html_parser_version

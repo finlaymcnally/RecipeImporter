@@ -119,6 +119,7 @@ Timeline notes merged from former `docs/understandings` files:
 - `2026-02-16_10.37.22` -> `2026-02-16_10.51.07`: stage run-config display must stay CSV-first, report-path fallback second, with explicit stale-row warning text when report references are missing.
 - `2026-02-16_10.56.36`: benchmark `Gold`/`Matched` are span-eval metrics; `Recipes` is separate and should not be interpreted as score denominator.
 - `2026-02-16_11.33.17`: benchmark `recipes` must be persisted across all benchmark CSV append paths (`labelstudio-benchmark`, `labelstudio-eval`, `bench run`) to avoid blank `Recipes` rows.
+- `2026-02-23_12.29.05`: keep JS template escaping explicit for `\\n` in run-config tooltip assembly (`runConfigCell`) so generated `dashboard.js` stays parseable when opened directly in browsers.
 
 ## Regenerate
 
