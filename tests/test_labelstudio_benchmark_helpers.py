@@ -128,6 +128,64 @@ def test_labelstudio_import_prints_processing_time(
     assert "Processing time: 1m 5s" in secho_messages
 
 
+def test_labelstudio_import_routes_freeform_focus_and_target_options(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("dummy", encoding="utf-8")
+    monkeypatch.setattr(
+        cli,
+        "_resolve_labelstudio_settings",
+        lambda *_: ("http://example", "api-key"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_run_labelstudio_import_with_status",
+        lambda **kwargs: kwargs["run_import"](lambda _message: None),
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_run_labelstudio_import(**kwargs):
+        captured.update(kwargs)
+        return {
+            "project_name": "book",
+            "project_id": 1,
+            "tasks_total": 1,
+            "tasks_uploaded": 1,
+            "run_root": tmp_path / "out",
+        }
+
+    monkeypatch.setattr(cli, "run_labelstudio_import", _fake_run_labelstudio_import)
+    monkeypatch.setattr(cli.typer, "secho", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli.typer, "echo", lambda *_args, **_kwargs: None)
+
+    cli.labelstudio_import(
+        path=source,
+        allow_labelstudio_write=True,
+        label_studio_url="http://example",
+        label_studio_api_key="api-key",
+        task_scope="freeform-spans",
+        segment_blocks=40,
+        segment_overlap=5,
+        segment_focus_blocks=28,
+        target_task_count=55,
+        prelabel=False,
+        prelabel_upload_as="annotations",
+        prelabel_granularity=cli.PRELABEL_GRANULARITY_BLOCK,
+        llm_recipe_pipeline="off",
+        codex_farm_failure_mode="fail",
+        codex_farm_pipeline_pass1="recipe.chunking.v1",
+        codex_farm_pipeline_pass2="recipe.schemaorg.v1",
+        codex_farm_pipeline_pass3="recipe.final.v1",
+    )
+
+    assert captured["segment_blocks"] == 40
+    assert captured["segment_overlap"] == 5
+    assert captured["segment_focus_blocks"] == 28
+    assert captured["target_task_count"] == 55
+
+
 def test_discover_freeform_gold_exports_orders_newest_first(tmp_path: Path) -> None:
     older = tmp_path / "2026-01-01-000000" / "labelstudio" / "book" / "exports"
     newer = tmp_path / "2026-01-02-000000" / "labelstudio" / "book" / "exports"
@@ -452,6 +510,29 @@ def test_resolve_interactive_labelstudio_settings_prompts_and_persists(
     assert saved_snapshots[-1]["label_studio_api_key"] == "new-key"
 
 
+def test_resolve_interactive_labelstudio_settings_returns_none_on_prompt_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings: dict[str, str] = {}
+    monkeypatch.delenv("LABEL_STUDIO_URL", raising=False)
+    monkeypatch.delenv("LABEL_STUDIO_API_KEY", raising=False)
+
+    class _Prompt:
+        def ask(self):
+            return None
+
+    monkeypatch.setattr(cli.questionary, "text", lambda *_args, **_kwargs: _Prompt())
+    monkeypatch.setattr(
+        cli.questionary,
+        "password",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("API key prompt should not run after URL prompt cancel.")
+        ),
+    )
+
+    assert cli._resolve_interactive_labelstudio_settings(settings) is None
+
+
 def test_resolve_interactive_labelstudio_settings_reprompts_when_saved_creds_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -563,6 +644,7 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
             (True, "annotations", True),
             "span",
             "__default__",
+            "__default_effort__",
             "exit",
         ]
     )
@@ -570,7 +652,7 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
     def fake_menu_select(*_args, **_kwargs):
         return next(menu_answers)
 
-    text_answers = iter(["", "42", "6"])
+    text_answers = iter(["", "42", "6", "28", "55"])
 
     class _Prompt:
         def __init__(self, value: str | bool):
@@ -621,12 +703,15 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
     assert captured["chunk_level"] == "both"
     assert captured["segment_blocks"] == 42
     assert captured["segment_overlap"] == 6
+    assert captured["segment_focus_blocks"] == 28
+    assert captured["target_task_count"] == 55
     assert captured["prelabel"] is True
     assert captured["prelabel_upload_as"] == "annotations"
     assert captured["prelabel_allow_partial"] is True
     assert captured["prelabel_granularity"] == "span"
     assert captured["codex_cmd"] == "codex exec -"
     assert captured["codex_model"] is None
+    assert captured["codex_reasoning_effort"] is None
     assert captured["prelabel_track_token_usage"] is True
     assert callable(captured["progress_callback"])
     assert captured["output_dir"] == tmp_path / "golden"

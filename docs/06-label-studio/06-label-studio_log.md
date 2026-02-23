@@ -22,16 +22,12 @@ This section preserves chronology from the original docs and git history to avoi
 
 ### 2026-02-02 canonical-block workflow introduced
 
-From `GoldenSetTake2.md` + `2026-02-02-labelstudio-canonical-workflow.md`:
-
 - canonical block scope added as a parallel workflow (not replacement for pipeline scope),
 - stable block IDs introduced,
 - canonical export/eval scaffolding and tests added,
 - task scope persistence added to prevent accidental cross-scope resume.
 
 ### 2026-02-10 freeform workflow introduced
-
-From `freeform.md` and related 2026-02-10 discovery docs:
 
 - freeform span scope added (`freeform-spans`),
 - segment-based task strategy adopted (`segment_blocks` + `segment_overlap`),
@@ -148,10 +144,8 @@ Stable current rule:
 
 ### Abandoned/deferred branch: PDF page box annotation
 
-From `PDF-freeform-DO-LATER.md`:
-
-- rectangle-on-page-images workflow investigated and documented,
-- left explicitly as do-later planning, not part of current code.
+- rectangle-on-page-images workflow was explored as a do-later idea,
+- not part of current code.
 
 
 ## Consolidation Findings (Preserved)
@@ -170,7 +164,6 @@ Merged source:
 Preserved outcomes:
 - Interactive main menu now covers both freeform AI entrypoints:
   - prelabel during import,
-  - decorate existing freeform projects.
 - Freeform import prompt flow includes segmentation + AI mode selection in one pass.
 - Completion summaries should include `prelabel_report.json` when prelabeling is enabled.
 
@@ -203,7 +196,7 @@ Merged source:
 - `docs/understandings/2026-02-22_12.26.42-prelabel-codex-stdin-tty.md`
 
 Preserved rule:
-- Non-interactive prelabel/decorate subprocesses must default to `codex exec -`.
+- Non-interactive prelabel subprocesses must default to `codex exec -`.
 - `stdin is not a terminal` in `prelabel_errors.jsonl` usually means interactive `codex` was invoked in a non-TTY subprocess.
 - Keep fallback retry (`codex` -> `codex exec -`) for backward compatibility with stale env/config overrides.
 
@@ -230,9 +223,9 @@ Merged source:
 - `docs/understandings/2026-02-22_13.15.12-prelabel-codex-model-and-token-usage.md`
 
 Preserved outcomes:
-- Model selection must propagate through import/decorate runtime provider construction, not only prompt/UI layers.
+- Model selection must propagate through prelabel runtime provider construction, not only prompt/UI layers.
 - Effective command (`codex exec -` plus optional `--model`) should be resolved centrally and reported in run artifacts.
-- Token usage remains provider-level aggregation (`usage_summary`) and is always enabled for prelabel/decorate runs.
+- Token usage remains provider-level aggregation (`usage_summary`) and is always enabled for prelabel runs.
 
 ### 2026-02-22_13.50.20 freeform prelabel prompt/context mechanics
 
@@ -252,35 +245,15 @@ Merged source:
 
 Preserved rule:
 - Canonical label names and alias normalization are centralized in `label_config_freeform.py`.
-- Prelabel, decorate, export/eval label normalization, and interactive project-type inference should all reuse that shared normalization logic.
+- Prelabel, export/eval label normalization, and interactive project-type inference should all reuse that shared normalization logic.
 
-### 2026-02-20_21.45.00 - labelstudio prelabel + decorate
+### 2026-02-20_21.45.00 - freeform prelabel baseline
 
-Source task file:
-- `docs/tasks/2026-02-20_21.45.00-labelstudio-prelabel-and-decorate.md`
-
-Problem captured:
-- Freeform golden-set creation was too manual; needed AI first-pass span labeling plus additive decoration for existing projects.
-
-Behavior contract preserved:
 - `labelstudio-import --task-scope freeform-spans --prelabel` can generate/upload completed annotations.
 - Inline annotation rejection must trigger fallback to task upload followed by per-task annotation creation.
-- `labelstudio-decorate` adds requested labels without deleting prior annotations.
-- `labelstudio-decorate --no-write` provides dry-run output and report artifacts.
-
-Verification and evidence preserved:
-- Recorded test commands:
-  - `pytest -q tests/test_labelstudio_prelabel.py tests/test_labelstudio_ingest_parallel.py tests/test_labelstudio_benchmark_helpers.py`
-  - `pytest -q tests/test_labelstudio_freeform.py`
-- Recorded coverage includes prelabel, parallel ingest, benchmark helper routing, and freeform contracts.
-
-Key constraints and anti-loop notes:
 - Offset correctness is tied to exact `segment_text` and `source_map.blocks` positions.
-- Inline `annotations` payload support can vary by Label Studio version/config; fallback path is not optional.
 - Codex output parsing must handle JSON wrapped in prose.
-
-Rollback path preserved:
-- Disable `--prelabel` and use standard import; use `labelstudio-decorate --no-write` for safe inspection.
+- Note: an additive “decorate/augment existing projects” mode was prototyped briefly and then removed on 2026-02-22; ignore old references to `labelstudio-decorate`.
 
 ### 2026-02-22_11.51.30 - interactive prelabel mode selector (including allow-partial)
 
@@ -312,7 +285,7 @@ Constraint preserved:
 Rollback path preserved:
 - Revert interactive prelabel prompt block and related tests/docs.
 
-### 2026-02-22_12.25.10 - non-interactive Codex default for prelabel/decorate
+### 2026-02-22_12.25.10 - non-interactive Codex default for prelabel
 
 Source task file:
 - `docs/tasks/2026-02-22_12.25.10 - prelabel-codex-exec-default.md`
@@ -371,15 +344,13 @@ Problem captured:
 
 Behavior contract preserved:
 - Prelabel loop emits `task X/Y` counters.
-- Decorate loop emits `task X/Y` counters.
 - Counter shape is normalized as `task X/Y`.
 
 Verification and evidence preserved:
 - Recorded command anchors:
   - `pytest -q tests/test_labelstudio_ingest_parallel.py -k prelabel_task_progress`
-  - `pytest -q tests/test_labelstudio_prelabel.py -k decorate_dry_run`
   - `pytest -q tests/test_labelstudio_benchmark_helpers.py -k interactive_labelstudio_import`
-- Recorded evidence includes examples from `task 0/N` through `task N/N` and dry-run assertions (`task 1/2`, `task 2/2`).
+- Recorded evidence includes examples from `task 0/N` through `task N/N`.
 
 Constraints and anti-loop notes:
 - Keep callback-driven spinner flow; do not add second indicator systems.
@@ -415,3 +386,241 @@ Constraints and anti-loop notes:
 
 Rollback path preserved:
 - Revert taxonomy mapping changes in freeform label config/eval/CLI and associated test/docs updates.
+
+## 2026-02-22 understanding merge batch (chronological)
+
+### 2026-02-22_14.49.45 freeform prelabel full vs augment prompt contract
+
+Merged source:
+- `docs/understandings/2026-02-22_14.49.45-freeform-prelabel-full-vs-augment-prompt-contract.md`
+
+Preserved context:
+- Full-mode "label every block" prompting was never compatible with sparse additive behavior.
+- Runtime augment/decorate was later removed (2026-02-22), but this remains relevant when evaluating old docs/tests or future additive feature proposals.
+
+### 2026-02-22_15.10.37 file-backed prelabel prompt template loader
+
+Merged source:
+- `docs/understandings/2026-02-22_15.10.37-llm-pipelines-prompt-template-loader.md`
+
+Preserved rules:
+- Prompt templates are loaded from `llm_pipelines/prompts/*.prompt.md` with placeholder token replacement.
+- Loader is mtime-aware; template edits should apply on next render.
+- Missing templates intentionally fall back to built-in prompt defaults.
+
+### 2026-02-22_16.13.47 codex model cache vs runtime access
+
+Merged source:
+- `docs/understandings/2026-02-22_16.13.47-codex-model-cache-vs-runtime-access.md`
+
+Preserved findings:
+- Cached model lists can drift from provider-authorized runtime models for the active account.
+- One preflight provider probe before labeling loops reduces repeated task-level failures.
+- `turn.failed` provider detail should be preserved in surfaced error output.
+
+### 2026-02-22_16.38.41 codex command vs account resolution
+
+Merged source:
+- `docs/understandings/2026-02-22_16.38.41-codex-command-vs-account-resolution.md`
+
+Preserved rules:
+- Interactive prelabel should resolve command/home/account without requiring a separate interactive command picker.
+- `codex2`-style command names should still receive plain-command `exec -` fallback behavior.
+- Showing resolved account identity before expensive prelabel loops is an explicit guardrail.
+
+### 2026-02-22_17.07.31 freeform prelabel CODEX_HOME precedence
+
+Merged source:
+- `docs/understandings/2026-02-22_17.07.31-freeform-prelabel-codex-home-override.md`
+
+Preserved rule:
+- Default home fallback precedence is `~/.codex` then `~/.codex-alt`; explicit `CODEX_HOME` command wrappers remain the deterministic override path.
+
+### 2026-02-22_17.27.33 freeform span quote resolution contract
+
+Merged source:
+- `docs/understandings/2026-02-22_17.27.33-freeform-span-quote-resolution-contract.md`
+
+Preserved rules:
+- Span mode uses quote-anchored selections as primary contract.
+- Repeated quote strings require `occurrence`; unresolved ambiguity is dropped item-by-item.
+- `value.text` remains derived from resolved offsets, never copied from model output.
+
+### 2026-02-22_17.36.48 resume gate for new projects
+
+Merged source:
+- `docs/understandings/2026-02-22_17.36.48-labelstudio-resume-gate-for-new-projects.md`
+
+Preserved rules:
+- Resume metadata checks only apply to projects that existed before this run.
+- Benchmark auto project naming should auto-dedupe on scope mismatch rather than fail immediately.
+- Patch anchor for this rule remains `cookimport/labelstudio/ingest.py` with benchmark wiring from `cookimport/cli.py`.
+
+### 2026-02-22_18.55.39 freeform span vs legacy block runtime contract
+
+Merged source:
+- `docs/understandings/2026-02-22_18.55.39-freeform-vs-legacy-prelabel-runtime-contract.md`
+
+Preserved differences:
+- `span` mode supports partial/multiple highlights per block through quote/offset resolution.
+- `block` mode maps block labels to full-block spans and remains intentionally more tolerant.
+- Both modes keep strict label normalization, dedupe identical `(label,start,end)` outputs, and task-level fail only when no valid spans survive.
+
+### 2026-02-22_19.00.30 codex prelabel thinking effort injection
+
+Merged source:
+- `docs/understandings/2026-02-22_19.00.30-codex-prelabel-thinking-effort-injection.md`
+
+Preserved rules:
+- Reasoning effort is a Codex config override (`-c model_reasoning_effort=\"...\"`), not a dedicated top-level CLI flag.
+- Injection should be command-aware and additive: resolve command first, then add effort override only when it is not already present.
+- Preferred interactive prompt order for freeform prelabel remains:
+  - style
+  - account display
+  - model
+  - thinking effort
+- Prelabel reporting should include resolved reasoning-effort metadata with command/model/account for reproducibility.
+
+## 2026-02-22 merged task-spec batch from `docs/tasks` (chronological)
+
+### 2026-02-22_14.49.14 refresh freeform prelabel prompt template
+
+Source task file:
+- `docs/tasks/2026-02-22_14.49.14 - refresh-freeform-prelabel-prompt.md`
+
+Problem captured:
+- Full-mode freeform prelabel instructions needed alignment with `AI-labelling-instructions.md` for better block-level consistency.
+
+Decisions/actions captured:
+- Updated `_build_prompt(...)` full-mode template content in `cookimport/labelstudio/prelabel.py`.
+- Added tests that assert key full-mode instruction sections.
+
+Verification/evidence preserved:
+- Recorded run: `pytest -q tests/test_labelstudio_prelabel.py`
+- Recorded result: `12 passed, 2 warnings in 1.35s`.
+
+Rollback path preserved:
+- Revert prompt-template branch changes in `cookimport/labelstudio/prelabel.py` and related assertions if quality regresses.
+
+### 2026-02-22_15.10.22 llm_pipelines prompt templates for Label Studio prelabel
+
+Source task file:
+- `docs/tasks/2026-02-22_15.10.22 - llm-pipelines-prompt-templates.md`
+
+Problem captured:
+- Prompt wording iteration required code edits because text lived inside Python literals.
+
+Decisions/actions captured:
+- Moved freeform prelabel prompt text to files under `llm_pipelines/prompts/`.
+- Kept runtime placeholder substitution for segment ID, allowed labels, and block payload.
+- Added fallback path to built-in templates for missing/empty files.
+
+Verification/evidence preserved:
+- Recorded run: `pytest -q tests/test_labelstudio_prelabel.py`
+- Recorded result: `13 passed, 2 warnings in 1.42s`.
+- Coverage anchor recorded: `test_prelabel_prompt_uses_file_templates`.
+
+### 2026-02-22_16.38.50 interactive prelabel Codex account selection
+
+Source task file:
+- `docs/tasks/2026-02-22_16.38.50 - interactive-prelabel-codex2-account-selection.md`
+
+Problem captured:
+- Model cache could come from one account while provider runtime used another account/command context.
+
+Decisions/actions captured:
+- Removed interactive command-selection prompt; resolve command via config/env defaults.
+- Made model/cache/config/account discovery command-aware and `CODEX_HOME` aware.
+- Show resolved account email before model selection when available.
+- Added `codex2` compatibility for model injection and non-TTY fallback behavior.
+
+Verification/evidence preserved:
+- Recorded run:
+  - `pytest tests/test_labelstudio_prelabel.py tests/test_labelstudio_benchmark_helpers.py tests/test_labelstudio_ingest_parallel.py -q`
+- Recorded result: `62 passed, 2 warnings in 3.38s`.
+
+### 2026-02-22_17.27.33 freeform span granularity mode
+
+Source task file:
+- `docs/tasks/2026-02-22_17.27.33 - freeform-span-granularity-mode.md`
+
+Problem captured:
+- Legacy block-only prelabels could not represent partial/multiple highlights within a block.
+
+Decisions/actions captured:
+- Added `--prelabel-granularity block|span` (default `block`) and interactive style picker text with explicit legacy wording.
+- Implemented quote-anchored span-mode parser that supports repeated quotes via `occurrence`.
+- Kept block-mode behavior unchanged for backward compatibility.
+
+Verification/evidence preserved:
+- Recorded runs:
+  - `pytest -q tests/test_labelstudio_prelabel.py tests/test_labelstudio_ingest_parallel.py tests/test_labelstudio_benchmark_helpers.py`
+  - `pytest -q tests/test_cli_llm_flags.py`
+- Task recorded added/updated files across `prelabel.py`, `ingest.py`, `cli.py`, and associated tests.
+
+Rollback path preserved:
+- Runtime toggle back to legacy behavior via `--prelabel-granularity block`.
+
+### 2026-02-22_17.37.19 benchmark resume scope mismatch
+
+Source task file:
+- `docs/tasks/2026-02-22_17.37.19 - benchmark-resume-scope-mismatch.md`
+
+Problem captured:
+- New benchmark uploads could fail because stale local manifests were checked during resume logic even when a new Label Studio project was created.
+
+Decisions/actions captured:
+- Gated resume metadata loading behind `had_existing_project`.
+- Added benchmark auto-naming scope-collision fallback (`-1`, `-2`, ...) instead of immediate failure.
+- Added regression coverage for new-project + stale-manifest scope mismatch.
+
+Verification/evidence preserved:
+- Recorded run:
+  - `pytest -q tests/test_labelstudio_ingest_parallel.py tests/test_labelstudio_benchmark_helpers.py`
+- Recorded result: `49 passed, 2 warnings in 3.30s`.
+
+### 2026-02-22_18.11.44 labelstudio import processing-time summary
+
+Source task file:
+- `docs/tasks/2026-02-22_18.11.44 - labelstudio-import-processing-time-summary.md`
+
+Problem captured:
+- Import summaries lacked elapsed runtime, making run auditing harder.
+
+Decisions/actions captured:
+- Added elapsed-time measurement around `_run_labelstudio_import_with_status`.
+- Printed `Processing time: ...` in interactive and non-interactive summary paths.
+- Added one shared duration formatter for consistent output text.
+
+Verification/evidence preserved:
+- Recorded run: `pytest -q tests/test_labelstudio_benchmark_helpers.py`
+- Recorded result: `39 passed, 2 warnings`.
+
+### 2026-02-22_19.00.14 prelabel Codex thinking-effort picker
+
+Source task file:
+- `docs/tasks/2026-02-22_19.00.14 - prelabel-codex-thinking-effort-picker.md`
+
+Problem captured:
+- Interactive prelabel model selection had no thinking/reasoning-effort selection, and non-interactive parity flagging was missing.
+
+Decisions/actions captured:
+- Added interactive effort picker after model selection with values:
+  - `none`
+  - `minimal`
+  - `low`
+  - `medium`
+  - `high`
+  - `xhigh`
+- Added non-interactive flags `--codex-thinking-effort` and alias `--codex-reasoning-effort`.
+- Wired effort into provider command construction as additive `model_reasoning_effort` override.
+- Ensured prelabel report fields include resolved effort metadata.
+
+Verification/evidence preserved:
+- Recorded run:
+  - `pytest tests/test_labelstudio_prelabel.py tests/test_labelstudio_benchmark_helpers.py tests/test_labelstudio_ingest_parallel.py -q`
+- Recorded result: `73 passed, 2 warnings`.
+
+Constraints and rollback preserved:
+- Keep command-aware resolution (`COOKIMPORT_CODEX_CMD` / `CODEX_HOME`) and avoid duplicate override injection.
+- Rollback path is revert in `prelabel.py`, `ingest.py`, `cli.py`, and associated tests/docs.

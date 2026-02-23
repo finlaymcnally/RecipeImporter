@@ -422,3 +422,26 @@ Decision boundaries that should stay explicit:
 - Shared postprocess/health pass is intentionally focused on HTML-style extractor outputs (`legacy`, `unstructured`, `markdown`).
 - `markitdown` remains intentionally outside this exact postprocess path and should not be silently forced through incompatible cleanup logic.
 - Debug extraction tooling should keep parity by calling the same postprocess stage used in importer flow.
+
+## Merged Task Specs (Feb 2026 archival)
+
+### 2026-02-16 unstructured tuning pass
+
+Durable parsing-side contract:
+- EPUB HTML pre-normalization before unstructured extraction is explicit and mode-driven (`none`, `br_split_v1`, `semantic_v1`).
+- Unstructured parser options (`html_parser_version`, `skip_headers_footers`, preprocess mode) are run settings and must be propagated consistently across stage + prediction generation.
+- Debug parity requires writing both raw and normalized spine XHTML artifacts during unstructured runs.
+
+Known caveat preserved:
+- Parser `v2` requires `body.Document` / `div.Page` shaped inputs; adapter compatibility shim is required for normal EPUB XHTML.
+
+### 2026-02-19 EPUB common-issues quick wins
+
+Durable parsing-side contract:
+- Shared EPUB text normalization (`normalize_epub_text`) handles soft hyphens, zero-width chars, and unicode punctuation/fraction cleanup.
+- Shared postprocess (`postprocess_epub_blocks`) performs BR/list/table line cleanup and bullet stripping for HTML-style extractor outputs.
+- Extraction health metrics (`compute_epub_extraction_health`) are warning-oriented guardrails and should remain non-blocking.
+
+Known-bad loops to avoid:
+- Do not fork postprocess behavior per extractor backend unless there is extractor-specific evidence.
+- Keep debug extraction flows aligned with importer postprocess behavior to avoid false regression diagnosis.

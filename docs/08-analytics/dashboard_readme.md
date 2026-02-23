@@ -22,7 +22,7 @@ Main entry point: `data/output/.history/dashboard/index.html`.
 
 ### Primary source (stage + benchmark rows from CSV)
 
-`data/output/.history/performance_history.csv`
+`<output_root>/.history/performance_history.csv` (default `<output_root>` is `data/output`)
 
 This CSV is populated by:
 
@@ -37,7 +37,7 @@ This CSV is populated by:
 
 ### Stage-report fallback/supplement
 
-`data/output/<YYYY-MM-DD_HH.MM.SS>/*.excel_import_report.json`
+`<output_root>/<YYYY-MM-DD_HH.MM.SS>/*.excel_import_report.json`
 
 Used when the CSV is missing, and also used as a supplement when `--scan-reports` is passed.
 
@@ -134,4 +134,6 @@ Useful options:
 
 ## Known gotcha
 
-In current code, `cookimport stage --out <custom>` still appends history rows to `data/output/.history/performance_history.csv` (default root). If you build a dashboard with a non-default `--output-root`, CSV-backed stage history may look incomplete unless those paths are aligned.
+`cookimport stats-dashboard` reads stage/import history primarily from `<output_root>/.history/performance_history.csv`.
+
+If you stage into a non-default output root (for example `cookimport stage --out /tmp/out`), build the dashboard with the matching root (for example `cookimport stats-dashboard --output-root /tmp/out`) so the collector reads the same history CSV and report folders you just produced.

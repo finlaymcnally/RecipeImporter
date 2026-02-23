@@ -9,15 +9,21 @@ GOAL
 For each block, choose the label that best describes what the block IS, using local context
 (neighboring blocks) to determine whether we are inside a recipe or in general/narrative text.
 
+FOCUS SCOPE
+{{FOCUS_CONSTRAINTS}}
+Focus blocks to label (context blocks may be broader):
+{{FOCUS_BLOCK_JSON_LINES}}
+
 RETURN FORMAT (STRICT)
 Return STRICT JSON ONLY. No markdown, no commentary, no extra keys.
 Output format exactly:
 [{"block_index": <int>, "label": "<LABEL>"}]
 
 HARD RULES
-1) Include EVERY input block_index exactly once.
-2) Keep the SAME ORDER as the blocks are listed.
-3) label must be exactly one of:
+1) Return labels only for focus blocks.
+2) Keep the SAME ORDER as the focus blocks listed above.
+3) Include each focus block_index exactly once.
+4) label must be exactly one of:
    {{ALLOWED_LABELS}}
 {{UNCERTAINTY_HINT}}
 

@@ -8,9 +8,24 @@ read_when:
 
 This file is the anti-loop log for CLI work. Read it before retrying approaches that may already have failed.
 
-## Merged Discovery Provenance (Former `docs/understandings`)
+## Merged Discovery Provenance (Archived CLI understandings)
 
-The understanding files listed below were merged into this log in timestamp order so CLI behavior + anti-loop notes live in one place.
+Some earlier CLI-specific understanding notes were merged into this log in timestamp order so CLI behavior + anti-loop notes live in one place.
+
+Note: `docs/understandings/` still exists for cross-cutting discoveries; prefer adding new general-purpose findings there (and link back here only when it prevents CLI fix loops).
+
+### 2026-02-22_22.30.58 interactive Esc back migration
+
+Merged source file:
+- `2026-02-22_22.30.58-interactive-esc-back-contract.md` (in `docs/understandings`)
+
+Preserved finding:
+- Back navigation was previously wired only on `_menu_select()` and used `Backspace`.
+- Numeric/text prompts (`questionary.text` etc.) had no equivalent go-back binding.
+
+Current rule:
+- Interactive prompts now use `Esc` for one-level back/cancel.
+- Menu prompts use `_menu_select()`; typed prompts use `_prompt_text/_prompt_confirm/_prompt_password`.
 
 ### 2026-02-15_21.04.54 cli interactive flow map
 
@@ -277,3 +292,47 @@ Constraint preserved:
 
 Rollback path preserved:
 - Restore previous interactive default root (`/tmp/epub-race/<book_stem>`) and revert related docs/test assertions.
+
+## 2026-02-23 docs/tasks archival merge batch (CLI)
+
+### 2026-02-16 run-settings selector and persistence (`docs/tasks/01-PerRunSettingsSelector.md`)
+
+Problem captured:
+- Global defaults alone were too coarse for iteration and did not preserve per-run config provenance across import and benchmark loops.
+
+Major decisions preserved:
+- One canonical typed settings model (`RunSettings`) drives UI rows, run-time config, and analytics metadata.
+- Last-run settings are persisted separately for `import` and `benchmark` modes and never overwrite global defaults.
+- CSV keeps compact run config identifiers (`run_config_hash`, `run_config_summary`) while full JSON lives in reports/manifests.
+- Interactive benchmark eval-only path skips run-settings persistence by design.
+
+Important discoveries:
+- Run-config propagation requires coordinated updates across report writers, CSV appenders, collector schema, and dashboard renderer; partial wiring creates silent analytics drift.
+- Backward-compatible loading for last-run files must accept both wrapped and legacy-flat payload shapes.
+
+Anti-loop note:
+- If run settings show in CLI but not in benchmark/dashboard artifacts, fix propagation end-to-end before changing UI again.
+
+### 2026-02-22_13.02.21 second-pass spinner counters (`docs/tasks/2026-02-22_13.02.21-spinner-progress-counters-second-pass.md`)
+
+Problem captured:
+- Status text looked stalled in bench and split-merge flows because many loops had known totals but emitted no counters.
+
+Major decisions preserved:
+- Generate counters in runtime loops that know totals; do not synthesize them in UI/render-only layers.
+- Share formatter helpers for `task/item/config/phase` text to prevent cross-command drift.
+- Keep merge-phase totals deterministic when optional chunk-writing is enabled or disabled.
+
+Evidence preserved:
+- Targeted tests added/updated for formatter output, bench progress forwarding, and split-merge status sequencing.
+
+### 2026-02-22_19.12.59 run-settings editor scroll repair (`docs/tasks/2026-02-22_19.12.59 - benchmark-run-settings-editor-scroll.md`)
+
+Problem captured:
+- Long run-settings lists in full-screen editor stopped scrolling because the selected row had no exposed cursor mapping.
+
+Decision preserved:
+- Keep current text-rendering model; add prompt_toolkit cursor-position callback mapped to selected row and focus body window for native viewport tracking.
+
+Rollback path preserved:
+- Revert `cookimport/cli_ui/toggle_editor.py` and related toggle-editor tests if viewport tracking regresses.

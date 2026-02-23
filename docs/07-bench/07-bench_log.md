@@ -18,12 +18,9 @@ This file tracks architecture versions, builds, fix attempts, and anti-loop note
   - `docs/07-bench/07-bench_log.md` for chronology, prior build/fix attempts, and anti-loop notes.
 - Moved all prior chronology/discovery content from the README into this log without dropping details.
 
-## 2. 2026-02-15 Task Chronology (Merged From docs/tasks)
+## 2. 2026-02-15 Task Chronology (archived merge)
 
 ### 2.1 2026-02-15_23.14.04 interactive benchmark credential resolution
-
-Merged source:
-- `docs/tasks/2026-02-15_23.14.04 - interactive-benchmark-credential-prompt.md`
 
 Problem captured:
 - Interactive benchmark upload exited on missing `LABEL_STUDIO_URL` / `LABEL_STUDIO_API_KEY` instead of prompting like other interactive Label Studio flows.
@@ -39,9 +36,6 @@ Task verification/evidence preserved:
 - task specifically notes updated assertion that resolved URL/API key are forwarded into `labelstudio_benchmark(...)`.
 
 ### 2.2 2026-02-15_23.23.38 split benchmark pickle fix for unstructured metadata
-
-Merged source:
-- `docs/tasks/2026-02-15_23.23.38 - benchmark-split-pickle-fix-unstructured-version.md`
 
 Problem captured:
 - Split benchmark EPUB jobs failed with `cannot pickle 'module' object`; regular imports could still appear fine.
@@ -60,9 +54,6 @@ Anti-loop note:
 
 ### 2.3 2026-02-15_23.50.23 remove redundant interactive upload confirmation
 
-Merged source:
-- `docs/tasks/2026-02-15_23.50.23 - interactive-benchmark-remove-redundant-upload-confirm.md`
-
 Problem captured:
 - Upload mode asked a second confirmation (`Upload benchmark prediction tasks ... now?`) after user already selected upload mode.
 
@@ -76,9 +67,6 @@ Task verification/evidence preserved:
 - task notes that updated upload test fails if `questionary.confirm(...)` is invoked in upload mode.
 
 ### 2.4 2026-02-15_23.58.48 benchmark EPUB extractor selection
-
-Merged source:
-- `docs/tasks/2026-02-15_23.58.48 - benchmark-epub-extractor-choice.md`
 
 Problem captured:
 - Benchmark prediction generation was controlled by `C3IMP_EPUB_EXTRACTOR`, but benchmark command paths did not expose a per-run extractor choice.
@@ -97,12 +85,9 @@ Task verification/evidence preserved:
 Known rejected path:
 - "Use whichever extractor happens to be in env from prior runs" was explicitly treated as unreliable and replaced by explicit per-run selection.
 
-## 3. Merged Discovery Provenance (Former `docs/understandings`)
+## 3. Merged Discovery Provenance (Former docs/understandings; sources archived)
 
 ### 3.1 2026-02-15_23.06.53 interactive eval-only gate
-
-Merged source file:
-- `2026-02-15_23.06.53-interactive-benchmark-eval-only-gate.md` (formerly in `docs/understandings`)
 
 Preserved finding:
 - Interactive benchmark shows `How would you like to benchmark?` only when both artifacts are discoverable:
@@ -112,17 +97,11 @@ Preserved finding:
 
 ### 3.2 2026-02-15_23.13.18 interactive upload credential resolution
 
-Merged source file:
-- `2026-02-15_23.13.18-interactive-benchmark-upload-credential-resolution.md` (formerly in `docs/understandings`)
-
 Preserved rule:
 - Interactive upload must resolve creds via `_resolve_interactive_labelstudio_settings(settings)` before calling `labelstudio_benchmark(...)`.
 - Relying only on `labelstudio_benchmark` env/CLI resolution causes missing-credential exits in interactive mode.
 
 ### 3.3 2026-02-15_23.23.30 split pickling failure anatomy
-
-Merged source file:
-- `2026-02-15_23.23.30-benchmark-split-epub-unstructured-version-pickling.md` (formerly in `docs/understandings`)
 
 Preserved finding:
 - Split conversion jobs in `ProcessPoolExecutor` fail if any `ConversionResult` field is unpickleable.
@@ -134,9 +113,6 @@ Durable rule:
 
 ### 3.4 2026-02-15_23.31.19 direct-call default semantics in eval
 
-Merged source file:
-- `2026-02-15_23.31.19-interactive-benchmark-eval-defaults.md` (formerly in `docs/understandings`)
-
 Preserved finding:
 - Direct Python calls into `labelstudio_eval(...)` (interactive/tests) previously inherited `typer.Option(...)` objects instead of runtime defaults, causing `TypeError` in threshold comparisons.
 
@@ -145,9 +121,6 @@ Durable rule:
 - Regression anchor: `tests/test_labelstudio_benchmark_helpers.py::test_labelstudio_eval_direct_call_uses_real_defaults`.
 
 ### 3.5 2026-02-15_23.31.46 benchmark scoring contract reminder
-
-Merged source file:
-- `2026-02-15_23.31.46-benchmark-scores-task-artifacts-not-stage-outputs.md` (formerly in `docs/understandings`)
 
 Preserved rule:
 - Benchmark scoring compares prediction task artifacts (`label_studio_tasks.jsonl`) against freeform gold spans (`freeform_span_labels.jsonl`).
@@ -158,25 +131,16 @@ Anti-loop note:
 
 ### 3.6 2026-02-15_23.48.49 upload confirmation removal
 
-Merged source file:
-- `2026-02-15_23.48.49-interactive-benchmark-upload-no-second-confirm.md` (formerly in `docs/understandings`)
-
 Preserved rule:
 - Interactive upload mode selection is already explicit intent; no second y/n upload confirmation should be reintroduced.
 
 ### 3.7 2026-02-15_23.58.38 extractor runtime switch behavior
-
-Merged source file:
-- `2026-02-15_23.58.38-benchmark-epub-extractor-runtime-switch.md` (formerly in `docs/understandings`)
 
 Preserved rule:
 - Prediction generation path reads `C3IMP_EPUB_EXTRACTOR`.
 - Benchmark flows that need deterministic extractor choice must set this explicitly for run scope (CLI flag + scoped env override), not rely on whatever environment happened to be set earlier.
 
 ### 3.8 2026-02-22_13.15.24 bench + merge progress counter wiring
-
-Merged source file:
-- `docs/understandings/2026-02-22_13.15.24-bench-and-merge-progress-counter-wiring.md`
 
 Preserved rules:
 - `bench run` per-item counters (`item X/Y`) belong in `cookimport/bench/runner.py:run_suite(...)`.
@@ -189,11 +153,8 @@ Anti-loop note:
 
 ## 4. 2026-02-22_13.16.17 spinner-progress-counters second pass (build record)
 
-Source task file:
-- `docs/tasks/2026-02-22_13.16.17 - spinner-progress-counters-second-pass-build.md`
-
 Problem captured:
-- Known-size loops outside Label Studio prelabel/decorate still emitted phase-only text, so bench and split-merge throughput looked opaque.
+- Known-size loops outside Label Studio prelabel still emitted phase-only text, so bench and split-merge throughput looked opaque.
 
 Behavior contract preserved:
 - Keep shared helper for counter formatting (`task`/`item`/`config`/`phase`).
@@ -204,7 +165,7 @@ Behavior contract preserved:
 Verification and evidence preserved:
 - Recorded command set:
   - `python -m pip install -e .[dev]`
-  - `pytest -q tests/test_progress_messages.py tests/test_bench_progress.py tests/test_split_merge_status.py tests/test_labelstudio_ingest_parallel.py tests/test_labelstudio_prelabel.py -k 'prelabel_task_progress or decorate_dry_run or test_'`
+  - `pytest -q tests/test_progress_messages.py tests/test_bench_progress.py tests/test_split_merge_status.py tests/test_labelstudio_ingest_parallel.py tests/test_labelstudio_prelabel.py`
   - `npm run docs:list`
 - Recorded result: `23 passed`.
 - Recorded emitted-message examples:
@@ -220,3 +181,74 @@ Constraints and anti-loop notes:
 
 Rollback path preserved:
 - Revert helper adoption in `cookimport/bench/runner.py`, `cookimport/bench/sweep.py`, and `cookimport/cli.py` plus associated tests/docs if contract needs reversal.
+
+## 2026-02-22 understanding merge batch
+
+### 2026-02-22_18.18.40 freeform overlap duplicates in gold eval
+
+Preserved findings:
+- Segment overlap intentionally duplicates boundary text across tasks, and export `span_id` includes `segment_id`; identical labeled ranges from adjacent segments therefore serialize as separate rows.
+- Freeform evaluator now dedupes gold rows by `(source_hash, source_file, start_block_index, end_block_index)` before metrics are computed.
+- Duplicate-label conflicts use majority resolution; exact ties are dropped from scored gold and reported under `gold_dedupe.conflicts`.
+
+Debugging reminder:
+- When gold denominators seem inflated, group rows by source + block-range keys and inspect differing `segment_id` values before modifying scoring code.
+
+## 5. 2026-02-22_18.44.59 freeform gold dedupe default (build record)
+
+Problem captured:
+- Overlap-generated duplicate gold spans inflated benchmark/eval denominators and could skew recall/precision interpretations.
+
+Behavior contract preserved:
+- Freeform eval dedupes gold spans by default before scoring.
+- Dedupe key is `(source_hash, source_file, start_block_index, end_block_index)`.
+- Conflicting labels in one key resolve by majority count; exact ties are dropped from scored gold.
+- Dedupe/conflict diagnostics are exposed in report outputs.
+
+Verification and evidence preserved:
+- Recorded runs:
+  - `pytest -q tests/test_labelstudio_freeform.py` -> `13 passed in 0.17s`
+  - `pytest -q tests/test_labelstudio_benchmark_helpers.py` -> `39 passed, 2 warnings in 3.19s`
+  - `pytest -q tests/test_stats_dashboard.py` -> `36 passed, 2 warnings in 1.39s`
+- Regression coverage captured for:
+  - same-label duplicates,
+  - conflicting duplicates with majority winner,
+  - conflicting duplicates with tie/drop behavior.
+
+Constraints and anti-loop notes:
+- Overlap in freeform segmentation is intentional; users should not need manual export cleanup for benchmark correctness.
+- Avoid arbitrary tie-break winners; dropping exact ties preserves ambiguity visibility.
+
+Rollback path preserved:
+- Revert dedupe/conflict logic in `cookimport/labelstudio/eval_freeform.py` and matching tests/docs only if replacing with a different explicit policy (for example strict-fail or manual-resolution gate).
+
+## 2026-02-23 archival merge batch (bench)
+
+### 2026-02-12 offline benchmark suite baseline
+
+Problem captured:
+- Pipeline iteration depended too heavily on Label Studio upload loops and lacked a deterministic offline benchmark harness.
+
+Major decisions preserved:
+- Build offline suite around existing freeform eval (`evaluate_predicted_vs_freeform`) rather than a new scoring system.
+- Extract `generate_pred_run_artifacts(...)` boundary so bench runs can generate predictions without Label Studio side effects.
+- Produce AI-consumable iteration packets (`cases.jsonl`, `top_failures.md`) with severity ranking.
+
+Anti-loop note:
+- If proposed bench changes introduce a new parallel evaluation format, treat that as a major contract change and justify it explicitly.
+
+### 2026-02-16_12.18.00 stage-vs-benchmark semantics unification
+
+Problem captured:
+- Users conflated staging, task creation, label export, and evaluation due to mixed terminology and weak artifact traceability.
+
+Major decisions preserved:
+- Add `run_manifest.json` across run-producing flows as shared provenance contract.
+- Keep command names for compatibility; fix semantics through help/interactive wording.
+- Add explicit offline mode (`--no-upload`) to `labelstudio-benchmark`.
+
+Serious failed-path summary:
+- Analytics mismatches were not cosmetic; stage `--out` history misalignment and timestamp resolver gaps caused misleading perf/dashboard views until fixed with parity tests.
+
+Residual risk preserved:
+- Fixture-related failures outside bench scope existed in full-suite runs during implementation; targeted modified-area suites were green.

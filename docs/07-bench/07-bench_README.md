@@ -210,28 +210,3 @@ Until that exists, task-artifact scoring remains the most deterministic way to c
 
 For quick command examples and output interpretation:
 - `docs/07-bench/runbook.md`
-
-## 12. Progress Counter Ownership (Merged 2026-02-22_13.15.24)
-
-Progress counters must be emitted in runtime loops that actually know totals:
-
-- `bench run`: emit `item X/Y` from `cookimport/bench/runner.py:run_suite(...)`.
-- `bench sweep`: emit outer `config X/Y` from `cookimport/bench/sweep.py` and forward nested runner messages as `config X/Y | <runner message>`.
-- Split-merge progress shown in worker dashboards should be emitted by `status_callback` inside `cookimport/cli.py:_merge_split_jobs(...)`, not assembled in dashboard renderer/UI layers.
-- Use `cookimport/core/progress_messages.py` for consistent `X/Y` formatting and clamping across Label Studio, bench, and merge flows.
-
-## 13. Merged Task Spec: 2026-02-22_13.16.17 second-pass progress counters
-
-Second-pass progress-counter build expanded the spinner/status contract beyond Label Studio prelabel/decorate:
-
-- Shared formatter (`cookimport/core/progress_messages.py`) is the single source for counter text shaping (`task`/`item`/`config`/`phase`) and safe clamping.
-- `bench run` emits per-item counters as `item X/Y ...` through the full runtime loop.
-- `bench sweep` emits outer `config X/Y` counters and forwards nested runner text as `config X/Y | item X/Y ...`.
-- Split-job merge callback contract remains phase-counted as `merge phase X/Y: ...` with deterministic ordering and optional chunk-write phase included in totals when present.
-
-Observed message examples that should remain stable:
-
-- `item 1/2 [alpha] Processing...`
-- `config 1/2 | item 1/1 [alpha] Evaluating...`
-- `merge phase 1/12: Merging job payloads...`
-- `merge phase 12/12: Merge done`

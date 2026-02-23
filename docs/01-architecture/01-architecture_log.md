@@ -13,48 +13,17 @@ This file tracks architecture versions, builds, fix attempts, and prior dead end
 
 ## Chronology and Prior Attempts (do not discard)
 
-This section preserves what prior docs attempted, in creation order, so future work does not repeat dead ends.
+This section preserves prior attempt outcomes so future work does not repeat dead ends.
 
-1. `README.md` (historical, previously in this folder)
-- established baseline ingestion -> staging narrative and plugin-registry model.
+Note on historical files:
+- Several earlier architecture notes were consolidated into `docs/01-architecture/01-architecture_README.md` and this log, and the original standalone files were deleted. If you need to recover them, use git history or `docs/2026-02-22_14.21.10_recipeimport-docs-summary.md`.
 
-2. `2026-02-11-remove-root-staging-defaults.md` (historical)
-- attempted migration away from root `staging/` defaults.
-- current code confirms this is landed (`DEFAULT_OUTPUT = data/output`, Label Studio defaults under `data/golden`).
-
-3. `2026-02-11-standardize-run-timestamps.md` (historical)
-- claimed standardized timestamp behavior.
-- current code still uses `YYYY-MM-DD_HH.MM.SS` (dot-separated time), not a colon format.
-
-4. `2026-02-11-architecture-doc-merge-verification.md` (this folder, older than this README)
-- recorded 3 key truth checks:
-  - timestamp format is dot-separated
-  - stage report file is at run root (not `reports/`)
-  - Label Studio split merge rebases block indices
-- all 3 remain true in current code.
-
-5. `2026-02-15_20.44.30-stage-docs-information-architecture-map.md` (migrated from `docs/understandings/`)
-- captured a stage-first docs information architecture to prevent discovery notes from becoming a separate silo.
-- mapped runtime module ownership to section docs (`02-cli`, `03-ingestion`, `04-parsing`, `05-staging`, `06-label-studio`, `07-bench`, `08-analytics`, `09-tagging`, `11-reference`).
-
-6. `2026-02-15_22.05.45-architecture-merge-verification.md` (migrated from `docs/understandings/`)
-- re-verified that stage report JSON is written at run root by active writer flow.
-- re-verified that legacy `core/reporting.py` `ReportBuilder` is not current stage output contract.
-- re-verified Label Studio split merge block-index rebasing as required for eval alignment.
-
-7. `2026-02-16_12.30.45-run-manifest-semantics-and-history-root.md` (migrated from `docs/understandings/`)
-- established `run_manifest.json` as cross-flow traceability artifact (`stage`, Label Studio import/export/eval/benchmark, bench prediction/eval/suite runs).
-- captured output-root-specific CSV history behavior (`stage --out` root and benchmark `processed_output_dir` root).
-- captured offline benchmark contract for `labelstudio-benchmark --no-upload` (local prediction generation + eval, no credential/upload path).
-
-8. `2026-02-19_01-architecture-readme-log-split` (this change)
-- split architecture docs into:
-  - `01-architecture_README.md` for current architecture/source-of-truth behavior.
-  - `01-architecture_log.md` for chronology, failed paths, and anti-loop guidance.
-
-Current file timestamps in this folder before consolidation:
-- `2026-02-11-architecture-doc-merge-verification.md` (mtime `2026-02-15 20:50:55 -0500`)
-- `01-architecture_README.md` (mtime `2026-02-15 21:28:01 -0500`)
+Key outcomes that remain relevant:
+- stage outputs default under `data/output` and Label Studio/bench defaults under `data/golden`
+- timestamp folder format is `YYYY-MM-DD_HH.MM.SS` (dot-separated time)
+- stage report JSON is written at the run root (not a `reports/` subfolder)
+- Label Studio split merge must rebase block indices to keep eval alignment
+- `run_manifest.json` is the cross-command traceability join point
 
 ## Known Bad / Known Confusions (do not re-litigate without new evidence)
 
@@ -87,7 +56,7 @@ Current file timestamps in this folder before consolidation:
 
 ## Prior Attempt Ledger (with status)
 
-From the archived architecture docs:
+From earlier consolidated architecture notes:
 
 - Attempt: remove root `staging/` default outputs.
   - Status: appears landed and active.
@@ -97,3 +66,8 @@ From the archived architecture docs:
   - Status: not reflected in current code paths.
   - Current reality: dot-separated `YYYY-MM-DD_HH.MM.SS` is still emitted in stage and Label Studio flows.
   - Practical guidance: if standardization is desired, update all timestamp call sites together and then update this doc + conventions in same change.
+
+## Flowchart Notes
+
+If you are reconciling flowcharts vs runtime behavior, use:
+- `docs/01-architecture/01-architecture_README.md` -> "Flowchart Branching Contracts"

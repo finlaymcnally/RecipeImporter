@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from prompt_toolkit import Application
+from prompt_toolkit.data_structures import Point
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, Layout, Window
@@ -121,6 +122,18 @@ class _EditorState:
         merged.update(self.values)
         return RunSettings.from_dict(merged, warn_context="run settings editor")
 
+    def selected_line_index(self) -> int:
+        line_index = 0
+        for index, row in enumerate(self.rows):
+            if row.kind == "group":
+                # Group rows render as a leading spacer line plus the heading line.
+                line_index += 2
+                continue
+            if index == self.selected_row_index:
+                return line_index
+            line_index += 1
+        return 0
+
 
 def _build_header(title: str) -> FormattedText:
     return FormattedText(
@@ -203,14 +216,23 @@ def _build_footer(state: _EditorState) -> FormattedText:
     return FormattedText([("", "\n".join(lines))])
 
 
+def _body_cursor_position(state: _EditorState) -> Point:
+    return Point(x=0, y=state.selected_line_index())
+
+
 def edit_run_settings(*, title: str, initial: RunSettings) -> RunSettings | None:
     """Full-screen toggle editor for per-run settings."""
 
     state = _EditorState(initial)
     result: RunSettings | None = None
     header = FormattedTextControl(lambda: _build_header(title))
-    body = FormattedTextControl(lambda: _build_body(state))
+    body = FormattedTextControl(
+        lambda: _build_body(state),
+        focusable=True,
+        get_cursor_position=lambda: _body_cursor_position(state),
+    )
     footer = FormattedTextControl(lambda: _build_footer(state))
+    body_window = Window(content=body, always_hide_cursor=True)
 
     bindings = KeyBindings()
 
@@ -276,10 +298,11 @@ def edit_run_settings(*, title: str, initial: RunSettings) -> RunSettings | None
             HSplit(
                 [
                     Window(content=header, height=2),
-                    Window(content=body, always_hide_cursor=True),
+                    body_window,
                     Window(content=footer, height=3),
                 ]
-            )
+            ),
+            focused_element=body_window,
         ),
         key_bindings=bindings,
         full_screen=True,

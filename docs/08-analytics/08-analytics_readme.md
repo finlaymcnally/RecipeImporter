@@ -54,18 +54,18 @@ Primary analytics code:
 
 Primary CLI integration:
 
-- `cookimport/cli.py:1444` `stage(...)`
-- `cookimport/cli.py:1996` `perf_report(...)`
-- `cookimport/cli.py:2075` `stats_dashboard(...)`
-- `cookimport/cli.py:2320+` benchmark eval flows appending benchmark rows to history CSV
+- `cookimport/cli.py:stage` (`cookimport stage`)
+- `cookimport/cli.py:perf_report` (`cookimport perf-report`)
+- `cookimport/cli.py:stats_dashboard` (`cookimport stats-dashboard`)
+- `cookimport/cli.py` benchmark/eval commands appending benchmark rows to history CSV
 
 Related producers of report content:
 
 - `cookimport/cli_worker.py` (`stage_one_file`, `stage_pdf_job`, `stage_epub_job`)
-- `cookimport/cli.py:1261` `_merge_split_jobs(...)` for merged PDF/EPUB split jobs
-- `cookimport/staging/writer.py:671` `write_report(...)`
+- `cookimport/cli.py:_merge_split_jobs` for merged PDF/EPUB split jobs
+- `cookimport/staging/writer.py:write_report`
 - `cookimport/core/timing.py` timing data structure/checkpoint helper
-- `cookimport/core/models.py:506` `ConversionReport` schema
+- `cookimport/core/models.py:ConversionReport` schema
 
 ## 3) Artifact map (current, code-verified)
 
@@ -227,10 +227,10 @@ Collector exclusions/filters:
 ## 6) Practical debugging runbook
 
 1. Confirm per-run report exists:
-- `data/output/<timestamp>/<slug>.excel_import_report.json`
+- `<output_root>/<timestamp>/<slug>.excel_import_report.json` (default `<output_root>` is `data/output`)
 
 2. Confirm history append happened:
-- `data/output/.history/performance_history.csv`
+- `<output_root>/.history/performance_history.csv`
 
 3. If dashboard seems empty:
 - run `cookimport stats-dashboard --scan-reports`
@@ -283,3 +283,21 @@ Extractor auto metadata is only reliable when all four layers are wired together
 - Do not rely on inference from nested run-config blobs.
 
 If one layer is skipped, extractor visibility drifts across stage report JSON, CSV history, and dashboard tables.
+
+## 10) Merged Task Spec (2026-02-23 docs/tasks archival batch)
+
+### 10.1 2026-02-12 lifetime stats dashboard implementation record (`docs/tasks/I1.1-STATS-DASH.md`)
+
+Durable dashboard contract:
+- `cookimport stats-dashboard` is read-only over existing metric surfaces and writes static artifacts only under `--out-dir`.
+- Architecture remains collect -> schema -> render (`dashboard_collect.py`, `dashboard_schema.py`, `dashboard_render.py`).
+- Preferred data source is compact metrics surfaces (CSV + eval JSON), with report scanning as fallback.
+
+Data-shape rules that should stay explicit:
+- Missing numeric values remain `None` (not zero).
+- Category separation (`stage_import`, `labelstudio_import`, `benchmark_eval`, `benchmark_prediction`) prevents double counting.
+- Static output keeps inline JSON fallback for `file://` browser compatibility.
+
+Known footguns preserved:
+- Mixed timestamp formats exist in historical artifacts; collector must remain tolerant.
+- `.job_parts` and `prediction-run` eval dirs should stay excluded from benchmark-history surfaces unless explicitly requested.

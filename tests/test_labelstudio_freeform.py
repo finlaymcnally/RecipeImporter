@@ -10,6 +10,7 @@ from cookimport.labelstudio.export import run_labelstudio_export
 from cookimport.labelstudio.freeform_tasks import (
     build_freeform_span_tasks,
     map_span_offsets_to_blocks,
+    resolve_segment_overlap_for_target,
 )
 from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_LABELS,
@@ -55,6 +56,57 @@ def test_build_freeform_tasks_offsets_are_deterministic() -> None:
 
     touched = map_span_offsets_to_blocks(first["source_map"], 0, 4)
     assert [item["block_index"] for item in touched] == [0]
+
+
+def test_resolve_segment_overlap_for_target_prefers_closest_task_count() -> None:
+    # total_blocks=9 with segment_blocks=4 yields 3 tasks at overlap=1 and 4 tasks at overlap=2.
+    assert (
+        resolve_segment_overlap_for_target(
+            total_blocks=9,
+            segment_blocks=4,
+            requested_overlap=1,
+            target_task_count=4,
+        )
+        == 2
+    )
+    assert (
+        resolve_segment_overlap_for_target(
+            total_blocks=9,
+            segment_blocks=4,
+            requested_overlap=1,
+            target_task_count=None,
+        )
+        == 1
+    )
+
+
+def test_build_freeform_tasks_include_focus_metadata() -> None:
+    archive = [
+        {"index": 0, "text": "A", "location": {"block_index": 0}},
+        {"index": 1, "text": "B", "location": {"block_index": 1}},
+        {"index": 2, "text": "C", "location": {"block_index": 2}},
+        {"index": 3, "text": "D", "location": {"block_index": 3}},
+        {"index": 4, "text": "E", "location": {"block_index": 4}},
+        {"index": 5, "text": "F", "location": {"block_index": 5}},
+    ]
+    tasks = build_freeform_span_tasks(
+        archive=archive,
+        source_hash="hash123",
+        source_file="book.epub",
+        book_id="book",
+        segment_blocks=4,
+        segment_overlap=1,
+        segment_focus_blocks=2,
+    )
+
+    first_source_map = tasks[0]["data"]["source_map"]
+    second_source_map = tasks[1]["data"]["source_map"]
+    assert first_source_map["focus_start_block_index"] == 0
+    assert first_source_map["focus_end_block_index"] == 1
+    assert first_source_map["focus_block_indices"] == [0, 1]
+    assert second_source_map["focus_start_block_index"] == 3
+    assert second_source_map["focus_end_block_index"] == 4
+    assert second_source_map["focus_block_indices"] == [3, 4]
 
 
 def test_freeform_label_config_uses_expected_label_order_and_names() -> None:

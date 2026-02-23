@@ -35,6 +35,7 @@ from cookimport.labelstudio.block_tasks import (
 from cookimport.labelstudio.freeform_tasks import (
     build_freeform_span_tasks,
     compute_freeform_task_coverage,
+    resolve_segment_overlap_for_target,
     sample_freeform_tasks,
 )
 from cookimport.labelstudio.chunking import (
@@ -60,8 +61,12 @@ from cookimport.labelstudio.prelabel import (
     annotation_labels,
     codex_account_summary,
     codex_cmd_with_model,
+    codex_cmd_with_reasoning_effort,
     codex_model_from_cmd,
+    codex_reasoning_effort_from_cmd,
     default_codex_cmd,
+    default_codex_reasoning_effort,
+    normalize_codex_reasoning_effort,
     normalize_prelabel_granularity,
     preflight_codex_model_access,
     prelabel_freeform_task,
@@ -342,6 +347,7 @@ def _build_prelabel_provider(
     prelabel_provider: str,
     codex_cmd: str | None,
     codex_model: str | None,
+    codex_reasoning_effort: str | None,
     prelabel_timeout_seconds: int,
     prelabel_cache_dir: Path | None,
     prelabel_track_token_usage: bool,
@@ -350,8 +356,10 @@ def _build_prelabel_provider(
     if normalized_provider != "codex-cli":
         raise ValueError("prelabel_provider must be 'codex-cli'")
     base_cmd = (codex_cmd or default_codex_cmd()).strip()
+    normalized_effort = normalize_codex_reasoning_effort(codex_reasoning_effort)
     resolved_model = resolve_codex_model(codex_model, cmd=base_cmd)
     resolved_cmd = codex_cmd_with_model(base_cmd, resolved_model)
+    resolved_cmd = codex_cmd_with_reasoning_effort(resolved_cmd, normalized_effort)
     effective_model = codex_model_from_cmd(resolved_cmd) or resolved_model
     return CodexCliProvider(
         cmd=resolved_cmd,
@@ -797,6 +805,8 @@ def generate_pred_run_artifacts(
     context_window: int = 1,
     segment_blocks: int = 40,
     segment_overlap: int = 5,
+    segment_focus_blocks: int | None = None,
+    target_task_count: int | None = None,
     limit: int | None = None,
     sample: int | None = None,
     workers: int = 1,
@@ -825,6 +835,7 @@ def generate_pred_run_artifacts(
     prelabel_provider: str = "codex-cli",
     codex_cmd: str | None = None,
     codex_model: str | None = None,
+    codex_reasoning_effort: str | None = None,
     prelabel_timeout_seconds: int = 120,
     prelabel_cache_dir: Path | None = None,
     prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
@@ -1163,7 +1174,10 @@ def generate_pred_run_artifacts(
     segment_ids: list[str] | None = None
     prelabel_report_path: Path | None = None
     prelabel_errors_path: Path | None = None
+    prelabel_prompt_log_path: Path | None = None
     prelabel_summary: dict[str, Any] | None = None
+    resolved_segment_focus_blocks: int | None = None
+    effective_segment_overlap: int | None = None
 
     if task_scope == "pipeline":
         levels = {"structural", "atomic", "both"}
@@ -1250,6 +1264,29 @@ def generate_pred_run_artifacts(
             _notify("freeform-spans ignores --chunk-level")
         if not archive:
             raise RuntimeError("No extracted blocks available for freeform labeling.")
+        if segment_focus_blocks is None:
+            resolved_segment_focus_blocks = segment_blocks
+        else:
+            resolved_segment_focus_blocks = int(segment_focus_blocks)
+        if resolved_segment_focus_blocks < 1:
+            raise ValueError("segment_focus_blocks must be >= 1")
+        if resolved_segment_focus_blocks > segment_blocks:
+            raise ValueError("segment_focus_blocks must be <= segment_blocks")
+        effective_segment_overlap = resolve_segment_overlap_for_target(
+            total_blocks=len(archive),
+            segment_blocks=segment_blocks,
+            requested_overlap=segment_overlap,
+            target_task_count=target_task_count,
+        )
+        if (
+            target_task_count is not None
+            and effective_segment_overlap != segment_overlap
+        ):
+            _notify(
+                "Adjusted freeform overlap to "
+                f"{effective_segment_overlap} "
+                f"(requested {segment_overlap}, target tasks {target_task_count})."
+            )
         _notify("Building freeform span tasks...")
         tasks_all = build_freeform_span_tasks(
             archive=archive,
@@ -1257,7 +1294,8 @@ def generate_pred_run_artifacts(
             source_file=path.name,
             book_id=book_id,
             segment_blocks=segment_blocks,
-            segment_overlap=segment_overlap,
+            segment_overlap=effective_segment_overlap,
+            segment_focus_blocks=resolved_segment_focus_blocks,
         )
         if not tasks_all:
             raise RuntimeError("No freeform span tasks generated for labeling.")
@@ -1286,6 +1324,7 @@ def generate_pred_run_artifacts(
                 prelabel_provider=prelabel_provider,
                 codex_cmd=codex_cmd,
                 codex_model=codex_model,
+                codex_reasoning_effort=codex_reasoning_effort,
                 prelabel_timeout_seconds=prelabel_timeout_seconds,
                 prelabel_cache_dir=provider_cache_dir,
                 prelabel_track_token_usage=prelabel_track_token_usage,
@@ -1298,6 +1337,24 @@ def generate_pred_run_artifacts(
                 cmd=provider_cmd,
                 timeout_s=min(30, max(1, int(prelabel_timeout_seconds))),
             )
+            provider_model = getattr(
+                provider,
+                "model",
+                resolve_codex_model(codex_model, cmd=provider_cmd),
+            )
+            provider_reasoning_effort = codex_reasoning_effort_from_cmd(provider_cmd)
+            if provider_reasoning_effort is None:
+                provider_reasoning_effort = normalize_codex_reasoning_effort(
+                    codex_reasoning_effort
+                )
+            if provider_reasoning_effort is None:
+                provider_reasoning_effort = default_codex_reasoning_effort(
+                    cmd=provider_cmd
+                )
+            provider_account = codex_account_summary(provider_cmd)
+            prelabel_prompt_log_path = run_root / "prelabel_prompt_log.jsonl"
+            prelabel_prompt_log_path.write_text("", encoding="utf-8")
+            prelabel_prompt_log_count = 0
             prelabel_errors: list[dict[str, Any]] = []
             prelabel_label_counts: dict[str, int] = {}
             prelabel_success = 0
@@ -1310,12 +1367,40 @@ def generate_pred_run_artifacts(
                     )
                 )
                 segment_id = _task_id_value(task, "freeform-spans") or "<unknown>"
+                prompt_task_index = task_index
+                prompt_segment_id = segment_id
+
+                def _write_prompt_log(entry: dict[str, Any]) -> None:
+                    nonlocal prelabel_prompt_log_count
+                    payload = dict(entry)
+                    payload.setdefault("segment_id", prompt_segment_id)
+                    payload["task_index"] = prompt_task_index
+                    payload["task_total"] = total_prelabel_tasks
+                    payload["logged_at"] = dt.datetime.now(
+                        tz=dt.timezone.utc
+                    ).isoformat(timespec="seconds")
+                    payload["codex_cmd"] = provider_cmd
+                    payload["codex_model"] = provider_model
+                    payload["codex_reasoning_effort"] = provider_reasoning_effort
+                    payload["codex_account"] = provider_account
+                    with prelabel_prompt_log_path.open("a", encoding="utf-8") as handle:
+                        handle.write(
+                            json.dumps(
+                                payload,
+                                ensure_ascii=False,
+                                sort_keys=True,
+                            )
+                            + "\n"
+                        )
+                    prelabel_prompt_log_count += 1
+
                 try:
                     annotation = prelabel_freeform_task(
                         task,
                         provider=provider,
                         allowed_labels=set(FREEFORM_ALLOWED_LABELS),
                         prelabel_granularity=normalized_prelabel_granularity,
+                        prompt_log_callback=_write_prompt_log,
                     )
                 except Exception as exc:  # noqa: BLE001
                     prelabel_errors.append(
@@ -1346,13 +1431,6 @@ def generate_pred_run_artifacts(
                 )
             else:
                 prelabel_errors_path.write_text("", encoding="utf-8")
-
-            provider_model = getattr(
-                provider,
-                "model",
-                resolve_codex_model(codex_model, cmd=provider_cmd),
-            )
-            provider_account = codex_account_summary(provider_cmd)
             provider_usage = None
             usage_summary = getattr(provider, "usage_summary", None)
             if callable(usage_summary):
@@ -1364,6 +1442,7 @@ def generate_pred_run_artifacts(
                 "granularity": normalized_prelabel_granularity,
                 "codex_cmd": provider_cmd,
                 "codex_model": provider_model,
+                "codex_reasoning_effort": provider_reasoning_effort,
                 "codex_account": provider_account,
                 "cache_dir": str(provider_cache_dir),
                 "task_count": len(tasks),
@@ -1374,6 +1453,8 @@ def generate_pred_run_artifacts(
                 "token_usage": provider_usage if prelabel_track_token_usage else None,
                 "label_counts": prelabel_label_counts,
                 "errors_path": str(prelabel_errors_path),
+                "prompt_log_path": str(prelabel_prompt_log_path),
+                "prompt_log_count": prelabel_prompt_log_count,
             }
             prelabel_report_path = run_root / "prelabel_report.json"
             prelabel_report_path.write_text(
@@ -1453,7 +1534,21 @@ def generate_pred_run_artifacts(
         "task_scope": task_scope,
         "context_window": context_window if task_scope == "canonical-blocks" else None,
         "segment_blocks": segment_blocks if task_scope == "freeform-spans" else None,
-        "segment_overlap": segment_overlap if task_scope == "freeform-spans" else None,
+        "segment_focus_blocks": (
+            resolved_segment_focus_blocks if task_scope == "freeform-spans" else None
+        ),
+        "segment_overlap": (
+            effective_segment_overlap if task_scope == "freeform-spans" else None
+        ),
+        "segment_overlap_requested": (
+            segment_overlap if task_scope == "freeform-spans" else None
+        ),
+        "segment_overlap_effective": (
+            effective_segment_overlap if task_scope == "freeform-spans" else None
+        ),
+        "target_task_count": (
+            target_task_count if task_scope == "freeform-spans" else None
+        ),
         "task_count": len(tasks),
         "task_ids": task_ids,
         "chunk_ids": chunk_ids,
@@ -1466,6 +1561,9 @@ def generate_pred_run_artifacts(
         ),
         "prelabel_errors_path": (
             str(prelabel_errors_path) if prelabel_errors_path is not None else None
+        ),
+        "prelabel_prompt_log_path": (
+            str(prelabel_prompt_log_path) if prelabel_prompt_log_path is not None else None
         ),
     }
 
@@ -1488,6 +1586,10 @@ def generate_pred_run_artifacts(
     if prelabel_errors_path is not None:
         run_manifest_artifacts["prelabel_errors_jsonl"] = _path_for_manifest(
             run_root, prelabel_errors_path
+        )
+    if prelabel_prompt_log_path is not None:
+        run_manifest_artifacts["prelabel_prompt_log_jsonl"] = _path_for_manifest(
+            run_root, prelabel_prompt_log_path
         )
     processed_run_path = _path_for_manifest(run_root, processed_run_root)
     if processed_run_path:
@@ -1540,6 +1642,7 @@ def generate_pred_run_artifacts(
         "prelabel": prelabel_summary,
         "prelabel_report_path": prelabel_report_path,
         "prelabel_errors_path": prelabel_errors_path,
+        "prelabel_prompt_log_path": prelabel_prompt_log_path,
         "label_config": label_config,
         "importer_name": importer.name,
         "run_config": run_config,
@@ -1548,6 +1651,10 @@ def generate_pred_run_artifacts(
         "llm_codex_farm": llm_report,
         "book_id": book_id,
         "file_hash": file_hash,
+        "segment_focus_blocks": resolved_segment_focus_blocks,
+        "segment_overlap_requested": segment_overlap if task_scope == "freeform-spans" else None,
+        "segment_overlap_effective": effective_segment_overlap,
+        "target_task_count": target_task_count if task_scope == "freeform-spans" else None,
     }
 
 
@@ -1562,6 +1669,8 @@ def run_labelstudio_import(
     context_window: int,
     segment_blocks: int = 40,
     segment_overlap: int = 5,
+    segment_focus_blocks: int | None = None,
+    target_task_count: int | None = None,
     overwrite: bool,
     resume: bool,
     label_studio_url: str,
@@ -1595,6 +1704,7 @@ def run_labelstudio_import(
     prelabel_provider: str = "codex-cli",
     codex_cmd: str | None = None,
     codex_model: str | None = None,
+    codex_reasoning_effort: str | None = None,
     prelabel_timeout_seconds: int = 120,
     prelabel_cache_dir: Path | None = None,
     prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
@@ -1624,6 +1734,8 @@ def run_labelstudio_import(
         context_window=context_window,
         segment_blocks=segment_blocks,
         segment_overlap=segment_overlap,
+        segment_focus_blocks=segment_focus_blocks,
+        target_task_count=target_task_count,
         limit=limit,
         sample=sample,
         workers=workers,
@@ -1652,6 +1764,7 @@ def run_labelstudio_import(
         prelabel_provider=prelabel_provider,
         codex_cmd=codex_cmd,
         codex_model=codex_model,
+        codex_reasoning_effort=codex_reasoning_effort,
         prelabel_timeout_seconds=prelabel_timeout_seconds,
         prelabel_cache_dir=prelabel_cache_dir,
         prelabel_granularity=prelabel_granularity,
@@ -1904,6 +2017,14 @@ def run_labelstudio_import(
     )
     if prelabel_errors_manifest_path:
         run_manifest_artifacts["prelabel_errors_jsonl"] = prelabel_errors_manifest_path
+    prelabel_prompt_log_manifest_path = _path_for_manifest(
+        run_root,
+        pred.get("prelabel_prompt_log_path"),
+    )
+    if prelabel_prompt_log_manifest_path:
+        run_manifest_artifacts["prelabel_prompt_log_jsonl"] = (
+            prelabel_prompt_log_manifest_path
+        )
     processed_run_manifest_path = _path_for_manifest(run_root, pred.get("processed_run_root"))
     if processed_run_manifest_path:
         run_manifest_artifacts["processed_output_run_dir"] = processed_run_manifest_path
@@ -1943,6 +2064,7 @@ def run_labelstudio_import(
         "prelabel": pred.get("prelabel"),
         "prelabel_report_path": pred.get("prelabel_report_path"),
         "prelabel_errors_path": pred.get("prelabel_errors_path"),
+        "prelabel_prompt_log_path": pred.get("prelabel_prompt_log_path"),
         "prelabel_upload_as": upload_as if prelabel else None,
         "prelabel_inline_annotations_fallback": inline_annotation_fallback,
         "prelabel_post_import_annotations_created": post_import_annotations_created,

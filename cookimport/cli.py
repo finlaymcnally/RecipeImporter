@@ -58,12 +58,16 @@ from cookimport.labelstudio.eval_freeform import (
     load_predicted_labeled_ranges,
 )
 from cookimport.labelstudio.prelabel import (
+    CODEX_REASONING_EFFORT_VALUES,
     PRELABEL_GRANULARITY_BLOCK,
     PRELABEL_GRANULARITY_SPAN,
     codex_account_summary,
+    codex_reasoning_effort_from_cmd,
     default_codex_cmd,
     default_codex_model,
+    default_codex_reasoning_effort,
     list_codex_models,
+    normalize_codex_reasoning_effort,
     normalize_prelabel_granularity,
 )
 from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_knowledge_harvest
@@ -210,7 +214,7 @@ def _menu_select(
     menu_help: str | None = None,
     **kwargs: Any,
 ) -> Any:
-    """Select helper with Backspace support for one-level menu back navigation."""
+    """Select helper with Escape support for one-level menu back navigation."""
     option_count = _menu_option_count(choices)
     use_shortcuts = option_count <= len(_MENU_SHORTCUT_KEYS)
     shortcut_bindings = _menu_shortcut_bindings(choices) if use_shortcuts else {}
@@ -220,15 +224,15 @@ def _menu_select(
         message,
         choices=choices,
         instruction=(
-            "(Type number shortcut to select, Enter to select, Backspace to go back)"
+            "(Type number shortcut to select, Enter to select, Esc to go back)"
             if use_shortcuts
-            else "(Enter to select, Backspace to go back)"
+            else "(Enter to select, Esc to go back)"
         ),
         use_shortcuts=use_shortcuts,
         **kwargs,
     )
 
-    @question.application.key_bindings.add(Keys.Backspace, eager=True)
+    @question.application.key_bindings.add(Keys.Escape, eager=True)
     def _go_back(event: Any) -> None:
         event.app.exit(result=BACK_ACTION)
 
@@ -245,6 +249,63 @@ def _menu_select(
             _register_numeric_shortcut(key, value)
 
     return question.ask()
+
+
+def _ask_with_escape_back(question: Any, *, back_result: Any = None) -> Any:
+    """Ask a Questionary prompt and map Escape to a caller-defined back result."""
+    application = getattr(question, "application", None)
+    key_bindings = getattr(application, "key_bindings", None)
+    if key_bindings is not None:
+        @key_bindings.add(Keys.Escape, eager=True)
+        def _go_back(event: Any) -> None:
+            event.app.exit(result=back_result)
+    return question.ask()
+
+
+def _prompt_text(
+    message: str,
+    *,
+    default: str = "",
+    instruction: str | None = None,
+    **kwargs: Any,
+) -> str | None:
+    question = questionary.text(
+        message,
+        default=default,
+        instruction=instruction,
+        **kwargs,
+    )
+    return _ask_with_escape_back(question, back_result=None)
+
+
+def _prompt_password(
+    message: str,
+    *,
+    default: str = "",
+    **kwargs: Any,
+) -> str | None:
+    question = questionary.password(
+        message,
+        default=default,
+        **kwargs,
+    )
+    return _ask_with_escape_back(question, back_result=None)
+
+
+def _prompt_confirm(
+    message: str,
+    *,
+    default: bool = True,
+    instruction: str | None = None,
+    **kwargs: Any,
+) -> bool | None:
+    question = questionary.confirm(
+        message,
+        default=default,
+        instruction=instruction,
+        **kwargs,
+    )
+    return _ask_with_escape_back(question, back_result=None)
 
 
 def _load_settings() -> Dict[str, Any]:
@@ -285,8 +346,11 @@ def _save_settings(settings: Dict[str, Any]) -> None:
 
 def _resolve_interactive_labelstudio_settings(
     settings: Dict[str, Any],
-) -> tuple[str, str]:
-    """Resolve Label Studio creds for interactive flows, persisting prompted values."""
+) -> tuple[str, str] | None:
+    """Resolve Label Studio creds for interactive flows, persisting prompted values.
+
+    Returns None when the user cancels an interactive prompt.
+    """
     env_url = os.getenv("LABEL_STUDIO_URL")
     env_api_key = os.getenv("LABEL_STUDIO_API_KEY")
     stored_url = str(settings.get("label_studio_url", "") or "").strip()
@@ -296,14 +360,18 @@ def _resolve_interactive_labelstudio_settings(
     label_studio_api_key = env_api_key or stored_api_key
 
     if not label_studio_url:
-        label_studio_url = questionary.text(
+        label_studio_url = _prompt_text(
             "Label Studio URL:",
             default=stored_url or "http://localhost:8080",
-        ).ask()
+        )
+        if label_studio_url is None:
+            return None
     if not label_studio_api_key:
-        label_studio_api_key = questionary.password(
+        label_studio_api_key = _prompt_password(
             "Label Studio API key:",
-        ).ask()
+        )
+        if label_studio_api_key is None:
+            return None
 
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
 
@@ -324,13 +392,15 @@ def _resolve_interactive_labelstudio_settings(
                 "Saved Label Studio credentials were rejected. Please enter updated values.",
                 fg=typer.colors.YELLOW,
             )
-            refreshed_url = questionary.text(
+            refreshed_url = _prompt_text(
                 "Label Studio URL:",
                 default=url,
-            ).ask()
-            refreshed_api_key = questionary.password(
+            )
+            refreshed_api_key = _prompt_password(
                 "Label Studio API key:",
-            ).ask()
+            )
+            if refreshed_url is None or refreshed_api_key is None:
+                return None
             url, api_key = _resolve_labelstudio_settings(refreshed_url, refreshed_api_key)
             settings["label_studio_url"] = url
             settings["label_studio_api_key"] = api_key
@@ -455,25 +525,28 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
             break
             
         if choice == "workers":
-            val = questionary.text("Enter number of workers:", default=str(current_settings.get("workers", 7))).ask()
+            val = _prompt_text(
+                "Enter number of workers:",
+                default=str(current_settings.get("workers", 7)),
+            )
             if val and val.isdigit() and int(val) > 0:
                 current_settings["workers"] = int(val)
                 _save_settings(current_settings)
 
         elif choice == "pdf_split_workers":
-            val = questionary.text(
+            val = _prompt_text(
                 "Enter PDF split workers:",
                 default=str(current_settings.get("pdf_split_workers", 7)),
-            ).ask()
+            )
             if val and val.isdigit() and int(val) > 0:
                 current_settings["pdf_split_workers"] = int(val)
                 _save_settings(current_settings)
 
         elif choice == "epub_split_workers":
-            val = questionary.text(
+            val = _prompt_text(
                 "Enter EPUB split workers:",
                 default=str(current_settings.get("epub_split_workers", 7)),
-            ).ask()
+            )
             if val and val.isdigit() and int(val) > 0:
                 current_settings["epub_split_workers"] = int(val)
                 _save_settings(current_settings)
@@ -511,7 +584,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 _save_settings(current_settings)
 
         elif choice == "epub_unstructured_skip_headers_footers":
-            val = questionary.confirm(
+            val = _prompt_confirm(
                 "Skip headers/footers in Unstructured HTML partitioning?",
                 default=bool(
                     current_settings.get(
@@ -519,7 +592,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                         False,
                     )
                 ),
-            ).ask()
+            )
             if val is not None:
                 current_settings["epub_unstructured_skip_headers_footers"] = bool(val)
                 _save_settings(current_settings)
@@ -553,40 +626,46 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 _save_settings(current_settings)
                 
         elif choice == "ocr_batch_size":
-            val = questionary.text("Enter OCR batch size:", default=str(current_settings.get("ocr_batch_size", 1))).ask()
+            val = _prompt_text(
+                "Enter OCR batch size:",
+                default=str(current_settings.get("ocr_batch_size", 1)),
+            )
             if val and val.isdigit() and int(val) > 0:
                 current_settings["ocr_batch_size"] = int(val)
                 _save_settings(current_settings)
 
         elif choice == "output_dir":
-            val = questionary.text(
+            val = _prompt_text(
                 "Enter output folder for interactive runs:",
                 default=str(current_settings.get("output_dir", str(DEFAULT_INTERACTIVE_OUTPUT))),
-            ).ask()
+            )
             if val:
                 current_settings["output_dir"] = str(Path(val).expanduser())
                 _save_settings(current_settings)
 
         elif choice == "pdf_pages_per_job":
-            val = questionary.text(
+            val = _prompt_text(
                 "Enter PDF pages per job:",
                 default=str(current_settings.get("pdf_pages_per_job", 50)),
-            ).ask()
+            )
             if val and val.isdigit() and int(val) > 0:
                 current_settings["pdf_pages_per_job"] = int(val)
                 _save_settings(current_settings)
 
         elif choice == "epub_spine_items_per_job":
-            val = questionary.text(
+            val = _prompt_text(
                 "Enter EPUB spine items per job:",
                 default=str(current_settings.get("epub_spine_items_per_job", 10)),
-            ).ask()
+            )
             if val and val.isdigit() and int(val) > 0:
                 current_settings["epub_spine_items_per_job"] = int(val)
                 _save_settings(current_settings)
 
         elif choice == "warm_models":
-            val = questionary.confirm("Warm models on start?", default=current_settings.get("warm_models", False)).ask()
+            val = _prompt_confirm(
+                "Warm models on start?",
+                default=current_settings.get("warm_models", False),
+            )
             if val is not None:
                 current_settings["warm_models"] = val
                 _save_settings(current_settings)
@@ -610,29 +689,29 @@ def _interactive_epub_race(epub_files: list[Path]) -> None:
         return
 
     default_out = DEFAULT_EPUB_RACE_OUTPUT_ROOT / selected_epub.stem
-    out_raw = questionary.text(
+    out_raw = _prompt_text(
         "Race output folder:",
         default=str(default_out),
-    ).ask()
+    )
     if out_raw is None:
         return
     out_dir = Path(out_raw.strip() or str(default_out)).expanduser()
 
     force = False
     if out_dir.exists() and out_dir.is_dir() and any(out_dir.iterdir()):
-        overwrite = questionary.confirm(
+        overwrite = _prompt_confirm(
             "Output folder is not empty. Continue with overwrite behavior?",
             default=False,
-        ).ask()
+        )
         if overwrite is None or not overwrite:
             typer.secho("EPUB race cancelled.", fg=typer.colors.YELLOW)
             return
         force = True
 
-    candidates_raw = questionary.text(
+    candidates_raw = _prompt_text(
         "Candidate extractors (comma-separated):",
         default="unstructured,markdown,legacy",
-    ).ask()
+    )
     if candidates_raw is None:
         return
     candidates = candidates_raw.strip() or "unstructured,markdown,legacy"
@@ -729,10 +808,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             raise typer.Exit(0)
 
         if action == "generate_dashboard":
-            open_dashboard = questionary.confirm(
+            open_dashboard = _prompt_confirm(
                 "Open dashboard in your browser after generation?",
                 default=True,
-            ).ask()
+            )
             if open_dashboard is None:
                 continue
             typer.secho(
@@ -877,10 +956,12 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             if selected_file in {None, BACK_ACTION}:
                 continue
 
-            project_name = questionary.text(
+            project_name = _prompt_text(
                 "Project name (leave blank to auto-name):",
                 default="",
-            ).ask()
+            )
+            if project_name is None:
+                continue
             if project_name is not None:
                 project_name = project_name.strip() or None
 
@@ -913,6 +994,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             context_window = 1
             segment_blocks = 40
             segment_overlap = 5
+            segment_focus_blocks = 40
+            target_task_count: int | None = None
             prelabel = False
             prelabel_provider = "codex-cli"
             prelabel_timeout_seconds = 120
@@ -922,6 +1005,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             prelabel_allow_partial = False
             codex_cmd: str | None = None
             codex_model: str | None = None
+            codex_reasoning_effort: str | None = None
             prelabel_track_token_usage = True
 
             if task_scope == "pipeline":
@@ -948,10 +1032,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 if chunk_level in {None, BACK_ACTION}:
                     continue
             elif task_scope == "canonical-blocks":
-                context_window_raw = questionary.text(
+                context_window_raw = _prompt_text(
                     "Canonical context window (blocks):",
                     default="1",
-                ).ask()
+                )
                 if context_window_raw is None:
                     continue
                 try:
@@ -960,16 +1044,16 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     typer.secho("Context window must be an integer >= 0.", fg=typer.colors.RED)
                     continue
             elif task_scope == "freeform-spans":
-                segment_blocks_raw = questionary.text(
+                segment_blocks_raw = _prompt_text(
                     "Freeform segment size (blocks per task):",
                     default="40",
-                ).ask()
+                )
                 if segment_blocks_raw is None:
                     continue
-                segment_overlap_raw = questionary.text(
+                segment_overlap_raw = _prompt_text(
                     "Freeform overlap (blocks):",
                     default="5",
-                ).ask()
+                )
                 if segment_overlap_raw is None:
                     continue
                 try:
@@ -984,6 +1068,52 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 if segment_overlap < 0:
                     typer.secho("Segment overlap must be >= 0.", fg=typer.colors.RED)
                     continue
+                segment_focus_blocks_raw = _prompt_text(
+                    "Freeform focus size (blocks to label per task):",
+                    default=str(segment_blocks),
+                )
+                if segment_focus_blocks_raw is None:
+                    continue
+                target_task_count_raw = _prompt_text(
+                    "Target task count (optional, blank to disable):",
+                    default="",
+                )
+                if target_task_count_raw is None:
+                    continue
+                try:
+                    segment_focus_blocks = int(segment_focus_blocks_raw.strip())
+                except ValueError:
+                    typer.secho(
+                        "Focus size must be an integer >= 1.",
+                        fg=typer.colors.RED,
+                    )
+                    continue
+                if segment_focus_blocks < 1:
+                    typer.secho("Focus size must be >= 1.", fg=typer.colors.RED)
+                    continue
+                if segment_focus_blocks > segment_blocks:
+                    typer.secho(
+                        "Focus size must be <= segment size.",
+                        fg=typer.colors.RED,
+                    )
+                    continue
+                target_task_count = None
+                target_task_count_text = target_task_count_raw.strip()
+                if target_task_count_text:
+                    try:
+                        target_task_count = int(target_task_count_text)
+                    except ValueError:
+                        typer.secho(
+                            "Target task count must be an integer >= 1.",
+                            fg=typer.colors.RED,
+                        )
+                        continue
+                    if target_task_count < 1:
+                        typer.secho(
+                            "Target task count must be >= 1.",
+                            fg=typer.colors.RED,
+                        )
+                        continue
                 prelabel_mode = _menu_select(
                     "AI prelabel mode before upload:",
                     menu_help=(
@@ -1087,10 +1217,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                         continue
                     if model_choice == "__custom__":
                         custom_default = detected_model or ""
-                        custom_model = questionary.text(
+                        custom_model = _prompt_text(
                             "Codex model id:",
                             default=custom_default,
-                        ).ask()
+                        )
                         if custom_model is None:
                             continue
                         codex_model = custom_model.strip() or None
@@ -1099,10 +1229,52 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     else:
                         codex_model = str(model_choice)
 
+                    detected_effort = codex_reasoning_effort_from_cmd(
+                        codex_cmd
+                    ) or default_codex_reasoning_effort(cmd=codex_cmd)
+                    detected_effort_label = detected_effort or "config default"
+                    effort_description = {
+                        "none": "disable extra reasoning",
+                        "minimal": "lightest reasoning",
+                        "low": "low reasoning budget",
+                        "medium": "balanced reasoning",
+                        "high": "deeper reasoning",
+                        "xhigh": "maximum reasoning",
+                    }
+                    effort_choices: list[QuestionaryChoice] = [
+                        questionary.Choice(
+                            f"use Codex default ({detected_effort_label})",
+                            value="__default_effort__",
+                        )
+                    ]
+                    for effort in CODEX_REASONING_EFFORT_VALUES:
+                        detail = effort_description.get(effort, "")
+                        label = effort if not detail else f"{effort} - {detail}"
+                        effort_choices.append(
+                            questionary.Choice(label, value=effort)
+                        )
+                    effort_choice = _menu_select(
+                        "Codex thinking effort for AI prelabeling:",
+                        menu_help=(
+                            "Pick a reasoning effort for this run "
+                            "(Codex config: model_reasoning_effort)."
+                        ),
+                        choices=effort_choices,
+                    )
+                    if effort_choice in {None, BACK_ACTION}:
+                        continue
+                    if effort_choice == "__default_effort__":
+                        codex_reasoning_effort = None
+                    else:
+                        codex_reasoning_effort = str(effort_choice)
+
             # Interactive flow always recreates the project if it exists.
             overwrite = True
 
-            url, api_key = _resolve_interactive_labelstudio_settings(settings)
+            resolved_creds = _resolve_interactive_labelstudio_settings(settings)
+            if resolved_creds is None:
+                continue
+            url, api_key = resolved_creds
 
             import_started_at = time.monotonic()
             try:
@@ -1118,6 +1290,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                         context_window=context_window,
                         segment_blocks=segment_blocks,
                         segment_overlap=segment_overlap,
+                        segment_focus_blocks=segment_focus_blocks,
+                        target_task_count=target_task_count,
                         overwrite=overwrite,
                         resume=False,
                         label_studio_url=url,
@@ -1129,6 +1303,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                         prelabel_provider=prelabel_provider,
                         codex_cmd=codex_cmd,
                         codex_model=codex_model,
+                        codex_reasoning_effort=codex_reasoning_effort,
                         prelabel_timeout_seconds=prelabel_timeout_seconds,
                         prelabel_cache_dir=prelabel_cache_dir,
                         prelabel_upload_as=prelabel_upload_as,
@@ -1178,6 +1353,12 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                             f"Prelabel model: {model_label}",
                             fg=typer.colors.CYAN,
                         )
+                    reasoning_label = prelabel_summary.get("codex_reasoning_effort")
+                    if reasoning_label:
+                        typer.secho(
+                            f"Prelabel thinking effort: {reasoning_label}",
+                            fg=typer.colors.CYAN,
+                        )
                     granularity_label = prelabel_summary.get("granularity")
                     if granularity_label:
                         typer.secho(
@@ -1207,7 +1388,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
         elif action == "labelstudio_export":
             target_output_dir = DEFAULT_GOLDEN
 
-            url, api_key = _resolve_interactive_labelstudio_settings(settings)
+            resolved_creds = _resolve_interactive_labelstudio_settings(settings)
+            if resolved_creds is None:
+                continue
+            url, api_key = resolved_creds
             project_name, detected_scope = _select_export_project(
                 label_studio_url=url,
                 label_studio_api_key=api_key,
@@ -1356,7 +1540,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 fg=typer.colors.CYAN,
             )
 
-            url, api_key = _resolve_interactive_labelstudio_settings(settings)
+            resolved_creds = _resolve_interactive_labelstudio_settings(settings)
+            if resolved_creds is None:
+                continue
+            url, api_key = resolved_creds
             labelstudio_benchmark(
                 output_dir=DEFAULT_GOLDEN,
                 eval_output_dir=benchmark_eval_output,
@@ -1617,10 +1804,10 @@ def _resolve_labelstudio_settings(
 
 
 def _prompt_manual_project_name() -> str | None:
-    project_name_raw = questionary.text(
+    project_name_raw = _prompt_text(
         "Label Studio project name to export:",
         default="",
-    ).ask()
+    )
     if project_name_raw is None:
         return None
     project_name = project_name_raw.strip()
@@ -4264,6 +4451,28 @@ def labelstudio_import(
         min=0,
         help="Overlapping blocks between freeform-spans segments.",
     ),
+    segment_focus_blocks: Annotated[
+        int | None,
+        typer.Option(
+            "--segment-focus-blocks",
+            min=1,
+            help=(
+                "Blocks per freeform task that should receive labels. "
+                "Defaults to segment size when omitted."
+            ),
+        ),
+    ] = None,
+    target_task_count: Annotated[
+        int | None,
+        typer.Option(
+            "--target-task-count",
+            min=1,
+            help=(
+                "Optional freeform target task count; overlap is auto-tuned per file "
+                "to land as close as possible."
+            ),
+        ),
+    ] = None,
     overwrite: bool = typer.Option(
         False, "--overwrite/--resume", help="Overwrite project or resume."
     ),
@@ -4313,6 +4522,18 @@ def labelstudio_import(
             "When omitted, uses COOKIMPORT_CODEX_MODEL or your Codex CLI default model."
         ),
     ),
+    codex_reasoning_effort: Annotated[
+        str | None,
+        typer.Option(
+            "--codex-thinking-effort",
+            "--codex-reasoning-effort",
+            help=(
+                "Codex thinking effort for prelabel calls "
+                "(none, minimal, low, medium, high, xhigh). "
+                "Mapped to model_reasoning_effort."
+            ),
+        ),
+    ] = None,
     prelabel_timeout_seconds: int = typer.Option(
         120,
         "--prelabel-timeout-seconds",
@@ -4410,6 +4631,17 @@ def labelstudio_import(
         )
     except ValueError as exc:
         _fail(f"--prelabel-granularity invalid: {exc}")
+    try:
+        normalized_codex_reasoning_effort = normalize_codex_reasoning_effort(
+            codex_reasoning_effort
+        )
+    except ValueError as exc:
+        _fail(f"--codex-thinking-effort invalid: {exc}")
+    resolved_segment_focus_blocks = (
+        segment_blocks if segment_focus_blocks is None else int(segment_focus_blocks)
+    )
+    if task_scope == "freeform-spans" and resolved_segment_focus_blocks > segment_blocks:
+        _fail("--segment-focus-blocks must be <= --segment-blocks.")
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
@@ -4441,6 +4673,8 @@ def labelstudio_import(
                 context_window=context_window,
                 segment_blocks=segment_blocks,
                 segment_overlap=segment_overlap,
+                segment_focus_blocks=resolved_segment_focus_blocks,
+                target_task_count=target_task_count,
                 overwrite=overwrite,
                 resume=not overwrite,
                 label_studio_url=url,
@@ -4452,6 +4686,7 @@ def labelstudio_import(
                 prelabel_provider=prelabel_provider,
                 codex_cmd=codex_cmd,
                 codex_model=codex_model,
+                codex_reasoning_effort=normalized_codex_reasoning_effort,
                 prelabel_timeout_seconds=prelabel_timeout_seconds,
                 prelabel_cache_dir=prelabel_cache_dir,
                 prelabel_upload_as=normalized_prelabel_upload_as,
@@ -4500,6 +4735,12 @@ def labelstudio_import(
             model_label = prelabel_summary.get("codex_model")
             if model_label:
                 typer.secho(f"Prelabel model: {model_label}", fg=typer.colors.CYAN)
+            reasoning_label = prelabel_summary.get("codex_reasoning_effort")
+            if reasoning_label:
+                typer.secho(
+                    f"Prelabel thinking effort: {reasoning_label}",
+                    fg=typer.colors.CYAN,
+                )
             granularity_label = prelabel_summary.get("granularity")
             if granularity_label:
                 typer.secho(
@@ -5148,10 +5389,10 @@ def labelstudio_benchmark(
     if selected_source is None:
         inferred_source = _infer_source_file_from_freeform_gold(selected_gold)
     if selected_source is None and inferred_source is not None:
-        use_inferred = questionary.confirm(
+        use_inferred = _prompt_confirm(
             f"Use inferred source file `{inferred_source}`?",
             default=True,
-        ).ask()
+        )
         if use_inferred:
             selected_source = inferred_source
     if selected_source is None:
@@ -5171,14 +5412,14 @@ def labelstudio_benchmark(
             if source_choice in {None, BACK_ACTION}:
                 _fail("Benchmark cancelled.")
             if source_choice == "custom":
-                source_path = questionary.text("Enter source file path:").ask()
+                source_path = _prompt_text("Enter source file path:")
                 if not source_path:
                     _fail("Benchmark cancelled.")
                 selected_source = Path(source_path)
             else:
                 selected_source = source_choice
         else:
-            source_path = questionary.text("Enter source file path:").ask()
+            source_path = _prompt_text("Enter source file path:")
             if not source_path:
                 _fail("Benchmark cancelled.")
             selected_source = Path(source_path)

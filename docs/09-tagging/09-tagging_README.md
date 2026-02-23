@@ -25,6 +25,6 @@ For tagging architecture/build/fix-attempt history and anti-loop context, use `d
 - Module-level quickstart:
   `cookimport/tagging/README.md`
 - Implementation plan details:
-  `docs/12-plans/I4.1-Auto-tag.md`
+  `docs/plans/I4.1-Auto-tag.md`
 - Version/build/fix-attempt history:
   `docs/09-tagging/09-tagging_log.md`

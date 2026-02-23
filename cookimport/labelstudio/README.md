@@ -18,3 +18,4 @@ Label Studio benchmark mode helpers.
 - Interactive freeform import now exposes prelabel modes (`off`, strict/allow-partial annotations, plus predictions variants) that map directly to `--prelabel-upload-as` and `--prelabel-allow-partial`.
 - Interactive freeform prelabel now resolves command from `COOKIMPORT_CODEX_CMD` or default `codex exec -`, shows the resolved account email when available, and offers model selection from that command's Codex home metadata (`CODEX_HOME` honored).
 - Freeform prelabel supports explicit `--codex-model` selection (or command-specific Codex CLI default discovery), and token usage totals are captured into `prelabel_report.json` with command/account fields.
+- Freeform prelabel now also writes `prelabel_prompt_log.jsonl` in each run root (`data/golden/<timestamp>/labelstudio/<book_slug>/`) with full `codex exec` prompt text plus prompt-context description/metadata.

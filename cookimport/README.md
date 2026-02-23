@@ -27,8 +27,8 @@ about every 5 seconds with the latest progress message.
 Callback-driven spinners (Label Studio import, benchmark import, bench
 run/sweep) now append elapsed seconds after about 10 seconds on the same phase
 message so long-running steps remain visibly active.
-Interactive `C3imp`/`cookimport` menu `select` prompts now support Backspace as a
-quick "go back one menu level" action.
+Interactive `C3imp`/`cookimport` prompts now use `Esc` for one-level back/cancel
+navigation across both menu `select` prompts and typed text/confirm/password prompts.
 Interactive Label Studio import now supports all task scopes (`pipeline`,
 `canonical-blocks`, `freeform-spans`) and asks for scope-specific settings
 (chunk level, canonical context window, or freeform segment sizing).

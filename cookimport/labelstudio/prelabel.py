@@ -9,7 +9,7 @@ import re
 import shlex
 import subprocess
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_ALLOWED_LABELS,
@@ -258,6 +258,9 @@ class CodexCliProvider:
 
 
 _MODEL_CONFIG_LINE_RE = re.compile(r"^\s*model\s*=\s*['\"]([^'\"]+)['\"]\s*$")
+_MODEL_REASONING_EFFORT_CONFIG_LINE_RE = re.compile(
+    r"^\s*model_reasoning_effort\s*=\s*['\"]([^'\"]+)['\"]\s*$"
+)
 _CODEX_EXECUTABLES = {"codex", "codex.exe", "codex2", "codex2.exe"}
 _CODEX_ALT_EXECUTABLE_RE = re.compile(r"^codex[0-9]+(?:\.exe)?$")
 _ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
@@ -280,6 +283,15 @@ _PRELABEL_GRANULARITY_ALIASES = {
     "actual_freeform_spans": PRELABEL_GRANULARITY_SPAN,
 }
 
+CODEX_REASONING_EFFORT_VALUES = (
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+)
+
 
 def normalize_prelabel_granularity(value: str | None) -> str:
     normalized = (value or PRELABEL_GRANULARITY_BLOCK).strip().lower()
@@ -291,6 +303,18 @@ def normalize_prelabel_granularity(value: str | None) -> str:
             "(aliases: legacy, actual_freeform)."
         )
     return resolved
+
+
+def normalize_codex_reasoning_effort(value: str | None) -> str | None:
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        return None
+    if normalized not in CODEX_REASONING_EFFORT_VALUES:
+        allowed = ", ".join(CODEX_REASONING_EFFORT_VALUES)
+        raise ValueError(
+            f"codex thinking effort must be one of: {allowed}"
+        )
+    return normalized
 
 
 def _normalize_codex_error_detail(value: str) -> str:
@@ -329,15 +353,21 @@ GOAL
 For each block, choose the label that best describes what the block IS, using local context
 (neighboring blocks) to determine whether we are inside a recipe or in general/narrative text.
 
+FOCUS SCOPE
+{{FOCUS_CONSTRAINTS}}
+Focus blocks to label (context blocks may be broader):
+{{FOCUS_BLOCK_JSON_LINES}}
+
 RETURN FORMAT (STRICT)
 Return STRICT JSON ONLY. No markdown, no commentary, no extra keys.
 Output format exactly:
 [{"block_index": <int>, "label": "<LABEL>"}]
 
 HARD RULES
-1) Include EVERY input block_index exactly once.
-2) Keep the SAME ORDER as the blocks are listed.
-3) label must be exactly one of:
+1) Return labels only for focus blocks.
+2) Keep the SAME ORDER as the focus blocks listed above.
+3) Include each focus block_index exactly once.
+4) label must be exactly one of:
    {{ALLOWED_LABELS}}
 {{UNCERTAINTY_HINT}}
 
@@ -435,6 +465,11 @@ GOAL
 - Use only these labels:
   {{ALLOWED_LABELS}}
 
+FOCUS SCOPE
+{{FOCUS_CONSTRAINTS}}
+Focus blocks to label (context blocks may be broader):
+{{FOCUS_BLOCK_JSON_LINES}}
+
 RETURN FORMAT (STRICT JSON ONLY)
 Return ONLY a JSON array. No markdown. No commentary.
 Each item must be one of:
@@ -444,6 +479,7 @@ Each item must be one of:
    {"label": "<LABEL>", "start": <int>, "end": <int>}
 
 RULES
+- Return spans only for focus blocks. Non-focus blocks are context only.
 - quote text must be copied exactly from block text (case and internal whitespace must match).
 - You may omit leading/trailing spaces in quote.
 - If the quote appears multiple times in the same block, include occurrence.
@@ -495,15 +531,30 @@ def _split_command_env_and_argv(cmd: str) -> tuple[dict[str, str], list[str]]:
     return env_vars, tokens[index:]
 
 
-def _extract_model_from_config_override(value: str) -> str | None:
+def _extract_config_override_value(value: str, *, key: str) -> str | None:
     stripped = value.strip()
-    if not stripped.startswith("model="):
+    if "=" not in stripped:
         return None
-    parsed = stripped.split("=", 1)[1].strip()
+    parsed_key, parsed_value = stripped.split("=", 1)
+    if parsed_key.strip() != key:
+        return None
+    parsed = parsed_value.strip()
     if len(parsed) >= 2 and parsed[0] == parsed[-1] and parsed[0] in {"'", '"'}:
         parsed = parsed[1:-1]
     normalized = parsed.strip()
     return normalized or None
+
+
+def _extract_model_from_config_override(value: str) -> str | None:
+    return _extract_config_override_value(value, key="model")
+
+
+def _extract_reasoning_effort_from_config_override(value: str) -> str | None:
+    parsed = _extract_config_override_value(value, key="model_reasoning_effort")
+    try:
+        return normalize_codex_reasoning_effort(parsed)
+    except ValueError:
+        return None
 
 
 def _dedupe_paths(paths: list[Path]) -> list[Path]:
@@ -647,14 +698,41 @@ def _argv_has_model_setting(argv: list[str]) -> bool:
             return True
         if token.startswith("--model="):
             return True
-        if token == "-c" and index + 1 < len(argv):
+        if token in {"-c", "--config"} and index + 1 < len(argv):
             if _extract_model_from_config_override(argv[index + 1]):
                 return True
             index += 2
             continue
+        if token.startswith("--config="):
+            if _extract_model_from_config_override(token.split("=", 1)[1]):
+                return True
+            index += 1
+            continue
         if token.startswith("-c"):
             candidate = token[2:]
             if _extract_model_from_config_override(candidate):
+                return True
+        index += 1
+    return False
+
+
+def _argv_has_reasoning_effort_setting(argv: list[str]) -> bool:
+    index = 1
+    while index < len(argv):
+        token = argv[index]
+        if token in {"-c", "--config"} and index + 1 < len(argv):
+            if _extract_reasoning_effort_from_config_override(argv[index + 1]):
+                return True
+            index += 2
+            continue
+        if token.startswith("--config="):
+            if _extract_reasoning_effort_from_config_override(token.split("=", 1)[1]):
+                return True
+            index += 1
+            continue
+        if token.startswith("-c"):
+            candidate = token[2:]
+            if _extract_reasoning_effort_from_config_override(candidate):
                 return True
         index += 1
     return False
@@ -679,6 +757,29 @@ def codex_cmd_with_model(cmd: str, model: str | None) -> str:
         return shlex.join(updated)
     if len(argv) == 1:
         return shlex.join([argv[0], "--model", normalized_model])
+    return normalized_cmd
+
+
+def codex_cmd_with_reasoning_effort(cmd: str, effort: str | None) -> str:
+    """Append `-c model_reasoning_effort=...` when command is codex-based."""
+    normalized_cmd = cmd.strip()
+    normalized_effort = normalize_codex_reasoning_effort(effort)
+    if not normalized_cmd or not normalized_effort:
+        return normalized_cmd
+    try:
+        argv = shlex.split(normalized_cmd)
+    except ValueError:
+        return normalized_cmd
+    if not argv or not _is_codex_executable(argv[0]):
+        return normalized_cmd
+    if _argv_has_reasoning_effort_setting(argv):
+        return normalized_cmd
+    config_arg = f'model_reasoning_effort="{normalized_effort}"'
+    if len(argv) >= 2 and argv[1].lower() in {"exec", "e"}:
+        updated = [argv[0], argv[1], "-c", config_arg, *argv[2:]]
+        return shlex.join(updated)
+    if len(argv) == 1:
+        return shlex.join([argv[0], "-c", config_arg])
     return normalized_cmd
 
 
@@ -713,6 +814,41 @@ def codex_model_from_cmd(cmd: str) -> str | None:
     return None
 
 
+def codex_reasoning_effort_from_cmd(cmd: str) -> str | None:
+    """Best-effort extraction of model_reasoning_effort from codex command config overrides."""
+    try:
+        argv = shlex.split(cmd)
+    except ValueError:
+        return None
+    if not argv or not _is_codex_executable(argv[0]):
+        return None
+    index = 1
+    while index < len(argv):
+        token = argv[index]
+        if token in {"-c", "--config"} and index + 1 < len(argv):
+            candidate = _extract_reasoning_effort_from_config_override(
+                str(argv[index + 1])
+            )
+            if candidate:
+                return candidate
+            index += 2
+            continue
+        if token.startswith("--config="):
+            candidate = _extract_reasoning_effort_from_config_override(
+                token.split("=", 1)[1]
+            )
+            if candidate:
+                return candidate
+            index += 1
+            continue
+        if token.startswith("-c"):
+            candidate = _extract_reasoning_effort_from_config_override(token[2:])
+            if candidate:
+                return candidate
+        index += 1
+    return None
+
+
 def default_codex_model(cmd: str | None = None) -> str | None:
     """Resolve default codex model from env then Codex config file."""
     env_model = os.environ.get("COOKIMPORT_CODEX_MODEL")
@@ -733,6 +869,28 @@ def default_codex_model(cmd: str | None = None) -> str | None:
             model = match.group(1).strip()
             if model:
                 return model
+    return None
+
+
+def default_codex_reasoning_effort(cmd: str | None = None) -> str | None:
+    """Resolve default codex reasoning effort from Codex config file."""
+    for path in _codex_config_paths(cmd=cmd):
+        if not path.exists():
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            match = _MODEL_REASONING_EFFORT_CONFIG_LINE_RE.match(line)
+            if not match:
+                continue
+            try:
+                effort = normalize_codex_reasoning_effort(match.group(1))
+            except ValueError:
+                effort = None
+            if effort:
+                return effort
     return None
 
 
@@ -983,6 +1141,61 @@ def _build_block_map(task: dict[str, Any]) -> dict[int, tuple[int, int]]:
     return block_map
 
 
+def _available_block_indices(source_blocks: list[dict[str, Any]]) -> list[int]:
+    available: list[int] = []
+    seen: set[int] = set()
+    for item in source_blocks:
+        block_index_raw = item.get("block_index")
+        try:
+            block_index = int(block_index_raw)
+        except (TypeError, ValueError):
+            continue
+        if block_index in seen:
+            continue
+        available.append(block_index)
+        seen.add(block_index)
+    return available
+
+
+def _resolve_focus_block_indices(
+    *,
+    source_map: dict[str, Any],
+    available_block_indices: list[int],
+) -> list[int]:
+    raw_focus_indices = source_map.get("focus_block_indices")
+    if not isinstance(raw_focus_indices, list):
+        return list(available_block_indices)
+    available = set(available_block_indices)
+    focus_indices: list[int] = []
+    seen: set[int] = set()
+    for value in raw_focus_indices:
+        try:
+            block_index = int(value)
+        except (TypeError, ValueError):
+            continue
+        if block_index in seen or block_index not in available:
+            continue
+        focus_indices.append(block_index)
+        seen.add(block_index)
+    if focus_indices:
+        return focus_indices
+    return list(available_block_indices)
+
+
+def _resolve_focus_block_index_set(
+    *,
+    source_map: dict[str, Any],
+    source_blocks: list[dict[str, Any]],
+) -> set[int]:
+    available_indices = _available_block_indices(source_blocks)
+    return set(
+        _resolve_focus_block_indices(
+            source_map=source_map,
+            available_block_indices=available_indices,
+        )
+    )
+
+
 def _result_key(result_item: dict[str, Any]) -> tuple[str, int, int]:
     value = result_item.get("value")
     if not isinstance(value, dict):
@@ -1081,18 +1294,44 @@ def _resolve_quote_offsets(
     return None
 
 
+def _touched_block_indices_for_span(
+    *,
+    source_blocks: list[dict[str, Any]],
+    start: int,
+    end: int,
+) -> set[int]:
+    touched: set[int] = set()
+    for item in source_blocks:
+        block_index_raw = item.get("block_index")
+        block_start_raw = item.get("segment_start")
+        block_end_raw = item.get("segment_end")
+        try:
+            block_index = int(block_index_raw)
+            block_start = int(block_start_raw)
+            block_end = int(block_end_raw)
+        except (TypeError, ValueError):
+            continue
+        if end <= block_start or start >= block_end:
+            continue
+        touched.add(block_index)
+    return touched
+
+
 def _build_results_for_block_mode(
     *,
     selections: list[dict[str, Any]],
     segment_id: str,
     segment_text: str,
     block_map: dict[int, tuple[int, int]],
+    focus_block_indices: set[int],
     allowed_labels: set[str],
 ) -> list[dict[str, Any]]:
     seen_keys: set[tuple[str, int, int]] = set()
     generated: list[dict[str, Any]] = []
     for selection in selections:
         block_index = int(selection["block_index"])
+        if block_index not in focus_block_indices:
+            continue
         label = normalize_freeform_label(str(selection["label"]))
         if label not in allowed_labels:
             continue
@@ -1122,6 +1361,8 @@ def _build_results_for_span_mode(
     segment_id: str,
     segment_text: str,
     block_map: dict[int, tuple[int, int]],
+    source_blocks: list[dict[str, Any]],
+    focus_block_indices: set[int],
     allowed_labels: set[str],
 ) -> list[dict[str, Any]]:
     seen_keys: set[tuple[str, int, int]] = set()
@@ -1142,10 +1383,22 @@ def _build_results_for_span_mode(
                 continue
             if start < 0 or end <= start or end > len(segment_text):
                 continue
+            touched_block_indices = _touched_block_indices_for_span(
+                source_blocks=source_blocks,
+                start=start,
+                end=end,
+            )
+            if (
+                not touched_block_indices
+                or not touched_block_indices.issubset(focus_block_indices)
+            ):
+                continue
         elif kind == "quote":
             try:
                 block_index = int(selection.get("block_index"))
             except (TypeError, ValueError):
+                continue
+            if block_index not in focus_block_indices:
                 continue
             block_offsets = block_map.get(block_index)
             if block_offsets is None:
@@ -1230,6 +1483,7 @@ def _build_prompt(
     if not isinstance(blocks, list):
         raise ValueError("task source_map.blocks missing")
 
+    valid_blocks: list[tuple[int, str]] = []
     lines: list[str] = []
     for block in blocks:
         if not isinstance(block, dict):
@@ -1246,6 +1500,7 @@ def _build_prompt(
         if start < 0 or end <= start or end > len(segment_text):
             continue
         block_text = segment_text[start:end]
+        valid_blocks.append((block_index, block_text))
         lines.append(
             json.dumps(
                 {"block_index": block_index, "text": block_text},
@@ -1253,11 +1508,37 @@ def _build_prompt(
             )
         )
 
+    available_block_indices = [block_index for block_index, _text in valid_blocks]
+    focus_block_indices = _resolve_focus_block_indices(
+        source_map=source_map,
+        available_block_indices=available_block_indices,
+    )
+    focus_block_index_set = set(focus_block_indices)
+    focus_lines = [
+        json.dumps({"block_index": block_index, "text": block_text}, ensure_ascii=False)
+        for block_index, block_text in valid_blocks
+        if block_index in focus_block_index_set
+    ]
+    if not focus_lines:
+        focus_lines = list(lines)
+
     ordered_allowed_labels = [
         label for label in FREEFORM_LABELS if label in set(allowed_labels)
     ]
     allowed_labels_text = ", ".join(ordered_allowed_labels)
     blocks_json_lines = "\n".join(lines)
+    focus_blocks_json_lines = "\n".join(focus_lines)
+    if len(focus_lines) == len(lines):
+        focus_constraints = (
+            "- Focus equals context for this task: label all listed blocks.\n"
+            "- Keep the same order as listed."
+        )
+    else:
+        focus_constraints = (
+            "- Label only the focus blocks listed below.\n"
+            "- Do not label non-focus blocks; they are context only."
+        )
+
     normalized_granularity = normalize_prelabel_granularity(prelabel_granularity)
     if normalized_granularity == PRELABEL_GRANULARITY_SPAN:
         return _render_prompt_template(
@@ -1265,6 +1546,8 @@ def _build_prompt(
             fallback=_SPAN_PROMPT_TEMPLATE_FALLBACK,
             replacements={
                 "{{ALLOWED_LABELS}}": allowed_labels_text,
+                "{{FOCUS_CONSTRAINTS}}": focus_constraints,
+                "{{FOCUS_BLOCK_JSON_LINES}}": focus_blocks_json_lines,
                 "{{SEGMENT_ID}}": segment_id,
                 "{{BLOCKS_JSON_LINES}}": blocks_json_lines,
             },
@@ -1272,12 +1555,12 @@ def _build_prompt(
 
     if "OTHER" in ordered_allowed_labels and "RECIPE_NOTES" in ordered_allowed_labels:
         uncertainty_hint = (
-            "4) If uncertain, prefer OTHER (or RECIPE_NOTES if clearly inside a recipe)."
+            "5) If uncertain, prefer OTHER (or RECIPE_NOTES if clearly inside a recipe)."
         )
     elif "OTHER" in ordered_allowed_labels:
-        uncertainty_hint = "4) If uncertain, prefer OTHER."
+        uncertainty_hint = "5) If uncertain, prefer OTHER."
     else:
-        uncertainty_hint = "4) If uncertain, choose the closest allowed label."
+        uncertainty_hint = "5) If uncertain, choose the closest allowed label."
 
     return _render_prompt_template(
         path=_FULL_PROMPT_TEMPLATE_PATH,
@@ -1285,10 +1568,83 @@ def _build_prompt(
         replacements={
             "{{ALLOWED_LABELS}}": allowed_labels_text,
             "{{UNCERTAINTY_HINT}}": uncertainty_hint,
+            "{{FOCUS_CONSTRAINTS}}": focus_constraints,
+            "{{FOCUS_BLOCK_JSON_LINES}}": focus_blocks_json_lines,
             "{{SEGMENT_ID}}": segment_id,
             "{{BLOCKS_JSON_LINES}}": blocks_json_lines,
         },
     )
+
+
+def _build_prompt_log_entry(
+    *,
+    task: dict[str, Any],
+    prompt: str,
+    prompt_hash: str,
+    allowed_labels: set[str],
+    prelabel_granularity: str,
+    focus_block_indices: set[int],
+    provider: LlmProvider,
+) -> dict[str, Any]:
+    data = task.get("data") if isinstance(task, dict) else {}
+    if not isinstance(data, dict):
+        data = {}
+    source_map = data.get("source_map")
+    if not isinstance(source_map, dict):
+        source_map = {}
+    source_blocks = source_map.get("blocks")
+    if not isinstance(source_blocks, list):
+        source_blocks = []
+    block_indices: list[int] = []
+    for block in source_blocks:
+        if not isinstance(block, dict):
+            continue
+        try:
+            block_indices.append(int(block.get("block_index")))
+        except (TypeError, ValueError):
+            continue
+    ordered_allowed_labels = [
+        label for label in FREEFORM_LABELS if label in set(allowed_labels)
+    ]
+    normalized_granularity = normalize_prelabel_granularity(prelabel_granularity)
+    template_name = (
+        _SPAN_PROMPT_TEMPLATE_PATH.name
+        if normalized_granularity == PRELABEL_GRANULARITY_SPAN
+        else _FULL_PROMPT_TEMPLATE_PATH.name
+    )
+    if normalized_granularity == PRELABEL_GRANULARITY_SPAN:
+        prompt_payload_description = (
+            "Prompt includes allowed labels, focus constraints, focus block JSON lines, "
+            "and full context block JSON lines for quote/offset span resolution."
+        )
+    else:
+        prompt_payload_description = (
+            "Prompt includes allowed labels, uncertainty guidance, focus constraints, "
+            "focus block JSON lines, and full context block JSON lines for block labels."
+        )
+    return {
+        "task_scope": "freeform-spans",
+        "segment_id": str(data.get("segment_id") or ""),
+        "source_file": data.get("source_file"),
+        "source_hash": data.get("source_hash"),
+        "book_id": data.get("book_id"),
+        "granularity": normalized_granularity,
+        "prompt_template": template_name,
+        "prompt_hash": prompt_hash,
+        "prompt": prompt,
+        "included_with_prompt": {
+            "segment_text_char_count": len(str(data.get("segment_text") or "")),
+            "segment_block_count": len(block_indices),
+            "segment_block_indices": block_indices,
+            "focus_block_count": len(focus_block_indices),
+            "focus_block_indices": sorted(focus_block_indices),
+            "allowed_labels": ordered_allowed_labels,
+            "provider_class": provider.__class__.__name__,
+            "provider_cmd": getattr(provider, "cmd", None),
+            "provider_model": getattr(provider, "model", None),
+        },
+        "included_with_prompt_description": prompt_payload_description,
+    }
 
 
 def prelabel_freeform_task(
@@ -1297,6 +1653,7 @@ def prelabel_freeform_task(
     provider: LlmProvider,
     allowed_labels: set[str] | None = None,
     prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
+    prompt_log_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any] | None:
     """Generate one Label Studio annotation from LLM prelabel suggestions."""
     normalized_allowed = {
@@ -1310,7 +1667,20 @@ def prelabel_freeform_task(
         raise ValueError("allowed_labels cannot be empty")
     normalized_granularity = normalize_prelabel_granularity(prelabel_granularity)
 
-    segment_id, segment_text, _source_blocks = _extract_task_data(task)
+    segment_id, segment_text, source_blocks = _extract_task_data(task)
+    data = task.get("data")
+    if not isinstance(data, dict):
+        raise ValueError("task missing data object")
+    source_map = data.get("source_map")
+    if not isinstance(source_map, dict):
+        raise ValueError("task missing data.source_map")
+    focus_block_indices = _resolve_focus_block_index_set(
+        source_map=source_map,
+        source_blocks=source_blocks,
+    )
+    if not focus_block_indices:
+        raise ValueError("task source_map has no valid focus block indices")
+
     block_map = _build_block_map(task)
     if not block_map:
         raise ValueError("task source_map has no valid block offsets")
@@ -1321,6 +1691,18 @@ def prelabel_freeform_task(
         prelabel_granularity=normalized_granularity,
     )
     prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+    if prompt_log_callback is not None:
+        prompt_log_callback(
+            _build_prompt_log_entry(
+                task=task,
+                prompt=prompt,
+                prompt_hash=prompt_hash,
+                allowed_labels=normalized_allowed,
+                prelabel_granularity=normalized_granularity,
+                focus_block_indices=focus_block_indices,
+                provider=provider,
+            )
+        )
 
     raw = provider.complete(prompt)
     if normalized_granularity == PRELABEL_GRANULARITY_SPAN:
@@ -1330,6 +1712,8 @@ def prelabel_freeform_task(
             segment_id=segment_id,
             segment_text=segment_text,
             block_map=block_map,
+            source_blocks=source_blocks,
+            focus_block_indices=focus_block_indices,
             allowed_labels=normalized_allowed,
         )
     else:
@@ -1339,6 +1723,7 @@ def prelabel_freeform_task(
             segment_id=segment_id,
             segment_text=segment_text,
             block_map=block_map,
+            focus_block_indices=focus_block_indices,
             allowed_labels=normalized_allowed,
         )
 

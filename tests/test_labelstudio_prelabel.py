@@ -10,8 +10,11 @@ from cookimport.labelstudio.prelabel import (
     CodexCliProvider,
     codex_account_summary,
     codex_cmd_with_model,
+    codex_cmd_with_reasoning_effort,
     default_codex_model,
     default_codex_cmd,
+    default_codex_reasoning_effort,
+    codex_reasoning_effort_from_cmd,
     list_codex_models,
     parse_block_label_output,
     parse_span_label_output,
@@ -46,6 +49,9 @@ def _freeform_task() -> dict[str, object]:
             "segment_text": "Serves 4\n\n1 cup flour",
             "source_map": {
                 "separator": "\n\n",
+                "focus_start_block_index": 0,
+                "focus_end_block_index": 1,
+                "focus_block_indices": [0, 1],
                 "blocks": [
                     {
                         "block_id": "urn:cookimport:block:testhash:0",
@@ -73,6 +79,9 @@ def _single_block_task(text: str) -> dict[str, object]:
             "segment_text": text,
             "source_map": {
                 "separator": "\n\n",
+                "focus_start_block_index": 5,
+                "focus_end_block_index": 5,
+                "focus_block_indices": [5],
                 "blocks": [
                     {
                         "block_id": "urn:cookimport:block:testhash:5",
@@ -236,6 +245,86 @@ def test_prelabel_full_prompt_uses_ai_instruction_template() -> None:
     assert '{"block_index": 1, "text": "1 cup flour"}' in prompt
 
 
+def test_prelabel_prompt_includes_focus_scope() -> None:
+    task = _freeform_task()
+    task["data"]["source_map"]["focus_start_block_index"] = 1
+    task["data"]["source_map"]["focus_end_block_index"] = 1
+    task["data"]["source_map"]["focus_block_indices"] = [1]
+    provider = _CaptureProvider('[{"block_index": 1, "label": "INGREDIENT_LINE"}]')
+
+    annotation = prelabel_freeform_task(task, provider=provider)
+    assert annotation is not None
+    prompt = provider.prompts[0]
+    assert "Focus blocks to label (context blocks may be broader):" in prompt
+    assert '{"block_index": 1, "text": "1 cup flour"}' in prompt
+
+
+def test_prelabel_prompt_log_callback_captures_prompt_context() -> None:
+    task = _freeform_task()
+    provider = _StaticProvider('[{"block_index": 1, "label": "INGREDIENT_LINE"}]')
+    prompt_logs: list[dict[str, object]] = []
+
+    annotation = prelabel_freeform_task(
+        task,
+        provider=provider,
+        prompt_log_callback=prompt_logs.append,
+    )
+
+    assert annotation is not None
+    assert len(prompt_logs) == 1
+    entry = prompt_logs[0]
+    assert entry["segment_id"] == "urn:cookimport:segment:testhash:0:1"
+    assert entry["prompt_template"] == "freeform-prelabel-full.prompt.md"
+    assert "Segment id: urn:cookimport:segment:testhash:0:1" in entry["prompt"]
+    included = entry["included_with_prompt"]
+    assert included["focus_block_indices"] == [0, 1]
+    assert included["segment_block_count"] == 2
+    assert included["allowed_labels"][0] == "RECIPE_TITLE"
+    assert "Prompt includes allowed labels" in entry["included_with_prompt_description"]
+
+
+def test_prelabel_block_mode_filters_out_of_focus_blocks() -> None:
+    task = _freeform_task()
+    task["data"]["source_map"]["focus_start_block_index"] = 1
+    task["data"]["source_map"]["focus_end_block_index"] = 1
+    task["data"]["source_map"]["focus_block_indices"] = [1]
+    provider = _StaticProvider(
+        '[{"block_index": 0, "label": "YIELD_LINE"}, {"block_index": 1, "label": "INGREDIENT_LINE"}]'
+    )
+
+    annotation = prelabel_freeform_task(task, provider=provider)
+    assert annotation is not None
+    results = annotation["result"]
+    assert len(results) == 1
+    value = results[0]["value"]
+    assert value["labels"] == ["INGREDIENT_LINE"]
+    assert value["start"] == 10
+    assert value["end"] == 21
+
+
+def test_prelabel_span_mode_drops_absolute_spans_outside_focus() -> None:
+    task = _freeform_task()
+    task["data"]["source_map"]["focus_start_block_index"] = 1
+    task["data"]["source_map"]["focus_end_block_index"] = 1
+    task["data"]["source_map"]["focus_block_indices"] = [1]
+    provider = _StaticProvider(
+        '[{"label": "YIELD_LINE", "start": 0, "end": 21}, '
+        '{"block_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
+    )
+
+    annotation = prelabel_freeform_task(
+        task,
+        provider=provider,
+        prelabel_granularity="span",
+    )
+    assert annotation is not None
+    results = annotation["result"]
+    assert len(results) == 1
+    value = results[0]["value"]
+    assert value["labels"] == ["INGREDIENT_LINE"]
+    assert value["text"] == "1 cup flour"
+
+
 def test_prelabel_prompt_uses_file_templates(monkeypatch, tmp_path: Path) -> None:
     assert str(prelabel_module._PROMPT_TEMPLATE_DIR).endswith("llm_pipelines/prompts")
     full_path = tmp_path / "freeform-prelabel-full.prompt.md"
@@ -356,6 +445,39 @@ def test_codex_cmd_with_model_injects_model_for_exec() -> None:
     )
 
 
+def test_codex_cmd_with_reasoning_effort_injects_config_for_exec() -> None:
+    assert (
+        codex_cmd_with_reasoning_effort("codex exec -", "high")
+        == "codex exec -c 'model_reasoning_effort=\"high\"' -"
+    )
+    assert (
+        codex_cmd_with_reasoning_effort("codex2 exec -", "xhigh")
+        == "codex2 exec -c 'model_reasoning_effort=\"xhigh\"' -"
+    )
+    assert (
+        codex_cmd_with_reasoning_effort(
+            'codex exec -c model_reasoning_effort="low" -',
+            "high",
+        )
+        == 'codex exec -c model_reasoning_effort="low" -'
+    )
+
+
+def test_codex_reasoning_effort_from_cmd_reads_config_override() -> None:
+    assert (
+        codex_reasoning_effort_from_cmd(
+            'codex exec -c model_reasoning_effort="medium" -'
+        )
+        == "medium"
+    )
+    assert (
+        codex_reasoning_effort_from_cmd(
+            "codex exec --config 'model_reasoning_effort=\"xhigh\"' -"
+        )
+        == "xhigh"
+    )
+
+
 def test_default_codex_model_reads_codex_config(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("COOKIMPORT_CODEX_MODEL", raising=False)
     monkeypatch.delenv("CODEX_HOME", raising=False)
@@ -402,6 +524,20 @@ def test_default_codex_model_reads_command_specific_codex_home(
     )
     monkeypatch.setattr("cookimport.labelstudio.prelabel.Path.home", lambda: tmp_path)
     assert default_codex_model(cmd="codex2 exec -") == "gpt-codex2-default"
+
+
+def test_default_codex_reasoning_effort_reads_codex_config(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    config_dir = tmp_path / ".codex"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "config.toml").write_text(
+        'approval_policy = "never"\nmodel_reasoning_effort = "high"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("cookimport.labelstudio.prelabel.Path.home", lambda: tmp_path)
+    assert default_codex_reasoning_effort() == "high"
 
 
 def test_list_codex_models_reads_models_cache(monkeypatch, tmp_path: Path) -> None:

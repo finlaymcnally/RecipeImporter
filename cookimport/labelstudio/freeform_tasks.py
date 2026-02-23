@@ -94,6 +94,71 @@ def _segment_ranges(
     return ranges
 
 
+def resolve_segment_overlap_for_target(
+    *,
+    total_blocks: int,
+    segment_blocks: int,
+    requested_overlap: int,
+    target_task_count: int | None,
+) -> int:
+    if segment_blocks <= 0:
+        raise ValueError("segment_blocks must be >= 1")
+    if requested_overlap < 0:
+        raise ValueError("requested_overlap must be >= 0")
+    if requested_overlap >= segment_blocks:
+        raise ValueError("requested_overlap must be smaller than segment_blocks")
+    if target_task_count is None or total_blocks <= 0:
+        return requested_overlap
+    if target_task_count < 1:
+        raise ValueError("target_task_count must be >= 1")
+
+    requested_count = len(_segment_ranges(total_blocks, segment_blocks, requested_overlap))
+    prefer_higher_task_count = target_task_count >= requested_count
+
+    best_overlap = requested_overlap
+    best_count = requested_count
+    best_diff = abs(requested_count - target_task_count)
+    best_requested_distance = 0
+
+    for overlap in range(segment_blocks):
+        count = len(_segment_ranges(total_blocks, segment_blocks, overlap))
+        diff = abs(count - target_task_count)
+        if diff < best_diff:
+            best_overlap = overlap
+            best_count = count
+            best_diff = diff
+            best_requested_distance = abs(overlap - requested_overlap)
+            continue
+        if diff > best_diff:
+            continue
+
+        if prefer_higher_task_count and count > best_count:
+            best_overlap = overlap
+            best_count = count
+            best_requested_distance = abs(overlap - requested_overlap)
+            continue
+        if not prefer_higher_task_count and count < best_count:
+            best_overlap = overlap
+            best_count = count
+            best_requested_distance = abs(overlap - requested_overlap)
+            continue
+        if count != best_count:
+            continue
+
+        requested_distance = abs(overlap - requested_overlap)
+        if requested_distance < best_requested_distance:
+            best_overlap = overlap
+            best_count = count
+            best_requested_distance = requested_distance
+            continue
+        if requested_distance == best_requested_distance and overlap < best_overlap:
+            best_overlap = overlap
+            best_count = count
+            best_requested_distance = requested_distance
+
+    return best_overlap
+
+
 def _build_segment_text(
     blocks: list[ArchiveBlock], *, source_hash: str
 ) -> tuple[str, list[dict[str, Any]]]:
@@ -130,7 +195,15 @@ def build_freeform_span_tasks(
     book_id: str,
     segment_blocks: int,
     segment_overlap: int,
+    segment_focus_blocks: int | None = None,
 ) -> list[dict[str, Any]]:
+    if segment_focus_blocks is None:
+        segment_focus_blocks = segment_blocks
+    if segment_focus_blocks <= 0:
+        raise ValueError("segment_focus_blocks must be >= 1")
+    if segment_focus_blocks > segment_blocks:
+        raise ValueError("segment_focus_blocks must be <= segment_blocks")
+
     blocks = _coerce_archive(archive)
     ranges = _segment_ranges(len(blocks), segment_blocks, segment_overlap)
     tasks: list[dict[str, Any]] = []
@@ -145,10 +218,15 @@ def build_freeform_span_tasks(
         segment_text, source_blocks = _build_segment_text(
             segment_blocks_slice, source_hash=source_hash
         )
+        focus_blocks_slice = segment_blocks_slice[: min(segment_focus_blocks, len(segment_blocks_slice))]
+        focus_indices = [block.index for block in focus_blocks_slice]
         source_map = {
             "separator": SEGMENT_SEPARATOR,
             "start_block_index": start_block_index,
             "end_block_index": end_block_index,
+            "focus_start_block_index": focus_indices[0],
+            "focus_end_block_index": focus_indices[-1],
+            "focus_block_indices": focus_indices,
             "blocks": source_blocks,
         }
         task_data = SegmentTaskData(

@@ -18,7 +18,7 @@ Quick-start guide for running the offline bench suite — no Label Studio requir
 ## 1. Validate a Suite
 
 ```bash
-cookimport bench validate --suite data/golden/bench/suites/dev.json
+cookimport bench validate --suite data/golden/bench/suites/my_suite.json
 ```
 
 This checks that all source files and gold export directories referenced in the suite actually exist.
@@ -26,7 +26,7 @@ This checks that all source files and gold export directories referenced in the 
 ## 2. Run the Benchmark
 
 ```bash
-cookimport bench run --suite data/golden/bench/suites/dev.json
+cookimport bench run --suite data/golden/bench/suites/my_suite.json
 ```
 
 Outputs go to `data/golden/bench/runs/<timestamp>/`:
@@ -51,7 +51,7 @@ Outputs go to `data/golden/bench/runs/<timestamp>/`:
 
 ```bash
 cookimport bench run \
-  --suite data/golden/bench/suites/dev.json \
+  --suite data/golden/bench/suites/my_suite.json \
   --baseline data/golden/bench/runs/2026-02-12_10.00.00
 ```
 
@@ -61,7 +61,7 @@ The iteration packet will include metric deltas vs the baseline.
 
 ```bash
 cookimport bench run \
-  --suite data/golden/bench/suites/dev.json \
+  --suite data/golden/bench/suites/my_suite.json \
   --config my_knobs.json
 ```
 
@@ -84,7 +84,7 @@ Where `my_knobs.json` overrides defaults:
 
 ```bash
 cookimport bench sweep \
-  --suite data/golden/bench/suites/dev.json \
+  --suite data/golden/bench/suites/my_suite.json \
   --budget 10 \
   --seed 42
 ```
@@ -101,7 +101,7 @@ Shows all tunable parameters with their defaults, bounds, and descriptions.
 
 ## Suite Manifest Format
 
-Suites are JSON files under `data/golden/bench/suites/`:
+Suites are JSON files (commonly under `data/golden/bench/suites/`):
 
 ```json
 {

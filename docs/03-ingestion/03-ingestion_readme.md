@@ -547,3 +547,25 @@ Current contract from the spinner visibility pass:
 Operational boundary:
 
 - These are visibility-only progress message changes; extraction semantics and output artifact contracts are unchanged.
+
+## Merged Understanding Notes (2026-02-22 batch)
+
+### Importer fixture gaps and inspect() exception-path caveat
+
+Durable notes:
+- Paprika and RecipeSage tests that rely on fixture files under `docs/template/examples/...` can fail before meaningful assertions when those fixtures are absent.
+- `WorkbookInspection` is strict about allowed fields; injecting unexpected fields (for example `warnings=[...]`) from exception paths can raise validation errors and hide the original inspect failure.
+- `RecipeSageImporter.convert()` missing-file handling is sensitive to where file hashing happens; hash-before-`try` causes immediate exceptions instead of report-level error capture.
+
+### Split-merge full-text reconstruction before codex-farm
+
+Durable notes:
+- Split merge reconstructs one merged `raw/<importer>/<source_hash>/full_text.json` from per-job raw artifacts.
+- Merge rebases block indices by cumulative prior-job block counts and applies matching offsets to recipe/tip/topic location fields.
+- This is required before codex-farm pass1 so context windows (`blocks_before` / `blocks_candidate` / `blocks_after`) operate in one absolute coordinate system.
+
+### Spinner liveness after candidate loops
+
+Durable notes:
+- If importer callbacks stop after `candidate N/N`, CLI spinners appear frozen even while work continues.
+- Keep fixes dual-path: importer runtime should emit post-candidate phase callbacks; CLI wrappers should add elapsed suffixes when text is unchanged.

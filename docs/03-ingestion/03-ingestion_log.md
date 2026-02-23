@@ -10,25 +10,13 @@ read_when:
 
 Read the current runtime docs first in `docs/03-ingestion/03-ingestion_readme.md`. Use this log to understand prior attempts and avoid retrying failed paths.
 
-## Consolidation Context
+## Consolidation Note
 
-The prior ingestion README consolidation pass described `docs/03-ingestion` as a unified source of truth (recorded as of 2026-02-16, re-verified on 2026-02-19).
+`docs/03-ingestion` intentionally keeps only:
+- `docs/03-ingestion/03-ingestion_readme.md` (current runtime reference)
+- `docs/03-ingestion/03-ingestion_log.md` (historical/anti-loop notes)
 
-It combined and superseded:
-- `docs/03-ingestion/2026-02-12_10.17.19-import-pipeline-convergence.md`
-- `docs/03-ingestion/2026-02-12-unstructured-epub-adapter.md`
-- `docs/03-ingestion/03-ingestion_README.md`
-
-## Document Chronology (Source Merge Order)
-
-Order below is based on source document filenames/timestamps and last consolidation date:
-1. `2026-02-12_10.17.19-import-pipeline-convergence.md`
-2. `2026-02-12-unstructured-epub-adapter.md`
-3. `03-ingestion_README.md` (later consolidation pass, modified on 2026-02-15)
-4. `docs/understandings/2026-02-16_13.02.32-markitdown-extractor-split-contract.md` (merged)
-5. `docs/understandings/2026-02-16_14.00.37-unstructured-v2-body-document-and-epub-option-propagation.md` (merged)
-6. `docs/understandings/IMPORTANT-UNDERSTANDING-epub-extractor-types.md` (merged, undated durable reference)
-7. `docs/03-ingestion/03-ingestion_readme.md` (consolidated and re-verified on 2026-02-19)
+Older one-off ingestion notes were consolidated into these files and removed from the docs tree. Use `git log` / `git show` if you need archaeology.
 
 ## Historical Attempts (Preserve To Avoid Rework Loops)
 
@@ -69,9 +57,6 @@ Known incomplete idea intentionally not implemented:
 
 ### 2026-02-15_22.06.34: Split-merge and ID rewrite discovery map
 
-Merged source:
-- `docs/understandings/2026-02-15_22.06.34-ingestion-split-merge-and-id-rewrite-map.md`
-
 Preserved operational details:
 - Split workers write raw artifacts under `.job_parts/<workbook>/job_<index>/raw/...` and return merge payloads.
 - Main-process merge sorts by source range, rewrites recipe IDs globally (`c0..cN`), then rebuilds tips/chunks once.
@@ -80,9 +65,6 @@ Preserved operational details:
 - Stage builds and passes `base_mapping` for workers; worker `inspect()` is mainly a split-planning concern, not the normal non-split conversion initialization path.
 
 ### 2026-02-16_13.02.32: MarkItDown extractor split contract
-
-Merged source:
-- `docs/understandings/2026-02-16_13.02.32-markitdown-extractor-split-contract.md`
 
 Preserved contract:
 - `epub_extractor` remains the single run-setting knob across stage and benchmark prediction generation.
@@ -99,9 +81,6 @@ Anti-loop note:
 - Do not "fix" markitdown split errors by forcing pseudo-ranges; extractor behavior is whole-book by design.
 
 ### 2026-02-16_14.00.37: Unstructured v2 input-shape caveat + option propagation
-
-Merged source:
-- `docs/understandings/2026-02-16_14.00.37-unstructured-v2-body-document-and-epub-option-propagation.md`
 
 Discovery preserved:
 - `partition_html(..., html_parser_version=\"v2\")` can fail on normal EPUB XHTML with:
@@ -122,9 +101,6 @@ Debugging evidence worth preserving:
 
 ### 2026-02-19_14.19.06: EPUB postprocess + health wiring map
 
-Merged source:
-- `docs/understandings/2026-02-19_14.19.06-epub-postprocess-health-wiring-map.md`
-
 Preserved contract:
 - `cookimport/plugins/epub.py:_extract_docpack(...)` is the shared join point where extractor-specific block extraction converges before downstream segmentation.
 - Shared EPUB postprocess (`postprocess_epub_blocks`) applies to `legacy`/`unstructured`/`markdown`; `markitdown` intentionally bypasses this cleanup path.
@@ -136,9 +112,6 @@ Anti-loop note:
 
 ### 2026-02-19_14.55.51: auto extractor resolution + scoped env overrides
 
-Merged source:
-- `docs/understandings/2026-02-19_14.55.51-auto-extractor-resolution-and-env-scope.md`
-
 Preserved rule:
 - Resolve `auto` once per EPUB in parent orchestration, then pass effective backend (`legacy|unstructured|markdown`) explicitly to worker jobs.
 - Persist requested/effective selection rationale for reproducibility (`epub_extractor_auto.json` and run-config/report surfaces).
@@ -148,9 +121,6 @@ Rejected path:
 - Setting extractor env vars globally without restoration causes later runs/tests to inherit stale settings and produce inconsistent behavior.
 
 ### 2026-02-20_12.31.31: direct-probe importer-init rule
-
-Merged source:
-- `docs/understandings/2026-02-20_12.31.31-auto-probe-overrides-init.md`
 
 Preserved discovery:
 - Auto-selection probe path uses direct `_extract_docpack(...)` calls and does not execute `convert(...)`.
@@ -164,18 +134,12 @@ Concrete regression captured:
 
 ### Undated durable reference: EPUB extractor mode semantics
 
-Merged source:
-- `docs/understandings/IMPORTANT-UNDERSTANDING-epub-extractor-types.md`
-
 Preserved baseline:
 - Extractor modes are mutually exclusive (`unstructured`, `legacy`, `markdown`, `auto`, `markitdown`) and feed one downstream segmentation pipeline.
 - `markitdown` remains whole-book only (no spine-range split support).
 - `auto` uses deterministic sampled-spine scoring and persists rationale artifacts for auditability.
 
 ### 2026-02-22_14.08.34 - elapsed spinner ticker + post-candidate importer progress
-
-Source task file:
-- `docs/tasks/2026-02-22_14.08.34 - spinner-elapsed-ticker-and-post-candidate-progress.md`
 
 Problem captured:
 - After `candidate X/Y` extraction completed, long importer phases could continue with unchanged status text, making CLI spinners appear stalled.
@@ -201,3 +165,34 @@ Key constraints and anti-loop notes:
 
 Rollback path preserved:
 - Revert shared `_run_with_progress_status` callback wrappers in `cookimport/cli.py` and importer post-candidate `_notify(...)` additions.
+
+## 2026-02-22 understanding merge batch (chronological)
+
+### 2026-02-22_14.09.33 spinner stale after candidate loop
+
+Preserved findings:
+- CLI spinner text is callback-driven; no new callback text means perceived stall.
+- EPUB/PDF importers had long post-candidate phases where callback text previously did not change.
+
+Durable rule:
+- Keep liveness fixes split between runtime callback emission and wrapper elapsed suffix display; avoid introducing parallel status systems.
+
+### 2026-02-22_14.25.24 importer review fixture gaps and inspect fallback
+
+Preserved findings:
+- Paprika/RecipeSage test reliability can be blocked by missing template fixtures before importer logic is actually exercised.
+- `WorkbookInspection` extra-field validation can turn exception-path warning injection into secondary failures.
+- RecipeSage missing-file exceptions raised before guarded `try` blocks skip report-level conversion error handling.
+
+Anti-loop note:
+- If importer tests fail "too early," verify fixture presence and exception-path schema compliance before reworking parser logic.
+
+### 2026-02-22_14.43.40 split merge codex-farm full_text rebase
+
+Preserved findings:
+- codex-farm pass1 context requires one merged absolute block stream.
+- Split runs already produce per-job `full_text.json`; merge must reassemble and rebase into one workbook-level `full_text.json`.
+- Matching offset application across recipe/tip/topic location fields is required so provenance and pass1 windows align.
+
+Anti-loop note:
+- If split-run codex-farm context looks shifted, inspect merged `raw/.../full_text.json` and location-offset application before changing pass logic.

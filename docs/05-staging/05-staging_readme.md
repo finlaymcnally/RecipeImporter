@@ -80,17 +80,10 @@ Per workbook (slugified file stem):
 - `raw/<importer>/<source_hash>/<location_id>.<ext>` (if any)
 - `<workbook_slug>.excel_import_report.json` at run root
 
-Code refs:
+Code pointers (prefer these over line numbers, which drift often):
 
-- `cookimport/cli.py:1515`
-- `cookimport/cli_worker.py:198`
-- `cookimport/staging/writer.py:275`
-- `cookimport/staging/writer.py:308`
-- `cookimport/staging/writer.py:331`
-- `cookimport/staging/writer.py:396`
-- `cookimport/staging/writer.py:611`
-- `cookimport/staging/writer.py:668`
-- `cookimport/staging/writer.py:686`
+- `cookimport/cli_worker.py` (`stage_one_file`) and `cookimport/cli.py` (`_merge_split_jobs`) assemble per-run output dirs and invoke staging writers.
+- `cookimport/staging/writer.py` (`write_intermediate_outputs`, `write_draft_outputs`, `write_tip_outputs`, `write_topic_candidate_outputs`, `write_chunk_outputs`, `write_raw_artifacts`, `write_report`) implements the file layout above.
 
 ## ID and Provenance Behavior in Staging
 
@@ -100,20 +93,18 @@ Code refs:
 - Fallback stable pattern when unresolved: `urn:recipeimport:excel:{file_hash}:{sheet_slug}:r{row_index}`.
 - If `candidate.identifier` exists, it is used.
 
-Code refs:
+Code pointers:
 
-- `cookimport/staging/writer.py:209`
-- `cookimport/staging/writer.py:275`
+- `cookimport/staging/writer.py` (`_ensure_candidate_id`, `write_intermediate_outputs`, `write_draft_outputs`)
 
 ### Tip/topic IDs
 
 - Tip fallback ID pattern: `urn:recipeimport:tip:{file_hash}:{sheet_slug}:t{row_index}:{tip_index}`.
 - Topic fallback ID pattern: `urn:recipeimport:topic:{file_hash}:{sheet_slug}:tc{row_index}:{topic_index}`.
 
-Code refs:
+Code pointers:
 
-- `cookimport/staging/writer.py:227`
-- `cookimport/staging/writer.py:247`
+- `cookimport/staging/writer.py` (`_ensure_tip_id`, `_ensure_topic_id`)
 
 ### Row index fallback rule (important for non-tabular sources)
 
@@ -125,9 +116,9 @@ Row index resolution checks provenance keys in this order:
 
 This fallback is what keeps stable-ish IDs for text/PDF/EPUB when row semantics do not exist.
 
-Code ref:
+Code pointer:
 
-- `cookimport/staging/writer.py:180`
+- `cookimport/staging/writer.py` (`_resolve_row_index`)
 
 ## Draft-v1 (Cookbook3) Contract Shaping
 
@@ -146,12 +137,9 @@ Current enforced behavior:
 - For unresolved units, `input_unit_id` is always set to `null` (raw unit text retained in `raw_unit_text`).
 - For unresolved ingredients, `ingredient_id` must be non-empty string; fallback uses `raw_ingredient_text`, then `raw_text`, then sentinel `__missing_ingredient__`.
 
-Code refs:
+Code pointer:
 
-- `cookimport/staging/draft_v1.py:39`
-- `cookimport/staging/draft_v1.py:79`
-- `cookimport/staging/draft_v1.py:94`
-- `cookimport/staging/draft_v1.py:108`
+- `cookimport/staging/draft_v1.py` (`recipe_candidate_to_draft_v1`)
 
 ### Additional draft-v1 behaviors that affect downstream consumers
 
@@ -164,12 +152,9 @@ Code refs:
 - Blank recipe titles are normalized to `Untitled Recipe`.
 - Blank `source` values are normalized to `null` to satisfy staging schema min-length rules.
 
-Code refs:
+Code pointer:
 
-- `cookimport/staging/draft_v1.py:15`
-- `cookimport/staging/draft_v1.py:118`
-- `cookimport/staging/draft_v1.py:129`
-- `cookimport/staging/draft_v1.py:166`
+- `cookimport/staging/draft_v1.py` (`recipe_candidate_to_draft_v1`)
 
 ## Split-Job Merge Behavior (PDF/EPUB)
 
@@ -187,19 +172,17 @@ Main-process merge status callback contract:
 - Status text is phase-counted as `merge phase X/Y: <label>`.
 - Phase totals are deterministic for a run and include optional chunk-write phase when chunk sources exist.
 
-Code refs:
+Code pointers:
 
-- `cookimport/cli.py:1260`
-- `cookimport/cli.py:1203`
-- `cookimport/staging/pdf_jobs.py:38`
-- `cookimport/staging/pdf_jobs.py:76`
+- `cookimport/cli.py` (`_merge_split_jobs`, `_merge_raw_artifacts`)
+- `cookimport/staging/pdf_jobs.py` (`reassign_recipe_ids`)
 
 ## Current limitations / things we know are not great yet
 
 1. Duplicate ingredient text can be undercounted in unassigned detection
 - `recipe_candidate_to_draft_v1()` tracks assigned ingredients by `raw_ingredient_text` set membership.
 - If duplicate lines share same text, one assignment can make another appear assigned.
-- Code ref: `cookimport/staging/draft_v1.py:236`.
+- Code pointer: `cookimport/staging/draft_v1.py` (unassigned ingredient detection after step assignment).
 
 2. Lowercasing is lossy by design
 - Improves normalization but may remove intentional capitalization in ingredient text fields.
@@ -208,12 +191,12 @@ Code refs:
 3. Split-job raw artifact filename collisions are auto-prefixed
 - Merge may rename colliding files with `job_{index}_...` prefixes.
 - Good for loss avoidance, but file names can differ run-to-run when collisions happen.
-- Code ref: `cookimport/cli.py:1230`.
+- Code pointers: `cookimport/cli.py` (`_merge_raw_artifacts`, `_prefix_collision`).
 
 4. Timestamp output folder granularity is seconds
 - Two invocations in the same second could collide on output directory name.
 - Current behavior uses `%Y-%m-%d_%H.%M.%S`.
-- Code ref: `cookimport/cli.py:1538`.
+- Code pointer: `cookimport/cli.py` (run root timestamp uses `%Y-%m-%d_%H.%M.%S` in multiple stage entrypoints).
 
 ## Test coverage tied to staging contracts
 

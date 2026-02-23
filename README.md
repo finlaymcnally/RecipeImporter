@@ -93,8 +93,8 @@ Start
 |   `-- Important: interactive mode only shows top-level files in `data/input/`
 |-- Step 2) Every time: launch the tool
 |   |-- `cd /home/mcnal/projects/recipeimport`
-|   |-- `. .venv/bin/activate`
-|   `-- `C3imp` (or `C3imp 10` for a small test run)
+|   |-- . .venv/bin/activate
+|   `-- C3imp (or `C3imp 10` for a small test run)
 `-- Step 3) In the menu, pick a workflow
     |-- Import: stage files -> outputs in `data/output/<YYYY-MM-DD_HH.MM.SS>/`
     |-- Settings: change defaults (saved in `cookimport.json`)

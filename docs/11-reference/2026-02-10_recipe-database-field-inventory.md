@@ -5,7 +5,7 @@ read_when:
   - "When updating recipe save/search/tagging/sub-recipe behavior"
 ---
 ## Database Model (Consolidated Inventory)
-Source of truth: `db/schema.snapshot.sql`.
+Source of truth: the live Postgres schema (this repo does not currently include `db/schema.snapshot.sql`).
 
 ### Enums
 - `public.quantity_kind_t`: `exact | approximate | unquantified`
@@ -87,6 +87,8 @@ Constraints:
 - Unique: `(step_id, line_order)`.
 
 ### Tags/pairings
+- `public.recipe_tag_categories`
+  - `id`, `key_norm` (unique), `display_name`, `sort_order`, `created_at`
 - `public.recipe_tags`
   - `id`, `key_norm` (unique), `display_name`, `category_id`, `sort_order`, `created_at`
 - `public.recipe_tag_assignments`
@@ -97,28 +99,11 @@ Constraints:
   - PK `(recipe_id, paired_recipe_id)`
   - check `recipe_id <> paired_recipe_id`
 
-### Seeded tag categories + ideas (current catalog)
-Source: `supabase/seeds/catalog.sql` (generated seed; mirrored into `supabase/seed.sql`).
+### Tag catalog export (current source of truth)
+This repo does not include a checked-in seed SQL for tags/categories. Export the current catalog from your DB instead:
 
-- Seeded categories: `20`
-- Seeded recipe tags: `203`
-- **Cooking Style** (`cooking-style`) [9]: Air Fryer, Grill, Instant Pot, No-Cook, One-Pot, Oven Only, Sheet Pan, Slow Cooker, Stovetop Only
-- **Effort Level** (`effort`) [8]: Advanced Techniques, Beginner Friendly, Hands-Off Friendly, Minimal Chopping, Minimal Prep, Quick, Quick Cleanup, Weekend
-- **Storage & Meal Prep** (`storage`) [5]: Batch Cooking, Better Next Day, Freezer Friendly, Make Ahead, Meal Prep Friendly
-- **Meal Type** (`meal`) [0]
-- **Meal Type** (`meal-type`) [6]: Breakfast, Brunch, Dessert, Dinner, Lunch, Snack
-- **Course** (`course`) [7]: Appetizer, Condiment, Dressing, Drink, Main Dish, Sauce, Side Dish
-- **Dish Type** (`dish-type`) [14]: Baked Goods, Bowl, Casserole, Curry, Pasta, Pizza, Rice Dish, Salad, Sandwich, Soup, Stew, Stir Fry, Tacos, Wrap
-- **Occasion** (`occasion`) [9]: BBQ/Cookout, Date Night, Dinner Party, Game Day, Packable/Lunchbox, Picnic, Potluck, Special Occasion, Weeknight
-- **Holiday** (`holiday`) [9]: Christmas, Diwali, Easter, Fourth of July, Halloween, Hanukkah, Lunar New Year, Thanksgiving, Valentine's Day
-- **Season** (`season`) [5]: Fall, Spring, Summer, Winter, Year Round
-- **Vibe** (`vibe`) [6]: Comfort Food, Crowd Pleaser, Healthy, Indulgent, Kid Friendly, Light & Fresh
-- **Cuisine** (`cuisine`) [19]: African, American, Cajun/Creole, Caribbean, Chinese, French, Fusion, Greek, Indian, Italian, Japanese, Korean, Latin American, Mediterranean, Mexican, Middle Eastern, Spanish, Thai, Vietnamese
-- **Flavor Profile** (`flavor-profile`) [13]: Bright, Creamy, Crispy/Crunchy, Earthy, Herby, Mild, Rich, Savory, Smoky, Spicy, Sweet, Tangy, Umami-Forward
-- **Heat Source** (`heat-source`) [5]: Black Pepper Heat, Chili/Pepper Heat, Ginger Heat, Horseradish/Wasabi Heat, No Heat
-- **Dietary** (`dietary`) [19]: Dairy-Free, Egg-Free, Gluten-Free, Halal, High-Fiber, High-Protein, Keto, Kosher, Low-Carb, Low-FODMAP, Low-Sodium, Nut-Free, Paleo, Pescatarian, Poultry, Soy-Free, Vegan, Vegetarian, Whole30
-- **Main Protein** (`main-protein`) [15]: Beans, Beef, Chicken, Chickpeas, Eggs, Fish, Lamb, Lentils, Other Shellfish, Pork, Seitan, Shrimp, Tempeh, Tofu, Turkey
-- **Main Carb** (`main-carb`) [10]: Bread, Couscous, No Major Carb, Pasta/Noodles, Polenta, Potatoes, Quinoa, Rice, Sweet Potatoes, Tortillas
-- **Cooking Method** (`cooking-method`) [15]: Bake, Braise, Broil, Deep Fry, Fry, Grill, Poach, Pressure Cook, Raw/No-Cook, Roast, Sauté, Simmer, Smoke, Sous Vide, Steam
-- **Techniques** (`techniques`) [13]: Blanch, Caramelize, Deglaze, Emulsify, Fold, Julienne, Marinate, Mince, Proof/Rise, Reduce, Rest, Sear, Temper
-- **Equipment Required** (`equipment`) [16]: Air Fryer, Blender, Cast Iron, Dutch Oven, Food Processor, Grill, Immersion Blender, Instant Pot/Pressure Cooker, Kitchen Torch, Mandoline, No Special Equipment, Slow Cooker, Smoker, Sous Vide Circulator, Stand Mixer, Wok
+```bash
+cookimport tag-catalog export --db-url "$COOKIMPORT_DATABASE_URL" --out data/tagging/tag_catalog.json
+```
+
+For a small fixture catalog used by tests, see `tests/tagging_gold/tag_catalog.small.json`.

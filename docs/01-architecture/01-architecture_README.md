@@ -82,7 +82,7 @@ Primary entrypoints (`pyproject.toml`):
 
 Behavior:
 - `cookimport` with no subcommand starts interactive mode (`@app.callback`, `cookimport/cli.py`).
-- interactive mode includes one-level back navigation on menu selects via Backspace key binding (`cookimport/cli.py`).
+- interactive mode includes one-level back navigation via `Esc` key binding (`cookimport/cli.py`) across select and text/confirm/password prompts.
 - `import`/`C3import` wrappers call stage-on-default-input shortcuts when invoked without normal subcommands (`cookimport/entrypoint.py`).
 - `C3imp` wrapper optionally sets `C3IMP_LIMIT` before entering interactive mode (`cookimport/c3imp_entrypoint.py`).
 
@@ -156,8 +156,8 @@ Stage split jobs (`cookimport stage`):
 - planning uses page ranges for PDF and spine ranges for EPUB
 - each worker parses a subset
 - split workers write temporary raw artifacts to:
-  - `<out>/.job_parts/<workbook_slug>/job_<index>/raw/...`
-- merge step combines logical results, reassigns recipe IDs globally, writes final outputs once, then merges raw files into `<out>/raw/...`
+  - `<out>/<timestamp>/.job_parts/<workbook_slug>/job_<index>/raw/...`
+- merge step combines logical results, reassigns recipe IDs globally, writes final outputs once, then merges raw files into `<out>/<timestamp>/raw/...`
 - `.job_parts` is cleaned after successful merge
 
 Label Studio split jobs (`run_labelstudio_import`):
@@ -242,7 +242,7 @@ Current architecture is still deterministic-first:
 ## Cross-cutting Conventions
 
 - The import tooling is the Python package `cookimport/`, with CLI entrypoint exposed as `cookimport` via `pyproject.toml`.
-- Interactive menu navigation (`C3imp` / `cookimport` with no subcommands) treats `Backspace` as one-level "back" in select prompts.
+- Interactive menu navigation (`C3imp` / `cookimport` with no subcommands) treats `Esc` as one-level "back" in select prompts and prompt inputs.
 - Typer command functions that are also called from interactive helpers must use real Python defaults (for example `typing.Annotated[..., typer.Option(...)]`) so direct helper calls do not receive `OptionInfo` placeholders.
 - Output timestamp format is standardized in current code as `YYYY-MM-DD_HH.MM.SS` across stage outputs, Label Studio run folders, and benchmark eval folders.
 - Discovery-note convention (from retired `docs/understandings`): keep notes focused to one discovery, use timestamped filenames, and merge durable outcomes into the owning stage README to avoid split sources of truth.
@@ -271,3 +271,20 @@ Current architecture is still deterministic-first:
 5. If you touch report-file placement
 - keep `staging/writer.py` as canonical for stage report output contract.
 - either remove or clearly isolate legacy `ReportBuilder` expectations in `core/reporting.py` so docs do not drift again.
+
+## Flowchart Branching Contracts
+
+Keep these flowchart/runtime invariants aligned:
+
+- `cookimport stage` and `run_labelstudio_import(...)` share the same importer conversion branching model (including split planning and merge behavior). The README flowchart should not imply two different file-type conversion engines.
+- PDF split only activates when all are true: `pdf_split_workers > 1`, `pdf_pages_per_job > 0`, and inspection yields more than one range.
+- EPUB split eligibility depends on the effective extractor:
+  - `unstructured` / `legacy` / `markdown` support spine-range split jobs.
+  - `markitdown` is whole-book only and does not split by spine.
+  - `auto` resolves to an effective extractor first, then split capability follows that concrete backend.
+- Freeform Label Studio prelabeling has two behavior-changing permutations that should stay visible in flow docs:
+  - upload mode: `annotations` vs `predictions`
+  - granularity: `span` (actual freeform) vs `block` (legacy block mode)
+
+Anti-loop note:
+- If flowcharts and runtime behavior diverge, update this file and the README chart in the same change so future debugging does not branch on stale docs.

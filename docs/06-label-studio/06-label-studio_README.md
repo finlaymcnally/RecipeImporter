@@ -63,7 +63,7 @@ Uploads are intentionally gated.
   - `labelstudio` import proceeds directly to upload (no separate upload confirmation prompt).
   - `labelstudio` import always uses overwrite semantics for resolved project names (`overwrite=True`, `resume=False`); there is no overwrite/resume chooser in this flow.
   - Interactive freeform import includes an AI prelabel mode picker (off, strict/allow-partial annotations, advanced predictions modes), then a style picker (`actual freeform` span mode vs `legacy, block based` mode), prints total processing time in the import summary, and prints `prelabel_report.json` when prelabel is enabled.
-  - Interactive freeform prelabel does not prompt for command selection; it resolves command from `COOKIMPORT_CODEX_CMD` or `codex exec -`, displays the resolved account email when available, then prompts for model using metadata from that command's Codex home cache (`CODEX_HOME` honored).
+  - Interactive freeform prelabel does not prompt for command selection; it resolves command from `COOKIMPORT_CODEX_CMD` or `codex exec -`, displays the resolved account email when available, then prompts for model and thinking effort (`none|minimal|low|medium|high|xhigh`) using metadata/defaults from that command's Codex home cache (`CODEX_HOME` honored).
   - Token usage tracking is always enabled for AI labeling runs.
 - benchmark upload does not ask a second confirmation; choosing upload mode is treated as explicit intent.
 - benchmark supports eval-only fallback (no upload) in interactive flow.
@@ -159,12 +159,14 @@ Freeform span rows include offsets, label, touched block mapping, annotator/time
 - Prelabel artifacts written in run root:
   - `prelabel_report.json`
   - `prelabel_errors.jsonl`
+  - `prelabel_prompt_log.jsonl` (one JSON row per `codex exec` prompt with full prompt text plus prompt-context description/metadata)
 - Prelabel performs a single Codex model-access preflight probe before task labeling so invalid model/account combinations fail once up front instead of repeating task-level failures.
 - Progress callbacks now report `Running freeform prelabeling... task X/Y` so CLI spinners show per-task progress while AI labels are generated.
 - CLI status wrappers now add a live elapsed suffix (for example `(17s)`) after ~10 seconds with no phase-message change, so long steps remain visibly active instead of appearing stuck.
 - Codex CLI invocation for prelabel uses non-interactive `... exec -`; plain `codex`/`codex2` values auto-retry with `exec -` when stderr reports `stdin is not a terminal`.
 - Default Codex command resolution is: `--codex-cmd` -> `COOKIMPORT_CODEX_CMD` -> `codex exec -`.
 - Prelabel runs accept explicit model selection via `--codex-model`; when omitted they resolve model from `COOKIMPORT_CODEX_MODEL` then Codex config (`~/.codex/config.toml`, `~/.codex-alt/config.toml`).
+- Prelabel runs accept explicit thinking effort selection via `--codex-thinking-effort` (alias `--codex-reasoning-effort`), mapping to Codex `model_reasoning_effort`; when omitted they use Codex config defaults.
 - Prelabel model/config/cache discovery is command-aware: it resolves from the selected command's Codex home roots rather than assuming one global login.
 - Provider errors reported via Codex JSON events (`turn.failed`) are treated as hard failures and recorded with their normalized provider detail (for example unsupported model/account messages) instead of generic "no labels" parse failures.
 - Token usage tracking is always enabled for prelabel runs, using Codex JSON event parsing to record aggregate `input_tokens`, `cached_input_tokens`, and `output_tokens` in run reports (`prelabel_report.json` also records resolved command/account metadata).
@@ -176,16 +178,18 @@ The only “context window” is the task’s segment text (a chunk of consecuti
 
 Where it happens:
 
-- Task segmentation: `cookimport/labelstudio/freeform_tasks.py` (`segment_blocks`, `segment_overlap`)
+- Task segmentation: `cookimport/labelstudio/freeform_tasks.py` (`segment_blocks`, `segment_overlap`, `segment_focus_blocks`, `target_task_count` overlap tuning)
 - Prompt + parsing + span construction: `cookimport/labelstudio/prelabel.py`
 - End-to-end wiring (generate artifacts, then upload + fallback): `cookimport/labelstudio/ingest.py`
 
 **Context management (your question):**
 
 - Each segment task is labeled independently. There is no rolling chat history; every call is a brand new Codex CLI subprocess fed a single prompt string on stdin (`subprocess.run(..., input=prompt, ...)`).
-- The “chunking” is done before the LLM call: freeform tasks are built by concatenating `segment_blocks` extracted blocks (default 40) with a separator (`\\n\\n`), and `segment_overlap` repeats the last N blocks into the next task (default 5). Overlap repeats text *across tasks*, but the model never sees prior prompts unless that text is repeated inside the current prompt.
+- The “chunking” is done before the LLM call: freeform tasks are built by concatenating `segment_blocks` extracted blocks (default 40) with a separator (`\\n\\n`). `segment_overlap` repeats the last N blocks into the next task (default 5), and optional `target_task_count` can auto-tune the effective overlap per file. Overlap repeats text *across tasks*, but the model never sees prior prompts unless that text is repeated inside the current prompt.
+- Freeform tasks now include a focus subset (`segment_focus_blocks`) inside each context window. Prompts still show full context blocks, but prelabel output is filtered so only focus blocks can be labeled.
 - There is no incremental “continue where you left off” prompting. It’s many small/fixed prompts, not one ever-growing prompt.
 - A prompt/response cache can make reruns *look* stateful: `CodexCliProvider` stores `{prompt, response}` JSON files under `prelabel_cache/` keyed by a hash of `(codex_cmd, track_usage flag, prompt text)`. Delete the cache dir to force fresh completions.
+- Run-level prompt logging is explicit: prelabel writes `prelabel_prompt_log.jsonl` under the run root in `data/golden/.../labelstudio/<book_slug>/`, including the full prompt text and `included_with_prompt_description` + `included_with_prompt` metadata (labels, block/focus context, template, command/model/account fields).
 
 **What the model is asked to do (the literal prompt template):**
 
@@ -294,6 +298,75 @@ When `--prelabel` is enabled:
      - then creates annotations per task via the Label Studio API by mapping deterministic `segment_id` to Label Studio’s internal `task.id`.
    - `--prelabel-upload-as predictions` (advanced): converts the first annotation into a Label Studio `predictions[]` entry (`model_version="cookimport-prelabel"`, `score=1.0`), which is useful for debugging/model comparison but won’t necessarily mark tasks “completed”.
 
+#### 1.6.1.4 Operator FAQ: context window and prompt count
+
+This is the most common point of confusion: both styles (`block` and `span`) use the same task segmentation and context boundaries.
+
+**Q: Does the model see one block at a time?**
+
+- No. It sees one **segment task** at a time.
+- A segment task contains multiple nearby blocks (default `segment_blocks=40`), concatenated into `segment_text` and also provided as per-block JSON lines (`{"block_index","text"}`) in the prompt.
+- Each task also carries a focus block list (`source_map.focus_block_indices`) used by prelabel prompt instructions and parser-side filtering.
+- Both prelabel styles use this same task context.
+
+**Q: Does it see surrounding context while labeling one block/span?**
+
+- Yes, inside the current segment task.
+- No, across tasks. There is no rolling conversation memory between tasks; each task is a fresh provider call.
+- Overlap (`segment_overlap`, default `5`) repeats tail blocks into the next task so adjacent task windows share text. When `target_task_count` is set, manifest records both requested overlap and effective overlap selected for that file.
+
+**Q: How many prompts are sent in a run?**
+
+- Freeform prelabel runs do one model completion per sampled task (`provider.complete(prompt)` in the task loop).
+- There is also one preflight probe call before the loop (`preflight_codex_model_access(...)`) to fail fast on invalid model/account access.
+- Practical formula:
+  - model labeling prompts = number of sampled freeform tasks
+  - plus one preflight probe call
+- Note on cache: if a prompt hash already exists in prelabel cache, completion may be served from cache for that task.
+
+Relevant code:
+
+- segmentation/task windows: `cookimport/labelstudio/freeform_tasks.py`
+- prompt build and per-task completion: `cookimport/labelstudio/prelabel.py`
+- preflight + task loop wiring: `cookimport/labelstudio/ingest.py`
+
+#### 1.6.1.5 Worked example: `saltfatacidheatcutdown` AIv1 vs AIv2
+
+The pair below is a concrete example where users often ask why outputs differ:
+
+- `data/golden/saltfatacidheatcutdown_aiv1_block_based`
+- `data/golden/saltfatacidheatcutdown_aiv2_freeform_fr`
+
+Shared mechanics (same in both):
+
+- export scope: `freeform-spans`
+- segment manifest rows: `42` tasks
+- segment window size: mostly `40` blocks/task (min `36`, max `40`)
+- segment start step: `35` blocks (indicates `segment_overlap=5`)
+
+Contract difference:
+
+- AIv1 (`block`): prompt asks for one label per block; runtime maps each `{block_index,label}` to full-block offsets.
+- AIv2 (`span`): prompt asks for selective spans; runtime resolves quote/offset selections and drops ambiguous/unresolvable selections.
+
+Observed output difference from this pair:
+
+- total span rows:
+  - AIv1 block-based: `1635`
+  - AIv2 freeform-span: `1355`
+- span geometry:
+  - AIv1: `100%` full-block spans
+  - AIv2: `92.2%` full-block spans, `7.8%` sub-block spans (`106` rows)
+- coverage:
+  - AIv1 touched `1440` unique source blocks
+  - AIv2 touched `1201` unique source blocks
+
+Why this is expected:
+
+- `block` mode is effectively dense classification over the window (near one label per block).
+- `span` mode is selective extraction (can return zero/one/many spans per block and leave unclear text unlabeled).
+- Because of that, freeform-span runs usually produce fewer total labels and tighter offsets.
+
 ### 1.7 Evaluation behavior
 
 Canonical eval (`labelstudio-eval canonical-blocks`):
@@ -383,7 +456,7 @@ Manifest includes:
 - Progress callbacks include post-merge phases (archive/hash, processed-output writes, chunk/task generation, upload batching) so long runs continue surfacing advancing status.
 - Interactive `labelstudio` export resolves credentials first, then fetches project titles for a picker UI (showing a detected type tag beside each project when available). It now auto-uses the selected project's detected type as export scope and only prompts for scope when detection is `unknown` (or when the project name is typed manually).
 - Interactive Label Studio import/export credential resolution order is: CLI/env values first, then saved `cookimport.json` values, then one-time prompt (which persists back to `cookimport.json`).
-- Interactive freeform `labelstudio` import uses an AI prelabel mode selector before upload, prints summary processing time, and writes `prelabel_report.json` when prelabel is enabled.
+- Interactive freeform `labelstudio` import now prompts for context blocks, overlap, focus blocks, and optional target task count in one sequence, then uses an AI prelabel mode selector before upload, prints summary processing time, and writes `prelabel_report.json` when prelabel is enabled.
 - Interactive benchmark upload uses the same per-run settings chooser as interactive Import (`global defaults` / `last benchmark` / `change run settings`) and writes successful selections to `<output_dir>/.history/last_run_settings_benchmark.json`.
 - Interactive benchmark upload follows the same env -> saved settings -> one-time prompt credential resolution path before invoking `labelstudio-benchmark`.
 
@@ -440,12 +513,7 @@ Mitigation:
 
 ### 2.6 PDF box-annotation workflow is not implemented
 
-`PDF-freeform-DO-LATER.md` described a future “draw boxes on page images” workflow.
-
-Current status:
-
-- planning only,
-- not implemented in current Label Studio integration.
+A “draw boxes on page images” workflow (PDF page box annotation) is not implemented in the current Label Studio integration.
 
 Do not assume this path exists when debugging current flows.
 
@@ -512,6 +580,8 @@ cookimport labelstudio-import data/input/book.epub \
   --task-scope freeform-spans \
   --segment-blocks 40 \
   --segment-overlap 5 \
+  --segment-focus-blocks 28 \
+  --target-task-count 55 \
   --allow-labelstudio-write
 ```
 
@@ -699,3 +769,133 @@ Back-compat normalization rules to preserve:
 - `TIME -> TIME_LINE`
 
 Project-type inference, prelabel normalization, and freeform eval/export mapping should continue using shared freeform label-config normalization logic.
+
+## Merged Understanding Notes (2026-02-22 batch)
+
+### Prompt template loading contract
+
+Sources merged:
+- `docs/understandings/2026-02-22_15.10.37-llm-pipelines-prompt-template-loader.md`
+- `docs/understandings/2026-02-22_14.49.45-freeform-prelabel-full-vs-augment-prompt-contract.md`
+
+Durable notes:
+- Prelabel prompt text is file-backed from `llm_pipelines/prompts/` (`freeform-prelabel-full.prompt.md` and `freeform-prelabel-span.prompt.md`) with placeholder replacement per task.
+- Template loader behavior is mtime-aware so edits are picked up without code changes.
+- Missing/empty template files fall back to in-code defaults in `cookimport/labelstudio/prelabel.py`.
+- Historical context: augment/decorate runtime mode was removed (2026-02-22); do not reuse legacy "label every block" full-mode instructions when implementing sparse/additive semantics in future features.
+
+### Codex model/account resolution and preflight contract
+
+Sources merged:
+- `docs/understandings/2026-02-22_16.13.47-codex-model-cache-vs-runtime-access.md`
+- `docs/understandings/2026-02-22_16.38.41-codex-command-vs-account-resolution.md`
+- `docs/understandings/2026-02-22_17.07.31-freeform-prelabel-codex-home-override.md`
+- `docs/understandings/2026-02-22_19.00.30-codex-prelabel-thinking-effort-injection.md`
+
+Durable notes:
+- Cached model menus (`models_cache.json`) can include entries that fail at runtime for the active login/account mode.
+- Prelabel should keep one up-front provider probe so unsupported model/account combinations fail once before task loops.
+- Command-aware resolution must be used for model/cache/account discovery (`--codex-cmd` -> `COOKIMPORT_CODEX_CMD` -> `codex exec -`) and must honor `CODEX_HOME`.
+- Home precedence defaults to `~/.codex` before `~/.codex-alt`; explicit `CODEX_HOME=...` wrappers are the stable override when account choice matters.
+- Reasoning effort should be injected via Codex config override (`-c model_reasoning_effort=\"...\"`) only after command resolution, and only if command text does not already set it.
+- Interactive prelabel prompt order should remain: style -> account display -> model -> thinking effort.
+- Prelabel reports should include resolved reasoning effort metadata for auditability alongside command/model/account.
+- JSON event `turn.failed` provider detail should be surfaced in reports/errors directly, not collapsed into generic parse failures.
+
+### Span quote resolution and legacy block-mode boundary
+
+Sources merged:
+- `docs/understandings/2026-02-22_17.27.33-freeform-span-quote-resolution-contract.md`
+- `docs/understandings/2026-02-22_18.55.39-freeform-vs-legacy-prelabel-runtime-contract.md`
+
+Durable notes:
+- `span` mode is quote-anchored first; absolute offsets are accepted only after strict bounds checks.
+- Repeated quote text in one block requires explicit `occurrence` (1-based); ambiguous matches are dropped.
+- `value.text` must always be recomputed from `segment_text[start:end]` for Label Studio offset integrity.
+- `block` mode remains full-block span mapping from `{block_index, label}` with tolerant coverage semantics.
+- Task-level failures occur only when no valid spans remain (or provider call fails); item-level parsing/resolution failures are dropped.
+
+### Resume gating for new projects
+
+Source merged:
+- `docs/understandings/2026-02-22_17.36.48-labelstudio-resume-gate-for-new-projects.md`
+
+Durable notes:
+- Resume metadata checks should apply only when the target Label Studio project existed before the current run.
+- For benchmark auto-named projects, scope mismatch during resume checks should trigger deduped project-name retry (`-1`, `-2`, ...) instead of immediate failure.
+
+## 10) Merged Task Specs (2026-02-22 docs/tasks import batch)
+
+### 10.1 Prompt refresh and file-backed template workflow
+
+Merged task sources:
+- `docs/tasks/2026-02-22_14.49.14 - refresh-freeform-prelabel-prompt.md`
+- `docs/tasks/2026-02-22_15.10.22 - llm-pipelines-prompt-templates.md`
+
+Current-state contracts:
+- Full-mode freeform prelabel prompt content follows `docs/06-label-studio/AI-labelling-instructions.md`.
+- Prompt text is file-backed in `llm_pipelines/prompts/` and loaded at runtime with placeholder substitution.
+- Missing/empty template files intentionally fall back to in-code defaults so imports still run.
+- Prompt wording iteration should stay text-only in template files; keep placeholder tokens stable unless runtime parser logic is updated in the same change.
+
+### 10.2 Command/account-aware interactive prelabel model selection
+
+Merged task source:
+- `docs/tasks/2026-02-22_16.38.50 - interactive-prelabel-codex2-account-selection.md`
+
+Current-state contracts:
+- Interactive freeform prelabel does not ask users to choose command alias.
+- Command resolution remains `--codex-cmd` -> `COOKIMPORT_CODEX_CMD` -> `codex exec -`, with `CODEX_HOME` honored for model/account cache lookup.
+- Resolved account identity should be displayed before model selection when discoverable.
+- `codex2` command naming must still receive non-TTY `exec -` fallback behavior.
+
+### 10.3 Span granularity mode alongside legacy block mode
+
+Merged task source:
+- `docs/tasks/2026-02-22_17.27.33 - freeform-span-granularity-mode.md`
+
+Current-state contracts:
+- `labelstudio-import` supports `--prelabel-granularity block|span` (default `block`).
+- Interactive freeform flow keeps explicit style labels:
+  - `actual freeform` (span-mode)
+  - `legacy, block based` (block-mode)
+- Span mode supports multiple sub-block highlights via quote-anchored resolution and strict offset/text integrity checks.
+- Block mode behavior remains unchanged for backward compatibility.
+
+### 10.4 Resume-scope mismatch handling in benchmark upload flows
+
+Merged task source:
+- `docs/tasks/2026-02-22_17.37.19 - benchmark-resume-scope-mismatch.md`
+
+Current-state contracts:
+- Resume metadata checks only run when the target project pre-existed before current upload.
+- New-project uploads ignore stale local manifest `task_scope` values.
+- Benchmark auto-named projects resolve scope collisions by creating a deduped project title (`-1`, `-2`, ...) instead of hard-failing.
+
+### 10.5 Processing-time summary output for imports
+
+Merged task source:
+- `docs/tasks/2026-02-22_18.11.44 - labelstudio-import-processing-time-summary.md`
+
+Current-state contracts:
+- Interactive and non-interactive Label Studio import summaries include `Processing time: ...`.
+- Duration format remains human-readable (`Xs`, `Ym Zs`, `Xh Ym Zs`) via shared formatter logic.
+
+### 10.6 Codex thinking-effort picker and CLI aliasing
+
+Merged task source:
+- `docs/tasks/2026-02-22_19.00.14 - prelabel-codex-thinking-effort-picker.md`
+
+Current-state contracts:
+- Interactive freeform prelabel asks for thinking effort immediately after model selection.
+- Accepted values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`.
+- CLI supports `--codex-thinking-effort` with alias `--codex-reasoning-effort`.
+- Runtime injection remains additive via Codex config override (`model_reasoning_effort`) and should not overwrite command text that already sets this key.
+- Prelabel summary/report must include resolved effort metadata for reproducible reruns.
+
+### 10.7 Known-bad loops to avoid (from these merged tasks)
+
+- Do not reintroduce interactive command-picker UI for freeform prelabel account switching; use command-aware home/account resolution instead.
+- Do not apply stale local resume manifests to newly created projects.
+- Do not collapse span mode back to one-label-per-block behavior; keep quote-anchored sub-block semantics intact.
+- Do not fork prompt text back into Python string literals when file-backed templates are available.

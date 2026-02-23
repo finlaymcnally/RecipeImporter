@@ -38,7 +38,7 @@ Behavior differences:
 ```text
 Legend:
   [X] = matching labeled section below
-  ~~> = one-level Backspace navigation (only on _menu_select prompts)
+  ~~> = one-level Esc navigation
 
 [A] Enter interactive mode (`cookimport` with no subcommand)
   |
@@ -79,7 +79,7 @@ Startup behavior:
 2. Sets `input_folder = data/input`.
 3. Scans only top-level files in `data/input` for importer support (not recursive).
 4. Builds the main menu choices.
-5. Uses Backspace as one-level "go back" in prompts wired through `_menu_select`.
+5. Uses `Esc` as one-level "go back" in `_menu_select` and text/confirm/password prompts in interactive mode.
 
 Important divergence to remember:
 - interactive file selection is top-level only, but `cookimport stage <folder>` is recursive when a folder path is passed directly.
@@ -132,13 +132,16 @@ Config keys and defaults:
 - `epub_spine_items_per_job` (default `10`)
 - `warm_models` (default `false`)
 - `llm_recipe_pipeline` (default `off`)
+- `llm_knowledge_pipeline` (default `off`)
 - `codex_farm_cmd` (default `codex-farm`)
 - `codex_farm_root` (default unset; falls back to `<repo_root>/llm_pipelines`)
 - `codex_farm_workspace_root` (default unset; pipeline `codex_cd_mode` decides Codex `--cd`)
 - `codex_farm_pipeline_pass1` (default `recipe.chunking.v1`)
 - `codex_farm_pipeline_pass2` (default `recipe.schemaorg.v1`)
 - `codex_farm_pipeline_pass3` (default `recipe.final.v1`)
+- `codex_farm_pipeline_pass4_knowledge` (default `recipe.knowledge.v1`)
 - `codex_farm_context_blocks` (default `30`)
+- `codex_farm_knowledge_context_blocks` (default `12`)
 - `codex_farm_failure_mode` (default `fail`)
 
 What each setting affects:
@@ -153,10 +156,12 @@ What each setting affects:
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
 - `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
 - `llm_recipe_pipeline`: optional recipe codex-farm flow (`off` or `codex-farm-3pass-v1`).
-- `codex_farm_*`: codex-farm command/root/workspace/pipeline-id/context/failure behavior used by stage and benchmark prediction generation when LLM mode is enabled.
+- `llm_knowledge_pipeline`: optional knowledge-harvest flow (`off` or `codex-farm-knowledge-v1`) used by `stage` only.
+- `codex_farm_*`: codex-farm command/root/workspace/pipeline-id/context/failure behavior used by `stage`; recipe-pass subset is also used by benchmark prediction generation when `llm_recipe_pipeline` is enabled.
 
 Developer note:
 - Per-run toggle definitions live in `cookimport/config/run_settings.py`. Add new fields there with `ui_*` metadata so the interactive editor picks them up automatically.
+- The full-screen run-settings editor auto-scrolls to keep the selected row visible when the settings list exceeds terminal height.
 
 ### [D] Import Flow
 
@@ -200,7 +205,7 @@ Developer note:
 4. Scope-specific prompts:
    - `pipeline`: choose `chunk_level` (`both`, `structural`, `atomic`).
    - `canonical-blocks`: enter `context_window` (integer `>= 0`).
-   - `freeform-spans`: enter `segment_blocks` (integer `>= 1`) and `segment_overlap` (integer `>= 0`), then choose AI prelabel mode (`off`, strict/allow-partial annotations, or advanced predictions mode variants). If prelabel is enabled, interactive mode then asks for labeling style (`actual freeform` span mode vs `legacy, block based` mode), uses the resolved Codex command (`COOKIMPORT_CODEX_CMD` or `codex exec -`), shows the resolved account email when available, then prompts for model (`use default`, discovered models from that command's Codex home / `CODEX_HOME`, or custom model id).
+  - `freeform-spans`: enter `segment_blocks` (context blocks per task, integer `>= 1`), `segment_overlap` (integer `>= 0`), `segment_focus_blocks` (blocks to actively label per task, integer `>= 1` and `<= segment_blocks`), and optional `target_task_count` (blank disables auto-tuning). Then choose AI prelabel mode (`off`, strict/allow-partial annotations, or advanced predictions mode variants). If prelabel is enabled, interactive mode then asks for labeling style (`actual freeform` span mode vs `legacy, block based` mode), uses the resolved Codex command (`COOKIMPORT_CODEX_CMD` or `codex exec -`), shows the resolved account email when available, then prompts for model (`use default`, discovered models from that command's Codex home / `CODEX_HOME`, or custom model id) and thinking effort (`none|minimal|low|medium|high|xhigh`, mapped to Codex `model_reasoning_effort`).
 5. Enter Label Studio URL and API key if needed.
    - If `LABEL_STUDIO_URL` and `LABEL_STUDIO_API_KEY` are set, prompts are skipped.
    - Otherwise, interactive mode uses saved `cookimport.json` values when present.
@@ -366,13 +371,16 @@ Options:
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
 - `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
 - `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
+- `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-farm-knowledge-v1`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
 - `--codex-farm-pipeline-pass1 TEXT` (default `recipe.chunking.v1`): pass-1 pipeline id (recipe chunking/boundary).
 - `--codex-farm-pipeline-pass2 TEXT` (default `recipe.schemaorg.v1`): pass-2 pipeline id (schema.org extraction).
 - `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.v1`): pass-3 pipeline id (final draft generation).
+- `--codex-farm-pipeline-pass4-knowledge TEXT` (default `recipe.knowledge.v1`): pass-4 pipeline id (non-recipe knowledge harvesting).
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
+- `--codex-farm-knowledge-context-blocks INTEGER>=0` (default `12`): context blocks before/after each knowledge chunk for pass4 bundles.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - `markitdown` note: EPUB split jobs are disabled for this extractor because conversion is whole-book EPUB -> markdown (no spine-range mode).
 - `auto` note: stage resolves one effective extractor per EPUB before worker launch, writes `raw/epub/<source_hash>/epub_extractor_auto.json`, and then uses the resolved backend consistently for split planning/workers.
@@ -519,6 +527,8 @@ Options:
 - `--context-window INTEGER>=0` (default `1`): canonical scope context window.
 - `--segment-blocks INTEGER>=1` (default `40`): freeform segment size.
 - `--segment-overlap INTEGER>=0` (default `5`): freeform overlap.
+- `--segment-focus-blocks INTEGER>=1` (default unset): freeform blocks per task that should receive labels; when omitted, focus equals `segment_blocks`.
+- `--target-task-count INTEGER>=1` (default unset): optional freeform task-count target; runtime auto-tunes effective overlap per file to land as close as possible.
 - `--overwrite / --resume` (default `--resume`): recreate or resume project.
 - `--label-studio-url TEXT`: explicit Label Studio URL.
 - `--label-studio-api-key TEXT`: explicit Label Studio API key.
@@ -767,11 +777,11 @@ Use that file to check prior attempts before retrying a fix path.
 
 ## Related Docs
 
-- Import flow details: `docs/03-ingestion/README.md`
-- Output/staging behavior: `docs/05-staging/README.md`
-- Labeling and eval workflows: `docs/06-label-studio/README.md`
-- Offline bench suite: `docs/07-bench/README.md`
-- Tagging workflows: `docs/09-tagging/README.md`
+- Import flow details: `docs/03-ingestion/03-ingestion_readme.md`
+- Output/staging behavior: `docs/05-staging/05-staging_readme.md`
+- Labeling and eval workflows: `docs/06-label-studio/06-label-studio_README.md`
+- Offline bench suite: `docs/07-bench/07-bench_README.md`
+- Tagging workflows: `docs/09-tagging/09-tagging_README.md`
 
 ## Merged Understandings (2026-02-20 and durable checklist)
 
@@ -846,3 +856,46 @@ Current default path contract:
   - `data/output/EPUBextractorRace/<book_stem>`
 - The previous `/tmp/epub-race/<book_stem>` default is retired for interactive mode.
 - Direct non-interactive command behavior remains unchanged (`cookimport epub race --out ...` still user-controlled).
+
+## Merged Task Specs (2026-02-23 docs/tasks archival batch)
+
+### 2026-02-16 per-run run settings selector and persistence (`docs/tasks/01-PerRunSettingsSelector.md`)
+
+What shipped and where to look:
+- Canonical settings model and summary/hash source of truth: `cookimport/config/run_settings.py`.
+- Interactive run-settings mode picker (global defaults / last run / edit): `cookimport/cli_ui/run_settings_flow.py`.
+- Full-screen toggle-table editor: `cookimport/cli_ui/toggle_editor.py`.
+- Last-run snapshots per operation (`import` vs `benchmark`): `cookimport/config/last_run_store.py`.
+
+Durable behavior:
+- Interactive Import and interactive Benchmark upload always route through a run-settings choice before launching conversion.
+- Every run-producing path persists structured `runConfig` plus `runConfigHash` and `runConfigSummary` into report/history surfaces.
+- Eval-only benchmark mode intentionally bypasses run-settings persistence because no extraction pipeline runs.
+
+Anti-loop notes:
+- If a new knob appears in the editor but not in report/CSV/dashboard metadata, wiring is incomplete.
+- Add new pipeline knobs in one place (`RunSettings`) and propagate through stage + prediction-generation paths in the same change.
+
+### 2026-02-22 spinner progress counters second pass (`docs/tasks/2026-02-22_13.02.21-spinner-progress-counters-second-pass.md`)
+
+Durable CLI UX contract:
+- Known-size loops should emit explicit counters (`item X/Y`, `config X/Y`, `merge phase X/Y`) instead of static phase text.
+- Counter formatting should be shared through `cookimport/core/progress_messages.py` to avoid message drift.
+- Split-merge phase totals must include optional phases only when they will actually run, so `X/Y` remains honest.
+
+Operational examples to preserve:
+- `item 3/12 [item_id] ...`
+- `config 2/10 | item 4/12 ...`
+- `merge phase 5/9: <label>`
+
+### 2026-02-22 benchmark run-settings editor scroll fix (`docs/tasks/2026-02-22_19.12.59 - benchmark-run-settings-editor-scroll.md`)
+
+Durable editor behavior:
+- The full-screen toggle editor must expose a cursor position tied to the selected row so prompt_toolkit can auto-scroll.
+- Focus should stay on the body window while navigating rows.
+- Existing keybindings (`Up/Down/Left/Right`, save/cancel) are preserved.
+
+Regression anchors:
+- `tests/test_toggle_editor.py`
+- `tests/test_run_settings.py`
+- `tests/test_c3imp_interactive_menu.py`

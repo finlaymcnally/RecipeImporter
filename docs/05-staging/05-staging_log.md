@@ -73,8 +73,7 @@ Status now: these edge-case rules are still actively normalized in `draft_v1.py`
 
 ### 2026-02-15_22.10.59 staging output contract flow map
 
-Merged source file:
-- `2026-02-15_22.10.59-staging-output-contract-flow.md` (formerly in `docs/understandings`)
+Source note: this section was merged into the log; the original standalone doc is no longer present in `docs/`.
 
 Preserved outcomes:
 - Single-file stage flow (`cli_worker`) and split-job merge flow (`cli.py`) both converge on the same writer functions for intermediate/final/tips/topic/chunks/report outputs.
@@ -84,8 +83,7 @@ Preserved outcomes:
 
 ### 2026-02-15_22.48.59 report metadata flow consistency
 
-Merged source file:
-- `2026-02-15_22.48.59-report-metadata-flow.md` (formerly in `docs/understandings`)
+Source note: this section was merged into the log; the original standalone doc is no longer present in `docs/`.
 
 Preserved rule:
 - Single-file report writes happen in `cli_worker.stage_one_file`.
@@ -94,8 +92,7 @@ Preserved rule:
 
 ### 2026-02-15_22.59.48 split-merge bottleneck diagnosis from real run data
 
-Merged source file:
-- `2026-02-15_22.59.48-split-merge-write-topic-candidates-bottleneck.md` (formerly in `docs/understandings`)
+Source note: this section was merged into the log; the original standalone doc is no longer present in `docs/`.
 
 Preserved diagnosis:
 - Long "idle" periods after worker completion can be real merge output work, not a deadlock.
@@ -108,8 +105,7 @@ Anti-loop note:
 
 ### 2026-02-15_22.59.30 split-merge visibility and topic hash cache
 
-Merged source:
-- `docs/tasks/2026-02-15_22.59.30 - split-merge-visibility-and-topic-hash-cache.md`
+Source note: this section was merged into the log; the original task note is no longer present in `docs/`.
 
 Problem captured:
 - Large split EPUB/PDF runs could look hung after workers completed because merge stayed under a generic MainProcess label while doing long post-merge writes.
@@ -163,8 +159,7 @@ These are the loops we should avoid repeating.
 
 ### 2026-02-20_12.46.28 staging contract alignment edge cases
 
-Merged source:
-- `docs/understandings/2026-02-20_12.46.28-staging-contract-alignment-edge-cases.md`
+Source note: this section was merged into the log; the original standalone doc is no longer present in `docs/`.
 
 Preserved rules:
 - Cookbook staging schema allows `source=null` but rejects empty-string source values; normalize blank source to `null`.

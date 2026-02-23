@@ -33,7 +33,7 @@ Preserving the pre-split baseline here so context is not lost:
   - `llm_second_pass.py`: optional second-pass LLM scaffolding
 - Operational docs:
   - `cookimport/tagging/README.md`
-  - `docs/12-plans/I4.1-Auto-tag.md`
+  - `docs/plans/I4.1-Auto-tag.md`
 
 ## Attempt Ledger
 

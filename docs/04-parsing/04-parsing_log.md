@@ -12,18 +12,6 @@ Read this file when work starts looping across turns, or when someone says "we a
 
 This log is the anti-loop record for parsing: what changed, why, what worked, and what remains risky.
 
-## Source Inputs That Were Merged (Docs Consolidation Provenance)
-
-Chronology from old docs and filenames:
-
-1. `docs/04-parsing/2026-01-31-step-ingredient-splitting.md`
-2. `docs/04-parsing/2026-02-10-parsing-lane-alignment.md`
-3. `docs/04-parsing/step_linking_readme.md`
-4. `docs/04-parsing/tips_readme.md`
-5. `docs/04-parsing/04-parsing_README.md`
-
-All details below were rechecked against current code and tests during consolidation.
-
 ## Historical Timeline (What Changed, Why, Outcome)
 
 ### 2026-01-30 to 2026-01-31: step-linking duplication and split handling
@@ -78,9 +66,6 @@ Important note:
 
 ### 2026-02-15_22.07.14: Parsing flow and regression hotspot map
 
-Merged source file:
-- `2026-02-15_22.07.14-parsing-flow-and-regression-hotspots.md` (formerly in `docs/understandings`)
-
 Preserved guidance:
 - Parsing ownership is intentionally split across importer extraction, shared parsing modules, and draft-v1 shaping; regressions can first appear as staging/importer symptoms.
 - Step-link assignment surprises most often come from post-resolution passes (`all ingredients`, section-group aliasing, collective-term fallback), not from the initial exact/semantic/fuzzy scorer.
@@ -89,17 +74,13 @@ Preserved guidance:
 
 ### 2026-02-15_22.23.02: Unstructured runtime status check
 
-Merged source file:
-- `2026-02-15_22.23.02-unstructured-runtime-status-check.md` (formerly in `docs/understandings`)
-
 Preserved verification snapshot:
-- Dependency pin included `unstructured>=0.18.32,<0.19` and runtime env showed `0.18.32` installed.
+- Dependency pin is `unstructured>=0.18.32,<0.19` (see `pyproject.toml`).
 - EPUB extractor default resolution was verified end-to-end as `unstructured` (CLI defaults + importer fallback via `C3IMP_EPUB_EXTRACTOR`).
 - E2E stage run produced expected unstructured-specific raw diagnostics (`unstructured_elements.jsonl`) and enriched block features.
 
 Critical caveat preserved:
-- `getattr(unstructured, "__version__", "unknown")` can resolve to a module-like object in some runtimes.
-- Any metadata path that leaves worker-process boundaries (for split import/benchmark) must normalize this to plain string to stay pickle-safe.
+- Always store the Unstructured version in metadata as a plain string (for split import/benchmark pickle-safety). Use `_resolve_unstructured_version()` rather than serializing raw `__version__` objects.
 
 ### 2026-02-16: Unstructured EPUB tuning pass (BR splitting + explicit options)
 
@@ -133,9 +114,6 @@ Important caveat:
 
 ### 2026-02-19_14.22.11 - EPUB common issues quick wins
 
-Source task file:
-- `docs/tasks/2026-02-19_14.22.11 - epub-common-issues-quickwins.md`
-
 Problem captured:
 - EPUB extraction quality regressed on common noise classes (soft hyphens, BR-collapsed lines, bullet prefixes, nav/pagebreak noise), causing downstream segmentation and parsing errors.
 
@@ -161,3 +139,29 @@ Key constraints and anti-loop notes:
 
 Rollback path preserved:
 - Revert `cookimport/parsing/epub_postprocess.py` and `cookimport/parsing/epub_health.py` plus importer/debug wiring and associated tests.
+
+### 2026-02-16 unstructured tuning implementation record
+
+Problem captured:
+- Unstructured HTML partitioning could collapse BR-based ingredient/instruction lines and hide critical structure.
+
+Major decisions preserved:
+- Normalize EPUB HTML before partitioning, then keep preprocessing mode configurable.
+- Promote unstructured parser/preprocess options into explicit run settings and diagnostics metadata.
+- Keep parser default at `v1`; parser `v2` stays opt-in behind compatibility wrapping.
+
+Anti-loop note:
+- Repeated downstream segmentation hacks are the wrong fix when upstream block boundaries are already degraded.
+
+### 2026-02-19 EPUB quick-wins and health guardrails
+
+Problem captured:
+- Upstream text-shape noise (soft hyphen, nav/pagebreak noise, BR-collapsed lists) was cascading into parsing regressions.
+
+Major decisions preserved:
+- Centralize EPUB cleanup in shared postprocess and apply to HTML-based backends (`legacy`, `unstructured`, `markdown`), not `markitdown`.
+- Emit extraction health as both report warning keys and raw JSON artifact.
+- Type OPF spine records (`EpubSpineItem`) so nav-skipping behavior matches across ebooklib and zip fallback paths.
+
+Serious failed-path summary:
+- Debug extraction initially skipped shared postprocess, causing apparent importer-vs-debug drift; parity was restored by applying the same cleanup path.

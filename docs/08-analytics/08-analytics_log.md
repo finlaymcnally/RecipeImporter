@@ -349,3 +349,18 @@ Preserved cross-layer contract:
 
 Anti-loop note:
 - Writing auto metadata only to raw artifacts is incomplete; if one of these layers is skipped, users see extractor state in some analytics surfaces but not others.
+
+## 2026-02-23 docs/tasks archival merge batch (analytics)
+
+### 2026-02-12 lifetime stats dashboard baseline (`docs/tasks/I1.1-STATS-DASH.md`)
+
+Problem captured:
+- Throughput and benchmark trends were scattered across raw files, making regressions hard to inspect quickly.
+
+Major decisions preserved:
+- Build a static offline dashboard with zero runtime network dependencies.
+- Keep collectors read-only and focused on compact metric surfaces (CSV + eval/report JSON), not full output rescans by default.
+- Separate run categories to avoid inflated counts from mixed stage/labelstudio/benchmark artifact roots.
+
+Anti-loop note:
+- Dashboard generation should not mutate run artifacts; if a proposed change writes outside `--out-dir`, treat it as contract drift.
