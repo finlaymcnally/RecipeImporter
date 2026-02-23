@@ -67,9 +67,8 @@ START
 |   |       `-- freeform-spans -> `freeform_span_labels.jsonl`, `freeform_segment_manifest.jsonl`, `summary.json`
 |   |
 |   |-- E) Evaluate predictions vs freeform gold
-|   |   |-- eval-only: pick existing gold + prediction run -> `labelstudio-eval` (no upload)
-|   |   `-- upload path: generate fresh predictions + upload + evaluate
-|   |       `-- CLI-only extra permutation: `--no-upload` (fully offline benchmark path)
+|   |   `-- interactive path: generate fresh predictions + upload + evaluate
+|   |       `-- CLI-only extra permutations: `--no-upload` (offline benchmark) or `labelstudio-eval` (re-score existing run)
 |   |
 |   `-- F) Generate dashboard
 |       `-- build lifetime HTML dashboard from output history
@@ -220,10 +219,9 @@ Main Menu ("What would you like to do?")
 |   |-- Dry run only? (recommended first)
 |   `-- If writing: confirm creating new annotations in Label Studio
 |
-|-- Evaluate predictions vs freeform gold (re-score or generate)
-|   |-- If both gold exports and prediction runs exist: choose mode
-|   |   |-- Eval-only: pick gold export + pick prediction run (no upload)
-|   |   `-- Upload: generate predictions + evaluate (uploads to Label Studio)
+|-- Generate predictions + evaluate vs freeform gold
+|   |-- Choose benchmark run settings
+|   |-- Label Studio URL + API key (if needed)
 |   `-- Writes evaluation artifacts under data/golden/eval-vs-pipeline/<YYYY-MM-DD_HH.MM.SS>/
 |
 |-- Generate dashboard - build lifetime stats dashboard HTML
@@ -371,29 +369,25 @@ Label Studio: decorate existing freeform project with AI spans
 `-- No -> confirm write -> creates new annotations in Label Studio
 ```
 
-### Evaluate Predictions vs Freeform Gold (Re-Score or Generate)
+### Generate Predictions + Evaluate vs Freeform Gold
 
 Use this to compare pipeline predictions against your freeform "gold" labels.
 
-Sub-prompts you may see:
-- If both gold exports and prior prediction runs exist, you can choose:
-  - **Eval-only**: re-score an existing prediction run (no upload)
-  - **Upload**: generate fresh predictions and evaluate them (uploads to Label Studio)
-- In eval-only mode, you pick:
-  - a freeform gold export file
-  - a prediction run folder
-- In upload mode, you pick benchmark run settings (similar editor to import), then it uploads tasks + evaluates them.
+Sub-prompts you will see:
+- Choose benchmark run settings (similar editor to import).
+- Provide Label Studio credentials when they are not already configured.
+- The flow then generates predictions, uploads tasks, and evaluates against freeform gold.
+
+If you need to re-score an existing prediction run without regeneration, use:
+- `cookimport labelstudio-eval --pred-run <run_dir> --gold-spans <freeform_span_labels.jsonl> --output-dir <eval_dir>`
 
 Choice tree (Evaluate):
 
 ```text
-Evaluate predictions vs freeform gold
-|-- Eval-only (no upload)
-|   |-- Select gold export
-|   `-- Select prediction run
-`-- Upload (generates predictions + uploads + evaluates)
-    |-- Choose benchmark run settings
-    `-- Label Studio URL + API key (if needed)
+Generate predictions + evaluate vs freeform gold
+|-- Choose benchmark run settings
+|-- Label Studio URL + API key (if needed)
+`-- Run benchmark (generates predictions + uploads + evaluates)
 ```
 
 ### Generate Dashboard

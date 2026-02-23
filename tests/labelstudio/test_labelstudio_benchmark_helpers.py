@@ -1130,9 +1130,14 @@ def test_interactive_benchmark_uses_golden_output_roots(
     golden_root = tmp_path / "golden"
     gold_spans = golden_root / "some-run" / "exports" / "freeform_span_labels.jsonl"
     pred_run = golden_root / "some-run" / "prediction-run"
-    menu_answers = iter(["labelstudio_benchmark", "upload", "global", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "global", "exit"])
 
-    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    def fake_menu_select(prompt: str, *_args, **_kwargs):
+        if prompt == "How would you like to evaluate?":
+            raise AssertionError("Interactive benchmark should not prompt for eval-only mode.")
+        return next(menu_answers)
+
+    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
     monkeypatch.setattr(
         cli,
@@ -1218,7 +1223,7 @@ def test_interactive_generate_dashboard_prompts_and_opens_browser(
     assert captured["scan_reports"] is False
 
 
-def test_interactive_benchmark_eval_only_uses_existing_prediction_run(
+def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_upload_flow(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     golden_root = tmp_path / "golden"
@@ -1229,35 +1234,41 @@ def test_interactive_benchmark_eval_only_uses_existing_prediction_run(
     gold_spans.parent.mkdir(parents=True, exist_ok=True)
     gold_spans.write_text("{}\n", encoding="utf-8")
 
-    menu_answers = iter(["labelstudio_benchmark", "eval-only", gold_spans, pred_run, "exit"])
-    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    menu_answers = iter(["labelstudio_benchmark", "global", "exit"])
+
+    def fake_menu_select(prompt: str, *_args, **_kwargs):
+        if prompt == "How would you like to evaluate?":
+            raise AssertionError("Interactive benchmark should not show eval-only chooser.")
+        return next(menu_answers)
+
+    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
     monkeypatch.setattr(cli, "_load_settings", lambda: {})
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
-
-    def _unexpected_confirm(*_args, **_kwargs):
-        raise AssertionError("Upload confirm should not be shown in eval-only mode")
-
-    monkeypatch.setattr(cli.questionary, "confirm", _unexpected_confirm)
+    monkeypatch.setattr(
+        cli,
+        "_resolve_interactive_labelstudio_settings",
+        lambda _settings: ("http://localhost:8080", "benchmark-key"),
+    )
     monkeypatch.setattr(cli, "_discover_freeform_gold_exports", lambda *_: [gold_spans])
     monkeypatch.setattr(cli, "_discover_prediction_runs", lambda *_: [pred_run])
 
-    captured: dict[str, object] = {}
+    eval_calls: list[dict[str, object]] = []
+    benchmark_calls: list[dict[str, object]] = []
 
-    def fake_labelstudio_eval(**kwargs):
-        captured.update(kwargs)
-
-    monkeypatch.setattr(cli, "labelstudio_eval", fake_labelstudio_eval)
+    monkeypatch.setattr(cli, "labelstudio_eval", lambda **kwargs: eval_calls.append(kwargs))
+    monkeypatch.setattr(
+        cli,
+        "labelstudio_benchmark",
+        lambda **kwargs: benchmark_calls.append(kwargs),
+    )
 
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
 
-    assert captured["scope"] == "freeform-spans"
-    assert captured["pred_run"] == pred_run
-    assert captured["gold_spans"] == gold_spans
-    eval_output_dir = captured["output_dir"]
-    assert isinstance(eval_output_dir, Path)
-    assert eval_output_dir.parent == golden_root / "eval-vs-pipeline"
+    assert eval_calls == []
+    assert len(benchmark_calls) == 1
+    assert benchmark_calls[0]["output_dir"] == golden_root
 
 
 def test_interactive_labelstudio_export_routes_to_export_command(

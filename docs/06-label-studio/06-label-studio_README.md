@@ -66,7 +66,7 @@ Uploads are intentionally gated.
   - Interactive freeform prelabel does not prompt for command selection; it resolves command from `COOKIMPORT_CODEX_CMD` or `codex exec -`, displays the resolved account email when available, then prompts for model and thinking effort (`none|minimal|low|medium|high|xhigh`) using metadata/defaults from that command's Codex home cache (`CODEX_HOME` honored).
   - Token usage tracking is always enabled for AI labeling runs.
 - benchmark upload does not ask a second confirmation; choosing upload mode is treated as explicit intent.
-- benchmark supports eval-only fallback (no upload) in interactive flow.
+- interactive benchmark is upload-only and always generates fresh predictions before evaluation.
 - benchmark upload auto-recovers from project scope collisions when project name is auto-generated: if an existing project+manifest resolves to a different task scope, it creates a deduped project name instead of failing interactive flow.
 
 Non-interactive overwrite/resume behavior is unchanged:
@@ -418,7 +418,7 @@ Important:
 
 - Upload mode imports/uploads prediction tasks (requires write consent).
 - Offline mode is explicit via `--no-upload`.
-- Eval-only mode against an existing prediction run is available via `labelstudio-eval` and interactive benchmark eval-only.
+- Eval-only mode against an existing prediction run is available via `labelstudio-eval` (interactive benchmark does not expose eval-only).
 - Benchmark prediction manifests include run-config metadata (`run_config`, `run_config_hash`, `run_config_summary`) so analytics/dashboard rows can be grouped by configuration.
 - Non-interactive benchmark knobs include worker/split controls, OCR/warmup flags, knowledge-harvest codex-farm controls, and a recipe codex-farm policy knob that is currently forced to `off` (`--ocr-device`, `--ocr-batch-size`, `--warm-models`, `--epub-extractor`, `--llm-recipe-pipeline`, `--codex-farm-cmd`, `--codex-farm-root`, `--codex-farm-workspace-root`, `--codex-farm-pipeline-pass1`, `--codex-farm-pipeline-pass2`, `--codex-farm-pipeline-pass3`, `--codex-farm-context-blocks`, `--codex-farm-failure-mode`).
 - If recipe codex-farm correction is re-enabled in future, processed report payloads include `llmCodexFarm` and prediction-run artifacts include `llm_manifest.json` when produced.
@@ -484,7 +484,7 @@ Users often expected benchmark to be “offline scoring only.”
 Current reality:
 
 - non-interactive benchmark can be upload mode (default) or explicit offline mode (`--no-upload`).
-- eval-only against an existing pred run is a separate command (`labelstudio-eval`) and interactive branch.
+- eval-only against an existing pred run is a separate command (`labelstudio-eval`), not an interactive benchmark branch.
 
 ### 2.3 Source mismatch leading to zero overlap
 

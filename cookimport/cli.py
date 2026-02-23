@@ -912,7 +912,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
         )
         choices.append(
             questionary.Choice(
-                "Evaluate predictions vs freeform gold (re-score or generate)",
+                "Generate predictions + evaluate vs freeform gold",
                 value="labelstudio_benchmark",
             )
         )
@@ -1502,76 +1502,6 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 / "eval-vs-pipeline"
                 / dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
             )
-            gold_candidates = _discover_freeform_gold_exports(DEFAULT_GOLDEN)
-            prediction_runs = _discover_prediction_runs(DEFAULT_GOLDEN)
-            benchmark_mode = "upload"
-            if gold_candidates and prediction_runs:
-                selected_mode = _menu_select(
-                    "How would you like to evaluate?",
-                    menu_help=(
-                        "Use eval-only to re-score an existing prediction run "
-                        "(for updated gold/settings). "
-                        "Use upload only when you need to generate fresh predictions."
-                    ),
-                    choices=[
-                        questionary.Choice(
-                            "Evaluate existing prediction run (no upload)",
-                            value="eval-only",
-                        ),
-                        questionary.Choice(
-                            "Generate predictions + evaluate (uploads to Label Studio)",
-                            value="upload",
-                        ),
-                    ],
-                )
-                if selected_mode in {None, BACK_ACTION}:
-                    continue
-                benchmark_mode = str(selected_mode)
-
-            if benchmark_mode == "eval-only":
-                selected_gold = _menu_select(
-                    "Select a freeform gold export:",
-                    menu_help="Choose the labeled freeform export to score against.",
-                    choices=[
-                        questionary.Choice(
-                            _display_gold_export_path(path, DEFAULT_GOLDEN),
-                            value=path,
-                        )
-                        for path in gold_candidates[:30]
-                    ],
-                )
-                if selected_gold in {None, BACK_ACTION}:
-                    typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
-                    continue
-
-                selected_pred_run = _menu_select(
-                    "Select a prediction run:",
-                    menu_help=(
-                        "Choose the existing prediction task run to compare against the selected gold export."
-                    ),
-                    choices=[
-                        questionary.Choice(
-                            _display_prediction_run_path(path, DEFAULT_GOLDEN),
-                            value=path,
-                        )
-                        for path in prediction_runs[:30]
-                    ],
-                )
-                if selected_pred_run in {None, BACK_ACTION}:
-                    typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
-                    continue
-
-                typer.secho(
-                    "Eval-only mode: no pipeline run settings applied.",
-                    fg=typer.colors.BRIGHT_BLACK,
-                )
-                labelstudio_eval(
-                    scope="freeform-spans",
-                    pred_run=Path(selected_pred_run),
-                    gold_spans=Path(selected_gold),
-                    output_dir=benchmark_eval_output,
-                )
-                continue
 
             benchmark_defaults = RunSettings.from_dict(
                 settings,

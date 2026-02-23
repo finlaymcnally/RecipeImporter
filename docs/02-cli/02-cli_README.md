@@ -56,9 +56,7 @@ Legend:
   |
   +--> [F] Label Studio export ------------> run_labelstudio_export(...) -> [C]
   |
-  +--> [H] Benchmark vs freeform gold
-  |       +--> [H1] Eval-only -------------> labelstudio-eval -----------> [C]
-  |       `--> [H2] Upload ----------------> labelstudio-benchmark ------> [C]
+  +--> [H] Benchmark vs freeform gold -----> labelstudio-benchmark ------> [C]
   |
   +--> [I] Generate dashboard -------------> stats-dashboard -------------> [C]
   |
@@ -92,7 +90,7 @@ Menu options:
 - `Label Studio: create labeling tasks (uploads)`
 - `EPUB debug: race extractors on one file`
 - `Label Studio: export completed labels to golden artifacts`
-- `Evaluate predictions vs freeform gold (re-score or generate)`
+- `Generate predictions + evaluate vs freeform gold`
 - `Generate dashboard - build lifetime stats dashboard HTML`
 - `Settings - tune worker/OCR/output defaults`
 - `Exit - close the tool`
@@ -253,47 +251,15 @@ Developer note:
 
 ### [H] Benchmark vs Freeform Gold Flow
 
-`Evaluate predictions vs freeform gold` supports two paths:
-
-- `eval-only` when both gold exports and prediction runs exist.
-- `upload` mode (default/fallback) for generating fresh predictions.
-- If either artifact set is missing, interactive mode skips the mode picker and goes straight to upload mode.
-
-Why both paths exist:
-
-1. Benchmark always needs two inputs:
-- labeled `gold` spans (`freeform_span_labels.jsonl`)
-- pipeline `predictions` (`label_studio_tasks.jsonl` run directory)
-2. `eval-only` is the "re-score" path:
-- no new upload
-- no new prediction generation
-- fastest way to compare an existing prediction run against updated gold labels or updated eval settings.
-3. `upload` is the "make predictions first" path:
-- creates a fresh prediction run
-- uploads tasks to Label Studio
-- then evaluates those fresh predictions against gold.
-
-Typical reasons to use `eval-only` again on an old run:
-
-- You corrected or expanded freeform gold labels and want updated scores.
-- You changed eval settings (`overlap_threshold` or `force_source_match`) and want a fresh report on the same predictions.
-- You changed evaluator/report formatting and want regenerated artifacts without creating new predictions.
-
-### [H1] Eval-Only Branch
-
-1. Select freeform gold export (`**/exports/freeform_span_labels.jsonl`).
-2. Select prediction run (`**/label_studio_tasks.jsonl` run directory).
-3. Prints `Eval-only mode: no pipeline run settings applied.`
-4. Runs `labelstudio-eval scope=freeform-spans` into `data/golden/eval-vs-pipeline/<timestamp>`.
-5. Returns to the main menu.
-
-### [H2] Upload Branch
+Interactive benchmark always runs the upload path:
 
 1. Shows benchmark `Run settings` mode picker (`global` / `last benchmark` / `change`), using the same editor flow as Import.
 2. Resolves Label Studio credentials from env (`LABEL_STUDIO_URL` / `LABEL_STUDIO_API_KEY`) or saved interactive settings; if still missing, prompts and saves values to `cookimport.json`.
 3. Calls `labelstudio-benchmark(...)` with selected per-run settings (extractor, workers/split controls, OCR options, warm-model flag, and optional codex-farm LLM recipe pipeline settings).
 4. Saves selected settings to `<output_dir>/.history/last_run_settings_benchmark.json` after a successful upload/eval run.
 5. Returns to the main menu on completion.
+
+For re-scoring an existing prediction run, use `cookimport labelstudio-eval` directly.
 
 ### [I] Generate Dashboard Flow
 
@@ -596,7 +562,7 @@ Behavior note:
 - Non-interactive upload path: generates predictions, uploads to Label Studio, then evaluates.
 - Non-interactive offline path: `--no-upload` generates predictions locally and evaluates with no Label Studio credentials/API calls.
 - Re-scoring an old prediction run without regeneration is still done with `cookimport labelstudio-eval --pred-run ... --gold-spans ...`.
-- Interactive mode (`cookimport` -> Benchmark) can expose an `eval-only` branch that wraps this re-score workflow when both artifacts are discoverable.
+- Interactive mode (`cookimport` -> Benchmark) always generates fresh predictions, uploads, and evaluates.
 
 Options:
 
