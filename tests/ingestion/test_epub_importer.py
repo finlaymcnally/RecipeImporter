@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import sys
+import time
 import types
 import pytest
 from pathlib import Path
 from cookimport.core.blocks import Block
 from cookimport.core.models import RecipeCandidate
+from cookimport.parsing.atoms import Atom
+from cookimport.parsing.tips import TopicContainer
 from cookimport.parsing import signals
 from cookimport.plugins.epub import EpubImporter, _resolve_unstructured_version
 from tests.fixtures.make_epub import make_synthetic_epub
@@ -219,9 +222,75 @@ def test_resolve_unstructured_version_handles_module_value(monkeypatch):
 
     monkeypatch.setattr("cookimport.plugins.epub.importlib_metadata.version", _raise_missing)
     monkeypatch.setitem(sys.modules, "unstructured", package_module)
-
     assert _resolve_unstructured_version() == "9.9.9"
 
+
+def test_extract_standalone_tips_parallel_progress_and_order(monkeypatch, tmp_path: Path) -> None:
+    importer = EpubImporter()
+    source = tmp_path / "book.epub"
+    source.write_text("dummy", encoding="utf-8")
+    blocks = [Block(text="late"), Block(text="fast")]
+    containers = [
+        TopicContainer(indices=[0], blocks=[(0, "late")], header=None),
+        TopicContainer(indices=[1], blocks=[(1, "fast")], header=None),
+    ]
+
+    monkeypatch.setattr(
+        "cookimport.plugins.epub.chunk_standalone_blocks",
+        lambda *_args, **_kwargs: containers,
+    )
+    monkeypatch.setattr(
+        "cookimport.plugins.epub.split_text_to_atoms",
+        lambda text, block_index, **_kwargs: [
+            Atom(
+                text=text,
+                kind="paragraph",
+                source_block_index=block_index,
+                sequence=0,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.plugins.epub.contextualize_atoms",
+        lambda atoms: atoms,
+    )
+    monkeypatch.setattr(
+        "cookimport.plugins.epub.build_topic_candidate",
+        lambda text, **_kwargs: {"topic": text},
+    )
+
+    def _fake_extract_tip_candidates(text: str, **_kwargs):
+        if text == "late":
+            time.sleep(0.03)
+        return [{"tip": text}]
+
+    monkeypatch.setattr(
+        "cookimport.plugins.epub.extract_tip_candidates",
+        _fake_extract_tip_candidates,
+    )
+    monkeypatch.setenv("C3IMP_STANDALONE_ANALYSIS_WORKERS", "2")
+
+    progress_messages: list[str] = []
+    tips, topics, standalone_block_count, topic_block_count = importer._extract_standalone_tips(
+        blocks,
+        [],
+        source,
+        "hash",
+        progress_callback=progress_messages.append,
+    )
+
+    assert standalone_block_count == 2
+    assert topic_block_count == 2
+    assert [tip["tip"] for tip in tips] == ["late", "fast"]
+    assert [topic["topic"] for topic in topics] == ["late", "fast"]
+    assert any(
+        "Analyzing standalone knowledge blocks... task 0/2" in msg
+        for msg in progress_messages
+    )
+    assert any(
+        "Analyzing standalone knowledge blocks... task 2/2" in msg
+        for msg in progress_messages
+    )
 
 def test_backtrack_for_title_prefers_earliest_title_block():
     importer = EpubImporter()

@@ -755,6 +755,7 @@ CLI-relevant environment variables:
 - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`: unstructured HTML parser version (`v1` or `v2`) for EPUB extraction.
 - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`: bool toggle for Unstructured `skip_headers_and_footers` on EPUB HTML.
 - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`: EPUB HTML preprocess mode before Unstructured (`none`, `br_split_v1`, `semantic_v1`).
+- `C3IMP_STANDALONE_ANALYSIS_WORKERS`: worker count for EPUB/PDF standalone knowledge-block analysis (`>=1`, default `4`).
 - `LABEL_STUDIO_URL`: default Label Studio URL when `--label-studio-url` is omitted.
 - `LABEL_STUDIO_API_KEY`: default Label Studio API key when `--label-studio-api-key` is omitted.
 - `COOKIMPORT_DATABASE_URL`: DB URL fallback for `tag-catalog export`, `tag-recipes debug-signals`, and `tag-recipes apply`.

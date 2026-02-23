@@ -114,12 +114,29 @@ def test_build_freeform_tasks_include_focus_metadata() -> None:
 
     first_source_map = tasks[0]["data"]["source_map"]
     second_source_map = tasks[1]["data"]["source_map"]
-    assert first_source_map["focus_start_block_index"] == 0
-    assert first_source_map["focus_end_block_index"] == 1
-    assert first_source_map["focus_block_indices"] == [0, 1]
-    assert second_source_map["focus_start_block_index"] == 3
-    assert second_source_map["focus_end_block_index"] == 4
-    assert second_source_map["focus_block_indices"] == [3, 4]
+    assert first_source_map["focus_start_block_index"] == 1
+    assert first_source_map["focus_end_block_index"] == 2
+    assert first_source_map["focus_block_indices"] == [1, 2]
+    assert first_source_map["context_before_block_indices"] == [0]
+    assert first_source_map["context_after_block_indices"] == [3]
+    assert first_source_map["focus_block_range"] == "1-2"
+    assert first_source_map["context_before_block_range"] == "0"
+    assert first_source_map["context_after_block_range"] == "3"
+    assert tasks[0]["data"]["focus_scope_hint"] == (
+        "Label only blocks 1-2. Context only: before 0; after 3."
+    )
+
+    assert second_source_map["focus_start_block_index"] == 4
+    assert second_source_map["focus_end_block_index"] == 5
+    assert second_source_map["focus_block_indices"] == [4, 5]
+    assert second_source_map["context_before_block_indices"] == [3]
+    assert second_source_map["context_after_block_indices"] == []
+    assert second_source_map["focus_block_range"] == "4-5"
+    assert second_source_map["context_before_block_range"] == "3"
+    assert second_source_map["context_after_block_range"] == "none"
+    assert tasks[1]["data"]["focus_scope_hint"] == (
+        "Label only blocks 4-5. Context only: before 3; after none."
+    )
 
 
 def test_freeform_label_config_uses_expected_label_order_and_names() -> None:
@@ -146,6 +163,11 @@ def test_freeform_label_config_uses_expected_label_order_and_names() -> None:
     assert '<Label value="NOTES"/>' not in config
     assert '<Label value="VARIANT"/>' not in config
     assert '<Label value="NOTE"/>' not in config
+    assert "$focus_scope_hint" in config
+    assert (
+        "Focus: $focus_block_range | Context before: $context_before_block_range | "
+        "Context after: $context_after_block_range"
+    ) in config
 
 
 def test_export_freeform_spans_jsonl(tmp_path, monkeypatch) -> None:

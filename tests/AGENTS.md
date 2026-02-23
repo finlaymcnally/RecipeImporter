@@ -7,6 +7,13 @@ If this conflicts with root `AGENTS.md`, this file wins for `tests/`.
 
 - Pytest defaults are now ultra-brief in `pytest.ini`:
   - `-q --tb=no --assert=plain --show-capture=no --strict-markers --disable-warnings --no-summary`
+  - `console_output_style = classic`
+- `tests/conftest.py:pytest_configure(...)` now enforces compact output even when callers pass `-o addopts=''`:
+  - hides header + summary
+  - suppresses warnings
+  - clamps `-v/-vv` back to compact mode
+  - opt-out env for full verbose output: `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`
+- Per-test progress glyphs are suppressed in `tests/conftest.py` via `pytest_report_teststatus(...)`.
 - Tests are modularized by marker in `tests/conftest.py` via centralized file mapping:
   - domain markers: `ingestion`, `parsing`, `staging`, `cli`, `labelstudio`, `bench`, `analytics`, `tagging`, `llm`, `core`
   - scope markers: `smoke` (tiny sanity slice), `slow` (higher-cost suites)
@@ -17,6 +24,43 @@ If this conflicts with root `AGENTS.md`, this file wins for `tests/`.
   - `log: docs/<domain>/<domain>_log.md`
   - optional verbose rerun command
 - A short run guide lives in `tests/README.md`.
+
+## Noise Examples Found (2026-02-23)
+
+- Pytest progress glyph line from default reporter:
+  - `................................. [100%]`
+- Full pytest header/footer separator flood when running with overrides:
+  - `============================= test session starts ==============================`
+  - `=============================== warnings summary ===============================`
+  - `=================== 1 failed, 23 passed, 2 warnings in 2.10s ===================`
+- `tests/core/test_phase1_manual.py` (success-path prints removed):
+  - `--- Testing Cleaning ---`
+  - `--- Testing Signals ---`
+  - `--- Testing Reporting ---`
+  - `--- Testing LLM Repair (Mock) ---`
+  - `Mojibake Input: ...`, `Mojibake Output: ...`
+  - `Hyphen Input: ...`, `Hyphen Output: ...`
+  - `Spaces Input: ...`, `Spaces Output: ...`
+  - `Text: ... -> Signals: ...`
+  - `Report successfully created at ...`
+  - `Content: ...`
+  - `ERROR: Report file not found!`
+  - `LLM Repair returned a candidate object:`
+  - `candidate.model_dump_json(indent=2)` payload dump
+  - `ERROR: LLM Repair failed to return a candidate`
+  - `All manual tests passed execution.`
+- `tests/tagging/test_tagging.py` (success-path print removed):
+  - `print(f"\n{report}")`
+- `tests/fixtures/generate_scanned_pdf.py` (kept, manual utility script):
+  - `Generated scanned PDF: ...`
+- Ellipses in status-message assertions were reviewed and kept intentionally because they validate product output contracts (not test-runner decoration), e.g.:
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+  - `tests/labelstudio/test_labelstudio_ingest_parallel.py`
+  - `tests/bench/test_bench_progress.py`
+  - `tests/bench/test_progress_messages.py`
+  - `tests/ingestion/test_epub_importer.py`
+  - `tests/ingestion/test_pdf_importer.py`
+  - `tests/staging/test_split_merge_status.py`
 
 ## Standards to Hold
 
@@ -30,6 +74,7 @@ If this conflicts with root `AGENTS.md`, this file wins for `tests/`.
   - Avoid `print(...)` in normal test paths.
   - Keep assertion text short; do not dump large payloads in failures.
   - Put deep debugging detail in matching `docs/*_log.md`, not test stdout.
+  - Use `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` only when full pytest verbosity is explicitly needed.
 - Keep runs scoped:
   - Prefer marker/file-targeted runs over full-suite runs.
   - Typical default for AI loops: `pytest -m smoke` or one domain marker.

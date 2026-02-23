@@ -7,6 +7,7 @@ import re
 import warnings
 import zipfile
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from importlib import metadata as importlib_metadata
 from pathlib import Path, PurePosixPath
@@ -35,6 +36,7 @@ from cookimport.core.reporting import (
     compute_file_hash,
     generate_recipe_id,
 )
+from cookimport.core.progress_messages import format_task_counter
 from cookimport.core.scoring import score_recipe_candidate
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning, signals
@@ -75,6 +77,8 @@ _UNSTRUCTURED_HTML_PARSER_VERSION_DEFAULT = "v1"
 _UNSTRUCTURED_HTML_PARSER_VERSION_CHOICES = {"v1", "v2"}
 _UNSTRUCTURED_PREPROCESS_MODE_DEFAULT = "br_split_v1"
 _UNSTRUCTURED_PREPROCESS_MODE_CHOICES = {"none", "br_split_v1", "semantic_v1"}
+_STANDALONE_ANALYSIS_WORKERS_DEFAULT = 4
+_STANDALONE_ANALYSIS_WORKERS_ENV = "C3IMP_STANDALONE_ANALYSIS_WORKERS"
 
 
 def _get_epub_extractor() -> str:
@@ -136,6 +140,24 @@ def _get_unstructured_preprocess_mode() -> str:
             _UNSTRUCTURED_PREPROCESS_MODE_DEFAULT,
         )
     return _UNSTRUCTURED_PREPROCESS_MODE_DEFAULT
+
+
+def _get_standalone_analysis_workers() -> int:
+    raw_value = os.environ.get(
+        _STANDALONE_ANALYSIS_WORKERS_ENV,
+        str(_STANDALONE_ANALYSIS_WORKERS_DEFAULT),
+    )
+    try:
+        parsed = int(str(raw_value).strip())
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid %s=%r. Falling back to %s.",
+            _STANDALONE_ANALYSIS_WORKERS_ENV,
+            raw_value,
+            _STANDALONE_ANALYSIS_WORKERS_DEFAULT,
+        )
+        return _STANDALONE_ANALYSIS_WORKERS_DEFAULT
+    return max(1, parsed)
 
 # Suppress ebooklib warnings about future/deprecations if any
 warnings.filterwarnings("ignore", category=UserWarning, module="ebooklib")
@@ -491,7 +513,13 @@ class EpubImporter:
                 standalone_topics,
                 standalone_block_count,
                 topic_block_count,
-            ) = self._extract_standalone_tips(blocks, candidates_ranges, path, file_hash)
+            ) = self._extract_standalone_tips(
+                blocks,
+                candidates_ranges,
+                path,
+                file_hash,
+                progress_callback=_notify,
+            )
             tip_candidates.extend(standalone_tips)
             topic_candidates.extend(standalone_topics)
 
@@ -569,7 +597,12 @@ class EpubImporter:
         candidate_ranges: List[Tuple[int, int, float]],
         path: Path,
         file_hash: str,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> tuple[List[Any], List[Any], int, int]:
+        def _notify(message: str) -> None:
+            if progress_callback is not None:
+                progress_callback(message)
+
         covered: set[int] = set()
         for start, end, _ in candidate_ranges:
             covered.update(range(start, end))
@@ -591,12 +624,15 @@ class EpubImporter:
                 continue
             standalone_blocks.append((idx, text))
 
-        topic_block_indices: set[int] = set()
-        for container in chunk_standalone_blocks(
-            standalone_blocks, overrides=self._overrides
-        ):
+        def _analyze_container(
+            container_index: int,
+            container: Any,
+        ) -> tuple[int, list[Any], list[Any], set[int]]:
             if not container.indices:
-                continue
+                return (container_index, [], [], set())
+            container_tip_candidates: list[Any] = []
+            container_topic_candidates: list[Any] = []
+            container_topic_block_indices: set[int] = set()
             start_block = min(container.indices)
             end_block = max(container.indices)
             base_location: dict[str, Any] = {
@@ -667,7 +703,7 @@ class EpubImporter:
                     "context_next": atom.context_next,
                 }
 
-                topic_candidates.append(
+                container_topic_candidates.append(
                     build_topic_candidate(
                         atom.text,
                         provenance=provenance,
@@ -676,7 +712,7 @@ class EpubImporter:
                         overrides=self._overrides,
                     )
                 )
-                topic_block_indices.add(atom.source_block_index)
+                container_topic_block_indices.add(atom.source_block_index)
 
                 if atom.kind == "header":
                     continue
@@ -688,8 +724,67 @@ class EpubImporter:
                     tip_index_start=container_tip_index,
                     header_hint=container.header,
                 )
-                tip_candidates.extend(atom_tips)
+                container_tip_candidates.extend(atom_tips)
                 container_tip_index += len(atom_tips)
+            return (
+                container_index,
+                container_tip_candidates,
+                container_topic_candidates,
+                container_topic_block_indices,
+            )
+
+        containers = list(
+            chunk_standalone_blocks(standalone_blocks, overrides=self._overrides)
+        )
+        total_containers = len(containers)
+        topic_block_indices: set[int] = set()
+        if total_containers:
+            _notify(
+                format_task_counter(
+                    "Analyzing standalone knowledge blocks...",
+                    0,
+                    total_containers,
+                    noun="task",
+                )
+            )
+
+        container_results: list[tuple[int, list[Any], list[Any], set[int]]] = []
+        workers = min(total_containers, _get_standalone_analysis_workers())
+        if workers <= 1:
+            for container_index, container in enumerate(containers):
+                container_results.append(_analyze_container(container_index, container))
+                _notify(
+                    format_task_counter(
+                        "Analyzing standalone knowledge blocks...",
+                        container_index + 1,
+                        total_containers,
+                        noun="task",
+                    )
+                )
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {
+                    executor.submit(_analyze_container, container_index, container): container_index
+                    for container_index, container in enumerate(containers)
+                }
+                completed = 0
+                for future in as_completed(futures):
+                    container_results.append(future.result())
+                    completed += 1
+                    _notify(
+                        format_task_counter(
+                            "Analyzing standalone knowledge blocks...",
+                            completed,
+                            total_containers,
+                            noun="task",
+                        )
+                    )
+
+        container_results.sort(key=lambda row: row[0])
+        for _, container_tips, container_topics, container_topic_indices in container_results:
+            tip_candidates.extend(container_tips)
+            topic_candidates.extend(container_topics)
+            topic_block_indices.update(container_topic_indices)
 
         return (
             tip_candidates,

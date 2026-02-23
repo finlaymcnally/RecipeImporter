@@ -19,6 +19,10 @@ class SegmentTaskData:
     segment_index: int
     segment_text: str
     source_map: dict[str, Any]
+    focus_block_range: str = ""
+    context_before_block_range: str = ""
+    context_after_block_range: str = ""
+    focus_scope_hint: str = ""
 
     def to_task(self) -> dict[str, Any]:
         return {
@@ -30,6 +34,10 @@ class SegmentTaskData:
                 "segment_index": self.segment_index,
                 "segment_text": self.segment_text,
                 "source_map": self.source_map,
+                "focus_block_range": self.focus_block_range,
+                "context_before_block_range": self.context_before_block_range,
+                "context_after_block_range": self.context_after_block_range,
+                "focus_scope_hint": self.focus_scope_hint,
             }
         }
 
@@ -92,6 +100,49 @@ def _segment_ranges(
             break
         start += step
     return ranges
+
+
+def _collapse_block_index_ranges(indices: Sequence[int]) -> str:
+    if not indices:
+        return "none"
+    ordered = sorted({int(value) for value in indices})
+    ranges: list[str] = []
+    start = ordered[0]
+    end = ordered[0]
+    for value in ordered[1:]:
+        if value == end + 1:
+            end = value
+            continue
+        if start == end:
+            ranges.append(str(start))
+        else:
+            ranges.append(f"{start}-{end}")
+        start = value
+        end = value
+    if start == end:
+        ranges.append(str(start))
+    else:
+        ranges.append(f"{start}-{end}")
+    return ", ".join(ranges)
+
+
+def _resolve_focus_slice_bounds(
+    *,
+    segment_length: int,
+    segment_blocks: int,
+    segment_focus_blocks: int,
+) -> tuple[int, int]:
+    if segment_length <= 0:
+        return (0, 0)
+    focus_count = min(segment_focus_blocks, segment_length)
+    if focus_count >= segment_length:
+        return (0, segment_length)
+    preferred_context_before = max(0, (segment_blocks - segment_focus_blocks) // 2)
+    max_context_before = segment_length - focus_count
+    context_before = min(preferred_context_before, max_context_before)
+    start = max(0, context_before)
+    end = start + focus_count
+    return (start, end)
 
 
 def resolve_segment_overlap_for_target(
@@ -224,14 +275,36 @@ def build_freeform_span_tasks(
         segment_blocks_slice = blocks[start:end]
         if not segment_blocks_slice:
             continue
+        focus_start_offset, focus_end_offset = _resolve_focus_slice_bounds(
+            segment_length=len(segment_blocks_slice),
+            segment_blocks=segment_blocks,
+            segment_focus_blocks=segment_focus_blocks,
+        )
         start_block_index = segment_blocks_slice[0].index
         end_block_index = segment_blocks_slice[-1].index
         segment_id = build_segment_id(source_hash, start_block_index, end_block_index)
         segment_text, source_blocks = _build_segment_text(
             segment_blocks_slice, source_hash=source_hash
         )
-        focus_blocks_slice = segment_blocks_slice[: min(segment_focus_blocks, len(segment_blocks_slice))]
+        focus_blocks_slice = segment_blocks_slice[focus_start_offset:focus_end_offset]
         focus_indices = [block.index for block in focus_blocks_slice]
+        context_before_indices = [
+            block.index for block in segment_blocks_slice[:focus_start_offset]
+        ]
+        context_after_indices = [block.index for block in segment_blocks_slice[focus_end_offset:]]
+        focus_block_range = _collapse_block_index_ranges(focus_indices)
+        context_before_block_range = _collapse_block_index_ranges(context_before_indices)
+        context_after_block_range = _collapse_block_index_ranges(context_after_indices)
+        if context_before_block_range == "none" and context_after_block_range == "none":
+            focus_scope_hint = (
+                f"Label all blocks in this task ({focus_block_range}); no extra context-only "
+                "blocks are present."
+            )
+        else:
+            focus_scope_hint = (
+                f"Label only blocks {focus_block_range}. Context only: "
+                f"before {context_before_block_range}; after {context_after_block_range}."
+            )
         source_map = {
             "separator": SEGMENT_SEPARATOR,
             "start_block_index": start_block_index,
@@ -239,6 +312,11 @@ def build_freeform_span_tasks(
             "focus_start_block_index": focus_indices[0],
             "focus_end_block_index": focus_indices[-1],
             "focus_block_indices": focus_indices,
+            "focus_block_range": focus_block_range,
+            "context_before_block_indices": context_before_indices,
+            "context_after_block_indices": context_after_indices,
+            "context_before_block_range": context_before_block_range,
+            "context_after_block_range": context_after_block_range,
             "blocks": source_blocks,
         }
         task_data = SegmentTaskData(
@@ -249,6 +327,10 @@ def build_freeform_span_tasks(
             segment_index=segment_index,
             segment_text=segment_text,
             source_map=source_map,
+            focus_block_range=focus_block_range,
+            context_before_block_range=context_before_block_range,
+            context_after_block_range=context_after_block_range,
+            focus_scope_hint=focus_scope_hint,
         )
         tasks.append(task_data.to_task())
 

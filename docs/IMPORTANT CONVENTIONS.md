@@ -32,6 +32,8 @@ When adding new top-level docs sections, use the same `NN-name` convention and u
 ## Test Modularity Rule
 
 - `pytest.ini` is the source of truth for low-noise defaults (`-q`, no traceback/capture/summary, plain asserts, strict markers).
+- With pytest 9.x, `-q` alone still emits per-test progress rows; keep `console_output_style = classic` in `pytest.ini` and keep `pytest_report_teststatus(...)` in `tests/conftest.py` suppressing pass/skip glyphs to avoid dot-flood output.
+- Keep `tests/conftest.py:pytest_configure(...)` enforcing compact mode (`no_header`, `no_summary`, warnings suppressed, `-v/-vv` clamped) so manual `-o addopts=''` invocations do not reintroduce noisy separator floods; opt out only with `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`.
 - Domain markers are assigned centrally in `tests/conftest.py`; keep per-file marker mapping there so targeted runs stay stable.
 - `tests/test_*.py` files are grouped under domain folders (`tests/analytics`, `tests/bench`, `tests/cli`, `tests/core`, `tests/ingestion`, `tests/labelstudio`, `tests/llm`, `tests/parsing`, `tests/staging`, `tests/tagging`).
 - Path-sensitive tests should resolve shared roots via `tests/paths.py` (fixtures/tagging gold/docs examples) instead of `Path(__file__).parent`.
@@ -110,12 +112,12 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - Freeform prelabel flows must preserve `data.segment_text` exactly (no whitespace normalization) so exported offsets remain stable.
 - Prompt text for freeform prelabel lives in `llm_pipelines/prompts/freeform-prelabel-full.prompt.md`; iterate prompt wording there and keep required placeholder tokens (`{{SEGMENT_ID}}`, `{{BLOCKS_JSON_LINES}}`, etc.) intact.
 - Freeform prelabel granularity contract: `block` mode is legacy, block based full-block spans; `span` mode is actual freeform quote-anchored spans (`block_index` + `quote` + optional `occurrence`) with optional validated absolute fallback (`start`/`end`).
-- Freeform context-vs-focus contract: `segment_blocks` controls context visibility, `segment_focus_blocks` controls which blocks may receive labels, and prelabel runtime must enforce focus filtering parser-side (including absolute spans that cross non-focus blocks).
+- Freeform context-vs-focus contract: `segment_blocks` controls context visibility, `segment_focus_blocks` controls which blocks may receive labels, focus windows should be centered inside each segment when possible (so context appears before and after), and prelabel runtime must enforce focus filtering parser-side (including absolute spans that cross non-focus blocks).
 - Freeform target-task contract: when `target_task_count` is provided, resolve and persist both `segment_overlap_requested` and `segment_overlap_effective` in manifests; `segment_overlap` should reflect the effective runtime overlap.
 - Freeform prelabel overlap floor: effective overlap must satisfy `segment_overlap_effective >= segment_blocks - segment_focus_blocks` so focus windows remain contiguous across tasks and do not leave uncovered block gaps.
 - Freeform prelabel concurrency contract: task-level provider calls are bounded by `prelabel_workers` (default `4`), progress should still report `task X/Y` completions, and prompt logs/reports must remain deterministic per task id.
 - Prompt text for actual freeform mode lives in `llm_pipelines/prompts/freeform-prelabel-span.prompt.md`; keep placeholder tokens intact.
-- Actual freeform (`span`) prompts should provide block text once via `{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}` with explicit `<<<START_LABELING_BLOCKS_HERE>>>` / `<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>` boundaries; avoid duplicating focus blocks as a second full text payload list.
+- Actual freeform (`span`) prompts should provide block text once via `{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}` with explicit context-before/context-after markers plus `<<<START_LABELING_BLOCKS_HERE>>>` / `<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>` focus boundaries; avoid duplicating focus blocks as a second full text payload list.
 - Freeform canonical label names are `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`; normalize legacy `TIP`/`NOTES`/`VARIANT` labels to those names.
 - Codex prelabel invocations must use non-interactive CLI mode (`codex exec -`); plain `codex` is interactive and fails in pipeline subprocess calls without a TTY.
 - Codex command resolution for prelabel is: explicit `--codex-cmd` -> `COOKIMPORT_CODEX_CMD` -> `codex exec -`.
@@ -151,6 +153,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - Unstructured EPUB diagnostics now include both raw and normalized spine XHTML artifacts (`raw_spine_xhtml_*.xhtml`, `norm_spine_xhtml_*.xhtml`) in `raw/epub/<source_hash>/`; keep both when changing EPUB diagnostics.
 - EPUB HTML extractors (`legacy` + `unstructured`) must run through shared `cookimport/parsing/epub_postprocess.py` cleanup before segmentation/signals so BR/table splitting, bullet stripping, and noise filtering remain consistent.
 - EPUB extraction reports should always emit raw artifact `epub_extraction_health.json` plus stable warning keys (`epub_*`) in `ConversionReport.warnings` when thresholds trip.
+- EPUB/PDF standalone knowledge-block analysis should emit `task X/Y` progress updates and uses bounded container-level parallelism controlled by `C3IMP_STANDALONE_ANALYSIS_WORKERS` (default `4`).
 - Unstructured HTML parser `v2` requires `body.Document`/`div.Page`-style inputs; adapter-level compatibility wrapping is required before `partition_html(..., html_parser_version=\"v2\")` on generic EPUB XHTML.
 - `.job_parts` should be removed after successful merge; if it remains, treat it as evidence of merge failure/interruption.
 - Split-merge paths that run codex-farm must rebuild merged `raw/<importer>/<source_hash>/full_text.json` and rebase block indices before pass1 bundle generation.

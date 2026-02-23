@@ -12,12 +12,13 @@ then return precise spans with the best label for each span.
 Use only these labels:
 {{ALLOWED_LABELS}}
 
-FOCUS SCOPE
-- The block list appears once at the end as a single blob.
+FOCUS SCOPE (READ THIS FIRST)
+{{FOCUS_CONSTRAINTS}}
+Marker legend:
+{{FOCUS_MARKER_RULES}}
 - Label only spans from blocks between:
   <<<START_LABELING_BLOCKS_HERE>>>
   <<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>
-- Blocks outside those markers are context only.
 
 RETURN FORMAT (STRICT JSON ONLY)
 Return ONLY a JSON array. No markdown. No commentary. No extra keys.
@@ -106,5 +107,5 @@ FINAL CHECK BEFORE YOU ANSWER
 - Did you avoid labeling non-focus blocks?
 
 Segment id: {{SEGMENT_ID}}
-Blocks (single pass; START/STOP markers delimit labelable focus windows):
+Blocks (single pass with explicit context-before / focus / context-after markers):
 {{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}

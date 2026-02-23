@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import pytest
+import time
 from pathlib import Path
 from cookimport.core.blocks import Block
 from cookimport.core.models import RecipeCandidate
+from cookimport.parsing.atoms import Atom
+from cookimport.parsing.tips import TopicContainer
 from cookimport.parsing import signals
 from cookimport.plugins.pdf import PdfImporter
 from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
@@ -150,3 +153,75 @@ def test_convert_scanned_pdf_with_ocr():
     # Should recognize recipe content
     all_text = " ".join(b.get("text", "") for b in blocks).lower()
     assert "banana" in all_text or "bread" in all_text
+
+
+def test_extract_standalone_tips_parallel_progress_and_order(monkeypatch, tmp_path: Path) -> None:
+    importer = PdfImporter()
+    monkeypatch.setattr(importer, "_overrides", None, raising=False)
+    source = tmp_path / "book.pdf"
+    source.write_bytes(b"%PDF-1.4 dummy")
+    blocks = [
+        Block(text="late", page=0),
+        Block(text="fast", page=0),
+    ]
+    containers = [
+        TopicContainer(indices=[0], blocks=[(0, "late")], header=None),
+        TopicContainer(indices=[1], blocks=[(1, "fast")], header=None),
+    ]
+
+    monkeypatch.setattr(
+        "cookimport.plugins.pdf.chunk_standalone_blocks",
+        lambda *_args, **_kwargs: containers,
+    )
+    monkeypatch.setattr(
+        "cookimport.plugins.pdf.split_text_to_atoms",
+        lambda text, block_index, **_kwargs: [
+            Atom(
+                text=text,
+                kind="paragraph",
+                source_block_index=block_index,
+                sequence=0,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.plugins.pdf.contextualize_atoms",
+        lambda atoms: atoms,
+    )
+    monkeypatch.setattr(
+        "cookimport.plugins.pdf.build_topic_candidate",
+        lambda text, **_kwargs: {"topic": text},
+    )
+
+    def _fake_extract_tip_candidates(text: str, **_kwargs):
+        if text == "late":
+            time.sleep(0.03)
+        return [{"tip": text}]
+
+    monkeypatch.setattr(
+        "cookimport.plugins.pdf.extract_tip_candidates",
+        _fake_extract_tip_candidates,
+    )
+    monkeypatch.setenv("C3IMP_STANDALONE_ANALYSIS_WORKERS", "2")
+
+    progress_messages: list[str] = []
+    tips, topics, standalone_block_count, topic_block_count = importer._extract_standalone_tips(
+        blocks,
+        [],
+        source,
+        "hash",
+        progress_callback=progress_messages.append,
+    )
+
+    assert standalone_block_count == 2
+    assert topic_block_count == 2
+    assert [tip["tip"] for tip in tips] == ["late", "fast"]
+    assert [topic["topic"] for topic in topics] == ["late", "fast"]
+    assert any(
+        "Analyzing standalone knowledge blocks... task 0/2" in msg
+        for msg in progress_messages
+    )
+    assert any(
+        "Analyzing standalone knowledge blocks... task 2/2" in msg
+        for msg in progress_messages
+    )

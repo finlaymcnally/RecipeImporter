@@ -23,8 +23,10 @@ Keep these tokens in templates so runtime can inject task data:
 - `{{SEGMENT_ID}}`
 - `{{BLOCKS_JSON_LINES}}`
 - `{{FOCUS_CONSTRAINTS}}`
+- `{{FOCUS_BLOCK_INDICES}}`
+- `{{FOCUS_MARKER_RULES}}`
 - `{{FOCUS_BLOCK_JSON_LINES}}` (legacy focus listing, still available)
-- `{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}` (span template single-pass block stream with `START/STOP` focus markers)
+- `{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}` (span template single-pass block stream with context-before/context-after markers plus `START/STOP` focus markers)
 
 For span mode, prefer `{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}` to avoid duplicating block text payloads.
 

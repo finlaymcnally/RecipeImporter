@@ -235,12 +235,11 @@ class TestGoldSet:
 
         result = evaluate(catalog, predictions, gold_labels)
         report = format_eval_report(result)
-        print(f"\n{report}")
 
         # Overall precision must stay above 70% (conservative bar)
         assert result.overall_precision >= 0.70, (
             f"Overall precision dropped to {result.overall_precision:.2%}. "
-            f"Investigate false positives."
+            f"Investigate false positives.\n{report}"
         )
 
         # Single-category precision must stay above 80%
@@ -249,7 +248,7 @@ class TestGoldSet:
                 m = result.per_category[cat_key]
                 assert m.precision >= 0.80, (
                     f"{cat_key} precision dropped to {m.precision:.2%}. "
-                    f"FP={m.false_positives}"
+                    f"FP={m.false_positives}\n{report}"
                 )
 
     def test_gold_set_recall(self, catalog: TagCatalog, fixtures: dict, gold_labels: dict):

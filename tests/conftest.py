@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import os
+
 import pytest
+
+_FORCE_VERBOSE_OUTPUT_ENV = "COOKIMPORT_PYTEST_VERBOSE_OUTPUT"
+_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 
 _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_atoms.py": ("core", "parsing"),
@@ -117,6 +122,27 @@ _FAILED_MARKERS: set[str] = set()
 _HINTS_EMITTED = False
 
 
+def _env_truthy(name: str) -> bool:
+    value = os.environ.get(name, "")
+    return value.strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    if _env_truthy(_FORCE_VERBOSE_OUTPUT_ENV):
+        return
+    # Enforce compact output even when callers pass `-o addopts=''`.
+    config.option.no_header = True
+    config.option.no_summary = True
+    config.option.disable_warnings = True
+    config.option.verbose = min(getattr(config.option, "verbose", 0), -1)
+    terminalreporter = config.pluginmanager.get_plugin("terminalreporter")
+    if terminalreporter is not None:
+        terminalreporter.showheader = False
+        terminalreporter.no_header = True
+        terminalreporter.no_summary = True
+        terminalreporter.verbosity = min(getattr(terminalreporter, "verbosity", 0), -1)
+
+
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         file_name = item.path.name
@@ -129,6 +155,21 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.add_marker(pytest.mark.smoke)
 
 
+def pytest_report_teststatus(
+    report: pytest.TestReport, config: pytest.Config
+) -> tuple[str, str, str] | None:
+    if report.when != "call":
+        return None
+    # Keep pass/skip accounting, but suppress per-test progress glyphs.
+    if report.passed:
+        return "passed", "", "PASSED"
+    if report.skipped:
+        if hasattr(report, "wasxfail"):
+            return "xfailed", "", "XFAILED"
+        return "skipped", "", "SKIPPED"
+    return None
+
+
 def _emit_failure_hints(terminalreporter) -> None:
     global _HINTS_EMITTED
     if _HINTS_EMITTED:
@@ -138,7 +179,7 @@ def _emit_failure_hints(terminalreporter) -> None:
     for marker_name in sorted(hinted_markers):
         terminalreporter.write_line(f"log: {_LOG_HINTS[marker_name]}")
     terminalreporter.write_line(
-        "verbose: pytest -vv --tb=short --show-capture=all --assert=rewrite <failing_test>"
+        "verbose: COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1 pytest -o addopts='' -vv --tb=short --show-capture=all --assert=rewrite <failing_test>"
     )
     _HINTS_EMITTED = True
 

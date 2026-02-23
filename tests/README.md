@@ -39,9 +39,12 @@ pytest -m tagging
 pytest -m llm
 ```
 
+Default output is intentionally compact, and this is enforced in `tests/conftest.py`
+even if someone passes `-o addopts=''` by hand.
+
 On failures, pytest prints short hints to matching `docs/*_log.md` files.
 For full traceback/details, rerun with:
 
 ```bash
-pytest -vv --tb=short --show-capture=all --assert=rewrite <failing_test>
+COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1 pytest -o addopts='' -vv --tb=short --show-capture=all --assert=rewrite <failing_test>
 ```

@@ -278,7 +278,63 @@ def test_prelabel_span_prompt_marks_focus_window_without_block_duplication() -> 
     assert "Focus block indices (for quick reference):" not in prompt
     assert "<<<START_LABELING_BLOCKS_HERE>>>" in prompt
     assert "<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>" in prompt
+    blocks_section = prompt.split(
+        "Blocks (single pass with explicit context-before / focus / context-after markers):", 1
+    )[1]
+    assert "<<<CONTEXT_BEFORE_LABELING_ONLY>>>" in blocks_section
+    assert "<<<CONTEXT_AFTER_LABELING_ONLY>>>" not in blocks_section
     assert prompt.count('{"block_index": 1, "text": "1 cup flour"}') == 1
+
+
+def test_prelabel_span_prompt_marks_context_before_and_after() -> None:
+    task = {
+        "id": 300,
+        "data": {
+            "segment_id": "urn:cookimport:segment:testhash:0:2",
+            "segment_text": "A\n\nB\n\nC",
+            "source_map": {
+                "separator": "\n\n",
+                "focus_start_block_index": 1,
+                "focus_end_block_index": 1,
+                "focus_block_indices": [1],
+                "blocks": [
+                    {
+                        "block_id": "urn:cookimport:block:testhash:0",
+                        "block_index": 0,
+                        "segment_start": 0,
+                        "segment_end": 1,
+                    },
+                    {
+                        "block_id": "urn:cookimport:block:testhash:1",
+                        "block_index": 1,
+                        "segment_start": 3,
+                        "segment_end": 4,
+                    },
+                    {
+                        "block_id": "urn:cookimport:block:testhash:2",
+                        "block_index": 2,
+                        "segment_start": 6,
+                        "segment_end": 7,
+                    },
+                ],
+            },
+        },
+    }
+    provider = _CaptureProvider(
+        '[{"block_index": 1, "label": "INGREDIENT_LINE", "quote": "B"}]'
+    )
+
+    annotation = prelabel_freeform_task(
+        task,
+        provider=provider,
+        prelabel_granularity="span",
+    )
+    assert annotation is not None
+    prompt = provider.prompts[0]
+    assert "<<<CONTEXT_BEFORE_LABELING_ONLY>>>" in prompt
+    assert "<<<START_LABELING_BLOCKS_HERE>>>" in prompt
+    assert "<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>" in prompt
+    assert "<<<CONTEXT_AFTER_LABELING_ONLY>>>" in prompt
 
 
 def test_prelabel_prompt_log_callback_captures_prompt_context() -> None:

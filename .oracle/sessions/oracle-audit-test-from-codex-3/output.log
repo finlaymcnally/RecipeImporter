@@ -1,0 +1,5 @@
+Packed 333 files into 1 bundle (contents counted in token estimate).
+Launching browser mode (gpt-5.2-pro) with ~1,697,290 tokens.
+This run can take up to an hour (usually ~10 minutes).
+ERROR: EACCES: permission denied, mkdtemp '/mnt/c/Windows/Temp/oracle-browser-RABwqs'
+User error (browser-automation): EACCES: permission denied, mkdtemp '/mnt/c/Windows/Temp/oracle-browser-RABwqs'

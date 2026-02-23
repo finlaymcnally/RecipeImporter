@@ -515,9 +515,11 @@ def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(
     assert manifest["task_count"] == 4
 
     first_source_map = result["tasks"][0]["data"]["source_map"]
-    assert first_source_map["focus_start_block_index"] == 0
-    assert first_source_map["focus_end_block_index"] == 1
-    assert first_source_map["focus_block_indices"] == [0, 1]
+    assert first_source_map["focus_start_block_index"] == 1
+    assert first_source_map["focus_end_block_index"] == 2
+    assert first_source_map["focus_block_indices"] == [1, 2]
+    assert first_source_map["context_before_block_range"] == "0"
+    assert first_source_map["context_after_block_range"] == "3"
 
 
 def test_generate_pred_run_artifacts_freeform_focus_floor_adjusts_overlap_without_target(

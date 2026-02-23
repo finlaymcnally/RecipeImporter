@@ -42,6 +42,10 @@ def build_freeform_label_config() -> str:
 <View>
   <Header value="Cookbook Freeform Span Labeling"/>
   <Header value="Highlight any span and apply one label."/>
+  <Header value="Label ONLY the focus range for this task. Context before/after is read-only."/>
+  <Header value="$focus_scope_hint"/>
+  <Header value="Focus: $focus_block_range | Context before: $context_before_block_range | Context after: $context_after_block_range"/>
+  <Header value="Blocks are separated by blank lines in the text below."/>
   <Text
     name="{FREEFORM_TEXT_NAME}"
     value="${FREEFORM_TEXT_NAME}"

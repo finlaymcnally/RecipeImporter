@@ -187,7 +187,7 @@ Where it happens:
 
 - Each segment task is labeled independently. There is no rolling chat history; every call is a brand new Codex CLI subprocess fed a single prompt string on stdin (`subprocess.run(..., input=prompt, ...)`). Tasks may run concurrently (`--prelabel-workers`), but each prompt remains task-local.
 - The “chunking” is done before the LLM call: freeform tasks are built by concatenating `segment_blocks` extracted blocks (default 40) with a separator (`\\n\\n`). `segment_overlap` repeats the last N blocks into the next task (default 5), and optional `target_task_count` can auto-tune the effective overlap per file. For focus-mode prelabel runs, effective overlap is also clamped to at least `segment_blocks - segment_focus_blocks` so focus coverage can hand off cleanly between adjacent tasks. Overlap repeats text *across tasks*, but the model never sees prior prompts unless that text is repeated inside the current prompt.
-- Freeform tasks now include a focus subset (`segment_focus_blocks`) inside each context window. Span prompts provide one block stream with explicit `START/STOP` focus markers (instead of repeating focus block text separately), and prelabel output is filtered so only focus blocks can be labeled.
+- Freeform tasks now include a focus subset (`segment_focus_blocks`) inside each context window, centered when possible so tasks carry context before and after the labelable range. Span prompts provide one block stream with explicit context-before/context-after markers plus `START/STOP` focus markers (instead of repeating focus block text separately), and prelabel output is filtered so only focus blocks can be labeled.
 - There is no incremental “continue where you left off” prompting. It’s many small/fixed prompts, not one ever-growing prompt.
 - A prompt/response cache can make reruns *look* stateful: `CodexCliProvider` stores `{prompt, response}` JSON files under `prelabel_cache/` keyed by a hash of `(codex_cmd, track_usage flag, prompt text)`. Delete the cache dir to force fresh completions.
 - Run-level prompt logging is explicit: prelabel writes `prelabel_prompt_log.md` under the run root in `data/golden/.../labelstudio/<book_slug>/`, including the full prompt text and `included_with_prompt_description` + `included_with_prompt` metadata (labels, block/focus context, template, command/model/account fields).
@@ -242,7 +242,7 @@ Interactive style labels and runtime mode values are intentionally separate:
 
 1. Prompt used:
    - Runtime loads `llm_pipelines/prompts/freeform-prelabel-span.prompt.md`.
-   - Prompt uses one markerized block list (`<<<START_LABELING_BLOCKS_HERE>>>` / `<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>`) plus a focus-index summary, so focus context is not duplicated as a second block payload list.
+   - Prompt uses one markerized block list (`<<<CONTEXT_BEFORE_LABELING_ONLY>>>`, `<<<START_LABELING_BLOCKS_HERE>>>`, `<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>`, `<<<CONTEXT_AFTER_LABELING_ONLY>>>`) plus a focus-index summary, so focus context is not duplicated as a second block payload list.
    - Prompt asks for selective span output (zero/one/many spans per block).
 2. Accepted model output item shapes:
    - Quote-anchored (preferred): `{"block_index": <int>, "label": "<LABEL>", "quote": "<exact text>", "occurrence": <optional int>}`.
@@ -308,7 +308,7 @@ This is the most common point of confusion: both styles (`block` and `span`) use
 
 - No. It sees one **segment task** at a time.
 - A segment task contains multiple nearby blocks (default `segment_blocks=40`), concatenated into `segment_text` and also provided as per-block JSON lines (`{"block_index","text"}`) in the prompt.
-- Each task also carries a focus block list (`source_map.focus_block_indices`) used by prelabel prompt instructions and parser-side filtering.
+- Each task also carries a focus block list (`source_map.focus_block_indices`) plus precomputed scope summaries (`focus_scope_hint`, focus/context-before/context-after ranges) used by prelabel prompt instructions, parser-side filtering, and Label Studio headers.
 - Both prelabel styles use this same task context.
 
 **Q: Does it see surrounding context while labeling one block/span?**

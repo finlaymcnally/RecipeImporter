@@ -470,12 +470,14 @@ GOAL
 - Use only these labels:
   {{ALLOWED_LABELS}}
 
-FOCUS SCOPE
-- The block list appears once at the end as a single blob.
+FOCUS SCOPE (READ THIS FIRST)
+- The block list appears once at the end as one stream with explicit zone markers.
 - Label only spans from blocks between:
   <<<START_LABELING_BLOCKS_HERE>>>
   <<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>
-- Blocks outside those markers are context only.
+- Marker legend:
+  <<<CONTEXT_BEFORE_LABELING_ONLY>>> = context before focus (read-only)
+  <<<CONTEXT_AFTER_LABELING_ONLY>>> = context after focus (read-only)
 
 RETURN FORMAT (STRICT JSON ONLY)
 Return ONLY a JSON array. No markdown. No commentary.
@@ -1501,16 +1503,28 @@ def _build_focus_marked_block_lines(
     valid_blocks: list[tuple[int, str]],
     focus_block_indices: set[int],
 ) -> list[str]:
+    if not valid_blocks:
+        return []
     marked: list[str] = []
     in_focus_run = False
+    saw_focus = False
+    emitted_context_before_marker = False
+    emitted_context_after_marker = False
     for block_index, block_text in valid_blocks:
         is_focus = block_index in focus_block_indices
+        if not saw_focus and not is_focus and not emitted_context_before_marker:
+            marked.append("<<<CONTEXT_BEFORE_LABELING_ONLY>>>")
+            emitted_context_before_marker = True
         if is_focus and not in_focus_run:
             marked.append("<<<START_LABELING_BLOCKS_HERE>>>")
             in_focus_run = True
+            saw_focus = True
         elif in_focus_run and not is_focus:
             marked.append("<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>")
             in_focus_run = False
+            if not emitted_context_after_marker:
+                marked.append("<<<CONTEXT_AFTER_LABELING_ONLY>>>")
+                emitted_context_after_marker = True
         marked.append(
             json.dumps(
                 {"block_index": block_index, "text": block_text},
@@ -1594,20 +1608,42 @@ def _build_prompt(
         )
     )
     focus_block_indices_text = _collapse_block_index_ranges(focus_block_indices) or "none"
+    all_block_indices = [block_index for block_index, _text in valid_blocks]
+    if focus_block_indices:
+        first_focus_block = focus_block_indices[0]
+        last_focus_block = focus_block_indices[-1]
+        context_before_block_indices_text = (
+            _collapse_block_index_ranges(
+                [block_index for block_index in all_block_indices if block_index < first_focus_block]
+            )
+            or "none"
+        )
+        context_after_block_indices_text = (
+            _collapse_block_index_ranges(
+                [block_index for block_index in all_block_indices if block_index > last_focus_block]
+            )
+            or "none"
+        )
+    else:
+        context_before_block_indices_text = "none"
+        context_after_block_indices_text = "none"
     if len(focus_lines) == len(lines):
         focus_constraints = (
             "- Focus equals context for this task: label all listed blocks.\n"
-            "- Keep the same order as listed."
+            f"- Focus block indices: {focus_block_indices_text}."
         )
         focus_marker_rules = "- START/STOP markers wrap the full block list for this task."
     else:
         focus_constraints = (
-            "- Label only focus blocks for this task.\n"
-            "- Do not label non-focus blocks; they are context only."
+            f"- Label only focus blocks for this task: {focus_block_indices_text}.\n"
+            f"- Context-only blocks BEFORE focus: {context_before_block_indices_text}.\n"
+            f"- Context-only blocks AFTER focus: {context_after_block_indices_text}."
         )
         focus_marker_rules = (
-            "- Label only spans from blocks between START/STOP markers.\n"
-            "- Blocks outside markers are context only."
+            "- <<<CONTEXT_BEFORE_LABELING_ONLY>>> marks read-only context before focus.\n"
+            "- <<<START_LABELING_BLOCKS_HERE>>> begins the labelable focus window.\n"
+            "- <<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>> ends the labelable focus window.\n"
+            "- <<<CONTEXT_AFTER_LABELING_ONLY>>> marks read-only context after focus."
         )
 
     normalized_granularity = normalize_prelabel_granularity(prelabel_granularity)
@@ -1692,7 +1728,8 @@ def _build_prompt_log_entry(
     if normalized_granularity == PRELABEL_GRANULARITY_SPAN:
         prompt_payload_description = (
             "Prompt includes allowed labels, focus constraints, focus marker rules, "
-            "focus index summary, and one markerized context block JSON stream "
+            "focus index summary, and one markerized context-before/focus/context-after "
+            "block JSON stream "
             "for quote/offset span resolution."
         )
     else:

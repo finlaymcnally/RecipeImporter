@@ -543,6 +543,7 @@ Current contract from the spinner visibility pass:
 - Shared callback-driven status wrappers append elapsed-time suffixes (for example `(17s)`) when a phase message stays unchanged past threshold.
 - The elapsed ticker contract is shared across CLI wrappers used by Label Studio import/decorate and benchmark flows.
 - Importer callbacks now continue after `candidate X/Y` with explicit post-candidate phase updates in EPUB/PDF flows (for example knowledge-block analysis and finalization steps).
+- Standalone knowledge-block analysis in EPUB/PDF now emits `Analyzing standalone knowledge blocks... task X/Y` and processes standalone topic containers with bounded parallelism (`C3IMP_STANDALONE_ANALYSIS_WORKERS`, default `4`).
 
 Operational boundary:
 

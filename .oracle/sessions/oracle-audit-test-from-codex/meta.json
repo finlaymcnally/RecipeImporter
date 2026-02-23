@@ -1,0 +1,73 @@
+{
+  "id": "oracle-audit-test-from-codex",
+  "createdAt": "2026-02-23T04:41:35.216Z",
+  "status": "error",
+  "promptPreview": "Oracle audit test from Codex. Confirm receipt of attached repository context in one short sentence.",
+  "model": "gpt-5.2-pro",
+  "models": [
+    {
+      "model": "gpt-5.2-pro",
+      "status": "running",
+      "log": {
+        "path": "models/gpt-5.2-pro.log"
+      },
+      "startedAt": "2026-02-23T04:41:35.222Z"
+    }
+  ],
+  "cwd": "/home/mcnal/projects/recipeimport",
+  "mode": "browser",
+  "browser": {
+    "config": {
+      "chromeProfile": "Default",
+      "chromePath": null,
+      "chromeCookiePath": null,
+      "debugPort": null,
+      "inlineCookiesSource": null,
+      "desiredModel": "GPT-5.2 Pro",
+      "allowCookieErrors": true
+    }
+  },
+  "notifications": {
+    "enabled": true,
+    "sound": false
+  },
+  "options": {
+    "prompt": "Oracle audit test from Codex. Confirm receipt of attached repository context in one short sentence.",
+    "file": [
+      "cookimport/**",
+      "docs/**"
+    ],
+    "model": "gpt-5.2-pro",
+    "models": [
+      "gpt-5.2-pro"
+    ],
+    "effectiveModelId": "gpt-5.2-pro",
+    "filesReport": false,
+    "slug": "oracle-audit-test-from-codex",
+    "mode": "browser",
+    "browserConfig": {
+      "chromeProfile": "Default",
+      "chromePath": null,
+      "chromeCookiePath": null,
+      "debugPort": null,
+      "inlineCookiesSource": null,
+      "desiredModel": "GPT-5.2 Pro",
+      "allowCookieErrors": true
+    },
+    "verbose": false,
+    "heartbeatIntervalMs": 30000,
+    "browserAttachments": "always",
+    "browserInlineFiles": false,
+    "browserBundleFiles": false
+  },
+  "startedAt": "2026-02-23T04:41:35.220Z",
+  "completedAt": "2026-02-23T04:41:37.108Z",
+  "errorMessage": "EACCES: permission denied, mkdtemp '/mnt/c/Windows/Temp/oracle-browser-GpLGrd'",
+  "error": {
+    "category": "browser-automation",
+    "message": "EACCES: permission denied, mkdtemp '/mnt/c/Windows/Temp/oracle-browser-GpLGrd'",
+    "details": {
+      "stage": "execute-browser"
+    }
+  }
+}

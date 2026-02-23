@@ -5,8 +5,10 @@ Label Studio benchmark mode helpers.
 - `label_config_freeform.py` defines text-span highlighting labels for freeform projects.
 - Freeform canonical labels are `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER` (legacy `TIP`/`NOTES`/`VARIANT` normalize to the new names).
 - `block_tasks.py` generates canonical block tasks with stable block IDs and context windows.
-- `freeform_tasks.py` builds segment-based freeform tasks with stable segment IDs and block offset mappings.
+- `freeform_tasks.py` builds segment-based freeform tasks with stable segment IDs and block offset mappings; focus windows are centered inside each segment (when possible) so tasks carry context before and after the labelable block range.
 - `prelabel.py` adds Codex-CLI prelabel support: block-index suggestions -> deterministic span offsets. Default command is non-interactive (`codex exec -`) unless overridden by `COOKIMPORT_CODEX_CMD`, and plain `codex`/`codex2` auto-retry with `exec -` on TTY errors.
+- Span prelabel prompts now include explicit context-before/context-after marker lines around the START/STOP focus markers to make label scope boundaries easier to scan in prompt logs.
+- Freeform Label Studio projects now show per-task scope headers (`focus_scope_hint`, focus range, context-before range, context-after range) so annotators can see what to label vs read as context.
 - `export.py` pulls annotations back and converts them into JSONL (pipeline tip eval + canonical block labels + freeform spans).
 - `eval_canonical.py` compares pipeline structural chunks to canonical gold spans.
 - `eval_freeform.py` compares pipeline chunk predictions to freeform span gold labels via block-range overlap.
