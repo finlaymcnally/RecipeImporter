@@ -364,3 +364,19 @@ Major decisions preserved:
 
 Anti-loop note:
 - Dashboard generation should not mutate run artifacts; if a proposed change writes outside `--out-dir`, treat it as contract drift.
+
+### 2026-02-23_12.29.17 dashboard JS newline escaping regression
+
+Merged source:
+- `docs/understandings/2026-02-23_12.29.17-dashboard-js-newline-escape.md`
+
+Problem captured:
+- `dashboard_render.py` JS template strings can accidentally emit a raw newline inside a quoted JS string when Python uses `"\n"` instead of `"\\n"`.
+- Symptom is severe but non-obvious: generated dashboard opens but renders blank because `dashboard.js` fails to parse.
+
+Decision preserved:
+- Keep explicit double escaping for run-config tooltip newline joins in `runConfigCell`.
+- Treat this as a renderer-template correctness issue, not a data-collection issue.
+
+Anti-loop note:
+- If dashboard content is blank, inspect generated `dashboard.js` parse validity before reworking collector/schema code.

@@ -224,6 +224,12 @@ Collector exclusions/filters:
 - No server-side persistence, no auth/multi-user semantics, no remote aggregation.
 - This is intentional for this project, but important when considering future growth.
 
+### E) `dashboard.js` template escaping can blank the whole dashboard
+
+- `cookimport/analytics/dashboard_render.py` builds JS from Python template strings.
+- In run-config tooltip assembly (`runConfigCell` path), `\\n` must stay double-escaped in Python so generated JS contains a literal `\n`, not a raw newline inside a quoted string.
+- If this regresses, browsers fail to execute `dashboard.js` and the dashboard appears empty even though data artifacts exist.
+
 ## 6) Practical debugging runbook
 
 1. Confirm per-run report exists:

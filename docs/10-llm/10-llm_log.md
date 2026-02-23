@@ -24,6 +24,9 @@ Read this file when troubleshooting loops across turns, or when someone says "we
 
 ### 2026-02-23_11.39.45 recipe codex-farm policy lock (agent-safety)
 
+Merged source:
+- `docs/understandings/2026-02-23_11.39.45-recipe-codex-farm-policy-lock.md`
+
 Problem captured:
 - Automated coding/benchmark loops can improve scores by toggling recipe codex-farm correction, which is not desired until benchmark quality materially improves.
 
@@ -47,7 +50,7 @@ Rollback path preserved:
 ### 2026-02-22_14.57.53 hardcoded pass IDs vs external pack integration
 
 Related record:
-- `docs/plans/000-Knowledge-Codex-Farm.md`
+- `docs/tasks/000-Knowledge-Codex-Farm.md` (retired; merged into `docs/10-llm/*` on 2026-02-23)
 
 Preserved findings:
 - Hardcoded recipe pass IDs and implicit workspace assumptions break external codex-farm pack compatibility.
@@ -72,7 +75,7 @@ Durable rules:
 ### 2026-02-22_16.20.24 local prompt-pack contract
 
 Related record:
-- `docs/plans/000-Knowledge-Codex-Farm.md`
+- `docs/tasks/000-Knowledge-Codex-Farm.md` (retired; merged into `docs/10-llm/*` on 2026-02-23)
 
 Preserved rules:
 - Default codex-farm root is local `llm_pipelines/` when not overridden.
@@ -85,7 +88,7 @@ Preserved rules:
 ### 2026-02-22_16.40.05 pass4 knowledge chunk index mapping
 
 Related record:
-- `docs/plans/000-Knowledge-Codex-Farm2.md`
+- `docs/tasks/000-Knowledge-Codex-Farm2.md` (retired; merged into `docs/10-llm/*` on 2026-02-23)
 
 Preserved findings:
 - Chunk `blockIds` are relative to the sequence passed into chunking, not absolute full-text indices.
@@ -99,8 +102,8 @@ Durable rule:
 ### 2026-02-22_14.43.25 recipe codex-farm integration (recipeimport side)
 
 Related ExecPlans:
-- `docs/plans/000-Recipe-Codex-Farm.md`
-- `docs/plans/000-Knowledge-Codex-Farm.md`
+- `docs/tasks/000-Recipe-Codex-Farm.md` (retired; merged into `docs/10-llm/*` on 2026-02-23)
+- `docs/tasks/000-Knowledge-Codex-Farm.md` (retired; merged into `docs/10-llm/*` on 2026-02-23)
 
 Problem captured:
 - Stage and benchmark prediction generation needed one shared optional 3-pass codex-farm integration while keeping deterministic default behavior.
@@ -124,7 +127,7 @@ Constraints and rollback preserved:
 ### 2026-02-22_14.57.46 codex-farm external pack config wiring
 
 Related ExecPlan:
-- `docs/plans/000-Knowledge-Codex-Farm.md`
+- `docs/tasks/000-Knowledge-Codex-Farm.md` (retired; merged into `docs/10-llm/*` on 2026-02-23)
 
 Problem captured:
 - Hardcoded pass IDs and implicit workspace assumptions blocked clean external-pack integration.
@@ -160,7 +163,7 @@ Verification/evidence preserved:
 ### 2026-02-22_15.31.57 prompt-template `.md` extension migration
 
 Related ExecPlan:
-- `docs/plans/000-AI-span-freeform-fr.md`
+- `docs/tasks/000-AI-span-freeform-fr.md` (retired; merged into `docs/06-label-studio/*` on 2026-02-23)
 
 Problem captured:
 - Prompt templates moved from `.txt` to markdown but runtime/spec/test path wiring had to remain synchronized.
@@ -181,7 +184,7 @@ Rollback path preserved:
 ### 2026-02-22_16.18.38 pass4 knowledge codex-farm harvest
 
 Related ExecPlan:
-- `docs/plans/000-Knowledge-Codex-Farm2.md`
+- `docs/tasks/000-Knowledge-Codex-Farm2.md` (retired; merged into `docs/10-llm/*` on 2026-02-23)
 
 Problem captured:
 - Needed optional pass4 knowledge extraction for non-recipe blocks with durable, auditable stage artifacts.
@@ -214,7 +217,7 @@ Constraint preserved:
 ### 2026-02-22_16.20.10 codex-farm local prompt files (branch-history note)
 
 Related ExecPlan:
-- `docs/plans/000-Knowledge-Codex-Farm.md`
+- `docs/tasks/000-Knowledge-Codex-Farm.md` (retired; merged into `docs/10-llm/*` on 2026-02-23)
 
 Problem captured:
 - Needed editable local pass prompts and schemas in `llm_pipelines/` instead of Python-embedded prompt text.
@@ -230,3 +233,62 @@ Verification/evidence preserved:
 - Recorded command:
   - `pytest -q tests/test_llm_pipeline_pack.py tests/test_codex_farm_orchestrator.py`
 - Task evidence recorded added local pipeline/spec/schema files and passing test run (result text not timestamped beyond task record).
+
+## 2026-02-23_13.35.17 docs/tasks retirement merge (codex-farm batch)
+
+### 2026-02-22_14.41.28 recipe-side 3-pass implementation record (`docs/tasks/000-Recipe-Codex-Farm.md`, retired)
+
+Problem captured:
+- Needed one optional 3-pass codex-farm lane shared by stage and prediction-generation while preserving deterministic default behavior.
+
+Decisions/actions preserved:
+- Kept explicit opt-in gate (`llm_recipe_pipeline`) and run-setting contract for command/root/context/failure mode.
+- Preserved split-merge parity contract: rebuild merged `full_text.json` before pass1 for split EPUB/PDF runs.
+- Preserved recipe-level degradation behavior: bad/missing per-recipe outputs fall back deterministically without aborting healthy recipes.
+- Preserved writer override strategy for pass2/pass3 outputs so canonical output layout (`intermediate drafts` / `final drafts`) stays unchanged.
+
+Surprises preserved:
+- Rich/Typer help rendering can truncate long options in tests unless terminal width is forced wider (`COLUMNS=240` in targeted assertions).
+
+Verification/evidence preserved from retired task:
+- `tests/test_run_settings.py`
+- `tests/test_cli_llm_flags.py`
+- `tests/test_writer_overrides.py`
+- `tests/test_codex_farm_contracts.py`
+- `tests/test_codex_farm_orchestrator.py`
+- `tests/test_run_manifest_parity.py`
+- Recorded result: targeted suites passed; live codex-farm run intentionally deferred by token-spend policy.
+
+### 2026-02-22_15.31.00 external-pack configurability implementation record (`docs/tasks/000-Knowledge-Codex-Farm.md`, retired)
+
+Problem captured:
+- Hardcoded pass IDs and implicit workspace assumptions blocked external codex-farm pipeline-pack integration.
+
+Decisions/actions preserved:
+- Added first-class run settings for workspace root and pass pipeline IDs (`pass1/2/3`).
+- Required runner calls to pass explicit root/workspace parameters and orchestrator to persist effective pass IDs in manifests.
+- Added local `llm_pipelines/` skeleton contract (`pipelines/`, `prompts/`, `schemas/`) so default-root validation is deterministic.
+
+Verification/evidence preserved from retired task:
+- Compile checks plus focused pytest run recorded in task (`52 passed, 2 warnings`).
+
+### 2026-02-22_16.40.05 pass4 knowledge harvesting implementation record (`docs/tasks/000-Knowledge-Codex-Farm2.md`, retired)
+
+Problem captured:
+- Needed optional pass4 extraction for non-recipe knowledge with auditable artifacts and strict schema validation.
+
+Decisions/actions preserved:
+- Added dedicated pass4 gate (`llm_knowledge_pipeline`) and pass4 pipeline/context knobs.
+- Preserved path contract:
+  - raw IO under `raw/llm/<workbook_slug>/pass4_knowledge/{in,out}/`
+  - user-facing outputs under `knowledge/<workbook_slug>/`
+  - run-level index at `knowledge/knowledge_index.json`
+- Preserved critical mapping rule: chunk `blockIds` are sequence-relative; map them back to absolute block indices, and chunk contiguous absolute-index sequences only.
+
+Verification/evidence preserved from retired task:
+- Focused pass4/pack/run-settings suites recorded as passing (`25 passed, 2 warnings`), with no live token-spend run.
+
+Anti-loop carry-forward from this retirement merge:
+- Do not reintroduce hardcoded pass IDs or implicit cwd-based root assumptions.
+- Do not interpret old `*.prompt.txt` references as current runtime contract.
+- Do not enable live codex-farm execution in routine loops until policy lock is intentionally lifted.

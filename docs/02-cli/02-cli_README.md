@@ -163,6 +163,8 @@ Developer note:
 - Per-run toggle definitions live in `cookimport/config/run_settings.py`. Add new fields there with `ui_*` metadata so the interactive editor picks them up automatically.
 - The full-screen run-settings editor auto-scrolls to keep the selected row visible when the settings list exceeds terminal height.
 - `stage(...)` is called both by Typer CLI dispatch and direct Python callers (interactive helpers/entrypoints/tests); it must coerce any Typer `OptionInfo` default objects back to plain values before normalization/building run settings.
+- Interactive import should pass the full selected run-settings surface into `stage(...)` (including `llm_knowledge_pipeline`, pass4 pipeline id, and pass4 context blocks), not a partial subset.
+- `import` / `C3import` entrypoint shims should forward the expanded stage run-settings arguments so persisted settings can affect direct-entrypoint runs.
 
 ### [D] Import Flow
 

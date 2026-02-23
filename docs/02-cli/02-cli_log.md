@@ -429,3 +429,20 @@ Evidence preserved from task:
 Anti-loop notes:
 - Do not replace the main status line with worker lines.
 - Always emit reset telemetry after worker phases so stale worker rows do not linger.
+
+### 2026-02-23_12.35.19 stage `OptionInfo` default leak on direct Python call paths
+
+Merged source:
+- `docs/understandings/2026-02-23_12.35.19-stage-optioninfo-default-leak.md`
+
+Problem captured:
+- `cookimport.cli.stage(...)` serves both Typer dispatch and direct Python callers (`_interactive_mode`, `entrypoint.main`, tests).
+- When direct callers omit kwargs, Typer-declared defaults can remain as `OptionInfo` objects and break normalizers expecting plain strings/ints (for example `.strip()` calls).
+
+Decision preserved:
+- `stage(...)` must explicitly unwrap `OptionInfo` values to plain defaults before normalization/run-settings assembly.
+- Interactive import should forward the full selected run-settings payload into `stage(...)`, including knowledge-pipeline knobs.
+- `import`/`C3import` entrypoint wrappers should pass the expanded stage argument surface so saved settings can influence direct-entrypoint runs.
+
+Anti-loop note:
+- If a stage normalizer crashes with type/attribute errors from `OptionInfo`, audit direct caller argument forwarding and default unwrapping before touching parsing/staging logic.

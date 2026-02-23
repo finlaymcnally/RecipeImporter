@@ -763,6 +763,54 @@ Preserved prompt-level guardrails:
 - Keep context guidance phrased as interpretation-only and forbid adjacent-block auto-propagation.
 - Keep concrete mixed-block JSON examples in prompt text so selective sub-block behavior remains the demonstrated default.
 
+### 2026-02-23_11.18.25 span prompt compact markerized block stream
+
+Merged source:
+- `docs/understandings/2026-02-23_11.18.25-span-prompt-compact-block-stream.md`
+
+Problem captured:
+- Span prompt wrapper overhead (JSON-like framing + marker lines) consumed avoidable input tokens in larger freeform prelabel runs.
+
+Decision preserved:
+- Keep span marker payload lines compact as `<block_index><TAB><block_text>` and use `{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}`.
+- Preserve legacy placeholder alias `{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}` for backward-compatible custom prompt templates.
+- Keep full/block payload placeholder behavior (`{{BLOCKS_JSON_LINES}}`) unchanged.
+
+Anti-loop note:
+- Do not re-expand compact span payload back to verbose wrapper formats unless segment sizing and token budget assumptions are revisited together.
+
+### 2026-02-23_11.54.43 prelabel 429 stop-signal contract
+
+Merged source:
+- `docs/understandings/2026-02-23_11.54.43-prelabel-rate-limit-stop.md`
+
+Problem captured:
+- With queued parallel tasks, one provider 429 could still be followed by additional queued calls, amplifying throttling and noise.
+
+Decision preserved:
+- Detect provider rate-limit failures from normalized error text (`HTTP 429`).
+- Set one shared stop event on first 429; queued tasks check this flag before provider calls and skip instead of sending new requests.
+- Record skipped/error rows in `prelabel_errors.jsonl` and emit explicit `429` warning text in progress/summary output.
+
+Anti-loop note:
+- Retrying all queued tasks after first 429 is a known bad path for this flow; prefer explicit early stop + operator rerun.
+
+### 2026-02-23_12.12.00 focus-only Label Studio text with prompt-only context rows
+
+Merged source:
+- `docs/understandings/2026-02-23_12.12.00-freeform-focus-only-task-text.md`
+
+Problem captured:
+- `segment_text` previously carried both focus and context rows, coupling offset-mapped labeling text to prompt-context transport.
+
+Decision preserved:
+- Keep `segment_text` and `source_map.blocks` focused on labelable rows only for offset-authoritative UI/export behavior.
+- Keep neighboring prompt context in `source_map.context_before_blocks` and `source_map.context_after_blocks`.
+- Prompt builder composes `context_before + focus + context_after`, with compatibility fallback for legacy payloads lacking context arrays.
+
+Anti-loop note:
+- Do not duplicate context rows back into `segment_text`; that reintroduces dedupe noise and offset drift risk for span labels.
+
 ## 2026-02-22_23 to 2026-02-23_10 docs/tasks merge batch (Label Studio freeform prelabel)
 
 ### 2026-02-22_23.16.06 - parallel freeform prelabel workers (`docs/tasks/2026-02-22_23.16.06 - parallel-freeform-prelabel-workers.md`)
@@ -869,3 +917,68 @@ Anti-loop notes across this batch:
 - Keep `task X/Y` text intact in parallel progress messages; ETA parsing depends on that shape.
 - Keep callback failure handling as telemetry-only; do not rewire it into hard-failure control flow.
 - Do not assume reasoning fields are always emitted by Codex usage payloads.
+
+## 2026-02-23_13.35.17 docs/tasks retirement merge (Label Studio freeform batch)
+
+### 2026-02-20_21.40.00 freeform prelabel baseline record (`docs/tasks/000-AI-labelling-golden.md`, retired)
+
+Problem captured:
+- Golden-set setup for freeform spans was too slow when every segment required manual first-pass highlighting.
+
+Decisions/actions preserved:
+- Added offline prelabel generation with deterministic block/offset conversion and strict label validation.
+- Kept upload default as completed `annotations` and retained `predictions` as a debug compatibility path.
+- Preserved fallback upload contract for inline-annotation rejection: task import first, then per-task annotation create.
+- Preserved robust JSON extraction requirement for Codex CLI responses that include non-JSON wrapper text.
+
+Historical branch note preserved:
+- `labelstudio-decorate` additive mode existed briefly and was later removed (2026-02-22); treat old decorate references as retired branch history unless explicitly reviving the feature.
+
+Evidence preserved from task:
+- `tests/test_labelstudio_prelabel.py::test_parse_block_label_output_extracts_embedded_json`
+- `tests/test_labelstudio_prelabel.py::test_prelabel_freeform_task_uses_block_offsets_and_exact_text`
+- `tests/test_labelstudio_ingest_parallel.py::test_run_labelstudio_import_falls_back_to_post_import_annotations`
+
+### 2026-02-22_17.36.00 span-vs-block granularity record (`docs/tasks/000-AI-span-freeform-fr.md`, retired)
+
+Problem captured:
+- Legacy one-label-per-block prelabeling could not produce true sub-block highlights for freeform annotation.
+
+Decisions/actions preserved:
+- Added dual granularity contract (`block` vs `span`) and interactive naming (`actual freeform` vs `legacy, block based`).
+- Kept quote-anchored span schema as primary (`block_index`, `label`, `quote`, optional `occurrence`) with validated absolute-offset fallback.
+- Preserved ambiguity rule: repeated quote text in one block must include `occurrence`; unresolved ambiguous rows are dropped.
+
+Evidence preserved from task:
+- `tests/test_labelstudio_prelabel.py::test_span_resolution_requires_occurrence_for_ambiguous_quote`
+- `tests/test_labelstudio_prelabel.py::test_prelabel_freeform_task_span_mode_creates_partial_block_spans`
+
+### 2026-02-22_19.48.00 context/focus + target-task tuning record (`docs/tasks/2026-02-22_19.35.04-freeform-focus-task-count.md`, retired)
+
+Problem captured:
+- Operators needed to keep larger context windows while labeling a smaller focus subset and tuning approximate task count without hand-solving overlap.
+
+Decisions/actions preserved:
+- Added `segment_focus_blocks` and `target_task_count` while keeping backward-compatible defaults.
+- Added deterministic overlap solver + manifest recording of requested vs effective overlap.
+- Enforced focus scope in parser logic so prompt drift cannot bypass focus-only labeling constraints.
+- Preserved direct-call CLI pitfall: Typer options used by helper/tests must keep plain Python defaults (`Annotated[..., typer.Option(...)] = ...`) to avoid `OptionInfo` runtime errors.
+
+Evidence preserved from task:
+- Focused verification run recorded in task: `93 passed` across freeform/prelabel/ingest/benchmark helper suites.
+
+### 2026-02-23_12.12.00 focus-only Label Studio text record (`docs/tasks/2026-02-23_12.11.30-freeform-focus-only-labelstudio-text.md`, retired)
+
+Problem captured:
+- Mixed focus+context `segment_text` made Label Studio task text noisier and complicated downstream dedupe while prelabel still required neighborhood context.
+
+Decisions/actions preserved:
+- Made `segment_text` + `source_map.blocks` focus-only and offset-authoritative.
+- Split prompt-only context into `source_map.context_before_blocks` and `source_map.context_after_blocks`.
+- Kept prompt-builder fallback for legacy payloads that do not include the new context arrays.
+- Updated coverage accounting to include context arrays so warnings remain accurate after focus-only split.
+
+Anti-loop carry-forward for this retirement merge:
+- Do not reintroduce decorate-mode assumptions into current runtime docs without explicit product decision.
+- Do not relax focus constraints to prompt-only wording; parser enforcement is the contract.
+- Do not collapse context arrays back into `segment_text`; that reintroduces dedupe noise and offset ambiguity.

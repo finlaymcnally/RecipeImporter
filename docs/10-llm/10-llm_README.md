@@ -24,7 +24,7 @@ Recipe codex-farm integration:
 
 ## Design and rollout plan
 
-- `docs/plans/000-Recipe-Codex-Farm.md`
+- Historical implementation plans were archived from `docs/tasks/000-Recipe-Codex-Farm.md` and are now merged into this README and `docs/10-llm/10-llm_log.md`.
 
 ## History and anti-loop log
 
@@ -35,6 +35,11 @@ Recipe codex-farm integration:
 Primary stage imports remain deterministic by default; LLM behavior should be explicitly gated and auditable.
 `llm_recipe_pipeline` is policy-locked to `off` for now (recipe codex-farm parsing correction must remain OFF until benchmark quality materially improves). Non-`off` values are rejected in CLI/pred-run entry points.
 If this policy is lifted in the future, failures can either fail-fast or deterministic-fallback via `codex_farm_failure_mode`.
+
+Policy-lock implementation details (merged from `2026-02-23_11.39.45-recipe-codex-farm-policy-lock.md`):
+- CLI + pred-run normalizers fail fast for non-`off` `llm_recipe_pipeline` values.
+- Run-settings migration (`RunSettings.from_dict`) coerces legacy non-`off` persisted values back to `off` with warning text.
+- Run-settings UI intentionally exposes only `off` so accidental toggles are prevented.
 
 codex-farm orchestration settings are run-config surfaced and shared between stage and benchmark prediction generation:
 - command/root/workspace: `codex_farm_cmd`, `codex_farm_root`, `codex_farm_workspace_root`
@@ -58,7 +63,7 @@ Pass 4 knowledge harvesting:
 ### External codex-farm pack configurability contract
 
 Related record:
-- `docs/plans/000-Knowledge-Codex-Farm.md`
+- `docs/tasks/000-Knowledge-Codex-Farm.md` (retired; merged into `docs/10-llm/*` on 2026-02-23)
 
 Durable rules:
 - Do not hardcode pass pipeline IDs in orchestration logic.
@@ -69,7 +74,7 @@ Durable rules:
 ### Local prompt-pack wiring and merge-collision guidance
 
 Related records:
-- `docs/plans/000-Knowledge-Codex-Farm.md`
+- `docs/tasks/000-Knowledge-Codex-Farm.md` (retired; merged into `docs/10-llm/*` on 2026-02-23)
 - `llm_pipelines/README.md`
 
 Durable rules:
@@ -82,7 +87,7 @@ Durable rules:
 ### Pass4 knowledge chunk index mapping contract
 
 Related record:
-- `docs/plans/000-Knowledge-Codex-Farm2.md`
+- `docs/tasks/000-Knowledge-Codex-Farm2.md` (retired; merged into `docs/10-llm/*` on 2026-02-23)
 
 Durable rules:
 - Knowledge chunk `blockIds` from chunking are relative to the provided sequence, not absolute `full_text` indices.
@@ -137,3 +142,29 @@ Cross-boundary reminder:
 - One parallel implementation first introduced local prompt assets as `*.prompt.txt`.
 - Current repo contract is `*.prompt.md`; treat `.txt` references in older task notes as superseded branch history.
 - Durable rule: prompt edits should remain text-only (`llm_pipelines/prompts` / `llm_pipelines/pipelines`) and should not require orchestrator Python edits when pipeline-path wiring is correct.
+
+## Task Archive Merge (2026-02-23_13.35.17)
+
+### Source task docs consolidated and retired from `docs/tasks`
+
+- `docs/tasks/000-Recipe-Codex-Farm.md`
+- `docs/tasks/000-Knowledge-Codex-Farm.md`
+- `docs/tasks/000-Knowledge-Codex-Farm2.md`
+- These docs were merged into this README plus `docs/10-llm/10-llm_log.md`; the task files were retired after merge.
+
+### Preserved implementation contracts from those task records
+
+- Keep recipe codex-farm explicitly opt-in (`llm_recipe_pipeline`), with deterministic default behavior and policy lock to `off` until quality gates are met.
+- Keep failure boundary split:
+  - setup/subprocess/root issues fail fast unless caller explicitly sets fallback mode,
+  - per-recipe output/parse failures degrade to deterministic recipe-level fallback without aborting whole-run processing.
+- Keep split-run parity contract: merged runs must rebuild one merged `full_text.json` before pass1 so absolute block-index context and evidence mapping remain valid.
+- Keep external-pack contract: pass pipeline IDs and workspace root remain run-config surfaced, threaded through stage + prediction-generation flows, and persisted as effective IDs in `llm_manifest.json`.
+- Keep pass4 knowledge contract: chunk IDs from chunker are relative, so job building must map to absolute block indices and chunk contiguous absolute-index sequences.
+
+### Preserved anti-loop caveats from the retired task plans
+
+- Prompt pack source of truth remains pipeline JSON references (`llm_pipelines/pipelines/*.json`), not filename conventions or duplicate prompt families.
+- `*.prompt.txt` references in older notes are superseded; current contract is `*.prompt.md`.
+- CLI help tests can hide long option names under narrow terminal width; preserve wide-column test env when asserting long LLM flag names.
+- Continue avoiding live codex-farm token-spend validation unless explicitly approved.

@@ -4,6 +4,7 @@
 # Output:
 #   docs/<timestamp>_<root_folder_name>-docs-summary.md
 # Note:
+#   The generated file starts with the raw output of docs/docs-list.ts.
 #   Only .md and .txt files are included in the generated summary.
 #   Sources include docs/ and llm_pipelines/prompts/ (if that folder exists).
 #   Files ending with "_log.md" are skipped.
@@ -33,14 +34,15 @@ source_roots_display="$(printf '%s, ' "${source_roots[@]}")"
 source_roots_display="${source_roots_display%, }"
 
 mapfile -d '' files < <(find "${find_roots[@]}" -type f -print0 | sort -z)
+docs_list_output="$(
+  cd "$repo_root"
+  npm_config_cache=/tmp/npm-cache npx tsx docs/docs-list.ts
+)"
 
 {
+  printf '%s\n\n' "$docs_list_output"
+
   cat <<EOF
----
-summary: "Combined snapshot of docs/ as of ${timestamp}."
-read_when:
-  - When you need a single-file snapshot of the docs tree.
----
 # ${repo_name} Docs Summary
 Generated: ${timestamp}
 Source roots: ${source_roots_display}

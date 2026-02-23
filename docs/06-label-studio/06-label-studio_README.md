@@ -988,6 +988,21 @@ Durable prompt-design guidance:
 - Keep context guidance phrased as interpretation-only; do not imply adjacent-block auto-labeling.
 - Preserve concrete mixed-block examples in prompt instructions so the model sees expected split-label output shape.
 
+### 11.7 2026-02-23 freeform payload/throughput hardening batch
+
+Merged sources:
+- `docs/understandings/2026-02-23_11.18.25-span-prompt-compact-block-stream.md`
+- `docs/understandings/2026-02-23_11.54.43-prelabel-rate-limit-stop.md`
+- `docs/understandings/2026-02-23_12.12.00-freeform-focus-only-task-text.md`
+
+Durable rules:
+- Span prompts should keep compact markerized block payload lines as `<block_index><TAB><block_text>` via `BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES` (legacy alias `BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES` remains supported).
+- On the first provider `HTTP 429`/rate-limit failure, set one shared stop signal so queued tasks skip provider calls, record skipped/error state in `prelabel_errors.jsonl`, and emit an explicit `429` warning.
+- Freeform task payload split stays strict:
+  - `segment_text` + `source_map.blocks` are offset-authoritative focus rows only (what annotators label),
+  - `source_map.context_before_blocks` + `source_map.context_after_blocks` are prompt-only context rows for AI prelabeling,
+  - prompt builder may fallback to legacy `source_map.blocks`-only payloads when context arrays are absent.
+
 ## 12) Merged Task Specs (2026-02-22_23 to 2026-02-23_10)
 
 ### 12.1 2026-02-22_23.16.06 bounded parallel freeform prelabel workers
@@ -1057,3 +1072,34 @@ Current contract:
 - Prelabel usage summaries include `reasoning_tokens` in both run artifacts and CLI summary text.
 - Parsing remains backward-compatible when Codex payloads omit reasoning fields (defaults to `0`).
 - Parser is shape-tolerant for nested/alias reasoning-token fields while preserving existing usage keys.
+
+## 13) Archived Task Merge (2026-02-23_13.35.17)
+
+### 13.1 Source task docs consolidated and retired from `docs/tasks`
+
+- `docs/tasks/000-AI-labelling-golden.md`
+- `docs/tasks/000-AI-span-freeform-fr.md`
+- `docs/tasks/2026-02-22_19.35.04-freeform-focus-task-count.md`
+- `docs/tasks/2026-02-23_12.11.30-freeform-focus-only-labelstudio-text.md`
+- These records are now preserved in this README plus `docs/06-label-studio/06-label-studio_log.md`.
+
+### 13.2 Freeform prelabel baseline preserved from 2026-02-20
+
+- The canonical workflow remains `labelstudio-import --task-scope freeform-spans --prelabel` with completed `annotations` as default and `predictions` only as an advanced/debug mode.
+- Inline-annotation rejection remains a known Label Studio compatibility case; the fallback contract stays: import tasks first, then create per-task annotations by deterministic `segment_id` mapping.
+- Offset safety remains strict: span offsets are always derived against the exact uploaded `segment_text` and validated against substring/text integrity.
+- Run audit artifacts from this batch remain required: `prelabel_report.json` and `prelabel_errors.jsonl`.
+
+### 13.3 Preserved span/focus decisions from retired task plans
+
+- Keep `block` mode as backward-compatible default and `span` mode as explicit operator choice.
+- In `span` mode, quote-anchored selections remain primary; repeated quotes require `occurrence` or they are dropped.
+- Focus-only labeling remains parser-enforced (not prompt-only); out-of-focus selections are dropped deterministically.
+- Task-count tuning remains deterministic with overlap tie-breaking that leans toward operator intent (more overlap for higher target task counts, less overlap for lower targets).
+
+### 13.4 Preserved payload split contract from 2026-02-23 focus-only shift
+
+- `data.segment_text` and `data.source_map.blocks` remain focus-only and offset-authoritative.
+- Prompt-only context rows remain separate in `data.source_map.context_before_blocks` and `data.source_map.context_after_blocks`.
+- Prelabel prompt construction must continue supporting both new split payloads and legacy payloads lacking context arrays.
+- Coverage accounting must include focus blocks plus context arrays so warnings do not under-report source coverage after the split.
