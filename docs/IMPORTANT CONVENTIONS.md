@@ -29,6 +29,15 @@ Current order:
 
 When adding new top-level docs sections, use the same `NN-name` convention and update `docs/README.md`.
 
+## Test Modularity Rule
+
+- `pytest.ini` is the source of truth for low-noise defaults (`-q`, no traceback/capture/summary, plain asserts, strict markers).
+- Domain markers are assigned centrally in `tests/conftest.py`; keep per-file marker mapping there so targeted runs stay stable.
+- `tests/test_*.py` files are grouped under domain folders (`tests/analytics`, `tests/bench`, `tests/cli`, `tests/core`, `tests/ingestion`, `tests/labelstudio`, `tests/llm`, `tests/parsing`, `tests/staging`, `tests/tagging`).
+- Path-sensitive tests should resolve shared roots via `tests/paths.py` (fixtures/tagging gold/docs examples) instead of `Path(__file__).parent`.
+- Keep expensive files in the shared `slow` set and a tiny sanity slice in `smoke` for low-token checks.
+- Failed runs should print `docs/*_log.md` hints from `tests/conftest.py` so debugging details live in docs, not noisy test output.
+
 ## CLI Discovery Rule
 
 Interactive file discovery and direct staging intentionally differ:
@@ -42,12 +51,14 @@ Interactive file discovery and direct staging intentionally differ:
 - Interactive and non-interactive `labelstudio` import must use the same status/progress callback wiring so long-running phases (especially AI prelabeling) show a live spinner/status update path.
 - `labelstudio` resume semantics apply only when the target Label Studio project already exists; if a run creates a new project, do not reuse local manifest task IDs from older runs.
 - Spinner/progress text for known-size worklists should include `<noun> X/Y` counters (for example `task`, `item`, `config`, `phase`) rather than phase-only text so operators can track throughput.
-- Callback-driven CLI spinners (`labelstudio` import, benchmark import, bench run/sweep) should append elapsed seconds after prolonged unchanged phases (default threshold: 10s) so users can see that work is still running when a phase message is stale.
+- Callback-driven CLI spinners (`labelstudio` import, benchmark import, bench run/sweep) should append elapsed seconds after prolonged unchanged phases (default threshold: 10s) so users can see that work is still running when a phase message is stale. When status text includes `<noun> X/Y`, the same spinner path should estimate ETA as average seconds-per-unit times remaining units.
 - Interactive `labelstudio` export resolves credentials first, then lists project titles from Label Studio for selection, with manual entry fallback when discovery is unavailable. If the selected project has a detected task type, export uses that scope automatically and skips the separate scope prompt.
 - Label Studio export (interactive and non-interactive) writes to a stable project root by default: `data/golden/<project_slug>/exports/...`; it uses prior manifests for project/scope resolution, not for export destination. `--run-dir` still forces export into a specific run.
 - Interactive main menu is persistent: successful `import`, `labelstudio`, `labelstudio_export`, and `labelstudio_benchmark` actions all return to the main menu. The session exits only when the user selects `Exit`.
 - Interactive select menus should be wired through `_menu_select` so numbering, shortcuts, and Esc-go-back behavior remain consistent.
 - Interactive typed prompts in CLI flows should use `_prompt_text`, `_prompt_confirm`, or `_prompt_password` so `Esc` consistently maps to one-level back/cancel behavior.
+- Questionary `text/password/confirm` prompts expose merged key bindings (`_MergedKeyBindings`) at runtime; `Esc` overrides must be attached via `merge_key_bindings(...)` (not `.add(...)` on `application.key_bindings`).
+- Freeform interactive segment sizing (`segment_blocks`, `segment_overlap`, `segment_focus_blocks`, `target_task_count`) should route through `_prompt_freeform_segment_settings(...)` so `Esc` walks back one field instead of dropping to main menu.
 - Interactive benchmark (`labelstudio_benchmark`) only offers `eval-only` when both discovery sets are non-empty: at least one `**/exports/freeform_span_labels.jsonl` and one `**/label_studio_tasks.jsonl` under `data/golden` or `data/output`. If either set is missing, it falls back directly to upload mode.
 - Interactive Import and interactive benchmark upload both go through a per-run settings chooser (`global defaults`, `last run settings`, `change run settings`) before execution.
 - Interactive benchmark eval-only mode must not apply/save pipeline run settings and should emit `Eval-only mode: no pipeline run settings applied.`
@@ -101,7 +112,10 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - Freeform prelabel granularity contract: `block` mode is legacy, block based full-block spans; `span` mode is actual freeform quote-anchored spans (`block_index` + `quote` + optional `occurrence`) with optional validated absolute fallback (`start`/`end`).
 - Freeform context-vs-focus contract: `segment_blocks` controls context visibility, `segment_focus_blocks` controls which blocks may receive labels, and prelabel runtime must enforce focus filtering parser-side (including absolute spans that cross non-focus blocks).
 - Freeform target-task contract: when `target_task_count` is provided, resolve and persist both `segment_overlap_requested` and `segment_overlap_effective` in manifests; `segment_overlap` should reflect the effective runtime overlap.
+- Freeform prelabel overlap floor: effective overlap must satisfy `segment_overlap_effective >= segment_blocks - segment_focus_blocks` so focus windows remain contiguous across tasks and do not leave uncovered block gaps.
+- Freeform prelabel concurrency contract: task-level provider calls are bounded by `prelabel_workers` (default `4`), progress should still report `task X/Y` completions, and prompt logs/reports must remain deterministic per task id.
 - Prompt text for actual freeform mode lives in `llm_pipelines/prompts/freeform-prelabel-span.prompt.md`; keep placeholder tokens intact.
+- Actual freeform (`span`) prompts should provide block text once via `{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}` with explicit `<<<START_LABELING_BLOCKS_HERE>>>` / `<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>` boundaries; avoid duplicating focus blocks as a second full text payload list.
 - Freeform canonical label names are `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`; normalize legacy `TIP`/`NOTES`/`VARIANT` labels to those names.
 - Codex prelabel invocations must use non-interactive CLI mode (`codex exec -`); plain `codex` is interactive and fails in pipeline subprocess calls without a TTY.
 - Codex command resolution for prelabel is: explicit `--codex-cmd` -> `COOKIMPORT_CODEX_CMD` -> `codex exec -`.
@@ -112,7 +126,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - Prelabel runs should perform one model-access preflight probe before task loops; account/model mismatches should fail once up front with provider detail.
 - Codex JSON `turn.failed` errors must be surfaced as provider failures (not collapsed into generic "no labels produced" parse misses).
 - Token usage accounting for prelabel is always on and should be persisted as aggregate totals in `prelabel_report.json` (including resolved command/account metadata) without changing annotation semantics.
-- Prelabel runs must persist `prelabel_prompt_log.jsonl` in the run root (`data/golden/<timestamp>/labelstudio/<book_slug>/`) with one row per prompt containing full prompt text and prompt-context metadata/description for auditing.
+- Prelabel runs must persist `prelabel_prompt_log.md` in the run root (`data/golden/<timestamp>/labelstudio/<book_slug>/`) with one section per prompt containing full prompt text and prompt-context metadata/description for auditing.
 
 ## Dependency Resolution Rule
 

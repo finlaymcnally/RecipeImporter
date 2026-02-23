@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from cookimport.plugins.paprika import PaprikaImporter
+from tests.paths import DOCS_EXAMPLES_DIR as TESTS_DOCS_EXAMPLES_DIR
 
-EXAMPLES_DIR = Path(__file__).parent.parent / "docs" / "template" / "examples"
+EXAMPLES_DIR = TESTS_DOCS_EXAMPLES_DIR
 
 def test_detect_paprika_file():
     importer = PaprikaImporter()

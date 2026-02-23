@@ -9,8 +9,9 @@ from cookimport.core.models import RecipeCandidate
 from cookimport.parsing import signals
 from cookimport.plugins.epub import EpubImporter, _resolve_unstructured_version
 from tests.fixtures.make_epub import make_synthetic_epub
+from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+FIXTURES_DIR = TESTS_FIXTURES_DIR
 
 def test_detect_epub():
     importer = EpubImporter()

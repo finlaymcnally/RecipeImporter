@@ -80,6 +80,19 @@ def test_resolve_segment_overlap_for_target_prefers_closest_task_count() -> None
     )
 
 
+def test_resolve_segment_overlap_for_target_respects_focus_overlap_floor() -> None:
+    assert (
+        resolve_segment_overlap_for_target(
+            total_blocks=1471,
+            segment_blocks=45,
+            requested_overlap=5,
+            target_task_count=None,
+            segment_focus_blocks=30,
+        )
+        == 15
+    )
+
+
 def test_build_freeform_tasks_include_focus_metadata() -> None:
     archive = [
         {"index": 0, "text": "A", "location": {"block_index": 0}},

@@ -4,6 +4,7 @@ from typer.testing import CliRunner
 from cookimport.cli import app
 from cookimport.ocr.doctr_engine import resolve_ocr_device
 import pytest
+from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
 
 runner = CliRunner()
 
@@ -20,7 +21,7 @@ def test_resolve_ocr_device():
         resolve_ocr_device("invalid")
 
 def test_stage_with_performance_flags(tmp_path):
-    fixtures_dir = Path(__file__).parent / "fixtures"
+    fixtures_dir = TESTS_FIXTURES_DIR
     source_file = fixtures_dir / "simple_text.txt"
     output_dir = tmp_path / "output"
     
@@ -56,7 +57,7 @@ def test_stage_with_performance_flags(tmp_path):
     assert "writing_seconds" in report["timing"]
 
 def test_stage_parallel(tmp_path):
-    fixtures_dir = Path(__file__).parent / "fixtures"
+    fixtures_dir = TESTS_FIXTURES_DIR
     input_dir = tmp_path / "input"
     input_dir.mkdir()
     

@@ -4,10 +4,11 @@ import json
 from pathlib import Path
 
 from cookimport.config.run_settings import RunSettings
+from tests.paths import REPO_ROOT as TESTS_REPO_ROOT
 
 
 def test_local_recipe_pipeline_pack_has_editable_prompt_files() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = TESTS_REPO_ROOT
     pack_root = repo_root / "llm_pipelines"
     pipelines_dir = pack_root / "pipelines"
 

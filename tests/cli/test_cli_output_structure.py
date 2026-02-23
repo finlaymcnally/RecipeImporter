@@ -5,12 +5,13 @@ from types import SimpleNamespace
 from typer.testing import CliRunner
 from cookimport.cli import app
 import pytest
+from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
 
 runner = CliRunner()
 
 def test_stage_output_structure(tmp_path):
     # Setup
-    fixtures_dir = Path(__file__).parent / "fixtures"
+    fixtures_dir = TESTS_FIXTURES_DIR
     source_file = fixtures_dir / "simple_text.txt"
     output_dir = tmp_path / "output"
     
@@ -93,7 +94,7 @@ def test_stage_output_structure(tmp_path):
 
 
 def test_epub_report_includes_extractor_setting(tmp_path):
-    fixtures_dir = Path(__file__).parent / "fixtures"
+    fixtures_dir = TESTS_FIXTURES_DIR
     source_file = fixtures_dir / "sample.epub"
     if not source_file.exists():
         pytest.skip("sample.epub not found")
@@ -133,7 +134,7 @@ def test_epub_report_includes_extractor_setting(tmp_path):
 
 
 def test_epub_report_tracks_unstructured_option_flags(tmp_path):
-    fixtures_dir = Path(__file__).parent / "fixtures"
+    fixtures_dir = TESTS_FIXTURES_DIR
     source_file = fixtures_dir / "sample.epub"
     if not source_file.exists():
         pytest.skip("sample.epub not found")
@@ -182,7 +183,7 @@ def test_epub_report_tracks_unstructured_option_flags(tmp_path):
 
 
 def test_stage_markitdown_epub_writes_backend_and_markdown_artifact(tmp_path, monkeypatch):
-    fixtures_dir = Path(__file__).parent / "fixtures"
+    fixtures_dir = TESTS_FIXTURES_DIR
     source_file = fixtures_dir / "sample.epub"
     if not source_file.exists():
         pytest.skip("sample.epub not found")
@@ -236,7 +237,7 @@ def test_stage_markitdown_epub_writes_backend_and_markdown_artifact(tmp_path, mo
 
 
 def test_stage_markdown_epub_writes_backend_and_diagnostics(tmp_path):
-    fixtures_dir = Path(__file__).parent / "fixtures"
+    fixtures_dir = TESTS_FIXTURES_DIR
     source_file = fixtures_dir / "sample.epub"
     if not source_file.exists():
         pytest.skip("sample.epub not found")
@@ -281,7 +282,7 @@ def test_stage_markdown_epub_writes_backend_and_diagnostics(tmp_path):
 
 
 def test_stage_auto_epub_records_effective_extractor(tmp_path, monkeypatch):
-    fixtures_dir = Path(__file__).parent / "fixtures"
+    fixtures_dir = TESTS_FIXTURES_DIR
     source_file = fixtures_dir / "sample.epub"
     if not source_file.exists():
         pytest.skip("sample.epub not found")

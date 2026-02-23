@@ -15,7 +15,8 @@ Label Studio benchmark mode helpers.
 - `labelstudio-benchmark` now also writes stage-style processed cookbook output to `data/output` (override via `--processed-output-dir`) while still writing benchmark artifacts to `data/golden`.
 - `labelstudio-import --prelabel` can upload completed freeform annotations (with fallback to post-import per-task annotation create if inline annotation import is rejected).
 - Prelabel progress callbacks now emit `task X/Y` counters for spinner visibility during long AI-label loops.
+- Freeform prelabel task generation runs with bounded parallelism (`--prelabel-workers`, default `4`; use `1` for serial behavior).
 - Interactive freeform import now exposes prelabel modes (`off`, strict/allow-partial annotations, plus predictions variants) that map directly to `--prelabel-upload-as` and `--prelabel-allow-partial`.
 - Interactive freeform prelabel now resolves command from `COOKIMPORT_CODEX_CMD` or default `codex exec -`, shows the resolved account email when available, and offers model selection from that command's Codex home metadata (`CODEX_HOME` honored).
 - Freeform prelabel supports explicit `--codex-model` selection (or command-specific Codex CLI default discovery), and token usage totals are captured into `prelabel_report.json` with command/account fields.
-- Freeform prelabel now also writes `prelabel_prompt_log.jsonl` in each run root (`data/golden/<timestamp>/labelstudio/<book_slug>/`) with full `codex exec` prompt text plus prompt-context description/metadata.
+- Freeform prelabel now also writes `prelabel_prompt_log.md` in each run root (`data/golden/<timestamp>/labelstudio/<book_slug>/`) with full `codex exec` prompt text plus prompt-context description/metadata.

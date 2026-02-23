@@ -405,6 +405,7 @@ def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
         task_scope="freeform-spans",
         prelabel=True,
         prelabel_granularity="span",
+        prelabel_workers=2,
         progress_callback=progress_messages.append,
     )
 
@@ -422,17 +423,17 @@ def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
     )
     assert seen_granularity == ["span", "span"]
     assert result["prelabel"]["granularity"] == "span"
+    assert result["prelabel"]["workers"] == 2
     assert result["prelabel"]["prompt_log_count"] == 2
     prompt_log_path = result["prelabel_prompt_log_path"]
     assert prompt_log_path is not None
-    rows = [
-        json.loads(line)
-        for line in prompt_log_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    assert len(rows) == 2
-    assert rows[0]["task_total"] == 2
-    assert rows[0]["prompt"] == "test prompt"
+    assert prompt_log_path.name == "prelabel_prompt_log.md"
+    content = prompt_log_path.read_text(encoding="utf-8")
+    assert "# Prelabel Prompt Log" in content
+    assert "## Task 1/2 - `seg-1`" in content
+    assert "## Task 2/2 - `seg-2`" in content
+    assert "test metadata" in content
+    assert "test prompt" in content
 
 
 def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(
@@ -517,6 +518,85 @@ def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(
     assert first_source_map["focus_start_block_index"] == 0
     assert first_source_map["focus_end_block_index"] == 1
     assert first_source_map["focus_block_indices"] == [0, 1]
+
+
+def test_generate_pred_run_artifacts_freeform_focus_floor_adjusts_overlap_without_target(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+
+    fake_result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            ArchiveBlock(
+                index=i,
+                text=f"block {i}",
+                location={"block_index": i},
+                source_kind="raw",
+            )
+            for i in range(9)
+        ],
+    )
+    monkeypatch.setattr("cookimport.labelstudio.ingest.compute_file_hash", lambda _path: "hash")
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 100,
+            "chunked_chars": 90,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks_in, **_kwargs: tasks_in,
+    )
+
+    result = generate_pred_run_artifacts(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        task_scope="freeform-spans",
+        segment_blocks=4,
+        segment_overlap=1,
+        segment_focus_blocks=2,
+        target_task_count=None,
+        prelabel=False,
+    )
+
+    manifest = json.loads(result["manifest_path"].read_text(encoding="utf-8"))
+    assert manifest["segment_blocks"] == 4
+    assert manifest["segment_focus_blocks"] == 2
+    assert manifest["segment_overlap_requested"] == 1
+    assert manifest["segment_overlap_effective"] == 2
+    assert manifest["segment_overlap"] == 2
+    assert manifest["target_task_count"] is None
+    assert manifest["task_count"] == 4
 
 
 def _fake_pred_result(tmp_path: Path, tasks: list[dict[str, object]]) -> dict[str, object]:

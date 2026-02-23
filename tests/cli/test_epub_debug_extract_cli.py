@@ -7,13 +7,14 @@ import pytest
 from typer.testing import CliRunner
 
 from cookimport.cli import app
+from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
 
 
 runner = CliRunner()
 
 
 def test_debug_epub_extract_variants_writes_expected_artifacts(tmp_path: Path) -> None:
-    source = Path(__file__).parent / "fixtures" / "sample.epub"
+    source = TESTS_FIXTURES_DIR / "sample.epub"
     if not source.exists():
         pytest.skip("sample.epub not found")
 

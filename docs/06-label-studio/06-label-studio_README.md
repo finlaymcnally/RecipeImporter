@@ -159,8 +159,9 @@ Freeform span rows include offsets, label, touched block mapping, annotator/time
 - Prelabel artifacts written in run root:
   - `prelabel_report.json`
   - `prelabel_errors.jsonl`
-  - `prelabel_prompt_log.jsonl` (one JSON row per `codex exec` prompt with full prompt text plus prompt-context description/metadata)
+  - `prelabel_prompt_log.md` (human-readable Markdown, one section per `codex exec` prompt with full prompt text plus prompt-context description/metadata)
 - Prelabel performs a single Codex model-access preflight probe before task labeling so invalid model/account combinations fail once up front instead of repeating task-level failures.
+- Freeform prelabel task calls run with bounded concurrency (`--prelabel-workers`, default `4`; set `1` to force serial behavior).
 - Progress callbacks now report `Running freeform prelabeling... task X/Y` so CLI spinners show per-task progress while AI labels are generated.
 - CLI status wrappers now add a live elapsed suffix (for example `(17s)`) after ~10 seconds with no phase-message change, so long steps remain visibly active instead of appearing stuck.
 - Codex CLI invocation for prelabel uses non-interactive `... exec -`; plain `codex`/`codex2` values auto-retry with `exec -` when stderr reports `stdin is not a terminal`.
@@ -184,12 +185,12 @@ Where it happens:
 
 **Context management (your question):**
 
-- Each segment task is labeled independently. There is no rolling chat history; every call is a brand new Codex CLI subprocess fed a single prompt string on stdin (`subprocess.run(..., input=prompt, ...)`).
-- The “chunking” is done before the LLM call: freeform tasks are built by concatenating `segment_blocks` extracted blocks (default 40) with a separator (`\\n\\n`). `segment_overlap` repeats the last N blocks into the next task (default 5), and optional `target_task_count` can auto-tune the effective overlap per file. Overlap repeats text *across tasks*, but the model never sees prior prompts unless that text is repeated inside the current prompt.
-- Freeform tasks now include a focus subset (`segment_focus_blocks`) inside each context window. Prompts still show full context blocks, but prelabel output is filtered so only focus blocks can be labeled.
+- Each segment task is labeled independently. There is no rolling chat history; every call is a brand new Codex CLI subprocess fed a single prompt string on stdin (`subprocess.run(..., input=prompt, ...)`). Tasks may run concurrently (`--prelabel-workers`), but each prompt remains task-local.
+- The “chunking” is done before the LLM call: freeform tasks are built by concatenating `segment_blocks` extracted blocks (default 40) with a separator (`\\n\\n`). `segment_overlap` repeats the last N blocks into the next task (default 5), and optional `target_task_count` can auto-tune the effective overlap per file. For focus-mode prelabel runs, effective overlap is also clamped to at least `segment_blocks - segment_focus_blocks` so focus coverage can hand off cleanly between adjacent tasks. Overlap repeats text *across tasks*, but the model never sees prior prompts unless that text is repeated inside the current prompt.
+- Freeform tasks now include a focus subset (`segment_focus_blocks`) inside each context window. Span prompts provide one block stream with explicit `START/STOP` focus markers (instead of repeating focus block text separately), and prelabel output is filtered so only focus blocks can be labeled.
 - There is no incremental “continue where you left off” prompting. It’s many small/fixed prompts, not one ever-growing prompt.
 - A prompt/response cache can make reruns *look* stateful: `CodexCliProvider` stores `{prompt, response}` JSON files under `prelabel_cache/` keyed by a hash of `(codex_cmd, track_usage flag, prompt text)`. Delete the cache dir to force fresh completions.
-- Run-level prompt logging is explicit: prelabel writes `prelabel_prompt_log.jsonl` under the run root in `data/golden/.../labelstudio/<book_slug>/`, including the full prompt text and `included_with_prompt_description` + `included_with_prompt` metadata (labels, block/focus context, template, command/model/account fields).
+- Run-level prompt logging is explicit: prelabel writes `prelabel_prompt_log.md` under the run root in `data/golden/.../labelstudio/<book_slug>/`, including the full prompt text and `included_with_prompt_description` + `included_with_prompt` metadata (labels, block/focus context, template, command/model/account fields).
 
 **What the model is asked to do (the literal prompt template):**
 
@@ -199,7 +200,7 @@ Built in `cookimport/labelstudio/prelabel.py:_build_prompt(...)`. Prompt text is
 - `freeform-prelabel-span.prompt.md`
 
 This makes full-mode prompt iteration text-only: edit the file and rerun prelabel.
-Runtime replaces placeholders such as `{{SEGMENT_ID}}` and `{{BLOCKS_JSON_LINES}}` per task.
+Runtime replaces placeholders such as `{{SEGMENT_ID}}`, `{{BLOCKS_JSON_LINES}}`, and span marker placeholders like `{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}` per task.
 If files are missing/empty, runtime falls back to built-in defaults.
 
 ```text
@@ -208,7 +209,7 @@ You are labeling cookbook text BLOCKS for a "freeform spans" golden set.
 ...
 Segment id: {{SEGMENT_ID}}
 Blocks:
-{{BLOCKS_JSON_LINES}}
+{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}
 ```
 
 **Output parsing (tolerant, but prompt asks for strict JSON):**
@@ -241,6 +242,7 @@ Interactive style labels and runtime mode values are intentionally separate:
 
 1. Prompt used:
    - Runtime loads `llm_pipelines/prompts/freeform-prelabel-span.prompt.md`.
+   - Prompt uses one markerized block list (`<<<START_LABELING_BLOCKS_HERE>>>` / `<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>`) plus a focus-index summary, so focus context is not duplicated as a second block payload list.
    - Prompt asks for selective span output (zero/one/many spans per block).
 2. Accepted model output item shapes:
    - Quote-anchored (preferred): `{"block_index": <int>, "label": "<LABEL>", "quote": "<exact text>", "occurrence": <optional int>}`.
@@ -313,11 +315,11 @@ This is the most common point of confusion: both styles (`block` and `span`) use
 
 - Yes, inside the current segment task.
 - No, across tasks. There is no rolling conversation memory between tasks; each task is a fresh provider call.
-- Overlap (`segment_overlap`, default `5`) repeats tail blocks into the next task so adjacent task windows share text. When `target_task_count` is set, manifest records both requested overlap and effective overlap selected for that file.
+- Overlap (`segment_overlap`, default `5`) repeats tail blocks into the next task so adjacent task windows share text. When `target_task_count` is set, manifest records both requested overlap and effective overlap selected for that file. Freeform prelabel runs also enforce a focus-coverage floor (`segment_overlap_effective >= segment_blocks - segment_focus_blocks`) to avoid unlabeled holes between task focus windows.
 
 **Q: How many prompts are sent in a run?**
 
-- Freeform prelabel runs do one model completion per sampled task (`provider.complete(prompt)` in the task loop).
+- Freeform prelabel runs do one model completion per sampled task (`provider.complete(prompt)` in the task loop), potentially in parallel depending on `--prelabel-workers`.
 - There is also one preflight probe call before the loop (`preflight_codex_model_access(...)`) to fail fast on invalid model/account access.
 - Practical formula:
   - model labeling prompts = number of sampled freeform tasks

@@ -20,6 +20,7 @@ from typing import Iterable, Dict, Any, Annotated, Callable, TypeVar
 
 import questionary
 import typer
+from prompt_toolkit.key_binding.key_bindings import KeyBindings, merge_key_bindings
 from prompt_toolkit.keys import Keys
 from questionary.prompts.common import Choice as QuestionaryChoice, Separator as QuestionarySeparator
 from rich.console import Console, Group
@@ -162,6 +163,7 @@ _MENU_SHORTCUT_KEYS = (
 
 _STATUS_ELAPSED_THRESHOLD_SECONDS = 10
 _STATUS_TICK_SECONDS = 1.0
+_STATUS_COUNTER_PATTERN = re.compile(r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)")
 _StatusReturn = TypeVar("_StatusReturn")
 
 
@@ -254,11 +256,20 @@ def _menu_select(
 def _ask_with_escape_back(question: Any, *, back_result: Any = None) -> Any:
     """Ask a Questionary prompt and map Escape to a caller-defined back result."""
     application = getattr(question, "application", None)
-    key_bindings = getattr(application, "key_bindings", None)
-    if key_bindings is not None:
-        @key_bindings.add(Keys.Escape, eager=True)
+    if application is not None:
+        escape_bindings = KeyBindings()
+
+        @escape_bindings.add(Keys.Escape, eager=True)
         def _go_back(event: Any) -> None:
             event.app.exit(result=back_result)
+
+        existing_bindings = getattr(application, "key_bindings", None)
+        if existing_bindings is None:
+            application.key_bindings = escape_bindings
+        else:
+            application.key_bindings = merge_key_bindings(
+                [escape_bindings, existing_bindings]
+            )
     return question.ask()
 
 
@@ -306,6 +317,129 @@ def _prompt_confirm(
         **kwargs,
     )
     return _ask_with_escape_back(question, back_result=None)
+
+
+def _prompt_freeform_segment_settings(
+    *,
+    segment_blocks_default: int,
+    segment_overlap_default: int,
+    segment_focus_blocks_default: int,
+    target_task_count_default: int | None,
+) -> tuple[int, int, int, int | None] | None:
+    """Prompt freeform segment settings with one-level Escape back navigation.
+
+    Escape behavior:
+    - focus -> overlap
+    - overlap -> segment size
+    - target task count -> focus
+    - segment size -> cancel (caller decides prior-level navigation)
+    """
+    segment_blocks = max(1, int(segment_blocks_default))
+    segment_overlap = max(0, int(segment_overlap_default))
+    segment_focus_blocks = max(
+        1,
+        min(int(segment_focus_blocks_default), segment_blocks),
+    )
+    target_task_count = (
+        None if target_task_count_default is None else int(target_task_count_default)
+    )
+
+    step = "segment_blocks"
+    while True:
+        if step == "segment_blocks":
+            segment_blocks_raw = _prompt_text(
+                "Freeform segment size (blocks per task):",
+                default=str(segment_blocks),
+            )
+            if segment_blocks_raw is None:
+                return None
+            try:
+                parsed_segment_blocks = int(segment_blocks_raw.strip())
+            except ValueError:
+                typer.secho("Segment size must be an integer >= 1.", fg=typer.colors.RED)
+                continue
+            if parsed_segment_blocks < 1:
+                typer.secho("Segment size must be >= 1.", fg=typer.colors.RED)
+                continue
+            segment_blocks = parsed_segment_blocks
+            if segment_focus_blocks > segment_blocks:
+                segment_focus_blocks = segment_blocks
+            step = "segment_overlap"
+            continue
+
+        if step == "segment_overlap":
+            segment_overlap_raw = _prompt_text(
+                "Freeform overlap (blocks):",
+                default=str(segment_overlap),
+            )
+            if segment_overlap_raw is None:
+                step = "segment_blocks"
+                continue
+            try:
+                parsed_segment_overlap = int(segment_overlap_raw.strip())
+            except ValueError:
+                typer.secho("Segment overlap must be an integer >= 0.", fg=typer.colors.RED)
+                continue
+            if parsed_segment_overlap < 0:
+                typer.secho("Segment overlap must be >= 0.", fg=typer.colors.RED)
+                continue
+            segment_overlap = parsed_segment_overlap
+            step = "segment_focus_blocks"
+            continue
+
+        if step == "segment_focus_blocks":
+            segment_focus_blocks_raw = _prompt_text(
+                "Freeform focus size (blocks to label per task):",
+                default=str(segment_focus_blocks),
+            )
+            if segment_focus_blocks_raw is None:
+                step = "segment_overlap"
+                continue
+            try:
+                parsed_focus_blocks = int(segment_focus_blocks_raw.strip())
+            except ValueError:
+                typer.secho("Focus size must be an integer >= 1.", fg=typer.colors.RED)
+                continue
+            if parsed_focus_blocks < 1:
+                typer.secho("Focus size must be >= 1.", fg=typer.colors.RED)
+                continue
+            if parsed_focus_blocks > segment_blocks:
+                typer.secho("Focus size must be <= segment size.", fg=typer.colors.RED)
+                continue
+            segment_focus_blocks = parsed_focus_blocks
+            step = "target_task_count"
+            continue
+
+        target_task_count_raw = _prompt_text(
+            "Target task count (optional, blank to disable):",
+            default="" if target_task_count is None else str(target_task_count),
+        )
+        if target_task_count_raw is None:
+            step = "segment_focus_blocks"
+            continue
+
+        target_task_count = None
+        target_task_count_text = target_task_count_raw.strip()
+        if target_task_count_text:
+            try:
+                parsed_target_task_count = int(target_task_count_text)
+            except ValueError:
+                typer.secho(
+                    "Target task count must be an integer >= 1.",
+                    fg=typer.colors.RED,
+                )
+                continue
+            if parsed_target_task_count < 1:
+                typer.secho("Target task count must be >= 1.", fg=typer.colors.RED)
+                continue
+            target_task_count = parsed_target_task_count
+
+        return (
+            segment_blocks,
+            segment_overlap,
+            segment_focus_blocks,
+            target_task_count,
+        )
 
 
 def _load_settings() -> Dict[str, Any]:
@@ -1000,6 +1134,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             prelabel_provider = "codex-cli"
             prelabel_timeout_seconds = 120
             prelabel_cache_dir: Path | None = None
+            prelabel_workers = 4
             prelabel_upload_as = "annotations"
             prelabel_granularity = PRELABEL_GRANULARITY_BLOCK
             prelabel_allow_partial = False
@@ -1044,76 +1179,20 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     typer.secho("Context window must be an integer >= 0.", fg=typer.colors.RED)
                     continue
             elif task_scope == "freeform-spans":
-                segment_blocks_raw = _prompt_text(
-                    "Freeform segment size (blocks per task):",
-                    default="40",
+                freeform_segment_settings = _prompt_freeform_segment_settings(
+                    segment_blocks_default=segment_blocks,
+                    segment_overlap_default=segment_overlap,
+                    segment_focus_blocks_default=segment_focus_blocks,
+                    target_task_count_default=target_task_count,
                 )
-                if segment_blocks_raw is None:
+                if freeform_segment_settings is None:
                     continue
-                segment_overlap_raw = _prompt_text(
-                    "Freeform overlap (blocks):",
-                    default="5",
-                )
-                if segment_overlap_raw is None:
-                    continue
-                try:
-                    segment_blocks = int(segment_blocks_raw.strip())
-                    segment_overlap = int(segment_overlap_raw.strip())
-                except ValueError:
-                    typer.secho("Segment settings must be integers.", fg=typer.colors.RED)
-                    continue
-                if segment_blocks < 1:
-                    typer.secho("Segment size must be >= 1.", fg=typer.colors.RED)
-                    continue
-                if segment_overlap < 0:
-                    typer.secho("Segment overlap must be >= 0.", fg=typer.colors.RED)
-                    continue
-                segment_focus_blocks_raw = _prompt_text(
-                    "Freeform focus size (blocks to label per task):",
-                    default=str(segment_blocks),
-                )
-                if segment_focus_blocks_raw is None:
-                    continue
-                target_task_count_raw = _prompt_text(
-                    "Target task count (optional, blank to disable):",
-                    default="",
-                )
-                if target_task_count_raw is None:
-                    continue
-                try:
-                    segment_focus_blocks = int(segment_focus_blocks_raw.strip())
-                except ValueError:
-                    typer.secho(
-                        "Focus size must be an integer >= 1.",
-                        fg=typer.colors.RED,
-                    )
-                    continue
-                if segment_focus_blocks < 1:
-                    typer.secho("Focus size must be >= 1.", fg=typer.colors.RED)
-                    continue
-                if segment_focus_blocks > segment_blocks:
-                    typer.secho(
-                        "Focus size must be <= segment size.",
-                        fg=typer.colors.RED,
-                    )
-                    continue
-                target_task_count = None
-                target_task_count_text = target_task_count_raw.strip()
-                if target_task_count_text:
-                    try:
-                        target_task_count = int(target_task_count_text)
-                    except ValueError:
-                        typer.secho(
-                            "Target task count must be an integer >= 1.",
-                            fg=typer.colors.RED,
-                        )
-                        continue
-                    if target_task_count < 1:
-                        typer.secho(
-                            "Target task count must be >= 1.",
-                            fg=typer.colors.RED,
-                        )
-                        continue
+                (
+                    segment_blocks,
+                    segment_overlap,
+                    segment_focus_blocks,
+                    target_task_count,
+                ) = freeform_segment_settings
                 prelabel_mode = _menu_select(
                     "AI prelabel mode before upload:",
                     menu_help=(
@@ -1306,6 +1385,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                         codex_reasoning_effort=codex_reasoning_effort,
                         prelabel_timeout_seconds=prelabel_timeout_seconds,
                         prelabel_cache_dir=prelabel_cache_dir,
+                        prelabel_workers=prelabel_workers,
                         prelabel_upload_as=prelabel_upload_as,
                         prelabel_granularity=prelabel_granularity,
                         prelabel_allow_partial=prelabel_allow_partial,
@@ -1363,6 +1443,12 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     if granularity_label:
                         typer.secho(
                             f"Prelabel style: {granularity_label}",
+                            fg=typer.colors.CYAN,
+                        )
+                    workers_label = prelabel_summary.get("workers")
+                    if workers_label:
+                        typer.secho(
+                            f"Prelabel workers: {workers_label}",
                             fg=typer.colors.CYAN,
                         )
                     usage_payload = prelabel_summary.get("token_usage")
@@ -1958,19 +2044,51 @@ def _require_labelstudio_write_consent(allow_labelstudio_write: bool) -> None:
         )
 
 
+def _extract_progress_counter(message: str) -> tuple[int, int] | None:
+    """Extract the right-most X/Y counter from a status message."""
+    trimmed = message.strip()
+    if not trimmed:
+        return None
+    matches = list(_STATUS_COUNTER_PATTERN.finditer(trimmed))
+    for match in reversed(matches):
+        try:
+            current = int(match.group(1))
+            total = int(match.group(2))
+        except (TypeError, ValueError):
+            continue
+        if total <= 0:
+            continue
+        return max(0, min(current, total)), total
+    return None
+
+
+def _format_seconds_per_task(seconds_per_task: float) -> str:
+    formatted = f"{max(0.0, seconds_per_task):.1f}".rstrip("0").rstrip(".")
+    return f"{formatted}s/task"
+
+
 def _format_status_progress_message(
     message: str,
     *,
     elapsed_seconds: int,
     elapsed_threshold_seconds: int = _STATUS_ELAPSED_THRESHOLD_SECONDS,
+    eta_seconds: int | None = None,
+    avg_seconds_per_task: float | None = None,
 ) -> str:
-    """Append elapsed time for long-running phases."""
+    """Append ETA/throughput and elapsed time for long-running phases."""
     trimmed = message.strip()
     if not trimmed:
         return ""
-    if elapsed_seconds < max(0, elapsed_threshold_seconds):
+    suffix_parts: list[str] = []
+    if eta_seconds is not None:
+        suffix_parts.append(f"eta {_format_processing_time(float(eta_seconds))}")
+        if avg_seconds_per_task is not None and avg_seconds_per_task > 0:
+            suffix_parts.append(f"avg {_format_seconds_per_task(avg_seconds_per_task)}")
+    if elapsed_seconds >= max(0, elapsed_threshold_seconds):
+        suffix_parts.append(f"{elapsed_seconds}s")
+    if not suffix_parts:
         return trimmed
-    return f"{trimmed} ({elapsed_seconds}s)"
+    return f"{trimmed} ({', '.join(suffix_parts)})"
 
 
 def _format_processing_time(elapsed_seconds: float) -> str:
@@ -1994,6 +2112,12 @@ def _run_with_progress_status(
 ) -> _StatusReturn:
     latest_message = ""
     latest_message_started = time.monotonic()
+    latest_counter: tuple[int, int] | None = None
+    rate_total: int | None = None
+    rate_last_current: int | None = None
+    rate_last_progress_at: float | None = None
+    rate_sampled_seconds = 0.0
+    rate_sampled_units = 0
     state_lock = threading.Lock()
     stop_event = threading.Event()
 
@@ -2002,13 +2126,33 @@ def _run_with_progress_status(
         with state_lock:
             message = latest_message
             started_at = latest_message_started
+            counter = latest_counter
+            tracked_total = rate_total
+            sampled_seconds = rate_sampled_seconds
+            sampled_units = rate_sampled_units
         if not message:
             return f"[bold cyan]{initial_status}[/bold cyan]"
         elapsed = max(0, int(current - started_at))
+        eta_seconds: int | None = None
+        avg_seconds_per_task: float | None = None
+        if (
+            counter is not None
+            and tracked_total is not None
+            and sampled_units > 0
+            and sampled_seconds > 0
+            and counter[1] == tracked_total
+        ):
+            counter_current, counter_total = counter
+            remaining = max(0, counter_total - counter_current)
+            avg_seconds_per_task = sampled_seconds / sampled_units
+            if remaining > 0 and avg_seconds_per_task > 0:
+                eta_seconds = int(round(avg_seconds_per_task * remaining))
         decorated = _format_status_progress_message(
             message,
             elapsed_seconds=elapsed,
             elapsed_threshold_seconds=elapsed_threshold_seconds,
+            eta_seconds=eta_seconds,
+            avg_seconds_per_task=avg_seconds_per_task,
         )
         return f"[bold cyan]{progress_prefix}: {decorated}[/bold cyan]"
 
@@ -2027,10 +2171,41 @@ def _run_with_progress_status(
 
         def update_progress(msg: str) -> None:
             nonlocal latest_message, latest_message_started
+            nonlocal latest_counter, rate_total, rate_last_current, rate_last_progress_at
+            nonlocal rate_sampled_seconds, rate_sampled_units
             now = time.monotonic()
+            cleaned = msg.strip()
+            counter = _extract_progress_counter(cleaned)
             with state_lock:
-                latest_message = msg.strip()
+                latest_message = cleaned
                 latest_message_started = now
+                latest_counter = counter
+                if counter is not None:
+                    counter_current, counter_total = counter
+                    should_reset = (
+                        rate_total is None
+                        or rate_last_current is None
+                        or rate_last_progress_at is None
+                        or counter_total != rate_total
+                        or counter_current < rate_last_current
+                    )
+                    if should_reset:
+                        rate_total = counter_total
+                        rate_last_current = counter_current
+                        rate_last_progress_at = now
+                        rate_sampled_seconds = 0.0
+                        rate_sampled_units = 0
+                    else:
+                        delta = counter_current - rate_last_current
+                        if delta > 0:
+                            elapsed_since_progress = max(
+                                0.0, now - rate_last_progress_at
+                            )
+                            if elapsed_since_progress > 0:
+                                rate_sampled_seconds += elapsed_since_progress
+                                rate_sampled_units += delta
+                            rate_last_current = counter_current
+                            rate_last_progress_at = now
             status.update(render(now))
 
         try:
@@ -4545,6 +4720,15 @@ def labelstudio_import(
         "--prelabel-cache-dir",
         help="Optional cache directory for prompt/response snapshots.",
     ),
+    prelabel_workers: int = typer.Option(
+        4,
+        "--prelabel-workers",
+        min=1,
+        help=(
+            "Maximum concurrent freeform prelabel provider calls. "
+            "Use 1 to force serialized task labeling."
+        ),
+    ),
     prelabel_upload_as: str = typer.Option(
         "annotations",
         "--prelabel-upload-as",
@@ -4689,6 +4873,7 @@ def labelstudio_import(
                 codex_reasoning_effort=normalized_codex_reasoning_effort,
                 prelabel_timeout_seconds=prelabel_timeout_seconds,
                 prelabel_cache_dir=prelabel_cache_dir,
+                prelabel_workers=prelabel_workers,
                 prelabel_upload_as=normalized_prelabel_upload_as,
                 prelabel_granularity=normalized_prelabel_granularity,
                 prelabel_allow_partial=prelabel_allow_partial,
@@ -4745,6 +4930,12 @@ def labelstudio_import(
             if granularity_label:
                 typer.secho(
                     f"Prelabel style: {granularity_label}",
+                    fg=typer.colors.CYAN,
+                )
+            workers_label = prelabel_summary.get("workers")
+            if workers_label:
+                typer.secho(
+                    f"Prelabel workers: {workers_label}",
                     fg=typer.colors.CYAN,
                 )
             usage_payload = prelabel_summary.get("token_usage")

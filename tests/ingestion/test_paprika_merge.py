@@ -3,10 +3,7 @@ from __future__ import annotations
 import json
 import gzip
 import zipfile
-from pathlib import Path
 from cookimport.plugins.paprika import PaprikaImporter
-
-EXAMPLES_DIR = Path(__file__).parent.parent / "docs" / "template" / "examples"
 
 def test_merge_paprika(tmp_path):
     importer = PaprikaImporter()

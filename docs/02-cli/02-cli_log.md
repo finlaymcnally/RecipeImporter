@@ -26,6 +26,18 @@ Preserved finding:
 Current rule:
 - Interactive prompts now use `Esc` for one-level back/cancel.
 - Menu prompts use `_menu_select()`; typed prompts use `_prompt_text/_prompt_confirm/_prompt_password`.
+- Keybinding injection for typed prompts uses `merge_key_bindings(...)` because PromptSession prompts expose `_MergedKeyBindings` without `.add(...)`.
+
+### 2026-02-22_23.09.47 freeform numeric prompt step-back
+
+Merged source file:
+- `2026-02-22_23.09.47-freeform-interactive-esc-step-back.md` (in `docs/understandings`)
+
+Preserved finding:
+- Inline freeform numeric prompts treated Esc as flow-level cancel (`continue`), which bounced users to main menu.
+
+Current rule:
+- Use `_prompt_freeform_segment_settings(...)` for freeform segment/focus/target prompts so Esc walks back one field.
 
 ### 2026-02-15_21.04.54 cli interactive flow map
 

@@ -9,9 +9,10 @@ import pytest
 
 from cookimport.plugins.excel import ExcelImporter
 from cookimport.staging.writer import write_draft_outputs
+from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
 
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+FIXTURES_DIR = TESTS_FIXTURES_DIR
 EXPECTED_DIR = FIXTURES_DIR / "expected"
 
 

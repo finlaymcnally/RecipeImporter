@@ -100,6 +100,7 @@ def resolve_segment_overlap_for_target(
     segment_blocks: int,
     requested_overlap: int,
     target_task_count: int | None,
+    segment_focus_blocks: int | None = None,
 ) -> int:
     if segment_blocks <= 0:
         raise ValueError("segment_blocks must be >= 1")
@@ -107,20 +108,31 @@ def resolve_segment_overlap_for_target(
         raise ValueError("requested_overlap must be >= 0")
     if requested_overlap >= segment_blocks:
         raise ValueError("requested_overlap must be smaller than segment_blocks")
+    min_overlap_for_focus = 0
+    if segment_focus_blocks is not None:
+        if segment_focus_blocks < 1:
+            raise ValueError("segment_focus_blocks must be >= 1")
+        if segment_focus_blocks > segment_blocks:
+            raise ValueError("segment_focus_blocks must be <= segment_blocks")
+        # Keep focus windows contiguous across tasks: step <= focus.
+        min_overlap_for_focus = max(0, segment_blocks - segment_focus_blocks)
+    requested_overlap_effective = max(requested_overlap, min_overlap_for_focus)
     if target_task_count is None or total_blocks <= 0:
-        return requested_overlap
+        return requested_overlap_effective
     if target_task_count < 1:
         raise ValueError("target_task_count must be >= 1")
 
-    requested_count = len(_segment_ranges(total_blocks, segment_blocks, requested_overlap))
+    requested_count = len(
+        _segment_ranges(total_blocks, segment_blocks, requested_overlap_effective)
+    )
     prefer_higher_task_count = target_task_count >= requested_count
 
-    best_overlap = requested_overlap
+    best_overlap = requested_overlap_effective
     best_count = requested_count
     best_diff = abs(requested_count - target_task_count)
-    best_requested_distance = 0
+    best_requested_distance = abs(requested_overlap_effective - requested_overlap)
 
-    for overlap in range(segment_blocks):
+    for overlap in range(min_overlap_for_focus, segment_blocks):
         count = len(_segment_ranges(total_blocks, segment_blocks, overlap))
         diff = abs(count - target_task_count)
         if diff < best_diff:

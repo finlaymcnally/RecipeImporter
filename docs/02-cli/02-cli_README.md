@@ -79,7 +79,7 @@ Startup behavior:
 2. Sets `input_folder = data/input`.
 3. Scans only top-level files in `data/input` for importer support (not recursive).
 4. Builds the main menu choices.
-5. Uses `Esc` as one-level "go back" in `_menu_select` and text/confirm/password prompts in interactive mode.
+5. Uses `Esc` as one-level "go back" in `_menu_select`; typed prompts use `_prompt_*` wrappers, and caller flows decide whether that means step-back (for example freeform segment sizing) or cancel.
 
 Important divergence to remember:
 - interactive file selection is top-level only, but `cookimport stage <folder>` is recursive when a folder path is passed directly.
@@ -205,7 +205,7 @@ Developer note:
 4. Scope-specific prompts:
    - `pipeline`: choose `chunk_level` (`both`, `structural`, `atomic`).
    - `canonical-blocks`: enter `context_window` (integer `>= 0`).
-  - `freeform-spans`: enter `segment_blocks` (context blocks per task, integer `>= 1`), `segment_overlap` (integer `>= 0`), `segment_focus_blocks` (blocks to actively label per task, integer `>= 1` and `<= segment_blocks`), and optional `target_task_count` (blank disables auto-tuning). Then choose AI prelabel mode (`off`, strict/allow-partial annotations, or advanced predictions mode variants). If prelabel is enabled, interactive mode then asks for labeling style (`actual freeform` span mode vs `legacy, block based` mode), uses the resolved Codex command (`COOKIMPORT_CODEX_CMD` or `codex exec -`), shows the resolved account email when available, then prompts for model (`use default`, discovered models from that command's Codex home / `CODEX_HOME`, or custom model id) and thinking effort (`none|minimal|low|medium|high|xhigh`, mapped to Codex `model_reasoning_effort`).
+   - `freeform-spans`: enter `segment_blocks` (context blocks per task, integer `>= 1`), `segment_overlap` (integer `>= 0`), `segment_focus_blocks` (blocks to actively label per task, integer `>= 1` and `<= segment_blocks`), and optional `target_task_count` (blank disables auto-tuning). For freeform prelabel runs, effective overlap may be auto-raised to at least `segment_blocks - segment_focus_blocks` so focus coverage does not leave unlabeled gaps between tasks. Then choose AI prelabel mode (`off`, strict/allow-partial annotations, or advanced predictions mode variants). If prelabel is enabled, interactive mode then asks for labeling style (`actual freeform` span mode vs `legacy, block based` mode), uses the resolved Codex command (`COOKIMPORT_CODEX_CMD` or `codex exec -`), shows the resolved account email when available, then prompts for model (`use default`, discovered models from that command's Codex home / `CODEX_HOME`, or custom model id) and thinking effort (`none|minimal|low|medium|high|xhigh`, mapped to Codex `model_reasoning_effort`). Freeform prelabel task calls run in parallel by default (`4` workers).
 5. Enter Label Studio URL and API key if needed.
    - If `LABEL_STUDIO_URL` and `LABEL_STUDIO_API_KEY` are set, prompts are skipped.
    - Otherwise, interactive mode uses saved `cookimport.json` values when present.
@@ -213,7 +213,7 @@ Developer note:
 6. The tool builds tasks on your machine.
    - It prepares text/chunk or block/segment tasks based on your scope choice.
    - Before per-task AI labeling starts, it runs a single Codex model-access preflight call and fails fast when the selected model/account combination is invalid.
-   - A status spinner shows live phase updates with `task X/Y` progress for known-size loops (including freeform prelabeling when AI prelabel is enabled).
+   - A status spinner shows live phase updates with `task X/Y` progress for known-size loops (including freeform prelabeling when AI prelabel is enabled), and adds ETA once enough `X/Y` progress is observed.
    - It writes run files under `data/golden`:
    - `label_studio_tasks.jsonl`
    - `coverage.json`
@@ -540,6 +540,7 @@ Options:
 - `--codex-cmd TEXT`: override Codex CLI command (defaults to `COOKIMPORT_CODEX_CMD` or `codex exec -`).
 - `--prelabel-timeout-seconds INTEGER>=1` (default `120`): timeout per provider call.
 - `--prelabel-cache-dir PATH`: optional prompt/response cache directory.
+- `--prelabel-workers INTEGER>=1` (default `4`): concurrent freeform prelabel provider calls (`1` keeps serialized behavior).
 - `--prelabel-upload-as TEXT` (default `annotations`): `annotations|predictions`.
 - `--prelabel-granularity TEXT` (default `block`): `block|span` (`block` = legacy, block based; `span` = actual freeform).
 - `--prelabel-allow-partial / --no-prelabel-allow-partial` (default disabled): continue upload when some prelabels fail.

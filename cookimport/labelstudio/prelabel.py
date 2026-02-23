@@ -8,6 +8,7 @@ import os
 import re
 import shlex
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -51,6 +52,7 @@ class CodexCliProvider:
             cache_dir = Path.home() / ".cache" / "cookimport" / "prelabel"
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._usage_lock = threading.Lock()
         self._calls_total = 0
         self._usage_totals = {
             "input_tokens": 0,
@@ -60,7 +62,8 @@ class CodexCliProvider:
         }
 
     def complete(self, prompt: str) -> str:
-        self._calls_total += 1
+        with self._usage_lock:
+            self._calls_total += 1
         cache_key = hashlib.sha256(
             f"{self.cmd}\ntrack_usage={self.track_usage}\n{prompt}".encode("utf-8")
         ).hexdigest()
@@ -241,15 +244,17 @@ class CodexCliProvider:
         normalized = self._normalize_usage(usage)
         if normalized is None:
             return
-        for key in ("input_tokens", "cached_input_tokens", "output_tokens"):
-            self._usage_totals[key] += normalized.get(key, 0)
-        self._usage_totals["calls_with_usage"] += 1
+        with self._usage_lock:
+            for key in ("input_tokens", "cached_input_tokens", "output_tokens"):
+                self._usage_totals[key] += normalized.get(key, 0)
+            self._usage_totals["calls_with_usage"] += 1
 
     def usage_summary(self) -> dict[str, int]:
-        return {
-            **self._usage_totals,
-            "calls_total": self._calls_total,
-        }
+        with self._usage_lock:
+            return {
+                **self._usage_totals,
+                "calls_total": self._calls_total,
+            }
 
     @staticmethod
     def _is_stdin_tty_error(completed: subprocess.CompletedProcess[str]) -> bool:
@@ -466,9 +471,11 @@ GOAL
   {{ALLOWED_LABELS}}
 
 FOCUS SCOPE
-{{FOCUS_CONSTRAINTS}}
-Focus blocks to label (context blocks may be broader):
-{{FOCUS_BLOCK_JSON_LINES}}
+- The block list appears once at the end as a single blob.
+- Label only spans from blocks between:
+  <<<START_LABELING_BLOCKS_HERE>>>
+  <<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>
+- Blocks outside those markers are context only.
 
 RETURN FORMAT (STRICT JSON ONLY)
 Return ONLY a JSON array. No markdown. No commentary.
@@ -487,7 +494,7 @@ RULES
 
 Segment id: {{SEGMENT_ID}}
 Blocks:
-{{BLOCKS_JSON_LINES}}"""
+{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}"""
 
 
 def _is_codex_executable(executable: str) -> bool:
@@ -1465,6 +1472,56 @@ def _render_prompt_template(
     return rendered
 
 
+def _collapse_block_index_ranges(indices: list[int]) -> str:
+    if not indices:
+        return ""
+    ordered = sorted(set(indices))
+    ranges: list[str] = []
+    start = ordered[0]
+    end = ordered[0]
+    for value in ordered[1:]:
+        if value == end + 1:
+            end = value
+            continue
+        if start == end:
+            ranges.append(str(start))
+        else:
+            ranges.append(f"{start}-{end}")
+        start = value
+        end = value
+    if start == end:
+        ranges.append(str(start))
+    else:
+        ranges.append(f"{start}-{end}")
+    return ", ".join(ranges)
+
+
+def _build_focus_marked_block_lines(
+    *,
+    valid_blocks: list[tuple[int, str]],
+    focus_block_indices: set[int],
+) -> list[str]:
+    marked: list[str] = []
+    in_focus_run = False
+    for block_index, block_text in valid_blocks:
+        is_focus = block_index in focus_block_indices
+        if is_focus and not in_focus_run:
+            marked.append("<<<START_LABELING_BLOCKS_HERE>>>")
+            in_focus_run = True
+        elif in_focus_run and not is_focus:
+            marked.append("<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>")
+            in_focus_run = False
+        marked.append(
+            json.dumps(
+                {"block_index": block_index, "text": block_text},
+                ensure_ascii=False,
+            )
+        )
+    if in_focus_run:
+        marked.append("<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>")
+    return marked
+
+
 def _build_prompt(
     *,
     task: dict[str, Any],
@@ -1521,6 +1578,8 @@ def _build_prompt(
     ]
     if not focus_lines:
         focus_lines = list(lines)
+        focus_block_index_set = {block_index for block_index, _text in valid_blocks}
+        focus_block_indices = sorted(focus_block_index_set)
 
     ordered_allowed_labels = [
         label for label in FREEFORM_LABELS if label in set(allowed_labels)
@@ -1528,15 +1587,27 @@ def _build_prompt(
     allowed_labels_text = ", ".join(ordered_allowed_labels)
     blocks_json_lines = "\n".join(lines)
     focus_blocks_json_lines = "\n".join(focus_lines)
+    blocks_with_focus_markers_json_lines = "\n".join(
+        _build_focus_marked_block_lines(
+            valid_blocks=valid_blocks,
+            focus_block_indices=focus_block_index_set,
+        )
+    )
+    focus_block_indices_text = _collapse_block_index_ranges(focus_block_indices) or "none"
     if len(focus_lines) == len(lines):
         focus_constraints = (
             "- Focus equals context for this task: label all listed blocks.\n"
             "- Keep the same order as listed."
         )
+        focus_marker_rules = "- START/STOP markers wrap the full block list for this task."
     else:
         focus_constraints = (
-            "- Label only the focus blocks listed below.\n"
+            "- Label only focus blocks for this task.\n"
             "- Do not label non-focus blocks; they are context only."
+        )
+        focus_marker_rules = (
+            "- Label only spans from blocks between START/STOP markers.\n"
+            "- Blocks outside markers are context only."
         )
 
     normalized_granularity = normalize_prelabel_granularity(prelabel_granularity)
@@ -1548,8 +1619,11 @@ def _build_prompt(
                 "{{ALLOWED_LABELS}}": allowed_labels_text,
                 "{{FOCUS_CONSTRAINTS}}": focus_constraints,
                 "{{FOCUS_BLOCK_JSON_LINES}}": focus_blocks_json_lines,
+                "{{FOCUS_BLOCK_INDICES}}": focus_block_indices_text,
+                "{{FOCUS_MARKER_RULES}}": focus_marker_rules,
                 "{{SEGMENT_ID}}": segment_id,
                 "{{BLOCKS_JSON_LINES}}": blocks_json_lines,
+                "{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}": blocks_with_focus_markers_json_lines,
             },
         )
 
@@ -1570,8 +1644,11 @@ def _build_prompt(
             "{{UNCERTAINTY_HINT}}": uncertainty_hint,
             "{{FOCUS_CONSTRAINTS}}": focus_constraints,
             "{{FOCUS_BLOCK_JSON_LINES}}": focus_blocks_json_lines,
+            "{{FOCUS_BLOCK_INDICES}}": focus_block_indices_text,
+            "{{FOCUS_MARKER_RULES}}": focus_marker_rules,
             "{{SEGMENT_ID}}": segment_id,
             "{{BLOCKS_JSON_LINES}}": blocks_json_lines,
+            "{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}": blocks_with_focus_markers_json_lines,
         },
     )
 
@@ -1614,8 +1691,9 @@ def _build_prompt_log_entry(
     )
     if normalized_granularity == PRELABEL_GRANULARITY_SPAN:
         prompt_payload_description = (
-            "Prompt includes allowed labels, focus constraints, focus block JSON lines, "
-            "and full context block JSON lines for quote/offset span resolution."
+            "Prompt includes allowed labels, focus constraints, focus marker rules, "
+            "focus index summary, and one markerized context block JSON stream "
+            "for quote/offset span resolution."
         )
     else:
         prompt_payload_description = (

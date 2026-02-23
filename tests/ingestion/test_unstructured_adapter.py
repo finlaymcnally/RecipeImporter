@@ -14,8 +14,9 @@ from cookimport.parsing.unstructured_adapter import (
     partition_html_to_blocks,
 )
 from cookimport.parsing.block_roles import assign_block_roles
+from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures" / "epub_html"
+FIXTURES_DIR = TESTS_FIXTURES_DIR / "epub_html"
 
 
 # ---------------------------------------------------------------------------

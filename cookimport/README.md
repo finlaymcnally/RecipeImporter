@@ -26,7 +26,9 @@ During `cookimport stage`, the CLI shows a per-worker status panel that refreshe
 about every 5 seconds with the latest progress message.
 Callback-driven spinners (Label Studio import, benchmark import, bench
 run/sweep) now append elapsed seconds after about 10 seconds on the same phase
-message so long-running steps remain visibly active.
+message so long-running steps remain visibly active. When callback messages
+include `X/Y` counters, these spinners also show ETA using average
+seconds-per-item throughput.
 Interactive `C3imp`/`cookimport` prompts now use `Esc` for one-level back/cancel
 navigation across both menu `select` prompts and typed text/confirm/password prompts.
 Interactive Label Studio import now supports all task scopes (`pipeline`,

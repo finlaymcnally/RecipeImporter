@@ -23,8 +23,9 @@ from cookimport.tagging.signals import (
     signals_from_dict,
 )
 from cookimport.tagging.render import render_suggestions_text, serialize_suggestions_json
+from tests.paths import TAGGING_GOLD_DIR as TESTS_TAGGING_GOLD_DIR
 
-GOLD_DIR = Path(__file__).parent / "tagging_gold"
+GOLD_DIR = TESTS_TAGGING_GOLD_DIR
 CATALOG_PATH = GOLD_DIR / "tag_catalog.small.json"
 FIXTURES_PATH = GOLD_DIR / "fixtures.json"
 GOLD_LABELS_PATH = GOLD_DIR / "gold_labels.json"

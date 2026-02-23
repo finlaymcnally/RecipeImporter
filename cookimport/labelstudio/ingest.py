@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from contextlib import contextmanager
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -94,6 +94,61 @@ logger = logging.getLogger(__name__)
 
 def _task_progress_message(phase: str, current: int, total: int) -> str:
     return format_task_counter(phase, current, total, noun="task")
+
+
+def _format_prelabel_prompt_log_entry_markdown(payload: dict[str, Any]) -> str:
+    task_index = payload.get("task_index")
+    task_total = payload.get("task_total")
+    try:
+        task_label = f"{int(task_index)}/{int(task_total)}"
+    except (TypeError, ValueError):
+        task_label = "?"
+    segment_id = str(payload.get("segment_id") or "<unknown>")
+    included_with_prompt = payload.get("included_with_prompt")
+    if not isinstance(included_with_prompt, dict):
+        included_with_prompt = {}
+    included_json = json.dumps(
+        included_with_prompt,
+        indent=2,
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    prompt_text = str(payload.get("prompt") or "")
+    if not prompt_text:
+        prompt_text = "(empty prompt)"
+    description = str(payload.get("included_with_prompt_description") or "").strip()
+    if not description:
+        description = "No additional prompt context description provided."
+    lines = [
+        f"## Task {task_label} - `{segment_id}`",
+        "",
+        f"- Logged at (UTC): `{payload.get('logged_at') or ''}`",
+        f"- Task scope: `{payload.get('task_scope') or ''}`",
+        f"- Granularity: `{payload.get('granularity') or ''}`",
+        f"- Prompt template: `{payload.get('prompt_template') or ''}`",
+        f"- Prompt hash: `{payload.get('prompt_hash') or ''}`",
+        f"- Codex cmd: `{payload.get('codex_cmd') or ''}`",
+        f"- Codex model: `{payload.get('codex_model') or ''}`",
+        f"- Codex reasoning effort: `{payload.get('codex_reasoning_effort') or ''}`",
+        f"- Codex account: `{payload.get('codex_account') or ''}`",
+        f"- Source file: `{payload.get('source_file') or ''}`",
+        "",
+        "### What Else Was Included",
+        "",
+        description,
+        "",
+        "```json",
+        included_json,
+        "```",
+        "",
+        "### Prompt",
+        "",
+        "````text",
+        prompt_text,
+        "````",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def _coerce_bool(value: bool | str | None, *, default: bool) -> bool:
@@ -838,6 +893,7 @@ def generate_pred_run_artifacts(
     codex_reasoning_effort: str | None = None,
     prelabel_timeout_seconds: int = 120,
     prelabel_cache_dir: Path | None = None,
+    prelabel_workers: int = 4,
     prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
     prelabel_allow_partial: bool = False,
     prelabel_track_token_usage: bool = True,
@@ -1272,20 +1328,31 @@ def generate_pred_run_artifacts(
             raise ValueError("segment_focus_blocks must be >= 1")
         if resolved_segment_focus_blocks > segment_blocks:
             raise ValueError("segment_focus_blocks must be <= segment_blocks")
+        focus_overlap_floor = max(0, segment_blocks - resolved_segment_focus_blocks)
         effective_segment_overlap = resolve_segment_overlap_for_target(
             total_blocks=len(archive),
             segment_blocks=segment_blocks,
             requested_overlap=segment_overlap,
             target_task_count=target_task_count,
+            segment_focus_blocks=resolved_segment_focus_blocks,
         )
-        if (
-            target_task_count is not None
-            and effective_segment_overlap != segment_overlap
-        ):
+        if effective_segment_overlap != segment_overlap:
+            reasons: list[str] = []
+            if target_task_count is not None:
+                reasons.append(f"target tasks {target_task_count}")
+            if segment_overlap < focus_overlap_floor:
+                reasons.append(
+                    "focus coverage "
+                    f"(segment {segment_blocks}, focus {resolved_segment_focus_blocks})"
+                )
+            if reasons:
+                reason_suffix = f", {', '.join(reasons)}"
+            else:
+                reason_suffix = ""
             _notify(
                 "Adjusted freeform overlap to "
                 f"{effective_segment_overlap} "
-                f"(requested {segment_overlap}, target tasks {target_task_count})."
+                f"(requested {segment_overlap}{reason_suffix})."
             )
         _notify("Building freeform span tasks...")
         tasks_all = build_freeform_span_tasks(
@@ -1352,29 +1419,140 @@ def generate_pred_run_artifacts(
                     cmd=provider_cmd
                 )
             provider_account = codex_account_summary(provider_cmd)
-            prelabel_prompt_log_path = run_root / "prelabel_prompt_log.jsonl"
-            prelabel_prompt_log_path.write_text("", encoding="utf-8")
+            prelabel_prompt_log_path = run_root / "prelabel_prompt_log.md"
+            prelabel_prompt_log_path.write_text(
+                "\n".join(
+                    [
+                        "# Prelabel Prompt Log",
+                        "",
+                        f"- Generated at (UTC): {dt.datetime.now(tz=dt.timezone.utc).isoformat(timespec='seconds')}",
+                        "- One section per Codex prompt call.",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
             prelabel_prompt_log_count = 0
             prelabel_errors: list[dict[str, Any]] = []
             prelabel_label_counts: dict[str, int] = {}
             prelabel_success = 0
-            for task_index, task in enumerate(tasks, start=1):
+            effective_prelabel_workers = min(
+                total_prelabel_tasks,
+                max(1, int(prelabel_workers)),
+            )
+            if effective_prelabel_workers > 1:
                 _notify(
-                    _task_progress_message(
-                        "Running freeform prelabeling...",
-                        task_index,
-                        total_prelabel_tasks,
-                    )
+                    "Running freeform prelabeling with up to "
+                    f"{effective_prelabel_workers} workers..."
                 )
-                segment_id = _task_id_value(task, "freeform-spans") or "<unknown>"
-                prompt_task_index = task_index
-                prompt_segment_id = segment_id
 
-                def _write_prompt_log(entry: dict[str, Any]) -> None:
-                    nonlocal prelabel_prompt_log_count
+            def _run_prelabel_task(
+                *,
+                task_index: int,
+                task_payload: dict[str, Any],
+            ) -> dict[str, Any]:
+                segment_id = _task_id_value(task_payload, "freeform-spans") or "<unknown>"
+                prompt_entries: list[dict[str, Any]] = []
+
+                def _collect_prompt_log(entry: dict[str, Any]) -> None:
+                    prompt_entries.append(dict(entry))
+
+                try:
+                    annotation = prelabel_freeform_task(
+                        task_payload,
+                        provider=provider,
+                        allowed_labels=set(FREEFORM_ALLOWED_LABELS),
+                        prelabel_granularity=normalized_prelabel_granularity,
+                        prompt_log_callback=_collect_prompt_log,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    return {
+                        "task_index": task_index,
+                        "segment_id": segment_id,
+                        "annotation": None,
+                        "error": str(exc),
+                        "prompt_entries": prompt_entries,
+                        "task": task_payload,
+                    }
+                if annotation is None:
+                    return {
+                        "task_index": task_index,
+                        "segment_id": segment_id,
+                        "annotation": None,
+                        "error": "No valid labels produced by provider output.",
+                        "prompt_entries": prompt_entries,
+                        "task": task_payload,
+                    }
+                return {
+                    "task_index": task_index,
+                    "segment_id": segment_id,
+                    "annotation": annotation,
+                    "error": None,
+                    "prompt_entries": prompt_entries,
+                    "task": task_payload,
+                }
+
+            task_results: list[dict[str, Any]] = []
+            if effective_prelabel_workers == 1:
+                for task_index, task in enumerate(tasks, start=1):
+                    task_results.append(
+                        _run_prelabel_task(task_index=task_index, task_payload=task)
+                    )
+                    _notify(
+                        _task_progress_message(
+                            "Running freeform prelabeling...",
+                            task_index,
+                            total_prelabel_tasks,
+                        )
+                    )
+            else:
+                with ThreadPoolExecutor(max_workers=effective_prelabel_workers) as executor:
+                    futures = {
+                        executor.submit(
+                            _run_prelabel_task,
+                            task_index=task_index,
+                            task_payload=task,
+                        ): (task_index, task)
+                        for task_index, task in enumerate(tasks, start=1)
+                    }
+                    completed_tasks = 0
+                    for future in as_completed(futures):
+                        task_index, task = futures[future]
+                        try:
+                            task_results.append(future.result())
+                        except Exception as exc:  # noqa: BLE001
+                            task_results.append(
+                                {
+                                    "task_index": task_index,
+                                    "segment_id": _task_id_value(task, "freeform-spans")
+                                    or "<unknown>",
+                                    "annotation": None,
+                                    "error": str(exc),
+                                    "prompt_entries": [],
+                                    "task": task,
+                                }
+                            )
+                        completed_tasks += 1
+                        _notify(
+                            _task_progress_message(
+                                "Running freeform prelabeling...",
+                                completed_tasks,
+                                total_prelabel_tasks,
+                            )
+                        )
+
+            task_results.sort(key=lambda row: int(row.get("task_index") or 0))
+
+            for row in task_results:
+                prompt_entries = row.get("prompt_entries")
+                if not isinstance(prompt_entries, list):
+                    continue
+                for entry in prompt_entries:
+                    if not isinstance(entry, dict):
+                        continue
                     payload = dict(entry)
-                    payload.setdefault("segment_id", prompt_segment_id)
-                    payload["task_index"] = prompt_task_index
+                    payload.setdefault("segment_id", row.get("segment_id") or "<unknown>")
+                    payload["task_index"] = row.get("task_index")
                     payload["task_total"] = total_prelabel_tasks
                     payload["logged_at"] = dt.datetime.now(
                         tz=dt.timezone.utc
@@ -1384,30 +1562,19 @@ def generate_pred_run_artifacts(
                     payload["codex_reasoning_effort"] = provider_reasoning_effort
                     payload["codex_account"] = provider_account
                     with prelabel_prompt_log_path.open("a", encoding="utf-8") as handle:
-                        handle.write(
-                            json.dumps(
-                                payload,
-                                ensure_ascii=False,
-                                sort_keys=True,
-                            )
-                            + "\n"
-                        )
+                        handle.write(_format_prelabel_prompt_log_entry_markdown(payload))
                     prelabel_prompt_log_count += 1
 
-                try:
-                    annotation = prelabel_freeform_task(
-                        task,
-                        provider=provider,
-                        allowed_labels=set(FREEFORM_ALLOWED_LABELS),
-                        prelabel_granularity=normalized_prelabel_granularity,
-                        prompt_log_callback=_write_prompt_log,
-                    )
-                except Exception as exc:  # noqa: BLE001
+            for row in task_results:
+                segment_id = str(row.get("segment_id") or "<unknown>")
+                error = row.get("error")
+                if error:
                     prelabel_errors.append(
-                        {"segment_id": segment_id, "reason": str(exc)}
+                        {"segment_id": segment_id, "reason": str(error)}
                     )
                     continue
-                if annotation is None:
+                annotation = row.get("annotation")
+                if not isinstance(annotation, dict):
                     prelabel_errors.append(
                         {
                             "segment_id": segment_id,
@@ -1415,7 +1582,9 @@ def generate_pred_run_artifacts(
                         }
                     )
                     continue
-                task["annotations"] = [annotation]
+                task_payload = row.get("task")
+                if isinstance(task_payload, dict):
+                    task_payload["annotations"] = [annotation]
                 prelabel_success += 1
                 for label in sorted(annotation_labels(annotation)):
                     prelabel_label_counts[label] = prelabel_label_counts.get(label, 0) + 1
@@ -1445,6 +1614,7 @@ def generate_pred_run_artifacts(
                 "codex_reasoning_effort": provider_reasoning_effort,
                 "codex_account": provider_account,
                 "cache_dir": str(provider_cache_dir),
+                "workers": effective_prelabel_workers,
                 "task_count": len(tasks),
                 "success_count": prelabel_success,
                 "failure_count": len(prelabel_errors),
@@ -1588,7 +1758,7 @@ def generate_pred_run_artifacts(
             run_root, prelabel_errors_path
         )
     if prelabel_prompt_log_path is not None:
-        run_manifest_artifacts["prelabel_prompt_log_jsonl"] = _path_for_manifest(
+        run_manifest_artifacts["prelabel_prompt_log_md"] = _path_for_manifest(
             run_root, prelabel_prompt_log_path
         )
     processed_run_path = _path_for_manifest(run_root, processed_run_root)
@@ -1707,6 +1877,7 @@ def run_labelstudio_import(
     codex_reasoning_effort: str | None = None,
     prelabel_timeout_seconds: int = 120,
     prelabel_cache_dir: Path | None = None,
+    prelabel_workers: int = 4,
     prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
     prelabel_upload_as: str = "annotations",
     prelabel_allow_partial: bool = False,
@@ -1767,6 +1938,7 @@ def run_labelstudio_import(
         codex_reasoning_effort=codex_reasoning_effort,
         prelabel_timeout_seconds=prelabel_timeout_seconds,
         prelabel_cache_dir=prelabel_cache_dir,
+        prelabel_workers=prelabel_workers,
         prelabel_granularity=prelabel_granularity,
         prelabel_allow_partial=prelabel_allow_partial,
         prelabel_track_token_usage=prelabel_track_token_usage,
@@ -2022,7 +2194,7 @@ def run_labelstudio_import(
         pred.get("prelabel_prompt_log_path"),
     )
     if prelabel_prompt_log_manifest_path:
-        run_manifest_artifacts["prelabel_prompt_log_jsonl"] = (
+        run_manifest_artifacts["prelabel_prompt_log_md"] = (
             prelabel_prompt_log_manifest_path
         )
     processed_run_manifest_path = _path_for_manifest(run_root, pred.get("processed_run_root"))

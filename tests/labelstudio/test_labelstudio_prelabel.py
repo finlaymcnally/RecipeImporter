@@ -259,6 +259,28 @@ def test_prelabel_prompt_includes_focus_scope() -> None:
     assert '{"block_index": 1, "text": "1 cup flour"}' in prompt
 
 
+def test_prelabel_span_prompt_marks_focus_window_without_block_duplication() -> None:
+    task = _freeform_task()
+    task["data"]["source_map"]["focus_start_block_index"] = 1
+    task["data"]["source_map"]["focus_end_block_index"] = 1
+    task["data"]["source_map"]["focus_block_indices"] = [1]
+    provider = _CaptureProvider(
+        '[{"block_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
+    )
+
+    annotation = prelabel_freeform_task(
+        task,
+        provider=provider,
+        prelabel_granularity="span",
+    )
+    assert annotation is not None
+    prompt = provider.prompts[0]
+    assert "Focus block indices (for quick reference):" not in prompt
+    assert "<<<START_LABELING_BLOCKS_HERE>>>" in prompt
+    assert "<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>" in prompt
+    assert prompt.count('{"block_index": 1, "text": "1 cup flour"}') == 1
+
+
 def test_prelabel_prompt_log_callback_captures_prompt_context() -> None:
     task = _freeform_task()
     provider = _StaticProvider('[{"block_index": 1, "label": "INGREDIENT_LINE"}]')

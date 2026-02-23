@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+from tests.paths import REPO_ROOT as TESTS_REPO_ROOT
+
+REPO_ROOT = TESTS_REPO_ROOT
 PACK_ROOT = REPO_ROOT / "llm_pipelines"
 PIPELINES_DIR = PACK_ROOT / "pipelines"
 

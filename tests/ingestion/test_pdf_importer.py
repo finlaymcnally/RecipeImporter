@@ -6,8 +6,9 @@ from cookimport.core.blocks import Block
 from cookimport.core.models import RecipeCandidate
 from cookimport.parsing import signals
 from cookimport.plugins.pdf import PdfImporter
+from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+FIXTURES_DIR = TESTS_FIXTURES_DIR
 
 
 def test_detect_pdf():

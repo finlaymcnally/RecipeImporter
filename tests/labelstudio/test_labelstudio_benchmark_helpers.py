@@ -30,6 +30,34 @@ def test_format_status_progress_message_appends_elapsed_after_threshold() -> Non
     )
 
 
+def test_format_status_progress_message_appends_eta_and_average() -> None:
+    assert (
+        cli._format_status_progress_message(
+            "Running freeform prelabeling... task 4/10",
+            elapsed_seconds=3,
+            elapsed_threshold_seconds=10,
+            eta_seconds=18,
+            avg_seconds_per_task=3.0,
+        )
+        == "Running freeform prelabeling... task 4/10 (eta 18s, avg 3s/task)"
+    )
+    assert (
+        cli._format_status_progress_message(
+            "Running freeform prelabeling... task 4/10",
+            elapsed_seconds=12,
+            elapsed_threshold_seconds=10,
+            eta_seconds=18,
+            avg_seconds_per_task=3.0,
+        )
+        == "Running freeform prelabeling... task 4/10 (eta 18s, avg 3s/task, 12s)"
+    )
+
+
+def test_extract_progress_counter_uses_right_most_counter() -> None:
+    assert cli._extract_progress_counter("item 1/5 [book] task 3/12") == (3, 12)
+    assert cli._extract_progress_counter("Phase done.") is None
+
+
 def test_run_with_progress_status_shows_elapsed_for_long_steps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -77,6 +105,56 @@ def test_run_with_progress_status_shows_elapsed_for_long_steps(
     assert recorded == ["done"]
     assert any(
         "Import: Extracting candidate 46/46... (" in message and "s)" in message
+        for message in capture.messages
+    )
+
+
+def test_run_with_progress_status_shows_eta_for_xy_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots") -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("Running freeform prelabeling... task 1/4")
+        time.sleep(0.12)
+        update_progress("Running freeform prelabeling... task 2/4")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Import",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+    )
+
+    assert result == {"ok": True}
+    assert any(
+        "Import: Running freeform prelabeling... task 2/4 (eta " in message
+        and "avg " in message
+        and "s/task" in message
         for message in capture.messages
     )
 
@@ -709,6 +787,7 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
     assert captured["prelabel_upload_as"] == "annotations"
     assert captured["prelabel_allow_partial"] is True
     assert captured["prelabel_granularity"] == "span"
+    assert captured["prelabel_workers"] == 4
     assert captured["codex_cmd"] == "codex exec -"
     assert captured["codex_model"] is None
     assert captured["codex_reasoning_effort"] is None
@@ -717,6 +796,75 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
     assert captured["output_dir"] == tmp_path / "golden"
     assert captured["overwrite"] is True
     assert captured["resume"] is False
+
+
+def test_interactive_labelstudio_freeform_focus_escape_steps_back_one_level(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    selected_file = tmp_path / "book.epub"
+    selected_file.write_text("dummy", encoding="utf-8")
+
+    menu_answers = iter(
+        [
+            "labelstudio",
+            selected_file,
+            "freeform-spans",
+            (False, "annotations", False),
+            "exit",
+        ]
+    )
+
+    def fake_menu_select(*_args, **_kwargs):
+        return next(menu_answers)
+
+    prompt_answers = iter(
+        [
+            "",     # project name
+            "40",   # segment size
+            "5",    # overlap
+            None,   # Esc at focus -> back to overlap
+            "7",    # overlap after stepping back
+            "40",   # focus
+            "",     # target task count
+        ]
+    )
+    prompt_messages: list[str] = []
+
+    def fake_prompt_text(message: str, **_kwargs):
+        prompt_messages.append(message)
+        return next(prompt_answers)
+
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [selected_file])
+    monkeypatch.setattr(cli, "_load_settings", lambda: {})
+    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
+    monkeypatch.setattr(cli, "_prompt_text", fake_prompt_text)
+    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", tmp_path / "golden")
+    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
+    monkeypatch.setenv("LABEL_STUDIO_URL", "http://localhost:8080")
+    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "key")
+
+    captured: dict[str, object] = {}
+
+    def fake_run_labelstudio_import(**kwargs):
+        captured.update(kwargs)
+        return {
+            "project_name": "book",
+            "project_id": 1,
+            "tasks_total": 10,
+            "tasks_uploaded": 10,
+            "run_root": tmp_path / "out",
+        }
+
+    monkeypatch.setattr(cli, "run_labelstudio_import", fake_run_labelstudio_import)
+
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
+
+    assert captured["task_scope"] == "freeform-spans"
+    assert captured["segment_blocks"] == 40
+    assert captured["segment_overlap"] == 7
+    assert captured["segment_focus_blocks"] == 40
+    assert prompt_messages.count("Freeform overlap (blocks):") == 2
 
 
 def test_interactive_labelstudio_import_forces_overwrite_without_prompt(

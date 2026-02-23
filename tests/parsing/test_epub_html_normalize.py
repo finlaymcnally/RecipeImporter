@@ -6,9 +6,10 @@ import pytest
 from bs4 import BeautifulSoup
 
 from cookimport.parsing.epub_html_normalize import normalize_epub_html_for_unstructured
+from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
 
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures" / "epub_html"
+FIXTURES_DIR = TESTS_FIXTURES_DIR / "epub_html"
 
 
 def _fixture_text(name: str) -> str:

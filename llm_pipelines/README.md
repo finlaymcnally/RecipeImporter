@@ -39,5 +39,6 @@ Freeform prelabel (full mode) is file-backed and editable:
 - `prompts/freeform-prelabel-span.prompt.md` (actual freeform span mode)
 
 Span mode prompt should keep quote/offset JSON output shape while mirroring full-mode label heuristics and tie-break logic.
+Span mode now uses one markerized block stream (`START/STOP` focus markers) so focus text is not duplicated in the same prompt payload.
 
 For external packs, pass `--codex-farm-root <path>`.

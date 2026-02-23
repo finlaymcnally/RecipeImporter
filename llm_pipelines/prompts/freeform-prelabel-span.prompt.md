@@ -13,9 +13,11 @@ Use only these labels:
 {{ALLOWED_LABELS}}
 
 FOCUS SCOPE
-{{FOCUS_CONSTRAINTS}}
-Focus blocks to label (context blocks may be broader):
-{{FOCUS_BLOCK_JSON_LINES}}
+- The block list appears once at the end as a single blob.
+- Label only spans from blocks between:
+  <<<START_LABELING_BLOCKS_HERE>>>
+  <<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>
+- Blocks outside those markers are context only.
 
 RETURN FORMAT (STRICT JSON ONLY)
 Return ONLY a JSON array. No markdown. No commentary. No extra keys.
@@ -104,5 +106,5 @@ FINAL CHECK BEFORE YOU ANSWER
 - Did you avoid labeling non-focus blocks?
 
 Segment id: {{SEGMENT_ID}}
-Blocks:
-{{BLOCKS_JSON_LINES}}
+Blocks (single pass; START/STOP markers delimit labelable focus windows):
+{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}
