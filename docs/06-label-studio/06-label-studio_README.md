@@ -62,7 +62,7 @@ Uploads are intentionally gated.
 - Interactive:
   - `labelstudio` import proceeds directly to upload (no separate upload confirmation prompt).
   - `labelstudio` import always uses overwrite semantics for resolved project names (`overwrite=True`, `resume=False`); there is no overwrite/resume chooser in this flow.
-  - Interactive freeform import includes an AI prelabel mode picker (off, strict/allow-partial annotations, advanced predictions modes), then a style picker (`actual freeform` span mode vs `legacy, block based` mode), prints total processing time in the import summary, and prints `prelabel_report.json` when prelabel is enabled.
+  - Interactive freeform import includes an AI prelabel mode picker (off, strict/allow-partial annotations, advanced predictions modes; strict is marked recommended), then a style picker (`actual freeform` span mode vs `legacy, block based` mode), prints total processing time in the import summary, and prints `prelabel_report.json` when prelabel is enabled.
   - Interactive freeform prelabel does not prompt for command selection; it resolves command from `COOKIMPORT_CODEX_CMD` or `codex exec -`, displays the resolved account email when available, then prompts for model and thinking effort (`none|minimal|low|medium|high|xhigh`) using metadata/defaults from that command's Codex home cache (`CODEX_HOME` honored).
   - Token usage tracking is always enabled for AI labeling runs.
 - benchmark upload does not ask a second confirmation; choosing upload mode is treated as explicit intent.
@@ -161,16 +161,18 @@ Freeform span rows include offsets, label, touched block mapping, annotator/time
   - `prelabel_errors.jsonl`
   - `prelabel_prompt_log.md` (human-readable Markdown, one section per `codex exec` prompt with full prompt text plus prompt-context description/metadata)
 - Prelabel performs a single Codex model-access preflight probe before task labeling so invalid model/account combinations fail once up front instead of repeating task-level failures.
-- Freeform prelabel task calls run with bounded concurrency (`--prelabel-workers`, default `4`; set `1` to force serial behavior).
-- Progress callbacks now report `Running freeform prelabeling... task X/Y` so CLI spinners show per-task progress while AI labels are generated.
+- Freeform prelabel task calls run with bounded concurrency (`--prelabel-workers`, default `15`; set `1` to force serial behavior).
+- Progress callbacks now report `Running freeform prelabeling... task X/Y` so CLI spinners show per-task progress while AI labels are generated; parallel mode appends `(workers=N)` on kickoff and completion updates, and emits worker-activity telemetry so the spinner can render one line per worker under the main status. Split conversion loops emit the same worker-activity telemetry (`job X/Y`) when split workers are active.
+- Progress callbacks are best-effort telemetry: callback exceptions are logged and ignored so extraction/task generation/upload logic is not aborted by spinner/UI callback failures.
 - CLI status wrappers now add a live elapsed suffix (for example `(17s)`) after ~10 seconds with no phase-message change, so long steps remain visibly active instead of appearing stuck.
+- CLI import summaries now print an explicit red `PRELABEL ERRORS: X/Y ...` line (plus `prelabel_errors.jsonl` path) when prelabel failures occur, including allow-partial runs that still upload tasks.
 - Codex CLI invocation for prelabel uses non-interactive `... exec -`; plain `codex`/`codex2` values auto-retry with `exec -` when stderr reports `stdin is not a terminal`.
 - Default Codex command resolution is: `--codex-cmd` -> `COOKIMPORT_CODEX_CMD` -> `codex exec -`.
 - Prelabel runs accept explicit model selection via `--codex-model`; when omitted they resolve model from `COOKIMPORT_CODEX_MODEL` then Codex config (`~/.codex/config.toml`, `~/.codex-alt/config.toml`).
 - Prelabel runs accept explicit thinking effort selection via `--codex-thinking-effort` (alias `--codex-reasoning-effort`), mapping to Codex `model_reasoning_effort`; when omitted they use Codex config defaults.
 - Prelabel model/config/cache discovery is command-aware: it resolves from the selected command's Codex home roots rather than assuming one global login.
 - Provider errors reported via Codex JSON events (`turn.failed`) are treated as hard failures and recorded with their normalized provider detail (for example unsupported model/account messages) instead of generic "no labels" parse failures.
-- Token usage tracking is always enabled for prelabel runs, using Codex JSON event parsing to record aggregate `input_tokens`, `cached_input_tokens`, and `output_tokens` in run reports (`prelabel_report.json` also records resolved command/account metadata).
+- Token usage tracking is always enabled for prelabel runs, using Codex JSON event parsing to record aggregate `input_tokens`, `cached_input_tokens`, `output_tokens`, and `reasoning_tokens` (when emitted by Codex; `0` when not present) in run reports (`prelabel_report.json` also records resolved command/account metadata).
 
 #### 1.6.1.1 Prompt, parsing, and context management (code-verified)
 
@@ -689,7 +691,7 @@ Optional tuning:
 - Prelabel default command should be non-interactive `codex exec -`.
 - Keep compatibility fallback from legacy `codex` commands when stderr indicates `stdin is not a terminal`.
 - Effective command/model resolution belongs in provider construction (`_build_prelabel_provider(...)`), not only in interactive prompt plumbing.
-- Token usage tracking is provider-level and always-on for prelabel runs; aggregate totals flow into `prelabel_report.json`.
+- Token usage tracking is provider-level and always-on for prelabel runs; aggregate totals flow into `prelabel_report.json` and include `reasoning_tokens` when the Codex CLI usage payload exposes them.
 
 ### 8.4 Progress callback ownership and spinner counters
 

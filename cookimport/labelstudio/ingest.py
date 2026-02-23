@@ -5,13 +5,18 @@ import hashlib
 import json
 import logging
 import os
+import threading
 from contextlib import contextmanager
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from cookimport.config.run_settings import RunSettings, build_run_settings, compute_effective_workers
-from cookimport.core.progress_messages import format_task_counter
+from cookimport.core.progress_messages import (
+    format_task_counter,
+    format_worker_activity,
+    format_worker_activity_reset,
+)
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
@@ -90,6 +95,18 @@ from cookimport.staging.pdf_jobs import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _notify_progress_callback(
+    progress_callback: Callable[[str], None] | None,
+    message: str,
+) -> None:
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(message)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Ignoring progress callback failure: %s", exc)
 
 
 def _task_progress_message(phase: str, current: int, total: int) -> str:
@@ -891,9 +908,9 @@ def generate_pred_run_artifacts(
     codex_cmd: str | None = None,
     codex_model: str | None = None,
     codex_reasoning_effort: str | None = None,
-    prelabel_timeout_seconds: int = 120,
+    prelabel_timeout_seconds: int = 300,
     prelabel_cache_dir: Path | None = None,
-    prelabel_workers: int = 4,
+    prelabel_workers: int = 15,
     prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
     prelabel_allow_partial: bool = False,
     prelabel_track_token_usage: bool = True,
@@ -906,8 +923,7 @@ def generate_pred_run_artifacts(
     Returns metadata dict with run_root, tasks_total, manifest_path, etc.
     """
     def _notify(message: str) -> None:
-        if progress_callback is not None:
-            progress_callback(message)
+        _notify_progress_callback(progress_callback, message)
 
     if not path.exists():
         raise FileNotFoundError(f"Path not found: {path}")
@@ -1047,7 +1063,7 @@ def generate_pred_run_artifacts(
             epub_extractor=effective_epub_extractor,
         )
         if len(job_specs) == 1:
-            result = importer.convert(path, run_mapping, progress_callback=progress_callback)
+            result = importer.convert(path, run_mapping, progress_callback=_notify)
         else:
             _notify(
                 f"Running {len(job_specs)} split job(s) with up to {max(1, workers)} workers..."
@@ -1075,10 +1091,38 @@ def generate_pred_run_artifacts(
                     {**spec, "result": job_result, "importer_name": importer_name}
                 )
 
+            def _split_worker_status(spec: dict[str, int | None]) -> str:
+                job_number = int(spec.get("job_index") or 0) + 1
+                base = f"job {job_number}/{len(job_specs)}"
+                start_page = spec.get("start_page")
+                end_page = spec.get("end_page")
+                if start_page is not None and end_page is not None:
+                    try:
+                        start = int(start_page) + 1
+                        end = max(start, int(end_page))
+                    except (TypeError, ValueError):
+                        return base
+                    return f"{base} pages {start}-{end}"
+                start_spine = spec.get("start_spine")
+                end_spine = spec.get("end_spine")
+                if start_spine is not None and end_spine is not None:
+                    try:
+                        start = int(start_spine) + 1
+                        end = max(start, int(end_spine))
+                    except (TypeError, ValueError):
+                        return base
+                    return f"{base} spine {start}-{end}"
+                return base
+
             try:
                 with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                    futures = {
-                        executor.submit(
+                    if max_workers > 1:
+                        _notify(format_worker_activity_reset())
+                    pending_specs = list(job_specs)
+                    futures: dict[Any, tuple[int, dict[str, int | None]]] = {}
+
+                    def _submit(spec: dict[str, int | None], worker_slot: int) -> None:
+                        future = executor.submit(
                             _parallel_convert_worker,
                             path,
                             pipeline,
@@ -1087,28 +1131,52 @@ def generate_pred_run_artifacts(
                             end_page=spec.get("end_page"),
                             start_spine=spec.get("start_spine"),
                             end_spine=spec.get("end_spine"),
-                        ): spec
-                        for spec in job_specs
-                    }
+                        )
+                        futures[future] = (worker_slot, spec)
+                        if max_workers > 1:
+                            _notify(
+                                format_worker_activity(
+                                    worker_slot,
+                                    max_workers,
+                                    _split_worker_status(spec),
+                                )
+                            )
+
+                    for worker_slot in range(1, max_workers + 1):
+                        if not pending_specs:
+                            break
+                        _submit(pending_specs.pop(0), worker_slot)
+
                     completed = 0
-                    for future in as_completed(futures):
-                        spec = futures[future]
+                    while futures:
+                        future = next(as_completed(list(futures.keys())))
+                        worker_slot, spec = futures.pop(future)
                         try:
                             importer_name, job_result = future.result()
                         except Exception as exc:
                             job_errors.append(
                                 f"job {spec.get('job_index', '?')}: {exc}"
                             )
-                            continue
-                        job_results.append(
-                            {
-                                **spec,
-                                "result": job_result,
-                                "importer_name": importer_name,
-                            }
-                        )
-                        completed += 1
-                        _notify(f"Completed split job {completed}/{len(job_specs)}")
+                        else:
+                            job_results.append(
+                                {
+                                    **spec,
+                                    "result": job_result,
+                                    "importer_name": importer_name,
+                                }
+                            )
+                            completed += 1
+                            _notify(f"Completed split job {completed}/{len(job_specs)}")
+                        if pending_specs:
+                            _submit(pending_specs.pop(0), worker_slot)
+                        elif max_workers > 1:
+                            _notify(
+                                format_worker_activity(
+                                    worker_slot,
+                                    max_workers,
+                                    "idle",
+                                )
+                            )
             except PermissionError:
                 for spec in job_specs:
                     try:
@@ -1118,6 +1186,9 @@ def generate_pred_run_artifacts(
                             f"job {spec.get('job_index', '?')}: {exc}"
                         )
                     _notify(f"Completed split job {len(job_results)}/{len(job_specs)}")
+            finally:
+                if max_workers > 1:
+                    _notify(format_worker_activity_reset())
 
             if job_errors:
                 raise RuntimeError("Split conversion failed: " + "; ".join(job_errors))
@@ -1440,11 +1511,49 @@ def generate_pred_run_artifacts(
                 total_prelabel_tasks,
                 max(1, int(prelabel_workers)),
             )
-            if effective_prelabel_workers > 1:
-                _notify(
-                    "Running freeform prelabeling with up to "
-                    f"{effective_prelabel_workers} workers..."
+
+            def _prelabel_progress_status(current: int) -> str:
+                status = _task_progress_message(
+                    "Running freeform prelabeling...",
+                    current,
+                    total_prelabel_tasks,
                 )
+                if effective_prelabel_workers > 1:
+                    return f"{status} (workers={effective_prelabel_workers})"
+                return status
+
+            def _prelabel_worker_status_label(task_index: int, segment_id: str) -> str:
+                segment_summary = segment_id.strip() or "<unknown>"
+                segment_parts = segment_summary.rsplit(":", 2)
+                if (
+                    len(segment_parts) == 3
+                    and segment_parts[1].isdigit()
+                    and segment_parts[2].isdigit()
+                ):
+                    segment_summary = f"blocks {segment_parts[1]}-{segment_parts[2]}"
+                if len(segment_summary) > 72:
+                    segment_summary = f"{segment_summary[:69]}..."
+                return f"task {task_index}/{total_prelabel_tasks} {segment_summary}"
+
+            worker_slot_by_thread: dict[int, int] = {}
+            worker_slot_lock = threading.Lock()
+            next_worker_slot = 1
+
+            def _resolve_worker_slot() -> int:
+                nonlocal next_worker_slot
+                thread_id = threading.get_ident()
+                with worker_slot_lock:
+                    existing = worker_slot_by_thread.get(thread_id)
+                    if existing is not None:
+                        return existing
+                    slot = min(next_worker_slot, effective_prelabel_workers)
+                    worker_slot_by_thread[thread_id] = slot
+                    next_worker_slot += 1
+                    return slot
+
+            if effective_prelabel_workers > 1:
+                _notify(format_worker_activity_reset())
+            _notify(_prelabel_progress_status(0))
 
             def _run_prelabel_task(
                 *,
@@ -1453,44 +1562,64 @@ def generate_pred_run_artifacts(
             ) -> dict[str, Any]:
                 segment_id = _task_id_value(task_payload, "freeform-spans") or "<unknown>"
                 prompt_entries: list[dict[str, Any]] = []
+                worker_slot: int | None = None
+                if effective_prelabel_workers > 1:
+                    worker_slot = _resolve_worker_slot()
+                    _notify(
+                        format_worker_activity(
+                            worker_slot,
+                            effective_prelabel_workers,
+                            _prelabel_worker_status_label(task_index, segment_id),
+                        )
+                    )
 
                 def _collect_prompt_log(entry: dict[str, Any]) -> None:
                     prompt_entries.append(dict(entry))
 
                 try:
-                    annotation = prelabel_freeform_task(
-                        task_payload,
-                        provider=provider,
-                        allowed_labels=set(FREEFORM_ALLOWED_LABELS),
-                        prelabel_granularity=normalized_prelabel_granularity,
-                        prompt_log_callback=_collect_prompt_log,
-                    )
-                except Exception as exc:  # noqa: BLE001
+                    try:
+                        annotation = prelabel_freeform_task(
+                            task_payload,
+                            provider=provider,
+                            allowed_labels=set(FREEFORM_ALLOWED_LABELS),
+                            prelabel_granularity=normalized_prelabel_granularity,
+                            prompt_log_callback=_collect_prompt_log,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        return {
+                            "task_index": task_index,
+                            "segment_id": segment_id,
+                            "annotation": None,
+                            "error": str(exc),
+                            "prompt_entries": prompt_entries,
+                            "task": task_payload,
+                        }
+                    if annotation is None:
+                        return {
+                            "task_index": task_index,
+                            "segment_id": segment_id,
+                            "annotation": None,
+                            "error": "No valid labels produced by provider output.",
+                            "prompt_entries": prompt_entries,
+                            "task": task_payload,
+                        }
                     return {
                         "task_index": task_index,
                         "segment_id": segment_id,
-                        "annotation": None,
-                        "error": str(exc),
+                        "annotation": annotation,
+                        "error": None,
                         "prompt_entries": prompt_entries,
                         "task": task_payload,
                     }
-                if annotation is None:
-                    return {
-                        "task_index": task_index,
-                        "segment_id": segment_id,
-                        "annotation": None,
-                        "error": "No valid labels produced by provider output.",
-                        "prompt_entries": prompt_entries,
-                        "task": task_payload,
-                    }
-                return {
-                    "task_index": task_index,
-                    "segment_id": segment_id,
-                    "annotation": annotation,
-                    "error": None,
-                    "prompt_entries": prompt_entries,
-                    "task": task_payload,
-                }
+                finally:
+                    if worker_slot is not None:
+                        _notify(
+                            format_worker_activity(
+                                worker_slot,
+                                effective_prelabel_workers,
+                                "idle",
+                            )
+                        )
 
             task_results: list[dict[str, Any]] = []
             if effective_prelabel_workers == 1:
@@ -1498,13 +1627,7 @@ def generate_pred_run_artifacts(
                     task_results.append(
                         _run_prelabel_task(task_index=task_index, task_payload=task)
                     )
-                    _notify(
-                        _task_progress_message(
-                            "Running freeform prelabeling...",
-                            task_index,
-                            total_prelabel_tasks,
-                        )
-                    )
+                    _notify(_prelabel_progress_status(task_index))
             else:
                 with ThreadPoolExecutor(max_workers=effective_prelabel_workers) as executor:
                     futures = {
@@ -1533,13 +1656,9 @@ def generate_pred_run_artifacts(
                                 }
                             )
                         completed_tasks += 1
-                        _notify(
-                            _task_progress_message(
-                                "Running freeform prelabeling...",
-                                completed_tasks,
-                                total_prelabel_tasks,
-                            )
-                        )
+                        _notify(_prelabel_progress_status(completed_tasks))
+            if effective_prelabel_workers > 1:
+                _notify(format_worker_activity_reset())
 
             task_results.sort(key=lambda row: int(row.get("task_index") or 0))
 
@@ -1875,9 +1994,9 @@ def run_labelstudio_import(
     codex_cmd: str | None = None,
     codex_model: str | None = None,
     codex_reasoning_effort: str | None = None,
-    prelabel_timeout_seconds: int = 120,
+    prelabel_timeout_seconds: int = 300,
     prelabel_cache_dir: Path | None = None,
-    prelabel_workers: int = 4,
+    prelabel_workers: int = 15,
     prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
     prelabel_upload_as: str = "annotations",
     prelabel_allow_partial: bool = False,
@@ -1886,8 +2005,7 @@ def run_labelstudio_import(
     allow_labelstudio_write: bool = False,
 ) -> dict[str, Any]:
     def _notify(message: str) -> None:
-        if progress_callback is not None:
-            progress_callback(message)
+        _notify_progress_callback(progress_callback, message)
 
     if not allow_labelstudio_write:
         raise RuntimeError(
@@ -1942,7 +2060,7 @@ def run_labelstudio_import(
         prelabel_granularity=prelabel_granularity,
         prelabel_allow_partial=prelabel_allow_partial,
         prelabel_track_token_usage=prelabel_track_token_usage,
-        progress_callback=progress_callback,
+        progress_callback=_notify,
         run_manifest_kind="labelstudio_import",
     )
 

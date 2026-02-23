@@ -9,6 +9,10 @@ from pathlib import Path
 import pytest
 
 import cookimport.cli as cli
+from cookimport.core.progress_messages import (
+    format_worker_activity,
+    format_worker_activity_reset,
+)
 
 
 def test_format_status_progress_message_appends_elapsed_after_threshold() -> None:
@@ -159,6 +163,58 @@ def test_run_with_progress_status_shows_eta_for_xy_progress(
     )
 
 
+def test_run_with_progress_status_renders_worker_activity_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots") -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("Running freeform prelabeling... task 1/4 (workers=2)")
+        update_progress(format_worker_activity(1, 2, "task 1/4 blocks 0-39"))
+        update_progress(format_worker_activity(2, 2, "task 2/4 blocks 40-79"))
+        update_progress("Running freeform prelabeling... task 2/4 (workers=2)")
+        update_progress(format_worker_activity_reset())
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Import",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+    )
+
+    assert result == {"ok": True}
+    assert any(
+        "worker 01: task 1/4 blocks 0-39" in message
+        and "worker 02: task 2/4 blocks 40-79" in message
+        for message in capture.messages
+    )
+    assert "worker 01:" not in capture.messages[-1]
+
+
 def test_labelstudio_import_prints_processing_time(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -204,6 +260,138 @@ def test_labelstudio_import_prints_processing_time(
     )
 
     assert "Processing time: 1m 5s" in secho_messages
+
+
+def test_labelstudio_import_prints_prelabel_failure_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("dummy", encoding="utf-8")
+    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
+    monkeypatch.setattr(
+        cli,
+        "_run_labelstudio_import_with_status",
+        lambda **_kwargs: {
+            "project_name": "book",
+            "project_id": 1,
+            "tasks_total": 9,
+            "tasks_uploaded": 9,
+            "run_root": tmp_path / "out",
+            "prelabel_report_path": str(tmp_path / "prelabel_report.json"),
+            "prelabel_inline_annotations_fallback": False,
+            "prelabel": {
+                "task_count": 9,
+                "success_count": 1,
+                "failure_count": 8,
+                "allow_partial": True,
+                "errors_path": str(tmp_path / "prelabel_errors.jsonl"),
+                "token_usage_enabled": False,
+            },
+        },
+    )
+    secho_messages: list[str] = []
+    monkeypatch.setattr(
+        cli.typer,
+        "secho",
+        lambda message, **_kwargs: secho_messages.append(str(message)),
+    )
+    monkeypatch.setattr(cli.typer, "echo", lambda *_args, **_kwargs: None)
+
+    cli.labelstudio_import(
+        path=source,
+        allow_labelstudio_write=True,
+        label_studio_url="http://example",
+        label_studio_api_key="api-key",
+        task_scope="freeform-spans",
+        segment_blocks=40,
+        segment_focus_blocks=40,
+        prelabel=True,
+        prelabel_allow_partial=True,
+        prelabel_upload_as="annotations",
+        prelabel_granularity=cli.PRELABEL_GRANULARITY_SPAN,
+        llm_recipe_pipeline="off",
+        codex_farm_failure_mode="fail",
+        codex_farm_pipeline_pass1="recipe.chunking.v1",
+        codex_farm_pipeline_pass2="recipe.schemaorg.v1",
+        codex_farm_pipeline_pass3="recipe.final.v1",
+    )
+
+    assert any("PRELABEL ERRORS: 8/9 tasks failed (1 succeeded)." in line for line in secho_messages)
+    assert any("Upload continued because allow-partial mode is enabled." in line for line in secho_messages)
+    assert any("For fail-fast behavior, use --no-prelabel-allow-partial." in line for line in secho_messages)
+    assert any("Prelabel errors: " in line for line in secho_messages)
+
+
+def test_labelstudio_import_prints_prelabel_token_usage_with_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("dummy", encoding="utf-8")
+    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
+    monkeypatch.setattr(
+        cli,
+        "_run_labelstudio_import_with_status",
+        lambda **_kwargs: {
+            "project_name": "book",
+            "project_id": 1,
+            "tasks_total": 4,
+            "tasks_uploaded": 4,
+            "run_root": tmp_path / "out",
+            "prelabel_report_path": str(tmp_path / "prelabel_report.json"),
+            "prelabel_inline_annotations_fallback": False,
+            "prelabel": {
+                "task_count": 4,
+                "success_count": 4,
+                "failure_count": 0,
+                "allow_partial": False,
+                "token_usage_enabled": True,
+                "token_usage": {
+                    "input_tokens": 111,
+                    "cached_input_tokens": 22,
+                    "output_tokens": 33,
+                    "reasoning_tokens": 44,
+                    "calls_with_usage": 4,
+                },
+            },
+        },
+    )
+    secho_messages: list[str] = []
+    monkeypatch.setattr(
+        cli.typer,
+        "secho",
+        lambda message, **_kwargs: secho_messages.append(str(message)),
+    )
+    monkeypatch.setattr(cli.typer, "echo", lambda *_args, **_kwargs: None)
+
+    cli.labelstudio_import(
+        path=source,
+        allow_labelstudio_write=True,
+        label_studio_url="http://example",
+        label_studio_api_key="api-key",
+        task_scope="freeform-spans",
+        segment_blocks=40,
+        segment_focus_blocks=40,
+        prelabel=True,
+        prelabel_allow_partial=False,
+        prelabel_upload_as="annotations",
+        prelabel_granularity=cli.PRELABEL_GRANULARITY_SPAN,
+        llm_recipe_pipeline="off",
+        codex_farm_failure_mode="fail",
+        codex_farm_pipeline_pass1="recipe.chunking.v1",
+        codex_farm_pipeline_pass2="recipe.schemaorg.v1",
+        codex_farm_pipeline_pass3="recipe.final.v1",
+    )
+
+    assert any(
+        (
+            "Prelabel token usage: input=111 cached_input=22 output=33 "
+            "reasoning=44 calls_with_usage=4"
+        )
+        in line
+        for line in secho_messages
+    )
 
 
 def test_labelstudio_import_routes_freeform_focus_and_target_options(
@@ -262,6 +450,7 @@ def test_labelstudio_import_routes_freeform_focus_and_target_options(
     assert captured["segment_overlap"] == 5
     assert captured["segment_focus_blocks"] == 28
     assert captured["target_task_count"] == 55
+    assert captured["prelabel_timeout_seconds"] == cli.DEFAULT_PRELABEL_TIMEOUT_SECONDS
 
 
 def test_discover_freeform_gold_exports_orders_newest_first(tmp_path: Path) -> None:
@@ -787,7 +976,8 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
     assert captured["prelabel_upload_as"] == "annotations"
     assert captured["prelabel_allow_partial"] is True
     assert captured["prelabel_granularity"] == "span"
-    assert captured["prelabel_workers"] == 4
+    assert captured["prelabel_timeout_seconds"] == cli.DEFAULT_PRELABEL_TIMEOUT_SECONDS
+    assert captured["prelabel_workers"] == 15
     assert captured["codex_cmd"] == "codex exec -"
     assert captured["codex_model"] is None
     assert captured["codex_reasoning_effort"] is None

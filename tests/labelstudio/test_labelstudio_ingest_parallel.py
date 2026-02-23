@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
+from cookimport.core.progress_messages import parse_worker_activity
 from cookimport.core.models import (
     ConversionReport,
     ConversionResult,
@@ -294,6 +296,184 @@ def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path:
     assert progress_messages[-1] == "Label Studio import artifacts complete."
 
 
+def test_run_labelstudio_import_split_workers_emit_worker_activity(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+    processed_root = tmp_path / "processed"
+
+    fake_result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    class FakeLabelStudioClient:
+        uploaded_batches: list[int] = []
+
+        def __init__(self, _url: str, _key: str) -> None:
+            pass
+
+        def list_projects(self):
+            return []
+
+        def find_project_by_title(self, _title: str):
+            return None
+
+        def create_project(
+            self, title: str, _label_config: str, description: str | None = None
+        ):
+            return {"id": 123, "title": title, "description": description}
+
+        def import_tasks(self, _project_id: int, tasks):
+            self.uploaded_batches.append(len(tasks))
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._plan_parallel_convert_jobs",
+        lambda *_args, **_kwargs: [
+            {
+                "job_index": 0,
+                "start_page": None,
+                "end_page": None,
+                "start_spine": 0,
+                "end_spine": 10,
+            },
+            {
+                "job_index": 1,
+                "start_page": None,
+                "end_page": None,
+                "start_spine": 10,
+                "end_spine": 20,
+            },
+            {
+                "job_index": 2,
+                "start_page": None,
+                "end_page": None,
+                "start_spine": 20,
+                "end_spine": 30,
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.ProcessPoolExecutor",
+        ThreadPoolExecutor,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._parallel_convert_worker",
+        lambda *_args, **_kwargs: ("fake", fake_result),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._merge_parallel_results",
+        lambda *_args, **_kwargs: fake_result,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            SimpleNamespace(index=0, text="hello", location={"block_index": 0}, source_kind="raw")
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_file_hash",
+        lambda _path: "hash",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._write_processed_outputs",
+        lambda **_kwargs: processed_root / "2026-02-11_00:00:00",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.chunk_structural",
+        lambda *_args, **_kwargs: [SimpleNamespace(chunk_id=f"c{i}") for i in range(5)],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.chunk_atomic",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_coverage",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            extracted_chars=1000,
+            chunked_chars=950,
+            warnings=[],
+        ),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_chunks",
+        lambda chunks, **_kwargs: chunks,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.chunk_records_to_tasks",
+        lambda chunks, source_hash: [
+            {"data": {"chunk_id": f"{source_hash}:{chunk.chunk_id}"}} for chunk in chunks
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.LabelStudioClient",
+        FakeLabelStudioClient,
+    )
+
+    progress_messages: list[str] = []
+    run_labelstudio_import(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        project_name="benchmark project",
+        chunk_level="both",
+        task_scope="pipeline",
+        context_window=1,
+        segment_blocks=40,
+        segment_overlap=5,
+        overwrite=False,
+        resume=False,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="test",
+        limit=None,
+        sample=None,
+        progress_callback=progress_messages.append,
+        workers=2,
+        pdf_split_workers=1,
+        epub_split_workers=2,
+        pdf_pages_per_job=50,
+        epub_spine_items_per_job=10,
+        processed_output_root=processed_root,
+        allow_labelstudio_write=True,
+    )
+
+    worker_events = [
+        parse_worker_activity(message) for message in progress_messages
+    ]
+    assert any(
+        isinstance(event, dict)
+        and event.get("type") == "activity"
+        and event.get("worker_total") == 2
+        and str(event.get("status") or "").startswith("job ")
+        for event in worker_events
+    )
+    assert any(
+        isinstance(event, dict) and event.get("type") == "reset"
+        for event in worker_events
+    )
+
+
 def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -413,13 +593,27 @@ def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
         "Running freeform prelabeling... task 0/2" in msg
         for msg in progress_messages
     )
+    assert any("workers=2" in msg and "task 0/2" in msg for msg in progress_messages)
     assert any(
         "Running freeform prelabeling... task 1/2" in msg
         for msg in progress_messages
     )
+    assert any("workers=2" in msg and "task 1/2" in msg for msg in progress_messages)
     assert any(
         "Running freeform prelabeling... task 2/2" in msg
         for msg in progress_messages
+    )
+    assert any("workers=2" in msg and "task 2/2" in msg for msg in progress_messages)
+    worker_events = [
+        parse_worker_activity(message)
+        for message in progress_messages
+    ]
+    assert any(
+        isinstance(event, dict)
+        and event.get("type") == "activity"
+        and event.get("worker_total") == 2
+        and str(event.get("status") or "").startswith("task ")
+        for event in worker_events
     )
     assert seen_granularity == ["span", "span"]
     assert result["prelabel"]["granularity"] == "span"
@@ -434,6 +628,113 @@ def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
     assert "## Task 2/2 - `seg-2`" in content
     assert "test metadata" in content
     assert "test prompt" in content
+
+
+def test_generate_pred_run_artifacts_ignores_progress_callback_errors(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+
+    fake_result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._plan_parallel_convert_jobs",
+        lambda *_args, **_kwargs: [
+            {
+                "job_index": 0,
+                "start_page": None,
+                "end_page": None,
+                "start_spine": None,
+                "end_spine": None,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            SimpleNamespace(
+                index=0,
+                text="hello",
+                location={"block_index": 0},
+                source_kind="raw",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_file_hash",
+        lambda _path: "hash",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._write_processed_outputs",
+        lambda **_kwargs: output_dir / "processed",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.chunk_structural",
+        lambda *_args, **_kwargs: [SimpleNamespace(chunk_id="c0")],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.chunk_atomic",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_coverage",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            extracted_chars=100,
+            chunked_chars=90,
+            warnings=[],
+        ),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_chunks",
+        lambda chunks, **_kwargs: chunks,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.chunk_records_to_tasks",
+        lambda chunks, source_hash: [
+            {"data": {"chunk_id": f"{source_hash}:{chunk.chunk_id}"}} for chunk in chunks
+        ],
+    )
+
+    progress_messages: list[str] = []
+
+    def _broken_callback(message: str) -> None:
+        progress_messages.append(message)
+        raise RuntimeError("ui callback failed")
+
+    result = generate_pred_run_artifacts(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        task_scope="pipeline",
+        progress_callback=_broken_callback,
+    )
+
+    assert result["tasks_total"] == 1
+    assert "fake convert complete" in progress_messages
 
 
 def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(

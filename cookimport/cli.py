@@ -34,7 +34,7 @@ from cookimport.config.last_run_store import save_last_run_settings
 from cookimport.config.run_settings import RunSettings, build_run_settings, compute_effective_workers
 from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
-from cookimport.core.progress_messages import format_phase_counter
+from cookimport.core.progress_messages import format_phase_counter, parse_worker_activity
 from cookimport.core.overrides_io import load_parsing_overrides
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
 from cookimport.core.slug import slugify_name
@@ -121,6 +121,7 @@ DEFAULT_BENCH_RUNS = DEFAULT_GOLDEN / "bench" / "runs"
 DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "cookimport.json"
 REPO_ROOT = Path(__file__).parent.parent
 BACK_ACTION = "__back__"
+DEFAULT_PRELABEL_TIMEOUT_SECONDS = 300
 SUPPORTED_LABELSTUDIO_TASK_SCOPES = {"pipeline", "canonical-blocks", "freeform-spans"}
 _MENU_SHORTCUT_KEYS = (
     "1",
@@ -1132,9 +1133,9 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             target_task_count: int | None = None
             prelabel = False
             prelabel_provider = "codex-cli"
-            prelabel_timeout_seconds = 120
+            prelabel_timeout_seconds = DEFAULT_PRELABEL_TIMEOUT_SECONDS
             prelabel_cache_dir: Path | None = None
-            prelabel_workers = 4
+            prelabel_workers = 15
             prelabel_upload_as = "annotations"
             prelabel_granularity = PRELABEL_GRANULARITY_BLOCK
             prelabel_allow_partial = False
@@ -1205,7 +1206,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                             value=(False, "annotations", False),
                         ),
                         questionary.Choice(
-                            "strict annotations - fail upload if any prelabel task fails",
+                            "strict annotations (recommended) - fail upload if any prelabel task fails",
                             value=(True, "annotations", False),
                         ),
                         questionary.Choice(
@@ -1410,64 +1411,13 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 fg=typer.colors.CYAN,
             )
             if prelabel:
-                report_path = result.get("prelabel_report_path")
-                prelabel_summary = result.get("prelabel") or {}
-                usage_payload: Any = None
-                usage_enabled = prelabel_track_token_usage
-                if isinstance(prelabel_summary, dict):
-                    command_label = prelabel_summary.get("codex_cmd")
-                    if command_label:
-                        typer.secho(
-                            f"Prelabel command: {command_label}",
-                            fg=typer.colors.CYAN,
-                        )
-                    account_label = prelabel_summary.get("codex_account")
-                    if account_label:
-                        typer.secho(
-                            f"Prelabel account: {account_label}",
-                            fg=typer.colors.CYAN,
-                        )
-                    model_label = prelabel_summary.get("codex_model")
-                    if model_label:
-                        typer.secho(
-                            f"Prelabel model: {model_label}",
-                            fg=typer.colors.CYAN,
-                        )
-                    reasoning_label = prelabel_summary.get("codex_reasoning_effort")
-                    if reasoning_label:
-                        typer.secho(
-                            f"Prelabel thinking effort: {reasoning_label}",
-                            fg=typer.colors.CYAN,
-                        )
-                    granularity_label = prelabel_summary.get("granularity")
-                    if granularity_label:
-                        typer.secho(
-                            f"Prelabel style: {granularity_label}",
-                            fg=typer.colors.CYAN,
-                        )
-                    workers_label = prelabel_summary.get("workers")
-                    if workers_label:
-                        typer.secho(
-                            f"Prelabel workers: {workers_label}",
-                            fg=typer.colors.CYAN,
-                        )
-                    usage_payload = prelabel_summary.get("token_usage")
-                    usage_enabled = bool(
-                        prelabel_summary.get(
-                            "token_usage_enabled",
-                            prelabel_track_token_usage,
-                        )
-                    )
-                _print_token_usage_summary(
-                    prefix="Prelabel token usage",
-                    usage=usage_payload,
-                    enabled=usage_enabled,
+                _print_prelabel_completion_summary(
+                    prelabel_summary=result.get("prelabel") or {},
+                    report_path=result.get("prelabel_report_path"),
+                    inline_annotation_fallback=bool(
+                        result.get("prelabel_inline_annotations_fallback")
+                    ),
                 )
-                if report_path:
-                    typer.secho(
-                        f"Prelabel report: {report_path}",
-                        fg=typer.colors.CYAN,
-                    )
             typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
             continue
 
@@ -1693,6 +1643,7 @@ def _format_token_usage_line(prefix: str, usage: dict[str, Any]) -> str:
         f"input={usage.get('input_tokens', 0)} "
         f"cached_input={usage.get('cached_input_tokens', 0)} "
         f"output={usage.get('output_tokens', 0)} "
+        f"reasoning={usage.get('reasoning_tokens', 0)} "
         f"calls_with_usage={usage.get('calls_with_usage', 0)}"
     )
 
@@ -1715,6 +1666,116 @@ def _print_token_usage_summary(
         f"{prefix}: unavailable (Codex did not emit usage totals)",
         fg=typer.colors.YELLOW,
     )
+
+
+def _coerce_non_negative_int(value: Any) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, parsed)
+
+
+def _print_prelabel_completion_summary(
+    *,
+    prelabel_summary: Any,
+    report_path: Any,
+    inline_annotation_fallback: bool = False,
+) -> None:
+    usage_payload: Any = None
+    usage_enabled = True
+    failure_count = 0
+    success_count = 0
+    task_count = 0
+    allow_partial = False
+    errors_path: str | None = None
+    if isinstance(prelabel_summary, dict):
+        command_label = prelabel_summary.get("codex_cmd")
+        if command_label:
+            typer.secho(f"Prelabel command: {command_label}", fg=typer.colors.CYAN)
+        account_label = prelabel_summary.get("codex_account")
+        if account_label:
+            typer.secho(f"Prelabel account: {account_label}", fg=typer.colors.CYAN)
+        model_label = prelabel_summary.get("codex_model")
+        if model_label:
+            typer.secho(f"Prelabel model: {model_label}", fg=typer.colors.CYAN)
+        reasoning_label = prelabel_summary.get("codex_reasoning_effort")
+        if reasoning_label:
+            typer.secho(
+                f"Prelabel thinking effort: {reasoning_label}",
+                fg=typer.colors.CYAN,
+            )
+        granularity_label = prelabel_summary.get("granularity")
+        if granularity_label:
+            typer.secho(
+                f"Prelabel style: {granularity_label}",
+                fg=typer.colors.CYAN,
+            )
+        workers_label = prelabel_summary.get("workers")
+        if workers_label:
+            typer.secho(
+                f"Prelabel workers: {workers_label}",
+                fg=typer.colors.CYAN,
+            )
+        usage_payload = prelabel_summary.get("token_usage")
+        usage_enabled = bool(
+            prelabel_summary.get(
+                "token_usage_enabled",
+                True,
+            )
+        )
+        failure_count = _coerce_non_negative_int(prelabel_summary.get("failure_count"))
+        success_count = _coerce_non_negative_int(prelabel_summary.get("success_count"))
+        task_count = _coerce_non_negative_int(prelabel_summary.get("task_count"))
+        allow_partial = bool(prelabel_summary.get("allow_partial"))
+        raw_errors_path = prelabel_summary.get("errors_path")
+        if isinstance(raw_errors_path, str) and raw_errors_path.strip():
+            errors_path = raw_errors_path.strip()
+    _print_token_usage_summary(
+        prefix="Prelabel token usage",
+        usage=usage_payload,
+        enabled=usage_enabled,
+    )
+    if report_path:
+        typer.secho(
+            f"Prelabel report: {report_path}",
+            fg=typer.colors.CYAN,
+        )
+    if failure_count > 0:
+        total_count = task_count or (success_count + failure_count)
+        if total_count > 0:
+            typer.secho(
+                (
+                    "PRELABEL ERRORS: "
+                    f"{failure_count}/{total_count} tasks failed "
+                    f"({success_count} succeeded)."
+                ),
+                fg=typer.colors.RED,
+                bold=True,
+            )
+        else:
+            typer.secho(
+                f"PRELABEL ERRORS: {failure_count} task(s) failed.",
+                fg=typer.colors.RED,
+                bold=True,
+            )
+        if allow_partial:
+            typer.secho(
+                "Upload continued because allow-partial mode is enabled.",
+                fg=typer.colors.YELLOW,
+            )
+            typer.secho(
+                "For fail-fast behavior, use --no-prelabel-allow-partial.",
+                fg=typer.colors.YELLOW,
+            )
+        if errors_path:
+            typer.secho(f"Prelabel errors: {errors_path}", fg=typer.colors.RED)
+    if inline_annotation_fallback:
+        typer.secho(
+            "Inline annotation upload fallback was used "
+            "(uploaded tasks first, then created annotations).",
+            fg=typer.colors.YELLOW,
+        )
 
 
 def _normalize_epub_extractor(value: str) -> str:
@@ -2118,6 +2179,8 @@ def _run_with_progress_status(
     rate_last_progress_at: float | None = None
     rate_sampled_seconds = 0.0
     rate_sampled_units = 0
+    worker_total = 0
+    worker_activity: dict[int, str] = {}
     state_lock = threading.Lock()
     stop_event = threading.Event()
 
@@ -2130,31 +2193,48 @@ def _run_with_progress_status(
             tracked_total = rate_total
             sampled_seconds = rate_sampled_seconds
             sampled_units = rate_sampled_units
+            workers = worker_total
+            worker_statuses = {
+                worker_index: status
+                for worker_index, status in worker_activity.items()
+            }
         if not message:
-            return f"[bold cyan]{initial_status}[/bold cyan]"
-        elapsed = max(0, int(current - started_at))
-        eta_seconds: int | None = None
-        avg_seconds_per_task: float | None = None
-        if (
-            counter is not None
-            and tracked_total is not None
-            and sampled_units > 0
-            and sampled_seconds > 0
-            and counter[1] == tracked_total
-        ):
-            counter_current, counter_total = counter
-            remaining = max(0, counter_total - counter_current)
-            avg_seconds_per_task = sampled_seconds / sampled_units
-            if remaining > 0 and avg_seconds_per_task > 0:
-                eta_seconds = int(round(avg_seconds_per_task * remaining))
-        decorated = _format_status_progress_message(
-            message,
-            elapsed_seconds=elapsed,
-            elapsed_threshold_seconds=elapsed_threshold_seconds,
-            eta_seconds=eta_seconds,
-            avg_seconds_per_task=avg_seconds_per_task,
-        )
-        return f"[bold cyan]{progress_prefix}: {decorated}[/bold cyan]"
+            base = f"[bold cyan]{initial_status}[/bold cyan]"
+        else:
+            elapsed = max(0, int(current - started_at))
+            eta_seconds: int | None = None
+            avg_seconds_per_task: float | None = None
+            if (
+                counter is not None
+                and tracked_total is not None
+                and sampled_units > 0
+                and sampled_seconds > 0
+                and counter[1] == tracked_total
+            ):
+                counter_current, counter_total = counter
+                remaining = max(0, counter_total - counter_current)
+                avg_seconds_per_task = sampled_seconds / sampled_units
+                if remaining > 0 and avg_seconds_per_task > 0:
+                    eta_seconds = int(round(avg_seconds_per_task * remaining))
+            decorated = _format_status_progress_message(
+                message,
+                elapsed_seconds=elapsed,
+                elapsed_threshold_seconds=elapsed_threshold_seconds,
+                eta_seconds=eta_seconds,
+                avg_seconds_per_task=avg_seconds_per_task,
+            )
+            base = f"[bold cyan]{progress_prefix}: {decorated}[/bold cyan]"
+        if workers <= 0:
+            return base
+        worker_lines = [base]
+        for worker_index in range(1, workers + 1):
+            worker_status = worker_statuses.get(worker_index, "idle").strip() or "idle"
+            if len(worker_status) > 120:
+                worker_status = f"{worker_status[:117]}..."
+            worker_lines.append(
+                f"[cyan]  worker {worker_index:02d}: {worker_status}[/cyan]"
+            )
+        return "\n".join(worker_lines)
 
     with console.status(render(), spinner="dots") as status:
 
@@ -2173,39 +2253,62 @@ def _run_with_progress_status(
             nonlocal latest_message, latest_message_started
             nonlocal latest_counter, rate_total, rate_last_current, rate_last_progress_at
             nonlocal rate_sampled_seconds, rate_sampled_units
+            nonlocal worker_total, worker_activity
             now = time.monotonic()
             cleaned = msg.strip()
-            counter = _extract_progress_counter(cleaned)
+            worker_payload = parse_worker_activity(cleaned)
+            counter = None
             with state_lock:
-                latest_message = cleaned
-                latest_message_started = now
-                latest_counter = counter
-                if counter is not None:
-                    counter_current, counter_total = counter
-                    should_reset = (
-                        rate_total is None
-                        or rate_last_current is None
-                        or rate_last_progress_at is None
-                        or counter_total != rate_total
-                        or counter_current < rate_last_current
-                    )
-                    if should_reset:
-                        rate_total = counter_total
-                        rate_last_current = counter_current
-                        rate_last_progress_at = now
-                        rate_sampled_seconds = 0.0
-                        rate_sampled_units = 0
-                    else:
-                        delta = counter_current - rate_last_current
-                        if delta > 0:
-                            elapsed_since_progress = max(
-                                0.0, now - rate_last_progress_at
-                            )
-                            if elapsed_since_progress > 0:
-                                rate_sampled_seconds += elapsed_since_progress
-                                rate_sampled_units += delta
+                if worker_payload is not None:
+                    payload_type = worker_payload.get("type")
+                    if payload_type == "reset":
+                        worker_total = 0
+                        worker_activity = {}
+                    elif payload_type == "activity":
+                        total = int(worker_payload.get("worker_total") or 1)
+                        worker_index = int(worker_payload.get("worker_index") or 1)
+                        worker_status_text = str(
+                            worker_payload.get("status") or ""
+                        ).strip()
+                        if total != worker_total:
+                            worker_total = total
+                            worker_activity = {
+                                idx: value
+                                for idx, value in worker_activity.items()
+                                if idx <= total
+                            }
+                        worker_activity[worker_index] = worker_status_text
+                else:
+                    counter = _extract_progress_counter(cleaned)
+                    latest_message = cleaned
+                    latest_message_started = now
+                    latest_counter = counter
+                    if counter is not None:
+                        counter_current, counter_total = counter
+                        should_reset = (
+                            rate_total is None
+                            or rate_last_current is None
+                            or rate_last_progress_at is None
+                            or counter_total != rate_total
+                            or counter_current < rate_last_current
+                        )
+                        if should_reset:
+                            rate_total = counter_total
                             rate_last_current = counter_current
                             rate_last_progress_at = now
+                            rate_sampled_seconds = 0.0
+                            rate_sampled_units = 0
+                        else:
+                            delta = counter_current - rate_last_current
+                            if delta > 0:
+                                elapsed_since_progress = max(
+                                    0.0, now - rate_last_progress_at
+                                )
+                                if elapsed_since_progress > 0:
+                                    rate_sampled_seconds += elapsed_since_progress
+                                    rate_sampled_units += delta
+                                rate_last_current = counter_current
+                                rate_last_progress_at = now
             status.update(render(now))
 
         try:
@@ -4709,19 +4812,21 @@ def labelstudio_import(
             ),
         ),
     ] = None,
-    prelabel_timeout_seconds: int = typer.Option(
-        120,
-        "--prelabel-timeout-seconds",
-        min=1,
-        help="Timeout per prelabel provider call.",
-    ),
+    prelabel_timeout_seconds: Annotated[
+        int,
+        typer.Option(
+            "--prelabel-timeout-seconds",
+            min=1,
+            help="Timeout per prelabel provider call.",
+        ),
+    ] = DEFAULT_PRELABEL_TIMEOUT_SECONDS,
     prelabel_cache_dir: Path | None = typer.Option(
         None,
         "--prelabel-cache-dir",
         help="Optional cache directory for prompt/response snapshots.",
     ),
     prelabel_workers: int = typer.Option(
-        4,
+        15,
         "--prelabel-workers",
         min=1,
         help=(
@@ -4907,61 +5012,13 @@ def labelstudio_import(
         fg=typer.colors.CYAN,
     )
     if prelabel:
-        prelabel_summary = result.get("prelabel") or {}
-        usage_payload: Any = None
-        usage_enabled = True
-        if isinstance(prelabel_summary, dict):
-            command_label = prelabel_summary.get("codex_cmd")
-            if command_label:
-                typer.secho(f"Prelabel command: {command_label}", fg=typer.colors.CYAN)
-            account_label = prelabel_summary.get("codex_account")
-            if account_label:
-                typer.secho(f"Prelabel account: {account_label}", fg=typer.colors.CYAN)
-            model_label = prelabel_summary.get("codex_model")
-            if model_label:
-                typer.secho(f"Prelabel model: {model_label}", fg=typer.colors.CYAN)
-            reasoning_label = prelabel_summary.get("codex_reasoning_effort")
-            if reasoning_label:
-                typer.secho(
-                    f"Prelabel thinking effort: {reasoning_label}",
-                    fg=typer.colors.CYAN,
-                )
-            granularity_label = prelabel_summary.get("granularity")
-            if granularity_label:
-                typer.secho(
-                    f"Prelabel style: {granularity_label}",
-                    fg=typer.colors.CYAN,
-                )
-            workers_label = prelabel_summary.get("workers")
-            if workers_label:
-                typer.secho(
-                    f"Prelabel workers: {workers_label}",
-                    fg=typer.colors.CYAN,
-                )
-            usage_payload = prelabel_summary.get("token_usage")
-            usage_enabled = bool(
-                prelabel_summary.get(
-                    "token_usage_enabled",
-                    True,
-                )
-            )
-        _print_token_usage_summary(
-            prefix="Prelabel token usage",
-            usage=usage_payload,
-            enabled=usage_enabled,
+        _print_prelabel_completion_summary(
+            prelabel_summary=result.get("prelabel") or {},
+            report_path=result.get("prelabel_report_path"),
+            inline_annotation_fallback=bool(
+                result.get("prelabel_inline_annotations_fallback")
+            ),
         )
-        report_path = result.get("prelabel_report_path")
-        if report_path:
-            typer.secho(
-                f"Prelabel report: {report_path}",
-                fg=typer.colors.CYAN,
-            )
-        if result.get("prelabel_inline_annotations_fallback"):
-            typer.secho(
-                "Inline annotation upload fallback was used "
-                "(uploaded tasks first, then created annotations).",
-                fg=typer.colors.YELLOW,
-            )
     typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
     typer.echo("\nTo export labels:\n")
     typer.echo(

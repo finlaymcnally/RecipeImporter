@@ -58,6 +58,7 @@ class CodexCliProvider:
             "input_tokens": 0,
             "cached_input_tokens": 0,
             "output_tokens": 0,
+            "reasoning_tokens": 0,
             "calls_with_usage": 0,
         }
 
@@ -206,7 +207,42 @@ class CodexCliProvider:
                 usage[key] = int(value)
             except (TypeError, ValueError):
                 usage[key] = 0
+        usage["reasoning_tokens"] = CodexCliProvider._extract_reasoning_tokens(payload)
         return usage
+
+    @staticmethod
+    def _extract_reasoning_tokens(payload: dict[str, Any]) -> int:
+        def _read_int(mapping: Any, *path: str) -> int | None:
+            current: Any = mapping
+            for key in path:
+                if not isinstance(current, dict):
+                    return None
+                current = current.get(key)
+            try:
+                if current is None:
+                    return None
+                return int(current)
+            except (TypeError, ValueError):
+                return None
+
+        candidate_paths = (
+            ("reasoning_tokens",),
+            ("output_tokens_reasoning",),
+            ("inference_tokens",),
+            ("processing_tokens",),
+            ("output_tokens_details", "reasoning_tokens"),
+            ("output_tokens_details", "inference_tokens"),
+            ("output_tokens_details", "processing_tokens"),
+            ("output_token_details", "reasoning_tokens"),
+            ("output_token_details", "inference_tokens"),
+            ("completion_tokens_details", "reasoning_tokens"),
+            ("completion_tokens_details", "inference_tokens"),
+        )
+        for path in candidate_paths:
+            value = _read_int(payload, *path)
+            if value is not None:
+                return max(0, value)
+        return 0
 
     @staticmethod
     def _extract_turn_failed_message(completed: subprocess.CompletedProcess[str]) -> str | None:
@@ -245,7 +281,12 @@ class CodexCliProvider:
         if normalized is None:
             return
         with self._usage_lock:
-            for key in ("input_tokens", "cached_input_tokens", "output_tokens"):
+            for key in (
+                "input_tokens",
+                "cached_input_tokens",
+                "output_tokens",
+                "reasoning_tokens",
+            ):
                 self._usage_totals[key] += normalized.get(key, 0)
             self._usage_totals["calls_with_usage"] += 1
 

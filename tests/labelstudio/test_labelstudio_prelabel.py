@@ -504,6 +504,41 @@ def test_codex_provider_tracks_usage_from_json_events(monkeypatch, tmp_path: Pat
     assert usage["input_tokens"] == 11
     assert usage["cached_input_tokens"] == 7
     assert usage["output_tokens"] == 3
+    assert usage["reasoning_tokens"] == 0
+    assert usage["calls_with_usage"] == 1
+    assert usage["calls_total"] == 1
+
+
+def test_codex_provider_tracks_reasoning_tokens_from_nested_usage(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_run(argv, **_kwargs):
+        return SimpleNamespace(
+            returncode=0,
+            stdout=(
+                '{"type":"thread.started"}\n'
+                '{"type":"item.completed","item":{"type":"agent_message","text":"[{\\"block_index\\": 0, \\"label\\": \\"OTHER\\"}]"}}\n'
+                '{"type":"turn.completed","usage":{"input_tokens":11,"cached_input_tokens":7,"output_tokens":3,"output_tokens_details":{"reasoning_tokens":9}}}\n'
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("cookimport.labelstudio.prelabel.subprocess.run", _fake_run)
+    provider = CodexCliProvider(
+        cmd="codex exec -",
+        timeout_s=10,
+        cache_dir=tmp_path,
+        track_usage=True,
+    )
+
+    provider.complete("label this")
+    usage = provider.usage_summary()
+
+    assert usage["input_tokens"] == 11
+    assert usage["cached_input_tokens"] == 7
+    assert usage["output_tokens"] == 3
+    assert usage["reasoning_tokens"] == 9
     assert usage["calls_with_usage"] == 1
     assert usage["calls_total"] == 1
 
