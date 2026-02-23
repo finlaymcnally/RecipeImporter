@@ -36,13 +36,18 @@ HARD RULES
 5) If the same quote appears multiple times in the same block, include occurrence.
 6) Return only confident spans; leave unclear content unlabeled.
 7) Prefer quote-anchored items; use absolute offsets only when quote anchoring is not feasible.
+8) Whole-block selections should be rare in span mode.
+9) If a block is longer than 160 characters, do NOT label the entire block unless nearly all meaningful text is one label.
+10) For long multi-sentence blocks, split by sentence/phrase and label only the specific parts that match a label.
+11) Context helps with classification, but context does NOT justify labeling glue text.
 
 HOW TO DECIDE (STEP-BY-STEP)
 A) First, detect whether a recipe is present nearby:
    - Strong recipe signals: RECIPE_TITLE, runs of INGREDIENT_LINE content, numbered steps,
      imperative cooking verbs ("mix", "bake", "stir"), "Serves/Makes", "Prep/Cook/Total".
-   - If those signals are present, treat contiguous nearby blocks as part of that recipe
-     unless clearly unrelated noise (page number, copyright, photo credit, etc).
+   - Use nearby blocks only to infer context.
+   - Do NOT auto-label adjacent/contiguous blocks just because they are nearby.
+   - Decide each returned span from its own text; it is valid to label only a small phrase.
 
 B) Then label spans using the definitions + tie-break rules below.
 
@@ -99,6 +104,31 @@ Because this is span mode:
 - Return multiple spans if different parts map to different labels.
 - Skip unlabeled glue text between labeled spans.
 - If a fragment is too ambiguous, leave it unlabeled.
+
+MIXED BLOCK EXAMPLES (COPY THIS STYLE)
+Example 1 (yield + time in one line):
+- Block text: "SERVES 4; READY IN 25 MINUTES"
+- Good output:
+  [
+    {"block_index": 42, "label": "YIELD_LINE", "quote": "SERVES 4"},
+    {"block_index": 42, "label": "TIME_LINE", "quote": "READY IN 25 MINUTES"}
+  ]
+
+Example 2 (note + instruction in one block):
+- Block text: "Tip: add chili oil for heat. Stir and cook 3 minutes."
+- Good output:
+  [
+    {"block_index": 77, "label": "RECIPE_NOTES", "quote": "Tip: add chili oil for heat."},
+    {"block_index": 77, "label": "INSTRUCTION_LINE", "quote": "Stir and cook 3 minutes."}
+  ]
+
+Example 3 (header + ingredient in one block):
+- Block text: "Ingredients: 2 tablespoons olive oil"
+- Good output:
+  [
+    {"block_index": 88, "label": "OTHER", "quote": "Ingredients:"},
+    {"block_index": 88, "label": "INGREDIENT_LINE", "quote": "2 tablespoons olive oil"}
+  ]
 
 FINAL CHECK BEFORE YOU ANSWER
 - Is the output strict JSON array only?

@@ -570,3 +570,33 @@ Durable notes:
 Durable notes:
 - If importer callbacks stop after `candidate N/N`, CLI spinners appear frozen even while work continues.
 - Keep fixes dual-path: importer runtime should emit post-candidate phase callbacks; CLI wrappers should add elapsed suffixes when text is unchanged.
+
+## Merged Understandings Batch (2026-02-23 cleanup)
+
+### 2026-02-22_23.46.43 standalone knowledge-analysis parallelism
+
+Merged source:
+- `docs/understandings/2026-02-22_23.46.43-standalone-knowledge-analysis-parallelism.md`
+
+Durable ingestion/runtime contract:
+- The long "Analyzing standalone knowledge blocks..." phase was a serial container loop in EPUB/PDF importers.
+- Safe parallelization boundary is per standalone topic container after chunking; containers are independent units.
+- Output ordering remains deterministic by sorting merged results back to original container index before final merge.
+- Progress messages for this phase should include `task X/Y` (including initial `0/Y`) so shared spinner ETA remains meaningful.
+- Worker count remains bounded by `C3IMP_STANDALONE_ANALYSIS_WORKERS` (default `4`, minimum `1`).
+
+## Merged Task Spec (2026-02-22_23.46.51)
+
+### Parallel standalone knowledge-block analysis (EPUB/PDF)
+
+Task source:
+- `docs/tasks/2026-02-22_23.46.51 - parallelize-standalone-knowledge-analysis.md`
+
+Current contract:
+- Standalone topic-container analysis in EPUB/PDF importers runs with bounded container-level parallelism.
+- Progress for this phase uses `task X/Y` counters so shared CLI spinner ETA remains meaningful.
+- Output remains deterministic by merging worker-local results back in source container order.
+
+Controls and bounds:
+- `C3IMP_STANDALONE_ANALYSIS_WORKERS` controls concurrency (default `4`, minimum `1`).
+- Worker logic should use local buffers and merge after completion; avoid direct shared-list mutation.

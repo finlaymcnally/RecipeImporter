@@ -624,3 +624,248 @@ Verification/evidence preserved:
 Constraints and rollback preserved:
 - Keep command-aware resolution (`COOKIMPORT_CODEX_CMD` / `CODEX_HOME`) and avoid duplicate override injection.
 - Rollback path is revert in `prelabel.py`, `ingest.py`, `cli.py`, and associated tests/docs.
+
+## 2026-02-23 archival merge batch from `docs/understandings` (Label Studio)
+
+### 2026-02-22_19.03.31 freeform block-vs-span export differences
+
+Merged source:
+- `docs/understandings/2026-02-22_19.03.31-freeform-block-vs-span-export-differences.md`
+
+Preserved finding:
+- Divergent export distributions between two freeform runs are expected when `prelabel_granularity` differs (`block` vs `span`), even with identical segmentation settings.
+
+Preserved evidence:
+- Compared pair had equal segmentation shape (`42` segments; `1471` unique source blocks in manifests).
+- Span-row counts differed (`1635` block-mode vs `1355` span-mode), as did unique touched blocks (`1440` vs `1201`).
+- Span-mode introduced sub-block coverage (`7.8%`), block-mode remained full-block only.
+
+Anti-loop note:
+- Do not treat this pattern as an export-pipeline bug without first checking prelabel granularity.
+
+### 2026-02-22_19.06.24 Codex prelabel thinking-effort injection
+
+Merged source:
+- `docs/understandings/2026-02-22_19.06.24-codex-prelabel-thinking-effort-injection.md`
+
+Preserved rule:
+- Thinking effort is a command/config override (`model_reasoning_effort`) and should be injected only after command resolution, only when command text does not already set it.
+
+### 2026-02-22_19.35.04 freeform context/focus task-count math
+
+Merged source:
+- `docs/understandings/2026-02-22_19.35.04-freeform-context-focus-task-count-math.md`
+
+Preserved finding:
+- Task count tuning is overlap math, not parser variance: `step = segment_blocks - segment_overlap`.
+- Context-vs-focus requires parser/runtime filtering as the enforcement layer, not prompt wording alone.
+
+### 2026-02-22_19.48.08 overlap resolution and prompt gating
+
+Merged source:
+- `docs/understandings/2026-02-22_19.48.08-freeform-focus-overlap-resolution-and-prompt-gating.md`
+
+Preserved rule:
+- Keep requested overlap and effective overlap distinct and persisted; focus filtering applies in block parsing, quote parsing, and absolute-span validation.
+
+### 2026-02-22_19.50.52 prelabel prompt-log artifact contract
+
+Merged source:
+- `docs/understandings/2026-02-22_19.50.52-prelabel-prompt-log-contract.md`
+
+Preserved rule:
+- Run-level `prelabel_prompt_log.md` must be emitted and discoverable via `prelabel_report.json`, run `manifest.json`, and `run_manifest.json`.
+
+### 2026-02-22_22.53.30 focus-overlap gap floor
+
+Merged source:
+- `docs/understandings/2026-02-22_22.53.30-freeform-focus-overlap-gap-floor.md`
+
+Preserved rule:
+- Focus windows can leave deterministic unlabeled gaps unless overlap floor is enforced:
+  - `segment_overlap_effective >= segment_blocks - segment_focus_blocks`
+
+### 2026-02-22_23.01.05 span prompt focus markers
+
+Merged source:
+- `docs/understandings/2026-02-22_23.01.05-freeform-span-prompt-focus-markers.md`
+
+Preserved rule:
+- Default span prompt should use one markerized block stream and avoid duplicated focus/context payload text.
+
+### 2026-02-22_23.15.57 freeform prelabel parallelism contract
+
+Merged source:
+- `docs/understandings/2026-02-22_23.15.57-freeform-prelabel-parallelism-contract.md`
+
+Preserved rule:
+- Task-level provider calls are safe to parallelize; keep deterministic task indexing and thread-safe usage aggregation.
+
+### 2026-02-22_23.31.40 centered focus boundaries
+
+Merged source:
+- `docs/understandings/2026-02-22_23.31.40-freeform-centered-focus-context-boundaries.md`
+
+Preserved rule:
+- Focus windows should remain centered when possible, and markerized context-before/context-after boundaries should remain explicit in prompt payloads.
+
+### 2026-02-22_23.54.29 worker-banner task counters
+
+Merged source:
+- `docs/understandings/2026-02-22_23.54.29-prelabel-worker-banner-task-counter.md`
+
+Preserved rule:
+- Parallel kickoff status must preserve `task X/Y` shape (plus worker metadata) so ETA/counter parsing does not disappear mid-run.
+
+### 2026-02-23_00.01.05 workers visible on all progress lines
+
+Merged source:
+- `docs/understandings/2026-02-23_00.01.05-freeform-prelabel-workers-visible-on-progress.md`
+
+Preserved rule:
+- Keep `(workers=N)` on completion updates, not kickoff-only, so long runs do not appear serial.
+
+### 2026-02-23_00.10.26 timeout and partial-failure visibility
+
+Merged source:
+- `docs/understandings/2026-02-23_00.10.26-prelabel-timeout-and-partial-failure-visibility.md`
+
+Preserved rules:
+- Default prelabel timeout is `300` seconds per provider call.
+- Completion output must surface explicit `PRELABEL ERRORS: X/Y` summary and `prelabel_errors.jsonl` path whenever failures exist (including allow-partial runs).
+
+### 2026-02-23_00.22.44 progress callbacks are best-effort telemetry
+
+Merged source:
+- `docs/understandings/2026-02-23_00.22.44-labelstudio-progress-callbacks-must-be-best-effort.md`
+
+Preserved rule:
+- Label Studio ingest must wrap callback forwarding so spinner/UI exceptions are logged and ignored instead of aborting conversion/import.
+
+### 2026-02-23_10.25.11 Codex reasoning-usage payload shape tolerance
+
+Merged source:
+- `docs/understandings/2026-02-23_10.25.11-codex-prelabel-reasoning-usage-shape.md`
+
+Preserved rule:
+- Codex usage payloads may omit reasoning fields; parsing remains best-effort with `reasoning_tokens` defaulting to `0` when unavailable.
+
+### 2026-02-23_10.45.43 span prompt whole-block collapse guardrails
+
+Merged source:
+- `docs/understandings/2026-02-23_10.45.43-span-prompt-whole-block-collapse-guardrails.md`
+
+Problem captured:
+- Actual-freeform span runs could still over-select whole blocks even in span mode.
+
+Preserved prompt-level guardrails:
+- Keep explicit anti-whole-block rule for long blocks unless the block is nearly one label.
+- Keep context guidance phrased as interpretation-only and forbid adjacent-block auto-propagation.
+- Keep concrete mixed-block JSON examples in prompt text so selective sub-block behavior remains the demonstrated default.
+
+## 2026-02-22_23 to 2026-02-23_10 docs/tasks merge batch (Label Studio freeform prelabel)
+
+### 2026-02-22_23.16.06 - parallel freeform prelabel workers (`docs/tasks/2026-02-22_23.16.06 - parallel-freeform-prelabel-workers.md`)
+
+Problem captured:
+- Freeform prelabel was serial despite task independence, making long imports appear stalled.
+
+Decision preserved:
+- Use bounded `ThreadPoolExecutor` task-level concurrency with `--prelabel-workers` (task recorded default `4`; current runtime default is `15`).
+- Keep deterministic post-processing by sorting completed task results by task index before writing logs/errors.
+- Keep strict vs allow-partial failure semantics unchanged.
+
+Evidence preserved from task:
+- Recorded verification run:
+  - `source .venv/bin/activate && pip install -e .[dev] && pytest -q tests/labelstudio/test_labelstudio_ingest_parallel.py tests/labelstudio/test_labelstudio_prelabel.py tests/labelstudio/test_labelstudio_benchmark_helpers.py` -> `86 passed`.
+
+Anti-loop notes:
+- Do not mutate shared usage counters without thread-safe guards.
+- Preserve deterministic prompt-log/report ordering even when tasks finish out of order.
+
+### 2026-02-22_23.31.26 - centered focus/context markers (`docs/tasks/2026-02-22_23.31.26 - freeform-focus-context-markers.md`)
+
+Problem captured:
+- Focus blocks were front-loaded, so context appeared mostly after focus and scope boundaries were unclear in UI/prompts.
+
+Decision preserved:
+- Center focus windows when possible.
+- Use explicit context-before/context-after markers around focus boundaries in prompts.
+- Surface scope hints/ranges in Label Studio tasks.
+
+Evidence preserved from task:
+- Recorded verification run:
+  - `source .venv/bin/activate && pip install -e .[dev] && pytest -q tests/labelstudio/test_labelstudio_freeform.py tests/labelstudio/test_labelstudio_prelabel.py tests/labelstudio/test_labelstudio_ingest_parallel.py tests/labelstudio/test_labelstudio_benchmark_helpers.py` -> pass.
+
+Constraint preserved:
+- Enforce overlap floor `segment_overlap_effective >= segment_blocks - segment_focus_blocks`.
+
+### 2026-02-22_23.55.11 - keep kickoff `task 0/Y` with workers suffix (`docs/tasks/2026-02-22_23.55.11 - keep-prelabel-worker-banner-task-counter.md`)
+
+Problem captured:
+- Parallel kickoff message dropped `task X/Y`, making spinner look stalled until first completion.
+
+Decision preserved:
+- Keep kickoff format as `Running freeform prelabeling... task 0/Y (workers=N)`.
+
+Evidence preserved from task:
+- Regression assertion added in `tests/labelstudio/test_labelstudio_ingest_parallel.py` for `task 0/2` with workers metadata.
+- Recorded run: `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1 pytest tests/labelstudio/test_labelstudio_ingest_parallel.py tests/labelstudio/test_labelstudio_prelabel.py tests/labelstudio/test_labelstudio_benchmark_helpers.py` -> `87 passed, 2 warnings in 3.28s`.
+
+### 2026-02-23_00.01.05 - keep worker suffix on completion updates (`docs/tasks/2026-02-23_00.01.05 - keep-prelabel-workers-visible-during-progress.md`)
+
+Problem captured:
+- Worker metadata appeared only at kickoff; completion updates looked serial.
+
+Decision preserved:
+- Route status formatting through one helper that conditionally appends `(workers=N)` for parallel runs on both kickoff and completion updates.
+
+Evidence preserved from task:
+- Regression assertions added for `(workers=2)` on `task 1/2` and `task 2/2` updates.
+- Recorded run: `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1 pytest tests/labelstudio/test_labelstudio_ingest_parallel.py`.
+
+### 2026-02-23_00.10.13 - timeout raise + explicit error summary (`docs/tasks/2026-02-23_00.10.13 - prelabel-timeout-and-error-summary.md`)
+
+Problem captured:
+- Per-task timeout was too low and allow-partial completions could hide serious prelabel failure counts.
+
+Decisions preserved:
+- Raise default timeout from `120s` to `300s`.
+- Print explicit red completion summary (`PRELABEL ERRORS: X/Y`) and `prelabel_errors.jsonl` guidance whenever failures exist.
+- Keep allow-partial behavior operator-controlled; improve visibility only.
+
+Evidence preserved from task:
+- Added assertions for default timeout propagation and completion summary behavior in benchmark helper / ingest parallel tests.
+
+### 2026-02-23_00.22.43 - protect ingest from callback exceptions (`docs/tasks/2026-02-23_00.22.43 - protect-ingest-from-progress-callback-failures.md`)
+
+Problem captured:
+- Spinner/UI callback exceptions could abort ingest conversion even when extraction logic was healthy.
+
+Decision preserved:
+- Wrap callback forwarding in `_notify_progress_callback(...)` and treat failures as non-fatal warning-only telemetry.
+- Use same safe notifier in `generate_pred_run_artifacts(...)` and `run_labelstudio_import(...)` paths.
+
+Evidence preserved from task:
+- Added `test_generate_pred_run_artifacts_ignores_progress_callback_errors`.
+- Recorded verification runs include targeted and full `tests/labelstudio/test_labelstudio_ingest_parallel.py` plus spinner helper test.
+
+### 2026-02-23_10.25.11 - reasoning-token usage in summaries (`docs/tasks/2026-02-23_10.25.11 - prelabel-reasoning-token-usage.md`)
+
+Problem captured:
+- Usage summaries omitted reasoning tokens.
+
+Decision preserved:
+- Add aggregate `reasoning_tokens` to provider usage summary, `prelabel_report.json`, and CLI summary line.
+- Keep parsing backward-compatible (`0` when reasoning fields are absent) and shape-tolerant for nested payload variants.
+
+Evidence preserved from task:
+- Added provider tests for no-reasoning and nested reasoning payload shapes.
+- Added summary-format assertion in benchmark-helper CLI output tests.
+- Recorded verification run:
+  - `source .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_prelabel.py::test_codex_provider_tracks_usage_from_json_events tests/labelstudio/test_labelstudio_prelabel.py::test_codex_provider_tracks_reasoning_tokens_from_nested_usage tests/labelstudio/test_labelstudio_benchmark_helpers.py::test_labelstudio_import_prints_prelabel_token_usage_with_reasoning`.
+
+Anti-loop notes across this batch:
+- Keep `task X/Y` text intact in parallel progress messages; ETA parsing depends on that shape.
+- Keep callback failure handling as telemetry-only; do not rewire it into hard-failure control flow.
+- Do not assume reasoning fields are always emitted by Codex usage payloads.

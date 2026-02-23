@@ -252,3 +252,16 @@ Serious failed-path summary:
 
 Residual risk preserved:
 - Fixture-related failures outside bench scope existed in full-suite runs during implementation; targeted modified-area suites were green.
+
+## 2026-02-23 archival merge batch from `docs/understandings` (bench)
+
+### 2026-02-22_22.25.41 freeform gold dedupe overlap behavior
+
+Merged source:
+- `docs/understandings/2026-02-22_22.25.41-freeform-gold-dedupe-overlap-behavior.md`
+
+Preserved findings:
+- Freeform export rows are evaluated after conversion to absolute block ranges (`touched_block_indices` / `touched_blocks` mapping).
+- Dedupe key remains `(source_hash, source_file, start_block_index, end_block_index)`, so overlap changes duplicate row counts but not dedupe semantics.
+- Exact-key label conflicts resolve by majority label; exact ties are dropped from scored gold.
+- Different block ranges are intentionally treated as distinct examples (no near-range fuzzy merge).

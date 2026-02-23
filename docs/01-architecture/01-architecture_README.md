@@ -288,3 +288,18 @@ Keep these flowchart/runtime invariants aligned:
 
 Anti-loop note:
 - If flowcharts and runtime behavior diverge, update this file and the README chart in the same change so future debugging does not branch on stale docs.
+
+## Merged Understandings Batch (2026-02-23 cleanup)
+
+### Cross-cutting pytest low-noise output contract
+
+Merged sources:
+- `docs/understandings/2026-02-22_23.25.11-pytest-progress-glyph-suppression.md`
+- `docs/understandings/2026-02-22_23.35.37-pytest-addopts-override-noise-gap.md`
+
+Durable rules:
+- `pytest.ini` quiet flags alone are not sufficient under pytest 9; compact output relies on both:
+  - `console_output_style = classic`
+  - glyph suppression in `tests/conftest.py:pytest_report_teststatus(...)`
+- Compact mode should remain enforced in `tests/conftest.py:pytest_configure(...)` (`no_header`, `no_summary`, warnings suppression, verbose clamp) so `-o addopts=''` does not re-enable noisy separators by accident.
+- Intentional verbose debugging remains opt-in via `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`.

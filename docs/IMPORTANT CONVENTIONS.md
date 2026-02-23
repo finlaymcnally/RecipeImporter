@@ -121,6 +121,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - Label Studio import CLI must print an explicit red completion summary (`PRELABEL ERRORS: X/Y ...`) plus `prelabel_errors.jsonl` path whenever prelabel failures occur, including allow-partial runs.
 - Prompt text for actual freeform mode lives in `llm_pipelines/prompts/freeform-prelabel-span.prompt.md`; keep placeholder tokens intact.
 - Actual freeform (`span`) prompts should provide block text once via `{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}` with explicit context-before/context-after markers plus `<<<START_LABELING_BLOCKS_HERE>>>` / `<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>` focus boundaries; avoid duplicating focus blocks as a second full text payload list.
+- Actual freeform (`span`) prompts should explicitly discourage whole-block selections for long blocks, treat nearby blocks as context-only (no auto-propagation to adjacent blocks), and include mixed-block split examples (for example yield+time or note+instruction in one block).
 - Freeform canonical label names are `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`; normalize legacy `TIP`/`NOTES`/`VARIANT` labels to those names.
 - Codex prelabel invocations must use non-interactive CLI mode (`codex exec -`); plain `codex` is interactive and fails in pipeline subprocess calls without a TTY.
 - Codex command resolution for prelabel is: explicit `--codex-cmd` -> `COOKIMPORT_CODEX_CMD` -> `codex exec -`.

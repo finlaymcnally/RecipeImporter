@@ -30,4 +30,9 @@ Keep these tokens in templates so runtime can inject task data:
 
 For span mode, prefer `{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}` to avoid duplicating block text payloads.
 
+Keep span-template quality guardrails in place:
+- anti-whole-block rules for long blocks,
+- explicit "context is for interpretation, not auto-labeling adjacent blocks" wording,
+- mixed-block split examples (e.g., yield+time, notes+instruction, header+ingredient).
+
 If a prompt template file is missing or empty, runtime falls back to a built-in default string in `cookimport/labelstudio/prelabel.py`.

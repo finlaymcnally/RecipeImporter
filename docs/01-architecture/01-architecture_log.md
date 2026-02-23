@@ -71,3 +71,24 @@ From earlier consolidated architecture notes:
 
 If you are reconciling flowcharts vs runtime behavior, use:
 - `docs/01-architecture/01-architecture_README.md` -> "Flowchart Branching Contracts"
+
+## 2026-02-23 archival merge batch from `docs/understandings` (cross-cutting test-output rules)
+
+### 2026-02-22_23.25.11 pytest progress glyph suppression
+
+Merged source:
+- `docs/understandings/2026-02-22_23.25.11-pytest-progress-glyph-suppression.md`
+
+Preserved rule:
+- Pytest 9 compact output requires both classic console style and `pytest_report_teststatus(...)` shortletter suppression; either control alone can still leave noisy progress lines.
+
+### 2026-02-22_23.35.37 pytest addopts-override noise gap
+
+Merged source:
+- `docs/understandings/2026-02-22_23.35.37-pytest-addopts-override-noise-gap.md`
+
+Preserved rule:
+- Users can bypass `pytest.ini` quiet defaults with `-o addopts=''`; `tests/conftest.py:pytest_configure(...)` should keep compact defaults enforced unless `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` is explicitly set.
+
+Anti-loop note:
+- If separator/bannner noise returns, verify `tests/conftest.py` hook behavior before editing marker/test-output docs.

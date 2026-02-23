@@ -903,3 +903,154 @@ Current-state contracts:
 - Do not apply stale local resume manifests to newly created projects.
 - Do not collapse span mode back to one-label-per-block behavior; keep quote-anchored sub-block semantics intact.
 - Do not fork prompt text back into Python string literals when file-backed templates are available.
+
+## 11) Merged Understandings Batch (2026-02-23 cleanup)
+
+### 11.1 Block vs span prelabel outputs are intentionally different
+
+Merged source:
+- `docs/understandings/2026-02-22_19.03.31-freeform-block-vs-span-export-differences.md`
+
+Durable interpretation rule:
+- If two freeform runs used different `prelabel_granularity` values, changed label distribution and block coverage are expected.
+- `block` mode pushes one-label-per-block full-block coverage.
+- `span` mode is selective and drops ambiguous/unresolvable selections.
+
+Observed paired-run anchor (kept to avoid re-debug loops):
+- Same segmentation input in both runs (`42` segments, `1471` unique source blocks in manifests).
+- Exported span rows: `1635` (`block`) vs `1355` (`span`).
+- Unique touched blocks: `1440` (`block`) vs `1201` (`span`).
+- Sub-block span share: `0%` (`block`) vs `7.8%` (`span`).
+
+### 11.2 Focus/context + task-count overlap contracts
+
+Merged sources:
+- `docs/understandings/2026-02-22_19.35.04-freeform-context-focus-task-count-math.md`
+- `docs/understandings/2026-02-22_19.48.08-freeform-focus-overlap-resolution-and-prompt-gating.md`
+- `docs/understandings/2026-02-22_22.53.30-freeform-focus-overlap-gap-floor.md`
+- `docs/understandings/2026-02-22_23.31.40-freeform-centered-focus-context-boundaries.md`
+
+Durable rules:
+- Task-count tuning happens by solving effective overlap (`segment_overlap_effective`) against requested `target_task_count`.
+- Prompt instructions are not enough; runtime parsing/filtering is the hard guardrail for focus-only labeling.
+- Focus coverage floor is mandatory:
+  - `segment_overlap_effective >= segment_blocks - segment_focus_blocks`
+- Focus windows should remain centered when possible so prompt streams show stable `context-before` and `context-after`.
+
+### 11.3 Prompt payload and prelabel observability contracts
+
+Merged sources:
+- `docs/understandings/2026-02-22_19.50.52-prelabel-prompt-log-contract.md`
+- `docs/understandings/2026-02-22_23.01.05-freeform-span-prompt-focus-markers.md`
+
+Durable rules:
+- Run roots must keep `prelabel_prompt_log.md` and manifest/report pointers to it.
+- Span prompts should use one markerized block stream (`BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES`) and avoid duplicate focus text payloads.
+
+### 11.4 Parallel prelabel + progress/failure visibility contracts
+
+Merged sources:
+- `docs/understandings/2026-02-22_23.15.57-freeform-prelabel-parallelism-contract.md`
+- `docs/understandings/2026-02-22_23.54.29-prelabel-worker-banner-task-counter.md`
+- `docs/understandings/2026-02-23_00.01.05-freeform-prelabel-workers-visible-on-progress.md`
+- `docs/understandings/2026-02-23_00.10.26-prelabel-timeout-and-partial-failure-visibility.md`
+- `docs/understandings/2026-02-23_00.22.44-labelstudio-progress-callbacks-must-be-best-effort.md`
+
+Durable rules:
+- Freeform prelabel task calls are independent and safely parallelizable at task level; maintain deterministic task indexing in logs/reports.
+- Keep `task X/Y` counters visible through kickoff and completion updates in parallel mode (with worker metadata).
+- Default prelabel timeout is `300` seconds per provider call.
+- Any `failure_count > 0` must surface explicit completion summary text and `prelabel_errors.jsonl` path.
+- Progress callbacks are telemetry-only and must not abort convert/task/upload paths if UI code throws.
+
+### 11.5 Codex effort and reasoning-usage shape contract
+
+Merged sources:
+- `docs/understandings/2026-02-22_19.06.24-codex-prelabel-thinking-effort-injection.md`
+- `docs/understandings/2026-02-23_10.25.11-codex-prelabel-reasoning-usage-shape.md`
+
+Durable rules:
+- Thinking effort is injected as `model_reasoning_effort` only after command resolution and only when command text does not already set it.
+- Interactive prompt order remains `style -> account -> model -> thinking effort`.
+- Codex usage payloads may omit reasoning fields; parsing must remain shape-tolerant and default reasoning totals to `0` when absent.
+
+### 11.6 Span prompt anti-whole-block guardrails
+
+Merged source:
+- `docs/understandings/2026-02-23_10.45.43-span-prompt-whole-block-collapse-guardrails.md`
+
+Durable prompt-design guidance:
+- Span mode can still collapse to mostly full-block selections if prompt text implies block-propagation behavior.
+- Keep explicit anti-whole-block rules for long blocks (for example `>160` chars unless nearly uniform label).
+- Keep context guidance phrased as interpretation-only; do not imply adjacent-block auto-labeling.
+- Preserve concrete mixed-block examples in prompt instructions so the model sees expected split-label output shape.
+
+## 12) Merged Task Specs (2026-02-22_23 to 2026-02-23_10)
+
+### 12.1 2026-02-22_23.16.06 bounded parallel freeform prelabel workers
+
+Task source:
+- `docs/tasks/2026-02-22_23.16.06 - parallel-freeform-prelabel-workers.md`
+
+Current contract:
+- Freeform prelabel task calls run with bounded concurrency (`--prelabel-workers`, default `15`; set `1` for serial behavior).
+- Runtime keeps deterministic downstream artifacts by sorting completed task results by task index before report/log writes.
+- Provider usage aggregation remains thread-safe when one provider instance is reused.
+
+### 12.2 2026-02-22_23.31.26 centered focus/context markers
+
+Task source:
+- `docs/tasks/2026-02-22_23.31.26 - freeform-focus-context-markers.md`
+
+Current contract:
+- Focus windows are centered when possible within each segment.
+- Markerized prompt streams keep explicit context-before/context-after boundaries around focus start/stop markers.
+- Label Studio tasks expose focus/context range hints (`focus_scope_hint` and related range fields).
+- Overlap floor remains mandatory to avoid unlabeled holes:
+  - `segment_overlap_effective >= segment_blocks - segment_focus_blocks`.
+
+### 12.3 2026-02-22_23.55.11 kickoff counters with workers metadata
+
+Task source:
+- `docs/tasks/2026-02-22_23.55.11 - keep-prelabel-worker-banner-task-counter.md`
+
+Current contract:
+- Parallel kickoff message keeps `task 0/Y` and appends worker suffix (`(workers=N)`), instead of switching to worker-only banner text.
+
+### 12.4 2026-02-23_00.01.05 workers visible on completion updates
+
+Task source:
+- `docs/tasks/2026-02-23_00.01.05 - keep-prelabel-workers-visible-during-progress.md`
+
+Current contract:
+- Parallel prelabel progress keeps `(workers=N)` on completion updates (`task 1/Y`, `task 2/Y`, ...), not kickoff-only.
+- Serial mode keeps plain `task X/Y` output without worker suffix.
+
+### 12.5 2026-02-23_00.10.13 timeout + explicit partial-failure summary
+
+Task source:
+- `docs/tasks/2026-02-23_00.10.13 - prelabel-timeout-and-error-summary.md`
+
+Current contract:
+- Default prelabel timeout is `300` seconds per provider call.
+- Completion output always shows explicit prelabel-failure summary when failures exist (including allow-partial runs), with `prelabel_errors.jsonl` path guidance.
+
+### 12.6 2026-02-23_00.22.43 progress callback failures are non-fatal
+
+Task source:
+- `docs/tasks/2026-02-23_00.22.43 - protect-ingest-from-progress-callback-failures.md`
+
+Current contract:
+- Progress callback forwarding in ingest is best-effort telemetry.
+- Callback exceptions are logged and ignored so convert/task/upload behavior continues.
+- Single-job artifact generation also routes through the same safe notifier wrapper.
+
+### 12.7 2026-02-23_10.25.11 reasoning-token usage accounting
+
+Task source:
+- `docs/tasks/2026-02-23_10.25.11 - prelabel-reasoning-token-usage.md`
+
+Current contract:
+- Prelabel usage summaries include `reasoning_tokens` in both run artifacts and CLI summary text.
+- Parsing remains backward-compatible when Codex payloads omit reasoning fields (defaults to `0`).
+- Parser is shape-tolerant for nested/alias reasoning-token fields while preserving existing usage keys.

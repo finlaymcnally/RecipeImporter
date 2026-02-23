@@ -210,3 +210,15 @@ Until that exists, task-artifact scoring remains the most deterministic way to c
 
 For quick command examples and output interpretation:
 - `docs/07-bench/runbook.md`
+
+## 12. Merged Understandings Batch (2026-02-23 cleanup)
+
+### 2026-02-22_22.25.41 freeform gold dedupe behavior vs overlap
+
+Merged source:
+- `docs/understandings/2026-02-22_22.25.41-freeform-gold-dedupe-overlap-behavior.md`
+
+Durable evaluation rule:
+- Gold dedupe is overlap-count-agnostic because dedupe keys use absolute block ranges (`source_hash`, `source_file`, `start_block_index`, `end_block_index`), not segment IDs or overlap settings.
+- Changing overlap can increase duplicate rows in exports, but exact range matches still collapse before scoring.
+- Near-duplicates with different block ranges are not merged; only exact-range matches dedupe.

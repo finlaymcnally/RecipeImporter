@@ -902,3 +902,62 @@ Regression anchors:
 - `tests/test_toggle_editor.py`
 - `tests/test_run_settings.py`
 - `tests/test_c3imp_interactive_menu.py`
+
+## Merged Understandings Batch (2026-02-23 cleanup)
+
+### Prompt/keybinding back-navigation contract
+
+Merged sources:
+- `docs/understandings/2026-02-22_22.30.58-interactive-esc-back-contract.md`
+- `docs/understandings/2026-02-22_23.09.47-freeform-interactive-esc-step-back.md`
+
+Durable rules:
+- `_menu_select(...)` remains the select-menu control point for Esc/back semantics.
+- Typed prompts in interactive flows should go through `_prompt_text`, `_prompt_confirm`, or `_prompt_password` so Esc maps to one-level back/cancel.
+- Freeform segment settings must use `_prompt_freeform_segment_settings(...)` so Esc steps back one field instead of dropping to the main menu.
+
+### Run-settings editor viewport contract
+
+Merged source:
+- `docs/understandings/2026-02-22_19.12.59-run-settings-editor-scroll-contract.md`
+
+Durable rules:
+- `toggle_editor` body control must expose selected-row cursor mapping (`get_cursor_position`) and keep body focus so prompt_toolkit viewport scrolling follows row movement.
+
+### Spinner ETA and worker telemetry contract
+
+Merged sources:
+- `docs/understandings/2026-02-22_23.13.34-spinner-xy-eta-flow.md`
+- `docs/understandings/2026-02-23_00.17.44-spinner-worker-activity-telemetry.md`
+
+Durable rules:
+- Callback spinner ETA is derived from the right-most `X/Y` counter and should only accumulate timing over real counter increments (`X` increase).
+- `task/item/config/phase` loops should emit counters from runtime loop boundaries; CLI renderer should format and decorate them, not invent totals.
+- Worker telemetry stays a side-channel payload parsed/rendered by shared spinner code so per-worker status lines do not overwrite the primary phase/task line.
+
+## Merged Task Specs (2026-02-22_23 to 2026-02-23_00)
+
+### 2026-02-22_23.13.39 spinner `X/Y` ETA contract
+
+Current CLI spinner contract for callback-driven phases:
+
+- Parse the right-most `X/Y` counter in status text.
+- Compute average seconds per completed unit from observed `X` increments.
+- Render ETA only after at least one increment; keep stale-phase elapsed-seconds ticker behavior unchanged.
+- Keep this logic centralized in `_run_with_progress_status(...)` so import/benchmark/Label Studio wrappers stay consistent.
+
+Durable gotcha:
+- Nested counters can appear (`config`, `item`, `task`); right-most counter is the active unit.
+
+### 2026-02-23_00.17.44 worker summary lines under spinner status
+
+Current CLI spinner worker-telemetry contract:
+
+- Worker activity is a side-channel payload parsed by shared progress helpers.
+- Spinner keeps one primary status line, then renders one worker summary line per active worker below it.
+- Worker summary state must be reset explicitly when a worker phase ends.
+- Counter/ETA parsing must continue to read the primary status line unchanged.
+
+Where this is used today:
+- Label Studio freeform prelabel worker loops (`task X/Y` + segment ranges).
+- Label Studio split-conversion worker loops (`job X/Y`).

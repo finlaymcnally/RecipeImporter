@@ -196,3 +196,35 @@ Preserved findings:
 
 Anti-loop note:
 - If split-run codex-farm context looks shifted, inspect merged `raw/.../full_text.json` and location-offset application before changing pass logic.
+
+### 2026-02-22_23.46.43 standalone knowledge-analysis parallelism
+
+Merged source:
+- `docs/understandings/2026-02-22_23.46.43-standalone-knowledge-analysis-parallelism.md`
+
+Problem captured:
+- EPUB/PDF could appear stuck on "Analyzing standalone knowledge blocks..." because standalone containers were processed serially.
+
+Preserved contract:
+- Container-level standalone analysis can run in parallel after chunking because containers are independent.
+- Even when completion is out-of-order, merged outputs must be sorted back by original container index to keep deterministic ordering.
+- Emit `task X/Y` progress for this phase (including `0/Y` start) so spinner throughput/ETA stays visible.
+- Bounded worker control remains `C3IMP_STANDALONE_ANALYSIS_WORKERS` (default `4`, minimum `1`).
+
+### 2026-02-22_23.46.51 - parallelize standalone knowledge analysis (`docs/tasks/2026-02-22_23.46.51 - parallelize-standalone-knowledge-analysis.md`)
+
+Problem captured:
+- EPUB/PDF imports could stall visibly during standalone knowledge-block analysis because container loops were serial.
+
+Decision preserved:
+- Parallelize at standalone-container boundary with `ThreadPoolExecutor` in EPUB and PDF importer paths.
+- Keep deterministic merge order by sorting container results by original container index after worker completion.
+- Keep progress callback text in `task X/Y` format for spinner throughput and ETA compatibility.
+
+Evidence preserved from task:
+- Recorded verification run:
+  - `source .venv/bin/activate && pytest tests/parsing/test_tip_extraction.py tests/ingestion/test_epub_importer.py tests/ingestion/test_pdf_importer.py -q -o addopts=''` -> `37 passed, 7 warnings in 10.97s`.
+
+Anti-loop notes:
+- Do not append from worker threads into shared output arrays directly.
+- If order drift appears, inspect post-merge container-index sort before touching extraction heuristics.

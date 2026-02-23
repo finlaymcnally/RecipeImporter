@@ -348,3 +348,84 @@ Decision preserved:
 
 Rollback path preserved:
 - Revert `cookimport/cli_ui/toggle_editor.py` and related toggle-editor tests if viewport tracking regresses.
+
+## 2026-02-23 archival merge batch from `docs/understandings` (CLI)
+
+### 2026-02-22_19.12.59 run-settings editor scroll contract
+
+Merged source:
+- `docs/understandings/2026-02-22_19.12.59-run-settings-editor-scroll-contract.md`
+
+Preserved detail:
+- Scroll behavior in long settings lists depends on selected-row cursor mapping (`get_cursor_position`) in the formatted-text body control plus keeping focus on the body window.
+
+### 2026-02-22_22.30.58 interactive Esc back contract
+
+Merged source:
+- `docs/understandings/2026-02-22_22.30.58-interactive-esc-back-contract.md`
+
+Preserved detail:
+- Typed prompt Esc binding must be injected with `merge_key_bindings(...)` (PromptSession merged key bindings), not `.add(...)` on `application.key_bindings`.
+
+### 2026-02-22_23.09.47 freeform Esc step-back contract
+
+Merged source:
+- `docs/understandings/2026-02-22_23.09.47-freeform-interactive-esc-step-back.md`
+
+Preserved detail:
+- Freeform numeric prompt flow should route through `_prompt_freeform_segment_settings(...)` so Esc is one-field-back behavior, not flow abort.
+
+### 2026-02-22_23.13.34 spinner X/Y ETA flow
+
+Merged source:
+- `docs/understandings/2026-02-22_23.13.34-spinner-xy-eta-flow.md`
+
+Preserved detail:
+- Shared spinner ETA logic belongs in `_run_with_progress_status(...)` and should compute remaining time from right-most `X/Y` counter increments, while preserving stale-phase elapsed-seconds liveness text.
+
+### 2026-02-23_00.17.44 spinner worker-activity telemetry contract
+
+Merged source:
+- `docs/understandings/2026-02-23_00.17.44-spinner-worker-activity-telemetry.md`
+
+Preserved detail:
+- Worker activity stays a serialized side-channel parsed by shared spinner rendering so per-worker lines can be shown under the main phase/task status without breaking counter parsing.
+
+## 2026-02-22_23 to 2026-02-23_00 docs/tasks merge batch (CLI spinner)
+
+### 2026-02-22_23.13.39 - spinner X/Y ETA (`docs/tasks/2026-02-22_23.13.39 - spinner-xy-eta.md`)
+
+Problem captured:
+- Callback-driven spinner status showed phase text but no remaining-time estimate for known-size loops.
+
+Decision preserved:
+- Keep ETA in shared spinner wrapper (`_run_with_progress_status(...)`), derived from observed throughput on right-most `X/Y` counter.
+- Preserve stale-phase elapsed-seconds fallback for phases with no counters.
+
+Evidence preserved from task:
+- Added ETA formatting/runtime assertions in `tests/labelstudio/test_labelstudio_benchmark_helpers.py`.
+- Recorded verification runs:
+  - `. .venv/bin/activate && pip install -e .[dev] && pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py` -> `45 passed, 2 warnings in 3.34s`.
+  - `. .venv/bin/activate && pytest tests/bench/test_progress_messages.py` -> `2 passed in 0.01s`.
+
+Anti-loop notes:
+- Do not move ETA math into ingest/importer code; keep one renderer implementation.
+- Do not derive ETA before first observed progress increment.
+
+### 2026-02-23_00.17.44 - spinner worker summary list (`docs/tasks/2026-02-23_00.17.44 - spinner-worker-summary-list.md`)
+
+Problem captured:
+- Aggregate spinner line hid which worker was doing what during parallel phases.
+
+Decision preserved:
+- Keep worker activity as a serialized side-channel (`format_worker_activity`, `format_worker_activity_reset`, `parse_worker_activity`) so per-worker lines render below the primary status line.
+- Keep primary line untouched so task-counter and ETA parsing remain stable.
+
+Evidence preserved from task:
+- Runtime changes were in `cookimport/cli.py` + `cookimport/core/progress_messages.py` with Label Studio emitters in `cookimport/labelstudio/ingest.py`.
+- Recorded verification run:
+  - `. .venv/bin/activate && PYTHONDONTWRITEBYTECODE=1 COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1 pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py tests/labelstudio/test_labelstudio_ingest_parallel.py` -> `60 passed, 2 warnings in 3.46s`.
+
+Anti-loop notes:
+- Do not replace the main status line with worker lines.
+- Always emit reset telemetry after worker phases so stale worker rows do not linger.
