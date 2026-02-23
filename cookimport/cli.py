@@ -31,7 +31,12 @@ from rich.text import Text
 
 from cookimport.cli_ui.run_settings_flow import choose_run_settings
 from cookimport.config.last_run_store import save_last_run_settings
-from cookimport.config.run_settings import RunSettings, build_run_settings, compute_effective_workers
+from cookimport.config.run_settings import (
+    RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR,
+    RunSettings,
+    build_run_settings,
+    compute_effective_workers,
+)
 from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
 from cookimport.core.progress_messages import format_phase_counter, parse_worker_activity
@@ -1000,7 +1005,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
 
             typer.echo()
 
-            global_run_settings = RunSettings.model_validate(settings)
+            global_run_settings = RunSettings.from_dict(
+                settings,
+                warn_context="interactive global settings",
+            )
             selected_run_settings = choose_run_settings(
                 kind="import",
                 global_defaults=global_run_settings,
@@ -1557,7 +1565,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 )
                 continue
 
-            benchmark_defaults = RunSettings.model_validate(settings)
+            benchmark_defaults = RunSettings.from_dict(
+                settings,
+                warn_context="interactive benchmark global settings",
+            )
             selected_benchmark_settings = choose_run_settings(
                 kind="benchmark",
                 global_defaults=benchmark_defaults,
@@ -1820,10 +1831,10 @@ def _normalize_ocr_device(value: str) -> str:
 
 def _normalize_llm_recipe_pipeline(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized not in {"off", "codex-farm-3pass-v1"}:
+    if normalized != "off":
         _fail(
             f"Invalid LLM recipe pipeline: {value!r}. "
-            "Expected one of: off, codex-farm-3pass-v1."
+            f"{RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR}"
         )
     return normalized
 
@@ -3665,7 +3676,10 @@ def stage(
     llm_recipe_pipeline: str = typer.Option(
         "off",
         "--llm-recipe-pipeline",
-        help="Optional recipe LLM pipeline: off or codex-farm-3pass-v1.",
+        help=(
+            "Recipe codex-farm parsing correction pipeline. "
+            "Policy-locked OFF for now; must remain off until benchmark quality improves."
+        ),
     ),
     llm_knowledge_pipeline: str = typer.Option(
         "off",
@@ -4858,7 +4872,10 @@ def labelstudio_import(
     llm_recipe_pipeline: str = typer.Option(
         "off",
         "--llm-recipe-pipeline",
-        help="Optional recipe LLM pipeline: off or codex-farm-3pass-v1.",
+        help=(
+            "Recipe codex-farm parsing correction pipeline. "
+            "Policy-locked OFF for now; must remain off until benchmark quality improves."
+        ),
     ),
     codex_farm_cmd: str = typer.Option(
         "codex-farm",
@@ -5535,7 +5552,10 @@ def labelstudio_benchmark(
     )] = "br_split_v1",
     llm_recipe_pipeline: Annotated[str, typer.Option(
         "--llm-recipe-pipeline",
-        help="Optional recipe LLM pipeline: off or codex-farm-3pass-v1.",
+        help=(
+            "Recipe codex-farm parsing correction pipeline. "
+            "Policy-locked OFF for now; must remain off until benchmark quality improves."
+        ),
     )] = "off",
     codex_farm_cmd: Annotated[str, typer.Option(
         "--codex-farm-cmd",

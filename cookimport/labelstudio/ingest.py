@@ -11,7 +11,12 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from cookimport.config.run_settings import RunSettings, build_run_settings, compute_effective_workers
+from cookimport.config.run_settings import (
+    RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR,
+    RunSettings,
+    build_run_settings,
+    compute_effective_workers,
+)
 from cookimport.core.progress_messages import (
     format_task_counter,
     format_worker_activity,
@@ -213,9 +218,9 @@ def _normalize_epub_extractor(value: str) -> str:
 
 def _normalize_llm_recipe_pipeline(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized not in {"off", "codex-farm-3pass-v1"}:
+    if normalized != "off":
         raise ValueError(
-            "Invalid llm_recipe_pipeline. Expected one of: off, codex-farm-3pass-v1."
+            f"Invalid llm_recipe_pipeline. {RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR}"
         )
     return normalized
 

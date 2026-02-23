@@ -33,7 +33,8 @@ Recipe codex-farm integration:
 ## Important boundary
 
 Primary stage imports remain deterministic by default; LLM behavior should be explicitly gated and auditable.
-`llm_recipe_pipeline` defaults to `off`; when enabled (`codex-farm-3pass-v1`), failures can either fail-fast or deterministic-fallback via `codex_farm_failure_mode`.
+`llm_recipe_pipeline` is policy-locked to `off` for now (recipe codex-farm parsing correction must remain OFF until benchmark quality materially improves). Non-`off` values are rejected in CLI/pred-run entry points.
+If this policy is lifted in the future, failures can either fail-fast or deterministic-fallback via `codex_farm_failure_mode`.
 
 codex-farm orchestration settings are run-config surfaced and shared between stage and benchmark prediction generation:
 - command/root/workspace: `codex_farm_cmd`, `codex_farm_root`, `codex_farm_workspace_root`

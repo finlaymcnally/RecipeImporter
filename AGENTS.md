@@ -1,3 +1,5 @@
+PLEASE DO NOT TURN ON CODEX FARM OR USE ANY LLM/AI BASED PARSING/CLEANING FOR DATA IMPORT UNTIL WE ARE READY TO TURN IT ON (WE ARE FAR FROM READY TO TURN IT ON)
+
 Please note that some subfolders have a file "Agents.md" if you encounter one, read it first, and incorporate its instructions into the ones in this file, the sub folders override this file in any conflict.
 
 THIS IS A SOLO PROJECT. I DO NOT NEED ENTERPRISE-GRAD SOLUTIONS, AND ONLY I WILL EVER BE TOUCHING THIS CODE, SO WE DON'T NEED TO WORRY ABOUT COORDINATION PROBLEMS AND STUFF HERE. ITS JUST YOU AND I MY FRIEND.

@@ -46,6 +46,12 @@ def test_run_settings_schema_evolution_ignores_unknown_keys() -> None:
     assert "unknown_new_field" not in settings.to_run_config_dict()
 
 
+def test_run_settings_forces_recipe_codex_farm_pipeline_off() -> None:
+    settings = RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-3pass-v1"})
+
+    assert settings.llm_recipe_pipeline.value == "off"
+
+
 def test_run_settings_ui_specs_cover_all_editable_fields() -> None:
     specs = run_settings_ui_specs()
     by_name = {spec.name for spec in specs}
@@ -55,6 +61,8 @@ def test_run_settings_ui_specs_cover_all_editable_fields() -> None:
         if not dict(field.json_schema_extra or {}).get("ui_hidden")
     }
     assert by_name == expected
+    llm_recipe_spec = next(spec for spec in specs if spec.name == "llm_recipe_pipeline")
+    assert llm_recipe_spec.choices == ("off",)
 
 
 def test_last_run_store_round_trip_and_corrupt_recovery(tmp_path) -> None:

@@ -22,6 +22,26 @@ Read this file when troubleshooting loops across turns, or when someone says "we
 - Created `10-llm_log.md` to keep architecture/build/fix-attempt history separate from reference documentation.
 - Kept `10-llm_README.md` focused on current-state LLM reference and linked this log from it.
 
+### 2026-02-23_11.39.45 recipe codex-farm policy lock (agent-safety)
+
+Problem captured:
+- Automated coding/benchmark loops can improve scores by toggling recipe codex-farm correction, which is not desired until benchmark quality materially improves.
+
+Decisions/actions captured:
+- Locked user-facing recipe pipeline normalization to `off` only in:
+  - `cookimport/cli.py:_normalize_llm_recipe_pipeline`
+  - `cookimport/labelstudio/ingest.py:_normalize_llm_recipe_pipeline`
+- Updated run-settings migration (`RunSettings.from_dict`) to coerce legacy non-`off` `llm_recipe_pipeline` values back to `off` with a warning.
+- Restricted run-settings editor enum choices for `llm_recipe_pipeline` to `off` only.
+- Updated CLI/docs wording to explicitly state recipe codex-farm parsing correction is TURNED OFF and must remain OFF for now.
+
+Verification/evidence preserved:
+- `pytest tests/cli/test_cli_llm_flags.py tests/llm/test_run_settings.py tests/labelstudio/test_labelstudio_ingest_parallel.py::test_llm_recipe_pipeline_normalizer_rejects_codex_farm_enablement`
+- Result: `10 passed, 2 warnings in 1.94s`.
+
+Rollback path preserved:
+- If policy changes, restore accepted non-`off` values in the two normalizers + run-settings UI choice filtering and update docs accordingly.
+
 ## 2026-02-22 understanding notes (chronological)
 
 ### 2026-02-22_14.57.53 hardcoded pass IDs vs external pack integration

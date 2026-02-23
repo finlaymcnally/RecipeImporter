@@ -536,8 +536,8 @@ RULES
 - Do not return labels outside the allowed list.
 
 Segment id: {{SEGMENT_ID}}
-Blocks:
-{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}"""
+Blocks (one block per line as "<block_index><TAB><block_text>"):
+{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}"""
 
 
 def _is_codex_executable(executable: str) -> bool:
@@ -1566,12 +1566,8 @@ def _build_focus_marked_block_lines(
             if not emitted_context_after_marker:
                 marked.append("<<<CONTEXT_AFTER_LABELING_ONLY>>>")
                 emitted_context_after_marker = True
-        marked.append(
-            json.dumps(
-                {"block_index": block_index, "text": block_text},
-                ensure_ascii=False,
-            )
-        )
+        # Keep block text verbatim so quote-copy instructions remain literal.
+        marked.append(f"{block_index}\t{block_text}")
     if in_focus_run:
         marked.append("<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>")
     return marked
@@ -1642,7 +1638,7 @@ def _build_prompt(
     allowed_labels_text = ", ".join(ordered_allowed_labels)
     blocks_json_lines = "\n".join(lines)
     focus_blocks_json_lines = "\n".join(focus_lines)
-    blocks_with_focus_markers_json_lines = "\n".join(
+    blocks_with_focus_markers_compact_lines = "\n".join(
         _build_focus_marked_block_lines(
             valid_blocks=valid_blocks,
             focus_block_indices=focus_block_index_set,
@@ -1700,7 +1696,9 @@ def _build_prompt(
                 "{{FOCUS_MARKER_RULES}}": focus_marker_rules,
                 "{{SEGMENT_ID}}": segment_id,
                 "{{BLOCKS_JSON_LINES}}": blocks_json_lines,
-                "{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}": blocks_with_focus_markers_json_lines,
+                # Legacy placeholder retained for compatibility with existing custom templates.
+                "{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}": blocks_with_focus_markers_compact_lines,
+                "{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}": blocks_with_focus_markers_compact_lines,
             },
         )
 
@@ -1725,7 +1723,8 @@ def _build_prompt(
             "{{FOCUS_MARKER_RULES}}": focus_marker_rules,
             "{{SEGMENT_ID}}": segment_id,
             "{{BLOCKS_JSON_LINES}}": blocks_json_lines,
-            "{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}": blocks_with_focus_markers_json_lines,
+            "{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}": blocks_with_focus_markers_compact_lines,
+            "{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}": blocks_with_focus_markers_compact_lines,
         },
     )
 
@@ -1770,7 +1769,7 @@ def _build_prompt_log_entry(
         prompt_payload_description = (
             "Prompt includes allowed labels, focus constraints, focus marker rules, "
             "focus index summary, and one markerized context-before/focus/context-after "
-            "block JSON stream "
+            "block text stream (<block_index><TAB><block_text>) "
             "for quote/offset span resolution."
         )
     else:

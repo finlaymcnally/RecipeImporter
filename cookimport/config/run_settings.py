@@ -42,6 +42,15 @@ _SUMMARY_ORDER = (
     "overrides_path",
 )
 
+RECIPE_CODEX_FARM_PIPELINE_POLICY = (
+    "Recipe codex-farm AI parsing correction is TURNED OFF and must remain TURNED OFF "
+    "for the foreseeable future until benchmark quality materially improves."
+)
+
+RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR = (
+    f"{RECIPE_CODEX_FARM_PIPELINE_POLICY} Expected 'off'."
+)
+
 
 class EpubExtractor(str, Enum):
     unstructured = "unstructured"
@@ -260,7 +269,10 @@ class RunSettings(BaseModel):
             group="LLM",
             label="Recipe LLM Pipeline",
             order=100,
-            description="Optional recipe correction pipeline. Off keeps deterministic behavior.",
+            description=(
+                "Recipe codex-farm parsing correction is policy-locked OFF and must remain OFF "
+                "until benchmark quality materially improves."
+            ),
         ),
     )
     llm_knowledge_pipeline: LlmKnowledgePipeline = Field(
@@ -405,6 +417,20 @@ class RunSettings(BaseModel):
                 ", ".join(unknown),
             )
             _UNKNOWN_KEY_WARNINGS.add(unknown)
+        llm_recipe_pipeline_raw = data.get("llm_recipe_pipeline")
+        if llm_recipe_pipeline_raw is not None:
+            if isinstance(llm_recipe_pipeline_raw, Enum):
+                normalized_recipe_pipeline = str(llm_recipe_pipeline_raw.value).strip().lower()
+            else:
+                normalized_recipe_pipeline = str(llm_recipe_pipeline_raw).strip().lower()
+            if normalized_recipe_pipeline != LlmRecipePipeline.off.value:
+                logger.warning(
+                    "Forcing llm_recipe_pipeline=off in %s because recipe codex-farm parsing "
+                    "correction is policy-locked off. Ignoring value %r.",
+                    warn_context,
+                    llm_recipe_pipeline_raw,
+                )
+                data["llm_recipe_pipeline"] = LlmRecipePipeline.off.value
         return cls.model_validate(data)
 
     def to_run_config_dict(self) -> dict[str, object]:
@@ -489,6 +515,8 @@ def run_settings_ui_specs() -> list[RunSettingUiSpec]:
         annotation = _unwrap_optional(field.annotation)
         if value_kind == "enum" and isinstance(annotation, type) and issubclass(annotation, Enum):
             choices = tuple(str(member.value) for member in annotation)
+            if field_name == "llm_recipe_pipeline":
+                choices = (LlmRecipePipeline.off.value,)
 
         specs.append(
             RunSettingUiSpec(

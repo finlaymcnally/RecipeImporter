@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from cookimport.core.progress_messages import parse_worker_activity
 from cookimport.core.models import (
     ConversionReport,
@@ -13,12 +15,18 @@ from cookimport.core.models import (
     RecipeCandidate,
 )
 from cookimport.labelstudio.ingest import (
+    _normalize_llm_recipe_pipeline,
     generate_pred_run_artifacts,
     _merge_parallel_results,
     _plan_parallel_convert_jobs,
     run_labelstudio_import,
 )
 from cookimport.labelstudio.models import ArchiveBlock
+
+
+def test_llm_recipe_pipeline_normalizer_rejects_codex_farm_enablement() -> None:
+    with pytest.raises(ValueError, match="TURNED OFF"):
+        _normalize_llm_recipe_pipeline("codex-farm-3pass-v1")
 
 
 def test_plan_parallel_convert_jobs_pdf_splits(monkeypatch) -> None:

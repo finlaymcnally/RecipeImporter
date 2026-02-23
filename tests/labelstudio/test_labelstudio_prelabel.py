@@ -283,7 +283,7 @@ def test_prelabel_span_prompt_marks_focus_window_without_block_duplication() -> 
     )[1]
     assert "<<<CONTEXT_BEFORE_LABELING_ONLY>>>" in blocks_section
     assert "<<<CONTEXT_AFTER_LABELING_ONLY>>>" not in blocks_section
-    assert prompt.count('{"block_index": 1, "text": "1 cup flour"}') == 1
+    assert prompt.count("1\t1 cup flour") == 1
 
 
 def test_prelabel_span_prompt_marks_context_before_and_after() -> None:

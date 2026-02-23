@@ -202,7 +202,7 @@ Built in `cookimport/labelstudio/prelabel.py:_build_prompt(...)`. Prompt text is
 - `freeform-prelabel-span.prompt.md`
 
 This makes full-mode prompt iteration text-only: edit the file and rerun prelabel.
-Runtime replaces placeholders such as `{{SEGMENT_ID}}`, `{{BLOCKS_JSON_LINES}}`, and span marker placeholders like `{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}` per task.
+Runtime replaces placeholders such as `{{SEGMENT_ID}}`, `{{BLOCKS_JSON_LINES}}`, and span marker placeholders like `{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}` (with legacy compatibility alias `{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}`) per task.
 If files are missing/empty, runtime falls back to built-in defaults.
 
 ```text
@@ -211,7 +211,7 @@ You are labeling cookbook text BLOCKS for a "freeform spans" golden set.
 ...
 Segment id: {{SEGMENT_ID}}
 Blocks:
-{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}
+{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}
 ```
 
 **Output parsing (tolerant, but prompt asks for strict JSON):**
@@ -417,8 +417,8 @@ Important:
 - Offline mode is explicit via `--no-upload`.
 - Eval-only mode against an existing prediction run is available via `labelstudio-eval` and interactive benchmark eval-only.
 - Benchmark prediction manifests include run-config metadata (`run_config`, `run_config_hash`, `run_config_summary`) so analytics/dashboard rows can be grouped by configuration.
-- Non-interactive benchmark knobs include worker/split controls, OCR/warmup flags, and optional codex-farm recipe controls (`--ocr-device`, `--ocr-batch-size`, `--warm-models`, `--epub-extractor`, `--llm-recipe-pipeline`, `--codex-farm-cmd`, `--codex-farm-root`, `--codex-farm-workspace-root`, `--codex-farm-pipeline-pass1`, `--codex-farm-pipeline-pass2`, `--codex-farm-pipeline-pass3`, `--codex-farm-context-blocks`, `--codex-farm-failure-mode`).
-- When benchmark prediction generation runs with codex-farm enabled, processed report payloads include `llmCodexFarm` and prediction-run artifacts include `llm_manifest.json` when produced.
+- Non-interactive benchmark knobs include worker/split controls, OCR/warmup flags, knowledge-harvest codex-farm controls, and a recipe codex-farm policy knob that is currently forced to `off` (`--ocr-device`, `--ocr-batch-size`, `--warm-models`, `--epub-extractor`, `--llm-recipe-pipeline`, `--codex-farm-cmd`, `--codex-farm-root`, `--codex-farm-workspace-root`, `--codex-farm-pipeline-pass1`, `--codex-farm-pipeline-pass2`, `--codex-farm-pipeline-pass3`, `--codex-farm-context-blocks`, `--codex-farm-failure-mode`).
+- If recipe codex-farm correction is re-enabled in future, processed report payloads include `llmCodexFarm` and prediction-run artifacts include `llm_manifest.json` when produced.
 
 ### 1.9 Parallel split-job behavior and reindexing
 
@@ -945,7 +945,7 @@ Merged sources:
 
 Durable rules:
 - Run roots must keep `prelabel_prompt_log.md` and manifest/report pointers to it.
-- Span prompts should use one markerized block stream (`BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES`) and avoid duplicate focus text payloads.
+- Span prompts should use one markerized block stream (`BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES`; legacy alias `BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES`) and avoid duplicate focus text payloads.
 
 ### 11.4 Parallel prelabel + progress/failure visibility contracts
 

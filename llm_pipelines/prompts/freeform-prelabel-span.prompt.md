@@ -19,6 +19,7 @@ Marker legend:
 - Label only spans from blocks between:
   <<<START_LABELING_BLOCKS_HERE>>>
   <<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>
+- Block stream line format is: <block_index><TAB><block_text>
 
 RETURN FORMAT (STRICT JSON ONLY)
 Return ONLY a JSON array. No markdown. No commentary. No extra keys.
@@ -138,4 +139,4 @@ FINAL CHECK BEFORE YOU ANSWER
 
 Segment id: {{SEGMENT_ID}}
 Blocks (single pass with explicit context-before / focus / context-after markers):
-{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}
+{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}

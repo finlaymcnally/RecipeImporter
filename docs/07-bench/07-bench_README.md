@@ -45,7 +45,7 @@ Key files:
 - `manifest.json` (run metadata)
 - `run_manifest.json` (cross-command source/config/artifact linkage)
 - `coverage.json`
-- optional `llm_manifest.json` when `llm_recipe_pipeline=codex-farm-3pass-v1` is enabled for prediction generation
+- optional `llm_manifest.json` if recipe codex-farm correction is ever re-enabled in future (currently policy-locked `llm_recipe_pipeline=off`)
 
 These are the canonical "predictions" for both:
 - `cookimport labelstudio-benchmark`
@@ -102,7 +102,7 @@ No scoring step is included in this command.
 2. Select source file
 3. Build prediction-run artifacts (upload mode calls `run_labelstudio_import(...)`, which uses `generate_pred_run_artifacts(...)`; offline mode calls `generate_pred_run_artifacts(...)` directly).
 4. Choose upload vs offline: upload mode (default) sends tasks to Label Studio (`--allow-labelstudio-write` required), while offline mode (`--no-upload`) skips credential resolution and Label Studio API calls.
-5. Optional codex-farm recipe correction can be enabled in this prediction-generation step using `--llm-recipe-pipeline codex-farm-3pass-v1` plus `--codex-farm-*` flags.
+5. Recipe codex-farm parsing correction is currently policy-locked OFF (`--llm-recipe-pipeline off` only); benchmark prediction runs stay deterministic until this policy is revisited.
 6. Evaluate predicted ranges vs gold ranges
 7. Write eval report artifacts (`eval_report.json`, `eval_report.md`, misses/FPs) plus `run_manifest.json`
 
