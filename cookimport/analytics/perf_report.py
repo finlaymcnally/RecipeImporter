@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import json
 import re
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -309,6 +310,90 @@ def append_history_csv(rows: Iterable[PerfRow], csv_path: Path) -> None:
             writer.writerow(_row_to_csv(row))
 
 
+def _timing_value(payload: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        numeric = _safe_float_or_none(payload.get(key))
+        if numeric is not None:
+            return numeric
+    return None
+
+
+def _normalize_benchmark_timing(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    normalized: dict[str, Any] = {}
+    checkpoints: dict[str, float] = {}
+    raw_checkpoints = payload.get("checkpoints")
+    if isinstance(raw_checkpoints, dict):
+        for raw_key, raw_value in raw_checkpoints.items():
+            numeric = _safe_float_or_none(raw_value)
+            if numeric is None:
+                continue
+            checkpoints[str(raw_key)] = max(0.0, numeric)
+
+    total_seconds = _timing_value(payload, "total_seconds", "totalSeconds")
+    prediction_seconds = _timing_value(payload, "prediction_seconds")
+    evaluation_seconds = _timing_value(payload, "evaluation_seconds")
+    artifact_write_seconds = _timing_value(payload, "artifact_write_seconds")
+    history_append_seconds = _timing_value(payload, "history_append_seconds")
+    parsing_seconds = _timing_value(payload, "parsing_seconds", "parsingSeconds")
+    writing_seconds = _timing_value(payload, "writing_seconds", "writingSeconds")
+    ocr_seconds = _timing_value(payload, "ocr_seconds", "ocrSeconds")
+
+    if prediction_seconds is None and total_seconds is not None:
+        prediction_seconds = total_seconds
+    if parsing_seconds is None:
+        parsing_seconds = _safe_float_or_none(checkpoints.get("conversion_seconds"))
+    if writing_seconds is None:
+        writing_seconds = _safe_float_or_none(
+            checkpoints.get("processed_output_write_seconds")
+        )
+
+    for key, value in (
+        ("total_seconds", total_seconds),
+        ("prediction_seconds", prediction_seconds),
+        ("evaluation_seconds", evaluation_seconds),
+        ("artifact_write_seconds", artifact_write_seconds),
+        ("history_append_seconds", history_append_seconds),
+        ("parsing_seconds", parsing_seconds),
+        ("writing_seconds", writing_seconds),
+        ("ocr_seconds", ocr_seconds),
+    ):
+        if value is None:
+            continue
+        normalized[key] = max(0.0, value)
+    normalized["checkpoints"] = checkpoints
+    return normalized
+
+
+def _load_benchmark_timing_from_processed_report(
+    processed_report_path: Path | str | None,
+) -> dict[str, Any]:
+    if processed_report_path is None:
+        return {}
+    report_path = Path(processed_report_path)
+    if not report_path.exists() or not report_path.is_file():
+        return {}
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return _normalize_benchmark_timing(payload.get("timing"))
+
+
+def _resolve_benchmark_timing_payload(
+    *,
+    timing: dict[str, Any] | None,
+    processed_report_path: Path | str | None,
+) -> dict[str, Any]:
+    normalized_explicit = _normalize_benchmark_timing(timing)
+    if normalized_explicit:
+        return normalized_explicit
+    return _load_benchmark_timing_from_processed_report(processed_report_path)
+
+
 def append_benchmark_csv(
     report: dict[str, Any],
     csv_path: Path,
@@ -326,11 +411,12 @@ def append_benchmark_csv(
     epub_extractor_effective: str | None = None,
     epub_auto_selected_score: float | None = None,
     run_category: str = "benchmark_eval",
+    timing: dict[str, Any] | None = None,
 ) -> None:
     """Append one benchmark eval row to the performance history CSV.
 
-    Stage-only columns are left empty; benchmark-only columns are populated
-    from *report* (an eval_report.json-shaped dict).
+    Stage/runtime columns are populated from benchmark timing when available;
+    benchmark-only columns are populated from *report* (an eval_report.json-shaped dict).
     """
     counts = report.get("counts") or {}
     precision = _safe_float_or_none(report.get("precision"))
@@ -424,12 +510,64 @@ def append_benchmark_csv(
     if resolved_auto_score is None and run_config is not None:
         resolved_auto_score = _safe_float_or_none(run_config.get("epub_auto_selected_score"))
 
+    resolved_timing = _resolve_benchmark_timing_payload(
+        timing=timing,
+        processed_report_path=processed_report_path,
+    )
+    resolved_checkpoints = resolved_timing.get("checkpoints")
+    if not isinstance(resolved_checkpoints, dict):
+        resolved_checkpoints = {}
+
+    benchmark_total_seconds = _safe_float_or_none(resolved_timing.get("total_seconds"))
+    benchmark_prediction_seconds = _safe_float_or_none(
+        resolved_timing.get("prediction_seconds")
+    )
+    benchmark_evaluation_seconds = _safe_float_or_none(
+        resolved_timing.get("evaluation_seconds")
+    )
+    benchmark_artifact_write_seconds = _safe_float_or_none(
+        resolved_timing.get("artifact_write_seconds")
+    )
+    benchmark_history_append_seconds = _safe_float_or_none(
+        resolved_timing.get("history_append_seconds")
+    )
+    benchmark_prediction_load_seconds = _safe_float_or_none(
+        resolved_checkpoints.get("prediction_load_seconds")
+    )
+    benchmark_gold_load_seconds = _safe_float_or_none(
+        resolved_checkpoints.get("gold_load_seconds")
+    )
+    benchmark_evaluate_seconds = _safe_float_or_none(
+        resolved_checkpoints.get("evaluate_seconds")
+    )
+
+    stage_total_seconds = benchmark_total_seconds
+    stage_parsing_seconds = _safe_float_or_none(resolved_timing.get("parsing_seconds"))
+    stage_writing_seconds = _safe_float_or_none(resolved_timing.get("writing_seconds"))
+    stage_ocr_seconds = _safe_float_or_none(resolved_timing.get("ocr_seconds"))
+    if stage_parsing_seconds is None:
+        stage_parsing_seconds = _safe_float_or_none(
+            resolved_checkpoints.get("conversion_seconds")
+        )
+    if stage_writing_seconds is None:
+        stage_writing_seconds = _safe_float_or_none(
+            resolved_checkpoints.get("processed_output_write_seconds")
+        )
+
     row: dict[str, Any] = {field: "" for field in _CSV_FIELDS}
     row.update({
         "run_timestamp": run_timestamp,
         "run_dir": run_dir,
         "file_name": source_file,
         "report_path": processed_report_path,
+        "total_seconds": stage_total_seconds if stage_total_seconds is not None else "",
+        "parsing_seconds": (
+            stage_parsing_seconds if stage_parsing_seconds is not None else ""
+        ),
+        "writing_seconds": (
+            stage_writing_seconds if stage_writing_seconds is not None else ""
+        ),
+        "ocr_seconds": stage_ocr_seconds if stage_ocr_seconds is not None else "",
         "recipes": recipes if recipes is not None else "",
         "run_category": run_category,
         "eval_scope": eval_scope,
@@ -464,6 +602,42 @@ def append_benchmark_csv(
         "boundary_over": boundary.get("over", ""),
         "boundary_under": boundary.get("under", ""),
         "boundary_partial": boundary.get("partial", ""),
+        "benchmark_prediction_seconds": (
+            benchmark_prediction_seconds
+            if benchmark_prediction_seconds is not None
+            else ""
+        ),
+        "benchmark_evaluation_seconds": (
+            benchmark_evaluation_seconds
+            if benchmark_evaluation_seconds is not None
+            else ""
+        ),
+        "benchmark_artifact_write_seconds": (
+            benchmark_artifact_write_seconds
+            if benchmark_artifact_write_seconds is not None
+            else ""
+        ),
+        "benchmark_history_append_seconds": (
+            benchmark_history_append_seconds
+            if benchmark_history_append_seconds is not None
+            else ""
+        ),
+        "benchmark_total_seconds": (
+            benchmark_total_seconds if benchmark_total_seconds is not None else ""
+        ),
+        "benchmark_prediction_load_seconds": (
+            benchmark_prediction_load_seconds
+            if benchmark_prediction_load_seconds is not None
+            else ""
+        ),
+        "benchmark_gold_load_seconds": (
+            benchmark_gold_load_seconds
+            if benchmark_gold_load_seconds is not None
+            else ""
+        ),
+        "benchmark_evaluate_seconds": (
+            benchmark_evaluate_seconds if benchmark_evaluate_seconds is not None else ""
+        ),
         "run_config_hash": resolved_run_config_hash or "",
         "run_config_summary": resolved_run_config_summary or "",
         "run_config_json": (
@@ -478,7 +652,12 @@ def append_benchmark_csv(
         ),
     })
 
+    append_started = time.monotonic()
     with _locked_csv_append_writer(csv_path) as writer:
+        if not row.get("benchmark_history_append_seconds"):
+            row["benchmark_history_append_seconds"] = max(
+                0.0, time.monotonic() - append_started
+            )
         writer.writerow(row)
 
 
@@ -927,6 +1106,14 @@ _CSV_FIELDS = [
     "boundary_over",
     "boundary_under",
     "boundary_partial",
+    "benchmark_prediction_seconds",
+    "benchmark_evaluation_seconds",
+    "benchmark_artifact_write_seconds",
+    "benchmark_history_append_seconds",
+    "benchmark_total_seconds",
+    "benchmark_prediction_load_seconds",
+    "benchmark_gold_load_seconds",
+    "benchmark_evaluate_seconds",
     "epub_extractor_requested",
     "epub_extractor_effective",
     "epub_auto_selected_score",
@@ -1004,6 +1191,14 @@ def _row_to_csv(row: PerfRow) -> dict[str, Any]:
         "boundary_over": "",
         "boundary_under": "",
         "boundary_partial": "",
+        "benchmark_prediction_seconds": "",
+        "benchmark_evaluation_seconds": "",
+        "benchmark_artifact_write_seconds": "",
+        "benchmark_history_append_seconds": "",
+        "benchmark_total_seconds": "",
+        "benchmark_prediction_load_seconds": "",
+        "benchmark_gold_load_seconds": "",
+        "benchmark_evaluate_seconds": "",
         "epub_extractor_requested": row.epub_extractor_requested or "",
         "epub_extractor_effective": row.epub_extractor_effective or "",
         "epub_auto_selected_score": (

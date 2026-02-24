@@ -4,6 +4,7 @@ import csv
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from cookimport.analytics.benchmark_timing import collect_all_method_timing_summary
 from cookimport.analytics.perf_report import (
     PerfRow,
     append_benchmark_csv,
@@ -157,3 +158,63 @@ def test_append_benchmark_csv_parallel_writes_keep_valid_rows(tmp_path: Path) ->
         rows = list(csv.DictReader(handle))
     assert len(rows) == worker_count * rows_per_worker
     assert all(row.get("run_category") == "benchmark_eval" for row in rows)
+
+
+def test_collect_all_method_timing_summary_from_report_payloads(tmp_path: Path) -> None:
+    all_method_root = (
+        tmp_path
+        / "golden"
+        / "benchmark-vs-golden"
+        / "2026-02-24_08.00.00"
+        / "all-method-benchmark"
+    )
+    source_a = all_method_root / "book_a"
+    source_b = all_method_root / "book_b"
+    source_a.mkdir(parents=True, exist_ok=True)
+    source_b.mkdir(parents=True, exist_ok=True)
+
+    (source_a / "all_method_benchmark_report.json").write_text(
+        """{
+  "variants": [
+    {
+      "config_dir": "config_001",
+      "status": "ok",
+      "run_config_hash": "hash-a1",
+      "run_config_summary": "extractor=legacy",
+      "timing": {"total_seconds": 4.0}
+    },
+    {
+      "config_dir": "config_002",
+      "status": "ok",
+      "run_config_hash": "hash-a2",
+      "run_config_summary": "extractor=markdown",
+      "timing": {"total_seconds": 6.0}
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+    (source_b / "all_method_benchmark_report.json").write_text(
+        """{
+  "variants": [
+    {
+      "config_dir": "config_001",
+      "status": "ok",
+      "run_config_hash": "hash-b1",
+      "run_config_summary": "extractor=unstructured",
+      "timing": {"total_seconds": 10.0}
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+
+    payload = collect_all_method_timing_summary(all_method_root)
+
+    assert payload["timing_summary"]["source_count"] == 2
+    assert payload["timing_summary"]["variant_count"] == 3
+    assert payload["timing_summary"]["source_total_seconds"] == 20.0
+    assert payload["timing_summary"]["slowest_source"] in {"book_a", "book_b"}
+    assert payload["timing_summary"]["slowest_config"] == "book_b/config_001"

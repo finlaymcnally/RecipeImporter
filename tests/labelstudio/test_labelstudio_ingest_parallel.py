@@ -976,8 +976,14 @@ def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(
     assert manifest["segment_overlap"] == 2
     assert manifest["target_task_count"] == 4
     assert manifest["task_count"] == 4
+    assert isinstance(manifest.get("timing"), dict)
+    assert manifest["timing"]["total_seconds"] >= 0.0
+    assert manifest["timing"]["prediction_seconds"] >= 0.0
+    assert manifest["timing"]["checkpoints"]["conversion_seconds"] >= 0.0
 
     assert result["tasks"][0]["data"]["segment_text"] == "block 1\n\nblock 2"
+    assert isinstance(result.get("timing"), dict)
+    assert result["timing"]["total_seconds"] >= 0.0
     first_source_map = result["tasks"][0]["data"]["source_map"]
     assert first_source_map["focus_start_block_index"] == 1
     assert first_source_map["focus_end_block_index"] == 2

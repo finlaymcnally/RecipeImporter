@@ -1238,6 +1238,21 @@ class TestBenchmarkCsv:
             recipes=31,
             processed_report_path="/tmp/output/2026-02-11_15.59.00/my_book.excel_import_report.json",
             run_config={"epub_extractor": "legacy", "workers": 7},
+            timing={
+                "total_seconds": 21.5,
+                "prediction_seconds": 17.0,
+                "evaluation_seconds": 3.1,
+                "artifact_write_seconds": 1.0,
+                "history_append_seconds": 0.4,
+                "parsing_seconds": 11.2,
+                "writing_seconds": 4.0,
+                "ocr_seconds": 0.6,
+                "checkpoints": {
+                    "prediction_load_seconds": 0.8,
+                    "gold_load_seconds": 0.3,
+                    "evaluate_seconds": 2.0,
+                },
+            },
         )
         with csv_path.open("r", newline="", encoding="utf-8") as fh:
             reader = csv.DictReader(fh)
@@ -1250,9 +1265,68 @@ class TestBenchmarkCsv:
             row["report_path"]
             == "/tmp/output/2026-02-11_15.59.00/my_book.excel_import_report.json"
         )
+        assert float(row["total_seconds"]) == pytest.approx(21.5)
+        assert float(row["parsing_seconds"]) == pytest.approx(11.2)
+        assert float(row["writing_seconds"]) == pytest.approx(4.0)
+        assert float(row["ocr_seconds"]) == pytest.approx(0.6)
+        assert float(row["benchmark_prediction_seconds"]) == pytest.approx(17.0)
+        assert float(row["benchmark_evaluation_seconds"]) == pytest.approx(3.1)
+        assert float(row["benchmark_artifact_write_seconds"]) == pytest.approx(1.0)
+        assert float(row["benchmark_history_append_seconds"]) == pytest.approx(0.4)
+        assert float(row["benchmark_total_seconds"]) == pytest.approx(21.5)
+        assert float(row["benchmark_prediction_load_seconds"]) == pytest.approx(0.8)
+        assert float(row["benchmark_gold_load_seconds"]) == pytest.approx(0.3)
+        assert float(row["benchmark_evaluate_seconds"]) == pytest.approx(2.0)
         assert row["run_config_hash"] != ""
         assert "epub_extractor=legacy" in row["run_config_summary"]
         assert row["run_config_json"] != ""
+
+    def test_benchmark_csv_timing_falls_back_to_processed_report(self, tmp_path):
+        csv_path = tmp_path / "history.csv"
+        processed_report = (
+            tmp_path
+            / "output"
+            / "2026-02-11_15.59.00"
+            / "my_book.excel_import_report.json"
+        )
+        processed_report.parent.mkdir(parents=True, exist_ok=True)
+        processed_report.write_text(
+            json.dumps(
+                {
+                    "totalRecipes": 31,
+                    "timing": {
+                        "total_seconds": 18.0,
+                        "prediction_seconds": 18.0,
+                        "parsing_seconds": 9.2,
+                        "writing_seconds": 3.1,
+                        "ocr_seconds": 0.4,
+                        "checkpoints": {
+                            "processed_output_write_seconds": 2.4,
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        append_benchmark_csv(
+            SAMPLE_EVAL_REPORT,
+            csv_path,
+            run_timestamp="2026-02-11T16:00:00",
+            run_dir="/some/eval/dir",
+            eval_scope="freeform-spans",
+            source_file="my_book.pdf",
+            processed_report_path=str(processed_report),
+        )
+        with csv_path.open("r", newline="", encoding="utf-8") as fh:
+            row = next(csv.DictReader(fh))
+
+        assert float(row["total_seconds"]) == pytest.approx(18.0)
+        assert float(row["parsing_seconds"]) == pytest.approx(9.2)
+        assert float(row["writing_seconds"]) == pytest.approx(3.1)
+        assert float(row["ocr_seconds"]) == pytest.approx(0.4)
+        assert float(row["benchmark_prediction_seconds"]) == pytest.approx(18.0)
+        assert float(row["benchmark_total_seconds"]) == pytest.approx(18.0)
 
     def test_csv_with_mixed_rows(self, tmp_path):
         """CSV with both stage and benchmark rows; collector produces both."""

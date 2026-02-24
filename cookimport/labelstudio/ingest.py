@@ -305,6 +305,139 @@ def _release_file_lock(handle: Any) -> None:
         return
 
 
+def _safe_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _timing_payload(
+    *,
+    total_seconds: float,
+    prediction_seconds: float,
+    parsing_seconds: float | None = None,
+    writing_seconds: float | None = None,
+    ocr_seconds: float | None = None,
+    artifact_write_seconds: float | None = None,
+    checkpoints: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "total_seconds": float(max(0.0, total_seconds)),
+        "prediction_seconds": float(max(0.0, prediction_seconds)),
+        "checkpoints": {},
+    }
+    if parsing_seconds is not None:
+        payload["parsing_seconds"] = float(max(0.0, parsing_seconds))
+    if writing_seconds is not None:
+        payload["writing_seconds"] = float(max(0.0, writing_seconds))
+    if ocr_seconds is not None:
+        payload["ocr_seconds"] = float(max(0.0, ocr_seconds))
+    if artifact_write_seconds is not None:
+        payload["artifact_write_seconds"] = float(max(0.0, artifact_write_seconds))
+
+    checkpoint_map: dict[str, float] = {}
+    if checkpoints:
+        for key, value in checkpoints.items():
+            numeric = _safe_float(value)
+            if numeric is None or numeric < 0:
+                continue
+            checkpoint_map[str(key)] = float(numeric)
+    payload["checkpoints"] = checkpoint_map
+    return payload
+
+
+def _write_processed_report_timing_best_effort(
+    *,
+    processed_report_path: Path | None,
+    timing: dict[str, Any] | None,
+    notify: Callable[[str], None] | None = None,
+) -> None:
+    if processed_report_path is None or timing is None:
+        return
+    if not processed_report_path.exists() or not processed_report_path.is_file():
+        return
+
+    try:
+        payload = json.loads(processed_report_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        _notify_progress_callback(
+            notify,
+            f"Warning: failed reading processed report timing from {processed_report_path}: {exc}",
+        )
+        return
+    if not isinstance(payload, dict):
+        return
+
+    existing_timing = payload.get("timing")
+    existing_timing_dict = existing_timing if isinstance(existing_timing, dict) else {}
+    existing_checkpoints = existing_timing_dict.get("checkpoints")
+    checkpoint_payload = (
+        dict(existing_checkpoints) if isinstance(existing_checkpoints, dict) else {}
+    )
+    raw_checkpoints = timing.get("checkpoints")
+    if isinstance(raw_checkpoints, dict):
+        for key, value in raw_checkpoints.items():
+            numeric = _safe_float(value)
+            if numeric is None:
+                continue
+            checkpoint_payload[str(key)] = float(max(0.0, numeric))
+
+    parsing_seconds = _safe_float(timing.get("parsing_seconds"))
+    if parsing_seconds is None:
+        parsing_seconds = _safe_float(existing_timing_dict.get("parsing_seconds"))
+    if parsing_seconds is None:
+        parsing_seconds = _safe_float(checkpoint_payload.get("conversion_seconds"))
+
+    writing_seconds = _safe_float(timing.get("writing_seconds"))
+    if writing_seconds is None:
+        writing_seconds = _safe_float(existing_timing_dict.get("writing_seconds"))
+    if writing_seconds is None:
+        writing_seconds = _safe_float(
+            checkpoint_payload.get("processed_output_write_seconds")
+        )
+
+    ocr_seconds = _safe_float(timing.get("ocr_seconds"))
+    if ocr_seconds is None:
+        ocr_seconds = _safe_float(existing_timing_dict.get("ocr_seconds"))
+
+    prediction_seconds = _safe_float(timing.get("prediction_seconds"))
+    total_seconds = _safe_float(timing.get("total_seconds"))
+    if total_seconds is None:
+        total_seconds = _safe_float(existing_timing_dict.get("total_seconds"))
+    if total_seconds is None and prediction_seconds is not None:
+        total_seconds = prediction_seconds
+
+    merged_timing: dict[str, Any] = {
+        "total_seconds": float(max(0.0, total_seconds or 0.0)),
+        "parsing_seconds": float(max(0.0, parsing_seconds or 0.0)),
+        "writing_seconds": float(max(0.0, writing_seconds or 0.0)),
+        "ocr_seconds": float(max(0.0, ocr_seconds or 0.0)),
+        "checkpoints": checkpoint_payload,
+    }
+    if prediction_seconds is not None:
+        merged_timing["prediction_seconds"] = float(max(0.0, prediction_seconds))
+    artifact_write_seconds = _safe_float(timing.get("artifact_write_seconds"))
+    if artifact_write_seconds is not None:
+        merged_timing["artifact_write_seconds"] = float(
+            max(0.0, artifact_write_seconds)
+        )
+
+    payload["timing"] = merged_timing
+    try:
+        processed_report_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+    except Exception as exc:  # noqa: BLE001
+        _notify_progress_callback(
+            notify,
+            f"Warning: failed writing processed report timing to {processed_report_path}: {exc}",
+        )
+
+
 def _emit_split_phase_status(
     *,
     notify: Callable[[str], None] | None,
@@ -1048,6 +1181,13 @@ def generate_pred_run_artifacts(
     book_slug = _slugify_name(path.stem)
     run_root = output_dir / timestamp / "labelstudio" / book_slug
     run_root.mkdir(parents=True, exist_ok=True)
+    run_started = time.monotonic()
+    conversion_seconds = 0.0
+    split_wait_seconds = 0.0
+    split_convert_seconds = 0.0
+    processed_output_write_seconds = 0.0
+    task_build_seconds = 0.0
+    artifact_write_seconds = 0.0
 
     if pipeline == "auto":
         importer, score = registry.best_importer_for_path(path)
@@ -1151,6 +1291,7 @@ def generate_pred_run_artifacts(
             ocr_batch_size=run_settings.ocr_batch_size,
         )
 
+    conversion_started = time.monotonic()
     with _temporary_epub_runtime_env(
         extractor=selected_epub_extractor,
         html_parser_version=selected_html_parser_version,
@@ -1179,7 +1320,10 @@ def generate_pred_run_artifacts(
                     status_label=split_phase_status_label,
                 )
 
+            split_wait_started = time.monotonic()
             with split_slot_context:
+                split_wait_seconds = max(0.0, time.monotonic() - split_wait_started)
+                split_convert_started = time.monotonic()
                 _notify(
                     f"Running {len(job_specs)} split job(s) with up to {max(1, workers)} workers..."
                 )
@@ -1313,6 +1457,8 @@ def generate_pred_run_artifacts(
                 importer_name = str(job_results[0].get("importer_name") or importer.name)
                 result = _merge_parallel_results(path, importer_name, job_results)
                 _notify("Merged split job results.")
+                split_convert_seconds = max(0.0, time.monotonic() - split_convert_started)
+    conversion_seconds = max(0.0, time.monotonic() - conversion_started)
 
     llm_schema_overrides: dict[str, dict[str, Any]] | None = None
     llm_draft_overrides: dict[str, dict[str, Any]] | None = None
@@ -1367,6 +1513,7 @@ def generate_pred_run_artifacts(
     processed_report_path: Path | None = None
     if processed_output_root is not None:
         _notify("Writing processed cookbook outputs...")
+        processed_output_started = time.monotonic()
         processed_run_root = _write_processed_outputs(
             result=result,
             path=path,
@@ -1385,8 +1532,12 @@ def generate_pred_run_artifacts(
         processed_report_path = (
             processed_run_root / f"{path.stem}.excel_import_report.json"
         )
+        processed_output_write_seconds = max(
+            0.0, time.monotonic() - processed_output_started
+        )
         _notify("Processed cookbook outputs complete.")
 
+    task_build_started = time.monotonic()
     scopes = {"pipeline", "canonical-blocks", "freeform-spans"}
     if task_scope not in scopes:
         raise ValueError(
@@ -1944,8 +2095,10 @@ def generate_pred_run_artifacts(
         label_config = build_freeform_label_config()
         segment_ids = [task.get("data", {}).get("segment_id") for task in tasks if task]
         task_ids = [segment_id for segment_id in segment_ids if segment_id]
+    task_build_seconds = max(0.0, time.monotonic() - task_build_started)
 
     _notify("Writing prediction run artifacts...")
+    artifact_write_started = time.monotonic()
     archive_path = run_root / "extracted_archive.json"
     archive_payload = [
         {
@@ -1978,6 +2131,52 @@ def generate_pred_run_artifacts(
             sort_keys=True,
         ),
         encoding="utf-8",
+    )
+    artifact_write_seconds = max(0.0, time.monotonic() - artifact_write_started)
+
+    result_timing_payload = (
+        result.report.timing if result.report and isinstance(result.report.timing, dict) else {}
+    )
+    parsing_seconds = _safe_float(result_timing_payload.get("parsing_seconds"))
+    if parsing_seconds is None:
+        parsing_seconds = _safe_float(result_timing_payload.get("parsingSeconds"))
+    if parsing_seconds is None:
+        parsing_seconds = conversion_seconds
+    writing_seconds = _safe_float(result_timing_payload.get("writing_seconds"))
+    if writing_seconds is None:
+        writing_seconds = _safe_float(result_timing_payload.get("writingSeconds"))
+    if writing_seconds is None:
+        writing_seconds = processed_output_write_seconds
+    ocr_seconds = _safe_float(result_timing_payload.get("ocr_seconds"))
+    if ocr_seconds is None:
+        ocr_seconds = _safe_float(result_timing_payload.get("ocrSeconds"))
+
+    checkpoints: dict[str, float] = {
+        "conversion_seconds": conversion_seconds,
+        "task_build_seconds": task_build_seconds,
+        "artifact_write_seconds": artifact_write_seconds,
+    }
+    if split_wait_seconds > 0:
+        checkpoints["split_wait_seconds"] = split_wait_seconds
+    if split_convert_seconds > 0:
+        checkpoints["split_convert_seconds"] = split_convert_seconds
+    if processed_output_write_seconds > 0:
+        checkpoints["processed_output_write_seconds"] = processed_output_write_seconds
+
+    prediction_total_seconds = max(0.0, time.monotonic() - run_started)
+    timing_payload = _timing_payload(
+        total_seconds=prediction_total_seconds,
+        prediction_seconds=prediction_total_seconds,
+        parsing_seconds=parsing_seconds,
+        writing_seconds=writing_seconds,
+        ocr_seconds=ocr_seconds,
+        artifact_write_seconds=artifact_write_seconds,
+        checkpoints=checkpoints,
+    )
+    _write_processed_report_timing_best_effort(
+        processed_report_path=processed_report_path,
+        timing=timing_payload,
+        notify=_notify,
     )
 
     manifest = {
@@ -2020,6 +2219,7 @@ def generate_pred_run_artifacts(
         "target_task_count": (
             target_task_count if task_scope == "freeform-spans" else None
         ),
+        "timing": timing_payload,
         "task_count": len(tasks),
         "task_ids": task_ids,
         "chunk_ids": chunk_ids,
@@ -2068,6 +2268,7 @@ def generate_pred_run_artifacts(
     processed_report_manifest_path = _path_for_manifest(run_root, processed_report_path)
     if processed_report_manifest_path:
         run_manifest_artifacts["processed_report_json"] = processed_report_manifest_path
+    run_manifest_artifacts["timing"] = timing_payload
     llm_manifest_path = (
         run_root
         / "raw"
@@ -2126,6 +2327,7 @@ def generate_pred_run_artifacts(
         "segment_overlap_requested": segment_overlap if task_scope == "freeform-spans" else None,
         "segment_overlap_effective": effective_segment_overlap,
         "target_task_count": target_task_count if task_scope == "freeform-spans" else None,
+        "timing": timing_payload,
     }
 
 
@@ -2512,6 +2714,9 @@ def run_labelstudio_import(
     )
     if processed_report_manifest_path:
         run_manifest_artifacts["processed_report_json"] = processed_report_manifest_path
+    prediction_timing = pred.get("timing")
+    if isinstance(prediction_timing, dict):
+        run_manifest_artifacts["timing"] = dict(prediction_timing)
 
     run_manifest_payload = RunManifest(
         run_kind="labelstudio_import",
@@ -2539,6 +2744,7 @@ def run_labelstudio_import(
         "run_config": pred.get("run_config"),
         "run_config_hash": pred.get("run_config_hash"),
         "run_config_summary": pred.get("run_config_summary"),
+        "timing": pred.get("timing"),
         "prelabel": pred.get("prelabel"),
         "prelabel_report_path": pred.get("prelabel_report_path"),
         "prelabel_errors_path": pred.get("prelabel_errors_path"),

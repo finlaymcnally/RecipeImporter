@@ -3618,6 +3618,80 @@ def _report_metric(value: Any) -> float:
         return 0.0
 
 
+def _report_optional_metric(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _median_metric(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2 == 1:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+
+def _normalize_timing_payload(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    normalized: dict[str, Any] = {}
+    for key in (
+        "total_seconds",
+        "prediction_seconds",
+        "evaluation_seconds",
+        "artifact_write_seconds",
+        "history_append_seconds",
+        "parsing_seconds",
+        "writing_seconds",
+        "ocr_seconds",
+    ):
+        numeric = _report_optional_metric(payload.get(key))
+        if numeric is None:
+            continue
+        normalized[key] = max(0.0, numeric)
+    checkpoints: dict[str, float] = {}
+    raw_checkpoints = payload.get("checkpoints")
+    if isinstance(raw_checkpoints, dict):
+        for raw_key, raw_value in raw_checkpoints.items():
+            numeric = _report_optional_metric(raw_value)
+            if numeric is None:
+                continue
+            checkpoints[str(raw_key)] = max(0.0, numeric)
+    normalized["checkpoints"] = checkpoints
+    return normalized
+
+
+def _timing_with_updates(
+    base: Any,
+    *,
+    checkpoints: dict[str, float] | None = None,
+    **updates: float | None,
+) -> dict[str, Any]:
+    normalized = _normalize_timing_payload(base)
+    normalized_checkpoints = normalized.get("checkpoints")
+    if not isinstance(normalized_checkpoints, dict):
+        normalized_checkpoints = {}
+    if checkpoints:
+        for key, value in checkpoints.items():
+            numeric = _report_optional_metric(value)
+            if numeric is None:
+                continue
+            normalized_checkpoints[str(key)] = max(0.0, numeric)
+    normalized["checkpoints"] = normalized_checkpoints
+    for key, value in updates.items():
+        numeric = _report_optional_metric(value)
+        if numeric is None:
+            continue
+        normalized[key] = max(0.0, numeric)
+    return normalized
+
+
 def _report_count(value: Any) -> int:
     try:
         return max(0, int(value))
@@ -3663,8 +3737,9 @@ def _all_method_failed_row(
     config_dir_name: str,
     variant: AllMethodVariant,
     error: str,
+    elapsed_seconds: float | None = None,
 ) -> dict[str, Any]:
-    return {
+    row = {
         "config_index": config_index,
         "config_dir": config_dir_name,
         "slug": variant.slug,
@@ -3674,6 +3749,13 @@ def _all_method_failed_row(
         "run_config_summary": "",
         "dimensions": dict(variant.dimensions),
     }
+    numeric_elapsed = _report_optional_metric(elapsed_seconds)
+    if numeric_elapsed is not None:
+        row["timing"] = _timing_with_updates(
+            {},
+            total_seconds=max(0.0, numeric_elapsed),
+        )
+    return row
 
 
 def _run_all_method_config_once(
@@ -3692,6 +3774,7 @@ def _run_all_method_config_once(
     split_phase_gate_dir: Path,
     progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
+    config_started = time.monotonic()
     config_dir_name = _all_method_config_dir_name(config_index, variant)
     eval_output_dir = root_output_dir / config_dir_name
     scratch_output_dir = scratch_root / config_dir_name
@@ -3763,6 +3846,7 @@ def _run_all_method_config_once(
             config_dir_name=config_dir_name,
             variant=variant,
             error=str(exc),
+            elapsed_seconds=max(0.0, time.monotonic() - config_started),
         )
 
     report_json_path = eval_output_dir / "eval_report.json"
@@ -3772,6 +3856,7 @@ def _run_all_method_config_once(
             config_dir_name=config_dir_name,
             variant=variant,
             error=f"Missing eval_report.json in {eval_output_dir}",
+            elapsed_seconds=max(0.0, time.monotonic() - config_started),
         )
 
     try:
@@ -3782,7 +3867,19 @@ def _run_all_method_config_once(
             config_dir_name=config_dir_name,
             variant=variant,
             error=f"Failed to parse eval report for {config_dir_name}: {exc}",
+            elapsed_seconds=max(0.0, time.monotonic() - config_started),
         )
+
+    config_wall_seconds = max(0.0, time.monotonic() - config_started)
+    report_timing = _normalize_timing_payload(report.get("timing"))
+    report_total_seconds = _report_optional_metric(report_timing.get("total_seconds"))
+    config_timing = _timing_with_updates(
+        report_timing,
+        total_seconds=(
+            report_total_seconds if report_total_seconds is not None else config_wall_seconds
+        ),
+        checkpoints={"all_method_config_wall_seconds": config_wall_seconds},
+    )
 
     pred_context = _load_pred_run_recipe_context(eval_output_dir / "prediction-run")
     return {
@@ -3805,6 +3902,8 @@ def _run_all_method_config_once(
             root_output_dir,
             eval_output_dir / "eval_report.md",
         ),
+        "duration_seconds": config_wall_seconds,
+        "timing": config_timing,
         "dimensions": dict(variant.dimensions),
     }
 
@@ -3843,6 +3942,42 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
             ]
         )
 
+    timing_summary = report_payload.get("timing_summary")
+    if isinstance(timing_summary, dict):
+        lines.extend(
+            [
+                "## Timing Summary",
+                "",
+                (
+                    "- Source wall time: "
+                    f"{_report_metric(timing_summary.get('source_wall_seconds')):.2f}s"
+                ),
+                (
+                    "- Total successful config runtime: "
+                    f"{_report_metric(timing_summary.get('config_total_seconds')):.2f}s"
+                ),
+            ]
+        )
+        average_seconds = _report_optional_metric(
+            timing_summary.get("config_average_seconds")
+        )
+        if average_seconds is not None:
+            lines.append(f"- Average config runtime: {average_seconds:.2f}s")
+        median_seconds = _report_optional_metric(
+            timing_summary.get("config_median_seconds")
+        )
+        if median_seconds is not None:
+            lines.append(f"- Median config runtime: {median_seconds:.2f}s")
+        slowest_config = str(timing_summary.get("slowest_config_dir") or "").strip()
+        slowest_seconds = _report_optional_metric(
+            timing_summary.get("slowest_config_seconds")
+        )
+        if slowest_config and slowest_seconds is not None:
+            lines.append(
+                f"- Slowest config: {slowest_config} ({slowest_seconds:.2f}s)"
+            )
+        lines.append("")
+
     lines.extend(
         [
             "## Ranked Configurations",
@@ -3866,13 +4001,17 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
             continue
         rank_value = row.get("rank")
         rank_prefix = f"{rank_value}. " if rank_value is not None else ""
+        row_timing = _normalize_timing_payload(row.get("timing"))
+        row_seconds = _report_optional_metric(row_timing.get("total_seconds"))
+        timing_suffix = f", time={row_seconds:.2f}s" if row_seconds is not None else ""
         lines.append(
             (
                 f"- {rank_prefix}{config_dir} "
                 f"(precision={_report_metric(row.get('precision')):.3f}, "
                 f"recall={_report_metric(row.get('recall')):.3f}, "
                 f"f1={_report_metric(row.get('f1')):.3f}, "
-                f"practical_f1={_report_metric(row.get('practical_f1')):.3f}) "
+                f"practical_f1={_report_metric(row.get('practical_f1')):.3f}"
+                f"{timing_suffix}) "
                 f"[hash={row.get('run_config_hash', '')}]"
             )
         )
@@ -3890,10 +4029,55 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
         f"- Planned config runs: {report_payload.get('total_config_runs_planned', 0)}",
         f"- Completed config runs: {report_payload.get('total_config_runs_completed', 0)}",
         f"- Successful config runs: {report_payload.get('total_config_runs_successful', 0)}",
+    ]
+
+    timing_summary = report_payload.get("timing_summary")
+    if isinstance(timing_summary, dict):
+        lines.extend(
+            [
+                (
+                    "- Run wall time: "
+                    f"{_report_metric(timing_summary.get('run_wall_seconds')):.2f}s"
+                ),
+                (
+                    "- Sum source wall times: "
+                    f"{_report_metric(timing_summary.get('source_total_seconds')):.2f}s"
+                ),
+            ]
+        )
+        source_average = _report_optional_metric(
+            timing_summary.get("source_average_seconds")
+        )
+        if source_average is not None:
+            lines.append(f"- Average source runtime: {source_average:.2f}s")
+        config_average = _report_optional_metric(
+            timing_summary.get("config_average_seconds")
+        )
+        if config_average is not None:
+            lines.append(f"- Average config runtime: {config_average:.2f}s")
+        slowest_source_name = str(timing_summary.get("slowest_source") or "").strip()
+        slowest_source_seconds = _report_optional_metric(
+            timing_summary.get("slowest_source_seconds")
+        )
+        if slowest_source_name and slowest_source_seconds is not None:
+            lines.append(
+                f"- Slowest source: {slowest_source_name} ({slowest_source_seconds:.2f}s)"
+            )
+        slowest_config_name = str(timing_summary.get("slowest_config") or "").strip()
+        slowest_config_seconds = _report_optional_metric(
+            timing_summary.get("slowest_config_seconds")
+        )
+        if slowest_config_name and slowest_config_seconds is not None:
+            lines.append(
+                f"- Slowest config: {slowest_config_name} ({slowest_config_seconds:.2f}s)"
+            )
+    lines.extend(
+        [
         "",
         "## Per-Source Results",
         "",
-    ]
+        ]
+    )
 
     source_rows = report_payload.get("sources")
     if not isinstance(source_rows, list) or not source_rows:
@@ -3925,11 +4109,27 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
                 if isinstance(winner_metrics, dict)
                 else None
             )
+            source_timing = row.get("timing_summary")
+            source_timing_suffix = ""
+            if isinstance(source_timing, dict):
+                source_seconds = _report_optional_metric(
+                    source_timing.get("source_wall_seconds")
+                )
+                slowest_config = str(source_timing.get("slowest_config_dir") or "").strip()
+                slowest_seconds = _report_optional_metric(
+                    source_timing.get("slowest_config_seconds")
+                )
+                if source_seconds is not None:
+                    source_timing_suffix += f", runtime={source_seconds:.2f}s"
+                if slowest_config and slowest_seconds is not None:
+                    source_timing_suffix += (
+                        f", slowest={slowest_config} ({slowest_seconds:.2f}s)"
+                    )
             lines.append(
                 (
                     f"- {source_file}: ok "
                     f"(winner precision={precision:.3f}, "
-                    f"recall={recall:.3f}, f1={f1:.3f}) "
+                    f"recall={recall:.3f}, f1={f1:.3f}{source_timing_suffix}) "
                     f"[report={row.get('report_path', '')}]"
                 )
             )
@@ -3970,6 +4170,7 @@ def _run_all_method_benchmark_multi_source(
     max_inflight_pipelines: int | None = None,
     max_concurrent_split_phases: int | None = None,
 ) -> Path:
+    run_started = time.monotonic()
     root_output_dir.mkdir(parents=True, exist_ok=True)
     processed_output_root.mkdir(parents=True, exist_ok=True)
 
@@ -4087,6 +4288,12 @@ def _run_all_method_benchmark_multi_source(
             }
             successful_variants = _report_count(report_payload.get("successful_variants"))
             failed_variants = _report_count(report_payload.get("failed_variants"))
+            source_timing_summary = report_payload.get("timing_summary")
+            normalized_source_timing = (
+                dict(source_timing_summary)
+                if isinstance(source_timing_summary, dict)
+                else {}
+            )
 
             source_rows.append(
                 {
@@ -4104,6 +4311,7 @@ def _run_all_method_benchmark_multi_source(
                     "variant_count_completed": successful_variants + failed_variants,
                     "variant_count_successful": successful_variants,
                     "winner_metrics": winner_metrics,
+                    "timing_summary": normalized_source_timing,
                     "error": "",
                 }
             )
@@ -4131,6 +4339,7 @@ def _run_all_method_benchmark_multi_source(
                     "variant_count_completed": 0,
                     "variant_count_successful": 0,
                     "winner_metrics": {},
+                    "timing_summary": {},
                     "error": str(exc),
                 }
             )
@@ -4146,6 +4355,64 @@ def _run_all_method_benchmark_multi_source(
     total_successful_config_runs = sum(
         _report_count(row.get("variant_count_successful")) for row in source_rows
     )
+    run_wall_seconds = max(0.0, time.monotonic() - run_started)
+
+    source_timing_values: list[tuple[dict[str, Any], float]] = []
+    config_total_seconds = 0.0
+    for row in source_rows:
+        if str(row.get("status", "")).lower() != "ok":
+            continue
+        timing_summary = row.get("timing_summary")
+        if not isinstance(timing_summary, dict):
+            continue
+        source_seconds = _report_optional_metric(
+            timing_summary.get("source_wall_seconds")
+        )
+        if source_seconds is not None:
+            source_timing_values.append((row, source_seconds))
+        config_seconds = _report_optional_metric(
+            timing_summary.get("config_total_seconds")
+        )
+        if config_seconds is not None:
+            config_total_seconds += config_seconds
+
+    source_total_seconds = sum(seconds for _row, seconds in source_timing_values)
+    source_average_seconds = (
+        source_total_seconds / len(source_timing_values) if source_timing_values else None
+    )
+    config_average_seconds = (
+        config_total_seconds / total_successful_config_runs
+        if total_successful_config_runs > 0
+        else None
+    )
+    slowest_source_row = (
+        max(source_timing_values, key=lambda item: item[1])[0]
+        if source_timing_values
+        else None
+    )
+    slowest_source_seconds = (
+        max(seconds for _row, seconds in source_timing_values)
+        if source_timing_values
+        else None
+    )
+    slowest_config_name: str | None = None
+    slowest_config_seconds: float | None = None
+    for row in source_rows:
+        timing_summary = row.get("timing_summary")
+        if not isinstance(timing_summary, dict):
+            continue
+        candidate_seconds = _report_optional_metric(
+            timing_summary.get("slowest_config_seconds")
+        )
+        if candidate_seconds is None:
+            continue
+        candidate_dir = str(timing_summary.get("slowest_config_dir") or "").strip()
+        if not candidate_dir:
+            continue
+        candidate_name = f"{row.get('source_slug', '')}/{candidate_dir}".strip("/")
+        if slowest_config_seconds is None or candidate_seconds > slowest_config_seconds:
+            slowest_config_seconds = candidate_seconds
+            slowest_config_name = candidate_name
 
     report_payload: dict[str, Any] = {
         "created_at": dt.datetime.now().isoformat(timespec="seconds"),
@@ -4158,6 +4425,21 @@ def _run_all_method_benchmark_multi_source(
         "failed_source_count": total_targets - successful_source_count,
         "include_codex_farm_requested": include_codex_farm_requested,
         "include_codex_farm_effective": include_codex_farm_effective,
+        "timing_summary": {
+            "run_wall_seconds": run_wall_seconds,
+            "source_total_seconds": source_total_seconds,
+            "source_average_seconds": source_average_seconds,
+            "config_total_seconds": config_total_seconds,
+            "config_average_seconds": config_average_seconds,
+            "slowest_source": (
+                str(slowest_source_row.get("source_file", ""))
+                if isinstance(slowest_source_row, dict)
+                else None
+            ),
+            "slowest_source_seconds": slowest_source_seconds,
+            "slowest_config": slowest_config_name,
+            "slowest_config_seconds": slowest_config_seconds,
+        },
         "sources": source_rows,
         "unmatched": [
             {
@@ -4217,6 +4499,7 @@ def _run_all_method_benchmark(
     max_inflight_pipelines: int | None = None,
     max_concurrent_split_phases: int | None = None,
 ) -> Path:
+    source_started = time.monotonic()
     root_output_dir.mkdir(parents=True, exist_ok=True)
     scratch_root = root_output_dir / ".scratch"
     scratch_root.mkdir(parents=True, exist_ok=True)
@@ -4466,6 +4749,35 @@ def _run_all_method_benchmark(
     for rank, row in enumerate(successful_rows, start=1):
         row["rank"] = rank
 
+    successful_timing: list[tuple[dict[str, Any], float]] = []
+    for row in successful_rows:
+        row_timing = _normalize_timing_payload(row.get("timing"))
+        row_total_seconds = _report_optional_metric(row_timing.get("total_seconds"))
+        if row_total_seconds is None:
+            row_total_seconds = _report_optional_metric(row.get("duration_seconds"))
+        if row_total_seconds is None:
+            continue
+        row["timing"] = _timing_with_updates(
+            row_timing,
+            total_seconds=row_total_seconds,
+        )
+        successful_timing.append((row, row_total_seconds))
+
+    source_wall_seconds = max(0.0, time.monotonic() - source_started)
+    total_config_seconds = sum(seconds for _row, seconds in successful_timing)
+    average_config_seconds = (
+        total_config_seconds / len(successful_timing) if successful_timing else None
+    )
+    median_config_seconds = _median_metric(
+        [seconds for _row, seconds in successful_timing]
+    )
+    slowest_config_row = (
+        max(successful_timing, key=lambda item: item[1])[0] if successful_timing else None
+    )
+    slowest_config_seconds = (
+        max(seconds for _row, seconds in successful_timing) if successful_timing else None
+    )
+
     winner = successful_rows[0] if successful_rows else None
     final_rows = successful_rows + failed_rows
 
@@ -4478,6 +4790,18 @@ def _run_all_method_benchmark(
         "failed_variants": len(failed_rows),
         "include_codex_farm_requested": include_codex_farm_requested,
         "include_codex_farm_effective": include_codex_farm_effective,
+        "timing_summary": {
+            "source_wall_seconds": source_wall_seconds,
+            "config_total_seconds": total_config_seconds,
+            "config_average_seconds": average_config_seconds,
+            "config_median_seconds": median_config_seconds,
+            "slowest_config_dir": (
+                str(slowest_config_row.get("config_dir"))
+                if isinstance(slowest_config_row, dict)
+                else None
+            ),
+            "slowest_config_seconds": slowest_config_seconds,
+        },
         "variants": final_rows,
         "winner_by_f1": winner,
     }
@@ -7566,6 +7890,8 @@ def labelstudio_benchmark(
         with console.status("[bold cyan]Warming models...[/bold cyan]", spinner="dots"):
             _warm_all_models(ocr_device=selected_ocr_device)
 
+    benchmark_started = time.monotonic()
+    prediction_phase_seconds = 0.0
     try:
         with _temporary_epub_extractor(selected_epub_extractor):
             with _temporary_epub_unstructured_options(
@@ -7671,7 +7997,11 @@ def labelstudio_benchmark(
                         if external_progress_callback is not None
                         else None
                     )
+                    prediction_phase_started = time.monotonic()
                     import_result = _run_prediction_generation(callback)
+                    prediction_phase_seconds = max(
+                        0.0, time.monotonic() - prediction_phase_started
+                    )
                 else:
                     def _run_with_status(
                         update_progress: Callable[[str], None],
@@ -7685,12 +8015,16 @@ def labelstudio_benchmark(
 
                         return _run_prediction_generation(_combined_progress)
 
+                    prediction_phase_started = time.monotonic()
                     import_result = _run_with_progress_status(
                         initial_status=(
                             f"Generating prediction tasks for {selected_source.name}..."
                         ),
                         progress_prefix=f"Benchmark import ({selected_source.name})",
                         run=_run_with_status,
+                    )
+                    prediction_phase_seconds = max(
+                        0.0, time.monotonic() - prediction_phase_started
                     )
     except Exception as exc:  # noqa: BLE001
         if suppress_summary:
@@ -7701,14 +8035,21 @@ def labelstudio_benchmark(
         Path(import_result["run_root"]),
         eval_output_dir,
     )
+    prediction_load_started = time.monotonic()
     predicted = load_predicted_labeled_ranges(pred_run)
+    prediction_load_seconds = max(0.0, time.monotonic() - prediction_load_started)
+    gold_load_started = time.monotonic()
     gold = load_gold_freeform_ranges(selected_gold)
+    gold_load_seconds = max(0.0, time.monotonic() - gold_load_started)
+    evaluation_started = time.monotonic()
     eval_result = evaluate_predicted_vs_freeform(
         predicted,
         gold,
         overlap_threshold=overlap_threshold,
         force_source_match=force_source_match,
     )
+    evaluate_seconds = max(0.0, time.monotonic() - evaluation_started)
+    evaluation_seconds = prediction_load_seconds + gold_load_seconds + evaluate_seconds
     report = eval_result["report"]
     pred_context = _load_pred_run_recipe_context(pred_run)
     benchmark_recipes = pred_context.recipes
@@ -7731,21 +8072,62 @@ def labelstudio_benchmark(
         predicted_recipe_count=benchmark_recipes,
         predicted_recipe_count_source=benchmark_recipes_source,
     )
-    report_md = format_freeform_eval_report_md(report)
-
+    prediction_timing = _normalize_timing_payload(import_result.get("timing"))
+    prediction_seconds = _report_optional_metric(
+        prediction_timing.get("prediction_seconds")
+    )
+    if prediction_seconds is None:
+        prediction_seconds = _report_optional_metric(prediction_timing.get("total_seconds"))
+    if prediction_seconds is None:
+        prediction_seconds = prediction_phase_seconds
+    prediction_seconds_value = max(0.0, prediction_seconds)
+    prediction_checkpoints = {}
+    existing_prediction_checkpoints = prediction_timing.get("checkpoints")
+    if isinstance(existing_prediction_checkpoints, dict):
+        prediction_checkpoints.update(existing_prediction_checkpoints)
+    prediction_checkpoints.update(
+        {
+            "prediction_load_seconds": prediction_load_seconds,
+            "gold_load_seconds": gold_load_seconds,
+            "evaluate_seconds": evaluate_seconds,
+        }
+    )
+    benchmark_timing = _timing_with_updates(
+        prediction_timing,
+        prediction_seconds=prediction_seconds,
+        evaluation_seconds=evaluation_seconds,
+        checkpoints=prediction_checkpoints,
+    )
+    report["timing"] = benchmark_timing
     report_json_path = eval_output_dir / "eval_report.json"
+    report_md_path = eval_output_dir / "eval_report.md"
+    artifact_write_started = time.monotonic()
+    report_md = format_freeform_eval_report_md(report)
     report_json_path.write_text(
         json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
     )
-    report_md_path = eval_output_dir / "eval_report.md"
     report_md_path.write_text(report_md, encoding="utf-8")
     write_jsonl(eval_output_dir / "missed_gold_spans.jsonl", eval_result["missed_gold"])
     write_jsonl(
         eval_output_dir / "false_positive_preds.jsonl",
         eval_result["false_positive_preds"],
     )
+    artifact_write_seconds = max(0.0, time.monotonic() - artifact_write_started)
+    total_floor_with_artifacts = (
+        prediction_seconds_value + max(0.0, evaluation_seconds) + artifact_write_seconds
+    )
+    benchmark_timing = _timing_with_updates(
+        benchmark_timing,
+        artifact_write_seconds=artifact_write_seconds,
+        total_seconds=max(
+            max(0.0, time.monotonic() - benchmark_started),
+            total_floor_with_artifacts,
+        ),
+    )
+    report["timing"] = benchmark_timing
 
     from cookimport.analytics.perf_report import append_benchmark_csv, history_path
+    history_append_started = time.monotonic()
     append_benchmark_csv(
         report,
         history_path(processed_output_dir),
@@ -7759,7 +8141,25 @@ def labelstudio_benchmark(
         run_config_hash=pred_context.run_config_hash,
         run_config_summary=pred_context.run_config_summary,
         epub_auto_selected_score=pred_context.epub_auto_selected_score,
+        timing=benchmark_timing,
     )
+    history_append_seconds = max(0.0, time.monotonic() - history_append_started)
+    total_floor_with_history = total_floor_with_artifacts + history_append_seconds
+    benchmark_timing = _timing_with_updates(
+        benchmark_timing,
+        history_append_seconds=history_append_seconds,
+        total_seconds=max(
+            max(0.0, time.monotonic() - benchmark_started),
+            total_floor_with_history,
+        ),
+        checkpoints={"history_csv_append_seconds": history_append_seconds},
+    )
+    report["timing"] = benchmark_timing
+    report_md = format_freeform_eval_report_md(report)
+    report_json_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    report_md_path.write_text(report_md, encoding="utf-8")
 
     benchmark_run_config: dict[str, Any] = {
         "overlap_threshold": overlap_threshold,
@@ -7806,6 +8206,7 @@ def labelstudio_benchmark(
         "missed_gold_spans_jsonl": "missed_gold_spans.jsonl",
         "false_positive_preds_jsonl": "false_positive_preds.jsonl",
         "history_csv": str(history_csv_for_output(processed_output_dir)),
+        "timing": benchmark_timing,
     }
     if csv_report_path:
         benchmark_artifacts["processed_report_json"] = _path_for_manifest(

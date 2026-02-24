@@ -160,6 +160,22 @@ Outputs:
   - predicted recipes from prediction-run manifest/report context (`recipe_count` / `totalRecipes` fallback),
   - markdown summary line for predicted-vs-golden recipe deltas.
 
+### 6.1 Runtime telemetry emitted by benchmark runs
+
+`labelstudio-benchmark` now persists benchmark timing in:
+- prediction `manifest.json` (`timing`)
+- eval `eval_report.json` (`timing`)
+- benchmark `run_manifest.json` artifacts (`timing`)
+
+Timing payload keys:
+- wall/runtime totals: `total_seconds`, `prediction_seconds`, `evaluation_seconds`, `artifact_write_seconds`, `history_append_seconds`
+- stage-aligned runtime fields when available: `parsing_seconds`, `writing_seconds`, `ocr_seconds`
+- checkpoints: `prediction_load_seconds`, `gold_load_seconds`, `evaluate_seconds`, plus prediction-generation checkpoints (`conversion_seconds`, `task_build_seconds`, optional split/processed-output checkpoints)
+
+Interactive all-method reports now include timing rollups:
+- per-source `all_method_benchmark_report.json` / `.md` include `timing_summary` and per-config `timing`
+- combined `all_method_benchmark_multi_source_report.json` / `.md` include run-level `timing_summary` with slowest source/config references
+
 ## 7. Command matrix
 
 | Command | Uploads to Label Studio | Scores predictions | Primary prediction source |

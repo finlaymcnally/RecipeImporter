@@ -134,6 +134,15 @@ For benchmark rows, key columns include:
 - boundary columns: `boundary_correct`, `boundary_over`, `boundary_under`, `boundary_partial`
 - `eval_scope`, `source_file` (stored in `file_name`)
 - run context columns: `run_config_hash`, `run_config_summary`, `run_config_json`
+- benchmark runtime columns:
+  - stage-aligned: `total_seconds`, `parsing_seconds`, `writing_seconds`, `ocr_seconds`
+  - benchmark-specific: `benchmark_prediction_seconds`, `benchmark_evaluation_seconds`, `benchmark_artifact_write_seconds`, `benchmark_history_append_seconds`, `benchmark_total_seconds`
+  - eval checkpoints: `benchmark_prediction_load_seconds`, `benchmark_gold_load_seconds`, `benchmark_evaluate_seconds`
+
+Benchmark timing precedence for CSV append (`append_benchmark_csv`) is:
+1. explicit `timing=...` argument (from benchmark orchestration),
+2. `processed_report_path` report `timing` payload fallback,
+3. blank timing fields.
 
 Schema migration support exists: old CSV files missing newer columns are auto-expanded during append.
 CSV append writes (`append_history_csv`, `append_benchmark_csv`) now hold an inter-process file lock across schema/header/row writes so parallel benchmark configs cannot corrupt shared history files.

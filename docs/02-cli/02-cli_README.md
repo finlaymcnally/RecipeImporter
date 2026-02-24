@@ -277,9 +277,11 @@ Interactive benchmark now has a mode submenu before execution:
    - runs each config offline (`--no-upload`) and writes per-source eval artifacts plus:
      - `<source_slug>/all_method_benchmark_report.json`
      - `<source_slug>/all_method_benchmark_report.md`
+     - each per-source report now includes `timing_summary` and per-config `timing` rows
    - all-matched mode also writes a combined summary report:
      - `all_method_benchmark_multi_source_report.json`
      - `all_method_benchmark_multi_source_report.md`
+     - combined report now includes run-level `timing_summary` (run/source/config totals + slowest source/config)
    - writes per-config processed cookbook outputs under:
      - `<interactive output_dir>/<benchmark_timestamp>/all-method-benchmark/<source_slug>/config_*/<prediction_timestamp>/...`
    - prints `All method processed outputs: ...` with that root path.
@@ -590,6 +592,8 @@ Behavior note:
 - Non-interactive offline path: `--no-upload` generates predictions locally and evaluates with no Label Studio credentials/API calls.
 - Re-scoring an old prediction run without regeneration is still done with `cookimport labelstudio-eval --pred-run ... --gold-spans ...`.
 - Interactive mode (`cookimport` -> Benchmark) always runs offline benchmark generation/eval (`single offline` or `all method`).
+- Successful runs persist benchmark timing under `eval_report.json` `timing`, including prediction/evaluation/write/history subphase timings and checkpoints.
+- Benchmark CSV append now receives that timing payload and records benchmark runtime columns in `performance_history.csv`.
 
 Options:
 

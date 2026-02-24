@@ -192,7 +192,9 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - Non-interactive `labelstudio-benchmark` supports an explicit offline path via `--no-upload`; this mode must skip Label Studio credential resolution and never call upload APIs.
 - `labelstudio-benchmark` currently mutates process-global `C3IMP_EPUB_*` runtime env vars and all-method per-source config runs append to a shared history CSV path; all-method outer parallelization must use process isolation (not threads) and queue-based bounded concurrency.
 - All-method parallel benchmark execution should keep up to `4` configs in-flight, but gate split-worker-heavy conversion to at most `2` simultaneous configs via shared split-slot locking.
-- Benchmark timing telemetry is currently coarse: `append_benchmark_csv(...)` intentionally leaves stage-runtime columns empty, and benchmark processed reports written via `generate_pred_run_artifacts(...)` do not set `ConversionReport.timing`; use run-manifest timestamp deltas only as a rough wall-clock proxy until dedicated benchmark phase timing is added.
+- Benchmark timing telemetry must be persisted end-to-end: prediction `manifest.json` `timing`, benchmark `eval_report.json` `timing`, and benchmark `run_manifest.json` artifacts `timing`.
+- Benchmark CSV timing precedence is: explicit benchmark timing payload first, then `processed_report_path` `timing`, then blanks; when timing exists, populate stage runtime columns (`total/parsing/writing/ocr`) and benchmark-specific runtime columns (`benchmark_*_seconds`).
+- All-method benchmark reports must include timing rollups (`timing_summary`) at both per-source and multi-source levels, plus per-config `timing` for successful config rows.
 - Run-producing flows must emit `run_manifest.json` so source identity (`path` + `source_hash`), effective config, and key artifacts are inspectable without reading code.
 - When codex-farm is enabled for stage/pred-run, report + manifest payloads should expose `llmCodexFarm`/`llm_codex_farm` metadata, and deterministic fallback semantics must be explicit (`codex_farm_failure_mode=fail|fallback`).
 

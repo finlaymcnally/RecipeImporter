@@ -1890,6 +1890,117 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     assert run_manifest["run_config"]["upload"] is False
 
 
+def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+    (prediction_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(source_file),
+                "source_hash": "hash-123",
+                "run_config": {"workers": 1},
+                "run_config_hash": "cfg-hash",
+                "run_config_summary": "workers=1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_co_locate_prediction_run_for_benchmark",
+        lambda _pred_run, _eval_dir: prediction_run,
+    )
+    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
+    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
+    monkeypatch.setattr(
+        cli,
+        "evaluate_predicted_vs_freeform",
+        lambda *_args, **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 1,
+                    "pred_total": 1,
+                    "gold_matched": 1,
+                    "pred_matched": 1,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0,
+                "practical_precision": 1.0,
+                "practical_recall": 1.0,
+                "practical_f1": 1.0,
+                "boundary": {"correct": 1, "over": 0, "under": 0, "partial": 0},
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(cli, "write_jsonl", lambda *_: None)
+
+    captured_csv: dict[str, object] = {}
+
+    def _capture_append(*_args, **kwargs):
+        captured_csv.update(kwargs)
+
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        _capture_append,
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "generate_pred_run_artifacts",
+        lambda **_kwargs: {
+            "run_root": prediction_run,
+            "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
+            "processed_report_path": "",
+            "timing": {
+                "total_seconds": 9.0,
+                "prediction_seconds": 9.0,
+                "parsing_seconds": 6.0,
+                "writing_seconds": 2.0,
+                "ocr_seconds": 0.5,
+                "checkpoints": {"split_wait_seconds": 0.2},
+            },
+        },
+    )
+
+    eval_root = tmp_path / "eval"
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=tmp_path / "output",
+        eval_output_dir=eval_root,
+        no_upload=True,
+    )
+
+    report_payload = json.loads((eval_root / "eval_report.json").read_text(encoding="utf-8"))
+    timing = report_payload.get("timing")
+    assert isinstance(timing, dict)
+    assert timing["prediction_seconds"] == pytest.approx(9.0)
+    assert timing["evaluation_seconds"] >= 0.0
+    assert timing["artifact_write_seconds"] >= 0.0
+    assert timing["history_append_seconds"] >= 0.0
+    assert timing["total_seconds"] >= timing["prediction_seconds"]
+    assert timing["checkpoints"]["prediction_load_seconds"] >= 0.0
+    assert timing["checkpoints"]["evaluate_seconds"] >= 0.0
+    assert isinstance(captured_csv.get("timing"), dict)
+    assert captured_csv["timing"]["prediction_seconds"] == pytest.approx(9.0)
+
+
 def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2051,6 +2162,7 @@ def test_run_all_method_benchmark_writes_ranked_summary(
         captured_processed_dirs.append(processed_output_dir)
         extractor = str(kwargs.get("epub_extractor") or "")
         f1 = 0.82 if extractor == "markdown" else 0.40
+        total_seconds = 8.0 if extractor == "markdown" else 5.0
         report = {
             "precision": f1,
             "recall": f1,
@@ -2058,6 +2170,11 @@ def test_run_all_method_benchmark_writes_ranked_summary(
             "practical_precision": f1,
             "practical_recall": f1,
             "practical_f1": f1,
+            "timing": {
+                "total_seconds": total_seconds,
+                "prediction_seconds": total_seconds - 1.2,
+                "evaluation_seconds": 1.2,
+            },
         }
         (eval_output_dir / "eval_report.json").write_text(
             json.dumps(report, indent=2, sort_keys=True),
@@ -2100,8 +2217,12 @@ def test_run_all_method_benchmark_writes_ranked_summary(
     assert payload["variant_count"] == 2
     assert payload["successful_variants"] == 2
     assert payload["winner_by_f1"]["run_config_hash"] == "hash-markdown"
+    assert payload["timing_summary"]["source_wall_seconds"] >= 0.0
+    assert payload["timing_summary"]["config_total_seconds"] == pytest.approx(13.0)
+    assert payload["timing_summary"]["slowest_config_dir"] == payload["winner_by_f1"]["config_dir"]
     assert payload["variants"][0]["rank"] == 1
     assert payload["variants"][0]["run_config_hash"] == "hash-markdown"
+    assert payload["variants"][0]["timing"]["total_seconds"] == pytest.approx(8.0)
     assert captured_processed_dirs
     for processed_dir in captured_processed_dirs:
         assert str(processed_dir).startswith(str(processed_root))
@@ -2393,6 +2514,12 @@ def test_run_all_method_benchmark_multi_source_writes_combined_summary_with_fail
                 "recall": 0.8,
                 "f1": 0.85,
             },
+            "timing_summary": {
+                "source_wall_seconds": 7.5,
+                "config_total_seconds": 7.5,
+                "slowest_config_dir": "config_001",
+                "slowest_config_seconds": 7.5,
+            },
         }
         report_md_path.with_suffix(".json").write_text(
             json.dumps(report_payload, indent=2, sort_keys=True),
@@ -2423,6 +2550,10 @@ def test_run_all_method_benchmark_multi_source_writes_combined_summary_with_fail
     assert payload["failed_source_count"] == 1
     assert payload["sources"][0]["status"] == "ok"
     assert payload["sources"][1]["status"] == "failed"
+    assert payload["sources"][0]["timing_summary"]["source_wall_seconds"] == pytest.approx(7.5)
+    assert payload["timing_summary"]["source_total_seconds"] == pytest.approx(7.5)
+    assert payload["timing_summary"]["slowest_source"] == str(source_a)
+    assert payload["timing_summary"]["slowest_config"] == "book_a/config_001"
 
 
 def test_interactive_all_method_benchmark_uses_timestamped_output_root(
