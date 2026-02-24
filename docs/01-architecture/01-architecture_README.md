@@ -303,3 +303,50 @@ Durable rules:
   - glyph suppression in `tests/conftest.py:pytest_report_teststatus(...)`
 - Compact mode should remain enforced in `tests/conftest.py:pytest_configure(...)` (`no_header`, `no_summary`, warnings suppression, verbose clamp) so `-o addopts=''` does not re-enable noisy separators by accident.
 - Intentional verbose debugging remains opt-in via `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`.
+
+## Merged Understanding (2026-02-24 cleanup)
+
+### 2026-02-23_23.14.20 data layout: golden workflow buckets + shared history root
+
+Merged source:
+- `docs/understandings/2026-02-23_23.14.20-data-layout-golden-history-buckets.md`
+
+Durable cross-cutting layout contract:
+- Golden workflow artifacts are separated by intent:
+  - `data/golden/sent-to-labelstudio` (task generation/import runs),
+  - `data/golden/pulled-from-labelstudio` (label exports),
+  - `data/golden/benchmark-vs-golden` (benchmark/eval runs).
+- Shared history root is `data/.history`:
+  - dashboard default output: `data/.history/dashboard`,
+  - canonical history CSV: `data/.history/performance_history.csv`.
+- Compatibility behavior should remain tolerant while older artifacts exist:
+  - dashboard collector may fallback to legacy `data/output/.history/performance_history.csv`,
+  - last-run settings loaders may fallback to legacy `<output_dir>/.history/last_run_settings_*.json`.
+
+## Merged Task Spec (2026-02-24 docs/tasks archival batch)
+
+### 2026-02-23_23.14.20 data-layout implementation addendum
+
+Task source:
+- `docs/tasks/2026-02-23_23.14.20-data-layout-golden-history-refactor.md`
+
+Architecture details to preserve:
+- Central path derivation moved into `cookimport/paths.py` so commands do not hardcode divergent golden/history roots.
+- CLI defaults/routing were aligned together for:
+  - `labelstudio-import --output-dir`,
+  - `labelstudio-export --output-dir`,
+  - `labelstudio-benchmark --output-dir`,
+  - `stats-dashboard --out-dir`.
+- Golden roots now encode workflow intent:
+  - `data/golden/sent-to-labelstudio`,
+  - `data/golden/pulled-from-labelstudio`,
+  - `data/golden/benchmark-vs-golden`.
+- Shared analytics/history root moved to `data/.history` with legacy read fallback for migration safety.
+
+Implementation caveats preserved:
+- Interactive tests monkeypatch `DEFAULT_GOLDEN`; routing must derive subpaths dynamically from that root rather than import-time frozen constants.
+- Dashboard/collector code must keep legacy `data/output/.history` fallback while historical artifacts remain.
+
+Recorded validation from task:
+- `source .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py tests/analytics/test_stats_dashboard.py tests/cli/test_cli_output_structure.py tests/llm/test_run_settings.py tests/analytics/test_benchmark_csv_backfill_cli.py`
+- Result captured: `112 passed, 7 warnings in 5.75s`.

@@ -92,3 +92,49 @@ Preserved rule:
 
 Anti-loop note:
 - If separator/bannner noise returns, verify `tests/conftest.py` hook behavior before editing marker/test-output docs.
+
+## 2026-02-24 archival merge batch from `docs/understandings` (architecture)
+
+### 2026-02-23_23.14.20 golden/history path bucket refactor
+
+Merged source:
+- `docs/understandings/2026-02-23_23.14.20-data-layout-golden-history-buckets.md`
+
+Problem captured:
+- Label Studio task-generation, label-export, and benchmark-eval artifacts shared overlapping roots, while long-term history lived under stage output roots, causing operator confusion and cross-workflow path drift.
+
+Preserved decisions:
+- Separate golden roots by workflow (`sent-to-labelstudio`, `pulled-from-labelstudio`, `benchmark-vs-golden`).
+- Move shared history root to `data/.history` for cross-command analytics/dashboard consistency.
+- Keep fallback reads for legacy history/settings paths during migration window.
+
+Anti-loop note:
+- Path-contract changes must update CLI defaults, collectors, and docs together; partial updates recreate "missing artifact" confusion loops.
+
+## 2026-02-24 docs/tasks archival merge batch (architecture)
+
+### 2026-02-23_23.14.20 data layout refactor task record
+
+Merged source:
+- `docs/tasks/2026-02-23_23.14.20-data-layout-golden-history-refactor.md`
+
+Problem captured:
+- Golden artifacts for import/export/benchmark were mixed under one root, and cross-run history lived under output-specific roots, causing path drift across CLI, dashboard, and settings loaders.
+
+Decisions preserved:
+- Keep one canonical golden root constant (`DEFAULT_GOLDEN`) but route operational defaults to workflow-specific subfolders.
+- Make `data/.history` canonical for shared history/dashboard outputs.
+- Keep compatibility fallback reads for legacy history/settings paths during migration.
+
+Serious implementation pitfalls already encountered:
+- Using import-time frozen golden subfolder constants broke tests that monkeypatch `DEFAULT_GOLDEN`; dynamic derivation fixed this.
+- Dashboard/history collectors initially missed rows when only legacy `output/.history` existed; fallback reads were required for migration period.
+
+Evidence preserved from task:
+- Targeted validation run recorded as `112 passed, 7 warnings`.
+- On-disk migration recorded:
+  - `data/output/.history -> data/.history`,
+  - golden artifacts moved into `sent-to-labelstudio`, `pulled-from-labelstudio`, `benchmark-vs-golden`.
+
+Anti-loop note:
+- Do not split path-contract work across multiple PRs without synchronized CLI defaults + collector fallbacks + docs updates; partial migrations repeatedly recreated "artifact not found" debugging loops.

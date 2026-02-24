@@ -982,3 +982,21 @@ Anti-loop carry-forward for this retirement merge:
 - Do not reintroduce decorate-mode assumptions into current runtime docs without explicit product decision.
 - Do not relax focus constraints to prompt-only wording; parser enforcement is the contract.
 - Do not collapse context arrays back into `segment_text`; that reintroduces dedupe noise and offset ambiguity.
+
+## 2026-02-24 archival merge batch from `docs/understandings` (Label Studio)
+
+### 2026-02-23_15.55.42 freeform export recipe-header count persistence
+
+Merged source:
+- `docs/understandings/2026-02-23_15.55.42-golden-recipe-header-count-flow.md`
+
+Problem captured:
+- Freeform exports had enough information to derive recipe totals, but recipe-header diagnostics were not persisted consistently for benchmark/eval interpretation.
+
+Preserved decisions:
+- Persist recipe-header counts in freeform export `summary.json` (`counts.recipe_headers`, `recipe_counts.recipe_headers`, `recipe_counts.recipe_headers_raw`).
+- Derive golden recipe totals from normalized `RECIPE_TITLE` spans deduped by source+block-range.
+- Surface predicted-vs-golden recipe count diagnostics in freeform benchmark/eval reports.
+
+Anti-loop note:
+- Keep recipe-count diagnostics distinct from span matching metrics; high span quality and recipe-count mismatch can coexist.

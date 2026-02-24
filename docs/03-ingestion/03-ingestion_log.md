@@ -132,12 +132,15 @@ Concrete regression captured:
 - Regression test anchor:
   - `tests/test_epub_auto_select.py::test_select_epub_extractor_auto_real_importer_supports_direct_probe`
 
-### Undated durable reference: EPUB extractor mode semantics
+### Undated historical reference (pre-2026-02-23 runtime auto removal)
 
-Preserved baseline:
+Historical baseline preserved for archaeology:
 - Extractor modes are mutually exclusive (`unstructured`, `legacy`, `markdown`, `auto`, `markitdown`) and feed one downstream segmentation pipeline.
 - `markitdown` remains whole-book only (no spine-range split support).
 - `auto` uses deterministic sampled-spine scoring and persists rationale artifacts for auditability.
+
+Supersession note:
+- Runtime stage/prediction paths now follow the explicit-only extractor contract documented in the 2026-02-23 entries below; this historical baseline is not the current runtime selector surface.
 
 ### 2026-02-22_14.08.34 - elapsed spinner ticker + post-candidate importer progress
 
@@ -228,3 +231,55 @@ Evidence preserved from task:
 Anti-loop notes:
 - Do not append from worker threads into shared output arrays directly.
 - If order drift appears, inspect post-merge container-index sort before touching extraction heuristics.
+
+## 2026-02-24 archival merge batch from `docs/understandings` (ingestion)
+
+### 2026-02-23_22.45.22 explicit-only EPUB extractor runtime contract
+
+Merged source:
+- `docs/understandings/2026-02-23_22.45.22-epub-extractor-auto-removed.md`
+
+Preserved decisions:
+- Remove `auto` from stage/prediction runtime selector surface; runtime now requires explicit backend selection.
+- Keep compatibility migration for legacy settings (`auto` -> `unstructured` with warning) so older saved configs do not hard fail silently.
+- Keep deterministic auto-selection logic only for explicit debug/race tooling paths.
+
+Anti-loop note:
+- Do not reintroduce runtime `auto` unless extractor-selection semantics, manifest fields, and tests are updated as one contract change.
+
+## 2026-02-24 docs/tasks archival merge batch (ingestion extractor contract)
+
+### 2026-02-23_22.37.46 remove EPUB extractor auto mode from runtime paths
+
+Merged source:
+- `docs/tasks/2026-02-23_22.37.46-remove-epub-auto-mode.md`
+
+Problem captured:
+- Runtime `epub_extractor=auto` made stage/prediction behavior indirect and harder to reason about versus explicit backend selection.
+
+Decisions preserved:
+- Remove `auto` from runtime validation surfaces (`run_settings`, CLI normalization, prediction ingestion normalization).
+- Keep debug/race utilities (`select_epub_extractor_auto(...)`) available outside runtime stage/prediction paths.
+- Keep historical analytics/report compatibility keys (`epub_extractor_requested`, `epub_extractor_effective`) but make values equal for new runs.
+- Add legacy settings migration in `RunSettings.from_dict(...)` so stored `auto` values coerce to `unstructured` with warning.
+
+Evidence preserved:
+- Focused suite recorded in task: `86 passed, 7 warnings`.
+- `stage --help` evidence recorded in task shows explicit extractor choices only.
+
+### 2026-02-23_22.47.23 follow-up task spec/evidence capture for auto removal
+
+Merged source:
+- `docs/tasks/2026-02-23_22.47.23-remove-epub-auto-extractor.md`
+
+Preserved acceptance framing:
+- Validators reject runtime `auto`.
+- All-method permutations remove `auto`.
+- Legacy settings migration remains in place.
+
+Implementation gotcha preserved:
+- CLI invalid-choice assertions should not rely solely on `stdout` text; Typer runner output stream behavior can hide expected text in that channel.
+
+Anti-loop notes:
+- Do not "fix" explicit-only runtime by reintroducing `auto` into variant builders or CLI help text without updating run-settings migration, docs, and benchmark tests together.
+- Do not remove debug auto-selector internals while runtime auto stays disabled; those internals still support extractor diagnostics workflows.

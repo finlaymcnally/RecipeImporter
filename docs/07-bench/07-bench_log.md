@@ -265,3 +265,283 @@ Preserved findings:
 - Dedupe key remains `(source_hash, source_file, start_block_index, end_block_index)`, so overlap changes duplicate row counts but not dedupe semantics.
 - Exact-key label conflicts resolve by majority label; exact ties are dropped from scored gold.
 - Different block ranges are intentionally treated as distinct examples (no near-range fuzzy merge).
+
+## 2026-02-24 archival merge batch from `docs/understandings` (bench)
+
+### 2026-02-23_12.31.53 freeform eval dedupe block-range explanation
+
+Merged source:
+- `docs/understandings/2026-02-23_12.31.53-freeform-eval-dedupe-block-range.md`
+
+Preserved findings:
+- Freeform exports can have zero exact-duplicate spans while still showing large eval dedupe removals, because eval normalizes spans to block ranges.
+- Dedupe key remains block-range based (`source_hash`, `source_file`, `start_block_index`, `end_block_index`), so multiple sub-block spans in one block can collapse.
+- `segment_overlap_requested=0` can still produce `segment_overlap_effective>0` under focus-window floor rules.
+
+Anti-loop note:
+- If dedupe looks "wrong," inspect block-range grouping and overlap-effective metadata before changing scoring code.
+
+### 2026-02-23_12.53.47 strict-IoU collapse under span-granularity mismatch
+
+Merged source:
+- `docs/understandings/2026-02-23_12.53.47-pipeline-freeform-span-granularity-gap.md`
+
+Preserved findings:
+- Benchmark scoring compares prediction task ranges (`label_studio_tasks.jsonl`) to freeform gold ranges; it does not score staged final draft files directly.
+- In observed runs, gold spans were mostly width `1` while prediction spans were often recipe-wide (`p50` ~24 blocks), forcing strict IoU below threshold even with broad overlap.
+- High `any-overlap` and high `same-label any-overlap` with near-zero strict IoU indicates localization granularity mismatch, not necessarily extraction-content failure.
+
+Anti-loop note:
+- Do not treat strict `0.000` alone as parser collapse without checking width stats + any-overlap diagnostics.
+
+### 2026-02-23_14.09.30 interactive benchmark mode contract (offline-only)
+
+Merged source:
+- `docs/understandings/2026-02-23_14.09.30-interactive-benchmark-upload-only.md`
+
+Preserved rules:
+- Interactive benchmark now branches by mode before execution and keeps only offline paths.
+- Single offline mode uses benchmark run-settings chooser and can persist last-run settings snapshot.
+- All-method mode stays offline, uses global defaults, and asks explicit proceed confirmation.
+
+### 2026-02-23_14.42.57 benchmark-update original-plan audit closure
+
+Merged source:
+- `docs/understandings/2026-02-23_14.42.57-benchmark-update-original-plan-gap.md`
+
+Preserved status:
+- Practical-vs-strict metric overhaul is considered shipped end-to-end (eval, bench aggregate, CSV/dashboard, test coverage).
+- Interactive benchmark drift to combo-only mode was removed; offline single-run + all-method branch is the expected runtime path.
+
+### 2026-02-23_15.37.43 interactive benchmark split (single offline vs all-method)
+
+Merged source:
+- `docs/understandings/2026-02-23_15.37.43-interactive-all-method-benchmark-flow.md`
+
+Preserved rules:
+- Shared source/gold resolution helper is reused across benchmark modes.
+- All-method runs execute offline benchmark loops per variant and produce ranked all-method reports.
+- Codex-farm option prompts can remain visible but currently stay inert while recipe LLM pipeline is policy-locked off.
+
+### 2026-02-23_16.03.51 upload mode vs offline scoring distinction
+
+Merged source:
+- `docs/understandings/2026-02-23_16.03.51-benchmark-upload-mode-vs-offline-eval.md`
+
+Preserved findings:
+- Scoring is fully local/offline against prediction artifacts and exported freeform gold; upload mode is optional side effect.
+- Uploaded benchmark tasks can look blank because they are pipeline-scope tasks without prelabels.
+- Scope-collision project naming can auto-suffix (`-1`, `-2`, ...) during upload.
+
+### 2026-02-23_16.11.07 interactive default should stay offline
+
+Merged source:
+- `docs/understandings/2026-02-23_16.11.07-interactive-benchmark-default-offline.md`
+
+Preserved rules:
+- Interactive benchmark default first choice is single-offline.
+- Interactive benchmark should not resolve Label Studio credentials in either single-offline or all-method mode.
+
+### 2026-02-23_17.26.00 practical-vs-strict metrics wired end-to-end
+
+Merged source:
+- `docs/understandings/2026-02-23_17.26.00-practical-vs-strict-benchmark-metrics-shipped.md`
+
+Preserved contract:
+- Keep strict/localization and practical/content-overlap tracks together in eval/reporting.
+- Maintain granularity-mismatch diagnostics in report and dashboard surfaces.
+
+### 2026-02-23_23.19.10 benchmark processed-output path map
+
+Merged source:
+- `docs/understandings/2026-02-23_23.19.10-benchmark-processed-output-paths.md`
+
+Preserved rules:
+- `labelstudio-benchmark` writes processed outputs by default under configured output root.
+- Interactive all-method writes processed outputs under benchmark timestamp + source/config hierarchy.
+- `bench run` does not emit processed cookbook outputs by default.
+
+### 2026-02-23_23.36.37 interactive prompt order + offline-only options
+
+Merged source:
+- `docs/understandings/2026-02-23_23.36.37-interactive-benchmark-offline-only-order.md`
+
+Preserved rules:
+- Prompt order is mode-first, then mode-specific prompts.
+- Interactive menu keeps only offline options; upload remains non-interactive CLI-only behavior.
+
+### 2026-02-23_23.38.41 all-method single-pair matching gap (historical)
+
+Merged source:
+- `docs/understandings/2026-02-23_23.38.41-all-method-single-pair-matching-gap.md`
+
+Preserved historical finding:
+- Earlier all-method flow resolved only one `(gold_spans, source_file)` pair and could miss valid exports when source hints existed only in segment-manifest metadata.
+
+Anti-loop note:
+- If all-golden mode regresses, verify segment-manifest fallback before rewriting matcher semantics.
+
+### 2026-02-23_23.49.22 all-golden matching fallback order (current)
+
+Merged source:
+- `docs/understandings/2026-02-23_23.49.22-all-method-all-golden-matching.md`
+
+Preserved rules:
+- All-golden scope now fans out across matched freeform exports.
+- Source-hint fallback order is manifest -> first labeled span row -> first segment-manifest row.
+- Matching target remains top-level importable files by exact filename.
+
+### 2026-02-24_00.20.26 all-method run-settings bypass contract
+
+Merged source:
+- `docs/understandings/2026-02-24_00.20.26-interactive-all-method-skips-run-settings.md`
+
+Preserved rules:
+- Single-offline keeps run-settings chooser.
+- All-method skips chooser and uses global benchmark defaults.
+- All-method should not overwrite `last_run_settings_benchmark` snapshot.
+
+### 2026-02-24_00.29.50 all-method dashboard progress hook
+
+Merged source:
+- `docs/understandings/2026-02-24_00.29.50-all-method-dashboard-progress-hook.md`
+
+Preserved implementation shape:
+- All-method wraps per-config `labelstudio_benchmark(...)` calls with scoped benchmark progress overrides.
+- Overrides forward worker activity to outer dashboard spinner while suppressing nested spinner and per-config summary noise.
+- Outer dashboard tracks queue state + source/config counters + active task line.
+
+### 2026-02-24_00.37.24 timing telemetry gap (historical baseline)
+
+Merged source:
+- `docs/understandings/2026-02-24_00.37.24-all-method-benchmark-timing-telemetry-gap.md`
+
+Preserved historical context:
+- This documented that all-method quality metrics shipped before per-stage timing telemetry existed.
+- It should be read as pre-telemetry baseline for later timing-contract changes.
+
+### 2026-02-24_00.50.03 parallel queue + split-slot + CSV locking
+
+Merged source:
+- `docs/understandings/2026-02-24_00.50.03-all-method-parallel-split-slot-locking.md`
+
+Preserved runtime rules:
+- All-method uses bounded outer queue (4 inflight by default).
+- Split-heavy conversion is independently gated with 2-slot lock files under source all-method root.
+- History CSV appends are guarded by file locks to prevent parallel write corruption.
+
+### 2026-02-24_08.56.28 benchmark timing contract + fallback order
+
+Merged source:
+- `docs/understandings/2026-02-24_08.56.28-benchmark-timing-contract-and-fallbacks.md`
+
+Preserved contract:
+- Prediction generation, benchmark orchestration, and eval artifacts should all emit benchmark `timing` payloads.
+- `append_benchmark_csv(...)` timing precedence is explicit argument -> processed report timing fallback -> blanks.
+- Timing totals are floored against known subphase sums to avoid under-reported runtime in fast/mocked paths.
+- All-method reports include per-config timing plus source/run timing summaries sufficient for coarse runtime analysis.
+
+## 2026-02-24 docs/tasks archival merge batch (bench ExecPlans)
+
+### 2026-02-23 Benchmark-update draft -> shipped practical-vs-strict metrics
+
+Merged sources:
+- `docs/tasks/Benchmark-update copy.md` (unchecked draft state)
+- `docs/tasks/Benchmark-update.md` (completed implementation record)
+
+Problem captured:
+- Strict IoU-only headline metrics frequently looked catastrophic (`0.000`) even when cookbook outputs were practically usable, driving repeated confusion loops.
+
+Shipped decisions/outcomes preserved:
+- Keep strict IoU scoring semantics unchanged and add practical/content-overlap metrics alongside strict metrics.
+- Add width stats + granularity mismatch detection so strict-low/practical-high cases are explicitly labeled.
+- Extend bench aggregates, iteration-packet severity ranking, CSV history rows, and dashboard views to include practical track fields.
+- Keep schema evolution additive; old rows remain readable.
+
+Serious failed-path summary:
+- A mistaken interactive combo-only benchmark direction was introduced during this period and then explicitly removed; interactive behavior was restored before later offline/all-method menu changes.
+
+Evidence preserved from task:
+- Focused regression run in `.venv` covering freeform eval, bench, dashboard analytics, and interactive benchmark helpers was recorded as passing.
+- Optional follow-up left open in task: full `pytest -q` and manual end-to-end benchmark/dashboard smoke on local golden data.
+
+Anti-loop note:
+- Do not treat strict `f1=0` alone as parser failure; inspect practical metrics + width mismatch flags first.
+
+### 2026-02-23_15.12.00 initial all-method benchmark mode
+
+Merged source:
+- `docs/tasks/All-method-benchmark.md`
+
+Problem captured:
+- Users needed one interactive way to evaluate multiple extraction configurations against the same freeform gold scorer, not extractor-heuristic race output.
+
+Decisions preserved:
+- Reuse `labelstudio_benchmark(...)` as the single-run primitive in offline mode (`no_upload=True`) for each config.
+- Define method-space variant builder in one place and print total config count before execution.
+- Keep Codex Farm permutations explicit opt-in with policy lock safety.
+
+Evidence preserved:
+- Task records regression coverage for variant counting, mode wiring, Codex Farm gating, and aggregate report generation.
+
+### 2026-02-23_23.37.00 all-golden-set scope expansion
+
+Merged source:
+- `docs/tasks/2026-02-23_23.37.00-all-method-select-all-golden-sets.md`
+
+Problem captured:
+- All-method originally ran one source/gold pair and required manual repetition for multiple books.
+
+Decisions preserved:
+- Add explicit scope chooser: `single` vs `all_matched`.
+- Resolve source hints by metadata filename matching with fallback order:
+  1. manifest `source_file`,
+  2. first non-empty freeform span row `source_file`,
+  3. first non-empty segment-manifest row `source_file`.
+- Keep per-source reports unchanged and add combined root summary report for multi-source runs.
+
+Evidence preserved:
+- Task records targeted helper tests plus `pytest -m smoke` passing after implementation.
+
+### 2026-02-24_00.26.23 bounded queue parallelization + split-slot gating
+
+Merged source:
+- `docs/tasks/2026-02-24_00.26.23-all-method-benchmark-parallelization.md`
+
+Problem captured:
+- Serial all-method runs underused available compute and were too slow on long EPUB workloads.
+
+Design revisions preserved:
+- Revision 1 considered lower pipeline concurrency.
+- Final shipped model kept `4` in-flight pipelines with independent `2` split-phase slots (heavy-phase bottleneck gating).
+
+Decisions preserved:
+- Outer parallelism at config layer (not ingestion rewrite).
+- Process-based workers for outer queue because benchmark paths use process-global `C3IMP_EPUB_*` env overrides.
+- Shared lock protection for split-slot acquisition and CSV appends.
+- Startup fallback to serial when process executor cannot initialize.
+
+Environment-specific discovery:
+- Restricted environments can block multiprocessing semaphore creation (`PermissionError`); tests were adapted to deterministic queue/gate unit coverage.
+
+Evidence preserved:
+- Task records passing targeted suites (`labelstudio_benchmark_helpers`, `labelstudio_ingest_parallel`, `analytics/perf_report`) and smoke tests.
+
+### 2026-02-24_00.29.50 persistent all-method dashboard spinner
+
+Merged source:
+- `docs/tasks/2026-02-24_00.29.50-all-method-dashboard-spinner.md`
+
+Problem captured:
+- Per-config completion dumps flooded terminal output and hid current run position during large sweeps.
+
+Decisions preserved:
+- Keep one benchmark primitive and add scoped runtime overrides instead of forking benchmark code.
+- Introduce explicit `_AllMethodProgressDashboard` state model.
+- Suppress nested benchmark spinner/summary output while forwarding worker telemetry to one outer spinner.
+
+Evidence preserved:
+- Task records targeted helper test run: `12 passed, 50 deselected, 2 warnings`.
+
+Anti-loop note for this batch:
+- If all-method output becomes noisy again, first inspect scoped benchmark progress override plumbing before changing report-generation code paths.

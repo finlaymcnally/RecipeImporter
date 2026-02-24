@@ -256,3 +256,120 @@ Durable evaluation rule:
 - Gold dedupe is overlap-count-agnostic because dedupe keys use absolute block ranges (`source_hash`, `source_file`, `start_block_index`, `end_block_index`), not segment IDs or overlap settings.
 - Changing overlap can increase duplicate rows in exports, but exact range matches still collapse before scoring.
 - Near-duplicates with different block ranges are not merged; only exact-range matches dedupe.
+
+## 13. Merged Understandings Batch (2026-02-24 cleanup)
+
+### 13.1 Freeform scoring interpretation + practical-vs-strict contract
+
+Merged sources:
+- `docs/understandings/2026-02-23_12.31.53-freeform-eval-dedupe-block-range.md`
+- `docs/understandings/2026-02-23_12.53.47-pipeline-freeform-span-granularity-gap.md`
+- `docs/understandings/2026-02-23_14.42.57-benchmark-update-original-plan-gap.md`
+- `docs/understandings/2026-02-23_17.26.00-practical-vs-strict-benchmark-metrics-shipped.md`
+
+Durable benchmark/eval rules:
+- Freeform exports are span rows, but current eval projects spans to block ranges and dedupes by `(source_hash, source_file, start_block_index, end_block_index)` before scoring.
+- `segment_overlap_requested` can be `0` while `segment_overlap_effective` is raised by the focus-window floor (`segment_blocks - segment_focus_blocks`); this is expected and should be diagnosed from run manifests.
+- Near-zero strict IoU with high any-overlap usually indicates granularity mismatch (coarse prediction ranges vs fine gold spans), not necessarily extraction failure.
+- Keep strict and practical tracks together in interpretation/ranking; strict-only misses should not automatically be treated as catastrophic when practical overlap is strong.
+
+### 13.2 Interactive benchmark mode contract (single offline vs all-method)
+
+Merged sources:
+- `docs/understandings/2026-02-23_14.09.30-interactive-benchmark-upload-only.md`
+- `docs/understandings/2026-02-23_15.37.43-interactive-all-method-benchmark-flow.md`
+- `docs/understandings/2026-02-23_16.03.51-benchmark-upload-mode-vs-offline-eval.md`
+- `docs/understandings/2026-02-23_16.11.07-interactive-benchmark-default-offline.md`
+- `docs/understandings/2026-02-23_23.36.37-interactive-benchmark-offline-only-order.md`
+- `docs/understandings/2026-02-24_00.20.26-interactive-all-method-skips-run-settings.md`
+
+Durable menu/runtime rules:
+- Interactive benchmark is offline-only and mode-first (`single_offline` or `all_method`); no interactive upload branch remains.
+- `single_offline` uses benchmark run-settings chooser and can persist `last_run_settings_benchmark` snapshot.
+- `all_method` skips run-settings chooser, uses current global benchmark defaults, and should not overwrite `last_run_settings_benchmark`.
+- Non-interactive `labelstudio-benchmark` without `--no-upload` can still upload pipeline-scope tasks; uploaded tasks can appear blank/unlabeled in Label Studio because benchmark upload defaults do not attach prelabels.
+
+### 13.3 All-method scope resolution + progress/parallelism contract
+
+Merged sources:
+- `docs/understandings/2026-02-23_23.38.41-all-method-single-pair-matching-gap.md`
+- `docs/understandings/2026-02-23_23.49.22-all-method-all-golden-matching.md`
+- `docs/understandings/2026-02-24_00.29.50-all-method-dashboard-progress-hook.md`
+- `docs/understandings/2026-02-24_00.50.03-all-method-parallel-split-slot-locking.md`
+
+Durable all-method rules:
+- All-golden scope source hint resolution order is:
+  1. run `manifest.json` `source_file`,
+  2. first non-empty `freeform_span_labels.jsonl` row `source_file`,
+  3. first non-empty `freeform_segment_manifest.jsonl` row `source_file`.
+- Matching is by exact filename against top-level importable files in `data/input`; unresolved gold exports should be surfaced explicitly.
+- Outer all-method progress remains one persistent dashboard spinner; per-config nested benchmark spinner + summary output should stay suppressed via benchmark progress overrides.
+- Parallel all-method defaults remain bounded (inflight pipelines=`4`, split-phase slots=`2`), and benchmark CSV append paths keep file locking to avoid header duplication/partial writes.
+
+### 13.4 Processed-output and timing telemetry contract
+
+Merged sources:
+- `docs/understandings/2026-02-23_23.19.10-benchmark-processed-output-paths.md`
+- `docs/understandings/2026-02-24_00.37.24-all-method-benchmark-timing-telemetry-gap.md`
+- `docs/understandings/2026-02-24_08.56.28-benchmark-timing-contract-and-fallbacks.md`
+
+Durable output/timing rules:
+- `labelstudio-benchmark` writes processed cookbook outputs by default under the configured output root (`data/output/<timestamp>` unless overridden).
+- Interactive all-method writes processed outputs under `<output_dir>/<benchmark_timestamp>/all-method-benchmark/<source_slug>/config_*/<prediction_timestamp>/...`.
+- `cookimport bench run` remains prediction/eval artifact-focused and does not write processed cookbook outputs by default.
+- Benchmark timing precedence in CSV remains: explicit benchmark `timing` argument -> processed report `timing` fallback -> blank timing fields.
+- Timing payload should be present end-to-end (prediction manifests, benchmark run manifest, eval report, all-method summaries), and `timing.total_seconds` should not under-report known subphase totals.
+
+## 14. Merged Task Specs (2026-02-24 docs/tasks archival batch)
+
+### 14.1 Practical-vs-strict benchmark scoring rollout
+
+Task sources:
+- `docs/tasks/Benchmark-update.md`
+- `docs/tasks/Benchmark-update copy.md` (superseded draft snapshot)
+
+Current shipped benchmark contract:
+- Keep strict IoU metrics unchanged (`precision`, `recall`, `f1`) and add practical/content-overlap metrics in parallel.
+- Persist granularity diagnostics (`span_width_stats`, `granularity_mismatch`) so strict-low/practical-high runs are explicitly explained.
+- Bench aggregate reports and iteration-packet severity ranking treat practical misses as primary quality signal, with strict metrics retained for localization refinement.
+- CSV/dashboard schema updates remain additive so old rows stay readable with blank practical fields.
+
+Historical trap to avoid:
+- A temporary mistaken interactive combo-only benchmark path was removed during this rollout; current interactive mode behavior is the contract in section 13.2.
+
+### 14.2 Initial all-method benchmark baseline
+
+Task source:
+- `docs/tasks/All-method-benchmark.md`
+
+Current baseline retained from implementation:
+- All-method runs offline and reuses the same single-run primitive (`labelstudio_benchmark(..., no_upload=True)`), so scoring parity with normal benchmark runs is intentional.
+- Per-source sweep output keeps stable artifacts:
+  - `all_method_benchmark_report.json`
+  - `all_method_benchmark_report.md`
+- Variant-space count is shown before execution; Codex Farm inclusion remains explicit opt-in and still respects policy lock behavior.
+
+### 14.3 All-golden-set bulk scope behavior
+
+Task source:
+- `docs/tasks/2026-02-23_23.37.00-all-method-select-all-golden-sets.md`
+
+Current bulk-scope contract:
+- Interactive all-method supports `Single golden set` and `All golden sets with matching input files`.
+- Bulk scope writes combined run summary artifacts at all-method root:
+  - `all_method_benchmark_multi_source_report.json`
+  - `all_method_benchmark_multi_source_report.md`
+- Unmatched gold exports are reported with explicit reason and skipped safely.
+- Source-hint fallback order remains manifest -> first labeled span row -> first segment-manifest row.
+
+### 14.4 Parallel scheduler + persistent progress dashboard
+
+Task sources:
+- `docs/tasks/2026-02-24_00.26.23-all-method-benchmark-parallelization.md`
+- `docs/tasks/2026-02-24_00.29.50-all-method-dashboard-spinner.md`
+
+Current runtime contract:
+- All-method queue defaults are bounded (`inflight pipelines=4`, `split-phase slots=2`).
+- Outer queue falls back to serial when process executor startup fails in restricted environments.
+- Split-heavy conversion is slot-gated and benchmark CSV appends are file-locked for concurrency safety.
+- Interactive all-method uses one persistent outer dashboard spinner; nested per-config benchmark spinner and completion dumps are suppressed during the sweep.

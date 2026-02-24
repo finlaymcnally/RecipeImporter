@@ -1128,3 +1128,18 @@ Current contract:
 - Prompt-only context rows remain separate in `data.source_map.context_before_blocks` and `data.source_map.context_after_blocks`.
 - Prelabel prompt construction must continue supporting both new split payloads and legacy payloads lacking context arrays.
 - Coverage accounting must include focus blocks plus context arrays so warnings do not under-report source coverage after the split.
+
+## 14) Merged Understanding (2026-02-24 cleanup)
+
+### 14.1 2026-02-23_15.55.42 golden recipe-header count flow
+
+Merged source:
+- `docs/understandings/2026-02-23_15.55.42-golden-recipe-header-count-flow.md`
+
+Durable freeform export/eval contract:
+- `labelstudio-export --export-scope freeform-spans` persists recipe-header counts in `exports/summary.json` under:
+  - `counts.recipe_headers`,
+  - `recipe_counts.recipe_headers` (deduped),
+  - `recipe_counts.recipe_headers_raw` (raw).
+- Header count source is normalized `RECIPE_TITLE` spans, deduped by source identity + block range.
+- Benchmark/eval reports should surface `recipe_counts` diagnostics with predicted-vs-golden deltas so operators can compare recipe totals separately from span metrics.

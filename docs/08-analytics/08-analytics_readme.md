@@ -326,3 +326,90 @@ Data-shape rules that should stay explicit:
 Known footguns preserved:
 - Mixed timestamp formats exist in historical artifacts; collector must remain tolerant.
 - `.job_parts` and `prediction-run` eval dirs should stay excluded from benchmark-history surfaces unless explicitly requested.
+
+## 11) Merged Understandings Batch (2026-02-24 cleanup)
+
+### 11.1 All-method dashboard grouping + page hierarchy contract
+
+Merged sources:
+- `docs/understandings/2026-02-23_16.13.59-dashboard-all-method-page-grouping.md`
+- `docs/understandings/2026-02-23_22.06.13-dashboard-all-method-root-page-contract.md`
+- `docs/understandings/2026-02-24_00.40.56-all-method-run-level-dashboard-hierarchy.md`
+
+Durable dashboard contract:
+- Grouping remains CSV-first and keyed by benchmark artifact paths containing `all-method-benchmark/<source_slug>/config_*`.
+- Dashboard always writes `all-method-benchmark.html` at dashboard root, even when grouped rows are absent.
+- Hierarchy is now explicit:
+  - root all-method index: `all-method-benchmark.html` (run rows),
+  - run summary pages: `all-method-benchmark-run__<run_timestamp>.html`,
+  - per-book detail pages: `all-method-benchmark__<run_timestamp>__<source_slug>.html`.
+- Run-level config aggregation key is `run_config_hash` when available, with config-slug fallback for historical rows.
+
+### 11.2 Recursive benchmark eval discovery contract
+
+Merged source:
+- `docs/understandings/2026-02-23_22.15.18-dashboard-benchmark-recursive-eval-scan.md`
+
+Durable collector rule:
+- Benchmark collector must recurse for `eval_report.json` under golden roots so nested all-method config reports are discovered.
+- Recursive scan keeps exclusions for `prediction-run` and pytest temp paths to avoid duplicate/non-user rows.
+- Nested config eval rows should map to nearest timestamped parent folder as `run_timestamp` for stable sorting/grouping.
+
+### 11.3 Detail-page content contract (quick-scan before deep table)
+
+Merged sources:
+- `docs/understandings/2026-02-23_22.21.16-all-method-detail-summary-bars.md`
+- `docs/understandings/2026-02-23_22.26.07-all-method-dimension-columns.md`
+
+Durable rendering rules:
+- Each all-method detail page starts with compact stats (`N`, `Min`, `Median`, `Mean`, `Max`) and per-metric run bars before ranked table.
+- Ranked rows expose explicit config-dimension columns (`Extractor`, `Parser`, `Skip HF`, `Preprocess`).
+- Dimension values come from run-config fields first, with config-slug parsing fallback for historical rows.
+- For non-unstructured extractors, parser/skip/preprocess columns should render `-` to avoid implying inactive knobs.
+
+## 12) Merged Task Specs (2026-02-24 docs/tasks archival batch)
+
+### 12.1 2026-02-24_00.36.38 run-level all-method dashboard aggregation
+
+Task source:
+- `docs/tasks/2026-02-24_00.36.38-all-method-run-level-dashboard-aggregation.md`
+
+Current analytics contract clarified by task implementation:
+- Dashboard hierarchy is run-first, then per-book drilldown:
+  - `all-method-benchmark.html` (run index),
+  - `all-method-benchmark-run__<run_timestamp>.html` (run summary),
+  - `all-method-benchmark__<run_timestamp>__<source_slug>.html` (per-book detail).
+- Run-level config aggregation groups by `run_config_hash` when available, with config-name fallback for older rows.
+- Run-level ranking prioritizes breadth + quality:
+  1. books covered,
+  2. practical mean,
+  3. strict mean,
+  4. win count,
+  5. strict precision/recall tie-breakers.
+
+### 12.2 2026-02-24_08.30.36 benchmark timing telemetry foundations
+
+Task source:
+- `docs/tasks/2026-02-24_08.30.36-benchmark-timing-telemetry-and-runtime-analyzer-foundation.md`
+
+Current telemetry contract clarified by task implementation:
+- Benchmark timing is additive across existing artifacts:
+  - prediction `manifest.json`,
+  - benchmark `run_manifest.json`,
+  - `eval_report.json`,
+  - all-method per-source and multi-source reports,
+  - benchmark rows in `performance_history.csv`.
+- CSV timing precedence remains:
+  1. explicit timing passed to `append_benchmark_csv(...)`,
+  2. processed report `timing` fallback,
+  3. blank timing fields.
+- New benchmark-specific CSV timing fields include:
+  - `benchmark_prediction_seconds`,
+  - `benchmark_evaluation_seconds`,
+  - `benchmark_artifact_write_seconds`,
+  - `benchmark_history_append_seconds`,
+  - `benchmark_total_seconds`,
+  - plus eval checkpoint columns (`benchmark_prediction_load_seconds`, `benchmark_gold_load_seconds`, `benchmark_evaluate_seconds`).
+- Foundation helper exists for future coarse analysis:
+  - `cookimport/analytics/benchmark_timing.py:collect_all_method_timing_summary(...)`.
+- Important scope boundary: no analyzer CLI command ships in this task; only stable telemetry data surfaces and helper APIs were added.

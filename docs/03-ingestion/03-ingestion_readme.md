@@ -209,7 +209,8 @@ Behavior highlights:
 
 Extractor modes:
 - Default: `unstructured`
-- Alternates: `legacy`, `markdown`, `auto`, `markitdown` (legacy compatibility mode)
+- Alternates: `legacy`, `markdown`, `markitdown`
+- Debug-only selector: `select_epub_extractor_auto(...)` remains available for extractor race diagnostics, but it is not a stage/prediction runtime mode.
 - Control path:
   - CLI: `--epub-extractor`
   - Env: `C3IMP_EPUB_EXTRACTOR`
@@ -304,7 +305,7 @@ Quick selection guidance:
 - Use `legacy` when simpler HTML-tag parsing behavior is preferred.
 - Use `markdown` when per-spine HTML conversion plus deterministic markdown parsing yields cleaner block boundaries.
 - Use `markitdown` when source XHTML is noisy and markdown normalization yields better block boundaries.
-- Use `auto` when you want deterministic scoring over sampled spines and a recorded backend-selection rationale.
+- Stage/prediction runtime requires explicit extractor choices; debug-only auto-selection tooling is intentionally out-of-band.
 
 ### PDF (`cookimport/plugins/pdf.py`)
 
@@ -589,3 +590,39 @@ Current contract:
 Controls and bounds:
 - `C3IMP_STANDALONE_ANALYSIS_WORKERS` controls concurrency (default `4`, minimum `1`).
 - Worker logic should use local buffers and merge after completion; avoid direct shared-list mutation.
+
+## Merged Understanding (2026-02-24 cleanup)
+
+### 2026-02-23_22.45.22 EPUB extractor auto mode removed from runtime
+
+Merged source:
+- `docs/understandings/2026-02-23_22.45.22-epub-extractor-auto-removed.md`
+
+Durable ingestion contract:
+- Stage and prediction-generation runtime paths require explicit EPUB extractor selection (`unstructured|legacy|markdown|markitdown`).
+- `epub_extractor=auto` is a rejected runtime value in CLI/prediction validators.
+- Legacy saved run settings carrying `epub_extractor=auto` are migrated to `unstructured` with warning during settings load.
+- Deterministic auto-selector utilities remain available for extractor-debug/race workflows only, not normal stage/benchmark execution.
+
+## Merged Task Specs (2026-02-24 docs/tasks archival batch)
+
+### 2026-02-23_22.37.46 + 2026-02-23_22.47.23 remove runtime `epub_extractor=auto`
+
+Task sources:
+- `docs/tasks/2026-02-23_22.37.46-remove-epub-auto-mode.md`
+- `docs/tasks/2026-02-23_22.47.23-remove-epub-auto-extractor.md`
+
+Current runtime contract (code + task verification aligned):
+- Stage and prediction-generation validators reject `epub_extractor=auto`.
+- Runtime keeps explicit extractor modes only: `unstructured|legacy|markdown|markitdown`.
+- Run-config compatibility fields stay stable (`epub_extractor_requested`, `epub_extractor_effective`) and are equal for new runs.
+- All-method variant generation and benchmark knobs no longer include `auto` permutations.
+- Legacy saved run settings still load through migration (`auto -> unstructured`) with warning.
+- `select_epub_extractor_auto(...)` remains available only for debug/race utilities.
+
+Implementation/testing notes worth preserving:
+- CLI tests should not rely on invalid-choice text always appearing in `stdout`; Typer error output can be stream-dependent in test harnesses.
+- Recorded focused validation from task run:
+  - `source .venv/bin/activate && pytest tests/llm/test_run_settings.py tests/labelstudio/test_labelstudio_ingest_parallel.py tests/labelstudio/test_labelstudio_benchmark_helpers.py tests/cli/test_cli_output_structure.py`
+  - Result captured in task docs: `86 passed, 7 warnings`.
+- Recorded CLI help evidence: `cookimport stage --help` showed explicit choices only (no `auto`).

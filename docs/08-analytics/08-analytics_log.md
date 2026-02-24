@@ -380,3 +380,112 @@ Decision preserved:
 
 Anti-loop note:
 - If dashboard content is blank, inspect generated `dashboard.js` parse validity before reworking collector/schema code.
+
+## 2026-02-24 archival merge batch from `docs/understandings` (analytics)
+
+### 2026-02-23_16.13.59 all-method page grouping discovery
+
+Merged source:
+- `docs/understandings/2026-02-23_16.13.59-dashboard-all-method-page-grouping.md`
+
+Preserved findings:
+- Grouping can stay CSV-first by clustering benchmark rows with artifact paths containing `all-method-benchmark/<source_slug>/config_*`.
+- Stable detail page naming uses `<run_timestamp>__<source_slug>`.
+- Root all-method page should exist in the same static site root as `index.html`.
+
+### 2026-02-23_22.06.13 all-method root page always-generated contract
+
+Merged source:
+- `docs/understandings/2026-02-23_22.06.13-dashboard-all-method-root-page-contract.md`
+
+Preserved rule:
+- `all-method-benchmark.html` must always be generated, even when grouped runs are currently empty.
+- Detail pages remain sibling files at dashboard root, not hidden in subfolders.
+
+### 2026-02-23_22.15.18 recursive eval report scan requirement
+
+Merged source:
+- `docs/understandings/2026-02-23_22.15.18-dashboard-benchmark-recursive-eval-scan.md`
+
+Preserved rule:
+- Benchmark collector must recurse under golden roots for nested `config_*/eval_report.json` outputs.
+- Exclusions for `prediction-run` and pytest temp artifact paths remain necessary to keep history clean.
+
+### 2026-02-23_22.21.16 detail summary stats + bar charts
+
+Merged source:
+- `docs/understandings/2026-02-23_22.21.16-all-method-detail-summary-bars.md`
+
+Preserved rendering rule:
+- Detail pages should show quick-scan summary stats and per-metric run bars before the ranked config table.
+
+### 2026-02-23_22.26.07 explicit configuration-dimension columns
+
+Merged source:
+- `docs/understandings/2026-02-23_22.26.07-all-method-dimension-columns.md`
+
+Preserved rendering rule:
+- Ranked detail rows keep explicit columns for extractor/parser/skiphf/preprocess values.
+- Source for values is run config first, config-slug parsing fallback second.
+
+### 2026-02-24_00.40.56 run-level all-method hierarchy layer
+
+Merged source:
+- `docs/understandings/2026-02-24_00.40.56-all-method-run-level-dashboard-hierarchy.md`
+
+Preserved contract:
+- Dashboard now has run-level summary pages above per-book detail pages.
+- Run summary aggregation key is `run_config_hash` with slug fallback for older rows.
+
+Anti-loop note for this batch:
+- If all-method pages disappear, check collector recursion + path grouping + always-write root-page behavior before changing renderer layout.
+
+## 2026-02-24 docs/tasks archival merge batch (analytics ExecPlans)
+
+### 2026-02-24_00.36.38 run-level all-method dashboard aggregation
+
+Merged source:
+- `docs/tasks/2026-02-24_00.36.38-all-method-run-level-dashboard-aggregation.md`
+
+Problem captured:
+- Per-book all-method rows made mega-run interpretation noisy; operators needed one run-level view of config winners across books.
+
+Decisions preserved:
+- Keep existing per-book detail pages intact and add a run-detail layer above them.
+- Aggregate config rows by `run_config_hash` when present (config-name fallback for legacy rows).
+- Rank run-level configs by breadth first (`books`), then practical/strict means, wins, and strict tie-break metrics.
+
+Implementation boundary preserved:
+- Change was renderer-only over existing CSV-backed benchmark records; no dashboard schema/collector rewrite required.
+
+Evidence preserved:
+- Task records:
+  - `pytest tests/analytics/test_stats_dashboard.py -k all_method` -> `3 passed, 37 deselected, 2 warnings`,
+  - full dashboard suite -> `40 passed, 2 warnings`.
+
+### 2026-02-24_08.30.36 benchmark timing telemetry + analyzer foundations
+
+Merged source:
+- `docs/tasks/2026-02-24_08.30.36-benchmark-timing-telemetry-and-runtime-analyzer-foundation.md`
+
+Problem captured:
+- Quality metrics were available, but benchmark runtime attribution was weak (blank timing columns and missing report timing in benchmark-produced artifacts).
+
+Decisions preserved:
+- Ship timing as additive fields in existing artifacts/CSV instead of a new telemetry store.
+- Keep benchmark ranking semantics unchanged; timing is observational metadata only.
+- Reuse stage timing columns for compatibility and add benchmark-specific timing columns for eval/orchestration phases.
+- Add helper foundations for future analysis (`collect_all_method_timing_summary(...)`) but defer new analyzer CLI command.
+- Treat processed report timing update as best-effort/non-fatal to avoid benchmark hard failures.
+
+Important discovery preserved:
+- Fast/mocked runs can under-report `total_seconds` unless totals are floored against known subphase sums; tests now guard this.
+
+Evidence preserved:
+- Task records targeted suite:
+  - `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py tests/analytics/test_perf_report.py tests/analytics/test_stats_dashboard.py` -> `111 passed`.
+- Task records smoke suite:
+  - `pytest -m smoke` -> `36 passed`.
+
+Anti-loop note for this batch:
+- If timing columns are blank, verify prediction/report timing propagation before changing CSV schema; append precedence already handles explicit timing first and processed-report fallback second.
