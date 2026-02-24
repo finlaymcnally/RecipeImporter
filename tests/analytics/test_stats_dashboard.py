@@ -989,6 +989,14 @@ class TestRenderer:
             / "all-method-benchmark"
             / "thefoodlabcutdown"
         )
+        all_method_root_second = (
+            tmp_path
+            / "golden"
+            / "eval-vs-pipeline"
+            / "2026-02-23_16.01.06"
+            / "all-method-benchmark"
+            / "dinnerfor2cutdown"
+        )
         data = DashboardData(
             benchmark_records=[
                 BenchmarkRecord(
@@ -1005,7 +1013,7 @@ class TestRenderer:
                     source_file="/tmp/thefoodlabCUTDOWN.epub",
                     importer_name="epub",
                     run_config_summary="epub_extractor=legacy | workers=7",
-                    run_config_hash="abc123def456",
+                    run_config_hash="hash001",
                 ),
                 BenchmarkRecord(
                     run_timestamp="2026-02-23T16:05:10",
@@ -1021,7 +1029,7 @@ class TestRenderer:
                     source_file="/tmp/thefoodlabCUTDOWN.epub",
                     importer_name="epub",
                     run_config_summary="epub_extractor=markdown | workers=7",
-                    run_config_hash="def456ghi789",
+                    run_config_hash="hash002",
                 ),
                 BenchmarkRecord(
                     run_timestamp="2026-02-23T16:06:10",
@@ -1036,7 +1044,39 @@ class TestRenderer:
                     recipes=8,
                     source_file="/tmp/thefoodlabCUTDOWN.epub",
                     importer_name="epub",
-                    run_config_hash="ghi789jkl012",
+                    run_config_hash="hash003",
+                ),
+                BenchmarkRecord(
+                    run_timestamp="2026-02-23T16:07:10",
+                    artifact_dir=str(
+                        all_method_root_second
+                        / "config_001_aaa_extractor_legacy"
+                    ),
+                    precision=0.25,
+                    recall=0.58,
+                    f1=0.35,
+                    practical_f1=0.68,
+                    recipes=10,
+                    source_file="/tmp/DinnerFor2CUTDOWN.epub",
+                    importer_name="epub",
+                    run_config_summary="epub_extractor=legacy | workers=7",
+                    run_config_hash="hash001",
+                ),
+                BenchmarkRecord(
+                    run_timestamp="2026-02-23T16:08:10",
+                    artifact_dir=str(
+                        all_method_root_second
+                        / "config_002_bbb_extractor_markdown"
+                    ),
+                    precision=0.31,
+                    recall=0.66,
+                    f1=0.42,
+                    practical_f1=0.81,
+                    recipes=12,
+                    source_file="/tmp/DinnerFor2CUTDOWN.epub",
+                    importer_name="epub",
+                    run_config_summary="epub_extractor=markdown | workers=7",
+                    run_config_hash="hash002",
                 ),
             ]
         )
@@ -1047,12 +1087,24 @@ class TestRenderer:
 
         all_method_index = tmp_path / "dash" / "all-method-benchmark.html"
         assert all_method_index.exists()
+        run_detail_path = (
+            tmp_path
+            / "dash"
+            / "all-method-benchmark-run__2026-02-23_16.01.06.html"
+        )
+        assert run_detail_path.exists()
         detail_path = (
             tmp_path
             / "dash"
             / "all-method-benchmark__2026-02-23_16.01.06__thefoodlabcutdown.html"
         )
         assert detail_path.exists()
+        detail_path_second = (
+            tmp_path
+            / "dash"
+            / "all-method-benchmark__2026-02-23_16.01.06__dinnerfor2cutdown.html"
+        )
+        assert detail_path_second.exists()
 
         detail_html = detail_path.read_text(encoding="utf-8")
         assert "Run Summary" in detail_html
@@ -1082,7 +1134,20 @@ class TestRenderer:
 
         index_html = all_method_index.read_text(encoding="utf-8")
         assert "All Method Benchmark Runs" in index_html
-        assert "Open details" in index_html
+        assert "Open run details" in index_html
+        assert "Book Jobs" in index_html
+        assert "Mean Strict F1" in index_html
+        assert "all-method-benchmark-run__2026-02-23_16.01.06.html" in index_html
+
+        run_detail_html = run_detail_path.read_text(encoding="utf-8")
+        assert "Config Performance Across Books" in run_detail_html
+        assert "Per-Book Drilldown" in run_detail_html
+        assert "Open book details" in run_detail_html
+        assert "all-method-benchmark__2026-02-23_16.01.06__thefoodlabcutdown.html" in run_detail_html
+        assert "all-method-benchmark__2026-02-23_16.01.06__dinnerfor2cutdown.html" in run_detail_html
+        assert run_detail_html.find("config_002_bbb_extractor_markdown") < run_detail_html.find(
+            "config_001_aaa_extractor_legacy"
+        )
 
     def test_render_all_method_section_when_no_groups(self, tmp_path):
         data = DashboardData(

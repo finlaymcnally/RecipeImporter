@@ -6,7 +6,8 @@ import json
 import logging
 import os
 import threading
-from contextlib import contextmanager
+import time
+from contextlib import contextmanager, nullcontext
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -96,6 +97,11 @@ from cookimport.staging.pdf_jobs import (
 )
 
 logger = logging.getLogger(__name__)
+
+try:  # pragma: no cover - Windows fallback keeps behavior deterministic.
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
 
 
 def _notify_progress_callback(
@@ -266,6 +272,110 @@ def _temporary_epub_runtime_env(
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+
+
+def _normalize_split_phase_slots(value: int | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        return None
+    if normalized <= 0:
+        return None
+    return normalized
+
+
+def _try_acquire_file_lock_nonblocking(handle: Any) -> bool:
+    if fcntl is None:
+        return True
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, OSError):
+        return False
+    return True
+
+
+def _release_file_lock(handle: Any) -> None:
+    if fcntl is None:
+        return
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        return
+
+
+def _emit_split_phase_status(
+    *,
+    notify: Callable[[str], None] | None,
+    message: str,
+) -> None:
+    cleaned = str(message or "").strip()
+    if not cleaned:
+        return
+    if notify is not None:
+        _notify_progress_callback(notify, cleaned)
+        return
+    print(cleaned)
+
+
+@contextmanager
+def _acquire_split_phase_slot(
+    *,
+    slots: int,
+    gate_dir: Path | str | None,
+    notify: Callable[[str], None] | None,
+    status_label: str | None,
+) -> Iterable[tuple[int, int] | None]:
+    normalized_slots = _normalize_split_phase_slots(slots)
+    if normalized_slots is None:
+        yield None
+        return
+
+    slot_total = max(1, normalized_slots)
+    slot_label = str(status_label or "").strip()
+    gate_root = Path(gate_dir) if gate_dir is not None else None
+    if gate_root is None:
+        yield (1, slot_total)
+        return
+    gate_root.mkdir(parents=True, exist_ok=True)
+
+    def _status(message: str) -> str:
+        if slot_label:
+            return f"{slot_label} {message}"
+        return message
+
+    waited = False
+    while True:
+        for slot_index in range(1, slot_total + 1):
+            slot_path = gate_root / f"split_slot_{slot_index:02d}.lock"
+            handle = slot_path.open("a+", encoding="utf-8")
+            if not _try_acquire_file_lock_nonblocking(handle):
+                handle.close()
+                continue
+
+            _emit_split_phase_status(
+                notify=notify,
+                message=_status(f"acquired split slot {slot_index}/{slot_total}."),
+            )
+            try:
+                yield (slot_index, slot_total)
+            finally:
+                _release_file_lock(handle)
+                handle.close()
+                _emit_split_phase_status(
+                    notify=notify,
+                    message=_status(f"released split slot {slot_index}/{slot_total}."),
+                )
+            return
+
+        if not waited:
+            _emit_split_phase_status(
+                notify=notify,
+                message=_status("waiting for split slot..."),
+            )
+            waited = True
+        time.sleep(0.2)
 
 
 def _slugify_name(name: str) -> str:
@@ -904,6 +1014,9 @@ def generate_pred_run_artifacts(
     codex_farm_context_blocks: int = 30,
     codex_farm_failure_mode: str = "fail",
     processed_output_root: Path | None = None,
+    split_phase_slots: int | None = None,
+    split_phase_gate_dir: Path | str | None = None,
+    split_phase_status_label: str | None = None,
     prelabel: bool = False,
     prelabel_provider: str = "codex-cli",
     codex_cmd: str | None = None,
@@ -1056,139 +1169,150 @@ def generate_pred_run_artifacts(
         if len(job_specs) == 1:
             result = importer.convert(path, run_mapping, progress_callback=_notify)
         else:
-            _notify(
-                f"Running {len(job_specs)} split job(s) with up to {max(1, workers)} workers..."
-            )
-            effective_workers = max(1, workers)
-            if path.suffix.lower() == ".epub":
-                effective_workers = max(effective_workers, epub_split_workers)
-            if path.suffix.lower() == ".pdf":
-                effective_workers = max(effective_workers, pdf_split_workers)
-            max_workers = min(effective_workers, len(job_specs))
-            job_results: list[dict[str, Any]] = []
-            job_errors: list[str] = []
-
-            def _run_job_serial(spec: dict[str, int | None]) -> None:
-                importer_name, job_result = _parallel_convert_worker(
-                    path,
-                    pipeline,
-                    run_mapping,
-                    start_page=spec.get("start_page"),
-                    end_page=spec.get("end_page"),
-                    start_spine=spec.get("start_spine"),
-                    end_spine=spec.get("end_spine"),
-                )
-                job_results.append(
-                    {**spec, "result": job_result, "importer_name": importer_name}
+            split_slot_context = nullcontext()
+            normalized_split_slots = _normalize_split_phase_slots(split_phase_slots)
+            if normalized_split_slots is not None:
+                split_slot_context = _acquire_split_phase_slot(
+                    slots=normalized_split_slots,
+                    gate_dir=split_phase_gate_dir,
+                    notify=progress_callback,
+                    status_label=split_phase_status_label,
                 )
 
-            def _split_worker_status(spec: dict[str, int | None]) -> str:
-                job_number = int(spec.get("job_index") or 0) + 1
-                base = f"job {job_number}/{len(job_specs)}"
-                start_page = spec.get("start_page")
-                end_page = spec.get("end_page")
-                if start_page is not None and end_page is not None:
-                    try:
-                        start = int(start_page) + 1
-                        end = max(start, int(end_page))
-                    except (TypeError, ValueError):
-                        return base
-                    return f"{base} pages {start}-{end}"
-                start_spine = spec.get("start_spine")
-                end_spine = spec.get("end_spine")
-                if start_spine is not None and end_spine is not None:
-                    try:
-                        start = int(start_spine) + 1
-                        end = max(start, int(end_spine))
-                    except (TypeError, ValueError):
-                        return base
-                    return f"{base} spine {start}-{end}"
-                return base
+            with split_slot_context:
+                _notify(
+                    f"Running {len(job_specs)} split job(s) with up to {max(1, workers)} workers..."
+                )
+                effective_workers = max(1, workers)
+                if path.suffix.lower() == ".epub":
+                    effective_workers = max(effective_workers, epub_split_workers)
+                if path.suffix.lower() == ".pdf":
+                    effective_workers = max(effective_workers, pdf_split_workers)
+                max_workers = min(effective_workers, len(job_specs))
+                job_results: list[dict[str, Any]] = []
+                job_errors: list[str] = []
 
-            try:
-                with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                    if max_workers > 1:
-                        _notify(format_worker_activity_reset())
-                    pending_specs = list(job_specs)
-                    futures: dict[Any, tuple[int, dict[str, int | None]]] = {}
+                def _run_job_serial(spec: dict[str, int | None]) -> None:
+                    importer_name, job_result = _parallel_convert_worker(
+                        path,
+                        pipeline,
+                        run_mapping,
+                        start_page=spec.get("start_page"),
+                        end_page=spec.get("end_page"),
+                        start_spine=spec.get("start_spine"),
+                        end_spine=spec.get("end_spine"),
+                    )
+                    job_results.append(
+                        {**spec, "result": job_result, "importer_name": importer_name}
+                    )
 
-                    def _submit(spec: dict[str, int | None], worker_slot: int) -> None:
-                        future = executor.submit(
-                            _parallel_convert_worker,
-                            path,
-                            pipeline,
-                            run_mapping,
-                            start_page=spec.get("start_page"),
-                            end_page=spec.get("end_page"),
-                            start_spine=spec.get("start_spine"),
-                            end_spine=spec.get("end_spine"),
-                        )
-                        futures[future] = (worker_slot, spec)
-                        if max_workers > 1:
-                            _notify(
-                                format_worker_activity(
-                                    worker_slot,
-                                    max_workers,
-                                    _split_worker_status(spec),
-                                )
-                            )
-
-                    for worker_slot in range(1, max_workers + 1):
-                        if not pending_specs:
-                            break
-                        _submit(pending_specs.pop(0), worker_slot)
-
-                    completed = 0
-                    while futures:
-                        future = next(as_completed(list(futures.keys())))
-                        worker_slot, spec = futures.pop(future)
+                def _split_worker_status(spec: dict[str, int | None]) -> str:
+                    job_number = int(spec.get("job_index") or 0) + 1
+                    base = f"job {job_number}/{len(job_specs)}"
+                    start_page = spec.get("start_page")
+                    end_page = spec.get("end_page")
+                    if start_page is not None and end_page is not None:
                         try:
-                            importer_name, job_result = future.result()
-                        except Exception as exc:
+                            start = int(start_page) + 1
+                            end = max(start, int(end_page))
+                        except (TypeError, ValueError):
+                            return base
+                        return f"{base} pages {start}-{end}"
+                    start_spine = spec.get("start_spine")
+                    end_spine = spec.get("end_spine")
+                    if start_spine is not None and end_spine is not None:
+                        try:
+                            start = int(start_spine) + 1
+                            end = max(start, int(end_spine))
+                        except (TypeError, ValueError):
+                            return base
+                        return f"{base} spine {start}-{end}"
+                    return base
+
+                try:
+                    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                        if max_workers > 1:
+                            _notify(format_worker_activity_reset())
+                        pending_specs = list(job_specs)
+                        futures: dict[Any, tuple[int, dict[str, int | None]]] = {}
+
+                        def _submit(spec: dict[str, int | None], worker_slot: int) -> None:
+                            future = executor.submit(
+                                _parallel_convert_worker,
+                                path,
+                                pipeline,
+                                run_mapping,
+                                start_page=spec.get("start_page"),
+                                end_page=spec.get("end_page"),
+                                start_spine=spec.get("start_spine"),
+                                end_spine=spec.get("end_spine"),
+                            )
+                            futures[future] = (worker_slot, spec)
+                            if max_workers > 1:
+                                _notify(
+                                    format_worker_activity(
+                                        worker_slot,
+                                        max_workers,
+                                        _split_worker_status(spec),
+                                    )
+                                )
+
+                        for worker_slot in range(1, max_workers + 1):
+                            if not pending_specs:
+                                break
+                            _submit(pending_specs.pop(0), worker_slot)
+
+                        completed = 0
+                        while futures:
+                            future = next(as_completed(list(futures.keys())))
+                            worker_slot, spec = futures.pop(future)
+                            try:
+                                importer_name, job_result = future.result()
+                            except Exception as exc:
+                                job_errors.append(
+                                    f"job {spec.get('job_index', '?')}: {exc}"
+                                )
+                            else:
+                                job_results.append(
+                                    {
+                                        **spec,
+                                        "result": job_result,
+                                        "importer_name": importer_name,
+                                    }
+                                )
+                                completed += 1
+                                _notify(f"Completed split job {completed}/{len(job_specs)}")
+                            if pending_specs:
+                                _submit(pending_specs.pop(0), worker_slot)
+                            elif max_workers > 1:
+                                _notify(
+                                    format_worker_activity(
+                                        worker_slot,
+                                        max_workers,
+                                        "idle",
+                                    )
+                                )
+                except PermissionError:
+                    for spec in job_specs:
+                        try:
+                            _run_job_serial(spec)
+                        except Exception as exc:  # noqa: BLE001
                             job_errors.append(
                                 f"job {spec.get('job_index', '?')}: {exc}"
                             )
-                        else:
-                            job_results.append(
-                                {
-                                    **spec,
-                                    "result": job_result,
-                                    "importer_name": importer_name,
-                                }
-                            )
-                            completed += 1
-                            _notify(f"Completed split job {completed}/{len(job_specs)}")
-                        if pending_specs:
-                            _submit(pending_specs.pop(0), worker_slot)
-                        elif max_workers > 1:
-                            _notify(
-                                format_worker_activity(
-                                    worker_slot,
-                                    max_workers,
-                                    "idle",
-                                )
-                            )
-            except PermissionError:
-                for spec in job_specs:
-                    try:
-                        _run_job_serial(spec)
-                    except Exception as exc:  # noqa: BLE001
-                        job_errors.append(
-                            f"job {spec.get('job_index', '?')}: {exc}"
-                        )
-                    _notify(f"Completed split job {len(job_results)}/{len(job_specs)}")
-            finally:
-                if max_workers > 1:
-                    _notify(format_worker_activity_reset())
+                        _notify(f"Completed split job {len(job_results)}/{len(job_specs)}")
+                finally:
+                    if max_workers > 1:
+                        _notify(format_worker_activity_reset())
 
-            if job_errors:
-                raise RuntimeError("Split conversion failed: " + "; ".join(job_errors))
-            if not job_results:
-                raise RuntimeError("Split conversion produced no results.")
+                if job_errors:
+                    raise RuntimeError("Split conversion failed: " + "; ".join(job_errors))
+                if not job_results:
+                    raise RuntimeError("Split conversion produced no results.")
 
-            importer_name = str(job_results[0].get("importer_name") or importer.name)
-            result = _merge_parallel_results(path, importer_name, job_results)
-            _notify("Merged split job results.")
+                importer_name = str(job_results[0].get("importer_name") or importer.name)
+                result = _merge_parallel_results(path, importer_name, job_results)
+                _notify("Merged split job results.")
 
     llm_schema_overrides: dict[str, dict[str, Any]] | None = None
     llm_draft_overrides: dict[str, dict[str, Any]] | None = None
@@ -2047,6 +2171,9 @@ def run_labelstudio_import(
     codex_farm_context_blocks: int = 30,
     codex_farm_failure_mode: str = "fail",
     processed_output_root: Path | None = None,
+    split_phase_slots: int | None = None,
+    split_phase_gate_dir: Path | str | None = None,
+    split_phase_status_label: str | None = None,
     prelabel: bool = False,
     prelabel_provider: str = "codex-cli",
     codex_cmd: str | None = None,
@@ -2107,6 +2234,9 @@ def run_labelstudio_import(
         codex_farm_context_blocks=codex_farm_context_blocks,
         codex_farm_failure_mode=codex_farm_failure_mode,
         processed_output_root=processed_output_root,
+        split_phase_slots=split_phase_slots,
+        split_phase_gate_dir=split_phase_gate_dir,
+        split_phase_status_label=split_phase_status_label,
         prelabel=prelabel,
         prelabel_provider=prelabel_provider,
         codex_cmd=codex_cmd,

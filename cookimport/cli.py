@@ -12,8 +12,10 @@ import shutil
 import threading
 import time
 import zipfile
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from collections import defaultdict
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
@@ -155,6 +157,8 @@ ALL_METHOD_EPUB_EXTRACTORS = (
 ALL_METHOD_UNSTRUCTURED_HTML_PARSER_VERSIONS = ("v1", "v2")
 ALL_METHOD_UNSTRUCTURED_SKIP_HEADERS_FOOTERS = (False, True)
 ALL_METHOD_UNSTRUCTURED_PREPROCESS_MODES = ("none", "br_split_v1", "semantic_v1")
+ALL_METHOD_MAX_INFLIGHT_DEFAULT = 4
+ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT = 2
 _MENU_SHORTCUT_KEYS = (
     "1",
     "2",
@@ -198,6 +202,31 @@ _STATUS_ELAPSED_THRESHOLD_SECONDS = 10
 _STATUS_TICK_SECONDS = 1.0
 _STATUS_COUNTER_PATTERN = re.compile(r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)")
 _StatusReturn = TypeVar("_StatusReturn")
+
+_BENCHMARK_PROGRESS_CALLBACK: ContextVar[Callable[[str], None] | None] = ContextVar(
+    "_BENCHMARK_PROGRESS_CALLBACK",
+    default=None,
+)
+_BENCHMARK_SUPPRESS_SUMMARY: ContextVar[bool] = ContextVar(
+    "_BENCHMARK_SUPPRESS_SUMMARY",
+    default=False,
+)
+_BENCHMARK_SUPPRESS_SPINNER: ContextVar[bool] = ContextVar(
+    "_BENCHMARK_SUPPRESS_SPINNER",
+    default=False,
+)
+_BENCHMARK_SPLIT_PHASE_SLOTS: ContextVar[int | None] = ContextVar(
+    "_BENCHMARK_SPLIT_PHASE_SLOTS",
+    default=None,
+)
+_BENCHMARK_SPLIT_PHASE_GATE_DIR: ContextVar[str | None] = ContextVar(
+    "_BENCHMARK_SPLIT_PHASE_GATE_DIR",
+    default=None,
+)
+_BENCHMARK_SPLIT_PHASE_STATUS_LABEL: ContextVar[str | None] = ContextVar(
+    "_BENCHMARK_SPLIT_PHASE_STATUS_LABEL",
+    default=None,
+)
 
 
 def _golden_sent_to_labelstudio_root() -> Path:
@@ -913,47 +942,131 @@ def _interactive_all_method_benchmark(
     benchmark_eval_output: Path,
     processed_output_root: Path,
 ) -> None:
-    resolved_inputs = _resolve_benchmark_gold_and_source(
-        gold_spans=None,
-        source_file=None,
-        output_dir=DEFAULT_GOLDEN,
-        allow_cancel=True,
+    scope_choice = _menu_select(
+        "Select all method benchmark scope:",
+        menu_help=(
+            "Choose one gold/source pair (current behavior) or fan out "
+            "across all freeform gold exports that match importable data/input files."
+        ),
+        choices=[
+            questionary.Choice("Single golden set", value="single"),
+            questionary.Choice(
+                "All golden sets with matching input files",
+                value="all_matched",
+            ),
+        ],
     )
-    if resolved_inputs is None:
+    if scope_choice in {None, BACK_ACTION}:
+        typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)
         return
-    selected_gold, selected_source = resolved_inputs
 
-    base_variants = _build_all_method_variants(
+    scope_all_matched = scope_choice == "all_matched"
+    if scope_all_matched:
+        targets, unmatched_targets = _resolve_all_method_targets(DEFAULT_GOLDEN)
+        if not targets:
+            typer.secho(
+                "No matched golden sets were found in data/input. Nothing to benchmark.",
+                fg=typer.colors.YELLOW,
+            )
+            if unmatched_targets:
+                typer.secho(
+                    f"Skipped golden sets: {len(unmatched_targets)}",
+                    fg=typer.colors.YELLOW,
+                )
+                for unmatched in unmatched_targets[:5]:
+                    source_hint_text = unmatched.source_hint or "none"
+                    typer.echo(
+                        f"  - {unmatched.gold_display}: {unmatched.reason} "
+                        f"(source hint: {source_hint_text})"
+                    )
+                if len(unmatched_targets) > 5:
+                    typer.echo(
+                        f"  - ... {len(unmatched_targets) - 5} additional skipped golden sets"
+                    )
+            return
+    else:
+        resolved_inputs = _resolve_benchmark_gold_and_source(
+            gold_spans=None,
+            source_file=None,
+            output_dir=DEFAULT_GOLDEN,
+            allow_cancel=True,
+        )
+        if resolved_inputs is None:
+            return
+        selected_gold, selected_source = resolved_inputs
+        targets = [
+            AllMethodTarget(
+                gold_spans_path=selected_gold,
+                source_file=selected_source,
+                source_file_name=selected_source.name,
+                gold_display=_display_gold_export_path(selected_gold, DEFAULT_GOLDEN),
+            )
+        ]
+        unmatched_targets = []
+
+    base_target_variants = _build_all_method_target_variants(
+        targets=targets,
         base_settings=selected_benchmark_settings,
-        source_file=selected_source,
         include_codex_farm=False,
     )
-    if not base_variants:
-        typer.secho("No benchmark variants were generated for this source.", fg=typer.colors.YELLOW)
+    total_base_runs = sum(len(variants) for _target, variants in base_target_variants)
+    if total_base_runs <= 0:
+        typer.secho("No benchmark variants were generated for this selection.", fg=typer.colors.YELLOW)
         return
 
-    base_count = len(base_variants)
-    typer.secho(
-        f"All method benchmark will run {base_count} configurations (Codex Farm excluded).",
-        fg=typer.colors.CYAN,
-    )
-    if selected_source.suffix.lower() == ".epub":
+    if scope_all_matched:
+        typer.secho(
+            f"Matched golden sets: {len(targets)}",
+            fg=typer.colors.CYAN,
+        )
+        skipped_color = typer.colors.YELLOW if unmatched_targets else typer.colors.BRIGHT_BLACK
+        typer.secho(
+            f"Skipped golden sets: {len(unmatched_targets)}",
+            fg=skipped_color,
+        )
         typer.secho(
             (
-                "Dimensions: epub_extractor, plus parser/skip_headers/preprocess "
-                "for unstructured variants."
+                "All method benchmark will run "
+                f"{total_base_runs} configurations across {len(targets)} matched golden sets "
+                "(Codex Farm excluded)."
             ),
-            fg=typer.colors.BRIGHT_BLACK,
+            fg=typer.colors.CYAN,
         )
+        if unmatched_targets:
+            typer.secho("Skipped golden set samples:", fg=typer.colors.BRIGHT_BLACK)
+            for unmatched in unmatched_targets[:5]:
+                source_hint_text = unmatched.source_hint or "none"
+                typer.echo(
+                    f"  - {unmatched.gold_display}: {unmatched.reason} "
+                    f"(source hint: {source_hint_text})"
+                )
+            if len(unmatched_targets) > 5:
+                typer.echo(
+                    f"  - ... {len(unmatched_targets) - 5} additional skipped golden sets"
+                )
     else:
+        selected_source = targets[0].source_file
         typer.secho(
-            "Dimensions: non-EPUB source uses one configuration (global benchmark run settings).",
-            fg=typer.colors.BRIGHT_BLACK,
+            f"All method benchmark will run {total_base_runs} configurations (Codex Farm excluded).",
+            fg=typer.colors.CYAN,
         )
+        if selected_source.suffix.lower() == ".epub":
+            typer.secho(
+                (
+                    "Dimensions: epub_extractor, plus parser/skip_headers/preprocess "
+                    "for unstructured variants."
+                ),
+                fg=typer.colors.BRIGHT_BLACK,
+            )
+        else:
+            typer.secho(
+                "Dimensions: non-EPUB source uses one configuration (global benchmark run settings).",
+                fg=typer.colors.BRIGHT_BLACK,
+            )
     typer.secho(
         (
             "With Codex Farm included: "
-            f"{base_count} configurations (currently unchanged while recipe codex-farm "
+            f"{total_base_runs} configurations (currently unchanged while recipe codex-farm "
             "parsing is policy-locked OFF)."
         ),
         fg=typer.colors.BRIGHT_BLACK,
@@ -973,42 +1086,131 @@ def _interactive_all_method_benchmark(
     if codex_warning:
         typer.secho(codex_warning, fg=typer.colors.YELLOW)
 
-    selected_variants = _build_all_method_variants(
+    selected_target_variants = _build_all_method_target_variants(
+        targets=targets,
         base_settings=selected_benchmark_settings,
-        source_file=selected_source,
         include_codex_farm=include_codex_effective,
     )
+    total_selected_runs = sum(
+        len(variants) for _target, variants in selected_target_variants
+    )
+    if total_selected_runs <= 0:
+        typer.secho("No benchmark variants were generated for this selection.", fg=typer.colors.YELLOW)
+        return
+    max_inflight_pipelines, max_concurrent_split_phases = _resolve_all_method_scheduler_limits(
+        total_variants=total_selected_runs,
+    )
+    typer.secho(
+        (
+            "Scheduler: "
+            f"inflight pipelines={max_inflight_pipelines} "
+            f"(default {ALL_METHOD_MAX_INFLIGHT_DEFAULT}), "
+            f"split slots={max_concurrent_split_phases} "
+            f"(default {ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT})"
+        ),
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+
+    if scope_all_matched:
+        proceed_prompt = (
+            f"Proceed with {total_selected_runs} benchmark runs across "
+            f"{len(targets)} matched golden sets?"
+        )
+    else:
+        proceed_prompt = f"Proceed with {total_selected_runs} benchmark runs?"
     proceed = _prompt_confirm(
-        f"Proceed with {len(selected_variants)} benchmark runs?",
+        proceed_prompt,
         default=False,
     )
     if proceed is not True:
         typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)
         return
 
-    all_method_root = (
-        benchmark_eval_output
-        / "all-method-benchmark"
-        / slugify_name(selected_source.stem)
-    )
+    all_method_root = benchmark_eval_output / "all-method-benchmark"
     all_method_processed_root = (
         processed_output_root
         / benchmark_eval_output.name
         / "all-method-benchmark"
-        / slugify_name(selected_source.stem)
     )
-    report_md_path = _run_all_method_benchmark(
-        gold_spans_path=selected_gold,
-        source_file=selected_source,
-        variants=selected_variants,
-        include_codex_farm_requested=include_codex_requested,
-        include_codex_farm_effective=include_codex_effective,
-        root_output_dir=all_method_root,
-        processed_output_root=all_method_processed_root,
-        overlap_threshold=0.5,
-        force_source_match=False,
-    )
-    typer.secho(f"All method benchmark report: {report_md_path}", fg=typer.colors.CYAN)
+
+    status_initial = "Running all method benchmark..."
+    status_prefix = "All method benchmark"
+
+    if scope_all_matched:
+        dashboard = _AllMethodProgressDashboard.from_target_variants(
+            selected_target_variants
+        )
+        report_md_path = _run_with_progress_status(
+            initial_status=status_initial,
+            progress_prefix=status_prefix,
+            run=lambda update_progress: _run_all_method_benchmark_multi_source(
+                target_variants=selected_target_variants,
+                unmatched_targets=unmatched_targets,
+                include_codex_farm_requested=include_codex_requested,
+                include_codex_farm_effective=include_codex_effective,
+                root_output_dir=all_method_root,
+                processed_output_root=all_method_processed_root,
+                overlap_threshold=0.5,
+                force_source_match=False,
+                progress_callback=update_progress,
+                dashboard=dashboard,
+                max_inflight_pipelines=max_inflight_pipelines,
+                max_concurrent_split_phases=max_concurrent_split_phases,
+            ),
+        )
+        typer.secho(
+            f"All method benchmark summary report: {report_md_path}",
+            fg=typer.colors.CYAN,
+        )
+    else:
+        single_target = targets[0]
+        single_variants = selected_target_variants[0][1]
+        single_root = all_method_root / slugify_name(single_target.source_file.stem)
+        single_processed_root = all_method_processed_root / slugify_name(
+            single_target.source_file.stem
+        )
+        dashboard = _AllMethodProgressDashboard.from_target_variants(
+            [(single_target, single_variants)]
+        )
+
+        def _run_single_source(update_progress: Callable[[str], None]) -> Path:
+            dashboard.start_source(0)
+            dashboard.set_task(f"Running source 1/1: {single_target.source_file_name}")
+            update_progress(dashboard.render())
+            try:
+                report_path = _run_all_method_benchmark(
+                    gold_spans_path=single_target.gold_spans_path,
+                    source_file=single_target.source_file,
+                    variants=single_variants,
+                    include_codex_farm_requested=include_codex_requested,
+                    include_codex_farm_effective=include_codex_effective,
+                    root_output_dir=single_root,
+                    processed_output_root=single_processed_root,
+                    overlap_threshold=0.5,
+                    force_source_match=False,
+                    progress_callback=update_progress,
+                    dashboard=dashboard,
+                    dashboard_source_index=0,
+                    max_inflight_pipelines=max_inflight_pipelines,
+                    max_concurrent_split_phases=max_concurrent_split_phases,
+                )
+            except Exception:
+                dashboard.finish_source(0, failed=True)
+                dashboard.set_task("Source failed.")
+                update_progress(dashboard.render())
+                raise
+            dashboard.finish_source(0, failed=False)
+            dashboard.set_task("Source complete.")
+            update_progress(dashboard.render())
+            return report_path
+
+        report_md_path = _run_with_progress_status(
+            initial_status=status_initial,
+            progress_prefix=status_prefix,
+            run=_run_single_source,
+        )
+        typer.secho(f"All method benchmark report: {report_md_path}", fg=typer.colors.CYAN)
+
     typer.secho(
         f"All method processed outputs: {all_method_processed_root}",
         fg=typer.colors.CYAN,
@@ -1672,69 +1874,70 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 settings,
                 warn_context="interactive benchmark global settings",
             )
-            selected_benchmark_settings = choose_run_settings(
-                kind="benchmark",
-                global_defaults=benchmark_defaults,
-                output_dir=output_folder,
-                menu_select=_menu_select,
-                back_action=BACK_ACTION,
-            )
-            if selected_benchmark_settings is None:
-                typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
-                continue
-
-            typer.secho(
-                "Run settings: "
-                f"{selected_benchmark_settings.summary()} "
-                f"(hash {selected_benchmark_settings.short_hash()})",
-                fg=typer.colors.CYAN,
-            )
-
-            benchmark_kwargs = dict(
-                output_dir=_golden_benchmark_root(),
-                eval_output_dir=benchmark_eval_output,
-                epub_extractor=selected_benchmark_settings.epub_extractor.value,
-                epub_unstructured_html_parser_version=(
-                    selected_benchmark_settings.epub_unstructured_html_parser_version.value
-                ),
-                epub_unstructured_skip_headers_footers=(
-                    selected_benchmark_settings.epub_unstructured_skip_headers_footers
-                ),
-                epub_unstructured_preprocess_mode=(
-                    selected_benchmark_settings.epub_unstructured_preprocess_mode.value
-                ),
-                ocr_device=selected_benchmark_settings.ocr_device.value,
-                ocr_batch_size=selected_benchmark_settings.ocr_batch_size,
-                warm_models=selected_benchmark_settings.warm_models,
-                workers=selected_benchmark_settings.workers,
-                pdf_split_workers=selected_benchmark_settings.pdf_split_workers,
-                epub_split_workers=selected_benchmark_settings.epub_split_workers,
-                pdf_pages_per_job=selected_benchmark_settings.pdf_pages_per_job,
-                epub_spine_items_per_job=selected_benchmark_settings.epub_spine_items_per_job,
-                llm_recipe_pipeline=selected_benchmark_settings.llm_recipe_pipeline.value,
-                codex_farm_cmd=selected_benchmark_settings.codex_farm_cmd,
-                codex_farm_root=selected_benchmark_settings.codex_farm_root,
-                codex_farm_workspace_root=selected_benchmark_settings.codex_farm_workspace_root,
-                codex_farm_pipeline_pass1=selected_benchmark_settings.codex_farm_pipeline_pass1,
-                codex_farm_pipeline_pass2=selected_benchmark_settings.codex_farm_pipeline_pass2,
-                codex_farm_pipeline_pass3=selected_benchmark_settings.codex_farm_pipeline_pass3,
-                codex_farm_context_blocks=selected_benchmark_settings.codex_farm_context_blocks,
-                codex_farm_failure_mode=selected_benchmark_settings.codex_farm_failure_mode.value,
-            )
-
             if benchmark_mode == "single_offline":
+                selected_benchmark_settings = choose_run_settings(
+                    kind="benchmark",
+                    global_defaults=benchmark_defaults,
+                    output_dir=output_folder,
+                    menu_select=_menu_select,
+                    back_action=BACK_ACTION,
+                )
+                if selected_benchmark_settings is None:
+                    typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
+                    continue
+
+                typer.secho(
+                    "Run settings: "
+                    f"{selected_benchmark_settings.summary()} "
+                    f"(hash {selected_benchmark_settings.short_hash()})",
+                    fg=typer.colors.CYAN,
+                )
+
+                benchmark_kwargs = dict(
+                    output_dir=_golden_benchmark_root(),
+                    eval_output_dir=benchmark_eval_output,
+                    epub_extractor=selected_benchmark_settings.epub_extractor.value,
+                    epub_unstructured_html_parser_version=(
+                        selected_benchmark_settings.epub_unstructured_html_parser_version.value
+                    ),
+                    epub_unstructured_skip_headers_footers=(
+                        selected_benchmark_settings.epub_unstructured_skip_headers_footers
+                    ),
+                    epub_unstructured_preprocess_mode=(
+                        selected_benchmark_settings.epub_unstructured_preprocess_mode.value
+                    ),
+                    ocr_device=selected_benchmark_settings.ocr_device.value,
+                    ocr_batch_size=selected_benchmark_settings.ocr_batch_size,
+                    warm_models=selected_benchmark_settings.warm_models,
+                    workers=selected_benchmark_settings.workers,
+                    pdf_split_workers=selected_benchmark_settings.pdf_split_workers,
+                    epub_split_workers=selected_benchmark_settings.epub_split_workers,
+                    pdf_pages_per_job=selected_benchmark_settings.pdf_pages_per_job,
+                    epub_spine_items_per_job=selected_benchmark_settings.epub_spine_items_per_job,
+                    llm_recipe_pipeline=selected_benchmark_settings.llm_recipe_pipeline.value,
+                    codex_farm_cmd=selected_benchmark_settings.codex_farm_cmd,
+                    codex_farm_root=selected_benchmark_settings.codex_farm_root,
+                    codex_farm_workspace_root=selected_benchmark_settings.codex_farm_workspace_root,
+                    codex_farm_pipeline_pass1=selected_benchmark_settings.codex_farm_pipeline_pass1,
+                    codex_farm_pipeline_pass2=selected_benchmark_settings.codex_farm_pipeline_pass2,
+                    codex_farm_pipeline_pass3=selected_benchmark_settings.codex_farm_pipeline_pass3,
+                    codex_farm_context_blocks=selected_benchmark_settings.codex_farm_context_blocks,
+                    codex_farm_failure_mode=selected_benchmark_settings.codex_farm_failure_mode.value,
+                )
+
                 labelstudio_benchmark(
                     **benchmark_kwargs,
                     no_upload=True,
                 )
+                save_last_run_settings(
+                    "benchmark", output_folder, selected_benchmark_settings
+                )
             else:
                 _interactive_all_method_benchmark(
-                    selected_benchmark_settings=selected_benchmark_settings,
+                    selected_benchmark_settings=benchmark_defaults,
                     benchmark_eval_output=benchmark_eval_output,
                     processed_output_root=output_folder,
                 )
-
-            save_last_run_settings("benchmark", output_folder, selected_benchmark_settings)
             continue
 
 
@@ -2444,6 +2647,58 @@ def _run_with_progress_status(
             ticker.join(timeout=max(0.2, tick_seconds * 2))
 
 
+@contextmanager
+def _benchmark_progress_overrides(
+    *,
+    progress_callback: Callable[[str], None] | None = None,
+    suppress_summary: bool = False,
+    suppress_spinner: bool = False,
+) -> Iterable[None]:
+    progress_token = _BENCHMARK_PROGRESS_CALLBACK.set(progress_callback)
+    summary_token = _BENCHMARK_SUPPRESS_SUMMARY.set(bool(suppress_summary))
+    spinner_token = _BENCHMARK_SUPPRESS_SPINNER.set(bool(suppress_spinner))
+    try:
+        yield
+    finally:
+        _BENCHMARK_PROGRESS_CALLBACK.reset(progress_token)
+        _BENCHMARK_SUPPRESS_SUMMARY.reset(summary_token)
+        _BENCHMARK_SUPPRESS_SPINNER.reset(spinner_token)
+
+
+@contextmanager
+def _benchmark_split_phase_overrides(
+    *,
+    split_phase_slots: int | None = None,
+    split_phase_gate_dir: Path | None = None,
+    split_phase_status_label: str | None = None,
+) -> Iterable[None]:
+    slots_token = _BENCHMARK_SPLIT_PHASE_SLOTS.set(split_phase_slots)
+    gate_dir_token = _BENCHMARK_SPLIT_PHASE_GATE_DIR.set(
+        str(split_phase_gate_dir) if split_phase_gate_dir is not None else None
+    )
+    label_token = _BENCHMARK_SPLIT_PHASE_STATUS_LABEL.set(
+        str(split_phase_status_label or "").strip() or None
+    )
+    try:
+        yield
+    finally:
+        _BENCHMARK_SPLIT_PHASE_SLOTS.reset(slots_token)
+        _BENCHMARK_SPLIT_PHASE_GATE_DIR.reset(gate_dir_token)
+        _BENCHMARK_SPLIT_PHASE_STATUS_LABEL.reset(label_token)
+
+
+def _notify_progress_callback(
+    progress_callback: Callable[[str], None] | None,
+    message: str,
+) -> None:
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(message)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Progress callback raised and was ignored: %s", exc)
+
+
 def _run_labelstudio_import_with_status(
     *,
     source_name: str,
@@ -2519,34 +2774,77 @@ def _discover_prediction_runs(output_dir: Path) -> list[Path]:
     return runs
 
 
-def _infer_source_file_from_freeform_gold(gold_spans: Path) -> Path | None:
-    run_root = gold_spans.parent.parent
+def _load_manifest_source_file(gold_spans_path: Path) -> str | None:
+    run_root = gold_spans_path.parent.parent
     manifest_path = run_root / "manifest.json"
-    if manifest_path.exists():
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
-            manifest = None
-        if isinstance(manifest, dict):
-            source_file = manifest.get("source_file")
-            if source_file:
-                candidate = Path(str(source_file))
-                if candidate.exists() and candidate.is_file():
-                    return candidate
-
+    if not manifest_path.exists() or not manifest_path.is_file():
+        return None
     try:
-        first_line = next(
-            line for line in gold_spans.read_text(encoding="utf-8").splitlines() if line.strip()
-        )
-        payload = json.loads(first_line)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
         return None
-    if not isinstance(payload, dict):
+    if not isinstance(manifest, dict):
         return None
-    source_file = payload.get("source_file")
-    if not source_file:
+    source_file = str(manifest.get("source_file") or "").strip()
+    return source_file or None
+
+
+def _first_source_file_from_jsonl(path: Path) -> str | None:
+    if not path.exists() or not path.is_file():
         return None
-    source_name = Path(str(source_file)).name
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except Exception:  # noqa: BLE001
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                source_file = str(payload.get("source_file") or "").strip()
+                if source_file:
+                    return source_file
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _source_name_from_hint(source_hint: str | None) -> str | None:
+    if source_hint is None:
+        return None
+    stripped = source_hint.strip()
+    if not stripped:
+        return None
+    source_name = Path(stripped).name.strip()
+    return source_name or None
+
+
+def _load_source_hint_from_gold_export(gold_spans_path: Path) -> str | None:
+    source_hint = _source_name_from_hint(_load_manifest_source_file(gold_spans_path))
+    if source_hint:
+        return source_hint
+
+    source_hint = _source_name_from_hint(_first_source_file_from_jsonl(gold_spans_path))
+    if source_hint:
+        return source_hint
+
+    segment_manifest_path = gold_spans_path.parent / "freeform_segment_manifest.jsonl"
+    return _source_name_from_hint(_first_source_file_from_jsonl(segment_manifest_path))
+
+
+def _infer_source_file_from_freeform_gold(gold_spans: Path) -> Path | None:
+    manifest_source = _load_manifest_source_file(gold_spans)
+    if manifest_source:
+        candidate = Path(manifest_source)
+        if candidate.exists() and candidate.is_file():
+            return candidate
+
+    source_name = _load_source_hint_from_gold_export(gold_spans)
+    if source_name is None:
+        return None
     input_candidate = DEFAULT_INPUT / source_name
     if input_candidate.exists() and input_candidate.is_file():
         return input_candidate
@@ -2651,10 +2949,225 @@ class PredRunContext:
 
 
 @dataclass(frozen=True)
+class AllMethodTarget:
+    gold_spans_path: Path
+    source_file: Path
+    source_file_name: str
+    gold_display: str
+
+
+@dataclass(frozen=True)
+class AllMethodUnmatchedGold:
+    gold_spans_path: Path
+    reason: str
+    source_hint: str | None
+    gold_display: str
+
+
+@dataclass(frozen=True)
 class AllMethodVariant:
     slug: str
     run_settings: RunSettings
     dimensions: dict[str, Any]
+
+
+@dataclass
+class _AllMethodSourceDashboardRow:
+    source_name: str
+    total_configs: int
+    status: str = "pending"
+    completed_configs: int = 0
+    successful_configs: int = 0
+    failed_configs: int = 0
+
+
+@dataclass
+class _AllMethodProgressDashboard:
+    rows: list[_AllMethodSourceDashboardRow]
+    total_planned_configs: int
+    current_source_index: int | None = None
+    current_config_index: int = 0
+    current_config_total: int = 0
+    current_config_slug: str = ""
+    task_message: str = ""
+
+    @classmethod
+    def from_target_variants(
+        cls,
+        target_variants: list[tuple[AllMethodTarget, list[AllMethodVariant]]],
+    ) -> "_AllMethodProgressDashboard":
+        rows = [
+            _AllMethodSourceDashboardRow(
+                source_name=target.source_file_name,
+                total_configs=max(0, len(variants)),
+            )
+            for target, variants in target_variants
+        ]
+        total_planned_configs = sum(row.total_configs for row in rows)
+        return cls(rows=rows, total_planned_configs=total_planned_configs)
+
+    def _completed_sources(self) -> int:
+        return sum(1 for row in self.rows if row.status in {"done", "failed"})
+
+    def _completed_configs(self) -> int:
+        return sum(max(0, row.completed_configs) for row in self.rows)
+
+    def start_source(self, source_index: int) -> None:
+        if source_index < 0 or source_index >= len(self.rows):
+            return
+        self.current_source_index = source_index
+        row = self.rows[source_index]
+        row.status = "running"
+        self.current_config_index = 0
+        self.current_config_total = row.total_configs
+        self.current_config_slug = ""
+
+    def finish_source(self, source_index: int, *, failed: bool = False) -> None:
+        if source_index < 0 or source_index >= len(self.rows):
+            return
+        row = self.rows[source_index]
+        row.status = "failed" if failed else "done"
+        if self.current_source_index == source_index:
+            self.current_source_index = None
+            self.current_config_index = 0
+            self.current_config_total = 0
+            self.current_config_slug = ""
+
+    def start_config(
+        self,
+        *,
+        source_index: int,
+        config_index: int,
+        config_total: int,
+        config_slug: str,
+    ) -> None:
+        if source_index < 0 or source_index >= len(self.rows):
+            return
+        self.current_source_index = source_index
+        self.current_config_index = max(0, config_index)
+        self.current_config_total = max(0, config_total)
+        self.current_config_slug = str(config_slug or "").strip()
+        row = self.rows[source_index]
+        row.status = "running"
+
+    def complete_config(self, *, source_index: int, success: bool) -> None:
+        if source_index < 0 or source_index >= len(self.rows):
+            return
+        row = self.rows[source_index]
+        row.completed_configs = min(
+            row.total_configs,
+            max(0, row.completed_configs + 1),
+        )
+        if success:
+            row.successful_configs = min(
+                row.total_configs,
+                max(0, row.successful_configs + 1),
+            )
+        else:
+            row.failed_configs = min(
+                row.total_configs,
+                max(0, row.failed_configs + 1),
+            )
+
+    def set_task(self, message: str) -> None:
+        cleaned = str(message or "").strip().replace("\n", " ")
+        if len(cleaned) > 180:
+            cleaned = f"{cleaned[:177]}..."
+        self.task_message = cleaned
+
+    def _iter_queue_rows(self) -> Iterable[_AllMethodSourceDashboardRow]:
+        if len(self.rows) <= 10:
+            for row in self.rows:
+                yield row
+            return
+        if self.current_source_index is None:
+            visible_indices = set(range(0, 6))
+        else:
+            start = max(0, self.current_source_index - 2)
+            end = min(len(self.rows), start + 6)
+            visible_indices = set(range(start, end))
+        visible_indices.update({len(self.rows) - 2, len(self.rows) - 1})
+        for index, row in enumerate(self.rows):
+            if index in visible_indices:
+                yield row
+
+    def render(self) -> str:
+        source_total = len(self.rows)
+        source_done = self._completed_sources()
+        config_done = self._completed_configs()
+        lines = [
+            (
+                "overall "
+                f"source {source_done}/{source_total} | "
+                f"config {config_done}/{max(0, self.total_planned_configs)}"
+            )
+        ]
+
+        if (
+            self.current_source_index is not None
+            and 0 <= self.current_source_index < len(self.rows)
+        ):
+            current_row = self.rows[self.current_source_index]
+            lines.append(
+                (
+                    "current source: "
+                    f"{current_row.source_name} "
+                    f"({current_row.completed_configs} of {current_row.total_configs} configs; "
+                    f"ok {current_row.successful_configs}, fail {current_row.failed_configs})"
+                )
+            )
+        if self.current_config_total > 0:
+            slug = self.current_config_slug or "<pending>"
+            lines.append(
+                (
+                    f"current config {self.current_config_index}/{self.current_config_total}: "
+                    f"{slug}"
+                )
+            )
+        lines.append("queue:")
+
+        if len(self.rows) <= 10:
+            for row in self.rows:
+                marker = {
+                    "pending": "[ ]",
+                    "running": "[>]",
+                    "done": "[x]",
+                    "failed": "[!]",
+                }.get(row.status, "[ ]")
+                lines.append(
+                    (
+                        f"  {marker} {row.source_name} - "
+                        f"{row.completed_configs} of {row.total_configs} "
+                        f"(ok {row.successful_configs}, fail {row.failed_configs})"
+                    )
+                )
+        else:
+            visible_rows = list(self._iter_queue_rows())
+            rendered_ids = {id(row) for row in visible_rows}
+            for row in visible_rows:
+                marker = {
+                    "pending": "[ ]",
+                    "running": "[>]",
+                    "done": "[x]",
+                    "failed": "[!]",
+                }.get(row.status, "[ ]")
+                lines.append(
+                    (
+                        f"  {marker} {row.source_name} - "
+                        f"{row.completed_configs} of {row.total_configs} "
+                        f"(ok {row.successful_configs}, fail {row.failed_configs})"
+                    )
+                )
+            hidden_count = sum(
+                1 for row in self.rows if id(row) not in rendered_ids
+            )
+            if hidden_count > 0:
+                lines.append(f"  ... {hidden_count} additional sources hidden")
+
+        if self.task_message:
+            lines.append(f"task: {self.task_message}")
+
+        return "\n".join(lines)
 
 
 def _load_pred_run_recipe_context(
@@ -2798,6 +3311,70 @@ def _display_prediction_run_path(path: Path, output_dir: Path) -> str:
         except ValueError:
             continue
     return str(path)
+
+
+def _resolve_all_method_targets(
+    output_dir: Path,
+) -> tuple[list[AllMethodTarget], list[AllMethodUnmatchedGold]]:
+    candidates = _discover_freeform_gold_exports(output_dir)
+    importable_by_name = {
+        path.name: path
+        for path in _list_importable_files(DEFAULT_INPUT)
+    }
+
+    matched_targets: list[AllMethodTarget] = []
+    unmatched_targets: list[AllMethodUnmatchedGold] = []
+
+    for gold_spans_path in candidates:
+        gold_display = _display_gold_export_path(gold_spans_path, output_dir)
+        if not gold_spans_path.exists() or not gold_spans_path.is_file():
+            unmatched_targets.append(
+                AllMethodUnmatchedGold(
+                    gold_spans_path=gold_spans_path,
+                    reason="Gold spans file is missing.",
+                    source_hint=None,
+                    gold_display=gold_display,
+                )
+            )
+            continue
+
+        source_hint = _load_source_hint_from_gold_export(gold_spans_path)
+        if source_hint is None:
+            unmatched_targets.append(
+                AllMethodUnmatchedGold(
+                    gold_spans_path=gold_spans_path,
+                    reason=(
+                        "Missing source hint in manifest, freeform_span_labels.jsonl, "
+                        "and freeform_segment_manifest.jsonl."
+                    ),
+                    source_hint=None,
+                    gold_display=gold_display,
+                )
+            )
+            continue
+
+        source_file = importable_by_name.get(source_hint)
+        if source_file is None:
+            unmatched_targets.append(
+                AllMethodUnmatchedGold(
+                    gold_spans_path=gold_spans_path,
+                    reason=f"No importable file named `{source_hint}` in {DEFAULT_INPUT}.",
+                    source_hint=source_hint,
+                    gold_display=gold_display,
+                )
+            )
+            continue
+
+        matched_targets.append(
+            AllMethodTarget(
+                gold_spans_path=gold_spans_path,
+                source_file=source_file,
+                source_file_name=source_file.name,
+                gold_display=gold_display,
+            )
+        )
+
+    return matched_targets, unmatched_targets
 
 
 def _resolve_benchmark_gold_and_source(
@@ -2998,6 +3575,25 @@ def _build_all_method_variants(
     return variants
 
 
+def _build_all_method_target_variants(
+    *,
+    targets: list[AllMethodTarget],
+    base_settings: RunSettings,
+    include_codex_farm: bool,
+) -> list[tuple[AllMethodTarget, list[AllMethodVariant]]]:
+    return [
+        (
+            target,
+            _build_all_method_variants(
+                base_settings=base_settings,
+                source_file=target.source_file,
+                include_codex_farm=include_codex_farm,
+            ),
+        )
+        for target in targets
+    ]
+
+
 def _resolve_all_method_codex_choice(include_codex_farm: bool) -> tuple[bool, str | None]:
     if not include_codex_farm:
         return False, None
@@ -3020,6 +3616,197 @@ def _report_metric(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _report_count(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _resolve_all_method_scheduler_limits(
+    *,
+    total_variants: int,
+    max_inflight_pipelines: int | None = None,
+    max_concurrent_split_phases: int | None = None,
+) -> tuple[int, int]:
+    total = max(1, _report_count(total_variants))
+
+    inflight_default = min(ALL_METHOD_MAX_INFLIGHT_DEFAULT, total)
+    if max_inflight_pipelines is None:
+        inflight = inflight_default
+    else:
+        inflight = max(1, min(_report_count(max_inflight_pipelines), total))
+        if inflight <= 0:
+            inflight = inflight_default
+
+    split_default = min(ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT, inflight)
+    if max_concurrent_split_phases is None:
+        split_slots = split_default
+    else:
+        split_slots = max(1, min(_report_count(max_concurrent_split_phases), inflight))
+        if split_slots <= 0:
+            split_slots = split_default
+
+    return inflight, split_slots
+
+
+def _all_method_config_dir_name(config_index: int, variant: AllMethodVariant) -> str:
+    config_hash = variant.run_settings.short_hash()
+    return f"config_{config_index:03d}_{config_hash}_{variant.slug}"
+
+
+def _all_method_failed_row(
+    *,
+    config_index: int,
+    config_dir_name: str,
+    variant: AllMethodVariant,
+    error: str,
+) -> dict[str, Any]:
+    return {
+        "config_index": config_index,
+        "config_dir": config_dir_name,
+        "slug": variant.slug,
+        "status": "failed",
+        "error": str(error),
+        "run_config_hash": "",
+        "run_config_summary": "",
+        "dimensions": dict(variant.dimensions),
+    }
+
+
+def _run_all_method_config_once(
+    *,
+    gold_spans_path: Path,
+    source_file: Path,
+    variant: AllMethodVariant,
+    config_index: int,
+    total_variants: int,
+    root_output_dir: Path,
+    scratch_root: Path,
+    processed_output_root: Path,
+    overlap_threshold: float,
+    force_source_match: bool,
+    max_concurrent_split_phases: int,
+    split_phase_gate_dir: Path,
+    progress_callback: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    config_dir_name = _all_method_config_dir_name(config_index, variant)
+    eval_output_dir = root_output_dir / config_dir_name
+    scratch_output_dir = scratch_root / config_dir_name
+    processed_output_dir = processed_output_root / config_dir_name
+    if eval_output_dir.exists():
+        shutil.rmtree(eval_output_dir)
+    if scratch_output_dir.exists():
+        shutil.rmtree(scratch_output_dir)
+
+    split_slots = max(1, _report_count(max_concurrent_split_phases))
+    split_status_label = format_task_counter(
+        "Config",
+        config_index,
+        max(1, _report_count(total_variants)),
+        noun="config",
+    )
+
+    try:
+        with _benchmark_split_phase_overrides(
+            split_phase_slots=split_slots,
+            split_phase_gate_dir=split_phase_gate_dir,
+            split_phase_status_label=split_status_label,
+        ):
+            with _benchmark_progress_overrides(
+                progress_callback=progress_callback,
+                suppress_summary=True,
+                suppress_spinner=True,
+            ):
+                labelstudio_benchmark(
+                    gold_spans=gold_spans_path,
+                    source_file=source_file,
+                    output_dir=scratch_output_dir,
+                    processed_output_dir=processed_output_dir,
+                    eval_output_dir=eval_output_dir,
+                    overlap_threshold=overlap_threshold,
+                    force_source_match=force_source_match,
+                    no_upload=True,
+                    workers=variant.run_settings.workers,
+                    pdf_split_workers=variant.run_settings.pdf_split_workers,
+                    epub_split_workers=variant.run_settings.epub_split_workers,
+                    pdf_pages_per_job=variant.run_settings.pdf_pages_per_job,
+                    epub_spine_items_per_job=variant.run_settings.epub_spine_items_per_job,
+                    ocr_device=variant.run_settings.ocr_device.value,
+                    ocr_batch_size=variant.run_settings.ocr_batch_size,
+                    warm_models=variant.run_settings.warm_models,
+                    epub_extractor=variant.run_settings.epub_extractor.value,
+                    epub_unstructured_html_parser_version=(
+                        variant.run_settings.epub_unstructured_html_parser_version.value
+                    ),
+                    epub_unstructured_skip_headers_footers=(
+                        variant.run_settings.epub_unstructured_skip_headers_footers
+                    ),
+                    epub_unstructured_preprocess_mode=(
+                        variant.run_settings.epub_unstructured_preprocess_mode.value
+                    ),
+                    llm_recipe_pipeline=variant.run_settings.llm_recipe_pipeline.value,
+                    codex_farm_cmd=variant.run_settings.codex_farm_cmd,
+                    codex_farm_root=variant.run_settings.codex_farm_root,
+                    codex_farm_workspace_root=variant.run_settings.codex_farm_workspace_root,
+                    codex_farm_pipeline_pass1=variant.run_settings.codex_farm_pipeline_pass1,
+                    codex_farm_pipeline_pass2=variant.run_settings.codex_farm_pipeline_pass2,
+                    codex_farm_pipeline_pass3=variant.run_settings.codex_farm_pipeline_pass3,
+                    codex_farm_context_blocks=variant.run_settings.codex_farm_context_blocks,
+                    codex_farm_failure_mode=variant.run_settings.codex_farm_failure_mode.value,
+                )
+    except Exception as exc:  # noqa: BLE001
+        return _all_method_failed_row(
+            config_index=config_index,
+            config_dir_name=config_dir_name,
+            variant=variant,
+            error=str(exc),
+        )
+
+    report_json_path = eval_output_dir / "eval_report.json"
+    if not report_json_path.exists():
+        return _all_method_failed_row(
+            config_index=config_index,
+            config_dir_name=config_dir_name,
+            variant=variant,
+            error=f"Missing eval_report.json in {eval_output_dir}",
+        )
+
+    try:
+        report = json.loads(report_json_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return _all_method_failed_row(
+            config_index=config_index,
+            config_dir_name=config_dir_name,
+            variant=variant,
+            error=f"Failed to parse eval report for {config_dir_name}: {exc}",
+        )
+
+    pred_context = _load_pred_run_recipe_context(eval_output_dir / "prediction-run")
+    return {
+        "config_index": config_index,
+        "config_dir": config_dir_name,
+        "slug": variant.slug,
+        "status": "ok",
+        "error": "",
+        "run_config_hash": pred_context.run_config_hash or variant.run_settings.stable_hash(),
+        "run_config_summary": pred_context.run_config_summary
+        or variant.run_settings.summary(),
+        "precision": _report_metric(report.get("precision")),
+        "recall": _report_metric(report.get("recall")),
+        "f1": _report_metric(report.get("f1")),
+        "practical_precision": _report_metric(report.get("practical_precision")),
+        "practical_recall": _report_metric(report.get("practical_recall")),
+        "practical_f1": _report_metric(report.get("practical_f1")),
+        "eval_report_json": _path_for_manifest(root_output_dir, report_json_path),
+        "eval_report_md": _path_for_manifest(
+            root_output_dir,
+            eval_output_dir / "eval_report.md",
+        ),
+        "dimensions": dict(variant.dimensions),
+    }
 
 
 def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
@@ -3093,6 +3880,326 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) -> str:
+    lines: list[str] = [
+        "# All Method Benchmark Multi-Source Report",
+        "",
+        f"- Created at: {report_payload.get('created_at', '')}",
+        f"- Matched targets: {report_payload.get('matched_target_count', 0)}",
+        f"- Unmatched targets: {report_payload.get('unmatched_target_count', 0)}",
+        f"- Planned config runs: {report_payload.get('total_config_runs_planned', 0)}",
+        f"- Completed config runs: {report_payload.get('total_config_runs_completed', 0)}",
+        f"- Successful config runs: {report_payload.get('total_config_runs_successful', 0)}",
+        "",
+        "## Per-Source Results",
+        "",
+    ]
+
+    source_rows = report_payload.get("sources")
+    if not isinstance(source_rows, list) or not source_rows:
+        lines.extend(["- No source runs were recorded.", ""])
+    else:
+        for row in source_rows:
+            if not isinstance(row, dict):
+                continue
+            status = str(row.get("status") or "").strip().lower()
+            source_file = str(row.get("source_file") or "").strip() or "<unknown>"
+            if status != "ok":
+                lines.append(
+                    f"- {source_file}: FAILED ({row.get('error', 'unknown error')})"
+                )
+                continue
+            winner_metrics = row.get("winner_metrics")
+            precision = _report_metric(
+                winner_metrics.get("precision")
+                if isinstance(winner_metrics, dict)
+                else None
+            )
+            recall = _report_metric(
+                winner_metrics.get("recall")
+                if isinstance(winner_metrics, dict)
+                else None
+            )
+            f1 = _report_metric(
+                winner_metrics.get("f1")
+                if isinstance(winner_metrics, dict)
+                else None
+            )
+            lines.append(
+                (
+                    f"- {source_file}: ok "
+                    f"(winner precision={precision:.3f}, "
+                    f"recall={recall:.3f}, f1={f1:.3f}) "
+                    f"[report={row.get('report_path', '')}]"
+                )
+            )
+        lines.append("")
+
+    lines.extend(["## Unmatched Gold Exports", ""])
+    unmatched_rows = report_payload.get("unmatched")
+    if not isinstance(unmatched_rows, list) or not unmatched_rows:
+        lines.extend(["- None", ""])
+    else:
+        for row in unmatched_rows:
+            if not isinstance(row, dict):
+                continue
+            source_hint_text = str(row.get("source_hint") or "none")
+            lines.append(
+                (
+                    f"- {row.get('gold_display', row.get('gold_spans_path', ''))}: "
+                    f"{row.get('reason', '')} (source hint: {source_hint_text})"
+                )
+            )
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _run_all_method_benchmark_multi_source(
+    *,
+    target_variants: list[tuple[AllMethodTarget, list[AllMethodVariant]]],
+    unmatched_targets: list[AllMethodUnmatchedGold],
+    include_codex_farm_requested: bool,
+    include_codex_farm_effective: bool,
+    root_output_dir: Path,
+    processed_output_root: Path,
+    overlap_threshold: float,
+    force_source_match: bool,
+    progress_callback: Callable[[str], None] | None = None,
+    dashboard: _AllMethodProgressDashboard | None = None,
+    max_inflight_pipelines: int | None = None,
+    max_concurrent_split_phases: int | None = None,
+) -> Path:
+    root_output_dir.mkdir(parents=True, exist_ok=True)
+    processed_output_root.mkdir(parents=True, exist_ok=True)
+
+    total_targets = len(target_variants)
+    total_planned_config_runs = sum(len(variants) for _target, variants in target_variants)
+    slug_counts: dict[str, int] = {}
+    source_rows: list[dict[str, Any]] = []
+
+    def _emit_status(
+        message: str,
+        *,
+        color: typer.colors = typer.colors.CYAN,
+    ) -> None:
+        cleaned = str(message or "").strip()
+        if not cleaned:
+            return
+        if progress_callback is not None:
+            if dashboard is not None:
+                dashboard.set_task(cleaned)
+                _notify_progress_callback(progress_callback, dashboard.render())
+            else:
+                _notify_progress_callback(progress_callback, cleaned)
+            return
+        typer.secho(cleaned, fg=color)
+
+    for source_index, (target, variants) in enumerate(target_variants, start=1):
+        progress_label = format_task_counter(
+            "Running",
+            source_index,
+            total_targets,
+            noun="source",
+        )
+        if dashboard is not None:
+            dashboard.start_source(source_index - 1)
+        _emit_status(f"{progress_label}: {target.source_file_name}")
+
+        source_slug_base = slugify_name(target.source_file.stem)
+        source_slug_count = slug_counts.get(source_slug_base, 0) + 1
+        slug_counts[source_slug_base] = source_slug_count
+        source_slug = (
+            source_slug_base
+            if source_slug_count == 1
+            else f"{source_slug_base}__{source_slug_count:02d}"
+        )
+        source_root = root_output_dir / source_slug
+        source_processed_root = processed_output_root / source_slug
+
+        if not variants:
+            source_rows.append(
+                {
+                    "status": "failed",
+                    "source_file": str(target.source_file),
+                    "source_file_name": target.source_file_name,
+                    "gold_spans_path": str(target.gold_spans_path),
+                    "gold_display": target.gold_display,
+                    "source_slug": source_slug,
+                    "report_path": "",
+                    "report_json_path": "",
+                    "variant_count_planned": 0,
+                    "variant_count_completed": 0,
+                    "variant_count_successful": 0,
+                    "winner_metrics": {},
+                    "error": "No benchmark variants generated for this source.",
+                }
+            )
+            if dashboard is not None:
+                dashboard.finish_source(source_index - 1, failed=True)
+            continue
+
+        try:
+            def _source_progress(message: str) -> None:
+                if progress_callback is None:
+                    return
+                if parse_worker_activity(message) is not None:
+                    _notify_progress_callback(progress_callback, message)
+                    return
+                if dashboard is not None:
+                    dashboard.set_task(message)
+                    _notify_progress_callback(progress_callback, dashboard.render())
+                    return
+                _notify_progress_callback(progress_callback, message)
+
+            report_md_path = _run_all_method_benchmark(
+                gold_spans_path=target.gold_spans_path,
+                source_file=target.source_file,
+                variants=variants,
+                include_codex_farm_requested=include_codex_farm_requested,
+                include_codex_farm_effective=include_codex_farm_effective,
+                root_output_dir=source_root,
+                processed_output_root=source_processed_root,
+                overlap_threshold=overlap_threshold,
+                force_source_match=force_source_match,
+                progress_callback=_source_progress if progress_callback else None,
+                dashboard=dashboard,
+                dashboard_source_index=(source_index - 1) if dashboard is not None else None,
+                max_inflight_pipelines=max_inflight_pipelines,
+                max_concurrent_split_phases=max_concurrent_split_phases,
+            )
+            report_json_path = report_md_path.with_suffix(".json")
+            report_payload = json.loads(report_json_path.read_text(encoding="utf-8"))
+            if not isinstance(report_payload, dict):
+                raise ValueError("Invalid all-method report payload.")
+
+            winner = report_payload.get("winner_by_f1")
+            winner_metrics = {
+                "precision": _report_metric(
+                    winner.get("precision") if isinstance(winner, dict) else None
+                ),
+                "recall": _report_metric(
+                    winner.get("recall") if isinstance(winner, dict) else None
+                ),
+                "f1": _report_metric(
+                    winner.get("f1") if isinstance(winner, dict) else None
+                ),
+            }
+            successful_variants = _report_count(report_payload.get("successful_variants"))
+            failed_variants = _report_count(report_payload.get("failed_variants"))
+
+            source_rows.append(
+                {
+                    "status": "ok",
+                    "source_file": str(target.source_file),
+                    "source_file_name": target.source_file_name,
+                    "gold_spans_path": str(target.gold_spans_path),
+                    "gold_display": target.gold_display,
+                    "source_slug": source_slug,
+                    "report_path": _path_for_manifest(root_output_dir, report_md_path) or "",
+                    "report_json_path": (
+                        _path_for_manifest(root_output_dir, report_json_path) or ""
+                    ),
+                    "variant_count_planned": len(variants),
+                    "variant_count_completed": successful_variants + failed_variants,
+                    "variant_count_successful": successful_variants,
+                    "winner_metrics": winner_metrics,
+                    "error": "",
+                }
+            )
+            if dashboard is not None:
+                dashboard.finish_source(source_index - 1, failed=False)
+        except Exception as exc:  # noqa: BLE001
+            _emit_status(
+                (
+                    "Failed "
+                    f"{format_task_counter('', source_index, total_targets, noun='source')}: {exc}"
+                ),
+                color=typer.colors.RED,
+            )
+            source_rows.append(
+                {
+                    "status": "failed",
+                    "source_file": str(target.source_file),
+                    "source_file_name": target.source_file_name,
+                    "gold_spans_path": str(target.gold_spans_path),
+                    "gold_display": target.gold_display,
+                    "source_slug": source_slug,
+                    "report_path": "",
+                    "report_json_path": "",
+                    "variant_count_planned": len(variants),
+                    "variant_count_completed": 0,
+                    "variant_count_successful": 0,
+                    "winner_metrics": {},
+                    "error": str(exc),
+                }
+            )
+            if dashboard is not None:
+                dashboard.finish_source(source_index - 1, failed=True)
+
+    successful_source_count = sum(
+        1 for row in source_rows if str(row.get("status", "")).lower() == "ok"
+    )
+    total_completed_config_runs = sum(
+        _report_count(row.get("variant_count_completed")) for row in source_rows
+    )
+    total_successful_config_runs = sum(
+        _report_count(row.get("variant_count_successful")) for row in source_rows
+    )
+
+    report_payload: dict[str, Any] = {
+        "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "matched_target_count": total_targets,
+        "unmatched_target_count": len(unmatched_targets),
+        "total_config_runs_planned": total_planned_config_runs,
+        "total_config_runs_completed": total_completed_config_runs,
+        "total_config_runs_successful": total_successful_config_runs,
+        "successful_source_count": successful_source_count,
+        "failed_source_count": total_targets - successful_source_count,
+        "include_codex_farm_requested": include_codex_farm_requested,
+        "include_codex_farm_effective": include_codex_farm_effective,
+        "sources": source_rows,
+        "unmatched": [
+            {
+                "gold_spans_path": str(unmatched.gold_spans_path),
+                "gold_display": unmatched.gold_display,
+                "reason": unmatched.reason,
+                "source_hint": unmatched.source_hint,
+            }
+            for unmatched in unmatched_targets
+        ],
+    }
+
+    report_json_path = root_output_dir / "all_method_benchmark_multi_source_report.json"
+    report_json_path.write_text(
+        json.dumps(report_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    report_md_path = root_output_dir / "all_method_benchmark_multi_source_report.md"
+    report_md_path.write_text(
+        _render_all_method_multi_source_report_md(report_payload),
+        encoding="utf-8",
+    )
+
+    completion_color = (
+        typer.colors.GREEN
+        if successful_source_count == total_targets
+        and total_successful_config_runs == total_planned_config_runs
+        else typer.colors.YELLOW
+    )
+    _emit_status(
+        (
+            "All method benchmark complete: "
+            f"sources {successful_source_count}/{total_targets}, "
+            f"configs {total_successful_config_runs}/{total_planned_config_runs}."
+        ),
+        color=completion_color,
+    )
+    if progress_callback is None:
+        typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
+    return report_md_path
+
+
 def _run_all_method_benchmark(
     *,
     gold_spans_path: Path,
@@ -3104,155 +4211,249 @@ def _run_all_method_benchmark(
     processed_output_root: Path,
     overlap_threshold: float,
     force_source_match: bool,
+    progress_callback: Callable[[str], None] | None = None,
+    dashboard: _AllMethodProgressDashboard | None = None,
+    dashboard_source_index: int | None = None,
+    max_inflight_pipelines: int | None = None,
+    max_concurrent_split_phases: int | None = None,
 ) -> Path:
     root_output_dir.mkdir(parents=True, exist_ok=True)
     scratch_root = root_output_dir / ".scratch"
     scratch_root.mkdir(parents=True, exist_ok=True)
     processed_output_root.mkdir(parents=True, exist_ok=True)
+    split_phase_gate_dir = root_output_dir / ".split_phase_slots"
+    split_phase_gate_dir.mkdir(parents=True, exist_ok=True)
+
+    total_variants = len(variants)
+    (
+        effective_inflight_pipelines,
+        effective_split_phase_slots,
+    ) = _resolve_all_method_scheduler_limits(
+        total_variants=total_variants,
+        max_inflight_pipelines=max_inflight_pipelines,
+        max_concurrent_split_phases=max_concurrent_split_phases,
+    )
+
+    def _emit_status(
+        message: str,
+        *,
+        color: typer.colors = typer.colors.CYAN,
+    ) -> None:
+        cleaned = str(message or "").strip()
+        if not cleaned:
+            return
+        if progress_callback is not None:
+            if parse_worker_activity(cleaned) is not None:
+                _notify_progress_callback(progress_callback, cleaned)
+                return
+            if dashboard is not None:
+                dashboard.set_task(cleaned)
+                _notify_progress_callback(progress_callback, dashboard.render())
+                return
+            _notify_progress_callback(progress_callback, cleaned)
+            return
+        typer.secho(cleaned, fg=color)
 
     variant_rows: list[dict[str, Any]] = []
-    total_variants = len(variants)
-    for config_index, variant in enumerate(variants, start=1):
-        progress_label = format_task_counter(
-            "Running",
-            config_index,
-            total_variants,
-            noun="config",
-        )
-        typer.secho(f"{progress_label}: {variant.slug}", fg=typer.colors.CYAN)
+    indexed_variants = list(enumerate(variants, start=1))
 
-        config_hash = variant.run_settings.short_hash()
-        config_dir_name = f"config_{config_index:03d}_{config_hash}_{variant.slug}"
-        eval_output_dir = root_output_dir / config_dir_name
-        scratch_output_dir = scratch_root / config_dir_name
-        processed_output_dir = processed_output_root / config_dir_name
-        if eval_output_dir.exists():
-            shutil.rmtree(eval_output_dir)
-        if scratch_output_dir.exists():
-            shutil.rmtree(scratch_output_dir)
+    def _run_serial_variants(items: list[tuple[int, AllMethodVariant]]) -> None:
+        for config_index, variant in items:
+            progress_label = format_task_counter(
+                "Running",
+                config_index,
+                max(1, total_variants),
+                noun="config",
+            )
+            if dashboard is not None and dashboard_source_index is not None:
+                dashboard.start_config(
+                    source_index=dashboard_source_index,
+                    config_index=config_index,
+                    config_total=max(1, total_variants),
+                    config_slug=variant.slug,
+                )
+            _emit_status(f"{progress_label}: {variant.slug}", color=typer.colors.CYAN)
 
-        try:
-            labelstudio_benchmark(
-                gold_spans=gold_spans_path,
+            def _variant_progress(message: str) -> None:
+                if progress_callback is None:
+                    return
+                if dashboard is None:
+                    if parse_worker_activity(message) is not None:
+                        _notify_progress_callback(progress_callback, message)
+                        return
+                    _notify_progress_callback(
+                        progress_callback,
+                        f"{progress_label}: {variant.slug} | {message}",
+                    )
+                    return
+                if parse_worker_activity(message) is not None:
+                    _notify_progress_callback(progress_callback, message)
+                    return
+                dashboard.set_task(message)
+                _notify_progress_callback(progress_callback, dashboard.render())
+
+            row = _run_all_method_config_once(
+                gold_spans_path=gold_spans_path,
                 source_file=source_file,
-                output_dir=scratch_output_dir,
-                processed_output_dir=processed_output_dir,
-                eval_output_dir=eval_output_dir,
+                variant=variant,
+                config_index=config_index,
+                total_variants=max(1, total_variants),
+                root_output_dir=root_output_dir,
+                scratch_root=scratch_root,
+                processed_output_root=processed_output_root,
                 overlap_threshold=overlap_threshold,
                 force_source_match=force_source_match,
-                no_upload=True,
-                workers=variant.run_settings.workers,
-                pdf_split_workers=variant.run_settings.pdf_split_workers,
-                epub_split_workers=variant.run_settings.epub_split_workers,
-                pdf_pages_per_job=variant.run_settings.pdf_pages_per_job,
-                epub_spine_items_per_job=variant.run_settings.epub_spine_items_per_job,
-                ocr_device=variant.run_settings.ocr_device.value,
-                ocr_batch_size=variant.run_settings.ocr_batch_size,
-                warm_models=variant.run_settings.warm_models,
-                epub_extractor=variant.run_settings.epub_extractor.value,
-                epub_unstructured_html_parser_version=(
-                    variant.run_settings.epub_unstructured_html_parser_version.value
-                ),
-                epub_unstructured_skip_headers_footers=(
-                    variant.run_settings.epub_unstructured_skip_headers_footers
-                ),
-                epub_unstructured_preprocess_mode=(
-                    variant.run_settings.epub_unstructured_preprocess_mode.value
-                ),
-                llm_recipe_pipeline=variant.run_settings.llm_recipe_pipeline.value,
-                codex_farm_cmd=variant.run_settings.codex_farm_cmd,
-                codex_farm_root=variant.run_settings.codex_farm_root,
-                codex_farm_workspace_root=variant.run_settings.codex_farm_workspace_root,
-                codex_farm_pipeline_pass1=variant.run_settings.codex_farm_pipeline_pass1,
-                codex_farm_pipeline_pass2=variant.run_settings.codex_farm_pipeline_pass2,
-                codex_farm_pipeline_pass3=variant.run_settings.codex_farm_pipeline_pass3,
-                codex_farm_context_blocks=variant.run_settings.codex_farm_context_blocks,
-                codex_farm_failure_mode=variant.run_settings.codex_farm_failure_mode.value,
+                max_concurrent_split_phases=effective_split_phase_slots,
+                split_phase_gate_dir=split_phase_gate_dir,
+                progress_callback=_variant_progress if progress_callback else None,
             )
-        except Exception as exc:  # noqa: BLE001
-            typer.secho(
-                f"Failed {format_task_counter('', config_index, total_variants, noun='config')}: {exc}",
-                fg=typer.colors.RED,
-            )
-            variant_rows.append(
-                {
-                    "config_index": config_index,
-                    "config_dir": config_dir_name,
-                    "slug": variant.slug,
-                    "status": "failed",
-                    "error": str(exc),
-                    "run_config_hash": "",
-                    "run_config_summary": "",
-                    "dimensions": dict(variant.dimensions),
-                }
-            )
-            continue
+            variant_rows.append(row)
 
-        report_json_path = eval_output_dir / "eval_report.json"
-        if not report_json_path.exists():
-            error_message = f"Missing eval_report.json in {eval_output_dir}"
-            typer.secho(error_message, fg=typer.colors.RED)
-            variant_rows.append(
-                {
-                    "config_index": config_index,
-                    "config_dir": config_dir_name,
-                    "slug": variant.slug,
-                    "status": "failed",
-                    "error": error_message,
-                    "run_config_hash": "",
-                    "run_config_summary": "",
-                    "dimensions": dict(variant.dimensions),
-                }
-            )
-            continue
+            success = str(row.get("status") or "").strip().lower() == "ok"
+            if dashboard is not None and dashboard_source_index is not None:
+                dashboard.complete_config(
+                    source_index=dashboard_source_index,
+                    success=success,
+                )
+            if success:
+                if progress_callback is not None:
+                    _emit_status(
+                        f"Completed {format_task_counter('', config_index, max(1, total_variants), noun='config')}: {variant.slug}"
+                    )
+            else:
+                _emit_status(
+                    (
+                        f"Failed {format_task_counter('', config_index, max(1, total_variants), noun='config')}: "
+                        f"{row.get('error', 'unknown error')}"
+                    ),
+                    color=typer.colors.RED,
+                )
+
+    def _run_parallel_variants(items: list[tuple[int, AllMethodVariant]]) -> None:
+        if len(items) <= 1 or effective_inflight_pipelines <= 1:
+            _run_serial_variants(items)
+            return
+
+        pending_items = list(items)
+        futures: dict[Any, tuple[int, AllMethodVariant]] = {}
+        worker_limit = min(effective_inflight_pipelines, len(items))
 
         try:
-            report = json.loads(report_json_path.read_text(encoding="utf-8"))
-        except Exception as exc:  # noqa: BLE001
-            error_message = f"Failed to parse eval report for {config_dir_name}: {exc}"
-            typer.secho(error_message, fg=typer.colors.RED)
-            variant_rows.append(
-                {
-                    "config_index": config_index,
-                    "config_dir": config_dir_name,
-                    "slug": variant.slug,
-                    "status": "failed",
-                    "error": error_message,
-                    "run_config_hash": "",
-                    "run_config_summary": "",
-                    "dimensions": dict(variant.dimensions),
-                }
+            executor = ProcessPoolExecutor(max_workers=worker_limit)
+        except (PermissionError, OSError) as exc:
+            _emit_status(
+                f"Parallel executor unavailable ({exc}); falling back to serial mode.",
+                color=typer.colors.YELLOW,
             )
-            continue
+            _run_serial_variants(items)
+            return
 
-        pred_context = _load_pred_run_recipe_context(eval_output_dir / "prediction-run")
-        variant_rows.append(
-            {
-                "config_index": config_index,
-                "config_dir": config_dir_name,
-                "slug": variant.slug,
-                "status": "ok",
-                "error": "",
-                "run_config_hash": pred_context.run_config_hash or variant.run_settings.stable_hash(),
-                "run_config_summary": pred_context.run_config_summary
-                or variant.run_settings.summary(),
-                "precision": _report_metric(report.get("precision")),
-                "recall": _report_metric(report.get("recall")),
-                "f1": _report_metric(report.get("f1")),
-                "practical_precision": _report_metric(report.get("practical_precision")),
-                "practical_recall": _report_metric(report.get("practical_recall")),
-                "practical_f1": _report_metric(report.get("practical_f1")),
-                "eval_report_json": _path_for_manifest(root_output_dir, report_json_path),
-                "eval_report_md": _path_for_manifest(
-                    root_output_dir,
-                    eval_output_dir / "eval_report.md",
-                ),
-                "dimensions": dict(variant.dimensions),
-            }
-        )
+        with executor:
+            def _submit_next() -> bool:
+                if not pending_items:
+                    return False
+                config_index, variant = pending_items.pop(0)
+                progress_label = format_task_counter(
+                    "Running",
+                    config_index,
+                    max(1, total_variants),
+                    noun="config",
+                )
+                if dashboard is not None and dashboard_source_index is not None:
+                    dashboard.start_config(
+                        source_index=dashboard_source_index,
+                        config_index=config_index,
+                        config_total=max(1, total_variants),
+                        config_slug=variant.slug,
+                    )
+                _emit_status(f"{progress_label}: {variant.slug}", color=typer.colors.CYAN)
+
+                try:
+                    future = executor.submit(
+                        _run_all_method_config_once,
+                        gold_spans_path=gold_spans_path,
+                        source_file=source_file,
+                        variant=variant,
+                        config_index=config_index,
+                        total_variants=max(1, total_variants),
+                        root_output_dir=root_output_dir,
+                        scratch_root=scratch_root,
+                        processed_output_root=processed_output_root,
+                        overlap_threshold=overlap_threshold,
+                        force_source_match=force_source_match,
+                        max_concurrent_split_phases=effective_split_phase_slots,
+                        split_phase_gate_dir=split_phase_gate_dir,
+                        progress_callback=None,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    row = _all_method_failed_row(
+                        config_index=config_index,
+                        config_dir_name=_all_method_config_dir_name(config_index, variant),
+                        variant=variant,
+                        error=f"Failed to submit benchmark config: {exc}",
+                    )
+                    variant_rows.append(row)
+                    if dashboard is not None and dashboard_source_index is not None:
+                        dashboard.complete_config(
+                            source_index=dashboard_source_index,
+                            success=False,
+                        )
+                    _emit_status(
+                        (
+                            f"Failed {format_task_counter('', config_index, max(1, total_variants), noun='config')}: "
+                            f"{row.get('error', 'unknown error')}"
+                        ),
+                        color=typer.colors.RED,
+                    )
+                    return True
+
+                futures[future] = (config_index, variant)
+                return True
+
+            for _worker_index in range(worker_limit):
+                if not _submit_next():
+                    break
+
+            while futures:
+                future = next(as_completed(list(futures.keys())))
+                config_index, variant = futures.pop(future)
+                try:
+                    row = future.result()
+                except Exception as exc:  # noqa: BLE001
+                    row = _all_method_failed_row(
+                        config_index=config_index,
+                        config_dir_name=_all_method_config_dir_name(config_index, variant),
+                        variant=variant,
+                        error=f"Benchmark config worker failed: {exc}",
+                    )
+
+                variant_rows.append(row)
+                success = str(row.get("status") or "").strip().lower() == "ok"
+                if dashboard is not None and dashboard_source_index is not None:
+                    dashboard.complete_config(
+                        source_index=dashboard_source_index,
+                        success=success,
+                    )
+                if success:
+                    if progress_callback is not None:
+                        _emit_status(
+                            f"Completed {format_task_counter('', config_index, max(1, total_variants), noun='config')}: {variant.slug}"
+                        )
+                else:
+                    _emit_status(
+                        (
+                            f"Failed {format_task_counter('', config_index, max(1, total_variants), noun='config')}: "
+                            f"{row.get('error', 'unknown error')}"
+                        ),
+                        color=typer.colors.RED,
+                    )
+                _submit_next()
+
+    _run_parallel_variants(indexed_variants)
 
     successful_rows = [row for row in variant_rows if row.get("status") == "ok"]
     failed_rows = [row for row in variant_rows if row.get("status") != "ok"]
+    failed_rows.sort(key=lambda row: _report_count(row.get("config_index")))
     successful_rows.sort(
         key=lambda row: (
             _report_metric(row.get("f1")),
@@ -3295,25 +4496,26 @@ def _run_all_method_benchmark(
     completion_color = (
         typer.colors.GREEN if len(failed_rows) == 0 else typer.colors.YELLOW
     )
-    typer.secho(
+    _emit_status(
         (
             "All method benchmark complete: "
             f"{len(successful_rows)}/{total_variants} configs evaluated successfully."
         ),
-        fg=completion_color,
+        color=completion_color,
     )
-    if successful_rows:
-        typer.secho("Top configurations by strict F1:", fg=typer.colors.CYAN)
-        for row in successful_rows[:3]:
-            typer.echo(
-                (
-                    f"  {row.get('rank')}) {row.get('config_dir')} "
-                    f"p={_report_metric(row.get('precision')):.3f} "
-                    f"r={_report_metric(row.get('recall')):.3f} "
-                    f"f1={_report_metric(row.get('f1')):.3f}"
+    if progress_callback is None:
+        if successful_rows:
+            typer.secho("Top configurations by strict F1:", fg=typer.colors.CYAN)
+            for row in successful_rows[:3]:
+                typer.echo(
+                    (
+                        f"  {row.get('rank')}) {row.get('config_dir')} "
+                        f"p={_report_metric(row.get('precision')):.3f} "
+                        f"r={_report_metric(row.get('recall')):.3f} "
+                        f"f1={_report_metric(row.get('f1')):.3f}"
+                    )
                 )
-            )
-    typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
+        typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
     return report_md_path
 
 
@@ -6301,6 +7503,19 @@ def labelstudio_benchmark(
     )] = "fail",
 ) -> None:
     """Run benchmark eval against freeform gold, with optional upload step."""
+    external_progress_callback = _BENCHMARK_PROGRESS_CALLBACK.get()
+    suppress_summary = bool(_BENCHMARK_SUPPRESS_SUMMARY.get())
+    suppress_spinner = bool(_BENCHMARK_SUPPRESS_SPINNER.get())
+    split_phase_slots = _BENCHMARK_SPLIT_PHASE_SLOTS.get()
+    split_phase_gate_dir_raw = _BENCHMARK_SPLIT_PHASE_GATE_DIR.get()
+    split_phase_gate_dir = (
+        Path(split_phase_gate_dir_raw) if split_phase_gate_dir_raw else None
+    )
+    split_phase_status_label = _BENCHMARK_SPLIT_PHASE_STATUS_LABEL.get()
+
+    def _emit_external_progress(message: str) -> None:
+        _notify_progress_callback(external_progress_callback, message)
+
     selected_epub_extractor = _normalize_epub_extractor(epub_extractor)
     selected_html_parser_version = _normalize_unstructured_html_parser_version(
         epub_unstructured_html_parser_version
@@ -6358,13 +7573,11 @@ def labelstudio_benchmark(
                 skip_headers_footers=selected_skip_headers_footers,
                 preprocess_mode=selected_preprocess_mode,
             ):
-                import_result = _run_with_progress_status(
-                    initial_status=(
-                        f"Generating prediction tasks for {selected_source.name}..."
-                    ),
-                    progress_prefix=f"Benchmark import ({selected_source.name})",
-                    run=lambda update_progress: (
-                        generate_pred_run_artifacts(
+                def _run_prediction_generation(
+                    callback: Callable[[str], None] | None,
+                ) -> dict[str, Any]:
+                    if no_upload:
+                        return generate_pred_run_artifacts(
                             path=selected_source,
                             output_dir=output_dir,
                             pipeline=pipeline,
@@ -6397,55 +7610,91 @@ def labelstudio_benchmark(
                             codex_farm_context_blocks=codex_farm_context_blocks,
                             codex_farm_failure_mode=selected_codex_farm_failure_mode,
                             processed_output_root=processed_output_dir,
-                            progress_callback=update_progress,
+                            split_phase_slots=split_phase_slots,
+                            split_phase_gate_dir=split_phase_gate_dir,
+                            split_phase_status_label=split_phase_status_label,
+                            progress_callback=callback,
                             run_manifest_kind="bench_pred_run",
                         )
-                        if no_upload
-                        else run_labelstudio_import(
-                            path=selected_source,
-                            output_dir=output_dir,
-                            pipeline=pipeline,
-                            project_name=project_name,
-                            chunk_level=chunk_level,
-                            task_scope="pipeline",
-                            context_window=1,
-                            segment_blocks=40,
-                            segment_overlap=5,
-                            overwrite=overwrite,
-                            resume=not overwrite,
-                            label_studio_url=url or "",
-                            label_studio_api_key=api_key or "",
-                            limit=None,
-                            sample=None,
-                            progress_callback=update_progress,
-                            workers=workers,
-                            pdf_split_workers=pdf_split_workers,
-                            epub_split_workers=epub_split_workers,
-                            pdf_pages_per_job=pdf_pages_per_job,
-                            epub_spine_items_per_job=epub_spine_items_per_job,
-                            epub_extractor=selected_epub_extractor,
-                            epub_unstructured_html_parser_version=selected_html_parser_version,
-                            epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
-                            epub_unstructured_preprocess_mode=selected_preprocess_mode,
-                            ocr_device=selected_ocr_device,
-                            ocr_batch_size=ocr_batch_size,
-                            warm_models=warm_models,
-                            llm_recipe_pipeline=selected_llm_recipe_pipeline,
-                            codex_farm_cmd=codex_farm_cmd,
-                            codex_farm_root=codex_farm_root,
-                            codex_farm_workspace_root=codex_farm_workspace_root,
-                            codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
-                            codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
-                            codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
-                            codex_farm_context_blocks=codex_farm_context_blocks,
-                            codex_farm_failure_mode=selected_codex_farm_failure_mode,
-                            processed_output_root=processed_output_dir,
-                            auto_project_name_on_scope_mismatch=True,
-                            allow_labelstudio_write=True,
-                        )
-                    ),
-                )
+                    return run_labelstudio_import(
+                        path=selected_source,
+                        output_dir=output_dir,
+                        pipeline=pipeline,
+                        project_name=project_name,
+                        chunk_level=chunk_level,
+                        task_scope="pipeline",
+                        context_window=1,
+                        segment_blocks=40,
+                        segment_overlap=5,
+                        overwrite=overwrite,
+                        resume=not overwrite,
+                        label_studio_url=url or "",
+                        label_studio_api_key=api_key or "",
+                        limit=None,
+                        sample=None,
+                        progress_callback=callback,
+                        workers=workers,
+                        pdf_split_workers=pdf_split_workers,
+                        epub_split_workers=epub_split_workers,
+                        pdf_pages_per_job=pdf_pages_per_job,
+                        epub_spine_items_per_job=epub_spine_items_per_job,
+                        epub_extractor=selected_epub_extractor,
+                        epub_unstructured_html_parser_version=selected_html_parser_version,
+                        epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
+                        epub_unstructured_preprocess_mode=selected_preprocess_mode,
+                        ocr_device=selected_ocr_device,
+                        ocr_batch_size=ocr_batch_size,
+                        warm_models=warm_models,
+                        llm_recipe_pipeline=selected_llm_recipe_pipeline,
+                        codex_farm_cmd=codex_farm_cmd,
+                        codex_farm_root=codex_farm_root,
+                        codex_farm_workspace_root=codex_farm_workspace_root,
+                        codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
+                        codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
+                        codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
+                        codex_farm_context_blocks=codex_farm_context_blocks,
+                        codex_farm_failure_mode=selected_codex_farm_failure_mode,
+                        processed_output_root=processed_output_dir,
+                        split_phase_slots=split_phase_slots,
+                        split_phase_gate_dir=split_phase_gate_dir,
+                        split_phase_status_label=split_phase_status_label,
+                        auto_project_name_on_scope_mismatch=True,
+                        allow_labelstudio_write=True,
+                    )
+
+                if suppress_spinner:
+                    _emit_external_progress(
+                        f"Generating prediction tasks for {selected_source.name}..."
+                    )
+                    callback = (
+                        _emit_external_progress
+                        if external_progress_callback is not None
+                        else None
+                    )
+                    import_result = _run_prediction_generation(callback)
+                else:
+                    def _run_with_status(
+                        update_progress: Callable[[str], None],
+                    ) -> dict[str, Any]:
+                        if external_progress_callback is None:
+                            return _run_prediction_generation(update_progress)
+
+                        def _combined_progress(message: str) -> None:
+                            update_progress(message)
+                            _emit_external_progress(message)
+
+                        return _run_prediction_generation(_combined_progress)
+
+                    import_result = _run_with_progress_status(
+                        initial_status=(
+                            f"Generating prediction tasks for {selected_source.name}..."
+                        ),
+                        progress_prefix=f"Benchmark import ({selected_source.name})",
+                        run=_run_with_status,
+                    )
     except Exception as exc:  # noqa: BLE001
+        if suppress_summary:
+            raise
         _fail(str(exc))
 
     pred_run = _co_locate_prediction_run_for_benchmark(
@@ -6584,33 +7833,34 @@ def labelstudio_benchmark(
         ),
     )
 
-    typer.secho("Benchmark complete.", fg=typer.colors.GREEN)
-    typer.secho(f"Gold spans: {selected_gold}", fg=typer.colors.CYAN)
-    typer.secho(f"Prediction run: {pred_run}", fg=typer.colors.CYAN)
-    if processed_run_root:
-        typer.secho(f"Processed output: {processed_run_root}", fg=typer.colors.CYAN)
-    typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
-    recipe_counts = report.get("recipe_counts")
-    if isinstance(recipe_counts, dict):
-        gold_recipe_headers = _coerce_int(recipe_counts.get("gold_recipe_headers"))
-        predicted_recipe_count = _coerce_int(recipe_counts.get("predicted_recipe_count"))
-        if gold_recipe_headers is not None and predicted_recipe_count is not None:
-            delta = predicted_recipe_count - gold_recipe_headers
-            typer.secho(
-                "Recipes (predicted vs golden): "
-                + f"{predicted_recipe_count}/{gold_recipe_headers} (delta {delta:+d})",
-                fg=typer.colors.CYAN,
-            )
-        elif gold_recipe_headers is not None:
-            typer.secho(
-                f"Golden recipes (RECIPE_TITLE headers): {gold_recipe_headers}",
-                fg=typer.colors.CYAN,
-            )
-        elif predicted_recipe_count is not None:
-            typer.secho(
-                f"Predicted recipes from import: {predicted_recipe_count}",
-                fg=typer.colors.CYAN,
-            )
+    if not suppress_summary:
+        typer.secho("Benchmark complete.", fg=typer.colors.GREEN)
+        typer.secho(f"Gold spans: {selected_gold}", fg=typer.colors.CYAN)
+        typer.secho(f"Prediction run: {pred_run}", fg=typer.colors.CYAN)
+        if processed_run_root:
+            typer.secho(f"Processed output: {processed_run_root}", fg=typer.colors.CYAN)
+        typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
+        recipe_counts = report.get("recipe_counts")
+        if isinstance(recipe_counts, dict):
+            gold_recipe_headers = _coerce_int(recipe_counts.get("gold_recipe_headers"))
+            predicted_recipe_count = _coerce_int(recipe_counts.get("predicted_recipe_count"))
+            if gold_recipe_headers is not None and predicted_recipe_count is not None:
+                delta = predicted_recipe_count - gold_recipe_headers
+                typer.secho(
+                    "Recipes (predicted vs golden): "
+                    + f"{predicted_recipe_count}/{gold_recipe_headers} (delta {delta:+d})",
+                    fg=typer.colors.CYAN,
+                )
+            elif gold_recipe_headers is not None:
+                typer.secho(
+                    f"Golden recipes (RECIPE_TITLE headers): {gold_recipe_headers}",
+                    fg=typer.colors.CYAN,
+                )
+            elif predicted_recipe_count is not None:
+                typer.secho(
+                    f"Predicted recipes from import: {predicted_recipe_count}",
+                    fg=typer.colors.CYAN,
+                )
 
 
 @bench_app.command("validate")

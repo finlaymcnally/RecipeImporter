@@ -15,6 +15,7 @@ from cookimport.core.models import (
     RecipeCandidate,
 )
 from cookimport.labelstudio.ingest import (
+    _acquire_split_phase_slot,
     _normalize_llm_recipe_pipeline,
     generate_pred_run_artifacts,
     _merge_parallel_results,
@@ -94,6 +95,36 @@ def test_plan_parallel_convert_jobs_epub_unstructured_uses_split(monkeypatch) ->
     assert len(jobs) > 1
     assert jobs[0]["start_spine"] == 0
     assert jobs[-1]["end_spine"] == 120
+
+
+def test_split_phase_slot_gate_emits_wait_acquire_release(
+    monkeypatch, tmp_path: Path
+) -> None:
+    gate_dir = tmp_path / "split-slot-gate"
+    messages: list[str] = []
+    attempts = {"count": 0}
+
+    def fake_try_lock(_handle) -> bool:
+        attempts["count"] += 1
+        return attempts["count"] >= 3
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._try_acquire_file_lock_nonblocking",
+        fake_try_lock,
+    )
+    monkeypatch.setattr("cookimport.labelstudio.ingest.time.sleep", lambda *_: None)
+
+    with _acquire_split_phase_slot(
+        slots=2,
+        gate_dir=gate_dir,
+        notify=messages.append,
+        status_label="Config 1/4",
+    ):
+        pass
+
+    assert any("waiting for split slot" in message for message in messages)
+    assert any("acquired split slot" in message for message in messages)
+    assert any("released split slot" in message for message in messages)
 
 
 def test_merge_parallel_results_combines_and_reorders(tmp_path: Path) -> None:

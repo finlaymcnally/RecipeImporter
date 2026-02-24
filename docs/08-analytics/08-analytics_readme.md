@@ -36,8 +36,9 @@ Analytics in this repo currently means three surfaces:
   - `data/.history/dashboard/assets/dashboard_data.json`
   - `data/.history/dashboard/assets/dashboard.js`
   - `data/.history/dashboard/assets/style.css`
-  - `data/.history/dashboard/all-method-benchmark.html` (always generated)
-  - `data/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html` (one per grouped all-method benchmark sweep)
+  - `data/.history/dashboard/all-method-benchmark.html` (always generated run index)
+  - `data/.history/dashboard/all-method-benchmark-run__<run_timestamp>.html` (one run summary page per all-method sweep)
+  - `data/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html` (one per grouped per-book all-method sweep)
 - Producer: `cookimport stats-dashboard`
 - Collector: `cookimport/analytics/dashboard_collect.py`
 - Data contract: `cookimport/analytics/dashboard_schema.py`
@@ -135,6 +136,7 @@ For benchmark rows, key columns include:
 - run context columns: `run_config_hash`, `run_config_summary`, `run_config_json`
 
 Schema migration support exists: old CSV files missing newer columns are auto-expanded during append.
+CSV append writes (`append_history_csv`, `append_benchmark_csv`) now hold an inter-process file lock across schema/header/row writes so parallel benchmark configs cannot corrupt shared history files.
 
 ### 3.3 Dashboard artifacts
 
@@ -193,7 +195,8 @@ Collector exclusions/filters:
 
 - Collects stage + benchmark analytics and writes static dashboard files.
 - `--scan-reports` can force direct JSON report scanning in addition to CSV path.
-- Always writes an in-site all-method benchmark page and, when grouped rows exist, writes standalone detail pages by grouping benchmark CSV rows whose `run_dir`/`artifact_dir` path includes `all-method-benchmark/<source_slug>/config_*`.
+- Always writes an in-site all-method benchmark run index page and, when grouped rows exist, writes run summary pages plus per-book detail pages from benchmark CSV rows whose `run_dir`/`artifact_dir` path includes `all-method-benchmark/<source_slug>/config_*`.
+- Run summary pages aggregate config metrics across all book jobs in one run folder and link through to existing per-book detail pages.
 - All-method detail pages include a compact stats-only summary table and per-metric bar charts (one bar per run/config) ahead of the ranked config table.
 - Ranked all-method detail tables expose explicit dimension columns (`Extractor`, `Parser`, `Skip HF`, `Preprocess`) sourced from run config with config-name fallback.
 - Throughput view is organized in two ways:

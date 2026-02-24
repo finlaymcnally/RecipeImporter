@@ -6,6 +6,7 @@ cookimport/c3imp_entrypoint.py
 cookimport/cli.py
 cookimport/cli_worker.py
 cookimport/entrypoint.py
+cookimport/paths.py
 cookimport.egg-info/PKG-INFO
 cookimport.egg-info/SOURCES.txt
 cookimport.egg-info/dependency_links.txt

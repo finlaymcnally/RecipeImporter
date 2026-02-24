@@ -185,6 +185,15 @@ If you want no Label Studio side effects, use:
 Interactive benchmark from the main menu is now offline-only, with two modes:
 - single offline mode (one local eval run, no upload),
 - all-method mode (offline multi-config sweep, no upload).
+  - all-method scheduler defaults are bounded: inflight pipelines=`4`, split-phase slots=`2`.
+  - queued execution submits up to inflight capacity and refills as each config completes; if process workers cannot start, it auto-falls back to serial.
+  - split-worker-heavy conversion is slot-gated across configs, so at most two configs run split conversion concurrently while other configs can pre/post-process.
+  - all-method now supports `Single golden set` or `All golden sets with matching input files`.
+  - all-matched scope resolves source hints from freeform export metadata in this order:
+    1. run `manifest.json` `source_file`,
+    2. first non-empty `freeform_span_labels.jsonl` row `source_file`,
+    3. first non-empty `freeform_segment_manifest.jsonl` row `source_file`.
+  - all-matched runs write the usual per-source `all_method_benchmark_report.{json,md}` files plus one combined root summary: `all_method_benchmark_multi_source_report.{json,md}`.
 
 ### 8.3 "Why did split conversion fail with pickling?"
 

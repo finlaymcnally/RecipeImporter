@@ -73,15 +73,16 @@ The renderer writes:
 - `data/.history/dashboard/assets/dashboard_data.json`
 - `data/.history/dashboard/assets/dashboard.js`
 - `data/.history/dashboard/assets/style.css`
-- `data/.history/dashboard/all-method-benchmark.html` (always generated)
-- `data/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html` (one per all-method benchmark run, when present)
+- `data/.history/dashboard/all-method-benchmark.html` (always generated run index)
+- `data/.history/dashboard/all-method-benchmark-run__<run_timestamp>.html` (one run summary page per all-method sweep, when present)
+- `data/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html` (per-book config breakdown pages, when present)
 
 Notes:
 
 - `index.html` embeds an inline copy of `dashboard_data.json`, so it still works via `file://` even when browser local fetches are restricted.
 - Collectors are read-only. They do not modify the source metrics in `data/output` or `data/golden`.
 - Benchmark rows pointing at pytest temp eval paths (for example `.../pytest-46/test_foo0/eval`) are ignored so local `pytest` runs do not appear in `Recent Benchmarks`.
-- All-method standalone pages are built from benchmark CSV rows (`run_dir` / `artifact_dir`) grouped by paths containing `all-method-benchmark/<source_slug>/config_*` (CSV-first; no extra dashboard-only metric store). The dashboard root page for this view is always written, even when there are zero runs.
+- All-method standalone pages are built from benchmark CSV rows (`run_dir` / `artifact_dir`) grouped by paths containing `all-method-benchmark/<source_slug>/config_*` (CSV-first; no extra dashboard-only metric store). The hierarchy is run index -> run summary -> per-book detail. The run index page is always written, even when there are zero runs.
 
 ## Import speed organization in the dashboard
 
@@ -119,7 +120,9 @@ Benchmark metrics note:
 - `Strict F1` is the IoU-threshold localization metric (`precision/recall/f1` fields from eval).
 - `Practical F1` is the any-overlap content metric (`practical_*` eval fields).
 - Rows with likely granularity mismatch display a small `mismatch` tag beside strict score so low strict/high practical runs are interpreted correctly.
-- Main dashboard now includes an `All-Method Benchmark Runs` section linking to standalone pages with ranked per-config stats for each sweep.
+- Main dashboard includes an `All-Method Benchmark Runs` section linking to a run index page.
+- All-method run index rows link to run-summary pages that aggregate config metrics across all book jobs in the sweep.
+- Run-summary pages link to per-book detail pages for existing single-source config drilldown.
 - All-method detail pages now start with a compact `Run Summary` table (stats-only, no per-config labels) and metric-category bar charts (one bar per run/config) before the full ranked table.
 - Ranked all-method tables now include explicit dimension columns (`Extractor`, `Parser`, `Skip HF`, `Preprocess`) so config differences are readable without decoding slug strings.
 

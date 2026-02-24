@@ -110,7 +110,7 @@ Menu numbering and shortcuts:
 
 `Settings` edits global defaults in `cookimport.json`.
 
-Interactive `Import` and benchmark upload runs now include a per-run chooser (`global defaults` / `last run` / `change run settings`) so experiments do not mutate these global defaults.
+Interactive `Import` and single-offline benchmark runs include a per-run chooser (`global defaults` / `last run` / `change run settings`) so experiments do not mutate these global defaults. Interactive all-method benchmark skips the chooser and uses current global benchmark defaults.
 
 Config keys and defaults:
 
@@ -251,29 +251,40 @@ Developer note:
 
 ### [H] Benchmark vs Freeform Gold Flow
 
-Interactive benchmark now has a mode submenu before run settings selection:
+Interactive benchmark now has a mode submenu before execution:
 
 1. Shows benchmark mode picker:
    - `Generate predictions + evaluate (offline, no upload)` (default first choice)
    - `All method benchmark (offline, no upload)`
-2. Shows benchmark `Run settings` mode picker (`global` / `last benchmark` / `change`), using the same editor flow as Import.
-3. Single offline path:
+2. Single offline path:
+   - shows benchmark `Run settings` mode picker (`global` / `last benchmark` / `change`), using the same editor flow as Import,
    - calls `labelstudio-benchmark` once with `--no-upload`,
    - does not resolve Label Studio credentials,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/`.
-4. All method path:
-   - prompts for gold export and source file,
-   - prints full permutation count before running,
+3. All method path:
+   - uses global benchmark defaults directly (no run-settings chooser),
+   - prompts for all-method scope:
+     - `Single golden set`: prompts for one gold export and source file.
+     - `All golden sets with matching input files`: discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename.
+   - source hint fallback order is: run `manifest.json` `source_file`, then first non-empty `freeform_span_labels.jsonl` row `source_file`, then first non-empty `freeform_segment_manifest.jsonl` row `source_file`,
+   - all-matched mode prints matched/skipped counts, planned permutation count, and sample skipped reasons before execution,
    - asks whether to include Codex Farm permutations (default `No`; currently remains disabled by policy lock),
-   - asks final proceed confirmation (`Proceed with N benchmark runs?`, default `No`),
-   - runs each config offline (`--no-upload`) and writes per-config eval artifacts plus:
-     - `all_method_benchmark_report.json`
-     - `all_method_benchmark_report.md`
+   - prints scheduler limits before confirmation: inflight pipelines (default `4`) and split-phase slots (default `2`),
+   - asks final proceed confirmation (`Proceed with N benchmark runs?` for single or `Proceed with N benchmark runs across M matched golden sets?` for all-matched, default `No`),
+   - execution uses one persistent all-method spinner dashboard (book queue + overall source/config counters + current task line), so per-config benchmark summaries do not flood terminal scrollback,
+   - executes configs through a bounded queue: up to `4` in-flight benchmark pipelines, with startup fallback to serial mode when process workers are unavailable,
+   - split-worker-heavy conversion is gate-limited to at most `2` simultaneous configs (acquire/release slot telemetry is emitted as progress messages),
+   - runs each config offline (`--no-upload`) and writes per-source eval artifacts plus:
+     - `<source_slug>/all_method_benchmark_report.json`
+     - `<source_slug>/all_method_benchmark_report.md`
+   - all-matched mode also writes a combined summary report:
+     - `all_method_benchmark_multi_source_report.json`
+     - `all_method_benchmark_multi_source_report.md`
    - writes per-config processed cookbook outputs under:
      - `<interactive output_dir>/<benchmark_timestamp>/all-method-benchmark/<source_slug>/config_*/<prediction_timestamp>/...`
    - prints `All method processed outputs: ...` with that root path.
-5. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_benchmark.json` after successful completion.
-6. Returns to the main menu on completion.
+4. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_benchmark.json` after successful single-offline runs.
+5. Returns to the main menu on completion.
 
 For re-scoring an existing prediction run directly, use `cookimport labelstudio-eval`. For offline single-run benchmarking, use non-interactive `cookimport labelstudio-benchmark --no-upload`.
 

@@ -3,7 +3,9 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -578,6 +580,97 @@ def test_infer_source_file_from_gold_row_uses_default_input(
 
     inferred = cli._infer_source_file_from_freeform_gold(gold_path)
     assert inferred == source
+
+
+def test_load_source_hint_from_gold_export_falls_back_to_segment_manifest(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run"
+    exports = run_root / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    gold_path = exports / "freeform_span_labels.jsonl"
+    gold_path.write_text("\n", encoding="utf-8")
+    segment_manifest = exports / "freeform_segment_manifest.jsonl"
+    segment_manifest.write_text(
+        json.dumps({"segment_id": "s1", "source_file": "book.epub"}) + "\n",
+        encoding="utf-8",
+    )
+
+    source_hint = cli._load_source_hint_from_gold_export(gold_path)
+    assert source_hint == "book.epub"
+
+
+def test_resolve_all_method_targets_uses_segment_manifest_when_gold_rows_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "data" / "input" / "book.epub"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("x", encoding="utf-8")
+
+    run_root = tmp_path / "run"
+    exports = run_root / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    gold_path = exports / "freeform_span_labels.jsonl"
+    gold_path.write_text("\n", encoding="utf-8")
+    (exports / "freeform_segment_manifest.jsonl").write_text(
+        json.dumps({"segment_id": "s1", "source_file": "book.epub"}) + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(cli, "_discover_freeform_gold_exports", lambda *_: [gold_path])
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [source])
+
+    matched, unmatched = cli._resolve_all_method_targets(tmp_path)
+
+    assert len(matched) == 1
+    assert matched[0].gold_spans_path == gold_path
+    assert matched[0].source_file == source
+    assert unmatched == []
+
+
+def test_resolve_all_method_targets_returns_matched_and_unmatched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "data" / "input" / "book.epub"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("x", encoding="utf-8")
+
+    matched_gold = tmp_path / "matched" / "exports" / "freeform_span_labels.jsonl"
+    matched_gold.parent.mkdir(parents=True, exist_ok=True)
+    matched_gold.write_text(
+        json.dumps({"source_file": "book.epub", "label": "RECIPE_TITLE"}) + "\n",
+        encoding="utf-8",
+    )
+
+    missing_hint_gold = tmp_path / "missing-hint" / "exports" / "freeform_span_labels.jsonl"
+    missing_hint_gold.parent.mkdir(parents=True, exist_ok=True)
+    missing_hint_gold.write_text("{}\n", encoding="utf-8")
+
+    missing_input_gold = tmp_path / "missing-input" / "exports" / "freeform_span_labels.jsonl"
+    missing_input_gold.parent.mkdir(parents=True, exist_ok=True)
+    missing_input_gold.write_text(
+        json.dumps({"source_file": "unknown.epub", "label": "RECIPE_TITLE"}) + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_discover_freeform_gold_exports",
+        lambda *_: [matched_gold, missing_hint_gold, missing_input_gold],
+    )
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [source])
+
+    matched, unmatched = cli._resolve_all_method_targets(tmp_path)
+
+    assert [row.gold_spans_path for row in matched] == [matched_gold]
+    assert [row.source_file for row in matched] == [source]
+    assert len(unmatched) == 2
+    assert "Missing source hint" in unmatched[0].reason
+    assert unmatched[0].gold_spans_path == missing_hint_gold
+    assert unmatched[0].source_hint is None
+    assert "No importable file named `unknown.epub`" in unmatched[1].reason
+    assert unmatched[1].gold_spans_path == missing_input_gold
+    assert unmatched[1].source_hint == "unknown.epub"
 
 
 def test_infer_scope_from_project_payload_detects_new_freeform_labels() -> None:
@@ -2014,6 +2107,324 @@ def test_run_all_method_benchmark_writes_ranked_summary(
         assert str(processed_dir).startswith(str(processed_root))
 
 
+def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_order(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_payload = base_settings.to_run_config_dict()
+    extractors = ("unstructured", "legacy", "markdown", "markitdown")
+    variants = [
+        cli.AllMethodVariant(
+            slug=f"extractor_{extractor}",
+            run_settings=cli.RunSettings.from_dict(
+                {**base_payload, "epub_extractor": extractor},
+                warn_context="test",
+            ),
+            dimensions={"epub_extractor": extractor},
+        )
+        for extractor in extractors
+    ]
+    scores = {
+        "unstructured": 0.44,
+        "legacy": 0.62,
+        "markdown": 0.71,
+        "markitdown": 0.89,
+    }
+    delays = {
+        "unstructured": 0.08,
+        "legacy": 0.03,
+        "markdown": 0.06,
+        "markitdown": 0.01,
+    }
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    active_count = 0
+    max_active = 0
+    state_lock = threading.Lock()
+
+    def fake_labelstudio_benchmark(**kwargs):
+        nonlocal active_count, max_active
+        with state_lock:
+            active_count += 1
+            max_active = max(max_active, active_count)
+        try:
+            assert cli._BENCHMARK_SPLIT_PHASE_SLOTS.get() == 2
+            assert cli._BENCHMARK_SPLIT_PHASE_GATE_DIR.get()
+
+            extractor = str(kwargs.get("epub_extractor") or "")
+            eval_output_dir = kwargs["eval_output_dir"]
+            assert isinstance(eval_output_dir, Path)
+            eval_output_dir.mkdir(parents=True, exist_ok=True)
+
+            time.sleep(delays[extractor])
+            f1 = scores[extractor]
+            report = {
+                "precision": f1,
+                "recall": f1,
+                "f1": f1,
+                "practical_precision": f1,
+                "practical_recall": f1,
+                "practical_f1": f1,
+            }
+            (eval_output_dir / "eval_report.json").write_text(
+                json.dumps(report, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
+            pred_run = eval_output_dir / "prediction-run"
+            pred_run.mkdir(parents=True, exist_ok=True)
+            (pred_run / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "source_file": str(source_file),
+                        "run_config_hash": f"hash-{extractor}",
+                        "run_config_summary": f"epub_extractor={extractor}",
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+        finally:
+            with state_lock:
+                active_count -= 1
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+
+    report_md_path = cli._run_all_method_benchmark(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variants=variants,
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method",
+        processed_output_root=tmp_path / "processed-output",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_inflight_pipelines=3,
+        max_concurrent_split_phases=2,
+    )
+
+    payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
+    assert max_active <= 3
+    assert max_active >= 2
+    assert payload["successful_variants"] == 4
+    assert payload["failed_variants"] == 0
+    assert payload["winner_by_f1"]["run_config_hash"] == "hash-markitdown"
+    ranked_hashes = [
+        row["run_config_hash"]
+        for row in payload["variants"]
+        if row.get("status") == "ok"
+    ]
+    assert ranked_hashes == [
+        "hash-markitdown",
+        "hash-markdown",
+        "hash-legacy",
+        "hash-unstructured",
+    ]
+
+
+def test_run_all_method_benchmark_falls_back_to_serial_when_executor_unavailable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_payload = base_settings.to_run_config_dict()
+    variants = [
+        cli.AllMethodVariant(
+            slug="extractor_unstructured",
+            run_settings=cli.RunSettings.from_dict(
+                {**base_payload, "epub_extractor": "unstructured"},
+                warn_context="test",
+            ),
+            dimensions={"epub_extractor": "unstructured"},
+        ),
+        cli.AllMethodVariant(
+            slug="extractor_markdown",
+            run_settings=cli.RunSettings.from_dict(
+                {**base_payload, "epub_extractor": "markdown"},
+                warn_context="test",
+            ),
+            dimensions={"epub_extractor": "markdown"},
+        ),
+    ]
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    class BrokenExecutor:
+        def __init__(self, *_args, **_kwargs) -> None:
+            raise PermissionError("denied")
+
+    monkeypatch.setattr(cli, "ProcessPoolExecutor", BrokenExecutor)
+
+    call_count = 0
+
+    def fake_labelstudio_benchmark(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        extractor = str(kwargs.get("epub_extractor") or "")
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        report = {
+            "precision": 0.7,
+            "recall": 0.7,
+            "f1": 0.7,
+            "practical_precision": 0.7,
+            "practical_recall": 0.7,
+            "practical_f1": 0.7,
+        }
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
+        pred_run = eval_output_dir / "prediction-run"
+        pred_run.mkdir(parents=True, exist_ok=True)
+        (pred_run / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_file": str(source_file),
+                    "run_config_hash": f"hash-{extractor}",
+                    "run_config_summary": f"epub_extractor={extractor}",
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+
+    messages: list[str] = []
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(
+        cli.typer,
+        "secho",
+        lambda message, **_kwargs: messages.append(str(message)),
+    )
+
+    report_md_path = cli._run_all_method_benchmark(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variants=variants,
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method",
+        processed_output_root=tmp_path / "processed-output",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_inflight_pipelines=4,
+        max_concurrent_split_phases=2,
+    )
+
+    payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
+    assert call_count == len(variants)
+    assert payload["successful_variants"] == len(variants)
+    assert any("falling back to serial mode" in message.lower() for message in messages)
+
+
+def test_run_all_method_benchmark_multi_source_writes_combined_summary_with_failures(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variant = cli.AllMethodVariant(
+        slug="extractor_unstructured",
+        run_settings=base_settings,
+        dimensions={"epub_extractor": "unstructured"},
+    )
+    source_a = tmp_path / "book-a.epub"
+    source_b = tmp_path / "book-b.epub"
+    source_a.write_text("a", encoding="utf-8")
+    source_b.write_text("b", encoding="utf-8")
+    gold_a = tmp_path / "gold-a" / "exports" / "freeform_span_labels.jsonl"
+    gold_b = tmp_path / "gold-b" / "exports" / "freeform_span_labels.jsonl"
+    gold_a.parent.mkdir(parents=True, exist_ok=True)
+    gold_b.parent.mkdir(parents=True, exist_ok=True)
+    gold_a.write_text("{}\n", encoding="utf-8")
+    gold_b.write_text("{}\n", encoding="utf-8")
+
+    target_variants = [
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold_a,
+                source_file=source_a,
+                source_file_name=source_a.name,
+                gold_display="gold-a",
+            ),
+            [variant],
+        ),
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold_b,
+                source_file=source_b,
+                source_file_name=source_b.name,
+                gold_display="gold-b",
+            ),
+            [variant],
+        ),
+    ]
+    unmatched = [
+        cli.AllMethodUnmatchedGold(
+            gold_spans_path=tmp_path / "gold-missing" / "exports" / "freeform_span_labels.jsonl",
+            reason="Missing source hint in manifest, freeform_span_labels.jsonl, and freeform_segment_manifest.jsonl.",
+            source_hint=None,
+            gold_display="gold-missing",
+        )
+    ]
+
+    def fake_run_all_method_benchmark(**kwargs):
+        source_file = kwargs["source_file"]
+        if source_file == source_b:
+            raise RuntimeError("synthetic source failure")
+
+        root_output_dir = kwargs["root_output_dir"]
+        root_output_dir.mkdir(parents=True, exist_ok=True)
+        report_md_path = root_output_dir / "all_method_benchmark_report.md"
+        report_md_path.write_text("ok", encoding="utf-8")
+        report_payload = {
+            "successful_variants": 1,
+            "failed_variants": 0,
+            "winner_by_f1": {
+                "precision": 0.9,
+                "recall": 0.8,
+                "f1": 0.85,
+            },
+        }
+        report_md_path.with_suffix(".json").write_text(
+            json.dumps(report_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        return report_md_path
+
+    monkeypatch.setattr(cli, "_run_all_method_benchmark", fake_run_all_method_benchmark)
+
+    report_md_path = cli._run_all_method_benchmark_multi_source(
+        target_variants=target_variants,
+        unmatched_targets=unmatched,
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method-root",
+        processed_output_root=tmp_path / "processed-root",
+        overlap_threshold=0.5,
+        force_source_match=False,
+    )
+
+    payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
+    assert payload["matched_target_count"] == 2
+    assert payload["unmatched_target_count"] == 1
+    assert payload["total_config_runs_planned"] == 2
+    assert payload["total_config_runs_completed"] == 1
+    assert payload["total_config_runs_successful"] == 1
+    assert payload["successful_source_count"] == 1
+    assert payload["failed_source_count"] == 1
+    assert payload["sources"][0]["status"] == "ok"
+    assert payload["sources"][1]["status"] == "failed"
+
+
 def test_interactive_all_method_benchmark_uses_timestamped_output_root(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2030,6 +2441,13 @@ def test_interactive_all_method_benchmark_uses_timestamped_output_root(
         "_resolve_benchmark_gold_and_source",
         lambda **_kwargs: (gold_spans, source_file),
     )
+    scope_messages: list[str] = []
+
+    def fake_menu_select(message: str, **_kwargs):
+        scope_messages.append(message)
+        return "single"
+
+    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
     monkeypatch.setattr(
         cli,
         "_build_all_method_variants",
@@ -2078,6 +2496,7 @@ def test_interactive_all_method_benchmark_uses_timestamped_output_root(
         processed_output_root=processed_output_root,
     )
 
+    assert scope_messages == ["Select all method benchmark scope:"]
     assert captured["processed_output_root"] == (
         processed_output_root
         / benchmark_eval_output.name
@@ -2086,13 +2505,125 @@ def test_interactive_all_method_benchmark_uses_timestamped_output_root(
     )
 
 
+def test_interactive_all_method_benchmark_all_matched_scope_routes_to_multi_source_runner(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "Book Name.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    benchmark_eval_output = tmp_path / "golden" / "2026-02-24_01.02.03"
+    processed_output_root = tmp_path / "output"
+
+    captured_scope_messages: list[str] = []
+
+    def fake_menu_select(message: str, **_kwargs):
+        captured_scope_messages.append(message)
+        return "all_matched"
+
+    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
+    monkeypatch.setattr(
+        cli,
+        "_resolve_benchmark_gold_and_source",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("All-matched scope should not use single-pair resolver.")
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_resolve_all_method_targets",
+        lambda _output_dir: (
+            [
+                cli.AllMethodTarget(
+                    gold_spans_path=gold_spans,
+                    source_file=source_file,
+                    source_file_name=source_file.name,
+                    gold_display="gold",
+                )
+            ],
+            [],
+        ),
+    )
+
+    variant = cli.AllMethodVariant(
+        slug="extractor_unstructured",
+        run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+        dimensions={"epub_extractor": "unstructured"},
+    )
+
+    def fake_build_target_variants(*, targets, **_kwargs):
+        return [(target, [variant]) for target in targets]
+
+    monkeypatch.setattr(cli, "_build_all_method_target_variants", fake_build_target_variants)
+    monkeypatch.setattr(
+        cli,
+        "_resolve_all_method_codex_choice",
+        lambda _include_requested: (False, None),
+    )
+    confirm_answers = iter([False, True])
+    monkeypatch.setattr(
+        cli,
+        "_prompt_confirm",
+        lambda *_args, **_kwargs: next(confirm_answers),
+    )
+
+    captured: dict[str, object] = {}
+    report_md_path = (
+        benchmark_eval_output
+        / "all-method-benchmark"
+        / "all_method_benchmark_multi_source_report.md"
+    )
+
+    def fake_run_multi_source(**kwargs):
+        captured.update(kwargs)
+        return report_md_path
+
+    monkeypatch.setattr(cli, "_run_all_method_benchmark_multi_source", fake_run_multi_source)
+    monkeypatch.setattr(
+        cli,
+        "_run_all_method_benchmark",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("All-matched scope should not call single-source runner.")
+        ),
+    )
+
+    cli._interactive_all_method_benchmark(
+        selected_benchmark_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+    )
+
+    assert captured_scope_messages == ["Select all method benchmark scope:"]
+    assert "target_variants" in captured
+    assert captured["processed_output_root"] == (
+        processed_output_root
+        / benchmark_eval_output.name
+        / "all-method-benchmark"
+    )
+
+
 def test_interactive_benchmark_all_method_mode_routes_to_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    menu_answers = iter(["labelstudio_benchmark", "all_method", "global", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "all_method", "exit"])
     monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
     monkeypatch.setattr(cli, "_load_settings", lambda: {})
+    monkeypatch.setattr(
+        cli,
+        "choose_run_settings",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("All-method mode should not prompt for run settings.")
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "save_last_run_settings",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("All-method mode should not overwrite last benchmark settings.")
+        ),
+    )
     monkeypatch.setattr(
         cli,
         "_resolve_interactive_labelstudio_settings",
@@ -2115,5 +2646,10 @@ def test_interactive_benchmark_all_method_mode_routes_to_runner(
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
 
-    assert "selected_benchmark_settings" in captured
+    assert isinstance(captured.get("selected_benchmark_settings"), cli.RunSettings)
+    expected_defaults = cli.RunSettings.from_dict(
+        {},
+        warn_context="interactive benchmark global settings",
+    )
+    assert captured["selected_benchmark_settings"].to_run_config_dict() == expected_defaults.to_run_config_dict()
     assert captured["processed_output_root"] == cli.DEFAULT_INTERACTIVE_OUTPUT

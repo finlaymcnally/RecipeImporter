@@ -66,12 +66,17 @@ Interactive file discovery and direct staging intentionally differ:
 - Interactive typed prompts in CLI flows should use `_prompt_text`, `_prompt_confirm`, or `_prompt_password` so `Esc` consistently maps to one-level back/cancel behavior.
 - Questionary `text/password/confirm` prompts expose merged key bindings (`_MergedKeyBindings`) at runtime; `Esc` overrides must be attached via `merge_key_bindings(...)` (not `.add(...)` on `application.key_bindings`).
 - Freeform interactive segment sizing (`segment_blocks`, `segment_overlap`, `segment_focus_blocks`, `target_task_count`) should route through `_prompt_freeform_segment_settings(...)` so `Esc` walks back one field instead of dropping to main menu.
-- Interactive Import and interactive benchmark both go through a per-run settings chooser (`global defaults`, `last run settings`, `change run settings`) before execution.
+- Interactive Import and interactive benchmark single-offline mode go through a per-run settings chooser (`global defaults`, `last run settings`, `change run settings`) before execution.
 - Interactive benchmark (`labelstudio_benchmark`) now has a mode submenu:
   - single offline mode (default first choice): one local evaluate run with `no_upload=True` (no Label Studio credential resolution, no upload),
   - all-method mode: offline permutation sweep (no Label Studio credential resolution, no upload).
-- Interactive benchmark asks for mode before the benchmark run-settings chooser.
-- Interactive all-method benchmark must print full run-count before execution, default Codex Farm inclusion prompt to `No`, and require an explicit proceed confirmation before running N configs.
+- Interactive benchmark asks for mode first; only single-offline mode shows the benchmark run-settings chooser.
+- Interactive all-method benchmark must use global benchmark defaults directly, and should not overwrite `last_run_settings_benchmark` snapshots.
+- Interactive all-method benchmark must ask scope (`Single golden set` vs `All golden sets with matching input files`), print planned run counts before execution, default Codex Farm inclusion prompt to `No`, and require explicit proceed confirmation before running N configs.
+- Interactive all-method benchmark scheduler defaults are bounded (`inflight pipelines=4`, `split-phase slots=2`) and should be shown before final confirmation.
+- Interactive all-method benchmark should render one persistent spinner dashboard (book queue + overall source/config counters + current task) and suppress per-config `labelstudio-benchmark` completion dumps while the sweep is running.
+- All-matched all-method source hint order is: run `manifest.json` `source_file` -> first non-empty `freeform_span_labels.jsonl` row `source_file` -> first non-empty `freeform_segment_manifest.jsonl` row `source_file`.
+- All-matched all-method runs must persist one combined summary report at `<benchmark_eval_output>/all-method-benchmark/all_method_benchmark_multi_source_report.{json,md}` in addition to per-source reports.
 - Freeform benchmark/reporting contract now exposes two metric tracks everywhere (eval JSON/MD, bench reports, CSV history, dashboard): Practical/content-overlap (`practical_*`) and Strict/localization IoU (`precision/recall/f1`), with strict semantics unchanged.
 - Benchmark upload should pass `auto_project_name_on_scope_mismatch=True` into `run_labelstudio_import(...)` so auto-named benchmark projects recover by suffixing project titles instead of failing on prior freeform/canonical scope collisions.
 - Typer command functions that are called directly from Python (interactive helpers/tests) must keep runtime defaults as plain Python values, typically via `Annotated[..., typer.Option(...)] = <default>`; avoid relying on `param: T = typer.Option(...)` defaults in those call paths.
@@ -180,10 +185,14 @@ When debugging "file missing from menu" reports, check whether the file is neste
 
 - Freeform benchmark scoring (`labelstudio-benchmark`, interactive benchmark single-offline/all-method modes, and `bench run`) evaluates prediction task artifacts (`label_studio_tasks.jsonl`) against freeform gold spans (`freeform_span_labels.jsonl`), not staged cookbook outputs; optional processed outputs written during benchmark are review artifacts only.
 - Interactive all-method benchmark must keep processed cookbook outputs under the interactive stage output root (`<settings.output_dir>/<benchmark_timestamp>/all-method-benchmark/<source_slug>/config_*/<prediction_timestamp>/...`, defaulting to `data/output/...`), not under the golden eval root.
+- Interactive all-method all-matched scope should continue after per-source failures, record failed sources in the combined report, and keep successful per-source reports intact.
 - `labelstudio-benchmark` currently generates prediction tasks with `task_scope="pipeline"`; if pipeline chunk locations are recipe-wide (not line-precise), strict freeform IoU (`>=0.5`) can collapse to near-zero even when `classification_only` / any-overlap coverage is high and staged outputs look good.
 - Freeform eval dedupes overlapping gold spans by default before scoring using `(source_hash, source_file, start_block_index, end_block_index)` keys. If duplicate groups disagree on label, use majority-vote label resolution; if label counts tie, drop that gold group from scoring and report it in `eval_report.json` `gold_dedupe.conflicts`.
 - Freeform golden recipe count source-of-truth is `exports/summary.json` -> `recipe_counts.recipe_headers`, derived from deduped `RECIPE_TITLE` spans by block range. Benchmark/eval reports should surface this against predicted recipe counts from prediction-run context.
 - Non-interactive `labelstudio-benchmark` supports an explicit offline path via `--no-upload`; this mode must skip Label Studio credential resolution and never call upload APIs.
+- `labelstudio-benchmark` currently mutates process-global `C3IMP_EPUB_*` runtime env vars and all-method per-source config runs append to a shared history CSV path; all-method outer parallelization must use process isolation (not threads) and queue-based bounded concurrency.
+- All-method parallel benchmark execution should keep up to `4` configs in-flight, but gate split-worker-heavy conversion to at most `2` simultaneous configs via shared split-slot locking.
+- Benchmark timing telemetry is currently coarse: `append_benchmark_csv(...)` intentionally leaves stage-runtime columns empty, and benchmark processed reports written via `generate_pred_run_artifacts(...)` do not set `ConversionReport.timing`; use run-manifest timestamp deltas only as a rough wall-clock proxy until dedicated benchmark phase timing is added.
 - Run-producing flows must emit `run_manifest.json` so source identity (`path` + `source_hash`), effective config, and key artifacts are inspectable without reading code.
 - When codex-farm is enabled for stage/pred-run, report + manifest payloads should expose `llmCodexFarm`/`llm_codex_farm` metadata, and deterministic fallback semantics must be explicit (`codex_farm_failure_mode=fail|fallback`).
 
@@ -191,6 +200,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 
 - `perf_report.resolve_run_dir()` must accept both timestamp folder styles (`YYYY-MM-DD_HH.MM.SS` and legacy `YYYY-MM-DD-HH-MM-SS`) and choose the latest parsed run directory.
 - Stage history append must target the actual chosen stage root's history sibling (`<stage --out parent>/.history/performance_history.csv`), not a hard-coded default output folder.
+- CSV append paths in `cookimport/analytics/perf_report.py` (`append_history_csv` and `append_benchmark_csv`) must hold an inter-process file lock through schema-check + header decision + write so parallel benchmark rows cannot corrupt the shared history file.
 - Dashboard `index.html` embeds dashboard JSON inline (in addition to `assets/dashboard_data.json`) so opening via `file://` works even when browser local `fetch()` is blocked.
 - Dashboard timestamp ordering (recent runs/benchmarks and latest benchmark picks) must parse timestamps before sorting because history mixes `YYYY-MM-DDTHH:MM:SS` and `YYYY-MM-DD_HH.MM.SS` formats.
 - Dashboard frontend timestamp parsing should explicitly parse timestamp components for those two canonical formats; avoid relying only on `Date.parse(...)` for local `file://` dashboards.
@@ -202,7 +212,8 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - Dashboard `Recent Benchmarks` `Gold`/`Matched` columns are freeform span-eval counts (`gold_total`/`gold_matched`), not recipe totals; benchmark `recipes` is stored in CSV when available and can be backfilled from `processed_report_path`.
 - Dashboard metrics contract is CSV-first: every stat shown in `stats-dashboard` must be written to `performance_history.csv`; JSON report scans are fallback/backfill only.
 - Standalone dashboard pages for all-method sweeps must also remain CSV-first: group benchmark rows by `run_dir`/`artifact_dir` paths containing `all-method-benchmark/<source_slug>/config_*` and rank configs from those CSV-backed benchmark metrics.
-- Dashboard should always emit an in-site all-method root page at `data/.history/dashboard/all-method-benchmark.html` (empty-state included); per-run all-method detail pages live as sibling files in the same dashboard root.
+- Dashboard should always emit an in-site all-method root page at `data/.history/dashboard/all-method-benchmark.html` (empty-state included), with one run-summary page per sweep at `all-method-benchmark-run__<run_timestamp>.html`.
+- All-method run-summary pages must aggregate configuration performance across all per-book jobs in the run folder and keep drilldown links to per-book pages (`all-method-benchmark__<run_timestamp>__<source_slug>.html`).
 - All-method detail pages should keep a compact stats-only summary block and per-metric bar-chart blocks ahead of the full ranked configuration table for quick scanability.
 - Ranked all-method rows should expose explicit dimension fields (`Extractor`, `Parser`, `Skip HF`, `Preprocess`) so users can compare configuration differences without parsing slug strings.
 - Run-config metrics contract is `run_config_hash` + `run_config_summary` + `run_config_json` in CSV. Dashboard UI should display summary/hash first and use JSON/report fallback only when CSV context is incomplete.

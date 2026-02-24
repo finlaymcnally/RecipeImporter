@@ -27,10 +27,12 @@ Data sources (read-only):
   (includes source/importer/run-config context when available)
 
 Output: `data/.history/dashboard/` (configurable via `--out-dir`)
-- Always writes `data/.history/dashboard/all-method-benchmark.html` as an in-site page.
-- For grouped all-method runs, also writes detail pages at dashboard root:
+- Always writes `data/.history/dashboard/all-method-benchmark.html` as an in-site run index page.
+- For grouped all-method runs, also writes run-level summary pages:
+  - `data/.history/dashboard/all-method-benchmark-run__<run_timestamp>.html`
+- Per-book detail pages still live at dashboard root:
   - `data/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html`
-- Grouping key remains benchmark artifact paths matching `all-method-benchmark/<source_slug>/config_*`.
+- Grouping key remains benchmark artifact paths matching `all-method-benchmark/<source_slug>/config_*`; run-level pages aggregate those per-book groups by run folder.
 
 Throughput dashboard organization:
 - run/date view (`Run / Date Trend`, `Recent Runs`) for timeline-level comparisons

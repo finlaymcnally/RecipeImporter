@@ -70,7 +70,9 @@ Uploads are intentionally gated.
 - non-interactive benchmark upload does not ask a second confirmation; passing upload flags is treated as explicit intent.
 - interactive benchmark now has two offline-only menu modes, and asks mode before run-settings:
   - single offline mode (default first choice): one `labelstudio-benchmark --no-upload` eval run (no Label Studio credentials, no upload),
-  - all-method mode: offline multi-config benchmark sweep (no Label Studio upload).
+  - all-method mode: offline multi-config benchmark sweep (no Label Studio upload), with scope selection:
+    - `Single golden set` (manual one-pair flow),
+    - `All golden sets with matching input files` (bulk matching flow).
 - benchmark upload auto-recovers from project scope collisions when project name is auto-generated: if an existing project+manifest resolves to a different task scope, it creates a deduped project name instead of failing interactive flow.
 
 Non-interactive overwrite/resume behavior is unchanged:
@@ -425,9 +427,19 @@ Important:
 - Offline mode is explicit via `--no-upload`.
 - Eval-only mode against an existing prediction run is available via `labelstudio-eval` (interactive benchmark does not expose eval-only).
 - Interactive benchmark single-offline mode runs one `labelstudio-benchmark --no-upload` flow per menu action and writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/`.
-- Interactive all-method mode runs offline `labelstudio-benchmark --no-upload` style executions across a fixed extractor/tuning permutation set, then writes aggregate summary artifacts at:
+- Interactive all-method mode now starts with a scope chooser:
+  - `Single golden set`: current one-pair flow.
+  - `All golden sets with matching input files`: discover freeform exports and auto-match by source filename.
+- All-matched source hint fallback order is:
+  1. run `manifest.json` `source_file`,
+  2. first non-empty `freeform_span_labels.jsonl` row `source_file`,
+  3. first non-empty `freeform_segment_manifest.jsonl` row `source_file`.
+- Interactive all-method mode runs offline `labelstudio-benchmark --no-upload` style executions across a fixed extractor/tuning permutation set, then writes per-source summary artifacts at:
   - `.../all-method-benchmark/<source_slug>/all_method_benchmark_report.json`
   - `.../all-method-benchmark/<source_slug>/all_method_benchmark_report.md`
+- All-matched scope also writes one combined report at:
+  - `.../all-method-benchmark/all_method_benchmark_multi_source_report.json`
+  - `.../all-method-benchmark/all_method_benchmark_multi_source_report.md`
 - Interactive all-method mode also writes processed cookbook outputs under the interactive output root (`cookimport.json.output_dir`, default `data/output`) scoped by benchmark timestamp:
   - `<output_dir>/<benchmark_timestamp>/all-method-benchmark/<source_slug>/config_*/<prediction_timestamp>/...`
 - Benchmark prediction manifests include run-config metadata (`run_config`, `run_config_hash`, `run_config_summary`) so analytics/dashboard rows can be grouped by configuration.

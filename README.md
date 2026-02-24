@@ -222,9 +222,9 @@ Main Menu ("What would you like to do?")
 |   `-- If writing: confirm creating new annotations in Label Studio
 |
 |-- Generate predictions + evaluate vs freeform gold
-|   |-- Choose benchmark run settings
-|   |-- Label Studio URL + API key (if needed)
-|   `-- Writes evaluation artifacts under data/golden/benchmark-vs-golden/<YYYY-MM-DD_HH.MM.SS>/
+|   |-- Choose mode: single offline or all-method offline
+|   |-- Single offline: choose benchmark run settings, then run one local eval
+|   `-- All-method: uses global benchmark defaults, then runs offline permutations
 |
 |-- Generate dashboard - build lifetime stats dashboard HTML
 |   |-- Open dashboard in your browser after generation?
@@ -263,7 +263,7 @@ Sub-prompts you will see:
 
 ### Settings (Change Your Defaults)
 
-This edits your saved defaults and writes them to `cookimport.json`. It affects future imports and future benchmark "upload" runs.
+This edits your saved defaults and writes them to `cookimport.json`. It affects future imports and benchmark runs that use global defaults (including all-method benchmark mode).
 
 Sub-menu options (Settings Configuration):
 - **Workers**: how many files/jobs to process in parallel (higher = faster, but uses more CPU/RAM)
@@ -376,9 +376,12 @@ Label Studio: decorate existing freeform project with AI spans
 Use this to compare pipeline predictions against your freeform "gold" labels.
 
 Sub-prompts you will see:
-- Choose benchmark run settings (similar editor to import).
-- Provide Label Studio credentials when they are not already configured.
-- The flow then generates predictions, uploads tasks, and evaluates against freeform gold.
+- Choose benchmark mode:
+  - single offline: one local prediction+eval run (`no_upload=True`)
+  - all-method offline: multi-configuration sweep with summary reports
+- Single offline mode asks for benchmark run settings (global / last / edit).
+- All-method mode skips the run-settings chooser and uses your current global benchmark defaults.
+- Interactive benchmark does not resolve Label Studio credentials and does not upload.
 
 If you need to re-score an existing prediction run without regeneration, use:
 - `cookimport labelstudio-eval --pred-run <run_dir> --gold-spans <freeform_span_labels.jsonl> --output-dir <eval_dir>`
@@ -387,9 +390,14 @@ Choice tree (Evaluate):
 
 ```text
 Generate predictions + evaluate vs freeform gold
-|-- Choose benchmark run settings
-|-- Label Studio URL + API key (if needed)
-`-- Run benchmark (generates predictions + uploads + evaluates)
+|-- Choose mode
+|   |-- Single offline
+|   |   |-- Choose benchmark run settings
+|   |   `-- Run local prediction + eval (no upload)
+|   `-- All-method offline
+|       |-- Uses global benchmark defaults
+|       `-- Run all-method offline sweep + summary
+`-- Return to main menu
 ```
 
 ### Generate Dashboard

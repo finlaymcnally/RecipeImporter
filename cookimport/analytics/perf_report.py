@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import json
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -15,6 +16,11 @@ from cookimport.paths import history_csv_for_output
 _RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}$")
 _LEGACY_RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$")
 _BENCHMARK_CATEGORIES = {"benchmark_eval", "benchmark_prediction"}
+
+try:  # pragma: no cover - non-Unix fallback.
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -258,15 +264,47 @@ def format_summary_line(row: PerfRow) -> str:
     return " | ".join(parts)
 
 
-def append_history_csv(rows: Iterable[PerfRow], csv_path: Path) -> None:
+def _csv_lock_path(csv_path: Path) -> Path:
+    suffix = csv_path.suffix or ".csv"
+    return csv_path.with_suffix(f"{suffix}.lock")
+
+
+def _acquire_file_lock(handle: Any) -> None:
+    if fcntl is None:
+        return
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+
+
+def _release_file_lock(handle: Any) -> None:
+    if fcntl is None:
+        return
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        return
+
+
+@contextmanager
+def _locked_csv_append_writer(csv_path: Path) -> Iterable[csv.DictWriter]:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
-    if csv_path.exists():
-        _ensure_csv_schema(csv_path)
-    write_header = not csv_path.exists() or csv_path.stat().st_size == 0
-    with csv_path.open("a", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=_CSV_FIELDS)
-        if write_header:
-            writer.writeheader()
+    lock_path = _csv_lock_path(csv_path)
+    with lock_path.open("a+", encoding="utf-8") as lock_handle:
+        _acquire_file_lock(lock_handle)
+        try:
+            if csv_path.exists():
+                _ensure_csv_schema(csv_path)
+            write_header = not csv_path.exists() or csv_path.stat().st_size == 0
+            with csv_path.open("a", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=_CSV_FIELDS)
+                if write_header:
+                    writer.writeheader()
+                yield writer
+        finally:
+            _release_file_lock(lock_handle)
+
+
+def append_history_csv(rows: Iterable[PerfRow], csv_path: Path) -> None:
+    with _locked_csv_append_writer(csv_path) as writer:
         for row in rows:
             writer.writerow(_row_to_csv(row))
 
@@ -294,11 +332,6 @@ def append_benchmark_csv(
     Stage-only columns are left empty; benchmark-only columns are populated
     from *report* (an eval_report.json-shaped dict).
     """
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    if csv_path.exists():
-        _ensure_csv_schema(csv_path)
-    write_header = not csv_path.exists() or csv_path.stat().st_size == 0
-
     counts = report.get("counts") or {}
     precision = _safe_float_or_none(report.get("precision"))
     recall = _safe_float_or_none(report.get("recall"))
@@ -445,10 +478,7 @@ def append_benchmark_csv(
         ),
     })
 
-    with csv_path.open("a", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=_CSV_FIELDS)
-        if write_header:
-            writer.writeheader()
+    with _locked_csv_append_writer(csv_path) as writer:
         writer.writerow(row)
 
 

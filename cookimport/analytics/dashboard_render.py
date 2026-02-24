@@ -12,7 +12,7 @@ No external CDN dependencies – everything is local.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from html import escape
 import json
@@ -26,6 +26,7 @@ from .dashboard_schema import BenchmarkRecord, DashboardData
 _ALL_METHOD_BENCHMARK_SEGMENT = "all-method-benchmark"
 _ALL_METHOD_CONFIG_PREFIX = "config_"
 _ALL_METHOD_INDEX_PAGE = "all-method-benchmark.html"
+_ALL_METHOD_RUN_PAGE_PREFIX = "all-method-benchmark-run__"
 _TS_PATTERN = re.compile(
     r"^(\d{4})-(\d{2})-(\d{2})[T_](\d{2})[.:](\d{2})[.:](\d{2})$"
 )
@@ -34,9 +35,39 @@ _TS_PATTERN = re.compile(
 @dataclass
 class _AllMethodGroup:
     group_dir: str
+    run_root_dir: str
     run_dir_timestamp: str | None
     source_slug: str
     records: list[BenchmarkRecord]
+    detail_page_name: str = ""
+
+
+@dataclass
+class _AllMethodConfigAggregate:
+    config_key: str
+    config_name: str
+    extractor: str
+    parser: str
+    skiphf: str
+    preprocess: str
+    importer_name: str
+    run_config_text: str
+    run_config_hash: str | None
+    books: int
+    wins: int
+    strict_precision_mean: float | None
+    strict_recall_mean: float | None
+    strict_f1_mean: float | None
+    practical_f1_mean: float | None
+    recipes_mean: float | None
+
+
+@dataclass
+class _AllMethodRun:
+    run_key: str
+    run_dir_timestamp: str | None
+    groups: list[_AllMethodGroup] = field(default_factory=list)
+    config_aggregates: list[_AllMethodConfigAggregate] = field(default_factory=list)
     detail_page_name: str = ""
 
 
@@ -89,7 +120,9 @@ def _normalize_path_parts(path_value: str | None) -> tuple[str, list[str]]:
     return prefix, parts
 
 
-def _all_method_group_key(record: BenchmarkRecord) -> tuple[str, str | None, str] | None:
+def _all_method_group_key(
+    record: BenchmarkRecord,
+) -> tuple[str, str, str | None, str] | None:
     prefix, parts = _normalize_path_parts(record.artifact_dir)
     if len(parts) < 3:
         return None
@@ -104,10 +137,16 @@ def _all_method_group_key(record: BenchmarkRecord) -> tuple[str, str | None, str
         config_dir = parts[idx + 2]
         if not config_dir.startswith(_ALL_METHOD_CONFIG_PREFIX):
             continue
+        run_root_parts = parts[: idx + 1]
         group_parts = parts[: idx + 2]
+        run_root_dir = (
+            f"{prefix}{'/'.join(run_root_parts)}"
+            if prefix
+            else "/".join(run_root_parts)
+        )
         group_dir = f"{prefix}{'/'.join(group_parts)}" if prefix else "/".join(group_parts)
         run_dir_timestamp = parts[idx - 1] if idx > 0 else None
-        return group_dir, run_dir_timestamp, source_slug
+        return group_dir, run_root_dir, run_dir_timestamp, source_slug
 
     return None
 
@@ -273,12 +312,13 @@ def _collect_all_method_groups(data: DashboardData) -> list[_AllMethodGroup]:
         key_info = _all_method_group_key(record)
         if key_info is None:
             continue
-        group_dir, run_dir_timestamp, source_slug = key_info
+        group_dir, run_root_dir, run_dir_timestamp, source_slug = key_info
 
         group = grouped.get(group_dir)
         if group is None:
             group = _AllMethodGroup(
                 group_dir=group_dir,
+                run_root_dir=run_root_dir,
                 run_dir_timestamp=run_dir_timestamp,
                 source_slug=source_slug,
                 records=[],
@@ -314,6 +354,7 @@ def _collect_all_method_groups(data: DashboardData) -> list[_AllMethodGroup]:
         groups.append(
             _AllMethodGroup(
                 group_dir=group.group_dir,
+                run_root_dir=group.run_root_dir,
                 run_dir_timestamp=group.run_dir_timestamp,
                 source_slug=group.source_slug,
                 records=records,
@@ -364,27 +405,179 @@ def _group_page_name(group: _AllMethodGroup) -> str:
     )
 
 
-def _render_all_method_index_html(groups: list[_AllMethodGroup]) -> str:
+def _run_page_name(run: _AllMethodRun) -> str:
+    return (
+        f"{_ALL_METHOD_RUN_PAGE_PREFIX}"
+        f"{_slug_token(run.run_dir_timestamp)}.html"
+    )
+
+
+def _aggregate_config_key(record: BenchmarkRecord) -> str:
+    config_hash = str(record.run_config_hash or "").strip().lower()
+    if config_hash:
+        return f"hash:{config_hash}"
+    return f"name:{_config_name(record)}"
+
+
+def _aggregate_run_configs(
+    groups: list[_AllMethodGroup],
+) -> list[_AllMethodConfigAggregate]:
+    state: dict[str, dict[str, Any]] = {}
+
+    for group in groups:
+        winner = _best_record(group.records)
+        winner_key = _aggregate_config_key(winner) if winner is not None else None
+        for record in group.records:
+            config_key = _aggregate_config_key(record)
+            entry = state.get(config_key)
+            if entry is None:
+                config_hash = str(record.run_config_hash or "").strip() or None
+                summary = _run_config_summary(record)
+                if summary and config_hash:
+                    run_config_text = f"{summary} [{config_hash[:10]}]"
+                elif config_hash:
+                    run_config_text = f"[{config_hash[:10]}]"
+                else:
+                    run_config_text = summary or "-"
+                extractor_dim, parser_dim, skiphf_dim, preprocess_dim = _all_method_dims(
+                    record
+                )
+                entry = {
+                    "config_names": set(),
+                    "book_keys": set(),
+                    "wins": 0,
+                    "extractor": extractor_dim,
+                    "parser": parser_dim,
+                    "skiphf": skiphf_dim,
+                    "preprocess": preprocess_dim,
+                    "importer_name": str(record.importer_name or "-"),
+                    "run_config_text": run_config_text,
+                    "run_config_hash": config_hash,
+                    "strict_precision_values": [],
+                    "strict_recall_values": [],
+                    "strict_f1_values": [],
+                    "practical_f1_values": [],
+                    "recipes_values": [],
+                }
+                state[config_key] = entry
+
+            entry["config_names"].add(_config_name(record))
+            entry["book_keys"].add(group.group_dir)
+            if record.precision is not None:
+                entry["strict_precision_values"].append(float(record.precision))
+            if record.recall is not None:
+                entry["strict_recall_values"].append(float(record.recall))
+            if record.f1 is not None:
+                entry["strict_f1_values"].append(float(record.f1))
+            if record.practical_f1 is not None:
+                entry["practical_f1_values"].append(float(record.practical_f1))
+            if record.recipes is not None:
+                entry["recipes_values"].append(float(record.recipes))
+
+        if winner_key is not None and winner_key in state:
+            state[winner_key]["wins"] += 1
+
+    aggregates: list[_AllMethodConfigAggregate] = []
+    for config_key, entry in state.items():
+        config_names = sorted(str(name) for name in entry["config_names"] if str(name))
+        config_name = config_names[0] if config_names else "<unknown>"
+        aggregates.append(
+            _AllMethodConfigAggregate(
+                config_key=config_key,
+                config_name=config_name,
+                extractor=entry["extractor"],
+                parser=entry["parser"],
+                skiphf=entry["skiphf"],
+                preprocess=entry["preprocess"],
+                importer_name=entry["importer_name"],
+                run_config_text=entry["run_config_text"],
+                run_config_hash=entry["run_config_hash"],
+                books=len(entry["book_keys"]),
+                wins=int(entry["wins"]),
+                strict_precision_mean=_mean(entry["strict_precision_values"]),
+                strict_recall_mean=_mean(entry["strict_recall_values"]),
+                strict_f1_mean=_mean(entry["strict_f1_values"]),
+                practical_f1_mean=_mean(entry["practical_f1_values"]),
+                recipes_mean=_mean(entry["recipes_values"]),
+            )
+        )
+
+    aggregates = sorted(aggregates, key=lambda row: row.config_name.lower())
+    aggregates = sorted(
+        aggregates,
+        key=lambda row: (
+            row.books,
+            _metric(row.practical_f1_mean),
+            _metric(row.strict_f1_mean),
+            row.wins,
+            _metric(row.strict_precision_mean),
+            _metric(row.strict_recall_mean),
+        ),
+        reverse=True,
+    )
+    return aggregates
+
+
+def _collect_all_method_runs(groups: list[_AllMethodGroup]) -> list[_AllMethodRun]:
+    runs_by_key: dict[str, _AllMethodRun] = {}
+    for group in groups:
+        run_key = group.run_root_dir or group.group_dir
+        run = runs_by_key.get(run_key)
+        if run is None:
+            run = _AllMethodRun(
+                run_key=run_key,
+                run_dir_timestamp=group.run_dir_timestamp,
+            )
+            runs_by_key[run_key] = run
+        run.groups.append(group)
+        if _run_timestamp_sort_key(group.run_dir_timestamp) > _run_timestamp_sort_key(
+            run.run_dir_timestamp
+        ):
+            run.run_dir_timestamp = group.run_dir_timestamp
+
+    runs: list[_AllMethodRun] = []
+    for run in runs_by_key.values():
+        run.groups = sorted(
+            run.groups,
+            key=lambda group: _group_source_label(group).lower(),
+        )
+        run.config_aggregates = _aggregate_run_configs(run.groups)
+        runs.append(run)
+
+    runs.sort(
+        key=lambda run: _run_timestamp_sort_key(run.run_dir_timestamp),
+        reverse=True,
+    )
+    return runs
+
+
+def _run_best_config(run: _AllMethodRun) -> _AllMethodConfigAggregate | None:
+    if not run.config_aggregates:
+        return None
+    return run.config_aggregates[0]
+
+
+def _render_all_method_index_html(runs: list[_AllMethodRun]) -> str:
     empty_note = ""
-    if not groups:
+    if not runs:
         empty_note = (
             "<p class=\"empty-note\">No all-method benchmark runs found in benchmark history.</p>"
         )
 
     row_html: list[str] = []
-    for group in groups:
-        best = _best_record(group.records)
-        winner_name = _config_name(best) if best is not None else "-"
+    for run in runs:
+        best = _run_best_config(run)
+        winner_name = best.config_name if best is not None else "-"
         row_html.append(
             (
                 "<tr>"
-                f"<td>{escape(group.run_dir_timestamp or '-')}</td>"
-                f"<td>{escape(_group_source_label(group))}</td>"
-                f"<td class=\"num\">{len(group.records)}</td>"
+                f"<td>{escape(run.run_dir_timestamp or '-')}</td>"
+                f"<td class=\"num\">{len(run.groups)}</td>"
+                f"<td class=\"num\">{len(run.config_aggregates)}</td>"
                 f"<td>{escape(winner_name)}</td>"
-                f"<td class=\"num\">{_fmt_float(best.f1 if best else None)}</td>"
-                f"<td class=\"num\">{_fmt_float(best.practical_f1 if best else None)}</td>"
-                f"<td><a href=\"{escape(group.detail_page_name)}\">Open details</a></td>"
+                f"<td class=\"num\">{_fmt_float(best.strict_f1_mean if best else None)}</td>"
+                f"<td class=\"num\">{_fmt_float(best.practical_f1_mean if best else None)}</td>"
+                f"<td><a href=\"{escape(run.detail_page_name)}\">Open run details</a></td>"
                 "</tr>"
             )
         )
@@ -404,10 +597,10 @@ def _render_all_method_index_html(groups: list[_AllMethodGroup]) -> str:
         "</header>"
         "<main>"
         "<section>"
-        "<p class=\"section-note\">Each row links to a standalone page showing all configuration stats from one all-method benchmark sweep.</p>"
+        "<p class=\"section-note\">Each row links to a run summary page with config performance aggregated across all books in one all-method sweep.</p>"
         f"{empty_note}"
         "<table><thead><tr>"
-        "<th>Run Folder</th><th>Source</th><th>Configs</th><th>Winner</th><th>Strict F1</th><th>Practical F1</th><th>Details</th>"
+        "<th>Run Folder</th><th>Book Jobs</th><th>Configs</th><th>Winner</th><th>Mean Strict F1</th><th>Mean Practical F1</th><th>Details</th>"
         "</tr></thead><tbody>"
         f"{''.join(row_html)}"
         "</tbody></table>"
@@ -419,7 +612,108 @@ def _render_all_method_index_html(groups: list[_AllMethodGroup]) -> str:
     )
 
 
-def _render_all_method_detail_html(group: _AllMethodGroup) -> str:
+def _render_all_method_run_html(run: _AllMethodRun) -> str:
+    best = _run_best_config(run)
+    winner_line = "-"
+    if best is not None:
+        winner_line = (
+            f"{best.config_name} "
+            f"(books={best.books}, wins={best.wins}, "
+            f"mean_strict_f1={_fmt_float(best.strict_f1_mean)}, "
+            f"mean_practical_f1={_fmt_float(best.practical_f1_mean)})"
+        )
+
+    aggregate_rows: list[str] = []
+    for rank, aggregate in enumerate(run.config_aggregates, start=1):
+        aggregate_rows.append(
+            (
+                "<tr>"
+                f"<td class=\"num\">{rank}</td>"
+                f"<td>{escape(aggregate.config_name)}</td>"
+                f"<td>{escape(aggregate.extractor)}</td>"
+                f"<td>{escape(aggregate.parser)}</td>"
+                f"<td>{escape(aggregate.skiphf)}</td>"
+                f"<td>{escape(aggregate.preprocess)}</td>"
+                f"<td class=\"num\">{aggregate.books}</td>"
+                f"<td class=\"num\">{aggregate.wins}</td>"
+                f"<td class=\"num\">{_fmt_float(aggregate.strict_precision_mean)}</td>"
+                f"<td class=\"num\">{_fmt_float(aggregate.strict_recall_mean)}</td>"
+                f"<td class=\"num\">{_fmt_float(aggregate.strict_f1_mean)}</td>"
+                f"<td class=\"num\">{_fmt_float(aggregate.practical_f1_mean)}</td>"
+                f"<td class=\"num\">{_fmt_float(aggregate.recipes_mean, digits=1)}</td>"
+                f"<td>{escape(aggregate.importer_name or '-')}</td>"
+                f"<td title=\"{escape(aggregate.run_config_text)}\">{escape(aggregate.run_config_text)}</td>"
+                "</tr>"
+            )
+        )
+
+    book_rows: list[str] = []
+    for group in run.groups:
+        best_group = _best_record(group.records)
+        book_rows.append(
+            (
+                "<tr>"
+                f"<td>{escape(_group_source_label(group))}</td>"
+                f"<td class=\"num\">{len(group.records)}</td>"
+                f"<td>{escape(_config_name(best_group) if best_group else '-')}</td>"
+                f"<td class=\"num\">{_fmt_float(best_group.f1 if best_group else None)}</td>"
+                f"<td class=\"num\">{_fmt_float(best_group.practical_f1 if best_group else None)}</td>"
+                f"<td><a href=\"{escape(group.detail_page_name)}\">Open book details</a></td>"
+                "</tr>"
+            )
+        )
+
+    return (
+        "<!DOCTYPE html>"
+        "<html lang=\"en\">"
+        "<head>"
+        "<meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        f"<title>cookimport – All Method Benchmark Run {escape(run.run_dir_timestamp or '')}</title>"
+        "<link rel=\"stylesheet\" href=\"assets/style.css\">"
+        "</head>"
+        "<body>"
+        "<header>"
+        "<h1>All Method Benchmark Run Summary</h1>"
+        f"<p><a href=\"index.html\">Dashboard home</a> · <a href=\"{_ALL_METHOD_INDEX_PAGE}\">All-method runs</a></p>"
+        "</header>"
+        "<main>"
+        "<section>"
+        f"<p><strong>Run folder:</strong> {escape(run.run_dir_timestamp or '-')}</p>"
+        f"<p><strong>Book jobs:</strong> {len(run.groups)}</p>"
+        f"<p><strong>Configs aggregated:</strong> {len(run.config_aggregates)}</p>"
+        f"<p><strong>Winner:</strong> {escape(winner_line)}</p>"
+        "</section>"
+        "<section>"
+        "<h2>Config Performance Across Books</h2>"
+        "<p class=\"section-note\">Aggregated by configuration across all per-book jobs in this run.</p>"
+        "<table><thead><tr>"
+        "<th>Rank</th><th>Configuration</th><th>Extractor</th><th>Parser</th><th>Skip HF</th><th>Preprocess</th><th>Books</th><th>Wins</th><th>Mean Strict Precision</th><th>Mean Strict Recall</th><th>Mean Strict F1</th><th>Mean Practical F1</th><th>Mean Recipes</th><th>Importer</th><th>Run Config</th>"
+        "</tr></thead><tbody>"
+        f"{''.join(aggregate_rows)}"
+        "</tbody></table>"
+        "</section>"
+        "<section>"
+        "<h2>Per-Book Drilldown</h2>"
+        "<p class=\"section-note\">Open each source row for the existing per-book config breakdown page.</p>"
+        "<table><thead><tr>"
+        "<th>Source</th><th>Configs</th><th>Winner</th><th>Strict F1</th><th>Practical F1</th><th>Details</th>"
+        "</tr></thead><tbody>"
+        f"{''.join(book_rows)}"
+        "</tbody></table>"
+        "</section>"
+        "</main>"
+        "<footer>Generated by <code>cookimport stats-dashboard</code></footer>"
+        "</body>"
+        "</html>"
+    )
+
+
+def _render_all_method_detail_html(
+    group: _AllMethodGroup,
+    *,
+    run_detail_page_name: str | None = None,
+) -> str:
     best = _best_record(group.records)
     source_label = _group_source_label(group)
     rows: list[str] = []
@@ -567,6 +861,13 @@ def _render_all_method_detail_html(group: _AllMethodGroup) -> str:
             )
         )
 
+    nav_links = ["<a href=\"index.html\">Dashboard home</a>"]
+    nav_links.append(f"<a href=\"{_ALL_METHOD_INDEX_PAGE}\">All-method runs</a>")
+    if run_detail_page_name:
+        nav_links.append(
+            f"<a href=\"{escape(run_detail_page_name)}\">Run summary</a>"
+        )
+
     return (
         "<!DOCTYPE html>"
         "<html lang=\"en\">"
@@ -579,7 +880,7 @@ def _render_all_method_detail_html(group: _AllMethodGroup) -> str:
         "<body>"
         "<header>"
         "<h1>All Method Benchmark Details</h1>"
-        f"<p><a href=\"index.html\">Dashboard home</a> · <a href=\"{_ALL_METHOD_INDEX_PAGE}\">All-method runs</a></p>"
+        f"<p>{' · '.join(nav_links)}</p>"
         "</header>"
         "<main>"
         "<section>"
@@ -619,12 +920,15 @@ def _render_all_method_detail_html(group: _AllMethodGroup) -> str:
 
 def _render_all_method_pages(out_dir: Path, data: DashboardData) -> str:
     groups = _collect_all_method_groups(data)
+    runs = _collect_all_method_runs(groups)
     legacy_dir = out_dir / _ALL_METHOD_BENCHMARK_SEGMENT
     if legacy_dir.exists():
         shutil.rmtree(legacy_dir, ignore_errors=True)
 
     for stale_detail_page in out_dir.glob(f"{_ALL_METHOD_BENCHMARK_SEGMENT}__*.html"):
         stale_detail_page.unlink(missing_ok=True)
+    for stale_run_page in out_dir.glob(f"{_ALL_METHOD_RUN_PAGE_PREFIX}*.html"):
+        stale_run_page.unlink(missing_ok=True)
 
     used_page_names: set[str] = set()
     for group in groups:
@@ -636,19 +940,46 @@ def _render_all_method_pages(out_dir: Path, data: DashboardData) -> str:
             suffix += 1
         used_page_names.add(page_name)
         group.detail_page_name = page_name
-        detail_path = out_dir / page_name
+
+    for run in runs:
+        base_name = _run_page_name(run)
+        page_name = base_name
+        suffix = 2
+        while page_name in used_page_names:
+            page_name = f"{base_name[:-5]}_{suffix}.html"
+            suffix += 1
+        used_page_names.add(page_name)
+        run.detail_page_name = page_name
+
+    run_page_by_key = {
+        run.run_key: run.detail_page_name
+        for run in runs
+    }
+
+    for group in groups:
+        detail_path = out_dir / group.detail_page_name
         detail_path.write_text(
-            _render_all_method_detail_html(group),
+            _render_all_method_detail_html(
+                group,
+                run_detail_page_name=run_page_by_key.get(group.run_root_dir),
+            ),
+            encoding="utf-8",
+        )
+
+    for run in runs:
+        run_path = out_dir / run.detail_page_name
+        run_path.write_text(
+            _render_all_method_run_html(run),
             encoding="utf-8",
         )
 
     index_path = out_dir / _ALL_METHOD_INDEX_PAGE
     index_path.write_text(
-        _render_all_method_index_html(groups),
+        _render_all_method_index_html(runs),
         encoding="utf-8",
     )
 
-    if not groups:
+    if not runs:
         return (
             "<section id=\"all-method-section\">"
             "<h2>All-Method Benchmark Runs</h2>"
@@ -660,8 +991,8 @@ def _render_all_method_pages(out_dir: Path, data: DashboardData) -> str:
     return (
         "<section id=\"all-method-section\">"
         "<h2>All-Method Benchmark Runs</h2>"
-        "<p class=\"section-note\">Standalone pages generated from benchmark CSV rows grouped by all-method run folder.</p>"
-        f"<p><a href=\"{_ALL_METHOD_INDEX_PAGE}\">Open all-method benchmark page</a> ({len(groups)} runs)</p>"
+        "<p class=\"section-note\">Standalone run-summary and per-book pages generated from benchmark CSV rows grouped by all-method run folder.</p>"
+        f"<p><a href=\"{_ALL_METHOD_INDEX_PAGE}\">Open all-method benchmark page</a> ({len(runs)} runs)</p>"
         "</section>"
     )
 
