@@ -54,6 +54,10 @@ def _block_text_window(
 
 def _severity(label: str, case_type: str) -> float:
     base = _LABEL_IMPORTANCE.get(label, 0.2)
+    if case_type == "strict_boundary_miss":
+        return base * 0.2
+    if case_type == "strict_boundary_fp":
+        return base * 0.2
     if case_type == "missed_gold":
         return base * 1.0
     if case_type == "false_positive":
@@ -97,12 +101,30 @@ def build_iteration_packet(
         report_path = eval_dir / "eval_report.json"
         if report_path.exists():
             eval_report = json.loads(report_path.read_text(encoding="utf-8"))
+        practical_matching = eval_report.get("practical_matching", {})
+        practical_matched_gold_ids = set(
+            practical_matching.get("matched_gold_span_ids", [])
+            if isinstance(practical_matching, dict)
+            else []
+        )
+        practical_matched_pred_ids = set(
+            practical_matching.get("matched_pred_span_ids", [])
+            if isinstance(practical_matching, dict)
+            else []
+        )
+        practical_counts = eval_report.get("practical_counts", {})
 
         item_summaries.append({
             "item_id": item_id,
             "gold_total": eval_report.get("counts", {}).get("gold_total", 0),
             "recall": eval_report.get("recall", 0),
             "precision": eval_report.get("precision", 0),
+            "practical_recall": eval_report.get("practical_recall", 0),
+            "practical_precision": eval_report.get("practical_precision", 0),
+            "practical_gold_missed": practical_counts.get("gold_missed", 0),
+            "practical_pred_false_positive": practical_counts.get(
+                "pred_false_positive", 0
+            ),
             "missed_count": len(missed),
             "fp_count": len(fps),
         })
@@ -111,14 +133,19 @@ def build_iteration_packet(
             label = span.get("label", "OTHER")
             start = span.get("start_block_index", 0)
             end = span.get("end_block_index", start)
+            span_id = str(span.get("span_id") or "")
+            practical_overlap_matched = span_id in practical_matched_gold_ids if span_id else False
+            case_type = "strict_boundary_miss" if practical_overlap_matched else "missed_gold"
             case = {
-                "case_type": "missed_gold",
+                "case_type": case_type,
                 "item_id": item_id,
                 "label": label,
                 "gold_range": [start, end],
                 "pred_range": None,
+                "span_id": span_id or None,
+                "practical_overlap_matched": practical_overlap_matched,
                 "block_text_window": _block_text_window(archive, start, end),
-                "severity": _severity(label, "missed_gold"),
+                "severity": _severity(label, case_type),
             }
             all_cases.append(case)
 
@@ -127,14 +154,19 @@ def build_iteration_packet(
             label = span.get("label", "OTHER")
             start = span.get("start_block_index", 0)
             end = span.get("end_block_index", start)
+            span_id = str(span.get("span_id") or "")
+            practical_overlap_matched = span_id in practical_matched_pred_ids if span_id else False
+            case_type = "strict_boundary_fp" if practical_overlap_matched else "false_positive"
             case = {
-                "case_type": "false_positive",
+                "case_type": case_type,
                 "item_id": item_id,
                 "label": label,
                 "gold_range": None,
                 "pred_range": [start, end],
+                "span_id": span_id or None,
+                "practical_overlap_matched": practical_overlap_matched,
                 "block_text_window": _block_text_window(archive, start, end),
-                "severity": _severity(label, "false_positive"),
+                "severity": _severity(label, case_type),
             }
             all_cases.append(case)
 
@@ -178,17 +210,22 @@ def build_iteration_packet(
         ])
     summary_lines.extend([
         f"Total cases: {len(all_cases)}",
-        f"- Missed gold spans: {sum(1 for c in all_cases if c['case_type'] == 'missed_gold')}",
-        f"- False positives: {sum(1 for c in all_cases if c['case_type'] == 'false_positive')}",
+        f"- Practical misses: {sum(1 for c in all_cases if c['case_type'] == 'missed_gold')}",
+        f"- Practical false positives: {sum(1 for c in all_cases if c['case_type'] == 'false_positive')}",
+        f"- Strict-only boundary misses: {sum(1 for c in all_cases if c['case_type'] == 'strict_boundary_miss')}",
+        f"- Strict-only boundary false positives: {sum(1 for c in all_cases if c['case_type'] == 'strict_boundary_fp')}",
         "",
         "## Per-Item",
         "",
     ])
     for s in item_summaries:
         summary_lines.append(
-            f"- **{s['item_id']}**: recall={s['recall']:.3f}, "
-            f"precision={s['precision']:.3f}, "
-            f"missed={s['missed_count']}, fp={s['fp_count']}"
+            f"- **{s['item_id']}**: strict_recall={s['recall']:.3f}, "
+            f"strict_precision={s['precision']:.3f}, "
+            f"practical_recall={s['practical_recall']:.3f}, "
+            f"practical_precision={s['practical_precision']:.3f}, "
+            f"strict_missed={s['missed_count']}, strict_fp={s['fp_count']}, "
+            f"practical_missed={s['practical_gold_missed']}, practical_fp={s['practical_pred_false_positive']}"
         )
     summary_lines.append("")
     (packet_dir / "summary.md").write_text("\n".join(summary_lines), encoding="utf-8")

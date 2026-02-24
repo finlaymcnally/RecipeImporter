@@ -95,12 +95,18 @@ def test_compute_effective_workers_does_not_promote_markitdown_epub_splits() -> 
     assert effective == 4
 
 
-def test_compute_effective_workers_promotes_auto_epub_splits() -> None:
+def test_compute_effective_workers_promotes_unstructured_epub_splits() -> None:
     effective = compute_effective_workers(
         workers=4,
         epub_split_workers=12,
-        epub_extractor="auto",
+        epub_extractor="unstructured",
         all_epub=True,
     )
 
     assert effective == 12
+
+
+def test_run_settings_migrates_legacy_auto_extractor_to_unstructured() -> None:
+    settings = RunSettings.from_dict({"epub_extractor": "auto"}, warn_context="test")
+
+    assert settings.epub_extractor.value == "unstructured"

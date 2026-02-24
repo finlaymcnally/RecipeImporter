@@ -31,11 +31,6 @@ from cookimport.parsing.chunks import (
     chunks_from_non_recipe_blocks,
     chunks_from_topic_candidates,
 )
-from cookimport.parsing.epub_auto_select import (
-    selected_auto_score,
-    select_epub_extractor_auto,
-    write_auto_extractor_artifact,
-)
 from cookimport.plugins import registry
 from cookimport.labelstudio.block_tasks import (
     build_block_tasks,
@@ -209,10 +204,10 @@ def _normalize_unstructured_preprocess_mode(value: str) -> str:
 
 def _normalize_epub_extractor(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized not in {"unstructured", "legacy", "markdown", "auto", "markitdown"}:
+    if normalized not in {"unstructured", "legacy", "markdown", "markitdown"}:
         raise ValueError(
             "Invalid epub_extractor. "
-            "Expected one of: unstructured, legacy, markdown, auto, markitdown."
+            "Expected one of: unstructured, legacy, markdown, markitdown."
         )
     return normalized
 
@@ -615,7 +610,7 @@ def _plan_parallel_convert_jobs(
                 ]
     if (
         suffix == ".epub"
-        and selected_epub_extractor not in {"markitdown", "auto"}
+        and selected_epub_extractor != "markitdown"
         and epub_split_workers > 1
         and epub_spine_items_per_job > 0
     ):
@@ -952,18 +947,8 @@ def generate_pred_run_artifacts(
     selected_epub_extractor = _normalize_epub_extractor(
         str(epub_extractor or os.environ.get("C3IMP_EPUB_EXTRACTOR", "unstructured"))
     )
-    effective_epub_extractor = selected_epub_extractor
-    auto_resolution_artifact: dict[str, Any] | None = None
     auto_selection_payload: dict[str, Any] | None = None
     auto_selection_score: float | None = None
-    if (
-        path.suffix.lower() == ".epub"
-        and selected_epub_extractor == "auto"
-        and importer.name == "epub"
-    ):
-        resolution = select_epub_extractor_auto(path)
-        effective_epub_extractor = resolution.effective_extractor
-        auto_resolution_artifact = dict(resolution.artifact)
 
     selected_html_parser_version = _normalize_unstructured_html_parser_version(
         str(
@@ -1027,13 +1012,13 @@ def generate_pred_run_artifacts(
         effective_workers=compute_effective_workers(
             workers=workers,
             epub_split_workers=epub_split_workers,
-            epub_extractor=effective_epub_extractor,
+            epub_extractor=selected_epub_extractor,
             all_epub=path.suffix.lower() == ".epub",
         ),
     )
     run_config = run_settings.to_run_config_dict()
     run_config["epub_extractor_requested"] = selected_epub_extractor
-    run_config["epub_extractor_effective"] = effective_epub_extractor
+    run_config["epub_extractor_effective"] = selected_epub_extractor
     run_config_hash = hashlib.sha256(
         json.dumps(
             run_config,
@@ -1054,7 +1039,7 @@ def generate_pred_run_artifacts(
         )
 
     with _temporary_epub_runtime_env(
-        extractor=effective_epub_extractor,
+        extractor=selected_epub_extractor,
         html_parser_version=selected_html_parser_version,
         skip_headers_footers=selected_skip_headers_footers,
         preprocess_mode=selected_preprocess_mode,
@@ -1066,7 +1051,7 @@ def generate_pred_run_artifacts(
             epub_split_workers=epub_split_workers,
             pdf_pages_per_job=pdf_pages_per_job,
             epub_spine_items_per_job=epub_spine_items_per_job,
-            epub_extractor=effective_epub_extractor,
+            epub_extractor=selected_epub_extractor,
         )
         if len(job_specs) == 1:
             result = importer.convert(path, run_mapping, progress_callback=_notify)
@@ -1247,18 +1232,6 @@ def generate_pred_run_artifacts(
     archive = build_extracted_archive(result, result.raw_artifacts)
     _notify("Computing source file hash...")
     file_hash = compute_file_hash(path)
-    if auto_resolution_artifact is not None:
-        auto_selection_payload = {
-            **auto_resolution_artifact,
-            "source_file": str(path),
-            "source_hash": file_hash,
-        }
-        auto_selection_score = selected_auto_score(auto_selection_payload)
-        write_auto_extractor_artifact(
-            run_root=run_root,
-            source_hash=file_hash,
-            artifact=auto_selection_payload,
-        )
     if auto_selection_payload is not None:
         if result.report is None:
             result.report = ConversionReport()

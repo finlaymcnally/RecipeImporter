@@ -133,3 +133,4 @@ cookimport/tagging/policies.py
 cookimport/tagging/render.py
 cookimport/tagging/rules.py
 cookimport/tagging/signals.py
+tests/test_eval_freeform_practical_metrics.py

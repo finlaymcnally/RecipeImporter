@@ -139,6 +139,9 @@ def test_aggregate_metrics_empty():
     agg = aggregate_metrics([])
     assert agg["recall"] == 0.0
     assert agg["precision"] == 0.0
+    assert agg["practical_recall"] == 0.0
+    assert agg["practical_precision"] == 0.0
+    assert agg["practical_f1"] == 0.0
     assert agg["items_evaluated"] == 0
 
 
@@ -155,8 +158,18 @@ def test_aggregate_metrics_single_item():
                     "gold_missed": 3,
                     "pred_false_positive": 2,
                 },
+                "practical_counts": {
+                    "gold_total": 10,
+                    "pred_total": 8,
+                    "gold_matched": 9,
+                    "pred_matched": 7,
+                    "gold_missed": 1,
+                    "pred_false_positive": 1,
+                },
                 "recall": 0.7,
                 "precision": 0.75,
+                "practical_recall": 0.9,
+                "practical_precision": 0.875,
                 "per_label": {
                     "INGREDIENT_LINE": {
                         "gold_total": 5,
@@ -178,6 +191,11 @@ def test_aggregate_metrics_single_item():
     assert agg["counts"]["gold_total"] == 10
     assert agg["counts"]["gold_matched"] == 7
     assert agg["recall"] == 0.7
+    assert agg["practical_recall"] == 0.9
+    assert agg["practical_precision"] == 0.875
+    assert agg["practical_f1"] == pytest.approx(
+        2 * 0.875 * 0.9 / (0.875 + 0.9)
+    )
     assert agg["items_evaluated"] == 1
     assert "INGREDIENT_LINE" in agg["per_label"]
 
@@ -194,6 +212,16 @@ def test_format_suite_report_md():
         },
         "recall": 0.7,
         "precision": 0.75,
+        "f1": 0.724137931,
+        "practical_counts": {
+            "gold_total": 10,
+            "pred_total": 8,
+            "gold_matched": 9,
+            "pred_matched": 7,
+        },
+        "practical_recall": 0.9,
+        "practical_precision": 0.875,
+        "practical_f1": 0.887323944,
         "prediction_density": 0.8,
         "per_label": {},
         "items_evaluated": 1,
@@ -211,7 +239,10 @@ def test_format_suite_report_md():
     md = format_suite_report_md(agg, per_item, suite_name="test")
     assert "Bench Suite Report" in md
     assert "test" in md
-    assert "0.700" in md
+    assert "Practical metrics are content overlap" in md
+    assert "Strict metrics are localization quality" in md
+    assert "**Practical F1:** 0.887" in md
+    assert "**Strict F1:** 0.724" in md
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +481,86 @@ def test_build_iteration_packet_with_data(tmp_path: Path):
     assert len(cases) == 2
     # Missed gold should have higher severity than false positive
     assert cases[0]["case_type"] == "missed_gold"
+
+
+def test_build_iteration_packet_demotes_strict_only_boundary_cases(tmp_path: Path):
+    item_dir = tmp_path / "per_item" / "item1"
+    eval_dir = item_dir / "eval_freeform"
+    pred_dir = item_dir / "pred_run"
+    eval_dir.mkdir(parents=True)
+    pred_dir.mkdir(parents=True)
+
+    missed = [
+        {
+            "span_id": "gold-a",
+            "label": "INGREDIENT_LINE",
+            "start_block_index": 3,
+            "end_block_index": 5,
+        },
+        {
+            "span_id": "gold-b",
+            "label": "INGREDIENT_LINE",
+            "start_block_index": 8,
+            "end_block_index": 9,
+        },
+    ]
+    fps = [
+        {
+            "span_id": "pred-a",
+            "label": "OTHER",
+            "start_block_index": 10,
+            "end_block_index": 12,
+        }
+    ]
+    eval_report = {
+        "counts": {
+            "gold_total": 2,
+            "gold_matched": 0,
+            "gold_missed": 2,
+            "pred_total": 1,
+            "pred_matched": 0,
+            "pred_false_positive": 1,
+        },
+        "practical_counts": {
+            "gold_total": 2,
+            "gold_matched": 1,
+            "gold_missed": 1,
+            "pred_total": 1,
+            "pred_matched": 1,
+            "pred_false_positive": 0,
+        },
+        "recall": 0.0,
+        "precision": 0.0,
+        "practical_recall": 0.5,
+        "practical_precision": 1.0,
+        "practical_matching": {
+            "matched_gold_span_ids": ["gold-a"],
+            "matched_pred_span_ids": ["pred-a"],
+        },
+    }
+    (eval_dir / "missed_gold_spans.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in missed), encoding="utf-8"
+    )
+    (eval_dir / "false_positive_preds.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in fps), encoding="utf-8"
+    )
+    (eval_dir / "eval_report.json").write_text(json.dumps(eval_report), encoding="utf-8")
+    archive = [{"index": i, "text": f"block {i}"} for i in range(20)]
+    (pred_dir / "extracted_archive.json").write_text(json.dumps(archive), encoding="utf-8")
+
+    build_iteration_packet(tmp_path)
+
+    cases = [
+        json.loads(line)
+        for line in (tmp_path / "iteration_packet" / "cases.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert len(cases) == 3
+    # Practical miss should outrank strict-only boundary misses/fps.
+    assert cases[0]["case_type"] == "missed_gold"
+    assert cases[1]["case_type"] in {"strict_boundary_miss", "strict_boundary_fp"}
 
 
 # ---------------------------------------------------------------------------

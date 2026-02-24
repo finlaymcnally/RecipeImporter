@@ -61,7 +61,7 @@ from cookimport.parsing.tips import (
 from cookimport.plugins import registry
 
 # ---------------------------------------------------------------------------
-# Extractor switch: C3IMP_EPUB_EXTRACTOR = legacy | unstructured | markdown | auto
+# Extractor switch: C3IMP_EPUB_EXTRACTOR = legacy | unstructured | markdown | markitdown
 # Default: unstructured
 # Read at call time (not import time) so interactive settings take effect.
 # ---------------------------------------------------------------------------
@@ -70,7 +70,6 @@ _EPUB_EXTRACTOR_CHOICES = {
     "legacy",
     "unstructured",
     "markdown",
-    "auto",
     "markitdown",  # legacy alias retained for compatibility
 }
 _UNSTRUCTURED_HTML_PARSER_VERSION_DEFAULT = "v1"
@@ -300,11 +299,6 @@ class EpubImporter:
             _notify("Computing hash...")
             file_hash = compute_file_hash(path)
             selected_extractor = _get_epub_extractor()
-            if selected_extractor == "auto":
-                raise ValueError(
-                    "EPUB extractor 'auto' must be resolved before convert(). "
-                    "Use stage/benchmark orchestration to resolve auto mode."
-                )
             report.epub_backend = selected_extractor
             
             # 1. Extract Blocks (DocPack)
@@ -812,7 +806,8 @@ class EpubImporter:
         selected_extractor = extractor or _get_epub_extractor()
         if selected_extractor == "auto":
             raise ValueError(
-                "EPUB extractor 'auto' must be resolved before _extract_docpack()."
+                "EPUB extractor 'auto' is no longer supported. "
+                "Choose an explicit extractor: unstructured, legacy, markdown, or markitdown."
             )
         if selected_extractor not in _EPUB_EXTRACTOR_CHOICES:
             raise ValueError(

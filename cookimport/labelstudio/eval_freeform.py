@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import asdict, dataclass
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,10 @@ _APP_OVERLAP_LABELS = (
 )
 _APP_RELAXED_OVERLAP_THRESHOLD = 0.1
 _NO_OVERLAP_LABEL = "__NO_OVERLAP__"
+_GRANULARITY_MISMATCH_MIN_SUPPORTED_PRACTICAL_RECALL = 0.8
+_GRANULARITY_MISMATCH_MAX_STRICT_F1 = 0.05
+_GRANULARITY_MISMATCH_MIN_WIDTH_RATIO = 4.0
+_RECIPE_HEADER_LABEL = "RECIPE_TITLE"
 
 
 def load_gold_freeform_ranges(path: Path) -> list[LabeledRange]:
@@ -288,6 +293,71 @@ def _overlap_ratio(a: LabeledRange, b: LabeledRange) -> float:
     return intersection / union
 
 
+def _ranges_overlap(a: LabeledRange, b: LabeledRange) -> bool:
+    a = a.normalized()
+    b = b.normalized()
+    intersection = max(
+        0,
+        min(a.end_block_index, b.end_block_index)
+        - max(a.start_block_index, b.start_block_index)
+        + 1,
+    )
+    return intersection > 0
+
+
+def _f1_score(precision: float, recall: float) -> float:
+    if (precision + recall) <= 0:
+        return 0.0
+    return 2 * precision * recall / (precision + recall)
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _range_width(span: LabeledRange) -> int:
+    normalized = span.normalized()
+    return max(0, normalized.end_block_index - normalized.start_block_index + 1)
+
+
+def _percentile(values: list[int], q: float) -> float:
+    if not values:
+        return 0.0
+    if len(values) == 1:
+        return float(values[0])
+    rank = (len(values) - 1) * q
+    lower_index = int(math.floor(rank))
+    upper_index = int(math.ceil(rank))
+    if lower_index == upper_index:
+        return float(values[lower_index])
+    lower = float(values[lower_index])
+    upper = float(values[upper_index])
+    weight = rank - lower_index
+    return lower + (upper - lower) * weight
+
+
+def _span_width_stats(spans: list[LabeledRange]) -> dict[str, float]:
+    if not spans:
+        return {
+            "min": 0.0,
+            "p50": 0.0,
+            "p90": 0.0,
+            "max": 0.0,
+            "avg": 0.0,
+        }
+    widths = sorted(_range_width(span) for span in spans)
+    return {
+        "min": float(widths[0]),
+        "p50": _percentile(widths, 0.50),
+        "p90": _percentile(widths, 0.90),
+        "max": float(widths[-1]),
+        "avg": float(sum(widths) / len(widths)),
+    }
+
+
 def _compatible_source(
     pred: LabeledRange,
     gold: LabeledRange,
@@ -427,6 +497,136 @@ def _evaluate_ranges(
         "report": report,
         "missed_gold": missed_gold,
         "false_positive_preds": false_positive_preds,
+    }
+
+
+def _evaluate_practical_ranges(
+    predicted: list[LabeledRange],
+    gold: list[LabeledRange],
+    *,
+    force_source_match: bool = False,
+) -> dict[str, Any]:
+    matched_gold_span_ids: set[str] = set()
+    matched_pred_span_ids: set[str] = set()
+    missed_gold: list[LabeledRange] = []
+    false_positive_preds: list[LabeledRange] = []
+
+    for gold_span in gold:
+        found_overlap = False
+        for pred_span in predicted:
+            if pred_span.label != gold_span.label:
+                continue
+            if not _compatible_source(
+                pred_span,
+                gold_span,
+                force_source_match=force_source_match,
+            ):
+                continue
+            if _ranges_overlap(pred_span, gold_span):
+                found_overlap = True
+                matched_gold_span_ids.add(gold_span.span_id)
+                break
+        if not found_overlap:
+            missed_gold.append(gold_span)
+
+    for pred_span in predicted:
+        found_overlap = False
+        for gold_span in gold:
+            if pred_span.label != gold_span.label:
+                continue
+            if not _compatible_source(
+                pred_span,
+                gold_span,
+                force_source_match=force_source_match,
+            ):
+                continue
+            if _ranges_overlap(pred_span, gold_span):
+                found_overlap = True
+                matched_pred_span_ids.add(pred_span.span_id)
+                break
+        if not found_overlap:
+            false_positive_preds.append(pred_span)
+
+    precision = (len(matched_pred_span_ids) / len(predicted)) if predicted else 0.0
+    recall = (len(matched_gold_span_ids) / len(gold)) if gold else 0.0
+    labels = sorted({span.label for span in gold} | {span.label for span in predicted})
+    per_label: dict[str, dict[str, Any]] = {}
+    for label in labels:
+        label_gold = [span for span in gold if span.label == label]
+        label_pred = [span for span in predicted if span.label == label]
+        label_gold_matched = 0
+        for gold_span in label_gold:
+            if any(
+                _compatible_source(pred_span, gold_span, force_source_match=force_source_match)
+                and _ranges_overlap(pred_span, gold_span)
+                for pred_span in label_pred
+            ):
+                label_gold_matched += 1
+        label_pred_matched = 0
+        for pred_span in label_pred:
+            if any(
+                _compatible_source(pred_span, gold_span, force_source_match=force_source_match)
+                and _ranges_overlap(pred_span, gold_span)
+                for gold_span in label_gold
+            ):
+                label_pred_matched += 1
+        per_label[label] = {
+            "gold_total": len(label_gold),
+            "pred_total": len(label_pred),
+            "gold_matched": label_gold_matched,
+            "pred_matched": label_pred_matched,
+            "recall": (label_gold_matched / len(label_gold)) if label_gold else 0.0,
+            "precision": (label_pred_matched / len(label_pred)) if label_pred else 0.0,
+        }
+
+    return {
+        "counts": {
+            "gold_total": len(gold),
+            "pred_total": len(predicted),
+            "gold_matched": len(matched_gold_span_ids),
+            "pred_matched": len(matched_pred_span_ids),
+            "gold_missed": len(missed_gold),
+            "pred_false_positive": len(false_positive_preds),
+        },
+        "precision": precision,
+        "recall": recall,
+        "f1": _f1_score(precision, recall),
+        "per_label": per_label,
+        "matched_gold_span_ids": sorted(matched_gold_span_ids),
+        "matched_pred_span_ids": sorted(matched_pred_span_ids),
+    }
+
+
+def _detect_granularity_mismatch(
+    *,
+    strict_f1: float,
+    supported_practical_recall: float,
+    span_width_stats: dict[str, dict[str, float]],
+) -> dict[str, Any]:
+    gold_p50 = float((span_width_stats.get("gold") or {}).get("p50") or 0.0)
+    pred_p50 = float((span_width_stats.get("pred") or {}).get("p50") or 0.0)
+    ratio = (pred_p50 / gold_p50) if gold_p50 > 0 else 0.0
+    likely = (
+        supported_practical_recall
+        >= _GRANULARITY_MISMATCH_MIN_SUPPORTED_PRACTICAL_RECALL
+        and strict_f1 <= _GRANULARITY_MISMATCH_MAX_STRICT_F1
+        and ratio >= _GRANULARITY_MISMATCH_MIN_WIDTH_RATIO
+    )
+    reason = (
+        "Strict IoU is near zero while supported-label practical overlap is high, and "
+        "prediction ranges are much wider than gold spans."
+        if likely
+        else (
+            "Mismatch conditions not met "
+            f"(strict_f1={strict_f1:.3f}, "
+            f"supported_practical_recall={supported_practical_recall:.3f}, "
+            f"p50_ratio={ratio:.2f})."
+        )
+    )
+    return {
+        "likely": likely,
+        "reason": reason,
+        "ratio_p50_pred_to_gold": ratio,
     }
 
 
@@ -820,13 +1020,67 @@ def evaluate_predicted_vs_freeform(
         overlap_threshold=overlap_threshold,
         force_source_match=force_source_match,
     )
+    strict_precision = float(strict["report"].get("precision", 0.0))
+    strict_recall = float(strict["report"].get("recall", 0.0))
+    strict_f1 = _f1_score(strict_precision, strict_recall)
+    strict["report"]["f1"] = strict_f1
+
+    practical = _evaluate_practical_ranges(
+        predicted,
+        gold_deduped,
+        force_source_match=force_source_match,
+    )
+    deduped_pred = _dedupe_predicted_ranges(predicted)
+    supported_gold = [span for span in gold_deduped if span.label in _APP_SUPPORTED_LABELS]
+    supported_pred = [span for span in deduped_pred if span.label in _APP_SUPPORTED_LABELS]
+    supported_practical = _evaluate_practical_ranges(
+        supported_pred,
+        supported_gold,
+        force_source_match=force_source_match,
+    )
+    span_width_stats = {
+        "gold": _span_width_stats(gold_deduped),
+        "pred": _span_width_stats(predicted),
+    }
+    granularity_mismatch = _detect_granularity_mismatch(
+        strict_f1=strict_f1,
+        supported_practical_recall=float(supported_practical.get("recall", 0.0)),
+        span_width_stats=span_width_stats,
+    )
+
     app_aligned = _build_app_aligned_report(
         predicted,
         gold_deduped,
         overlap_threshold=overlap_threshold,
         force_source_match=force_source_match,
     )
+    supported_relaxed = app_aligned.get("supported_labels_relaxed", {})
     strict["report"]["app_aligned"] = app_aligned
+    strict["report"]["supported_precision"] = float(supported_relaxed.get("precision", 0.0))
+    strict["report"]["supported_recall"] = float(supported_relaxed.get("recall", 0.0))
+    strict["report"]["practical_precision"] = float(practical.get("precision", 0.0))
+    strict["report"]["practical_recall"] = float(practical.get("recall", 0.0))
+    strict["report"]["practical_f1"] = float(practical.get("f1", 0.0))
+    strict["report"]["practical_counts"] = practical.get("counts", {})
+    strict["report"]["practical_per_label"] = practical.get("per_label", {})
+    strict["report"]["practical_matching"] = {
+        "matched_gold_span_ids": practical.get("matched_gold_span_ids", []),
+        "matched_pred_span_ids": practical.get("matched_pred_span_ids", []),
+    }
+    strict["report"]["supported_practical_precision"] = float(
+        supported_practical.get("precision", 0.0)
+    )
+    strict["report"]["supported_practical_recall"] = float(
+        supported_practical.get("recall", 0.0)
+    )
+    strict["report"]["supported_practical_f1"] = float(supported_practical.get("f1", 0.0))
+    strict["report"]["supported_practical_counts"] = supported_practical.get("counts", {})
+    strict["report"]["supported_practical_matching"] = {
+        "matched_gold_span_ids": supported_practical.get("matched_gold_span_ids", []),
+        "matched_pred_span_ids": supported_practical.get("matched_pred_span_ids", []),
+    }
+    strict["report"]["span_width_stats"] = span_width_stats
+    strict["report"]["granularity_mismatch"] = granularity_mismatch
     strict["report"]["source_matching_mode"] = (
         "forced" if force_source_match else "strict"
     )
@@ -836,6 +1090,7 @@ def evaluate_predicted_vs_freeform(
         gold_deduped,
         force_source_match=force_source_match,
     )
+    attach_recipe_count_diagnostics(strict["report"])
     return {
         "report": strict["report"],
         "missed_gold": [asdict(span) for span in strict["missed_gold"]],
@@ -843,12 +1098,137 @@ def evaluate_predicted_vs_freeform(
     }
 
 
+def attach_recipe_count_diagnostics(
+    report: dict[str, Any],
+    *,
+    gold_recipe_headers: int | None = None,
+    gold_recipe_headers_source: str | None = None,
+    predicted_recipe_count: int | None = None,
+    predicted_recipe_count_source: str | None = None,
+) -> dict[str, Any]:
+    """Attach recipe-count diagnostics to a freeform eval report."""
+    per_label = report.get("per_label")
+    recipe_row = (
+        per_label.get(_RECIPE_HEADER_LABEL)
+        if isinstance(per_label, dict)
+        else None
+    )
+    if not isinstance(recipe_row, dict):
+        recipe_row = {}
+
+    recipe_counts = report.get("recipe_counts")
+    if not isinstance(recipe_counts, dict):
+        recipe_counts = {}
+
+    computed_gold_headers = _safe_int(recipe_row.get("gold_total"))
+    computed_pred_headers = _safe_int(recipe_row.get("pred_total"))
+
+    existing_gold_headers = _safe_int(recipe_counts.get("gold_recipe_headers"))
+    existing_pred_headers = _safe_int(recipe_counts.get("pred_recipe_headers"))
+    existing_pred_recipe_count = _safe_int(recipe_counts.get("predicted_recipe_count"))
+
+    final_gold_headers = (
+        _safe_int(gold_recipe_headers)
+        if gold_recipe_headers is not None
+        else (
+            existing_gold_headers
+            if existing_gold_headers is not None
+            else computed_gold_headers
+        )
+    )
+    final_pred_headers = (
+        existing_pred_headers
+        if existing_pred_headers is not None
+        else computed_pred_headers
+    )
+    final_pred_recipe_count = (
+        _safe_int(predicted_recipe_count)
+        if predicted_recipe_count is not None
+        else existing_pred_recipe_count
+    )
+
+    recipe_counts["gold_recipe_headers"] = final_gold_headers
+    recipe_counts["pred_recipe_headers"] = final_pred_headers
+    recipe_counts["predicted_recipe_count"] = final_pred_recipe_count
+
+    if gold_recipe_headers_source:
+        recipe_counts["gold_recipe_headers_source"] = str(gold_recipe_headers_source)
+    elif (
+        recipe_counts.get("gold_recipe_headers_source") is None
+        and final_gold_headers is not None
+    ):
+        recipe_counts["gold_recipe_headers_source"] = "eval_per_label.RECIPE_TITLE"
+
+    if predicted_recipe_count_source:
+        recipe_counts["predicted_recipe_count_source"] = str(predicted_recipe_count_source)
+
+    if final_gold_headers is not None and final_pred_recipe_count is not None:
+        recipe_counts["predicted_minus_gold"] = final_pred_recipe_count - final_gold_headers
+        recipe_counts["predicted_to_gold_ratio"] = (
+            (final_pred_recipe_count / final_gold_headers) if final_gold_headers > 0 else None
+        )
+    else:
+        recipe_counts["predicted_minus_gold"] = None
+        recipe_counts["predicted_to_gold_ratio"] = None
+
+    report["recipe_counts"] = recipe_counts
+    return report
+
+
 def format_freeform_eval_report_md(report: dict[str, Any]) -> str:
     counts = report.get("counts", {})
+    practical_counts = report.get("practical_counts", {})
     boundary = report.get("boundary", {})
     per_label = report.get("per_label", {})
+    strict_precision = float(report.get("precision", 0.0))
+    strict_recall = float(report.get("recall", 0.0))
+    strict_f1 = float(report.get("f1", _f1_score(strict_precision, strict_recall)))
+    practical_precision = float(report.get("practical_precision", 0.0))
+    practical_recall = float(report.get("practical_recall", 0.0))
+    practical_f1 = float(
+        report.get("practical_f1", _f1_score(practical_precision, practical_recall))
+    )
+    overlap_threshold = float(report.get("overlap_threshold", 0.0))
+    supported_practical_precision = float(report.get("supported_practical_precision", 0.0))
+    supported_practical_recall = float(report.get("supported_practical_recall", 0.0))
+    supported_practical_f1 = float(report.get("supported_practical_f1", 0.0))
+    span_width_stats = report.get("span_width_stats", {})
+    granularity_mismatch = report.get("granularity_mismatch", {})
+    supported_practical_counts = report.get("supported_practical_counts", {})
+    recipe_counts = report.get("recipe_counts", {})
     lines = [
         "# Freeform Span Evaluation Report",
+        "",
+        "Practical / Content overlap (any-overlap):",
+        (
+            f"- Recall: {practical_recall:.3f} "
+            f"({practical_counts.get('gold_matched', 0)}/{practical_counts.get('gold_total', 0)})"
+        ),
+        (
+            f"- Precision: {practical_precision:.3f} "
+            f"({practical_counts.get('pred_matched', 0)}/{practical_counts.get('pred_total', 0)})"
+        ),
+        f"- F1: {practical_f1:.3f}",
+        (
+            f"- Supported labels: recall={supported_practical_recall:.3f} "
+            f"({supported_practical_counts.get('gold_matched', 0)}/"
+            f"{supported_practical_counts.get('gold_total', 0)}), "
+            f"precision={supported_practical_precision:.3f} "
+            f"({supported_practical_counts.get('pred_matched', 0)}/"
+            f"{supported_practical_counts.get('pred_total', 0)}), "
+            f"f1={supported_practical_f1:.3f}"
+        ),
+        "",
+        f"Strict / Localization (IoU>={overlap_threshold:g}):",
+        (
+            f"- Recall: {strict_recall:.3f} "
+            f"({counts.get('gold_matched', 0)}/{counts.get('gold_total', 0)})"
+        ),
+        (
+            f"- Precision: {strict_precision:.3f} "
+            f"({counts.get('pred_matched', 0)}/{counts.get('pred_total', 0)})"
+        ),
+        f"- F1: {strict_f1:.3f}",
         "",
         f"Gold spans: {counts.get('gold_total', 0)}",
         f"Predicted spans: {counts.get('pred_total', 0)}",
@@ -856,6 +1236,97 @@ def format_freeform_eval_report_md(report: dict[str, Any]) -> str:
         f"Precision (pred matched): {report.get('precision', 0):.3f} ({counts.get('pred_matched', 0)}/{counts.get('pred_total', 0)})",
         "",
     ]
+    if isinstance(recipe_counts, dict):
+        gold_recipe_headers = _safe_int(recipe_counts.get("gold_recipe_headers"))
+        pred_recipe_headers = _safe_int(recipe_counts.get("pred_recipe_headers"))
+        predicted_recipe_count = _safe_int(recipe_counts.get("predicted_recipe_count"))
+        predicted_minus_gold = _safe_int(recipe_counts.get("predicted_minus_gold"))
+        predicted_to_gold_ratio = recipe_counts.get("predicted_to_gold_ratio")
+        try:
+            ratio_value = (
+                float(predicted_to_gold_ratio)
+                if predicted_to_gold_ratio is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            ratio_value = None
+
+        if (
+            gold_recipe_headers is not None
+            or pred_recipe_headers is not None
+            or predicted_recipe_count is not None
+        ):
+            lines.append("Recipe count diagnostics:")
+            if gold_recipe_headers is not None:
+                lines.append(
+                    f"- Golden recipes (RECIPE_TITLE headers): {gold_recipe_headers}"
+                )
+            if predicted_recipe_count is not None:
+                lines.append(
+                    f"- Predicted recipes from import: {predicted_recipe_count}"
+                )
+            if pred_recipe_headers is not None:
+                lines.append(
+                    f"- Predicted RECIPE_TITLE spans (eval surface): {pred_recipe_headers}"
+                )
+            if (
+                gold_recipe_headers is not None
+                and predicted_recipe_count is not None
+                and predicted_minus_gold is not None
+            ):
+                if ratio_value is not None:
+                    lines.append(
+                        "- Predicted vs gold recipes: "
+                        + f"{predicted_recipe_count}/{gold_recipe_headers} "
+                        + f"(delta {predicted_minus_gold:+d}, ratio {ratio_value:.3f}x)"
+                    )
+                else:
+                    lines.append(
+                        "- Predicted vs gold recipes: "
+                        + f"{predicted_recipe_count}/{gold_recipe_headers} "
+                        + f"(delta {predicted_minus_gold:+d})"
+                    )
+            lines.append("")
+    if isinstance(granularity_mismatch, dict) and bool(granularity_mismatch.get("likely")):
+        ratio = float(granularity_mismatch.get("ratio_p50_pred_to_gold") or 0.0)
+        reason = str(granularity_mismatch.get("reason") or "").strip()
+        lines.extend(
+            [
+                "Granularity mismatch likely:",
+                f"- {reason or 'Strict localization is low while practical overlap is high.'}",
+                f"- Width p50 ratio (pred/gold): {ratio:.2f}",
+                (
+                    "- Interpretation: content overlap is strong, but strict IoU stays low "
+                    "because prediction ranges are much coarser than gold spans."
+                ),
+                "",
+            ]
+        )
+    if isinstance(span_width_stats, dict):
+        gold_width = span_width_stats.get("gold", {})
+        pred_width = span_width_stats.get("pred", {})
+        lines.extend(
+            [
+                "Span width stats (inclusive block width):",
+                (
+                    "- Gold: "
+                    + f"min={float(gold_width.get('min', 0.0)):.1f}, "
+                    + f"p50={float(gold_width.get('p50', 0.0)):.1f}, "
+                    + f"p90={float(gold_width.get('p90', 0.0)):.1f}, "
+                    + f"max={float(gold_width.get('max', 0.0)):.1f}, "
+                    + f"avg={float(gold_width.get('avg', 0.0)):.1f}"
+                ),
+                (
+                    "- Pred: "
+                    + f"min={float(pred_width.get('min', 0.0)):.1f}, "
+                    + f"p50={float(pred_width.get('p50', 0.0)):.1f}, "
+                    + f"p90={float(pred_width.get('p90', 0.0)):.1f}, "
+                    + f"max={float(pred_width.get('max', 0.0)):.1f}, "
+                    + f"avg={float(pred_width.get('avg', 0.0)):.1f}"
+                ),
+                "",
+            ]
+        )
     gold_dedupe = report.get("gold_dedupe")
     if isinstance(gold_dedupe, dict):
         lines.extend(
@@ -876,6 +1347,12 @@ def format_freeform_eval_report_md(report: dict[str, Any]) -> str:
                 ),
             ]
         )
+        rows_removed = int(gold_dedupe.get("rows_removed", 0))
+        if rows_removed > 0:
+            lines.append(
+                "- Why counts can shrink: export rows are spans, eval units are block ranges; "
+                "multiple spans that map to the same block range are deduped."
+            )
         conflict_rows_dropped_tie = int(gold_dedupe.get("conflict_rows_dropped_tie", 0))
         if conflict_rows_dropped_tie > 0:
             lines.append(

@@ -56,7 +56,7 @@ Legend:
   |
   +--> [F] Label Studio export ------------> run_labelstudio_export(...) -> [C]
   |
-  +--> [H] Benchmark vs freeform gold -----> labelstudio-benchmark ------> [C]
+  +--> [H] Benchmark vs freeform gold -----> mode picker ------------------> (single upload run OR all-method offline sweep) -> [C]
   |
   +--> [I] Generate dashboard -------------> stats-dashboard -------------> [C]
   |
@@ -145,7 +145,7 @@ Config keys and defaults:
 What each setting affects:
 
 - `workers`, split workers, page/spine split size: `stage` and benchmark import parallelism/sharding.
-- `epub_extractor`: runtime extractor choice (`unstructured`, `legacy`, `markdown`, `auto`, or `markitdown`) via `C3IMP_EPUB_EXTRACTOR`.
+- `epub_extractor`: runtime extractor choice (`unstructured`, `legacy`, `markdown`, or `markitdown`) via `C3IMP_EPUB_EXTRACTOR`.
 - `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
 - `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
 - `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none`, `br_split_v1`, or `semantic_v1` alias).
@@ -190,7 +190,7 @@ Developer note:
 2. Confirm the output folder (default: `data/output/EPUBextractorRace/<book_stem>`).
 3. Confirm candidate list (default: `unstructured,markdown,legacy`).
 4. If output folder is non-empty, choose whether to continue with overwrite behavior.
-5. Interactive mode runs the same deterministic scorer used by `--epub-extractor auto`.
+5. Interactive mode runs a deterministic extractor-quality scorer.
 6. It writes `epub_race_report.json` and prints a backend/score summary.
 7. Returns to the main menu.
 
@@ -251,15 +251,33 @@ Developer note:
 
 ### [H] Benchmark vs Freeform Gold Flow
 
-Interactive benchmark always runs the upload path:
+Interactive benchmark now has a mode submenu after run settings selection:
 
 1. Shows benchmark `Run settings` mode picker (`global` / `last benchmark` / `change`), using the same editor flow as Import.
-2. Resolves Label Studio credentials from env (`LABEL_STUDIO_URL` / `LABEL_STUDIO_API_KEY`) or saved interactive settings; if still missing, prompts and saves values to `cookimport.json`.
-3. Calls `labelstudio-benchmark(...)` with selected per-run settings (extractor, workers/split controls, OCR options, warm-model flag, and optional codex-farm LLM recipe pipeline settings).
-4. Saves selected settings to `<output_dir>/.history/last_run_settings_benchmark.json` after a successful upload/eval run.
-5. Returns to the main menu on completion.
+2. Shows benchmark mode picker:
+   - `Generate predictions + evaluate (offline, no upload)` (default first choice)
+   - `Generate predictions + evaluate (uploads to Label Studio)` (explicit opt-in)
+   - `All method benchmark (offline, no upload)`
+3. Single offline path:
+   - calls `labelstudio-benchmark` once with `--no-upload`,
+   - does not resolve Label Studio credentials,
+   - writes eval artifacts under `data/golden/eval-vs-pipeline/<timestamp>/`.
+4. Upload mode path:
+   - resolves Label Studio credentials (`env` first, then saved `cookimport.json`, then prompt),
+   - calls `labelstudio-benchmark` once with upload enabled (`allow_labelstudio_write=True`),
+   - writes eval artifacts under `data/golden/eval-vs-pipeline/<timestamp>/`.
+5. All method path:
+   - prompts for gold export and source file,
+   - prints full permutation count before running,
+   - asks whether to include Codex Farm permutations (default `No`; currently remains disabled by policy lock),
+   - asks final proceed confirmation (`Proceed with N benchmark runs?`, default `No`),
+   - runs each config offline (`--no-upload`) and writes per-config eval artifacts plus:
+     - `all_method_benchmark_report.json`
+     - `all_method_benchmark_report.md`
+6. Saves selected settings to `<output_dir>/.history/last_run_settings_benchmark.json` after successful completion.
+7. Returns to the main menu on completion.
 
-For re-scoring an existing prediction run, use `cookimport labelstudio-eval` directly.
+For re-scoring an existing prediction run directly, use `cookimport labelstudio-eval`. For offline single-run benchmarking, use non-interactive `cookimport labelstudio-benchmark --no-upload`.
 
 ### [I] Generate Dashboard Flow
 
@@ -335,7 +353,7 @@ Options:
 - `--workers, -w INTEGER>=1` (default `7`): total process pool workers.
 - `--pdf-split-workers INTEGER>=1` (default `7`): max workers for one split PDF.
 - `--epub-split-workers INTEGER>=1` (default `7`): max workers for one split EPUB.
-- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy|markdown|auto|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
+- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy|markdown|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
 - `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
@@ -352,7 +370,7 @@ Options:
 - `--codex-farm-knowledge-context-blocks INTEGER>=0` (default `12`): context blocks before/after each knowledge chunk for pass4 bundles.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - `markitdown` note: EPUB split jobs are disabled for this extractor because conversion is whole-book EPUB -> markdown (no spine-range mode).
-- `auto` note: stage resolves one effective extractor per EPUB before worker launch, writes `raw/epub/<source_hash>/epub_extractor_auto.json`, and then uses the resolved backend consistently for split planning/workers.
+- explicit-choice note: stage no longer supports `--epub-extractor auto`; choose a concrete backend (`unstructured|legacy|markdown|markitdown`).
 
 Split-merge progress detail:
 - After split workers finish, the worker dashboard `MainProcess` row now advances with explicit `merge phase X/Y: ...` status messages (payload merge, ID reassignment, output writes, raw merge) instead of staying on a single static `Merging ...` label.
@@ -586,7 +604,7 @@ Options:
 - `--epub-split-workers INTEGER>=1` (default `7`): EPUB split workers for prediction import.
 - `--pdf-pages-per-job INTEGER>=1` (default `50`): PDF shard size.
 - `--epub-spine-items-per-job INTEGER>=1` (default `10`): EPUB shard size.
-- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy|markdown|auto|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
+- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy|markdown|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
 - `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
@@ -600,7 +618,7 @@ Options:
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - `markitdown` note: prediction EPUB split jobs are disabled for this extractor for the same reason as stage runs.
-- `auto` note: prediction generation resolves one effective backend per EPUB up front and records requested/effective extractor in run config plus `raw/epub/<source_hash>/epub_extractor_auto.json`.
+- explicit-choice note: prediction generation no longer supports `--epub-extractor auto`; requested/effective extractor values are the selected concrete backend.
 - `--ocr-device TEXT` (default `auto`): `auto|cpu|cuda|mps`.
 - `--ocr-batch-size INTEGER>=1` (default `1`): pages per OCR model call.
 - `--warm-models` (default `false`): preload OCR/parsing models before prediction import.

@@ -145,14 +145,20 @@ Evaluation input B (gold):
 - Conflicting duplicate labels resolve by majority vote; exact ties are dropped from scored gold and reported in eval `gold_dedupe.conflicts`.
 
 Matching:
-- Jaccard overlap threshold (default `0.5`)
+- Practical/content-overlap scoring (`practical_precision`, `practical_recall`, `practical_f1`): same label + source-compatible + any overlap (`intersection > 0`)
+- Strict/localization scoring (`precision`, `recall`, `f1`): same label + source-compatible + Jaccard overlap threshold (default `0.5`)
 - Optional source identity relaxation via `--force-source-match`
+- `eval_report` also persists width stats (`span_width_stats`) and a `granularity_mismatch` flag when practical overlap is high but strict IoU is near zero because prediction ranges are much wider than gold.
 
 Outputs:
 - `eval_report.json`
 - `eval_report.md`
 - `missed_gold_spans.jsonl`
 - `false_positive_preds.jsonl`
+- Freeform `eval_report` now includes `recipe_counts` diagnostics:
+  - golden recipes from exported `RECIPE_TITLE` header count (`summary.recipe_counts.recipe_headers` when available),
+  - predicted recipes from prediction-run manifest/report context (`recipe_count` / `totalRecipes` fallback),
+  - markdown summary line for predicted-vs-golden recipe deltas.
 
 ## 7. Command matrix
 
@@ -160,7 +166,7 @@ Outputs:
 |---|---:|---:|---|
 | `cookimport stage` | No | No | N/A |
 | `cookimport labelstudio-benchmark` | Optional (upload mode only; `--allow-labelstudio-write`) | Yes | `label_studio_tasks.jsonl` from prediction run |
-| Interactive benchmark eval-only | No | Yes | existing prediction run (`label_studio_tasks.jsonl`) |
+| Interactive benchmark menu flow | Mode-dependent (`upload`: Yes, `all method`: No) | Yes | `label_studio_tasks.jsonl` from one or more `labelstudio-benchmark` runs |
 | `cookimport bench run` | No | Yes | `label_studio_tasks.jsonl` from offline pred run |
 
 ## 8. Common confusion points
@@ -174,8 +180,12 @@ Today, benchmark contract is span/range based because gold is span/range based. 
 `labelstudio-benchmark` supports both upload and offline generation.
 If you want no Label Studio side effects, use:
 - `labelstudio-benchmark --no-upload`, or
-- interactive benchmark `eval-only` mode (when prediction runs exist), or
 - `cookimport bench run`.
+
+Interactive benchmark from the main menu now has three modes:
+- single offline mode (one local eval run, no upload),
+- upload mode (one upload+eval run),
+- all-method mode (offline multi-config sweep, no upload).
 
 ### 8.3 "Why did split conversion fail with pickling?"
 

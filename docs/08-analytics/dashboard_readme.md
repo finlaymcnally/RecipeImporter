@@ -44,6 +44,7 @@ Used when the CSV is missing, and also used as a supplement when `--scan-reports
 ### Benchmark JSON source
 
 - `data/golden/eval-vs-pipeline/*/eval_report.json`
+- `data/golden/eval-vs-pipeline/*/all-method-benchmark/*/config_*/eval_report.json`
 - `data/golden/*/eval_report.json`
 
 Optional enrichment files in each eval directory:
@@ -72,12 +73,15 @@ The renderer writes:
 - `data/output/.history/dashboard/assets/dashboard_data.json`
 - `data/output/.history/dashboard/assets/dashboard.js`
 - `data/output/.history/dashboard/assets/style.css`
+- `data/output/.history/dashboard/all-method-benchmark.html` (always generated)
+- `data/output/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html` (one per all-method benchmark run, when present)
 
 Notes:
 
 - `index.html` embeds an inline copy of `dashboard_data.json`, so it still works via `file://` even when browser local fetches are restricted.
 - Collectors are read-only. They do not modify the source metrics in `data/output` or `data/golden`.
 - Benchmark rows pointing at pytest temp eval paths (for example `.../pytest-46/test_foo0/eval`) are ignored so local `pytest` runs do not appear in `Recent Benchmarks`.
+- All-method standalone pages are built from benchmark CSV rows (`run_dir` / `artifact_dir`) grouped by paths containing `all-method-benchmark/<source_slug>/config_*` (CSV-first; no extra dashboard-only metric store). The dashboard root page for this view is always written, even when there are zero runs.
 
 ## Import speed organization in the dashboard
 
@@ -109,6 +113,15 @@ Benchmark recipes note:
 - Benchmark recipe counts are persisted in CSV `recipes` for benchmark entrypoints (`labelstudio-benchmark`, `labelstudio-eval`, `bench run`) whenever recipe context is available.
 - Collector prefers manifest `recipe_count`, then falls back to `processed_report_path` -> report `totalRecipes` when needed.
 - For historical rows created before CSV persistence was complete, run `cookimport benchmark-csv-backfill` once to patch missing values.
+
+Benchmark metrics note:
+- `Recent Benchmarks` shows both `Practical F1` and `Strict F1`.
+- `Strict F1` is the IoU-threshold localization metric (`precision/recall/f1` fields from eval).
+- `Practical F1` is the any-overlap content metric (`practical_*` eval fields).
+- Rows with likely granularity mismatch display a small `mismatch` tag beside strict score so low strict/high practical runs are interpreted correctly.
+- Main dashboard now includes an `All-Method Benchmark Runs` section linking to standalone pages with ranked per-config stats for each sweep.
+- All-method detail pages now start with a compact `Run Summary` table (stats-only, no per-config labels) and metric-category bar charts (one bar per run/config) before the full ranked table.
+- Ranked all-method tables now include explicit dimension columns (`Extractor`, `Parser`, `Skip HF`, `Preprocess`) so config differences are readable without decoding slug strings.
 
 ## Historical decisions worth preserving
 

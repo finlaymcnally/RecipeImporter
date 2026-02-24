@@ -15,6 +15,7 @@ Label Studio benchmark mode helpers.
 - `eval_freeform.py` now also emits an `app_aligned` summary (deduped predictions, supported-label-only metrics, relaxed overlap, and any-overlap coverage) alongside strict span metrics.
 - `eval_freeform.py` also emits `classification_only` diagnostics focused on label agreement/coverage with boundary-insensitive overlap.
 - `labelstudio-benchmark` now also writes stage-style processed cookbook output to `data/output` (override via `--processed-output-dir`) while still writing benchmark artifacts to `data/golden`.
+- Interactive benchmark now has an offline `All method benchmark` mode that runs multiple `labelstudio-benchmark --no-upload` style configurations and writes a ranked aggregate report (`all_method_benchmark_report.json/.md`).
 - `labelstudio-import --prelabel` can upload completed freeform annotations (with fallback to post-import per-task annotation create if inline annotation import is rejected).
 - Prelabel progress callbacks now emit `task X/Y` counters for spinner visibility during long AI-label loops.
 - Prelabel parallel workers also emit worker-activity telemetry so callback-driven CLI spinners can show one live line per worker under the main status.

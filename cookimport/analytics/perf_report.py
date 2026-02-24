@@ -303,12 +303,66 @@ def append_benchmark_csv(
     counts = report.get("counts") or {}
     precision = _safe_float_or_none(report.get("precision"))
     recall = _safe_float_or_none(report.get("recall"))
-    f1 = None
+    f1 = _safe_float_or_none(report.get("f1"))
     if precision is not None and recall is not None and (precision + recall) > 0:
-        f1 = 2 * precision * recall / (precision + recall)
+        if f1 is None:
+            f1 = 2 * precision * recall / (precision + recall)
+
+    practical_precision = _safe_float_or_none(report.get("practical_precision"))
+    practical_recall = _safe_float_or_none(report.get("practical_recall"))
+    practical_f1 = _safe_float_or_none(report.get("practical_f1"))
+    if (
+        practical_f1 is None
+        and practical_precision is not None
+        and practical_recall is not None
+        and (practical_precision + practical_recall) > 0
+    ):
+        practical_f1 = (
+            2 * practical_precision * practical_recall
+            / (practical_precision + practical_recall)
+        )
 
     app_aligned = report.get("app_aligned") or {}
     supported_relaxed = app_aligned.get("supported_labels_relaxed") or {}
+    supported_precision = _safe_float_or_none(report.get("supported_precision"))
+    if supported_precision is None:
+        supported_precision = _safe_float_or_none(supported_relaxed.get("precision"))
+    supported_recall = _safe_float_or_none(report.get("supported_recall"))
+    if supported_recall is None:
+        supported_recall = _safe_float_or_none(supported_relaxed.get("recall"))
+    supported_practical_precision = _safe_float_or_none(
+        report.get("supported_practical_precision")
+    )
+    supported_practical_recall = _safe_float_or_none(
+        report.get("supported_practical_recall")
+    )
+    supported_practical_f1 = _safe_float_or_none(report.get("supported_practical_f1"))
+    if (
+        supported_practical_f1 is None
+        and supported_practical_precision is not None
+        and supported_practical_recall is not None
+        and (supported_practical_precision + supported_practical_recall) > 0
+    ):
+        supported_practical_f1 = (
+            2 * supported_practical_precision * supported_practical_recall
+            / (supported_practical_precision + supported_practical_recall)
+        )
+
+    granularity_mismatch = report.get("granularity_mismatch") or {}
+    granularity_mismatch_likely = None
+    if isinstance(granularity_mismatch, dict) and "likely" in granularity_mismatch:
+        raw_likely = granularity_mismatch.get("likely")
+        if isinstance(raw_likely, bool):
+            granularity_mismatch_likely = raw_likely
+        elif raw_likely is not None:
+            granularity_mismatch_likely = str(raw_likely).strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }
+    span_width_stats = report.get("span_width_stats") or {}
+    pred_width_p50 = _safe_float_or_none((span_width_stats.get("pred") or {}).get("p50"))
+    gold_width_p50 = _safe_float_or_none((span_width_stats.get("gold") or {}).get("p50"))
 
     boundary = report.get("boundary") or {}
     resolved_run_config_hash = run_config_hash
@@ -350,11 +404,30 @@ def append_benchmark_csv(
         "precision": precision if precision is not None else "",
         "recall": recall if recall is not None else "",
         "f1": f1 if f1 is not None else "",
+        "practical_precision": (
+            practical_precision if practical_precision is not None else ""
+        ),
+        "practical_recall": practical_recall if practical_recall is not None else "",
+        "practical_f1": practical_f1 if practical_f1 is not None else "",
         "gold_total": counts.get("gold_total", ""),
         "gold_matched": counts.get("gold_matched", ""),
         "pred_total": counts.get("pred_total", ""),
-        "supported_precision": supported_relaxed.get("precision", ""),
-        "supported_recall": supported_relaxed.get("recall", ""),
+        "supported_precision": supported_precision if supported_precision is not None else "",
+        "supported_recall": supported_recall if supported_recall is not None else "",
+        "supported_practical_precision": (
+            supported_practical_precision if supported_practical_precision is not None else ""
+        ),
+        "supported_practical_recall": (
+            supported_practical_recall if supported_practical_recall is not None else ""
+        ),
+        "supported_practical_f1": (
+            supported_practical_f1 if supported_practical_f1 is not None else ""
+        ),
+        "granularity_mismatch_likely": (
+            "1" if granularity_mismatch_likely is True else "0" if granularity_mismatch_likely is False else ""
+        ),
+        "pred_width_p50": pred_width_p50 if pred_width_p50 is not None else "",
+        "gold_width_p50": gold_width_p50 if gold_width_p50 is not None else "",
         "boundary_correct": boundary.get("correct", ""),
         "boundary_over": boundary.get("over", ""),
         "boundary_under": boundary.get("under", ""),
@@ -807,11 +880,20 @@ _CSV_FIELDS = [
     "precision",
     "recall",
     "f1",
+    "practical_precision",
+    "practical_recall",
+    "practical_f1",
     "gold_total",
     "gold_matched",
     "pred_total",
     "supported_precision",
     "supported_recall",
+    "supported_practical_precision",
+    "supported_practical_recall",
+    "supported_practical_f1",
+    "granularity_mismatch_likely",
+    "pred_width_p50",
+    "gold_width_p50",
     "boundary_correct",
     "boundary_over",
     "boundary_under",
@@ -875,11 +957,20 @@ def _row_to_csv(row: PerfRow) -> dict[str, Any]:
         "precision": "",
         "recall": "",
         "f1": "",
+        "practical_precision": "",
+        "practical_recall": "",
+        "practical_f1": "",
         "gold_total": "",
         "gold_matched": "",
         "pred_total": "",
         "supported_precision": "",
         "supported_recall": "",
+        "supported_practical_precision": "",
+        "supported_practical_recall": "",
+        "supported_practical_f1": "",
+        "granularity_mismatch_likely": "",
+        "pred_width_p50": "",
+        "gold_width_p50": "",
         "boundary_correct": "",
         "boundary_over": "",
         "boundary_under": "",

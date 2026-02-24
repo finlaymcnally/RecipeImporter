@@ -495,6 +495,37 @@ def test_display_gold_export_path_relative_to_golden_root(
     assert display == "sample/freeform/exports/freeform_span_labels.jsonl"
 
 
+def test_load_gold_recipe_headers_from_summary_prefers_recipe_counts(tmp_path: Path) -> None:
+    exports = tmp_path / "run" / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    gold_path = exports / "freeform_span_labels.jsonl"
+    gold_path.write_text("{}\n", encoding="utf-8")
+    (exports / "summary.json").write_text(
+        json.dumps(
+            {
+                "recipe_counts": {"recipe_headers": 9},
+                "counts": {"recipe_headers": 2},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert cli._load_gold_recipe_headers_from_summary(gold_path) == 9
+
+
+def test_load_gold_recipe_headers_from_summary_falls_back_to_counts(tmp_path: Path) -> None:
+    exports = tmp_path / "run" / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    gold_path = exports / "freeform_span_labels.jsonl"
+    gold_path.write_text("{}\n", encoding="utf-8")
+    (exports / "summary.json").write_text(
+        json.dumps({"counts": {"recipe_headers": 4}}),
+        encoding="utf-8",
+    )
+
+    assert cli._load_gold_recipe_headers_from_summary(gold_path) == 4
+
+
 def test_discover_prediction_runs_orders_newest_first(tmp_path: Path) -> None:
     older = tmp_path / "2026-01-01-000000" / "labelstudio" / "book-a"
     newer = tmp_path / "2026-01-02-000000" / "labelstudio" / "book-b"
@@ -1130,11 +1161,14 @@ def test_interactive_benchmark_uses_golden_output_roots(
     golden_root = tmp_path / "golden"
     gold_spans = golden_root / "some-run" / "exports" / "freeform_span_labels.jsonl"
     pred_run = golden_root / "some-run" / "prediction-run"
-    menu_answers = iter(["labelstudio_benchmark", "global", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "global", "single_upload", "exit"])
+    mode_prompts: list[list[str]] = []
 
     def fake_menu_select(prompt: str, *_args, **_kwargs):
         if prompt == "How would you like to evaluate?":
-            raise AssertionError("Interactive benchmark should not prompt for eval-only mode.")
+            mode_prompts.append(
+                [str(choice.title) for choice in _kwargs.get("choices", [])]
+            )
         return next(menu_answers)
 
     monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
@@ -1175,6 +1209,52 @@ def test_interactive_benchmark_uses_golden_output_roots(
     assert captured["label_studio_url"] == "http://localhost:8080"
     assert captured["label_studio_api_key"] == "benchmark-key"
     assert captured["epub_extractor"] == "legacy"
+    assert mode_prompts
+    assert any("offline, no upload" in title for title in mode_prompts[0])
+    assert any("All method benchmark" in title for title in mode_prompts[0])
+
+
+def test_interactive_benchmark_single_offline_mode_skips_credentials(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    configured_output = tmp_path / "custom-output"
+    golden_root = tmp_path / "golden"
+    menu_answers = iter(["labelstudio_benchmark", "global", "single_offline", "exit"])
+
+    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
+    monkeypatch.setattr(
+        cli,
+        "_load_settings",
+        lambda: {"output_dir": str(configured_output), "epub_extractor": "legacy"},
+    )
+    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
+    monkeypatch.setattr(
+        cli,
+        "_resolve_interactive_labelstudio_settings",
+        lambda _settings: (_ for _ in ()).throw(
+            AssertionError("Offline benchmark mode should not resolve Label Studio credentials.")
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_labelstudio_benchmark(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
+
+    assert captured["output_dir"] == golden_root
+    eval_output_dir = captured["eval_output_dir"]
+    assert isinstance(eval_output_dir, Path)
+    assert eval_output_dir.parent == golden_root / "eval-vs-pipeline"
+    assert captured["no_upload"] is True
+    assert "allow_labelstudio_write" not in captured
+    assert "label_studio_url" not in captured
+    assert "label_studio_api_key" not in captured
 
 
 def test_interactive_generate_dashboard_prompts_and_opens_browser(
@@ -1234,11 +1314,13 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_upload_f
     gold_spans.parent.mkdir(parents=True, exist_ok=True)
     gold_spans.write_text("{}\n", encoding="utf-8")
 
-    menu_answers = iter(["labelstudio_benchmark", "global", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "global", "single_upload", "exit"])
+    mode_prompt_count = 0
 
     def fake_menu_select(prompt: str, *_args, **_kwargs):
+        nonlocal mode_prompt_count
         if prompt == "How would you like to evaluate?":
-            raise AssertionError("Interactive benchmark should not show eval-only chooser.")
+            mode_prompt_count += 1
         return next(menu_answers)
 
     monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
@@ -1269,6 +1351,7 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_upload_f
     assert eval_calls == []
     assert len(benchmark_calls) == 1
     assert benchmark_calls[0]["output_dir"] == golden_root
+    assert mode_prompt_count == 1
 
 
 def test_interactive_labelstudio_export_routes_to_export_command(
@@ -1794,3 +1877,161 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
 def test_labelstudio_benchmark_rejects_invalid_epub_extractor() -> None:
     with pytest.raises(cli.typer.Exit):
         cli.labelstudio_benchmark(epub_extractor="invalid")
+
+
+def test_build_all_method_variants_epub_expected_count() -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variants = cli._build_all_method_variants(
+        base_settings=base_settings,
+        source_file=Path("book.epub"),
+        include_codex_farm=False,
+    )
+    assert len(variants) == 15
+    assert len({variant.run_settings.stable_hash() for variant in variants}) == 15
+    assert any("extractor_unstructured" in variant.slug for variant in variants)
+    assert any("extractor_markdown" in variant.slug for variant in variants)
+
+
+def test_build_all_method_variants_non_epub_single_variant() -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variants = cli._build_all_method_variants(
+        base_settings=base_settings,
+        source_file=Path("book.pdf"),
+        include_codex_farm=False,
+    )
+    assert len(variants) == 1
+    assert variants[0].dimensions["source_extension"] == ".pdf"
+
+
+def test_resolve_all_method_codex_choice_remains_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    include_effective, warning = cli._resolve_all_method_codex_choice(True)
+    assert include_effective is False
+    assert warning is not None
+    assert cli.ALL_METHOD_CODEX_FARM_UNLOCK_ENV in warning
+
+    monkeypatch.setenv(cli.ALL_METHOD_CODEX_FARM_UNLOCK_ENV, "1")
+    include_effective_unlocked, warning_unlocked = cli._resolve_all_method_codex_choice(
+        True
+    )
+    assert include_effective_unlocked is False
+    assert warning_unlocked is not None
+    assert "policy-locked OFF" in warning_unlocked
+
+
+def test_run_all_method_benchmark_writes_ranked_summary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    markdown_settings = cli.RunSettings.from_dict(
+        {
+            **base_settings.to_run_config_dict(),
+            "epub_extractor": "markdown",
+        },
+        warn_context="test",
+    )
+    variants = [
+        cli.AllMethodVariant(
+            slug="extractor_unstructured",
+            run_settings=base_settings,
+            dimensions={"epub_extractor": "unstructured"},
+        ),
+        cli.AllMethodVariant(
+            slug="extractor_markdown",
+            run_settings=markdown_settings,
+            dimensions={"epub_extractor": "markdown"},
+        ),
+    ]
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    def fake_labelstudio_benchmark(**kwargs):
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        extractor = str(kwargs.get("epub_extractor") or "")
+        f1 = 0.82 if extractor == "markdown" else 0.40
+        report = {
+            "precision": f1,
+            "recall": f1,
+            "f1": f1,
+            "practical_precision": f1,
+            "practical_recall": f1,
+            "practical_f1": f1,
+        }
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
+        pred_run = eval_output_dir / "prediction-run"
+        pred_run.mkdir(parents=True, exist_ok=True)
+        (pred_run / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_file": str(source_file),
+                    "run_config_hash": f"hash-{extractor}",
+                    "run_config_summary": f"epub_extractor={extractor}",
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    report_md_path = cli._run_all_method_benchmark(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variants=variants,
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method",
+        overlap_threshold=0.5,
+        force_source_match=False,
+    )
+
+    assert report_md_path.exists()
+    report_json_path = report_md_path.with_suffix(".json")
+    payload = json.loads(report_json_path.read_text(encoding="utf-8"))
+    assert payload["variant_count"] == 2
+    assert payload["successful_variants"] == 2
+    assert payload["winner_by_f1"]["run_config_hash"] == "hash-markdown"
+    assert payload["variants"][0]["rank"] == 1
+    assert payload["variants"][0]["run_config_hash"] == "hash-markdown"
+
+
+def test_interactive_benchmark_all_method_mode_routes_to_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    menu_answers = iter(["labelstudio_benchmark", "global", "all_method", "exit"])
+    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
+    monkeypatch.setattr(cli, "_load_settings", lambda: {})
+    monkeypatch.setattr(
+        cli,
+        "_resolve_interactive_labelstudio_settings",
+        lambda _settings: (_ for _ in ()).throw(
+            AssertionError("All-method mode should not resolve Label Studio credentials.")
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_interactive_all_method_benchmark(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        cli,
+        "_interactive_all_method_benchmark",
+        fake_interactive_all_method_benchmark,
+    )
+
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
+
+    assert "selected_benchmark_settings" in captured

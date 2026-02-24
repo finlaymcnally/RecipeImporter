@@ -74,7 +74,7 @@ def test_plan_parallel_convert_jobs_epub_markitdown_disables_split(monkeypatch) 
     assert jobs[0]["end_spine"] is None
 
 
-def test_plan_parallel_convert_jobs_epub_auto_disables_split(monkeypatch) -> None:
+def test_plan_parallel_convert_jobs_epub_unstructured_uses_split(monkeypatch) -> None:
     path = Path("sample.epub")
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest._resolve_epub_spine_count",
@@ -88,12 +88,12 @@ def test_plan_parallel_convert_jobs_epub_auto_disables_split(monkeypatch) -> Non
         epub_split_workers=4,
         pdf_pages_per_job=50,
         epub_spine_items_per_job=10,
-        epub_extractor="auto",
+        epub_extractor="unstructured",
     )
 
-    assert len(jobs) == 1
-    assert jobs[0]["start_spine"] is None
-    assert jobs[0]["end_spine"] is None
+    assert len(jobs) > 1
+    assert jobs[0]["start_spine"] == 0
+    assert jobs[-1]["end_spine"] == 120
 
 
 def test_merge_parallel_results_combines_and_reorders(tmp_path: Path) -> None:

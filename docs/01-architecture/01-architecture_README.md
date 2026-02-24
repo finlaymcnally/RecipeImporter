@@ -281,7 +281,7 @@ Keep these flowchart/runtime invariants aligned:
 - EPUB split eligibility depends on the effective extractor:
   - `unstructured` / `legacy` / `markdown` support spine-range split jobs.
   - `markitdown` is whole-book only and does not split by spine.
-  - `auto` resolves to an effective extractor first, then split capability follows that concrete backend.
+  - stage/benchmark flows require explicit extractor choice; there is no auto-resolution branch.
 - Freeform Label Studio prelabeling has two behavior-changing permutations that should stay visible in flow docs:
   - upload mode: `annotations` vs `predictions`
   - granularity: `span` (actual freeform) vs `block` (legacy block mode)

@@ -56,7 +56,6 @@ class EpubExtractor(str, Enum):
     unstructured = "unstructured"
     legacy = "legacy"
     markdown = "markdown"
-    auto = "auto"
     markitdown = "markitdown"
 
 
@@ -200,7 +199,7 @@ class RunSettings(BaseModel):
             label="EPUB Extractor",
             order=60,
             description=(
-                "EPUB extraction engine (unstructured, legacy, markdown, auto, or markitdown)."
+                "EPUB extraction engine (unstructured, legacy, markdown, or markitdown)."
             ),
         ),
     )
@@ -431,6 +430,20 @@ class RunSettings(BaseModel):
                     llm_recipe_pipeline_raw,
                 )
                 data["llm_recipe_pipeline"] = LlmRecipePipeline.off.value
+        epub_extractor_raw = data.get("epub_extractor")
+        if epub_extractor_raw is not None:
+            if isinstance(epub_extractor_raw, Enum):
+                normalized_epub_extractor = str(epub_extractor_raw.value).strip().lower()
+            else:
+                normalized_epub_extractor = str(epub_extractor_raw).strip().lower()
+            if normalized_epub_extractor == "auto":
+                logger.warning(
+                    "Forcing epub_extractor=unstructured in %s because auto extractor mode "
+                    "was removed. Ignoring value %r.",
+                    warn_context,
+                    epub_extractor_raw,
+                )
+                data["epub_extractor"] = EpubExtractor.unstructured.value
         return cls.model_validate(data)
 
     def to_run_config_dict(self) -> dict[str, object]:

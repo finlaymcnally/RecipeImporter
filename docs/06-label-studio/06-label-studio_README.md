@@ -65,8 +65,11 @@ Uploads are intentionally gated.
   - Interactive freeform import includes an AI prelabel mode picker (off, strict/allow-partial annotations, advanced predictions modes; strict is marked recommended), then a style picker (`actual freeform` span mode vs `legacy, block based` mode), prints total processing time in the import summary, and prints `prelabel_report.json` when prelabel is enabled.
   - Interactive freeform prelabel does not prompt for command selection; it resolves command from `COOKIMPORT_CODEX_CMD` or `codex exec -`, displays the resolved account email when available, then prompts for model and thinking effort (`none|minimal|low|medium|high|xhigh`) using metadata/defaults from that command's Codex home cache (`CODEX_HOME` honored).
   - Token usage tracking is always enabled for AI labeling runs.
-- benchmark upload does not ask a second confirmation; choosing upload mode is treated as explicit intent.
-- interactive benchmark is upload-only and always generates fresh predictions before evaluation.
+- non-interactive benchmark upload does not ask a second confirmation; passing upload flags is treated as explicit intent.
+- interactive benchmark now has three menu modes after run-settings selection:
+  - single offline mode (default first choice): one `labelstudio-benchmark --no-upload` eval run (no Label Studio credentials, no upload),
+  - upload mode: one `labelstudio-benchmark` upload+evaluate call (`allow_labelstudio_write=True`),
+  - all-method mode: offline multi-config benchmark sweep (no Label Studio upload).
 - benchmark upload auto-recovers from project scope collisions when project name is auto-generated: if an existing project+manifest resolves to a different task scope, it creates a deduped project name instead of failing interactive flow.
 
 Non-interactive overwrite/resume behavior is unchanged:
@@ -140,6 +143,7 @@ Freeform export produces:
 - `exports/freeform_span_labels.jsonl`
 - `exports/freeform_segment_manifest.jsonl`
 - `exports/summary.json`
+  - `summary.recipe_counts.recipe_headers` stores deduped golden recipe count based on `RECIPE_TITLE` header spans (dedupe key: source + block range).
 
 Freeform span rows include offsets, label, touched block mapping, annotator/timestamp, and deterministic `span_id`.
 
@@ -419,6 +423,10 @@ Important:
 - Upload mode imports/uploads prediction tasks (requires write consent).
 - Offline mode is explicit via `--no-upload`.
 - Eval-only mode against an existing prediction run is available via `labelstudio-eval` (interactive benchmark does not expose eval-only).
+- Interactive benchmark upload mode runs one `labelstudio-benchmark` upload flow per menu action and writes eval artifacts under `data/golden/eval-vs-pipeline/<timestamp>/`.
+- Interactive all-method mode runs offline `labelstudio-benchmark --no-upload` style executions across a fixed extractor/tuning permutation set, then writes aggregate summary artifacts at:
+  - `.../all-method-benchmark/<source_slug>/all_method_benchmark_report.json`
+  - `.../all-method-benchmark/<source_slug>/all_method_benchmark_report.md`
 - Benchmark prediction manifests include run-config metadata (`run_config`, `run_config_hash`, `run_config_summary`) so analytics/dashboard rows can be grouped by configuration.
 - Non-interactive benchmark knobs include worker/split controls, OCR/warmup flags, knowledge-harvest codex-farm controls, and a recipe codex-farm policy knob that is currently forced to `off` (`--ocr-device`, `--ocr-batch-size`, `--warm-models`, `--epub-extractor`, `--llm-recipe-pipeline`, `--codex-farm-cmd`, `--codex-farm-root`, `--codex-farm-workspace-root`, `--codex-farm-pipeline-pass1`, `--codex-farm-pipeline-pass2`, `--codex-farm-pipeline-pass3`, `--codex-farm-context-blocks`, `--codex-farm-failure-mode`).
 - If recipe codex-farm correction is re-enabled in future, processed report payloads include `llmCodexFarm` and prediction-run artifacts include `llm_manifest.json` when produced.
@@ -464,8 +472,9 @@ Manifest includes:
 - Interactive `labelstudio` export resolves credentials first, then fetches project titles for a picker UI (showing a detected type tag beside each project when available). It now auto-uses the selected project's detected type as export scope and only prompts for scope when detection is `unknown` (or when the project name is typed manually).
 - Interactive Label Studio import/export credential resolution order is: CLI/env values first, then saved `cookimport.json` values, then one-time prompt (which persists back to `cookimport.json`).
 - Interactive freeform `labelstudio` import now prompts for context blocks, overlap, focus blocks, and optional target task count in one sequence, then uses an AI prelabel mode selector before upload, prints summary processing time, and writes `prelabel_report.json` when prelabel is enabled.
-- Interactive benchmark upload uses the same per-run settings chooser as interactive Import (`global defaults` / `last benchmark` / `change run settings`) and writes successful selections to `<output_dir>/.history/last_run_settings_benchmark.json`.
-- Interactive benchmark upload follows the same env -> saved settings -> one-time prompt credential resolution path before invoking `labelstudio-benchmark`.
+- Interactive benchmark uses the same per-run settings chooser as interactive Import (`global defaults` / `last benchmark` / `change run settings`) and writes successful selections to `<output_dir>/.history/last_run_settings_benchmark.json`.
+- Interactive benchmark mode picker (`upload` vs `all method`) appears immediately after run-settings selection.
+- Interactive upload mode resolves credentials before calling `labelstudio-benchmark`; all-method mode is offline and does not resolve Label Studio credentials.
 
 ## 2) Known-Bad / High-Risk / Common Confusion
 
@@ -485,6 +494,7 @@ Current reality:
 
 - non-interactive benchmark can be upload mode (default) or explicit offline mode (`--no-upload`).
 - eval-only against an existing pred run is a separate command (`labelstudio-eval`), not an interactive benchmark branch.
+- interactive benchmark includes an offline all-method sweep branch that evaluates many run-setting permutations and writes a ranked summary report.
 
 ### 2.3 Source mismatch leading to zero overlap
 

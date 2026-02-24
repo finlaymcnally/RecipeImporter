@@ -15,6 +15,7 @@ import zipfile
 from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
+from itertools import product
 from pathlib import Path
 from typing import Iterable, Dict, Any, Annotated, Callable, TypeVar
 
@@ -40,7 +41,11 @@ from cookimport.config.run_settings import (
 )
 from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
-from cookimport.core.progress_messages import format_phase_counter, parse_worker_activity
+from cookimport.core.progress_messages import (
+    format_phase_counter,
+    format_task_counter,
+    parse_worker_activity,
+)
 from cookimport.core.overrides_io import load_parsing_overrides
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
 from cookimport.core.slug import slugify_name
@@ -59,6 +64,7 @@ from cookimport.labelstudio.eval_canonical import (
     write_jsonl,
 )
 from cookimport.labelstudio.eval_freeform import (
+    attach_recipe_count_diagnostics,
     evaluate_predicted_vs_freeform,
     format_freeform_eval_report_md,
     load_gold_freeform_ranges,
@@ -84,11 +90,6 @@ from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
 from cookimport.runs import RunManifest, RunSource, write_run_manifest
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
-from cookimport.parsing.epub_auto_select import (
-    selected_auto_score,
-    select_epub_extractor_auto,
-    write_auto_extractor_artifact,
-)
 from cookimport.parsing.tips import partition_tip_candidates
 from cookimport.staging.pdf_jobs import (
     plan_job_ranges,
@@ -129,6 +130,16 @@ REPO_ROOT = Path(__file__).parent.parent
 BACK_ACTION = "__back__"
 DEFAULT_PRELABEL_TIMEOUT_SECONDS = 300
 SUPPORTED_LABELSTUDIO_TASK_SCOPES = {"pipeline", "canonical-blocks", "freeform-spans"}
+ALL_METHOD_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
+ALL_METHOD_EPUB_EXTRACTORS = (
+    "unstructured",
+    "legacy",
+    "markdown",
+    "markitdown",
+)
+ALL_METHOD_UNSTRUCTURED_HTML_PARSER_VERSIONS = ("v1", "v2")
+ALL_METHOD_UNSTRUCTURED_SKIP_HEADERS_FOOTERS = (False, True)
+ALL_METHOD_UNSTRUCTURED_PREPROCESS_MODES = ("none", "br_split_v1", "semantic_v1")
 _MENU_SHORTCUT_KEYS = (
     "1",
     "2",
@@ -609,7 +620,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     value="epub_split_workers",
                 ),
                 questionary.Choice(
-                    f"EPUB Extractor: {current_settings.get('epub_extractor', 'unstructured')} - unstructured/legacy/markdown/auto/markitdown",
+                    f"EPUB Extractor: {current_settings.get('epub_extractor', 'unstructured')} - unstructured/legacy/markdown/markitdown",
                     value="epub_extractor",
                 ),
                 questionary.Choice(
@@ -695,12 +706,11 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
         elif choice == "epub_extractor":
             val = _menu_select(
                 "Select EPUB extraction engine:",
-                choices=["unstructured", "legacy", "markdown", "auto", "markitdown"],
+                choices=["unstructured", "legacy", "markdown", "markitdown"],
                 default=current_settings.get("epub_extractor", "unstructured"),
                 menu_help=(
                     "Unstructured uses semantic HTML partitioning for richer block extraction. "
                     "Legacy uses BeautifulSoup tag-based parsing. Markdown converts spine HTML into markdown first. "
-                    "Auto scores sample spine docs and chooses the best backend for each EPUB. "
                     "MarkItDown is retained as legacy whole-book markdown mode."
                 ),
             )
@@ -822,8 +832,8 @@ def _interactive_epub_race(epub_files: list[Path]) -> None:
         "Select an EPUB file for extractor race:",
         choices=[questionary.Choice(path.name, value=path) for path in epub_files],
         menu_help=(
-            "Runs the same deterministic auto-selection scorer used by "
-            "--epub-extractor auto and writes epub_race_report.json."
+            "Runs a deterministic extractor-quality scorer and writes "
+            "epub_race_report.json."
         ),
     )
     if selected_epub in {None, BACK_ACTION}:
@@ -868,6 +878,102 @@ def _interactive_epub_race(epub_files: list[Path]) -> None:
     except typer.Exit as exc:
         if int(exc.exit_code or 0) != 0:
             typer.secho("EPUB race failed. See error above.", fg=typer.colors.YELLOW)
+
+
+def _interactive_all_method_benchmark(
+    *,
+    selected_benchmark_settings: RunSettings,
+    benchmark_eval_output: Path,
+) -> None:
+    resolved_inputs = _resolve_benchmark_gold_and_source(
+        gold_spans=None,
+        source_file=None,
+        output_dir=DEFAULT_GOLDEN,
+        allow_cancel=True,
+    )
+    if resolved_inputs is None:
+        return
+    selected_gold, selected_source = resolved_inputs
+
+    base_variants = _build_all_method_variants(
+        base_settings=selected_benchmark_settings,
+        source_file=selected_source,
+        include_codex_farm=False,
+    )
+    if not base_variants:
+        typer.secho("No benchmark variants were generated for this source.", fg=typer.colors.YELLOW)
+        return
+
+    base_count = len(base_variants)
+    typer.secho(
+        f"All method benchmark will run {base_count} configurations (Codex Farm excluded).",
+        fg=typer.colors.CYAN,
+    )
+    if selected_source.suffix.lower() == ".epub":
+        typer.secho(
+            (
+                "Dimensions: epub_extractor, plus parser/skip_headers/preprocess "
+                "for unstructured variants."
+            ),
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+    else:
+        typer.secho(
+            "Dimensions: non-EPUB source uses one configuration (global benchmark run settings).",
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+    typer.secho(
+        (
+            "With Codex Farm included: "
+            f"{base_count} configurations (currently unchanged while recipe codex-farm "
+            "parsing is policy-locked OFF)."
+        ),
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+
+    include_codex_prompt = _prompt_confirm(
+        "Include Codex Farm permutations?",
+        default=False,
+    )
+    if include_codex_prompt is None:
+        typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)
+        return
+    include_codex_requested = bool(include_codex_prompt)
+    include_codex_effective, codex_warning = _resolve_all_method_codex_choice(
+        include_codex_requested
+    )
+    if codex_warning:
+        typer.secho(codex_warning, fg=typer.colors.YELLOW)
+
+    selected_variants = _build_all_method_variants(
+        base_settings=selected_benchmark_settings,
+        source_file=selected_source,
+        include_codex_farm=include_codex_effective,
+    )
+    proceed = _prompt_confirm(
+        f"Proceed with {len(selected_variants)} benchmark runs?",
+        default=False,
+    )
+    if proceed is not True:
+        typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)
+        return
+
+    all_method_root = (
+        benchmark_eval_output
+        / "all-method-benchmark"
+        / slugify_name(selected_source.stem)
+    )
+    report_md_path = _run_all_method_benchmark(
+        gold_spans_path=selected_gold,
+        source_file=selected_source,
+        variants=selected_variants,
+        include_codex_farm_requested=include_codex_requested,
+        include_codex_farm_effective=include_codex_effective,
+        root_output_dir=all_method_root,
+        overlap_threshold=0.5,
+        force_source_match=False,
+    )
+    typer.secho(f"All method benchmark report: {report_md_path}", fg=typer.colors.CYAN)
 
 
 def _interactive_mode(*, limit: int | None = None) -> None:
@@ -1525,16 +1631,35 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 fg=typer.colors.CYAN,
             )
 
-            resolved_creds = _resolve_interactive_labelstudio_settings(settings)
-            if resolved_creds is None:
+            benchmark_mode = _menu_select(
+                "How would you like to evaluate?",
+                menu_help=(
+                    "Single offline mode runs one local prediction + eval against freeform gold "
+                    "without Label Studio upload. Upload mode is opt-in when you specifically "
+                    "want benchmark tasks pushed to Label Studio. All method benchmark runs many "
+                    "offline permutations with one summary report."
+                ),
+                choices=[
+                    questionary.Choice(
+                        "Generate predictions + evaluate (offline, no upload)",
+                        value="single_offline",
+                    ),
+                    questionary.Choice(
+                        "Generate predictions + evaluate (uploads to Label Studio)",
+                        value="single_upload",
+                    ),
+                    questionary.Choice(
+                        "All method benchmark (offline, no upload)",
+                        value="all_method",
+                    ),
+                ],
+            )
+            if benchmark_mode in {None, BACK_ACTION}:
                 continue
-            url, api_key = resolved_creds
-            labelstudio_benchmark(
+
+            benchmark_kwargs = dict(
                 output_dir=DEFAULT_GOLDEN,
                 eval_output_dir=benchmark_eval_output,
-                allow_labelstudio_write=True,
-                label_studio_url=url,
-                label_studio_api_key=api_key,
                 epub_extractor=selected_benchmark_settings.epub_extractor.value,
                 epub_unstructured_html_parser_version=(
                     selected_benchmark_settings.epub_unstructured_html_parser_version.value
@@ -1563,6 +1688,29 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 codex_farm_context_blocks=selected_benchmark_settings.codex_farm_context_blocks,
                 codex_farm_failure_mode=selected_benchmark_settings.codex_farm_failure_mode.value,
             )
+
+            if benchmark_mode == "single_upload":
+                resolved_creds = _resolve_interactive_labelstudio_settings(settings)
+                if resolved_creds is None:
+                    continue
+                url, api_key = resolved_creds
+                labelstudio_benchmark(
+                    **benchmark_kwargs,
+                    allow_labelstudio_write=True,
+                    label_studio_url=url,
+                    label_studio_api_key=api_key,
+                )
+            elif benchmark_mode == "single_offline":
+                labelstudio_benchmark(
+                    **benchmark_kwargs,
+                    no_upload=True,
+                )
+            else:
+                _interactive_all_method_benchmark(
+                    selected_benchmark_settings=selected_benchmark_settings,
+                    benchmark_eval_output=benchmark_eval_output,
+                )
+
             save_last_run_settings("benchmark", output_folder, selected_benchmark_settings)
             continue
 
@@ -1735,10 +1883,10 @@ def _unwrap_typer_option_default(value: Any) -> Any:
 
 def _normalize_epub_extractor(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized not in {"unstructured", "legacy", "markdown", "auto", "markitdown"}:
+    if normalized not in {"unstructured", "legacy", "markdown", "markitdown"}:
         _fail(
             f"Invalid EPUB extractor: {value!r}. "
-            "Expected one of: unstructured, legacy, markdown, auto, markitdown."
+            "Expected one of: unstructured, legacy, markdown, markitdown."
         )
     return normalized
 
@@ -2416,6 +2564,57 @@ def _load_total_recipes_from_report_path(
         return None
 
 
+def _load_gold_recipe_headers_from_summary(gold_spans_path: Path) -> int | None:
+    summary_path = gold_spans_path.parent / "summary.json"
+    if not summary_path.exists() or not summary_path.is_file():
+        return None
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    recipe_counts = payload.get("recipe_counts")
+    if isinstance(recipe_counts, dict):
+        value = recipe_counts.get("recipe_headers")
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
+
+    counts = payload.get("counts")
+    if isinstance(counts, dict):
+        value = counts.get("recipe_headers")
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def _attach_freeform_recipe_count_context(
+    *,
+    report: dict[str, Any],
+    gold_spans_path: Path,
+    predicted_recipe_count: int | None,
+    predicted_recipe_count_source: str | None = None,
+) -> None:
+    gold_recipe_headers = _load_gold_recipe_headers_from_summary(gold_spans_path)
+    gold_recipe_headers_source = (
+        "gold_summary.recipe_counts.recipe_headers"
+        if gold_recipe_headers is not None
+        else None
+    )
+    attach_recipe_count_diagnostics(
+        report,
+        gold_recipe_headers=gold_recipe_headers,
+        gold_recipe_headers_source=gold_recipe_headers_source,
+        predicted_recipe_count=predicted_recipe_count,
+        predicted_recipe_count_source=predicted_recipe_count_source,
+    )
+
+
 @dataclass(frozen=True)
 class PredRunContext:
     recipes: int | None
@@ -2426,6 +2625,13 @@ class PredRunContext:
     run_config_hash: str | None
     run_config_summary: str | None
     epub_auto_selected_score: float | None
+
+
+@dataclass(frozen=True)
+class AllMethodVariant:
+    slug: str
+    run_settings: RunSettings
+    dimensions: dict[str, Any]
 
 
 def _load_pred_run_recipe_context(
@@ -2569,6 +2775,523 @@ def _display_prediction_run_path(path: Path, output_dir: Path) -> str:
         except ValueError:
             continue
     return str(path)
+
+
+def _resolve_benchmark_gold_and_source(
+    *,
+    gold_spans: Path | None,
+    source_file: Path | None,
+    output_dir: Path,
+    allow_cancel: bool = False,
+) -> tuple[Path, Path] | None:
+    def _abort(message: str) -> tuple[Path, Path] | None:
+        if allow_cancel:
+            typer.secho(message, fg=typer.colors.YELLOW)
+            return None
+        _fail(message)
+        return None
+
+    selected_gold = gold_spans
+    if selected_gold is None:
+        candidates = _discover_freeform_gold_exports(output_dir)
+        if not candidates:
+            return _abort(
+                "No freeform gold exports found. Run `cookimport labelstudio-export --export-scope freeform-spans` first."
+            )
+        selected_gold = _menu_select(
+            "Select a freeform gold export:",
+            menu_help=(
+                "Choose the labeled freeform export to benchmark against. "
+                "Newest exports are listed first."
+            ),
+            choices=[
+                questionary.Choice(
+                    _display_gold_export_path(path, output_dir),
+                    value=path,
+                )
+                for path in candidates[:30]
+            ],
+        )
+        if selected_gold in {None, BACK_ACTION}:
+            return _abort("Benchmark cancelled.")
+    if not selected_gold.exists():
+        return _abort(f"Gold spans file not found: {selected_gold}")
+
+    selected_source = source_file
+    inferred_source = None
+    if selected_source is None:
+        inferred_source = _infer_source_file_from_freeform_gold(selected_gold)
+    if selected_source is None and inferred_source is not None:
+        use_inferred = _prompt_confirm(
+            f"Use inferred source file `{inferred_source}`?",
+            default=True,
+        )
+        if use_inferred is None:
+            return _abort("Benchmark cancelled.")
+        if use_inferred:
+            selected_source = inferred_source
+    if selected_source is None:
+        importable_files = _list_importable_files(DEFAULT_INPUT)
+        if importable_files:
+            source_choice = _menu_select(
+                "Select source file to benchmark:",
+                menu_help=(
+                    "Choose the source file used to generate prediction tasks "
+                    "for comparison to the selected gold export."
+                ),
+                choices=[
+                    *[questionary.Choice(path.name, value=path) for path in importable_files],
+                    questionary.Choice("Enter a custom path", value="custom"),
+                ],
+            )
+            if source_choice in {None, BACK_ACTION}:
+                return _abort("Benchmark cancelled.")
+            if source_choice == "custom":
+                source_path = _prompt_text("Enter source file path:")
+                if not source_path:
+                    return _abort("Benchmark cancelled.")
+                selected_source = Path(source_path)
+            else:
+                selected_source = source_choice
+        else:
+            source_path = _prompt_text("Enter source file path:")
+            if not source_path:
+                return _abort("Benchmark cancelled.")
+            selected_source = Path(source_path)
+    if not selected_source.exists() or not selected_source.is_file():
+        return _abort(f"Source file not found: {selected_source}")
+    try:
+        _require_importer(selected_source)
+    except typer.Exit:
+        if allow_cancel:
+            return None
+        raise
+
+    return selected_gold, selected_source
+
+
+def _all_method_variant_token(value: str | bool) -> str:
+    if isinstance(value, bool):
+        raw_value = "true" if value else "false"
+    else:
+        raw_value = str(value).strip().lower()
+    token = raw_value.replace("-", "_")
+    token = re.sub(r"[^a-z0-9_]+", "_", token)
+    token = token.strip("_")
+    return token or "na"
+
+
+def _build_all_method_variants(
+    *,
+    base_settings: RunSettings,
+    source_file: Path,
+    include_codex_farm: bool,
+) -> list[AllMethodVariant]:
+    _ = include_codex_farm  # Reserved for future policy unlock.
+    base_payload = base_settings.to_run_config_dict()
+    variants: list[AllMethodVariant] = []
+    source_ext = source_file.suffix.lower()
+
+    if source_ext != ".epub":
+        run_settings = RunSettings.from_dict(
+            dict(base_payload),
+            warn_context="all-method variant",
+        )
+        variants.append(
+            AllMethodVariant(
+                slug=f"source_{_all_method_variant_token(source_ext.lstrip('.') or 'unknown')}",
+                run_settings=run_settings,
+                dimensions={
+                    "source_extension": source_ext or "none",
+                },
+            )
+        )
+        return variants
+
+    dedupe_hashes: set[str] = set()
+    for extractor in ALL_METHOD_EPUB_EXTRACTORS:
+        if extractor == "unstructured":
+            for parser_version, skip_headers_footers, preprocess_mode in product(
+                ALL_METHOD_UNSTRUCTURED_HTML_PARSER_VERSIONS,
+                ALL_METHOD_UNSTRUCTURED_SKIP_HEADERS_FOOTERS,
+                ALL_METHOD_UNSTRUCTURED_PREPROCESS_MODES,
+            ):
+                payload = dict(base_payload)
+                payload.update(
+                    {
+                        "epub_extractor": extractor,
+                        "epub_unstructured_html_parser_version": parser_version,
+                        "epub_unstructured_skip_headers_footers": skip_headers_footers,
+                        "epub_unstructured_preprocess_mode": preprocess_mode,
+                    }
+                )
+                run_settings = RunSettings.from_dict(
+                    payload,
+                    warn_context="all-method variant",
+                )
+                stable_hash = run_settings.stable_hash()
+                if stable_hash in dedupe_hashes:
+                    continue
+                dedupe_hashes.add(stable_hash)
+                variants.append(
+                    AllMethodVariant(
+                        slug=(
+                            f"extractor_{_all_method_variant_token(extractor)}"
+                            f"__parser_{_all_method_variant_token(parser_version)}"
+                            f"__skiphf_{_all_method_variant_token(skip_headers_footers)}"
+                            f"__pre_{_all_method_variant_token(preprocess_mode)}"
+                        ),
+                        run_settings=run_settings,
+                        dimensions={
+                            "epub_extractor": extractor,
+                            "epub_unstructured_html_parser_version": parser_version,
+                            "epub_unstructured_skip_headers_footers": skip_headers_footers,
+                            "epub_unstructured_preprocess_mode": preprocess_mode,
+                        },
+                    )
+                )
+            continue
+
+        payload = dict(base_payload)
+        payload["epub_extractor"] = extractor
+        run_settings = RunSettings.from_dict(
+            payload,
+            warn_context="all-method variant",
+        )
+        stable_hash = run_settings.stable_hash()
+        if stable_hash in dedupe_hashes:
+            continue
+        dedupe_hashes.add(stable_hash)
+        variants.append(
+            AllMethodVariant(
+                slug=f"extractor_{_all_method_variant_token(extractor)}",
+                run_settings=run_settings,
+                dimensions={
+                    "epub_extractor": extractor,
+                },
+            )
+        )
+
+    return variants
+
+
+def _resolve_all_method_codex_choice(include_codex_farm: bool) -> tuple[bool, str | None]:
+    if not include_codex_farm:
+        return False, None
+    if os.getenv(ALL_METHOD_CODEX_FARM_UNLOCK_ENV, "").strip() != "1":
+        return (
+            False,
+            "Codex Farm is policy-locked off; "
+            f"set {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1 once policy unlocks. "
+            "Continuing without Codex Farm permutations.",
+        )
+    return (
+        False,
+        "Codex Farm was requested, but recipe codex-farm parsing remains policy-locked OFF. "
+        "Continuing without Codex Farm permutations.",
+    )
+
+
+def _report_metric(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
+    lines: list[str] = [
+        "# All Method Benchmark Report",
+        "",
+        f"- Created at: {report_payload.get('created_at', '')}",
+        f"- Source file: {report_payload.get('source_file', '')}",
+        f"- Gold spans: {report_payload.get('gold_spans_path', '')}",
+        f"- Total configurations: {report_payload.get('variant_count', 0)}",
+        f"- Successful configurations: {report_payload.get('successful_variants', 0)}",
+        f"- Failed configurations: {report_payload.get('failed_variants', 0)}",
+        (
+            "- Codex Farm permutations requested/effective: "
+            f"{report_payload.get('include_codex_farm_requested', False)}/"
+            f"{report_payload.get('include_codex_farm_effective', False)}"
+        ),
+        "",
+    ]
+
+    winner = report_payload.get("winner_by_f1")
+    if isinstance(winner, dict) and winner:
+        lines.extend(
+            [
+                "## Winner",
+                "",
+                (
+                    f"- {winner.get('config_dir', '')} "
+                    f"(precision={_report_metric(winner.get('precision')):.3f}, "
+                    f"recall={_report_metric(winner.get('recall')):.3f}, "
+                    f"f1={_report_metric(winner.get('f1')):.3f})"
+                ),
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            "## Ranked Configurations",
+            "",
+        ]
+    )
+
+    variants = report_payload.get("variants")
+    if not isinstance(variants, list) or not variants:
+        lines.append("- No variant results were recorded.")
+        lines.append("")
+        return "\n".join(lines)
+
+    for row in variants:
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("status") or "").strip().lower()
+        config_dir = str(row.get("config_dir") or "").strip() or "<unknown>"
+        if status != "ok":
+            lines.append(f"- {config_dir}: FAILED ({row.get('error', 'unknown error')})")
+            continue
+        rank_value = row.get("rank")
+        rank_prefix = f"{rank_value}. " if rank_value is not None else ""
+        lines.append(
+            (
+                f"- {rank_prefix}{config_dir} "
+                f"(precision={_report_metric(row.get('precision')):.3f}, "
+                f"recall={_report_metric(row.get('recall')):.3f}, "
+                f"f1={_report_metric(row.get('f1')):.3f}, "
+                f"practical_f1={_report_metric(row.get('practical_f1')):.3f}) "
+                f"[hash={row.get('run_config_hash', '')}]"
+            )
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _run_all_method_benchmark(
+    *,
+    gold_spans_path: Path,
+    source_file: Path,
+    variants: list[AllMethodVariant],
+    include_codex_farm_requested: bool,
+    include_codex_farm_effective: bool,
+    root_output_dir: Path,
+    overlap_threshold: float,
+    force_source_match: bool,
+) -> Path:
+    root_output_dir.mkdir(parents=True, exist_ok=True)
+    scratch_root = root_output_dir / ".scratch"
+    processed_root = root_output_dir / "processed"
+    scratch_root.mkdir(parents=True, exist_ok=True)
+    processed_root.mkdir(parents=True, exist_ok=True)
+
+    variant_rows: list[dict[str, Any]] = []
+    total_variants = len(variants)
+    for config_index, variant in enumerate(variants, start=1):
+        progress_label = format_task_counter(
+            "Running",
+            config_index,
+            total_variants,
+            noun="config",
+        )
+        typer.secho(f"{progress_label}: {variant.slug}", fg=typer.colors.CYAN)
+
+        config_hash = variant.run_settings.short_hash()
+        config_dir_name = f"config_{config_index:03d}_{config_hash}_{variant.slug}"
+        eval_output_dir = root_output_dir / config_dir_name
+        scratch_output_dir = scratch_root / config_dir_name
+        processed_output_dir = processed_root / config_dir_name
+        if eval_output_dir.exists():
+            shutil.rmtree(eval_output_dir)
+        if scratch_output_dir.exists():
+            shutil.rmtree(scratch_output_dir)
+
+        try:
+            labelstudio_benchmark(
+                gold_spans=gold_spans_path,
+                source_file=source_file,
+                output_dir=scratch_output_dir,
+                processed_output_dir=processed_output_dir,
+                eval_output_dir=eval_output_dir,
+                overlap_threshold=overlap_threshold,
+                force_source_match=force_source_match,
+                no_upload=True,
+                workers=variant.run_settings.workers,
+                pdf_split_workers=variant.run_settings.pdf_split_workers,
+                epub_split_workers=variant.run_settings.epub_split_workers,
+                pdf_pages_per_job=variant.run_settings.pdf_pages_per_job,
+                epub_spine_items_per_job=variant.run_settings.epub_spine_items_per_job,
+                ocr_device=variant.run_settings.ocr_device.value,
+                ocr_batch_size=variant.run_settings.ocr_batch_size,
+                warm_models=variant.run_settings.warm_models,
+                epub_extractor=variant.run_settings.epub_extractor.value,
+                epub_unstructured_html_parser_version=(
+                    variant.run_settings.epub_unstructured_html_parser_version.value
+                ),
+                epub_unstructured_skip_headers_footers=(
+                    variant.run_settings.epub_unstructured_skip_headers_footers
+                ),
+                epub_unstructured_preprocess_mode=(
+                    variant.run_settings.epub_unstructured_preprocess_mode.value
+                ),
+                llm_recipe_pipeline=variant.run_settings.llm_recipe_pipeline.value,
+                codex_farm_cmd=variant.run_settings.codex_farm_cmd,
+                codex_farm_root=variant.run_settings.codex_farm_root,
+                codex_farm_workspace_root=variant.run_settings.codex_farm_workspace_root,
+                codex_farm_pipeline_pass1=variant.run_settings.codex_farm_pipeline_pass1,
+                codex_farm_pipeline_pass2=variant.run_settings.codex_farm_pipeline_pass2,
+                codex_farm_pipeline_pass3=variant.run_settings.codex_farm_pipeline_pass3,
+                codex_farm_context_blocks=variant.run_settings.codex_farm_context_blocks,
+                codex_farm_failure_mode=variant.run_settings.codex_farm_failure_mode.value,
+            )
+        except Exception as exc:  # noqa: BLE001
+            typer.secho(
+                f"Failed {format_task_counter('', config_index, total_variants, noun='config')}: {exc}",
+                fg=typer.colors.RED,
+            )
+            variant_rows.append(
+                {
+                    "config_index": config_index,
+                    "config_dir": config_dir_name,
+                    "slug": variant.slug,
+                    "status": "failed",
+                    "error": str(exc),
+                    "run_config_hash": "",
+                    "run_config_summary": "",
+                    "dimensions": dict(variant.dimensions),
+                }
+            )
+            continue
+
+        report_json_path = eval_output_dir / "eval_report.json"
+        if not report_json_path.exists():
+            error_message = f"Missing eval_report.json in {eval_output_dir}"
+            typer.secho(error_message, fg=typer.colors.RED)
+            variant_rows.append(
+                {
+                    "config_index": config_index,
+                    "config_dir": config_dir_name,
+                    "slug": variant.slug,
+                    "status": "failed",
+                    "error": error_message,
+                    "run_config_hash": "",
+                    "run_config_summary": "",
+                    "dimensions": dict(variant.dimensions),
+                }
+            )
+            continue
+
+        try:
+            report = json.loads(report_json_path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            error_message = f"Failed to parse eval report for {config_dir_name}: {exc}"
+            typer.secho(error_message, fg=typer.colors.RED)
+            variant_rows.append(
+                {
+                    "config_index": config_index,
+                    "config_dir": config_dir_name,
+                    "slug": variant.slug,
+                    "status": "failed",
+                    "error": error_message,
+                    "run_config_hash": "",
+                    "run_config_summary": "",
+                    "dimensions": dict(variant.dimensions),
+                }
+            )
+            continue
+
+        pred_context = _load_pred_run_recipe_context(eval_output_dir / "prediction-run")
+        variant_rows.append(
+            {
+                "config_index": config_index,
+                "config_dir": config_dir_name,
+                "slug": variant.slug,
+                "status": "ok",
+                "error": "",
+                "run_config_hash": pred_context.run_config_hash or variant.run_settings.stable_hash(),
+                "run_config_summary": pred_context.run_config_summary
+                or variant.run_settings.summary(),
+                "precision": _report_metric(report.get("precision")),
+                "recall": _report_metric(report.get("recall")),
+                "f1": _report_metric(report.get("f1")),
+                "practical_precision": _report_metric(report.get("practical_precision")),
+                "practical_recall": _report_metric(report.get("practical_recall")),
+                "practical_f1": _report_metric(report.get("practical_f1")),
+                "eval_report_json": _path_for_manifest(root_output_dir, report_json_path),
+                "eval_report_md": _path_for_manifest(
+                    root_output_dir,
+                    eval_output_dir / "eval_report.md",
+                ),
+                "dimensions": dict(variant.dimensions),
+            }
+        )
+
+    successful_rows = [row for row in variant_rows if row.get("status") == "ok"]
+    failed_rows = [row for row in variant_rows if row.get("status") != "ok"]
+    successful_rows.sort(
+        key=lambda row: (
+            _report_metric(row.get("f1")),
+            _report_metric(row.get("practical_f1")),
+            _report_metric(row.get("precision")),
+            _report_metric(row.get("recall")),
+        ),
+        reverse=True,
+    )
+    for rank, row in enumerate(successful_rows, start=1):
+        row["rank"] = rank
+
+    winner = successful_rows[0] if successful_rows else None
+    final_rows = successful_rows + failed_rows
+
+    report_payload: dict[str, Any] = {
+        "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "source_file": str(source_file),
+        "gold_spans_path": str(gold_spans_path),
+        "variant_count": total_variants,
+        "successful_variants": len(successful_rows),
+        "failed_variants": len(failed_rows),
+        "include_codex_farm_requested": include_codex_farm_requested,
+        "include_codex_farm_effective": include_codex_farm_effective,
+        "variants": final_rows,
+        "winner_by_f1": winner,
+    }
+
+    report_json_path = root_output_dir / "all_method_benchmark_report.json"
+    report_json_path.write_text(
+        json.dumps(report_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    report_md_path = root_output_dir / "all_method_benchmark_report.md"
+    report_md_path.write_text(
+        _render_all_method_report_md(report_payload),
+        encoding="utf-8",
+    )
+
+    completion_color = (
+        typer.colors.GREEN if len(failed_rows) == 0 else typer.colors.YELLOW
+    )
+    typer.secho(
+        (
+            "All method benchmark complete: "
+            f"{len(successful_rows)}/{total_variants} configs evaluated successfully."
+        ),
+        fg=completion_color,
+    )
+    if successful_rows:
+        typer.secho("Top configurations by strict F1:", fg=typer.colors.CYAN)
+        for row in successful_rows[:3]:
+            typer.echo(
+                (
+                    f"  {row.get('rank')}) {row.get('config_dir')} "
+                    f"p={_report_metric(row.get('precision')):.3f} "
+                    f"r={_report_metric(row.get('recall')):.3f} "
+                    f"f1={_report_metric(row.get('f1')):.3f}"
+                )
+            )
+    typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
+    return report_md_path
 
 
 def _path_for_manifest(run_root: Path, path_like: Path | str | None) -> str | None:
@@ -2888,7 +3611,7 @@ def _plan_jobs(
         if (
             epub_split_workers > 1
             and file_path.suffix.lower() == ".epub"
-            and selected_epub_extractor not in {"markitdown", "auto"}
+            and selected_epub_extractor != "markitdown"
             and epub_spine_items_per_job > 0
         ):
             spine_count = _resolve_epub_spine_count(file_path)
@@ -2959,12 +3682,6 @@ def _normalize_epub_auto_selection_payload(
     if payload is None:
         return None
     return dict(payload)
-
-
-def _resolve_epub_auto_selected_score(
-    payload: dict[str, Any] | None,
-) -> float | None:
-    return selected_auto_score(payload)
 
 
 def _write_error_report(
@@ -3598,8 +4315,8 @@ def stage(
         "--epub-extractor",
         help=(
             "EPUB extraction engine: unstructured (semantic), legacy (BeautifulSoup), "
-            "markdown (HTML->Markdown), auto (deterministic pre-selection), "
-            "or markitdown (legacy whole-book EPUB->markdown mode)."
+            "markdown (HTML->Markdown), or markitdown (legacy whole-book "
+            "EPUB->markdown mode)."
         ),
     ),
     epub_unstructured_html_parser_version: str = typer.Option(
@@ -3817,34 +4534,6 @@ def stage(
     }
     epub_auto_selection_by_file: dict[Path, dict[str, Any]] = {}
     epub_auto_selected_score_by_file: dict[Path, float] = {}
-    if selected_epub_extractor == "auto":
-        for file_path in files_to_process:
-            if file_path.suffix.lower() != ".epub":
-                continue
-            resolution = select_epub_extractor_auto(file_path)
-            effective_epub_extractors[file_path] = resolution.effective_extractor
-            source_hash = compute_file_hash(file_path)
-            auto_payload = {
-                **resolution.artifact,
-                "source_file": str(file_path),
-                "source_hash": source_hash,
-            }
-            epub_auto_selection_by_file[file_path] = auto_payload
-            selected_score = _resolve_epub_auto_selected_score(auto_payload)
-            if selected_score is not None:
-                epub_auto_selected_score_by_file[file_path] = selected_score
-            write_auto_extractor_artifact(
-                run_root=out,
-                source_hash=source_hash,
-                artifact=auto_payload,
-            )
-            typer.secho(
-                (
-                    f"Auto-selected EPUB extractor for {file_path.name}: "
-                    f"{resolution.effective_extractor}"
-                ),
-                fg=typer.colors.CYAN,
-            )
 
     all_epub = all(f.suffix.lower() == ".epub" for f in files_to_process)
     run_settings = build_run_settings(
@@ -3885,11 +4574,7 @@ def stage(
     effective_workers = run_settings.effective_workers or workers
     run_config = run_settings.to_run_config_dict()
     run_config["epub_extractor_requested"] = selected_epub_extractor
-    run_config["epub_extractor_effective"] = (
-        selected_epub_extractor
-        if selected_epub_extractor != "auto"
-        else "resolved_per_file"
-    )
+    run_config["epub_extractor_effective"] = selected_epub_extractor
 
     def _stable_run_config_hash(payload: dict[str, Any]) -> str:
         canonical = json.dumps(
@@ -5117,7 +5802,6 @@ def labelstudio_eval(
             predicted, gold, overlap_threshold=overlap_threshold
         )
         report = result["report"]
-        report_md = format_eval_report_md(report)
     else:
         predicted = load_predicted_labeled_ranges(pred_run)
         gold = load_gold_freeform_ranges(gold_spans)
@@ -5128,7 +5812,20 @@ def labelstudio_eval(
             force_source_match=force_source_match,
         )
         report = result["report"]
+
+    pred_context = _load_pred_run_recipe_context(pred_run)
+    if scope == "freeform-spans":
+        _attach_freeform_recipe_count_context(
+            report=report,
+            gold_spans_path=gold_spans,
+            predicted_recipe_count=pred_context.recipes,
+            predicted_recipe_count_source=(
+                "prediction_run_context" if pred_context.recipes is not None else None
+            ),
+        )
         report_md = format_freeform_eval_report_md(report)
+    else:
+        report_md = format_eval_report_md(report)
 
     report_json_path = output_dir / "eval_report.json"
     report_json_path.write_text(
@@ -5142,7 +5839,6 @@ def labelstudio_eval(
         output_dir / "false_positive_preds.jsonl", result["false_positive_preds"]
     )
 
-    pred_context = _load_pred_run_recipe_context(pred_run)
     csv_source_file = pred_context.source_file or ""
     csv_history_root = DEFAULT_OUTPUT
     if pred_context.processed_report_path:
@@ -5517,8 +6213,8 @@ def labelstudio_benchmark(
         "--epub-extractor",
         help=(
             "EPUB extraction engine: unstructured (semantic), legacy (BeautifulSoup), "
-            "markdown (HTML->Markdown), auto (deterministic pre-selection), "
-            "or markitdown (legacy whole-book EPUB->markdown mode)."
+            "markdown (HTML->Markdown), or markitdown (legacy whole-book "
+            "EPUB->markdown mode)."
         ),
     )] = "unstructured",
     epub_unstructured_html_parser_version: Annotated[str, typer.Option(
@@ -5609,74 +6305,15 @@ def labelstudio_benchmark(
         _require_labelstudio_write_consent(allow_labelstudio_write)
         url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
 
-    selected_gold = gold_spans
-    if selected_gold is None:
-        candidates = _discover_freeform_gold_exports(output_dir)
-        if not candidates:
-            _fail(
-                "No freeform gold exports found. Run `cookimport labelstudio-export --export-scope freeform-spans` first."
-            )
-        selected_gold = _menu_select(
-            "Select a freeform gold export:",
-            menu_help=(
-                "Choose the labeled freeform export to benchmark against. "
-                "Newest exports are listed first."
-            ),
-            choices=[
-                questionary.Choice(
-                    _display_gold_export_path(path, output_dir),
-                    value=path,
-                )
-                for path in candidates[:30]
-            ],
-        )
-        if selected_gold in {None, BACK_ACTION}:
-            _fail("Benchmark cancelled.")
-    if not selected_gold.exists():
-        _fail(f"Gold spans file not found: {selected_gold}")
-
-    selected_source = source_file
-    inferred_source = None
-    if selected_source is None:
-        inferred_source = _infer_source_file_from_freeform_gold(selected_gold)
-    if selected_source is None and inferred_source is not None:
-        use_inferred = _prompt_confirm(
-            f"Use inferred source file `{inferred_source}`?",
-            default=True,
-        )
-        if use_inferred:
-            selected_source = inferred_source
-    if selected_source is None:
-        importable_files = _list_importable_files(DEFAULT_INPUT)
-        if importable_files:
-            source_choice = _menu_select(
-                "Select source file to benchmark:",
-                menu_help=(
-                    "Choose the source file used to generate prediction tasks "
-                    "for comparison to the selected gold export."
-                ),
-                choices=[
-                    *[questionary.Choice(path.name, value=path) for path in importable_files],
-                    questionary.Choice("Enter a custom path", value="custom"),
-                ],
-            )
-            if source_choice in {None, BACK_ACTION}:
-                _fail("Benchmark cancelled.")
-            if source_choice == "custom":
-                source_path = _prompt_text("Enter source file path:")
-                if not source_path:
-                    _fail("Benchmark cancelled.")
-                selected_source = Path(source_path)
-            else:
-                selected_source = source_choice
-        else:
-            source_path = _prompt_text("Enter source file path:")
-            if not source_path:
-                _fail("Benchmark cancelled.")
-            selected_source = Path(source_path)
-    if not selected_source.exists() or not selected_source.is_file():
-        _fail(f"Source file not found: {selected_source}")
-    _require_importer(selected_source)
+    resolved_inputs = _resolve_benchmark_gold_and_source(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=output_dir,
+        allow_cancel=False,
+    )
+    if resolved_inputs is None:
+        _fail("Benchmark cancelled.")
+    selected_gold, selected_source = resolved_inputs
 
     if eval_output_dir is None:
         timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
@@ -5797,6 +6434,27 @@ def labelstudio_benchmark(
         force_source_match=force_source_match,
     )
     report = eval_result["report"]
+    pred_context = _load_pred_run_recipe_context(pred_run)
+    benchmark_recipes = pred_context.recipes
+    benchmark_recipes_source: str | None = (
+        "prediction_run_context" if benchmark_recipes is not None else None
+    )
+    manifest_report_path = pred_context.processed_report_path
+    processed_report_path = import_result.get("processed_report_path")
+    csv_report_path = manifest_report_path
+    if not csv_report_path and processed_report_path is not None:
+        csv_report_path = str(processed_report_path)
+    if benchmark_recipes is None and processed_report_path is not None:
+        benchmark_recipes = _load_total_recipes_from_report_path(processed_report_path)
+        if benchmark_recipes is not None:
+            benchmark_recipes_source = "processed_report.totalRecipes"
+
+    _attach_freeform_recipe_count_context(
+        report=report,
+        gold_spans_path=selected_gold,
+        predicted_recipe_count=benchmark_recipes,
+        predicted_recipe_count_source=benchmark_recipes_source,
+    )
     report_md = format_freeform_eval_report_md(report)
 
     report_json_path = eval_output_dir / "eval_report.json"
@@ -5810,16 +6468,6 @@ def labelstudio_benchmark(
         eval_output_dir / "false_positive_preds.jsonl",
         eval_result["false_positive_preds"],
     )
-
-    pred_context = _load_pred_run_recipe_context(pred_run)
-    benchmark_recipes = pred_context.recipes
-    manifest_report_path = pred_context.processed_report_path
-    processed_report_path = import_result.get("processed_report_path")
-    csv_report_path = manifest_report_path
-    if not csv_report_path and processed_report_path is not None:
-        csv_report_path = str(processed_report_path)
-    if benchmark_recipes is None and processed_report_path is not None:
-        benchmark_recipes = _load_total_recipes_from_report_path(processed_report_path)
 
     from cookimport.analytics.perf_report import append_benchmark_csv, history_path
     append_benchmark_csv(
@@ -5915,6 +6563,27 @@ def labelstudio_benchmark(
     if processed_run_root:
         typer.secho(f"Processed output: {processed_run_root}", fg=typer.colors.CYAN)
     typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
+    recipe_counts = report.get("recipe_counts")
+    if isinstance(recipe_counts, dict):
+        gold_recipe_headers = _coerce_int(recipe_counts.get("gold_recipe_headers"))
+        predicted_recipe_count = _coerce_int(recipe_counts.get("predicted_recipe_count"))
+        if gold_recipe_headers is not None and predicted_recipe_count is not None:
+            delta = predicted_recipe_count - gold_recipe_headers
+            typer.secho(
+                "Recipes (predicted vs golden): "
+                + f"{predicted_recipe_count}/{gold_recipe_headers} (delta {delta:+d})",
+                fg=typer.colors.CYAN,
+            )
+        elif gold_recipe_headers is not None:
+            typer.secho(
+                f"Golden recipes (RECIPE_TITLE headers): {gold_recipe_headers}",
+                fg=typer.colors.CYAN,
+            )
+        elif predicted_recipe_count is not None:
+            typer.secho(
+                f"Predicted recipes from import: {predicted_recipe_count}",
+                fg=typer.colors.CYAN,
+            )
 
 
 @bench_app.command("validate")

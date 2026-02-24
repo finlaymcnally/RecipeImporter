@@ -1,8 +1,7 @@
 ---
-summary: "ExecPlan for benchmark/reporting updates that align practical vs strict quality signals."
+summary: "ExecPlan draft for practical-vs-strict benchmark score reporting improvements."
 read_when:
-  - "When implementing or reviewing benchmark flow changes from this plan"
-  - "When reconciling benchmark interactive behavior with docs/tests"
+  - "When reviewing historical benchmark metric-overhaul planning details"
 ---
 
 # ExecPlan: Make benchmark scores match real cookbook output quality
@@ -439,16 +438,16 @@ If any of these validations fail, capture a short excerpt in the “Surprises & 
 ## Progress
 
 
-- [x] (2026-02-23_16.10.00) Removed mistaken interactive combo-only benchmark behavior and restored intended interactive upload+evaluate single-run flow.
-- [x] (2026-02-23_16.20.00) Milestone 1: Added `tests/test_eval_freeform_practical_metrics.py` for strict-low / practical-high + mismatch coverage.
-- [x] (2026-02-23_16.35.00) Milestone 2: Implemented practical metrics, width stats, supported practical variants, and granularity mismatch detection in `cookimport/labelstudio/eval_freeform.py`.
-- [x] (2026-02-23_16.45.00) Milestone 2: Reworked `eval_report.md` rendering to emphasize Practical vs Strict sections and dedupe explanation.
-- [x] (2026-02-23_16.55.00) Milestone 3: Updated bench aggregate/report to include both tracks and updated iteration-packet severity to demote strict-only boundary misses.
-- [x] (2026-02-23_17.05.00) Milestone 4: Extended benchmark CSV schema + dashboard schema/collector/renderer for practical metrics and mismatch flag.
-- [x] (2026-02-23_17.10.00) Milestone 4: Updated dashboard/perf-report/freeform/bench tests for new fields and display labels.
-- [x] (2026-02-23_17.20.00) Milestone 5: Updated benchmark/Label Studio/dashboard docs to explain Practical vs Strict interpretation and corrected interactive benchmark behavior docs.
-- [x] (2026-02-23_17.25.00) Validation: Ran focused regression suite for changed domains in `.venv` (freeform eval, bench, dashboard analytics, benchmark interactive helpers).
-- [ ] Optional follow-up: Full `pytest -q` and manual end-to-end `labelstudio-benchmark` + `stats-dashboard` smoke run on local golden data.
+- [ ] Milestone 1: Add unit test reproducing strict=0, practical=high scenario
+- [ ] Milestone 2: Implement practical metrics + width stats + mismatch detection in `cookimport/labelstudio/eval_freeform.py`
+- [ ] Milestone 2: Update `eval_report.md` rendering to present Practical vs Strict clearly
+- [ ] Milestone 3: Update `cookimport bench run` aggregation to include both tracks in `report.md` and `metrics.json`
+- [ ] Milestone 3: Update iteration packet ranking to use practical misses as primary severity
+- [ ] Milestone 4: Extend `performance_history.csv` benchmark rows with practical metrics + mismatch flag
+- [ ] Milestone 4: Bump dashboard schema version and surface Practical vs Strict metrics in UI
+- [ ] Milestone 4: Update/extend tests for perf report + dashboard
+- [ ] Milestone 5: Update docs (bench README, bench runbook, dashboard readme)
+- [ ] Final: Run full test suite and at least one end-to-end benchmark + dashboard regeneration
 
 
 ## Surprises & Discoveries
@@ -458,7 +457,6 @@ Record anything you learn while implementing that changes assumptions in this pl
 
 - Strict IoU metrics can be `0.000` even when “any overlap” diagnostics are near 1.0, because predicted spans are recipe-wide while gold spans are block-precise.
 - Gold dedupe removals are expected in freeform eval because exported spans are projected to block ranges and deduped by `(source_hash, source_file, start_block_index, end_block_index)`.
-- Dashboard/schema updates required additive handling so older CSV rows remain readable with blank new practical fields.
 
 
 ## Decision Log
@@ -468,28 +466,16 @@ Record anything you learn while implementing that changes assumptions in this pl
   - Reason: This resolves user confusion immediately and makes benchmark scores correlate with “usable import” without requiring risky changes to pipeline task location encoding.
 - Decision: Detect and explicitly flag “granularity mismatch likely.”
   - Reason: Users need an explicit, machine-detected explanation for why strict is low but practical is high, otherwise the confusion persists.
-- Decision: Keep interactive benchmark as a single upload+evaluate menu flow; delete combo-only interactive path as mistaken work.
-  - Reason: The original plan scope is metric/reporting correctness, not interactive combinatorial sweeps, and interactive benchmark should remain aligned with upload-backed benchmarking behavior.
 
 
 ## Outcomes & Retrospective
 
 
+Fill this in once implementation is complete.
+
 - What shipped:
-  - Practical/content-overlap metrics and supported practical variants in freeform eval JSON/MD.
-  - Granularity mismatch detection + width stats in eval outputs.
-  - Bench report/aggregate and iteration packet severity tuned to prioritize practical misses.
-  - Benchmark CSV history/dashboard schema/collector/renderer support for Practical vs Strict metrics and mismatch indicators.
-  - Regression coverage updates across freeform, bench, dashboard analytics, and interactive benchmark helper tests.
-  - Interactive benchmark docs/code restored to single upload+evaluate behavior; mistaken combo-only interactive flow removed.
+  - (example) Practical overlap metrics in eval JSON/MD, bench aggregation, CSV history, and dashboard.
 - What remains:
-  - Optional future work to generate block-precise prediction spans so strict IoU becomes a stronger localization signal.
-  - Optional full-suite + manual end-to-end smoke validation on local golden data.
+  - (example) Optional future work to generate block-precise prediction spans so strict IoU can become meaningful for pipeline scope.
 - Lessons learned:
-  - Benchmark headline metrics must map to perceived output quality; strict-only headlines caused false "everything failed" interpretations.
-  - Additive schema evolution and explicit mismatch labeling reduce user confusion without breaking historical artifacts.
-
-
-## Plan Revision Notes
-
-- (2026-02-23_17.25.00) Updated this ExecPlan to remove mistaken interactive-combo direction, mark completed practical-metrics milestones, and document shipped outcomes plus remaining optional validation work.
+  - (example) Benchmark “headline metrics” must match the user’s mental model of what is being measured, or users will distrust the benchmark even when it is technically correct.

@@ -1,6 +1,7 @@
 import json
 
 from cookimport.labelstudio.eval_freeform import (
+    attach_recipe_count_diagnostics,
     evaluate_predicted_vs_freeform,
     format_freeform_eval_report_md,
     load_gold_freeform_ranges,
@@ -282,6 +283,8 @@ def test_export_freeform_spans_jsonl(tmp_path, monkeypatch) -> None:
     summary = result["summary"]
     assert summary["counts"]["labeled"] == 1
     assert summary["counts"]["missing"] == 0
+    assert summary["counts"]["recipe_headers"] == 0
+    assert summary["recipe_counts"]["recipe_headers"] == 0
 
     spans_path = result["export_root"] / "freeform_span_labels.jsonl"
     rows = [
@@ -412,6 +415,7 @@ def test_export_freeform_spans_with_yield_and_time_labels(tmp_path, monkeypatch)
     )
     summary = result["summary"]
     assert summary["counts"]["labeled"] == 3
+    assert summary["counts"]["recipe_headers"] == 0
 
     spans_path = result["export_root"] / "freeform_span_labels.jsonl"
     rows = [
@@ -431,6 +435,182 @@ def test_export_freeform_spans_with_yield_and_time_labels(tmp_path, monkeypatch)
     time_row = next(r for r in rows if r["label"] == "TIME_LINE")
     assert time_row["selected_text"] == "Prep: 10 min"
     assert time_row["touched_block_indices"] == [1]
+
+
+def test_export_freeform_summary_counts_recipe_headers_deduped(tmp_path, monkeypatch) -> None:
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def find_project_by_title(self, title: str) -> dict[str, object]:
+            return {"id": 42, "title": title}
+
+        def export_tasks(self, _project_id: int) -> list[dict[str, object]]:
+            return [
+                {
+                    "id": 1,
+                    "data": {
+                        "segment_id": "urn:cookimport:segment:hash789:0:1",
+                        "source_hash": "hash789",
+                        "source_file": "book3.epub",
+                        "book_id": "book3",
+                        "segment_index": 0,
+                        "segment_text": "Recipe A\n\n1 cup sugar",
+                        "source_map": {
+                            "separator": "\n\n",
+                            "start_block_index": 0,
+                            "end_block_index": 1,
+                            "blocks": [
+                                {
+                                    "block_id": "urn:cookimport:block:hash789:0",
+                                    "block_index": 0,
+                                    "segment_start": 0,
+                                    "segment_end": 8,
+                                },
+                                {
+                                    "block_id": "urn:cookimport:block:hash789:1",
+                                    "block_index": 1,
+                                    "segment_start": 10,
+                                    "segment_end": 21,
+                                },
+                            ],
+                        },
+                    },
+                    "annotations": [
+                        {
+                            "id": 1,
+                            "result": [
+                                {
+                                    "id": "r1",
+                                    "from_name": "span_labels",
+                                    "to_name": "segment_text",
+                                    "type": "labels",
+                                    "value": {
+                                        "start": 0,
+                                        "end": 8,
+                                        "text": "Recipe A",
+                                        "labels": ["RECIPE_TITLE"],
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "id": 2,
+                    "data": {
+                        "segment_id": "urn:cookimport:segment:hash789:0:2",
+                        "source_hash": "hash789",
+                        "source_file": "book3.epub",
+                        "book_id": "book3",
+                        "segment_index": 1,
+                        "segment_text": "Recipe A\n\nStep 1",
+                        "source_map": {
+                            "separator": "\n\n",
+                            "start_block_index": 0,
+                            "end_block_index": 2,
+                            "blocks": [
+                                {
+                                    "block_id": "urn:cookimport:block:hash789:0",
+                                    "block_index": 0,
+                                    "segment_start": 0,
+                                    "segment_end": 8,
+                                },
+                                {
+                                    "block_id": "urn:cookimport:block:hash789:2",
+                                    "block_index": 2,
+                                    "segment_start": 10,
+                                    "segment_end": 16,
+                                },
+                            ],
+                        },
+                    },
+                    "annotations": [
+                        {
+                            "id": 2,
+                            "result": [
+                                {
+                                    "id": "r2",
+                                    "from_name": "span_labels",
+                                    "to_name": "segment_text",
+                                    "type": "labels",
+                                    "value": {
+                                        "start": 0,
+                                        "end": 8,
+                                        "text": "Recipe A",
+                                        "labels": ["RECIPE_TITLE"],
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "id": 3,
+                    "data": {
+                        "segment_id": "urn:cookimport:segment:hash789:5:6",
+                        "source_hash": "hash789",
+                        "source_file": "book3.epub",
+                        "book_id": "book3",
+                        "segment_index": 2,
+                        "segment_text": "Recipe B\n\n2 eggs",
+                        "source_map": {
+                            "separator": "\n\n",
+                            "start_block_index": 5,
+                            "end_block_index": 6,
+                            "blocks": [
+                                {
+                                    "block_id": "urn:cookimport:block:hash789:5",
+                                    "block_index": 5,
+                                    "segment_start": 0,
+                                    "segment_end": 8,
+                                },
+                                {
+                                    "block_id": "urn:cookimport:block:hash789:6",
+                                    "block_index": 6,
+                                    "segment_start": 10,
+                                    "segment_end": 16,
+                                },
+                            ],
+                        },
+                    },
+                    "annotations": [
+                        {
+                            "id": 3,
+                            "result": [
+                                {
+                                    "id": "r3",
+                                    "from_name": "span_labels",
+                                    "to_name": "segment_text",
+                                    "type": "labels",
+                                    "value": {
+                                        "start": 0,
+                                        "end": 8,
+                                        "text": "Recipe B",
+                                        "labels": ["RECIPE_TITLE"],
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+            ]
+
+    monkeypatch.setattr("cookimport.labelstudio.export.LabelStudioClient", FakeClient)
+
+    result = run_labelstudio_export(
+        project_name="Freeform Recipe Header Count",
+        output_dir=tmp_path,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="token",
+        run_dir=None,
+        export_scope="freeform-spans",
+    )
+    summary = result["summary"]
+    assert summary["counts"]["labeled"] == 3
+    assert summary["counts"]["recipe_headers"] == 2
+    assert summary["recipe_counts"]["recipe_headers"] == 2
+    assert summary["recipe_counts"]["recipe_headers_raw"] == 3
 
 
 def test_export_uses_project_slug_run_root_when_manifest_exists(tmp_path, monkeypatch) -> None:
@@ -565,6 +745,39 @@ def test_eval_freeform_ranges_smoke(tmp_path) -> None:
     assert report["counts"]["pred_false_positive"] == 1
     assert "app_aligned" in report
     assert "classification_only" in report
+
+
+def test_attach_recipe_count_diagnostics_enriches_report() -> None:
+    report = {
+        "per_label": {
+            "RECIPE_TITLE": {
+                "gold_total": 4,
+                "pred_total": 3,
+            }
+        }
+    }
+    attach_recipe_count_diagnostics(
+        report,
+        gold_recipe_headers=5,
+        gold_recipe_headers_source="gold_summary.recipe_counts.recipe_headers",
+        predicted_recipe_count=6,
+        predicted_recipe_count_source="prediction_manifest.recipe_count",
+    )
+
+    recipe_counts = report["recipe_counts"]
+    assert recipe_counts["gold_recipe_headers"] == 5
+    assert recipe_counts["pred_recipe_headers"] == 3
+    assert recipe_counts["predicted_recipe_count"] == 6
+    assert recipe_counts["predicted_minus_gold"] == 1
+    assert recipe_counts["predicted_to_gold_ratio"] == 1.2
+    assert (
+        recipe_counts["gold_recipe_headers_source"]
+        == "gold_summary.recipe_counts.recipe_headers"
+    )
+    assert (
+        recipe_counts["predicted_recipe_count_source"]
+        == "prediction_manifest.recipe_count"
+    )
 
 
 def test_eval_freeform_dedupes_duplicate_gold_ranges_by_default(tmp_path) -> None:
@@ -894,10 +1107,22 @@ def test_eval_freeform_app_aligned_summary_and_md_section(tmp_path) -> None:
     assert classification_only["supported_same_label_any_overlap_rate"] == 1.0
     assert classification_only["confusion_by_gold_label"]["KNOWLEDGE"]["OTHER"] == 1
 
+    assert "f1" in report
+    assert "practical_precision" in report
+    assert "practical_recall" in report
+    assert "practical_f1" in report
+    assert report["practical_recall"] >= report["recall"]
+    assert report["practical_f1"] >= report["f1"]
+    assert "span_width_stats" in report
+    assert "granularity_mismatch" in report
+
     report_md = format_freeform_eval_report_md(report)
+    assert "Practical / Content overlap (any-overlap):" in report_md
+    assert "Strict / Localization (IoU>=0.5):" in report_md
     assert "Gold dedupe:" in report_md
     assert "Default dedupe: enabled" in report_md
     assert "App-aligned diagnostics:" in report_md
+    assert "Recipe count diagnostics:" in report_md
     assert "Supported labels only (relaxed)" in report_md
     assert "Any-overlap coverage (same label, IoU>0):" in report_md
     assert "Classification-only diagnostics (boundary-insensitive):" in report_md

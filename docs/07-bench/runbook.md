@@ -75,10 +75,12 @@ Where `my_knobs.json` overrides defaults:
 
 ## 3. Interpret the Results
 
-- **`report.md`** — Start here. Shows overall recall/precision and per-label breakdown.
+- **`report.md`** — Start here. It now shows both:
+  - practical/content-overlap metrics (best signal for "does this import look usable?")
+  - strict/localization IoU metrics (boundary precision signal)
 - **`iteration_packet/top_failures.md`** — Top failures with block text context. Tells you exactly what the pipeline missed or hallucinated.
 - **`iteration_packet/cases.jsonl`** — Machine-readable case list sorted by severity. Feed this to an agent or script.
-- **`per_item/<id>/eval_freeform/eval_report.md`** — Detailed per-item evaluation with boundary diagnostics and app-aligned metrics.
+- **`per_item/<id>/eval_freeform/eval_report.md`** — Detailed per-item evaluation, including practical vs strict sections and granularity-mismatch hints when strict is low due to coarse prediction ranges.
 
 ## 4. Run a Parameter Sweep
 

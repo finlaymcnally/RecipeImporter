@@ -111,11 +111,20 @@ SAMPLE_CSV_BENCH_ROW = _sample_csv_row(
         "precision": "0.05",
         "recall": "0.25",
         "f1": "0.08333333333333333",
+        "practical_precision": "0.70",
+        "practical_recall": "0.85",
+        "practical_f1": "0.767741935483871",
         "gold_total": "100",
         "gold_matched": "25",
         "pred_total": "500",
         "supported_precision": "0.08",
         "supported_recall": "0.55",
+        "supported_practical_precision": "0.72",
+        "supported_practical_recall": "0.88",
+        "supported_practical_f1": "0.7919999999999999",
+        "granularity_mismatch_likely": "1",
+        "pred_width_p50": "28",
+        "gold_width_p50": "1",
         "boundary_correct": "10",
         "boundary_over": "8",
         "boundary_under": "5",
@@ -162,6 +171,22 @@ SAMPLE_REPORT_JSON = {
 SAMPLE_EVAL_REPORT = {
     "precision": 0.05,
     "recall": 0.25,
+    "f1": 0.08333333333333333,
+    "practical_precision": 0.7,
+    "practical_recall": 0.85,
+    "practical_f1": 0.767741935483871,
+    "supported_practical_precision": 0.72,
+    "supported_practical_recall": 0.88,
+    "supported_practical_f1": 0.792,
+    "span_width_stats": {
+        "gold": {"min": 1, "p50": 1, "p90": 2, "max": 4, "avg": 1.2},
+        "pred": {"min": 3, "p50": 28, "p90": 45, "max": 60, "avg": 24.5},
+    },
+    "granularity_mismatch": {
+        "likely": True,
+        "reason": "Strict IoU is near zero while practical overlap is high.",
+        "ratio_p50_pred_to_gold": 28.0,
+    },
     "counts": {
         "gold_total": 100,
         "gold_matched": 25,
@@ -236,7 +261,7 @@ def _write_eval_report(tmp_path: Path) -> Path:
 class TestSchema:
     def test_dashboard_data_minimal(self):
         d = DashboardData()
-        assert d.schema_version == "7"
+        assert d.schema_version == "8"
         assert d.stage_records == []
         assert d.benchmark_records == []
 
@@ -462,10 +487,55 @@ class TestCollectors:
         assert b.precision == pytest.approx(0.05)
         assert b.recall == pytest.approx(0.25)
         assert b.f1 is not None  # computed by collector
+        assert b.practical_precision == pytest.approx(0.7)
+        assert b.practical_recall == pytest.approx(0.85)
+        assert b.practical_f1 == pytest.approx(0.767741935483871)
         assert b.gold_total == 100
         assert b.boundary_correct == 10
         assert len(b.per_label) == 2
         assert b.supported_recall == pytest.approx(0.55)
+        assert b.supported_practical_recall == pytest.approx(0.88)
+        assert b.granularity_mismatch_likely is True
+        assert b.pred_width_p50 == pytest.approx(28.0)
+        assert b.gold_width_p50 == pytest.approx(1.0)
+
+    def test_benchmark_collector_includes_nested_all_method_eval_reports(self, tmp_path):
+        run_ts = "2026-02-23_16.01.06"
+        all_method_root = (
+            tmp_path
+            / "golden"
+            / "eval-vs-pipeline"
+            / run_ts
+            / "all-method-benchmark"
+            / "thefoodlabcutdown"
+        )
+        config_a = all_method_root / "config_001_aaa"
+        config_b = all_method_root / "config_002_bbb"
+        config_a.mkdir(parents=True)
+        config_b.mkdir(parents=True)
+        (config_a / "eval_report.json").write_text(
+            json.dumps(SAMPLE_EVAL_REPORT),
+            encoding="utf-8",
+        )
+        report_b = dict(SAMPLE_EVAL_REPORT)
+        report_b["precision"] = 0.11
+        report_b["recall"] = 0.31
+        report_b["f1"] = 0.16238095238095238
+        (config_b / "eval_report.json").write_text(
+            json.dumps(report_b),
+            encoding="utf-8",
+        )
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.benchmark_records) == 2
+        assert {r.run_timestamp for r in data.benchmark_records} == {run_ts}
+        assert all(
+            "all-method-benchmark/thefoodlabcutdown/config_" in str(r.artifact_dir)
+            for r in data.benchmark_records
+        )
 
     def test_csv_collector_benchmark_run_config_columns(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
@@ -799,6 +869,7 @@ class TestRenderer:
                     artifact_dir="/tmp/eval",
                     precision=0.1,
                     recall=0.2,
+                    practical_f1=0.55,
                     importer_name="epub",
                     source_file="/tmp/source/book.epub",
                     run_config={"epub_extractor": "legacy", "ocr_device": "auto"},
@@ -809,7 +880,7 @@ class TestRenderer:
         html = html_path.read_text(encoding="utf-8")
         assert "Run Config" in html
         assert "<th>Recipes</th>" in html
-        assert "Precision: how many predictions were correct." in html
+        assert "Practical F1 measures content overlap" in html
 
     def test_html_includes_run_and_file_trend_views(self, tmp_path):
         data = DashboardData(
@@ -909,6 +980,129 @@ class TestRenderer:
         assert 'title = (title ? title + "\\n" : "") + "hash=" + hash;' in js
         assert 'title = (title ? title + "\n" : "") + "hash=" + hash;' not in js
 
+    def test_render_builds_all_method_standalone_pages(self, tmp_path):
+        all_method_root = (
+            tmp_path
+            / "golden"
+            / "eval-vs-pipeline"
+            / "2026-02-23_16.01.06"
+            / "all-method-benchmark"
+            / "thefoodlabcutdown"
+        )
+        data = DashboardData(
+            benchmark_records=[
+                BenchmarkRecord(
+                    run_timestamp="2026-02-23T16:04:10",
+                    artifact_dir=str(
+                        all_method_root
+                        / "config_001_aaa_extractor_legacy"
+                    ),
+                    precision=0.12,
+                    recall=0.44,
+                    f1=0.19,
+                    practical_f1=0.54,
+                    recipes=7,
+                    source_file="/tmp/thefoodlabCUTDOWN.epub",
+                    importer_name="epub",
+                    run_config_summary="epub_extractor=legacy | workers=7",
+                    run_config_hash="abc123def456",
+                ),
+                BenchmarkRecord(
+                    run_timestamp="2026-02-23T16:05:10",
+                    artifact_dir=str(
+                        all_method_root
+                        / "config_002_bbb_extractor_markdown"
+                    ),
+                    precision=0.20,
+                    recall=0.60,
+                    f1=0.30,
+                    practical_f1=0.62,
+                    recipes=9,
+                    source_file="/tmp/thefoodlabCUTDOWN.epub",
+                    importer_name="epub",
+                    run_config_summary="epub_extractor=markdown | workers=7",
+                    run_config_hash="def456ghi789",
+                ),
+                BenchmarkRecord(
+                    run_timestamp="2026-02-23T16:06:10",
+                    artifact_dir=str(
+                        all_method_root
+                        / "config_003_ccc_extractor_auto__parser_v2__skiphf_true__pre_br_split_v1"
+                    ),
+                    precision=0.08,
+                    recall=0.30,
+                    f1=0.13,
+                    practical_f1=0.40,
+                    recipes=8,
+                    source_file="/tmp/thefoodlabCUTDOWN.epub",
+                    importer_name="epub",
+                    run_config_hash="ghi789jkl012",
+                ),
+            ]
+        )
+        html_path = render_dashboard(tmp_path / "dash", data)
+        html = html_path.read_text(encoding="utf-8")
+        assert "All-Method Benchmark Runs" in html
+        assert "all-method-benchmark.html" in html
+
+        all_method_index = tmp_path / "dash" / "all-method-benchmark.html"
+        assert all_method_index.exists()
+        detail_path = (
+            tmp_path
+            / "dash"
+            / "all-method-benchmark__2026-02-23_16.01.06__thefoodlabcutdown.html"
+        )
+        assert detail_path.exists()
+
+        detail_html = detail_path.read_text(encoding="utf-8")
+        assert "Run Summary" in detail_html
+        assert "Compact stats only (no per-config labels)" in detail_html
+        assert "<th>Stat</th><th>N</th><th>Min</th><th>Median</th><th>Mean</th><th>Max</th>" in detail_html
+        assert "Metric Bar Charts" in detail_html
+        assert "One bar per run/configuration for each metric category." in detail_html
+        assert "Run 01" in detail_html
+        assert "metric-bar-fill" in detail_html
+        assert "Strict Precision" in detail_html
+        assert "Practical F1" in detail_html
+        assert "<th>Extractor</th>" in detail_html
+        assert "<th>Parser</th>" in detail_html
+        assert "<th>Skip HF</th>" in detail_html
+        assert "<th>Preprocess</th>" in detail_html
+        assert "<td>auto</td>" in detail_html
+        assert "<td>v2</td>" in detail_html
+        assert "<td>true</td>" in detail_html
+        assert "<td>br_split_v1</td>" in detail_html
+        assert "<td>markdown</td>" in detail_html
+        assert "<td>-</td>" in detail_html
+        assert "Ranked Configurations" in detail_html
+        assert detail_html.find("config_002_bbb_extractor_markdown") < detail_html.find(
+            "config_001_aaa_extractor_legacy"
+        )
+        assert "strict_f1=0.3000" in detail_html
+
+        index_html = all_method_index.read_text(encoding="utf-8")
+        assert "All Method Benchmark Runs" in index_html
+        assert "Open details" in index_html
+
+    def test_render_all_method_section_when_no_groups(self, tmp_path):
+        data = DashboardData(
+            benchmark_records=[
+                BenchmarkRecord(
+                    run_timestamp="2026-02-23T16:05:10",
+                    artifact_dir="/tmp/eval/2026-02-23_16.05.10",
+                    precision=0.20,
+                    recall=0.60,
+                    f1=0.30,
+                )
+            ]
+        )
+        html_path = render_dashboard(tmp_path / "dash", data)
+        html = html_path.read_text(encoding="utf-8")
+        assert "all-method-benchmark.html" in html
+        assert "No all-method benchmark runs found in benchmark history." in html
+        assert (tmp_path / "dash" / "all-method-benchmark.html").exists()
+        assert not (tmp_path / "dash" / "all-method-benchmark").exists()
+
     def test_idempotent(self, tmp_path):
         data = DashboardData()
         render_dashboard(tmp_path / "dash", data)
@@ -942,12 +1136,21 @@ class TestBenchmarkCsv:
         assert row["eval_scope"] == "freeform-spans"
         assert float(row["precision"]) == pytest.approx(0.05)
         assert float(row["recall"]) == pytest.approx(0.25)
-        assert float(row["f1"]) == pytest.approx(2 * 0.05 * 0.25 / (0.05 + 0.25))
+        assert float(row["f1"]) == pytest.approx(0.08333333333333333)
+        assert float(row["practical_precision"]) == pytest.approx(0.7)
+        assert float(row["practical_recall"]) == pytest.approx(0.85)
+        assert float(row["practical_f1"]) == pytest.approx(0.767741935483871)
         assert row["gold_total"] == "100"
         assert row["gold_matched"] == "25"
         assert row["pred_total"] == "500"
         assert float(row["supported_precision"]) == pytest.approx(0.08)
         assert float(row["supported_recall"]) == pytest.approx(0.55)
+        assert float(row["supported_practical_precision"]) == pytest.approx(0.72)
+        assert float(row["supported_practical_recall"]) == pytest.approx(0.88)
+        assert float(row["supported_practical_f1"]) == pytest.approx(0.792)
+        assert row["granularity_mismatch_likely"] == "1"
+        assert float(row["pred_width_p50"]) == pytest.approx(28.0)
+        assert float(row["gold_width_p50"]) == pytest.approx(1.0)
         assert row["boundary_correct"] == "10"
         assert row["boundary_over"] == "8"
         assert row["boundary_under"] == "5"
@@ -1007,9 +1210,14 @@ class TestBenchmarkCsv:
         b = data.benchmark_records[0]
         assert b.precision == pytest.approx(0.05)
         assert b.recall == pytest.approx(0.25)
+        assert b.practical_precision == pytest.approx(0.70)
+        assert b.practical_recall == pytest.approx(0.85)
+        assert b.practical_f1 == pytest.approx(0.767741935483871)
         assert b.gold_total == 100
         assert b.boundary_correct == 10
         assert b.supported_recall == pytest.approx(0.55)
+        assert b.supported_practical_recall == pytest.approx(0.88)
+        assert b.granularity_mismatch_likely is True
         assert b.source_file == "my_book.pdf"
         assert b.recipes is None
 

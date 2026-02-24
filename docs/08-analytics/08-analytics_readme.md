@@ -36,10 +36,12 @@ Analytics in this repo currently means three surfaces:
   - `data/output/.history/dashboard/assets/dashboard_data.json`
   - `data/output/.history/dashboard/assets/dashboard.js`
   - `data/output/.history/dashboard/assets/style.css`
+  - `data/output/.history/dashboard/all-method-benchmark.html` (always generated)
+  - `data/output/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html` (one per grouped all-method benchmark sweep)
 - Producer: `cookimport stats-dashboard`
 - Collector: `cookimport/analytics/dashboard_collect.py`
 - Data contract: `cookimport/analytics/dashboard_schema.py`
-- Current schema version: `7` (adds explicit EPUB extractor requested/effective/auto-score fields on stage records)
+- Current schema version: `8` (adds practical benchmark metrics + granularity mismatch fields)
 - Renderer: `cookimport/analytics/dashboard_render.py`
 - `index.html` now embeds an inline copy of the same dashboard JSON so the dashboard still works when opened via `file://` in browsers that block local `fetch()`.
 
@@ -141,6 +143,8 @@ Dashboard collector reads:
 1. `output_root/.history/performance_history.csv` (primary unless `--scan-reports`)
 2. `output_root/<timestamp>/*.excel_import_report.json` (fallback/supplement)
 3. `golden_root/eval-vs-pipeline/*/eval_report.json` and `golden_root/*/eval_report.json` (benchmark scans)
+   - includes nested all-method config eval reports under paths like
+     `golden_root/eval-vs-pipeline/<run_ts>/all-method-benchmark/<source_slug>/config_*/eval_report.json`
 
 Collector enrichment:
 
@@ -189,6 +193,9 @@ Collector exclusions/filters:
 
 - Collects stage + benchmark analytics and writes static dashboard files.
 - `--scan-reports` can force direct JSON report scanning in addition to CSV path.
+- Always writes an in-site all-method benchmark page and, when grouped rows exist, writes standalone detail pages by grouping benchmark CSV rows whose `run_dir`/`artifact_dir` path includes `all-method-benchmark/<source_slug>/config_*`.
+- All-method detail pages include a compact stats-only summary table and per-metric bar charts (one bar per run/config) ahead of the ranked config table.
+- Ranked all-method detail tables expose explicit dimension columns (`Extractor`, `Parser`, `Skip HF`, `Preprocess`) sourced from run config with config-name fallback.
 - Throughput view is organized in two ways:
   - run/date trend + recent-runs table across all stage/import rows
   - file trend selector/table (grouped by file name) to track one file's processing speed over time

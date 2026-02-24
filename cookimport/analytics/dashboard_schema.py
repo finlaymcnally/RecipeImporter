@@ -13,6 +13,7 @@ Schema version history:
     5 – benchmark recipe count support (CSV + processed report enrichment)
     6 – explicit run_config_hash/run_config_summary support in CSV + manifests
     7 – explicit EPUB extractor requested/effective/auto-score fields on stage records
+    8 – practical benchmark metrics + granularity mismatch fields
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-SCHEMA_VERSION = "7"
+SCHEMA_VERSION = "8"
 
 
 class RunCategory(str, Enum):
@@ -102,6 +103,9 @@ class BenchmarkRecord(BaseModel):
     precision: float | None = None
     recall: float | None = None
     f1: float | None = None
+    practical_precision: float | None = None
+    practical_recall: float | None = None
+    practical_f1: float | None = None
     gold_total: int | None = None
     pred_total: int | None = None
     gold_matched: int | None = None
@@ -110,6 +114,12 @@ class BenchmarkRecord(BaseModel):
     # supported-labels focused metrics (relaxed overlap)
     supported_precision: float | None = None
     supported_recall: float | None = None
+    supported_practical_precision: float | None = None
+    supported_practical_recall: float | None = None
+    supported_practical_f1: float | None = None
+    granularity_mismatch_likely: bool | None = None
+    pred_width_p50: float | None = None
+    gold_width_p50: float | None = None
 
     # per-label breakdown
     per_label: list[BenchmarkLabelMetrics] = Field(default_factory=list)

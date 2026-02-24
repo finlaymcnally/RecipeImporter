@@ -10,9 +10,11 @@ from typing import Any
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.canonical import derive_gold_spans, BLOCK_LABELS
 from cookimport.labelstudio.freeform_tasks import map_span_offsets_to_blocks
+from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
 from cookimport.runs import RunManifest, RunSource, write_run_manifest
 
 logger = logging.getLogger(__name__)
+_RECIPE_HEADER_LABEL = "RECIPE_TITLE"
 
 
 def _find_latest_manifest(output_root: Path, project_name: str) -> Path | None:
@@ -128,6 +130,52 @@ def _map_to_tip_label(labels: dict[str, Any]) -> str | None:
 
 def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+
+def _parse_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _count_freeform_recipe_headers(
+    span_rows: list[dict[str, Any]],
+) -> tuple[int, int]:
+    """Return (deduped_recipe_headers, raw_recipe_header_rows)."""
+    raw_recipe_headers = 0
+    dedupe_keys: set[tuple[str, str, int, int]] = set()
+
+    for row in span_rows:
+        label_raw = row.get("label")
+        if not isinstance(label_raw, str):
+            continue
+        if normalize_freeform_label(label_raw) != _RECIPE_HEADER_LABEL:
+            continue
+        raw_recipe_headers += 1
+
+        touched_values = row.get("touched_block_indices")
+        if not isinstance(touched_values, list):
+            continue
+        touched_indices: list[int] = []
+        for value in touched_values:
+            parsed = _parse_int(value)
+            if parsed is None:
+                continue
+            touched_indices.append(parsed)
+        if not touched_indices:
+            continue
+
+        dedupe_keys.add(
+            (
+                str(row.get("source_hash") or ""),
+                str(row.get("source_file") or ""),
+                min(touched_indices),
+                max(touched_indices),
+            )
+        )
+
+    return len(dedupe_keys), raw_recipe_headers
 
 
 def _path_for_manifest(run_root: Path, path_like: Path | str | None) -> str | None:
@@ -425,12 +473,22 @@ def run_labelstudio_export(
 
         segment_manifest_path = export_root / "freeform_segment_manifest.jsonl"
         _write_jsonl(segment_manifest_path, segment_manifest_rows)
+        deduped_recipe_headers, raw_recipe_headers = _count_freeform_recipe_headers(
+            span_rows
+        )
+        counts["recipe_headers"] = deduped_recipe_headers
 
         summary = {
             "project_name": project_name,
             "project_id": project_id,
             "manifest_path": str(manifest_path) if manifest_path else None,
             "counts": counts,
+            "recipe_counts": {
+                "label": _RECIPE_HEADER_LABEL,
+                "recipe_headers": deduped_recipe_headers,
+                "recipe_headers_raw": raw_recipe_headers,
+                "dedupe_key": "source_hash+source_file+start_block_index+end_block_index",
+            },
             "output": {
                 "freeform_span_labels": str(spans_path),
                 "freeform_segment_manifest": str(segment_manifest_path),

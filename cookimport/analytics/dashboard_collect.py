@@ -73,6 +73,19 @@ def _safe_int(value: Any) -> int | None:
         return None
 
 
+def _safe_bool(value: Any) -> bool | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
 def _stable_hash_for_run_config(run_config: dict[str, Any]) -> str:
     canonical = json.dumps(
         run_config,
@@ -398,6 +411,18 @@ def _is_pytest_temp_eval_artifact(path_value: str | Path | None) -> bool:
     return False
 
 
+def _resolve_eval_run_timestamp(eval_dir: Path, golden_root: Path) -> str:
+    """Resolve benchmark run timestamp from eval dir or nearest timestamped parent."""
+    path = eval_dir
+    while True:
+        if _parse_dir_timestamp(path.name) is not None:
+            return path.name
+        if path == golden_root or path.parent == path:
+            break
+        path = path.parent
+    return eval_dir.name
+
+
 # ---------------------------------------------------------------------------
 # Stage / import collector
 # ---------------------------------------------------------------------------
@@ -617,6 +642,19 @@ def _benchmark_record_from_csv_row(
     f1 = _safe_float(row.get("f1"))
     if f1 is None and precision is not None and recall is not None and (precision + recall) > 0:
         f1 = 2 * precision * recall / (precision + recall)
+    practical_precision = _safe_float(row.get("practical_precision"))
+    practical_recall = _safe_float(row.get("practical_recall"))
+    practical_f1 = _safe_float(row.get("practical_f1"))
+    if (
+        practical_f1 is None
+        and practical_precision is not None
+        and practical_recall is not None
+        and (practical_precision + practical_recall) > 0
+    ):
+        practical_f1 = (
+            2 * practical_precision * practical_recall
+            / (practical_precision + practical_recall)
+        )
 
     cat = RunCategory.benchmark_eval
     if row_category == "benchmark_prediction":
@@ -645,12 +683,27 @@ def _benchmark_record_from_csv_row(
         precision=precision,
         recall=recall,
         f1=f1,
+        practical_precision=practical_precision,
+        practical_recall=practical_recall,
+        practical_f1=practical_f1,
         gold_total=_safe_int(row.get("gold_total")),
         pred_total=_safe_int(row.get("pred_total")),
         gold_matched=_safe_int(row.get("gold_matched")),
         recipes=_safe_int(row.get("recipes")),
         supported_precision=_safe_float(row.get("supported_precision")),
         supported_recall=_safe_float(row.get("supported_recall")),
+        supported_practical_precision=_safe_float(
+            row.get("supported_practical_precision")
+        ),
+        supported_practical_recall=_safe_float(
+            row.get("supported_practical_recall")
+        ),
+        supported_practical_f1=_safe_float(row.get("supported_practical_f1")),
+        granularity_mismatch_likely=_safe_bool(
+            row.get("granularity_mismatch_likely")
+        ),
+        pred_width_p50=_safe_float(row.get("pred_width_p50")),
+        gold_width_p50=_safe_float(row.get("gold_width_p50")),
         boundary_correct=_safe_int(row.get("boundary_correct")),
         boundary_over=_safe_int(row.get("boundary_over")),
         boundary_under=_safe_int(row.get("boundary_under")),
@@ -689,12 +742,21 @@ def _merge_benchmark_record_fields(
         "precision",
         "recall",
         "f1",
+        "practical_precision",
+        "practical_recall",
+        "practical_f1",
         "gold_total",
         "pred_total",
         "gold_matched",
         "recipes",
         "supported_precision",
         "supported_recall",
+        "supported_practical_precision",
+        "supported_practical_recall",
+        "supported_practical_f1",
+        "granularity_mismatch_likely",
+        "pred_width_p50",
+        "gold_width_p50",
         "boundary_correct",
         "boundary_over",
         "boundary_under",
@@ -916,16 +978,11 @@ def _collect_benchmarks(
     if not golden_root.is_dir():
         return records
 
-    # Scan for eval_report.json under golden_root, focusing on
-    # eval-vs-pipeline but also allowing other nested locations.
-    eval_reports: list[Path] = []
-    for pattern in [
-        "eval-vs-pipeline/*/eval_report.json",
-        "*/eval_report.json",
-    ]:
-        eval_reports.extend(golden_root.glob(pattern))
+    # Scan recursively so nested benchmark layouts (for example all-method
+    # config_* eval reports) are included.
+    eval_reports: list[Path] = sorted(golden_root.rglob("eval_report.json"))
 
-    # Deduplicate by resolved path
+    # Deduplicate by resolved path.
     seen: set[Path] = set()
     for rp in eval_reports:
         resolved = rp.resolve()
@@ -941,10 +998,9 @@ def _collect_benchmarks(
         if _is_pytest_temp_eval_artifact(eval_dir):
             continue
 
-        # Attempt timestamp from directory name
-        dir_name = eval_dir.name
-        ts_parsed = _parse_dir_timestamp(dir_name)
-        ts_str = dir_name
+        # Resolve timestamp from this directory or nearest timestamped parent.
+        ts_str = _resolve_eval_run_timestamp(eval_dir, golden_root)
+        ts_parsed = _parse_dir_timestamp(ts_str)
 
         if cutoff is not None and ts_parsed is not None:
             ts_utc = ts_parsed.replace(tzinfo=timezone.utc)
@@ -961,15 +1017,54 @@ def _collect_benchmarks(
         counts = data.get("counts") or {}
         precision = _safe_float(data.get("precision"))
         recall = _safe_float(data.get("recall"))
-        f1 = None
-        if precision is not None and recall is not None and (precision + recall) > 0:
+        f1 = _safe_float(data.get("f1"))
+        if f1 is None and precision is not None and recall is not None and (precision + recall) > 0:
             f1 = 2 * precision * recall / (precision + recall)
+        practical_precision = _safe_float(data.get("practical_precision"))
+        practical_recall = _safe_float(data.get("practical_recall"))
+        practical_f1 = _safe_float(data.get("practical_f1"))
+        if (
+            practical_f1 is None
+            and practical_precision is not None
+            and practical_recall is not None
+            and (practical_precision + practical_recall) > 0
+        ):
+            practical_f1 = (
+                2 * practical_precision * practical_recall
+                / (practical_precision + practical_recall)
+            )
 
         # Supported-labels relaxed metrics (from app_aligned)
         app_aligned = data.get("app_aligned") or {}
         supported_relaxed = app_aligned.get("supported_labels_relaxed") or {}
-        supported_precision = _safe_float(supported_relaxed.get("precision"))
-        supported_recall = _safe_float(supported_relaxed.get("recall"))
+        supported_precision = _safe_float(data.get("supported_precision"))
+        if supported_precision is None:
+            supported_precision = _safe_float(supported_relaxed.get("precision"))
+        supported_recall = _safe_float(data.get("supported_recall"))
+        if supported_recall is None:
+            supported_recall = _safe_float(supported_relaxed.get("recall"))
+        supported_practical_precision = _safe_float(data.get("supported_practical_precision"))
+        supported_practical_recall = _safe_float(data.get("supported_practical_recall"))
+        supported_practical_f1 = _safe_float(data.get("supported_practical_f1"))
+        if (
+            supported_practical_f1 is None
+            and supported_practical_precision is not None
+            and supported_practical_recall is not None
+            and (supported_practical_precision + supported_practical_recall) > 0
+        ):
+            supported_practical_f1 = (
+                2 * supported_practical_precision * supported_practical_recall
+                / (supported_practical_precision + supported_practical_recall)
+            )
+        granularity_mismatch = data.get("granularity_mismatch") or {}
+        granularity_mismatch_likely = (
+            _safe_bool(granularity_mismatch.get("likely"))
+            if isinstance(granularity_mismatch, dict)
+            else None
+        )
+        span_width_stats = data.get("span_width_stats") or {}
+        pred_width_p50 = _safe_float((span_width_stats.get("pred") or {}).get("p50"))
+        gold_width_p50 = _safe_float((span_width_stats.get("gold") or {}).get("p50"))
 
         # Per-label breakdown
         per_label_raw = data.get("per_label") or {}
@@ -995,11 +1090,20 @@ def _collect_benchmarks(
             precision=precision,
             recall=recall,
             f1=f1,
+            practical_precision=practical_precision,
+            practical_recall=practical_recall,
+            practical_f1=practical_f1,
             gold_total=_safe_int(counts.get("gold_total")),
             pred_total=_safe_int(counts.get("pred_total")),
             gold_matched=_safe_int(counts.get("gold_matched")),
             supported_precision=supported_precision,
             supported_recall=supported_recall,
+            supported_practical_precision=supported_practical_precision,
+            supported_practical_recall=supported_practical_recall,
+            supported_practical_f1=supported_practical_f1,
+            granularity_mismatch_likely=granularity_mismatch_likely,
+            pred_width_p50=pred_width_p50,
+            gold_width_p50=gold_width_p50,
             per_label=per_label,
             boundary_correct=_safe_int(boundary.get("correct")),
             boundary_over=_safe_int(boundary.get("over")),

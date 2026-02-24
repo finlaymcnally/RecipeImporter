@@ -12,10 +12,32 @@ No external CDN dependencies – everything is local.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
+from html import escape
 import json
 from pathlib import Path
+import re
+import shutil
+from typing import Any
 
-from .dashboard_schema import DashboardData
+from .dashboard_schema import BenchmarkRecord, DashboardData
+
+_ALL_METHOD_BENCHMARK_SEGMENT = "all-method-benchmark"
+_ALL_METHOD_CONFIG_PREFIX = "config_"
+_ALL_METHOD_INDEX_PAGE = "all-method-benchmark.html"
+_TS_PATTERN = re.compile(
+    r"^(\d{4})-(\d{2})-(\d{2})[T_](\d{2})[.:](\d{2})[.:](\d{2})$"
+)
+
+
+@dataclass
+class _AllMethodGroup:
+    group_dir: str
+    run_dir_timestamp: str | None
+    source_slug: str
+    records: list[BenchmarkRecord]
+    detail_page_name: str = ""
 
 
 def render_dashboard(out_dir: Path, data: DashboardData) -> Path:
@@ -41,15 +63,607 @@ def render_dashboard(out_dir: Path, data: DashboardData) -> Path:
     js_path = assets_dir / "dashboard.js"
     js_path.write_text(_JS, encoding="utf-8")
 
+    all_method_section_html = _render_all_method_pages(out_dir, data)
+
     # Write HTML
     html_path = out_dir / "index.html"
     html_data_json = data_json.replace("</", "<\\/")
     html_path.write_text(
-        _HTML.replace("__DASHBOARD_DATA_INLINE__", html_data_json),
+        _HTML
+        .replace("__DASHBOARD_DATA_INLINE__", html_data_json)
+        .replace("__ALL_METHOD_SECTION__", all_method_section_html),
         encoding="utf-8",
     )
 
     return html_path
+
+
+def _normalize_path_parts(path_value: str | None) -> tuple[str, list[str]]:
+    if path_value is None:
+        return "", []
+    raw = str(path_value).strip().replace("\\", "/")
+    if not raw:
+        return "", []
+    prefix = "/" if raw.startswith("/") else ""
+    parts = [part for part in raw.split("/") if part and part != "."]
+    return prefix, parts
+
+
+def _all_method_group_key(record: BenchmarkRecord) -> tuple[str, str | None, str] | None:
+    prefix, parts = _normalize_path_parts(record.artifact_dir)
+    if len(parts) < 3:
+        return None
+
+    lower_parts = [part.lower() for part in parts]
+    for idx, part in enumerate(lower_parts):
+        if part != _ALL_METHOD_BENCHMARK_SEGMENT:
+            continue
+        if idx + 2 >= len(parts):
+            continue
+        source_slug = parts[idx + 1]
+        config_dir = parts[idx + 2]
+        if not config_dir.startswith(_ALL_METHOD_CONFIG_PREFIX):
+            continue
+        group_parts = parts[: idx + 2]
+        group_dir = f"{prefix}{'/'.join(group_parts)}" if prefix else "/".join(group_parts)
+        run_dir_timestamp = parts[idx - 1] if idx > 0 else None
+        return group_dir, run_dir_timestamp, source_slug
+
+    return None
+
+
+def _parse_timestamp(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+
+    match = _TS_PATTERN.match(text)
+    if match:
+        try:
+            return datetime(
+                int(match.group(1)),
+                int(match.group(2)),
+                int(match.group(3)),
+                int(match.group(4)),
+                int(match.group(5)),
+                int(match.group(6)),
+            )
+        except ValueError:
+            return None
+
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _run_timestamp_sort_key(value: str | None) -> tuple[int, float, str]:
+    parsed = _parse_timestamp(value)
+    if parsed is None:
+        return (0, float("-inf"), value or "")
+    return (1, parsed.timestamp(), value or "")
+
+
+def _config_name(record: BenchmarkRecord) -> str:
+    artifact_dir = str(record.artifact_dir or "")
+    if not artifact_dir:
+        return "<unknown>"
+    return Path(artifact_dir).name or artifact_dir
+
+
+def _metric(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _fmt_float(value: float | None, digits: int = 4) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.{digits}f}"
+
+
+def _fmt_int(value: int | None) -> str:
+    if value is None:
+        return "-"
+    return str(value)
+
+
+def _median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2 == 1:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+
+def _mean(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def _dim_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    text = str(value).strip()
+    if not text:
+        return None
+    return text
+
+
+def _dims_from_config_name(config_name: str) -> dict[str, str]:
+    dims: dict[str, str] = {}
+    for key in ("extractor", "parser", "skiphf", "pre"):
+        match = re.search(rf"{key}_(.+?)(?:__|$)", config_name)
+        if match is None:
+            continue
+        token = match.group(1).strip()
+        if token:
+            dims[key] = token
+    return dims
+
+
+def _all_method_dims(record: BenchmarkRecord) -> tuple[str, str, str, str]:
+    run_config = record.run_config or {}
+    parsed_name_dims = _dims_from_config_name(_config_name(record))
+
+    extractor = _dim_value(run_config.get("epub_extractor")) or parsed_name_dims.get("extractor")
+    parser = _dim_value(run_config.get("epub_unstructured_html_parser_version")) or parsed_name_dims.get("parser")
+    skiphf = _dim_value(run_config.get("epub_unstructured_skip_headers_footers")) or parsed_name_dims.get("skiphf")
+    preprocess = _dim_value(run_config.get("epub_unstructured_preprocess_mode")) or parsed_name_dims.get("pre")
+
+    extractor_text = extractor or "-"
+    if extractor_text not in {"unstructured", "auto"}:
+        return extractor_text, "-", "-", "-"
+    return extractor_text, parser or "-", skiphf or "-", preprocess or "-"
+
+
+def _run_config_summary(record: BenchmarkRecord) -> str:
+    if record.run_config_summary:
+        return str(record.run_config_summary)
+    run_config = record.run_config or {}
+    ordered_keys = (
+        "epub_extractor",
+        "epub_extractor_requested",
+        "epub_extractor_effective",
+        "ocr_device",
+        "ocr_batch_size",
+        "workers",
+        "effective_workers",
+        "pdf_split_workers",
+        "epub_split_workers",
+        "pdf_pages_per_job",
+        "epub_spine_items_per_job",
+        "warm_models",
+    )
+    parts: list[str] = []
+    for key in ordered_keys:
+        if key not in run_config:
+            continue
+        parts.append(f"{key}={run_config.get(key)}")
+    return " | ".join(parts)
+
+
+def _source_label(record: BenchmarkRecord) -> str:
+    source = str(record.source_file or "").strip()
+    if not source:
+        return "-"
+    return Path(source).name or source
+
+
+def _slug_token(value: str | None) -> str:
+    token = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(value or "").strip())
+    token = token.strip("._-")
+    return token or "unknown"
+
+
+def _collect_all_method_groups(data: DashboardData) -> list[_AllMethodGroup]:
+    grouped: dict[str, _AllMethodGroup] = {}
+    seen_by_group: dict[str, dict[str, BenchmarkRecord]] = {}
+
+    for record in data.benchmark_records:
+        key_info = _all_method_group_key(record)
+        if key_info is None:
+            continue
+        group_dir, run_dir_timestamp, source_slug = key_info
+
+        group = grouped.get(group_dir)
+        if group is None:
+            group = _AllMethodGroup(
+                group_dir=group_dir,
+                run_dir_timestamp=run_dir_timestamp,
+                source_slug=source_slug,
+                records=[],
+            )
+            grouped[group_dir] = group
+            seen_by_group[group_dir] = {}
+
+        record_key = str(record.artifact_dir or "")
+        if not record_key:
+            record_key = f"row-{len(seen_by_group[group_dir]) + 1}"
+        prior = seen_by_group[group_dir].get(record_key)
+        if prior is None:
+            seen_by_group[group_dir][record_key] = record
+            continue
+
+        if _run_timestamp_sort_key(record.run_timestamp) > _run_timestamp_sort_key(prior.run_timestamp):
+            seen_by_group[group_dir][record_key] = record
+
+    groups: list[_AllMethodGroup] = []
+    for group_dir, group in grouped.items():
+        records = list(seen_by_group[group_dir].values())
+        records = sorted(records, key=_config_name)
+        records = sorted(
+            records,
+            key=lambda row: (
+                _metric(row.f1),
+                _metric(row.practical_f1),
+                _metric(row.precision),
+                _metric(row.recall),
+            ),
+            reverse=True,
+        )
+        groups.append(
+            _AllMethodGroup(
+                group_dir=group.group_dir,
+                run_dir_timestamp=group.run_dir_timestamp,
+                source_slug=group.source_slug,
+                records=records,
+            )
+        )
+
+    groups.sort(
+        key=lambda group: _run_timestamp_sort_key(group.run_dir_timestamp),
+        reverse=True,
+    )
+    return groups
+
+
+def _best_record(records: list[BenchmarkRecord]) -> BenchmarkRecord | None:
+    if not records:
+        return None
+    return max(
+        records,
+        key=lambda row: (
+            _metric(row.f1),
+            _metric(row.practical_f1),
+            _metric(row.precision),
+            _metric(row.recall),
+        ),
+    )
+
+
+def _group_source_label(group: _AllMethodGroup) -> str:
+    names = sorted(
+        {
+            _source_label(record)
+            for record in group.records
+            if _source_label(record) != "-"
+        }
+    )
+    if not names:
+        return group.source_slug
+    if len(names) == 1:
+        return names[0]
+    return f"{names[0]} (+{len(names) - 1} more)"
+
+
+def _group_page_name(group: _AllMethodGroup) -> str:
+    return (
+        f"{_ALL_METHOD_BENCHMARK_SEGMENT}__"
+        f"{_slug_token(group.run_dir_timestamp)}__"
+        f"{_slug_token(group.source_slug)}.html"
+    )
+
+
+def _render_all_method_index_html(groups: list[_AllMethodGroup]) -> str:
+    empty_note = ""
+    if not groups:
+        empty_note = (
+            "<p class=\"empty-note\">No all-method benchmark runs found in benchmark history.</p>"
+        )
+
+    row_html: list[str] = []
+    for group in groups:
+        best = _best_record(group.records)
+        winner_name = _config_name(best) if best is not None else "-"
+        row_html.append(
+            (
+                "<tr>"
+                f"<td>{escape(group.run_dir_timestamp or '-')}</td>"
+                f"<td>{escape(_group_source_label(group))}</td>"
+                f"<td class=\"num\">{len(group.records)}</td>"
+                f"<td>{escape(winner_name)}</td>"
+                f"<td class=\"num\">{_fmt_float(best.f1 if best else None)}</td>"
+                f"<td class=\"num\">{_fmt_float(best.practical_f1 if best else None)}</td>"
+                f"<td><a href=\"{escape(group.detail_page_name)}\">Open details</a></td>"
+                "</tr>"
+            )
+        )
+
+    return (
+        "<!DOCTYPE html>"
+        "<html lang=\"en\">"
+        "<head>"
+        "<meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        "<title>cookimport – All Method Benchmarks</title>"
+        "<link rel=\"stylesheet\" href=\"assets/style.css\">"
+        "</head>"
+        "<body>"
+        "<header><h1>All Method Benchmark Runs</h1>"
+        "<p><a href=\"index.html\">Dashboard home</a></p>"
+        "</header>"
+        "<main>"
+        "<section>"
+        "<p class=\"section-note\">Each row links to a standalone page showing all configuration stats from one all-method benchmark sweep.</p>"
+        f"{empty_note}"
+        "<table><thead><tr>"
+        "<th>Run Folder</th><th>Source</th><th>Configs</th><th>Winner</th><th>Strict F1</th><th>Practical F1</th><th>Details</th>"
+        "</tr></thead><tbody>"
+        f"{''.join(row_html)}"
+        "</tbody></table>"
+        "</section>"
+        "</main>"
+        "<footer>Generated by <code>cookimport stats-dashboard</code></footer>"
+        "</body>"
+        "</html>"
+    )
+
+
+def _render_all_method_detail_html(group: _AllMethodGroup) -> str:
+    best = _best_record(group.records)
+    source_label = _group_source_label(group)
+    rows: list[str] = []
+    for rank, record in enumerate(group.records, start=1):
+        extractor_dim, parser_dim, skiphf_dim, preprocess_dim = _all_method_dims(record)
+        config_hash = str(record.run_config_hash or "")
+        summary = _run_config_summary(record)
+        if summary and config_hash:
+            summary = f"{summary} [{config_hash[:10]}]"
+        elif config_hash:
+            summary = f"[{config_hash[:10]}]"
+        artifact_href = str(record.artifact_dir or "").strip()
+        artifact_cell = "-"
+        if artifact_href:
+            artifact_cell = (
+                f"<a href=\"{escape(artifact_href)}\">"
+                f"{escape(_config_name(record))}</a>"
+            )
+        rows.append(
+            (
+                "<tr>"
+                f"<td class=\"num\">{rank}</td>"
+                f"<td>{escape(_config_name(record))}</td>"
+                f"<td>{escape(extractor_dim)}</td>"
+                f"<td>{escape(parser_dim)}</td>"
+                f"<td>{escape(skiphf_dim)}</td>"
+                f"<td>{escape(preprocess_dim)}</td>"
+                f"<td class=\"num\">{_fmt_float(record.precision)}</td>"
+                f"<td class=\"num\">{_fmt_float(record.recall)}</td>"
+                f"<td class=\"num\">{_fmt_float(record.f1)}</td>"
+                f"<td class=\"num\">{_fmt_float(record.practical_f1)}</td>"
+                f"<td class=\"num\">{_fmt_int(record.recipes)}</td>"
+                f"<td>{escape(record.importer_name or '-')}</td>"
+                f"<td>{escape(_source_label(record))}</td>"
+                f"<td title=\"{escape(summary)}\">{escape(summary or '-')}</td>"
+                f"<td>{artifact_cell}</td>"
+                "</tr>"
+            )
+        )
+
+    winner_line = "-"
+    if best is not None:
+        winner_line = (
+            f"{_config_name(best)} "
+            f"(strict_f1={_fmt_float(best.f1)}, practical_f1={_fmt_float(best.practical_f1)})"
+        )
+
+    summary_specs: list[tuple[str, int, list[float]]] = [
+        (
+            "Strict Precision",
+            4,
+            [float(record.precision) for record in group.records if record.precision is not None],
+        ),
+        (
+            "Strict Recall",
+            4,
+            [float(record.recall) for record in group.records if record.recall is not None],
+        ),
+        (
+            "Strict F1",
+            4,
+            [float(record.f1) for record in group.records if record.f1 is not None],
+        ),
+        (
+            "Practical F1",
+            4,
+            [float(record.practical_f1) for record in group.records if record.practical_f1 is not None],
+        ),
+        (
+            "Recipes",
+            1,
+            [float(record.recipes) for record in group.records if record.recipes is not None],
+        ),
+    ]
+    summary_rows = []
+    for label, digits, values in summary_specs:
+        summary_rows.append(
+            (
+                "<tr>"
+                f"<td>{escape(label)}</td>"
+                f"<td class=\"num\">{len(values)}</td>"
+                f"<td class=\"num\">{_fmt_float(min(values) if values else None, digits=digits)}</td>"
+                f"<td class=\"num\">{_fmt_float(_median(values), digits=digits)}</td>"
+                f"<td class=\"num\">{_fmt_float(_mean(values), digits=digits)}</td>"
+                f"<td class=\"num\">{_fmt_float(max(values) if values else None, digits=digits)}</td>"
+                "</tr>"
+            )
+        )
+
+    chart_specs: list[tuple[str, int, list[float | None]]] = [
+        (
+            "Strict Precision",
+            4,
+            [record.precision for record in group.records],
+        ),
+        (
+            "Strict Recall",
+            4,
+            [record.recall for record in group.records],
+        ),
+        (
+            "Strict F1",
+            4,
+            [record.f1 for record in group.records],
+        ),
+        (
+            "Practical F1",
+            4,
+            [record.practical_f1 for record in group.records],
+        ),
+        (
+            "Recipes",
+            1,
+            [float(record.recipes) if record.recipes is not None else None for record in group.records],
+        ),
+    ]
+    chart_blocks: list[str] = []
+    for label, digits, raw_values in chart_specs:
+        present_values = [value for value in raw_values if value is not None]
+        max_value = max(present_values) if present_values else 0.0
+        bar_rows: list[str] = []
+        for run_index, value in enumerate(raw_values, start=1):
+            width_pct = 0.0
+            if value is not None and max_value > 0:
+                width_pct = max(0.0, min(100.0, float(value) / float(max_value) * 100.0))
+            bar_fill_class = "metric-bar-fill" if value is not None else "metric-bar-fill metric-bar-fill-missing"
+            value_text = _fmt_float(float(value), digits=digits) if value is not None else "-"
+            bar_rows.append(
+                (
+                    "<div class=\"metric-bar-row\">"
+                    f"<span class=\"metric-bar-label\">Run {run_index:02d}</span>"
+                    "<span class=\"metric-bar-track\">"
+                    f"<span class=\"{bar_fill_class}\" style=\"width:{width_pct:.2f}%\"></span>"
+                    "</span>"
+                    f"<span class=\"metric-bar-value\">{escape(value_text)}</span>"
+                    "</div>"
+                )
+            )
+        chart_blocks.append(
+            (
+                "<section class=\"metric-chart-block\">"
+                f"<h3>{escape(label)}</h3>"
+                f"<div class=\"metric-chart-grid\">{''.join(bar_rows)}</div>"
+                "</section>"
+            )
+        )
+
+    return (
+        "<!DOCTYPE html>"
+        "<html lang=\"en\">"
+        "<head>"
+        "<meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        f"<title>cookimport – All Method Benchmark {escape(group.run_dir_timestamp or '')}</title>"
+        "<link rel=\"stylesheet\" href=\"assets/style.css\">"
+        "</head>"
+        "<body>"
+        "<header>"
+        "<h1>All Method Benchmark Details</h1>"
+        f"<p><a href=\"index.html\">Dashboard home</a> · <a href=\"{_ALL_METHOD_INDEX_PAGE}\">All-method runs</a></p>"
+        "</header>"
+        "<main>"
+        "<section>"
+        f"<p><strong>Run folder:</strong> {escape(group.run_dir_timestamp or '-')}</p>"
+        f"<p><strong>Source:</strong> {escape(source_label)}</p>"
+        f"<p><strong>Total configs:</strong> {len(group.records)}</p>"
+        f"<p><strong>Winner:</strong> {escape(winner_line)}</p>"
+        "</section>"
+        "<section>"
+        "<h2>Run Summary</h2>"
+        "<p class=\"section-note\">Compact stats only (no per-config labels): count, min, median, mean, max.</p>"
+        "<table class=\"summary-compact\"><thead><tr>"
+        "<th>Stat</th><th>N</th><th>Min</th><th>Median</th><th>Mean</th><th>Max</th>"
+        "</tr></thead><tbody>"
+        f"{''.join(summary_rows)}"
+        "</tbody></table>"
+        "</section>"
+        "<section>"
+        "<h2>Metric Bar Charts</h2>"
+        "<p class=\"section-note\">One bar per run/configuration for each metric category.</p>"
+        f"{''.join(chart_blocks)}"
+        "</section>"
+        "<section>"
+        "<h2>Ranked Configurations</h2>"
+        "<table><thead><tr>"
+        "<th>Rank</th><th>Configuration</th><th>Extractor</th><th>Parser</th><th>Skip HF</th><th>Preprocess</th><th>Strict Precision</th><th>Strict Recall</th><th>Strict F1</th><th>Practical F1</th><th>Recipes</th><th>Importer</th><th>Source</th><th>Run Config</th><th>Artifact</th>"
+        "</tr></thead><tbody>"
+        f"{''.join(rows)}"
+        "</tbody></table>"
+        "</section>"
+        "</main>"
+        "<footer>Generated by <code>cookimport stats-dashboard</code></footer>"
+        "</body>"
+        "</html>"
+    )
+
+
+def _render_all_method_pages(out_dir: Path, data: DashboardData) -> str:
+    groups = _collect_all_method_groups(data)
+    legacy_dir = out_dir / _ALL_METHOD_BENCHMARK_SEGMENT
+    if legacy_dir.exists():
+        shutil.rmtree(legacy_dir, ignore_errors=True)
+
+    for stale_detail_page in out_dir.glob(f"{_ALL_METHOD_BENCHMARK_SEGMENT}__*.html"):
+        stale_detail_page.unlink(missing_ok=True)
+
+    used_page_names: set[str] = set()
+    for group in groups:
+        base_name = _group_page_name(group)
+        page_name = base_name
+        suffix = 2
+        while page_name in used_page_names:
+            page_name = f"{base_name[:-5]}_{suffix}.html"
+            suffix += 1
+        used_page_names.add(page_name)
+        group.detail_page_name = page_name
+        detail_path = out_dir / page_name
+        detail_path.write_text(
+            _render_all_method_detail_html(group),
+            encoding="utf-8",
+        )
+
+    index_path = out_dir / _ALL_METHOD_INDEX_PAGE
+    index_path.write_text(
+        _render_all_method_index_html(groups),
+        encoding="utf-8",
+    )
+
+    if not groups:
+        return (
+            "<section id=\"all-method-section\">"
+            "<h2>All-Method Benchmark Runs</h2>"
+            f"<p><a href=\"{_ALL_METHOD_INDEX_PAGE}\">Open all-method benchmark page</a> (0 runs)</p>"
+            "<p class=\"empty-note\">No all-method benchmark runs found in benchmark history.</p>"
+            "</section>"
+        )
+
+    return (
+        "<section id=\"all-method-section\">"
+        "<h2>All-Method Benchmark Runs</h2>"
+        "<p class=\"section-note\">Standalone pages generated from benchmark CSV rows grouped by all-method run folder.</p>"
+        f"<p><a href=\"{_ALL_METHOD_INDEX_PAGE}\">Open all-method benchmark page</a> ({len(groups)} runs)</p>"
+        "</section>"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -106,14 +720,16 @@ _HTML = """\
 
   <section id="benchmark-section">
     <h2>Benchmark Evaluations</h2>
-    <p class="section-note">Precision: how many predictions were correct. Recall: how much of the labeled gold set was recovered.</p>
+    <p class="section-note">Practical F1 measures content overlap (same label, any overlap). Strict F1 measures localization quality (IoU threshold).</p>
     <div id="benchmark-chart" class="chart-container"></div>
     <h3>Recent Benchmarks</h3>
     <table id="benchmark-table"><thead><tr>
-      <th>Timestamp</th><th>Precision</th><th>Recall</th><th>F1</th>
+      <th>Timestamp</th><th>Strict Precision</th><th>Strict Recall</th><th>Practical F1</th><th>Strict F1</th>
       <th>Gold</th><th>Matched</th><th>Recipes</th><th>Source</th><th>Importer</th><th>Run Config</th><th>Artifact</th>
     </tr></thead><tbody></tbody></table>
   </section>
+
+  __ALL_METHOD_SECTION__
 
   <section id="per-label-section">
     <h2>Per-Label Breakdown (Latest Benchmark)</h2>
@@ -187,6 +803,12 @@ td.num { text-align: right; font-family: var(--mono); }
 td a { color: var(--accent); text-decoration: none; word-break: break-all; }
 td a:hover { text-decoration: underline; }
 td.warn-note { color: #b45309; font-weight: 600; }
+.mismatch-tag {
+  color: #b45309;
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin-left: 0.35rem;
+}
 
 .inline-controls {
   display: flex;
@@ -209,6 +831,59 @@ td.warn-note { color: #b45309; font-weight: 600; }
 }
 
 .empty-note { color: var(--muted); font-style: italic; padding: 1rem 0; }
+
+.summary-compact th,
+.summary-compact td {
+  padding: 0.3rem 0.5rem;
+}
+.summary-compact th {
+  font-size: 0.74rem;
+}
+
+.metric-chart-block {
+  margin-top: 0.85rem;
+}
+.metric-chart-block h3 {
+  margin: 0 0 0.45rem;
+  color: var(--text);
+  font-size: 0.92rem;
+}
+.metric-chart-grid {
+  display: grid;
+  gap: 0.28rem;
+}
+.metric-bar-row {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(220px, 1fr) 4.5rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+.metric-bar-label {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-family: var(--mono);
+}
+.metric-bar-track {
+  display: block;
+  width: 100%;
+  background: #edf0f2;
+  border-radius: 6px;
+  height: 0.65rem;
+  overflow: hidden;
+}
+.metric-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.metric-bar-fill-missing {
+  background: #c5cdd5;
+}
+.metric-bar-value {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
 
 footer { text-align: center; color: var(--muted); font-size: 0.8rem; margin-top: 2rem; }
 """
@@ -659,12 +1334,16 @@ _JS = """\
       const processedReportLink = r.processed_report_path
         ? ' <a href="' + esc(r.processed_report_path) + '" title="' + esc(r.processed_report_path) + '">report</a>'
         : "";
+      const mismatchTag = r.granularity_mismatch_likely
+        ? ' <span class="mismatch-tag" title="Strict IoU is low while practical overlap is high.">mismatch</span>'
+        : "";
       const tr = document.createElement("tr");
       tr.innerHTML =
         '<td>' + esc(r.run_timestamp || "") + '</td>' +
         '<td class="num">' + fmt4(r.precision) + '</td>' +
         '<td class="num">' + fmt4(r.recall) + '</td>' +
-        '<td class="num">' + fmt4(r.f1) + '</td>' +
+        '<td class="num">' + fmt4(r.practical_f1) + '</td>' +
+        '<td class="num">' + fmt4(r.f1) + mismatchTag + '</td>' +
         '<td class="num">' + (r.gold_total != null ? r.gold_total : "-") + '</td>' +
         '<td class="num">' + (r.gold_matched != null ? r.gold_matched : "-") + '</td>' +
         '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +

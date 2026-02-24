@@ -1,7 +1,6 @@
 from pathlib import Path
 import json
 import shutil
-from types import SimpleNamespace
 from typer.testing import CliRunner
 from cookimport.cli import app
 import pytest
@@ -281,27 +280,11 @@ def test_stage_markdown_epub_writes_backend_and_diagnostics(tmp_path):
     assert markdown_diag
 
 
-def test_stage_auto_epub_records_effective_extractor(tmp_path, monkeypatch):
+def test_stage_rejects_auto_epub_extractor(tmp_path):
     fixtures_dir = TESTS_FIXTURES_DIR
     source_file = fixtures_dir / "sample.epub"
     if not source_file.exists():
         pytest.skip("sample.epub not found")
-
-    monkeypatch.setattr(
-        "cookimport.cli.select_epub_extractor_auto",
-        lambda _path: SimpleNamespace(
-            effective_extractor="legacy",
-            artifact={
-                "requested_extractor": "auto",
-                "effective_extractor": "legacy",
-                "sample_indices": [0],
-                "candidates": [
-                    {"backend": "legacy", "status": "ok", "average_score": 0.62},
-                    {"backend": "markdown", "status": "ok", "average_score": 0.55},
-                ],
-            },
-        ),
-    )
 
     output_dir = tmp_path / "output"
     result = runner.invoke(
@@ -319,25 +302,5 @@ def test_stage_auto_epub_records_effective_extractor(tmp_path, monkeypatch):
             "auto",
         ],
     )
-    assert result.exit_code == 0
-
-    timestamp_dirs = [
-        path
-        for path in output_dir.glob("*")
-        if path.is_dir() and not path.name.startswith(".")
-    ]
-    assert len(timestamp_dirs) == 1
-    timestamp_dir = timestamp_dirs[0]
-
-    report_path = timestamp_dir / "sample.excel_import_report.json"
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["runConfig"]["epub_extractor"] == "auto"
-    assert report["runConfig"]["epub_extractor_requested"] == "auto"
-    assert report["runConfig"]["epub_extractor_effective"] == "legacy"
-    assert report["epubBackend"] == "legacy"
-    assert report["epubAutoSelection"]["effective_extractor"] == "legacy"
-    assert report["epubAutoSelection"]["source_file"].endswith("sample.epub")
-    assert report["epubAutoSelectedScore"] == pytest.approx(0.62)
-
-    auto_artifacts = list((timestamp_dir / "raw" / "epub").glob("**/epub_extractor_auto.json"))
-    assert auto_artifacts
+    assert result.exit_code != 0
+    assert not any(path.is_dir() and not path.name.startswith(".") for path in output_dir.glob("*"))

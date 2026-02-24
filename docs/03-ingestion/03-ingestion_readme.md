@@ -225,11 +225,7 @@ Block extraction:
 - Adds `spine_index` feature to blocks for deterministic merge ordering
 - Skips nav/TOC spine docs when identified via OPF `properties="nav"` or nav/toc signatures in HTML.
 - Applies shared post-extraction cleanup for `unstructured`/`legacy`/`markdown` (`cookimport/parsing/epub_postprocess.py`) before segmentation.
-- `auto` mode is resolved once per EPUB in stage/benchmark orchestration and persisted as `raw/epub/<source_hash>/epub_extractor_auto.json`.
-- Stage/processed report JSON now promotes auto-selection as first-class fields (not just raw artifact):
-  - `epubAutoSelection`: full auto race payload (candidates, sample indices, selected backend/reason).
-  - `epubAutoSelectedScore`: average score for the selected candidate backend.
-  - non-auto runs omit these fields.
+- Stage/benchmark prediction flows now require explicit extractor choices (`unstructured|legacy|markdown|markitdown`).
 
 MarkItDown-specific behavior:
 - Uses `markitdown` with plugins disabled (`MarkItDown(enable_plugins=False)`)
@@ -519,19 +515,12 @@ If working in this area, keep these invariants:
 - Spine metadata contract uses typed records (`EpubSpineItem(path, media_type, item_id, properties)`) rather than tuple slots.
 - This keeps nav/TOC skip behavior aligned between ebooklib and zip-fallback spine readers.
 
-### Auto extractor resolution + env scope
+### Extractor selection + env scope
 
-- `auto` should resolve once in parent orchestration (`stage` and benchmark prediction generation), then workers receive the concrete backend (`legacy|unstructured|markdown`).
-- Stage path persists per-file auto rationale to `raw/epub/<source_hash>/epub_extractor_auto.json` and passes effective extractor explicitly to worker calls.
+- Stage and benchmark prediction generation now require an explicit EPUB extractor (`unstructured|legacy|markdown|markitdown`).
+- Stage/prediction workers receive that selected backend directly (no per-file auto-resolution branch).
 - Prediction-generation helper flows should apply `C3IMP_EPUB_*` overrides in scoped contexts and restore previous env values after conversion to avoid run/test leakage.
-
-### Probe-path initialization rule (critical)
-
-- `select_epub_extractor_auto(...)` probes via direct calls to `EpubImporter._extract_docpack(...)`; this path does not run `convert(...)`.
-- Any runtime state consumed by `_extract_docpack(...)` must be initialized in `EpubImporter.__init__` (or safely defaulted), not only inside `convert(...)`.
-- Known regression: missing `self._overrides` caused real stage `--epub-extractor auto` failures (`'EpubImporter' object has no attribute '_overrides'`).
-- Regression anchor:
-  - `tests/test_epub_auto_select.py::test_select_epub_extractor_auto_real_importer_supports_direct_probe`
+- `select_epub_extractor_auto(...)` remains available for deterministic debug/race utilities only; it is not part of the stage/benchmark runtime path.
 
 ## Merged Task Specs (2026-02-22 spinner visibility)
 
