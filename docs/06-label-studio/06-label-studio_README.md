@@ -46,8 +46,10 @@ CLI commands:
 
 Default output roots:
 
-- Non-interactive Label Studio commands default `--output-dir` to `data/golden`.
-- Interactive menu (`cookimport` with no subcommand) still uses `cookimport.json.output_dir` for stage output, but routes Label Studio import/export/benchmark artifact roots to `data/golden`.
+- `labelstudio-import --output-dir` defaults to `data/golden/sent-to-labelstudio`.
+- `labelstudio-export --output-dir` defaults to `data/golden/pulled-from-labelstudio`.
+- `labelstudio-benchmark --output-dir` defaults to `data/golden/benchmark-vs-golden`.
+- Interactive menu (`cookimport` with no subcommand) still uses `cookimport.json.output_dir` for stage output, but routes Label Studio import/export/benchmark artifact roots to those same dedicated `data/golden/*` subfolders.
 - Benchmark also writes stage-style processed cookbook outputs to `data/output` by default via `--processed-output-dir`.
 
 ### 1.3 Write safety and consent
@@ -66,9 +68,8 @@ Uploads are intentionally gated.
   - Interactive freeform prelabel does not prompt for command selection; it resolves command from `COOKIMPORT_CODEX_CMD` or `codex exec -`, displays the resolved account email when available, then prompts for model and thinking effort (`none|minimal|low|medium|high|xhigh`) using metadata/defaults from that command's Codex home cache (`CODEX_HOME` honored).
   - Token usage tracking is always enabled for AI labeling runs.
 - non-interactive benchmark upload does not ask a second confirmation; passing upload flags is treated as explicit intent.
-- interactive benchmark now has three menu modes after run-settings selection:
+- interactive benchmark now has two offline-only menu modes, and asks mode before run-settings:
   - single offline mode (default first choice): one `labelstudio-benchmark --no-upload` eval run (no Label Studio credentials, no upload),
-  - upload mode: one `labelstudio-benchmark` upload+evaluate call (`allow_labelstudio_write=True`),
   - all-method mode: offline multi-config benchmark sweep (no Label Studio upload).
 - benchmark upload auto-recovers from project scope collisions when project name is auto-generated: if an existing project+manifest resolves to a different task scope, it creates a deduped project name instead of failing interactive flow.
 
@@ -198,7 +199,7 @@ Where it happens:
 - Span prompts provide one block stream with explicit context-before/context-after markers plus `START/STOP` focus markers (instead of repeating focus block text separately), and prelabel output is filtered so only focus blocks can be labeled.
 - There is no incremental “continue where you left off” prompting. It’s many small/fixed prompts, not one ever-growing prompt.
 - A prompt/response cache can make reruns *look* stateful: `CodexCliProvider` stores `{prompt, response}` JSON files under `prelabel_cache/` keyed by a hash of `(codex_cmd, track_usage flag, prompt text)`. Delete the cache dir to force fresh completions.
-- Run-level prompt logging is explicit: prelabel writes `prelabel_prompt_log.md` under the run root in `data/golden/.../labelstudio/<book_slug>/`, including the full prompt text and `included_with_prompt_description` + `included_with_prompt` metadata (labels, block/focus context, template, command/model/account fields).
+- Run-level prompt logging is explicit: prelabel writes `prelabel_prompt_log.md` under the run root in `data/golden/sent-to-labelstudio/<timestamp>/labelstudio/<book_slug>/`, including the full prompt text and `included_with_prompt_description` + `included_with_prompt` metadata (labels, block/focus context, template, command/model/account fields).
 
 **What the model is asked to do (the literal prompt template):**
 
@@ -345,8 +346,8 @@ Relevant code:
 
 The pair below is a concrete example where users often ask why outputs differ:
 
-- `data/golden/saltfatacidheatcutdown_aiv1_block_based`
-- `data/golden/saltfatacidheatcutdown_aiv2_freeform_fr`
+- `data/golden/pulled-from-labelstudio/saltfatacidheatcutdown_aiv1_block_based`
+- `data/golden/pulled-from-labelstudio/saltfatacidheatcutdown_aiv2_freeform_fr`
 
 Shared mechanics (same in both):
 
@@ -423,10 +424,12 @@ Important:
 - Upload mode imports/uploads prediction tasks (requires write consent).
 - Offline mode is explicit via `--no-upload`.
 - Eval-only mode against an existing prediction run is available via `labelstudio-eval` (interactive benchmark does not expose eval-only).
-- Interactive benchmark upload mode runs one `labelstudio-benchmark` upload flow per menu action and writes eval artifacts under `data/golden/eval-vs-pipeline/<timestamp>/`.
+- Interactive benchmark single-offline mode runs one `labelstudio-benchmark --no-upload` flow per menu action and writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/`.
 - Interactive all-method mode runs offline `labelstudio-benchmark --no-upload` style executions across a fixed extractor/tuning permutation set, then writes aggregate summary artifacts at:
   - `.../all-method-benchmark/<source_slug>/all_method_benchmark_report.json`
   - `.../all-method-benchmark/<source_slug>/all_method_benchmark_report.md`
+- Interactive all-method mode also writes processed cookbook outputs under the interactive output root (`cookimport.json.output_dir`, default `data/output`) scoped by benchmark timestamp:
+  - `<output_dir>/<benchmark_timestamp>/all-method-benchmark/<source_slug>/config_*/<prediction_timestamp>/...`
 - Benchmark prediction manifests include run-config metadata (`run_config`, `run_config_hash`, `run_config_summary`) so analytics/dashboard rows can be grouped by configuration.
 - Non-interactive benchmark knobs include worker/split controls, OCR/warmup flags, knowledge-harvest codex-farm controls, and a recipe codex-farm policy knob that is currently forced to `off` (`--ocr-device`, `--ocr-batch-size`, `--warm-models`, `--epub-extractor`, `--llm-recipe-pipeline`, `--codex-farm-cmd`, `--codex-farm-root`, `--codex-farm-workspace-root`, `--codex-farm-pipeline-pass1`, `--codex-farm-pipeline-pass2`, `--codex-farm-pipeline-pass3`, `--codex-farm-context-blocks`, `--codex-farm-failure-mode`).
 - If recipe codex-farm correction is re-enabled in future, processed report payloads include `llmCodexFarm` and prediction-run artifacts include `llm_manifest.json` when produced.
@@ -444,15 +447,15 @@ This reindexing is critical; without it, freeform/canonical eval can report near
 
 Import run artifacts:
 
-- `<output_dir>/<timestamp>/labelstudio/<book_slug>/...`
+- `<output_dir>/<timestamp>/labelstudio/<book_slug>/...` (default `output_dir`: `data/golden/sent-to-labelstudio`)
 - Export run artifacts (default):
-  - `<output_dir>/<project_slug>/exports/...`
+  - `<output_dir>/<project_slug>/exports/...` (default `output_dir`: `data/golden/pulled-from-labelstudio`)
   - `--run-dir` overrides this and writes into the specified run directory.
   - Existing manifests are still used to resolve `project_id` and validate task-scope alignment.
 
 Benchmark eval artifacts:
 
-- `<eval_output_dir>/...` (often under `data/golden/eval-vs-pipeline/<timestamp>/`)
+- `<eval_output_dir>/...` (often under `data/golden/benchmark-vs-golden/<timestamp>/`)
 - prediction artifacts moved to `<eval_output_dir>/prediction-run/`
 - run roots now include `run_manifest.json` for import/export/eval/benchmark traceability.
 
@@ -472,9 +475,9 @@ Manifest includes:
 - Interactive `labelstudio` export resolves credentials first, then fetches project titles for a picker UI (showing a detected type tag beside each project when available). It now auto-uses the selected project's detected type as export scope and only prompts for scope when detection is `unknown` (or when the project name is typed manually).
 - Interactive Label Studio import/export credential resolution order is: CLI/env values first, then saved `cookimport.json` values, then one-time prompt (which persists back to `cookimport.json`).
 - Interactive freeform `labelstudio` import now prompts for context blocks, overlap, focus blocks, and optional target task count in one sequence, then uses an AI prelabel mode selector before upload, prints summary processing time, and writes `prelabel_report.json` when prelabel is enabled.
-- Interactive benchmark uses the same per-run settings chooser as interactive Import (`global defaults` / `last benchmark` / `change run settings`) and writes successful selections to `<output_dir>/.history/last_run_settings_benchmark.json`.
-- Interactive benchmark mode picker (`upload` vs `all method`) appears immediately after run-settings selection.
-- Interactive upload mode resolves credentials before calling `labelstudio-benchmark`; all-method mode is offline and does not resolve Label Studio credentials.
+- Interactive benchmark uses the same per-run settings chooser as interactive Import (`global defaults` / `last benchmark` / `change run settings`) and writes successful selections to `<output_dir_parent>/.history/last_run_settings_benchmark.json`.
+- Interactive benchmark mode picker (`single offline` vs `all method`) appears before run-settings selection.
+- Interactive benchmark no longer has an upload mode; both interactive paths are offline and do not resolve Label Studio credentials.
 
 ## 2) Known-Bad / High-Risk / Common Confusion
 
@@ -614,15 +617,15 @@ cookimport labelstudio-export --project-name "Project" --export-scope freeform-s
 
 ```bash
 cookimport labelstudio-eval canonical-blocks \
-  --pred-run data/golden/<ts>/labelstudio/<book_slug> \
-  --gold-spans data/golden/<...>/exports/canonical_gold_spans.jsonl \
+  --pred-run data/golden/sent-to-labelstudio/<ts>/labelstudio/<book_slug> \
+  --gold-spans data/golden/pulled-from-labelstudio/<...>/exports/canonical_gold_spans.jsonl \
   --output-dir data/golden/<...>/eval-canonical
 ```
 
 ```bash
 cookimport labelstudio-eval freeform-spans \
-  --pred-run data/golden/<ts>/labelstudio/<book_slug> \
-  --gold-spans data/golden/<...>/exports/freeform_span_labels.jsonl \
+  --pred-run data/golden/sent-to-labelstudio/<ts>/labelstudio/<book_slug> \
+  --gold-spans data/golden/pulled-from-labelstudio/<...>/exports/freeform_span_labels.jsonl \
   --output-dir data/golden/<...>/eval-freeform \
   --force-source-match
 ```

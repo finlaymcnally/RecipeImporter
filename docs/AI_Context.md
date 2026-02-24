@@ -142,11 +142,11 @@ Main artifacts:
 
 Stage runs summarize and append history rows to:
 
-- `data/output/.history/performance_history.csv`
+- `data/.history/performance_history.csv`
 
 Dashboard output:
 
-- `cookimport stats-dashboard` writes to `<output_root>/.history/dashboard/`
+- `cookimport stats-dashboard` writes to `<output_root parent>/.history/dashboard/`
 - emits `index.html` + local assets + embedded inline JSON fallback for `file://` usage.
 
 ### 5.3 Label Studio / benchmark artifacts
@@ -155,9 +155,9 @@ Dashboard output:
   - `<output_dir>/<timestamp>/labelstudio/<book_slug>/...`
   - includes `manifest.json`, coverage, tasks JSONL, and optional prelabel report/error artifacts.
 - `labelstudio-export` default root when `--run-dir` is not set:
-  - `<output_dir>/<project_slug>/exports/...`
+  - `<output_dir>/<project_slug>/exports/...` (default `output_dir`: `data/golden/pulled-from-labelstudio`)
 - `labelstudio-benchmark` eval roots:
-  - default under `data/golden/eval-vs-pipeline/<timestamp>/`
+  - default under `data/golden/benchmark-vs-golden/<timestamp>/`
   - may co-locate prediction artifacts under `prediction-run/`.
 
 All run-producing paths now rely on `run_manifest.json` as a stable traceability record (`cookimport/runs/manifest.py`).

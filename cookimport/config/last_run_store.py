@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Literal
 
+from cookimport.paths import history_root_for_output
+
 from .run_settings import RunSettings
 
 logger = logging.getLogger(__name__)
@@ -20,6 +22,10 @@ _STORE_FILENAMES: dict[RunSettingsKind, str] = {
 
 
 def _store_path(kind: RunSettingsKind, output_dir: Path) -> Path:
+    return history_root_for_output(output_dir) / _STORE_FILENAMES[kind]
+
+
+def _legacy_store_path(kind: RunSettingsKind, output_dir: Path) -> Path:
     return output_dir / ".history" / _STORE_FILENAMES[kind]
 
 
@@ -28,6 +34,13 @@ def load_last_run_settings(
     output_dir: Path,
 ) -> RunSettings | None:
     path = _store_path(kind, output_dir)
+    if not path.is_file():
+        legacy = _legacy_store_path(kind, output_dir)
+        if legacy.is_file():
+            path = legacy
+        else:
+            return None
+
     if not path.is_file():
         return None
 

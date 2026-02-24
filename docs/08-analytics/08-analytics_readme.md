@@ -24,7 +24,7 @@ Analytics in this repo currently means three surfaces:
 - Schema anchor: `cookimport/core/models.py` (`ConversionReport`)
 
 2. Cross-run history CSV
-- Artifact: `data/output/.history/performance_history.csv` (unless you explicitly call helpers with another root)
+- Artifact: `data/.history/performance_history.csv` (unless you explicitly call helpers with another root)
 - Producer: `cookimport/analytics/perf_report.py` via:
   - auto-append at end of `cookimport stage`
   - manual `cookimport perf-report`
@@ -32,12 +32,12 @@ Analytics in this repo currently means three surfaces:
 
 3. Lifetime static dashboard
 - Artifacts:
-  - `data/output/.history/dashboard/index.html`
-  - `data/output/.history/dashboard/assets/dashboard_data.json`
-  - `data/output/.history/dashboard/assets/dashboard.js`
-  - `data/output/.history/dashboard/assets/style.css`
-  - `data/output/.history/dashboard/all-method-benchmark.html` (always generated)
-  - `data/output/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html` (one per grouped all-method benchmark sweep)
+  - `data/.history/dashboard/index.html`
+  - `data/.history/dashboard/assets/dashboard_data.json`
+  - `data/.history/dashboard/assets/dashboard.js`
+  - `data/.history/dashboard/assets/style.css`
+  - `data/.history/dashboard/all-method-benchmark.html` (always generated)
+  - `data/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html` (one per grouped all-method benchmark sweep)
 - Producer: `cookimport stats-dashboard`
 - Collector: `cookimport/analytics/dashboard_collect.py`
 - Data contract: `cookimport/analytics/dashboard_schema.py`
@@ -142,9 +142,9 @@ Dashboard collector reads:
 
 1. `output_root/.history/performance_history.csv` (primary unless `--scan-reports`)
 2. `output_root/<timestamp>/*.excel_import_report.json` (fallback/supplement)
-3. `golden_root/eval-vs-pipeline/*/eval_report.json` and `golden_root/*/eval_report.json` (benchmark scans)
+3. `golden_root/benchmark-vs-golden/*/eval_report.json` and `golden_root/*/eval_report.json` (benchmark scans)
    - includes nested all-method config eval reports under paths like
-     `golden_root/eval-vs-pipeline/<run_ts>/all-method-benchmark/<source_slug>/config_*/eval_report.json`
+     `golden_root/benchmark-vs-golden/<run_ts>/all-method-benchmark/<source_slug>/config_*/eval_report.json`
 
 Collector enrichment:
 
@@ -243,12 +243,12 @@ Collector exclusions/filters:
 - `<output_root>/<timestamp>/<slug>.excel_import_report.json` (default `<output_root>` is `data/output`)
 
 2. Confirm history append happened:
-- `<output_root>/.history/performance_history.csv`
+- `<output_root parent>/.history/performance_history.csv`
 
 3. If dashboard seems empty:
 - run `cookimport stats-dashboard --scan-reports`
 - inspect warnings printed by collector
-- verify benchmark eval files exist under `data/golden/eval-vs-pipeline/*/eval_report.json`
+- verify benchmark eval files exist under `data/golden/benchmark-vs-golden/*/eval_report.json`
 
 4. If `perf-report` cannot auto-find a run:
 - provide explicit `--run-dir <output_root>/<timestamp>`

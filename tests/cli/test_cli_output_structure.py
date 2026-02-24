@@ -88,7 +88,7 @@ def test_stage_output_structure(tmp_path):
     assert raw_dir.exists()
     assert list(raw_dir.rglob("*.json"))
 
-    history_csv = output_dir / ".history" / "performance_history.csv"
+    history_csv = output_dir.parent / ".history" / "performance_history.csv"
     assert history_csv.exists()
 
 

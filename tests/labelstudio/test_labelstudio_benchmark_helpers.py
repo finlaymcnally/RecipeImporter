@@ -728,9 +728,9 @@ def test_labelstudio_commands_default_output_roots() -> None:
     eval_overlap_param = inspect.signature(cli.labelstudio_eval).parameters["overlap_threshold"]
     eval_force_match_param = inspect.signature(cli.labelstudio_eval).parameters["force_source_match"]
 
-    assert getattr(import_param.default, "default", None) == cli.DEFAULT_GOLDEN
-    assert getattr(export_param.default, "default", None) == cli.DEFAULT_GOLDEN
-    assert benchmark_param.default == cli.DEFAULT_GOLDEN
+    assert getattr(import_param.default, "default", None) == cli.DEFAULT_GOLDEN_SENT_TO_LABELSTUDIO
+    assert getattr(export_param.default, "default", None) == cli.DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO
+    assert benchmark_param.default == cli.DEFAULT_GOLDEN_BENCHMARK
     assert eval_overlap_param.default == 0.5
     assert eval_force_match_param.default is False
 
@@ -1014,7 +1014,7 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
     assert captured["codex_reasoning_effort"] is None
     assert captured["prelabel_track_token_usage"] is True
     assert callable(captured["progress_callback"])
-    assert captured["output_dir"] == tmp_path / "golden"
+    assert captured["output_dir"] == (tmp_path / "golden" / "sent-to-labelstudio")
     assert captured["overwrite"] is True
     assert captured["resume"] is False
 
@@ -1159,9 +1159,7 @@ def test_interactive_benchmark_uses_golden_output_roots(
 ) -> None:
     configured_output = tmp_path / "custom-output"
     golden_root = tmp_path / "golden"
-    gold_spans = golden_root / "some-run" / "exports" / "freeform_span_labels.jsonl"
-    pred_run = golden_root / "some-run" / "prediction-run"
-    menu_answers = iter(["labelstudio_benchmark", "global", "single_upload", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "single_offline", "global", "exit"])
     mode_prompts: list[list[str]] = []
 
     def fake_menu_select(prompt: str, *_args, **_kwargs):
@@ -1179,13 +1177,6 @@ def test_interactive_benchmark_uses_golden_output_roots(
         lambda: {"output_dir": str(configured_output), "epub_extractor": "legacy"},
     )
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
-    monkeypatch.setattr(
-        cli,
-        "_resolve_interactive_labelstudio_settings",
-        lambda _settings: ("http://localhost:8080", "benchmark-key"),
-    )
-    monkeypatch.setattr(cli, "_discover_freeform_gold_exports", lambda *_: [gold_spans])
-    monkeypatch.setattr(cli, "_discover_prediction_runs", lambda *_: [pred_run])
 
     def _unexpected_confirm(*_args, **_kwargs):
         raise AssertionError("Interactive benchmark upload should not ask for confirmation.")
@@ -1202,16 +1193,18 @@ def test_interactive_benchmark_uses_golden_output_roots(
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
 
-    assert captured["output_dir"] == golden_root
+    assert captured["output_dir"] == golden_root / "benchmark-vs-golden"
     eval_output_dir = captured["eval_output_dir"]
     assert isinstance(eval_output_dir, Path)
-    assert eval_output_dir.parent == golden_root / "eval-vs-pipeline"
-    assert captured["label_studio_url"] == "http://localhost:8080"
-    assert captured["label_studio_api_key"] == "benchmark-key"
+    assert eval_output_dir.parent == golden_root / "benchmark-vs-golden"
+    assert captured["no_upload"] is True
+    assert "label_studio_url" not in captured
+    assert "label_studio_api_key" not in captured
     assert captured["epub_extractor"] == "legacy"
     assert mode_prompts
     assert any("offline, no upload" in title for title in mode_prompts[0])
     assert any("All method benchmark" in title for title in mode_prompts[0])
+    assert not any("uploads to Label Studio" in title for title in mode_prompts[0])
 
 
 def test_interactive_benchmark_single_offline_mode_skips_credentials(
@@ -1219,7 +1212,7 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
 ) -> None:
     configured_output = tmp_path / "custom-output"
     golden_root = tmp_path / "golden"
-    menu_answers = iter(["labelstudio_benchmark", "global", "single_offline", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "single_offline", "global", "exit"])
 
     monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
@@ -1247,10 +1240,10 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
 
-    assert captured["output_dir"] == golden_root
+    assert captured["output_dir"] == golden_root / "benchmark-vs-golden"
     eval_output_dir = captured["eval_output_dir"]
     assert isinstance(eval_output_dir, Path)
-    assert eval_output_dir.parent == golden_root / "eval-vs-pipeline"
+    assert eval_output_dir.parent == golden_root / "benchmark-vs-golden"
     assert captured["no_upload"] is True
     assert "allow_labelstudio_write" not in captured
     assert "label_studio_url" not in captured
@@ -1297,13 +1290,13 @@ def test_interactive_generate_dashboard_prompts_and_opens_browser(
     assert confirm_messages == ["Open dashboard in your browser after generation?"]
     assert captured["output_root"] == configured_output
     assert captured["golden_root"] == golden_root
-    assert captured["out_dir"] == configured_output / ".history" / "dashboard"
+    assert captured["out_dir"] == configured_output.parent / ".history" / "dashboard"
     assert captured["open_browser"] is True
     assert captured["since_days"] is None
     assert captured["scan_reports"] is False
 
 
-def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_upload_flow(
+def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_offline_flow(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     golden_root = tmp_path / "golden"
@@ -1314,13 +1307,15 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_upload_f
     gold_spans.parent.mkdir(parents=True, exist_ok=True)
     gold_spans.write_text("{}\n", encoding="utf-8")
 
-    menu_answers = iter(["labelstudio_benchmark", "global", "single_upload", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "single_offline", "global", "exit"])
     mode_prompt_count = 0
+    mode_titles: list[str] = []
 
     def fake_menu_select(prompt: str, *_args, **_kwargs):
         nonlocal mode_prompt_count
         if prompt == "How would you like to evaluate?":
             mode_prompt_count += 1
+            mode_titles.extend(str(choice.title) for choice in _kwargs.get("choices", []))
         return next(menu_answers)
 
     monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
@@ -1330,7 +1325,9 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_upload_f
     monkeypatch.setattr(
         cli,
         "_resolve_interactive_labelstudio_settings",
-        lambda _settings: ("http://localhost:8080", "benchmark-key"),
+        lambda _settings: (_ for _ in ()).throw(
+            AssertionError("Offline benchmark mode should not resolve Label Studio credentials.")
+        ),
     )
     monkeypatch.setattr(cli, "_discover_freeform_gold_exports", lambda *_: [gold_spans])
     monkeypatch.setattr(cli, "_discover_prediction_runs", lambda *_: [pred_run])
@@ -1350,8 +1347,10 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_upload_f
 
     assert eval_calls == []
     assert len(benchmark_calls) == 1
-    assert benchmark_calls[0]["output_dir"] == golden_root
+    assert benchmark_calls[0]["output_dir"] == golden_root / "benchmark-vs-golden"
+    assert benchmark_calls[0]["no_upload"] is True
     assert mode_prompt_count == 1
+    assert not any("uploads to Label Studio" in title for title in mode_titles)
 
 
 def test_interactive_labelstudio_export_routes_to_export_command(
@@ -1387,7 +1386,7 @@ def test_interactive_labelstudio_export_routes_to_export_command(
 
     assert captured["project_name"] == "Bench Project"
     assert captured["export_scope"] == "freeform-spans"
-    assert captured["output_dir"] == selected_output
+    assert captured["output_dir"] == selected_output / "pulled-from-labelstudio"
 
 
 def test_interactive_labelstudio_export_selects_project_before_scope(
@@ -1948,10 +1947,15 @@ def test_run_all_method_benchmark_writes_ranked_summary(
     gold_spans = tmp_path / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
 
+    captured_processed_dirs: list[Path] = []
+
     def fake_labelstudio_benchmark(**kwargs):
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
         eval_output_dir.mkdir(parents=True, exist_ok=True)
+        processed_output_dir = kwargs["processed_output_dir"]
+        assert isinstance(processed_output_dir, Path)
+        captured_processed_dirs.append(processed_output_dir)
         extractor = str(kwargs.get("epub_extractor") or "")
         f1 = 0.82 if extractor == "markdown" else 0.40
         report = {
@@ -1984,6 +1988,7 @@ def test_run_all_method_benchmark_writes_ranked_summary(
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
 
+    processed_root = tmp_path / "processed-output"
     report_md_path = cli._run_all_method_benchmark(
         gold_spans_path=gold_spans,
         source_file=source_file,
@@ -1991,6 +1996,7 @@ def test_run_all_method_benchmark_writes_ranked_summary(
         include_codex_farm_requested=False,
         include_codex_farm_effective=False,
         root_output_dir=tmp_path / "all-method",
+        processed_output_root=processed_root,
         overlap_threshold=0.5,
         force_source_match=False,
     )
@@ -2003,12 +2009,87 @@ def test_run_all_method_benchmark_writes_ranked_summary(
     assert payload["winner_by_f1"]["run_config_hash"] == "hash-markdown"
     assert payload["variants"][0]["rank"] == 1
     assert payload["variants"][0]["run_config_hash"] == "hash-markdown"
+    assert captured_processed_dirs
+    for processed_dir in captured_processed_dirs:
+        assert str(processed_dir).startswith(str(processed_root))
+
+
+def test_interactive_all_method_benchmark_uses_timestamped_output_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "Book Name.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    benchmark_eval_output = tmp_path / "golden" / "2026-02-24_01.02.03"
+    processed_output_root = tmp_path / "output"
+    source_slug = cli.slugify_name(source_file.stem)
+
+    monkeypatch.setattr(
+        cli,
+        "_resolve_benchmark_gold_and_source",
+        lambda **_kwargs: (gold_spans, source_file),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_build_all_method_variants",
+        lambda **_kwargs: [
+            cli.AllMethodVariant(
+                slug="extractor_unstructured",
+                run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+                dimensions={"epub_extractor": "unstructured"},
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        cli,
+        "_resolve_all_method_codex_choice",
+        lambda _include_requested: (False, None),
+    )
+
+    confirm_answers = iter([False, True])
+    monkeypatch.setattr(
+        cli,
+        "_prompt_confirm",
+        lambda *_args, **_kwargs: next(confirm_answers),
+    )
+
+    captured: dict[str, object] = {}
+    report_md_path = (
+        benchmark_eval_output
+        / "all-method-benchmark"
+        / source_slug
+        / "all_method_benchmark_report.md"
+    )
+
+    def fake_run_all_method_benchmark(**kwargs):
+        captured.update(kwargs)
+        return report_md_path
+
+    monkeypatch.setattr(
+        cli,
+        "_run_all_method_benchmark",
+        fake_run_all_method_benchmark,
+    )
+
+    cli._interactive_all_method_benchmark(
+        selected_benchmark_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+    )
+
+    assert captured["processed_output_root"] == (
+        processed_output_root
+        / benchmark_eval_output.name
+        / "all-method-benchmark"
+        / source_slug
+    )
 
 
 def test_interactive_benchmark_all_method_mode_routes_to_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    menu_answers = iter(["labelstudio_benchmark", "global", "all_method", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "all_method", "global", "exit"])
     monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
     monkeypatch.setattr(cli, "_load_settings", lambda: {})
@@ -2035,3 +2116,4 @@ def test_interactive_benchmark_all_method_mode_routes_to_runner(
         cli._interactive_mode()
 
     assert "selected_benchmark_settings" in captured
+    assert captured["processed_output_root"] == cli.DEFAULT_INTERACTIVE_OUTPUT

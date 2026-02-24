@@ -10,11 +10,10 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from cookimport.parsing.epub_auto_select import selected_auto_score
+from cookimport.paths import history_csv_for_output
 
 _RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}$")
 _LEGACY_RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$")
-_HISTORY_FILENAME = "performance_history.csv"
-_HISTORY_DIRNAME = ".history"
 _BENCHMARK_CATEGORIES = {"benchmark_eval", "benchmark_prediction"}
 
 
@@ -145,7 +144,7 @@ class _BenchmarkBackfillContext:
 
 
 def history_path(out_dir: Path) -> Path:
-    return out_dir / _HISTORY_DIRNAME / _HISTORY_FILENAME
+    return history_csv_for_output(out_dir)
 
 
 def resolve_run_dir(run_dir: Path | None, out_dir: Path) -> Path | None:

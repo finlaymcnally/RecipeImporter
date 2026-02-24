@@ -400,7 +400,7 @@ Reporting/perf:
 - Report now includes `runConfig` for run-level knobs (including `epub_extractor`, unstructured parser/preprocess flags, worker counts, OCR settings, split sizes, and optional mapping/overrides paths).
 - Report can include `outputStats` (counts/bytes/largest files by category).
 - Stage appends per-file summary rows into:
-  - `data/output/.history/performance_history.csv`
+  - `data/.history/performance_history.csv`
 
 Provenance and IDs:
 - Provenance stores original source filename (with extension).

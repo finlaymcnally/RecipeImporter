@@ -56,7 +56,7 @@ Legend:
   |
   +--> [F] Label Studio export ------------> run_labelstudio_export(...) -> [C]
   |
-  +--> [H] Benchmark vs freeform gold -----> mode picker ------------------> (single upload run OR all-method offline sweep) -> [C]
+  +--> [H] Benchmark vs freeform gold -----> mode picker ------------------> (single offline run OR all-method offline sweep) -> [C]
   |
   +--> [I] Generate dashboard -------------> stats-dashboard -------------> [C]
   |
@@ -179,7 +179,7 @@ Developer note:
    - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`
    - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
 4. Calls `stage(...)` using the full selected run settings payload (workers/OCR/extractor + LLM/codex-farm knobs).
-5. Saves selected settings to `<output_dir>/.history/last_run_settings_import.json` after a successful run.
+5. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_import.json` after a successful run.
 6. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
 7. Prints `Outputs written to: <run_folder>`.
 8. Returns to the main menu after successful import.
@@ -215,7 +215,7 @@ Developer note:
    - It prepares text/chunk or block/segment tasks based on your scope choice.
    - Before per-task AI labeling starts, it runs a single Codex model-access preflight call and fails fast when the selected model/account combination is invalid.
    - A status spinner shows live phase updates with `task X/Y` progress for known-size loops (including freeform prelabeling when AI prelabel is enabled), adds ETA once enough `X/Y` progress is observed, and shows per-worker activity lines under the main status when worker telemetry is available.
-   - It writes run files under `data/golden`:
+   - It writes run files under `data/golden/sent-to-labelstudio`:
    - `label_studio_tasks.jsonl`
    - `coverage.json`
    - `extracted_archive.json`
@@ -244,29 +244,24 @@ Developer note:
 3. Falls back to manual project-name entry when project discovery fails (or no projects exist).
 4. Uses the selected project's detected type as `export_scope` when available.
    - If the selected project type is `unknown` (or project name is typed manually), interactive mode prompts for `export_scope` (`pipeline`, `canonical-blocks`, `freeform-spans`).
-5. Calls `run_labelstudio_export(...)` with `output_dir=data/golden`.
-   - By default, export writes to: `data/golden/<project_slug>/exports/`.
+5. Calls `run_labelstudio_export(...)` with `output_dir=data/golden/pulled-from-labelstudio`.
+   - By default, export writes to: `data/golden/pulled-from-labelstudio/<project_slug>/exports/`.
    - If `--run-dir` is supplied in non-interactive mode, export writes to that run directory.
 6. Prints export summary path and returns to the main menu.
 
 ### [H] Benchmark vs Freeform Gold Flow
 
-Interactive benchmark now has a mode submenu after run settings selection:
+Interactive benchmark now has a mode submenu before run settings selection:
 
-1. Shows benchmark `Run settings` mode picker (`global` / `last benchmark` / `change`), using the same editor flow as Import.
-2. Shows benchmark mode picker:
+1. Shows benchmark mode picker:
    - `Generate predictions + evaluate (offline, no upload)` (default first choice)
-   - `Generate predictions + evaluate (uploads to Label Studio)` (explicit opt-in)
    - `All method benchmark (offline, no upload)`
+2. Shows benchmark `Run settings` mode picker (`global` / `last benchmark` / `change`), using the same editor flow as Import.
 3. Single offline path:
    - calls `labelstudio-benchmark` once with `--no-upload`,
    - does not resolve Label Studio credentials,
-   - writes eval artifacts under `data/golden/eval-vs-pipeline/<timestamp>/`.
-4. Upload mode path:
-   - resolves Label Studio credentials (`env` first, then saved `cookimport.json`, then prompt),
-   - calls `labelstudio-benchmark` once with upload enabled (`allow_labelstudio_write=True`),
-   - writes eval artifacts under `data/golden/eval-vs-pipeline/<timestamp>/`.
-5. All method path:
+   - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/`.
+4. All method path:
    - prompts for gold export and source file,
    - prints full permutation count before running,
    - asks whether to include Codex Farm permutations (default `No`; currently remains disabled by policy lock),
@@ -274,8 +269,11 @@ Interactive benchmark now has a mode submenu after run settings selection:
    - runs each config offline (`--no-upload`) and writes per-config eval artifacts plus:
      - `all_method_benchmark_report.json`
      - `all_method_benchmark_report.md`
-6. Saves selected settings to `<output_dir>/.history/last_run_settings_benchmark.json` after successful completion.
-7. Returns to the main menu on completion.
+   - writes per-config processed cookbook outputs under:
+     - `<interactive output_dir>/<benchmark_timestamp>/all-method-benchmark/<source_slug>/config_*/<prediction_timestamp>/...`
+   - prints `All method processed outputs: ...` with that root path.
+5. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_benchmark.json` after successful completion.
+6. Returns to the main menu on completion.
 
 For re-scoring an existing prediction run directly, use `cookimport labelstudio-eval`. For offline single-run benchmarking, use non-interactive `cookimport labelstudio-benchmark --no-upload`.
 
@@ -283,7 +281,7 @@ For re-scoring an existing prediction run directly, use `cookimport labelstudio-
 
 1. Prompts `Open dashboard in your browser after generation?`.
 2. Runs `stats-dashboard` using the interactive `output_dir` setting as `--output-root`.
-3. Writes dashboard files to `<output_dir>/.history/dashboard`.
+3. Writes dashboard files to `<output_dir_parent>/.history/dashboard`.
 4. Opens `index.html` automatically when you answer `Yes`.
 5. Returns to the main menu on completion.
 
@@ -478,7 +476,7 @@ What it does:
 
 Options:
 
-- `--out-dir PATH` (default `data/output`): used to resolve default CSV path (`<out-dir>/.history/performance_history.csv`).
+- `--out-dir PATH` (default `data/output`): used to resolve default CSV path (`<out-dir parent>/.history/performance_history.csv`).
 - `--history-csv PATH`: explicit CSV path override.
 - `--dry-run` (default `false`): report how many rows would be patched without writing.
 
@@ -490,7 +488,7 @@ Options:
 
 - `--output-root PATH` (default `data/output`): staged import root.
 - `--golden-root PATH` (default `data/golden`): benchmark/golden artifacts root.
-- `--out-dir PATH` (default `data/output/.history/dashboard`): dashboard output directory.
+- `--out-dir PATH` (default `data/.history/dashboard`): dashboard output directory.
 - `--open` (default `false`): opens generated HTML in default browser.
 - `--since-days INTEGER`: include only recent runs.
 - `--scan-reports` (default `false`): force scanning per-file report JSON instead of cached summaries.
@@ -506,7 +504,7 @@ Arguments:
 
 Options:
 
-- `--output-dir PATH` (default `data/golden`): artifact root.
+- `--output-dir PATH` (default `data/golden/sent-to-labelstudio`): artifact root.
 - `--pipeline TEXT` (default `auto`): importer selection.
 - `--project-name TEXT`: explicit Label Studio project name.
 - `--chunk-level TEXT` (default `both`): `structural|atomic|both`.
@@ -548,7 +546,7 @@ Exports completed labels to golden-set artifacts.
 Options:
 
 - `--project-name TEXT` (required): Label Studio project name.
-- `--output-dir PATH` (default `data/golden`): output root.
+- `--output-dir PATH` (default `data/golden/pulled-from-labelstudio`): output root.
 - `--run-dir PATH`: export from a specific run directory.
 - `--export-scope TEXT` (default `pipeline`): `pipeline|canonical-blocks|freeform-spans`.
 - `--label-studio-url TEXT`: explicit Label Studio URL.
@@ -580,13 +578,13 @@ Behavior note:
 - Non-interactive upload path: generates predictions, uploads to Label Studio, then evaluates.
 - Non-interactive offline path: `--no-upload` generates predictions locally and evaluates with no Label Studio credentials/API calls.
 - Re-scoring an old prediction run without regeneration is still done with `cookimport labelstudio-eval --pred-run ... --gold-spans ...`.
-- Interactive mode (`cookimport` -> Benchmark) always generates fresh predictions, uploads, and evaluates.
+- Interactive mode (`cookimport` -> Benchmark) always runs offline benchmark generation/eval (`single offline` or `all method`).
 
 Options:
 
 - `--gold-spans PATH`: freeform gold file; if omitted, prompt from discovered exports.
 - `--source-file PATH`: source file to re-import for predictions; if omitted, prompt/infer.
-- `--output-dir PATH` (default `data/golden`): scratch root for prediction import artifacts.
+- `--output-dir PATH` (default `data/golden/benchmark-vs-golden`): scratch root for prediction import artifacts.
 - `--processed-output-dir PATH` (default `data/output`): root for staged cookbook outputs generated during benchmark.
 - `--eval-output-dir PATH`: destination for benchmark report artifacts.
 - `--overlap-threshold FLOAT 0..1` (default `0.5`): match threshold.

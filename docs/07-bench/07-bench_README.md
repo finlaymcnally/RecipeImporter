@@ -166,7 +166,7 @@ Outputs:
 |---|---:|---:|---|
 | `cookimport stage` | No | No | N/A |
 | `cookimport labelstudio-benchmark` | Optional (upload mode only; `--allow-labelstudio-write`) | Yes | `label_studio_tasks.jsonl` from prediction run |
-| Interactive benchmark menu flow | Mode-dependent (`upload`: Yes, `all method`: No) | Yes | `label_studio_tasks.jsonl` from one or more `labelstudio-benchmark` runs |
+| Interactive benchmark menu flow | No (always offline) | Yes | `label_studio_tasks.jsonl` from one or more `labelstudio-benchmark` runs |
 | `cookimport bench run` | No | Yes | `label_studio_tasks.jsonl` from offline pred run |
 
 ## 8. Common confusion points
@@ -182,9 +182,8 @@ If you want no Label Studio side effects, use:
 - `labelstudio-benchmark --no-upload`, or
 - `cookimport bench run`.
 
-Interactive benchmark from the main menu now has three modes:
+Interactive benchmark from the main menu is now offline-only, with two modes:
 - single offline mode (one local eval run, no upload),
-- upload mode (one upload+eval run),
 - all-method mode (offline multi-config sweep, no upload).
 
 ### 8.3 "Why did split conversion fail with pickling?"

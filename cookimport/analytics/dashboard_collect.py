@@ -5,8 +5,8 @@ All collectors are **read-only** – they never write into ``data/output`` or
 
 Primary data sources
 --------------------
-* ``data/output/.history/performance_history.csv`` (stage/import trends)
-* ``data/golden/eval-vs-pipeline/*/eval_report.json`` (benchmark evals)
+* ``data/.history/performance_history.csv`` (stage/import trends)
+* ``data/golden/benchmark-vs-golden/*/eval_report.json`` (benchmark evals)
 
 Fallback
 --------
@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from cookimport.parsing.epub_auto_select import selected_auto_score
+from cookimport.paths import history_csv_for_output
 
 from .dashboard_schema import (
     BenchmarkLabelMetrics,
@@ -44,7 +45,6 @@ _TS_DIR_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2})[_](\d{2})[.:](\d{2})[.:](\d{2})$"
 )
 
-_HISTORY_CSV = ".history/performance_history.csv"
 _JOB_PARTS = ".job_parts"
 _PREDICTION_RUN = "prediction-run"
 _PYTEST_RUN_SEGMENT_RE = re.compile(r"^pytest-\d+$")
@@ -1281,7 +1281,11 @@ def collect_dashboard_data(
     cutoff = _compute_cutoff(since_days)
 
     # -- Stage + benchmark records from CSV --
-    csv_path = output_root / _HISTORY_CSV
+    csv_path = history_csv_for_output(output_root)
+    if not csv_path.exists():
+        legacy_csv_path = output_root / ".history" / "performance_history.csv"
+        if legacy_csv_path.exists():
+            csv_path = legacy_csv_path
     stage_records: list[StageRecord] = []
     csv_bench_records: list[BenchmarkRecord] = []
 

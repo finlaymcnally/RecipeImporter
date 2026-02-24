@@ -75,8 +75,10 @@ START
 |
 `-- Output roots
     |-- Stage/import runs: `data/output/<YYYY-MM-DD_HH.MM.SS>/`
-    |-- Label Studio import/benchmark prediction runs: `data/golden/<YYYY-MM-DD_HH.MM.SS>/labelstudio/<book_slug>/`
-    `-- Label Studio exports: `data/golden/<project_slug>/exports/`
+    |-- Label Studio task-generation runs: `data/golden/sent-to-labelstudio/<YYYY-MM-DD_HH.MM.SS>/labelstudio/<book_slug>/`
+    |-- Label Studio exports: `data/golden/pulled-from-labelstudio/<project_slug>/exports/`
+    |-- Benchmark/eval runs: `data/golden/benchmark-vs-golden/<YYYY-MM-DD_HH.MM.SS>/`
+    `-- Shared history + dashboard: `data/.history/`
 ```
 
 > README goal (for humans and future AIs editing this file)
@@ -222,11 +224,11 @@ Main Menu ("What would you like to do?")
 |-- Generate predictions + evaluate vs freeform gold
 |   |-- Choose benchmark run settings
 |   |-- Label Studio URL + API key (if needed)
-|   `-- Writes evaluation artifacts under data/golden/eval-vs-pipeline/<YYYY-MM-DD_HH.MM.SS>/
+|   `-- Writes evaluation artifacts under data/golden/benchmark-vs-golden/<YYYY-MM-DD_HH.MM.SS>/
 |
 |-- Generate dashboard - build lifetime stats dashboard HTML
 |   |-- Open dashboard in your browser after generation?
-|   `-- Writes to <output_dir>/.history/dashboard/
+|   `-- Writes to <output_dir_parent>/.history/dashboard/
 |
 |-- Settings - tune worker/OCR/output defaults
 |   `-- Settings Configuration
@@ -392,7 +394,7 @@ Generate predictions + evaluate vs freeform gold
 
 ### Generate Dashboard
 
-This builds a static HTML dashboard of run history under `<output_dir>/.history/dashboard/`.
+This builds a static HTML dashboard of run history under `<output_dir_parent>/.history/dashboard/`.
 
 Sub-prompt you will see:
 - "Open dashboard in your browser after generation?" (Yes/No)
@@ -543,7 +545,7 @@ Open `http://localhost:8080` in your browser and create/get your API token.
 The tool writes local artifacts under:
 
 ```text
-data/golden/
+data/golden/sent-to-labelstudio/
 ```
 
 Note: Label Studio URL and API key can be saved in `cookimport.json`. Treat the API key like a password.

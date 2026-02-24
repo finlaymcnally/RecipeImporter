@@ -1,7 +1,7 @@
 Performance reporting utilities live here.
 
 - Reads per-run conversion reports and prints one-line, per-file timing summaries.
-- Appends run history to `data/output/.history/performance_history.csv` for easy trending.
+- Appends run history to `data/.history/performance_history.csv` for easy trending.
 - Invoked by `cookimport perf-report` and auto-runs after `cookimport stage`.
 - Includes `cookimport benchmark-csv-backfill` to patch older benchmark rows from manifest/report artifacts.
 - Includes standalone topic coverage (`totalStandaloneBlocks`, `totalStandaloneTopicBlocks`, `standaloneTopicCoverage`) when available.
@@ -20,16 +20,16 @@ Modules:
 - `dashboard_render.py` – Writes `index.html` + local JS/CSS/JSON assets
 
 Data sources (read-only):
-- `data/output/.history/performance_history.csv` (primary for stage records)
+- `data/.history/performance_history.csv` (primary for stage records)
 - `data/output/<timestamp>/*.excel_import_report.json` (fallback with `--scan-reports`)
-- `data/golden/eval-vs-pipeline/*/eval_report.json` (benchmarks)
+- `data/golden/benchmark-vs-golden/*/eval_report.json` (benchmarks)
 - benchmark enrichment from `manifest.json` / `coverage.json` at eval root or `prediction-run/`
   (includes source/importer/run-config context when available)
 
-Output: `data/output/.history/dashboard/` (configurable via `--out-dir`)
-- Always writes `data/output/.history/dashboard/all-method-benchmark.html` as an in-site page.
+Output: `data/.history/dashboard/` (configurable via `--out-dir`)
+- Always writes `data/.history/dashboard/all-method-benchmark.html` as an in-site page.
 - For grouped all-method runs, also writes detail pages at dashboard root:
-  - `data/output/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html`
+  - `data/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html`
 - Grouping key remains benchmark artifact paths matching `all-method-benchmark/<source_slug>/config_*`.
 
 Throughput dashboard organization:

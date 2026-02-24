@@ -56,7 +56,11 @@ Interactive file discovery and direct staging intentionally differ:
 - Callback-driven CLI spinners (`labelstudio` import, benchmark import, bench run/sweep) should append elapsed seconds after prolonged unchanged phases (default threshold: 10s) so users can see that work is still running when a phase message is stale. When status text includes `<noun> X/Y`, the same spinner path should estimate ETA as average seconds-per-unit times remaining units. When worker telemetry is emitted, render per-worker activity lines under the main spinner status.
 - Progress callback plumbing is telemetry-only: exceptions raised by UI/status callbacks must be logged and ignored (never allowed to abort extraction, task generation, or upload flows).
 - Interactive `labelstudio` export resolves credentials first, then lists project titles from Label Studio for selection, with manual entry fallback when discovery is unavailable. If the selected project has a detected task type, export uses that scope automatically and skips the separate scope prompt.
-- Label Studio export (interactive and non-interactive) writes to a stable project root by default: `data/golden/<project_slug>/exports/...`; it uses prior manifests for project/scope resolution, not for export destination. `--run-dir` still forces export into a specific run.
+- Golden workflow roots are split by purpose:
+  - Label Studio task-generation/import artifacts: `data/golden/sent-to-labelstudio/<timestamp>/...`
+  - Label Studio export artifacts: `data/golden/pulled-from-labelstudio/<project_slug>/exports/...`
+  - Benchmark/eval artifacts: `data/golden/benchmark-vs-golden/<timestamp>/...`
+- Label Studio export (interactive and non-interactive) writes to a stable project root by default: `data/golden/pulled-from-labelstudio/<project_slug>/exports/...`; it uses prior manifests for project/scope resolution, not for export destination. `--run-dir` still forces export into a specific run.
 - Interactive main menu is persistent: successful `import`, `labelstudio`, `labelstudio_export`, and `labelstudio_benchmark` actions all return to the main menu. The session exits only when the user selects `Exit`.
 - Interactive select menus should be wired through `_menu_select` so numbering, shortcuts, and Esc-go-back behavior remain consistent.
 - Interactive typed prompts in CLI flows should use `_prompt_text`, `_prompt_confirm`, or `_prompt_password` so `Esc` consistently maps to one-level back/cancel behavior.
@@ -65,14 +69,14 @@ Interactive file discovery and direct staging intentionally differ:
 - Interactive Import and interactive benchmark both go through a per-run settings chooser (`global defaults`, `last run settings`, `change run settings`) before execution.
 - Interactive benchmark (`labelstudio_benchmark`) now has a mode submenu:
   - single offline mode (default first choice): one local evaluate run with `no_upload=True` (no Label Studio credential resolution, no upload),
-  - upload mode: one upload+evaluate run (must resolve credentials and pass `allow_labelstudio_write=True`),
   - all-method mode: offline permutation sweep (no Label Studio credential resolution, no upload).
+- Interactive benchmark asks for mode before the benchmark run-settings chooser.
 - Interactive all-method benchmark must print full run-count before execution, default Codex Farm inclusion prompt to `No`, and require an explicit proceed confirmation before running N configs.
 - Freeform benchmark/reporting contract now exposes two metric tracks everywhere (eval JSON/MD, bench reports, CSV history, dashboard): Practical/content-overlap (`practical_*`) and Strict/localization IoU (`precision/recall/f1`), with strict semantics unchanged.
 - Benchmark upload should pass `auto_project_name_on_scope_mismatch=True` into `run_labelstudio_import(...)` so auto-named benchmark projects recover by suffixing project titles instead of failing on prior freeform/canonical scope collisions.
 - Typer command functions that are called directly from Python (interactive helpers/tests) must keep runtime defaults as plain Python values, typically via `Annotated[..., typer.Option(...)] = <default>`; avoid relying on `param: T = typer.Option(...)` defaults in those call paths.
 - If a command still uses `param: T = typer.Option(...)` defaults (legacy signatures), unwrap `OptionInfo` values to plain defaults at function entry before validation/normalization.
-- Interactive `generate_dashboard` asks whether to open the dashboard in a browser, then runs `stats_dashboard(output_root=<settings.output_dir>, out_dir=<output_root>/.history/dashboard)` and returns to the main menu.
+- Interactive `generate_dashboard` asks whether to open the dashboard in a browser, then runs `stats_dashboard(output_root=<settings.output_dir>, out_dir=<output_root_parent>/.history/dashboard)` and returns to the main menu.
 - Interactive `epub_race` is a main-menu action shown only when top-level `data/input` includes at least one `.epub`; it prompts for output/candidates (default output root: `data/output/EPUBextractorRace/<book_stem>`), then runs `cookimport epub race` behavior and returns to the menu.
 - EPUB debug tooling lives under `cookimport epub ...` (sub-CLI module `cookimport/epubdebug`), and block/candidate debug commands must reuse production EPUB importer internals (`_extract_docpack`, `_detect_candidates`) to preserve stage/debug parity.
 
@@ -90,7 +94,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - `stage(...)` should pass per-file effective extractor choices explicitly to workers (`stage_one_file` / `stage_epub_job`) instead of depending on persistent process-wide `C3IMP_EPUB_EXTRACTOR`.
 - `cookimport/cli_ui/run_settings_flow.py` and `cookimport/cli_ui/toggle_editor.py` must derive editor rows/options from `RunSettings` metadata; do not maintain a separate hard-coded field list.
 - `cookimport/cli_ui/toggle_editor.py` must keep the selected row in view for long lists (cursor-tracked viewport scrolling), so benchmark/LLM-heavy settings menus remain navigable in small terminals.
-- Last-run snapshots are stored in `<output_dir>/.history/last_run_settings_{import|benchmark}.json` via `cookimport/config/last_run_store.py`.
+- Last-run snapshots are stored in `<output_dir_parent>/.history/last_run_settings_{import|benchmark}.json` via `cookimport/config/last_run_store.py` (legacy `<output_dir>/.history/...` is read-only fallback for migration).
 - Schema evolution contract for stored run settings: missing keys default, unknown keys are ignored (warn once), and corrupt payloads degrade to `None` (treated as no saved run settings).
 - codex-farm knobs (`llm_recipe_pipeline`, `llm_knowledge_pipeline`, `codex_farm_cmd`, `codex_farm_root`, `codex_farm_workspace_root`, `codex_farm_pipeline_pass1`, `codex_farm_pipeline_pass2`, `codex_farm_pipeline_pass3`, `codex_farm_pipeline_pass4_knowledge`, `codex_farm_context_blocks`, `codex_farm_knowledge_context_blocks`, `codex_farm_failure_mode`) must be wired through stage and benchmark prediction-generation paths, and persisted in run-config surfaces (manifest/report/history).
 - `llm_recipe_pipeline` is policy-locked to `off` (recipe codex-farm parsing correction is TURNED OFF and must remain TURNED OFF until benchmark quality materially improves); CLI/pred-run input normalization should reject non-`off` values with an explicit policy message.
@@ -139,7 +143,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - Prelabel runs should perform one model-access preflight probe before task loops; account/model mismatches should fail once up front with provider detail.
 - Codex JSON `turn.failed` errors must be surfaced as provider failures (not collapsed into generic "no labels produced" parse misses).
 - Token usage accounting for prelabel is always on and should be persisted as aggregate totals in `prelabel_report.json` (including resolved command/account metadata) without changing annotation semantics; capture `reasoning_tokens` when present in Codex usage payloads.
-- Prelabel runs must persist `prelabel_prompt_log.md` in the run root (`data/golden/<timestamp>/labelstudio/<book_slug>/`) with one section per prompt containing full prompt text and prompt-context metadata/description for auditing.
+- Prelabel runs must persist `prelabel_prompt_log.md` in the run root (`data/golden/sent-to-labelstudio/<timestamp>/labelstudio/<book_slug>/`) with one section per prompt containing full prompt text and prompt-context metadata/description for auditing.
 
 ## Dependency Resolution Rule
 
@@ -174,7 +178,8 @@ When debugging "file missing from menu" reports, check whether the file is neste
 
 ## Benchmark Contract Rule
 
-- Freeform benchmark scoring (`labelstudio-benchmark`, interactive benchmark upload/all-method modes, and `bench run`) evaluates prediction task artifacts (`label_studio_tasks.jsonl`) against freeform gold spans (`freeform_span_labels.jsonl`), not staged cookbook outputs; optional processed outputs written during benchmark are review artifacts only.
+- Freeform benchmark scoring (`labelstudio-benchmark`, interactive benchmark single-offline/all-method modes, and `bench run`) evaluates prediction task artifacts (`label_studio_tasks.jsonl`) against freeform gold spans (`freeform_span_labels.jsonl`), not staged cookbook outputs; optional processed outputs written during benchmark are review artifacts only.
+- Interactive all-method benchmark must keep processed cookbook outputs under the interactive stage output root (`<settings.output_dir>/<benchmark_timestamp>/all-method-benchmark/<source_slug>/config_*/<prediction_timestamp>/...`, defaulting to `data/output/...`), not under the golden eval root.
 - `labelstudio-benchmark` currently generates prediction tasks with `task_scope="pipeline"`; if pipeline chunk locations are recipe-wide (not line-precise), strict freeform IoU (`>=0.5`) can collapse to near-zero even when `classification_only` / any-overlap coverage is high and staged outputs look good.
 - Freeform eval dedupes overlapping gold spans by default before scoring using `(source_hash, source_file, start_block_index, end_block_index)` keys. If duplicate groups disagree on label, use majority-vote label resolution; if label counts tie, drop that gold group from scoring and report it in `eval_report.json` `gold_dedupe.conflicts`.
 - Freeform golden recipe count source-of-truth is `exports/summary.json` -> `recipe_counts.recipe_headers`, derived from deduped `RECIPE_TITLE` spans by block range. Benchmark/eval reports should surface this against predicted recipe counts from prediction-run context.
@@ -185,7 +190,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 ## Analytics Caveats
 
 - `perf_report.resolve_run_dir()` must accept both timestamp folder styles (`YYYY-MM-DD_HH.MM.SS` and legacy `YYYY-MM-DD-HH-MM-SS`) and choose the latest parsed run directory.
-- Stage history append must target the actual chosen stage root (`<stage --out>/.history/performance_history.csv`), not a hard-coded default output folder.
+- Stage history append must target the actual chosen stage root's history sibling (`<stage --out parent>/.history/performance_history.csv`), not a hard-coded default output folder.
 - Dashboard `index.html` embeds dashboard JSON inline (in addition to `assets/dashboard_data.json`) so opening via `file://` works even when browser local `fetch()` is blocked.
 - Dashboard timestamp ordering (recent runs/benchmarks and latest benchmark picks) must parse timestamps before sorting because history mixes `YYYY-MM-DDTHH:MM:SS` and `YYYY-MM-DD_HH.MM.SS` formats.
 - Dashboard frontend timestamp parsing should explicitly parse timestamp components for those two canonical formats; avoid relying only on `Date.parse(...)` for local `file://` dashboards.
@@ -197,7 +202,7 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - Dashboard `Recent Benchmarks` `Gold`/`Matched` columns are freeform span-eval counts (`gold_total`/`gold_matched`), not recipe totals; benchmark `recipes` is stored in CSV when available and can be backfilled from `processed_report_path`.
 - Dashboard metrics contract is CSV-first: every stat shown in `stats-dashboard` must be written to `performance_history.csv`; JSON report scans are fallback/backfill only.
 - Standalone dashboard pages for all-method sweeps must also remain CSV-first: group benchmark rows by `run_dir`/`artifact_dir` paths containing `all-method-benchmark/<source_slug>/config_*` and rank configs from those CSV-backed benchmark metrics.
-- Dashboard should always emit an in-site all-method root page at `data/output/.history/dashboard/all-method-benchmark.html` (empty-state included); per-run all-method detail pages live as sibling files in the same dashboard root.
+- Dashboard should always emit an in-site all-method root page at `data/.history/dashboard/all-method-benchmark.html` (empty-state included); per-run all-method detail pages live as sibling files in the same dashboard root.
 - All-method detail pages should keep a compact stats-only summary block and per-metric bar-chart blocks ahead of the full ranked configuration table for quick scanability.
 - Ranked all-method rows should expose explicit dimension fields (`Extractor`, `Parser`, `Skip HF`, `Preprocess`) so users can compare configuration differences without parsing slug strings.
 - Run-config metrics contract is `run_config_hash` + `run_config_summary` + `run_config_json` in CSV. Dashboard UI should display summary/hash first and use JSON/report fallback only when CSV context is incomplete.

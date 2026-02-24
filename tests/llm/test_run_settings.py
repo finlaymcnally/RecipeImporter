@@ -74,7 +74,7 @@ def test_last_run_store_round_trip_and_corrupt_recovery(tmp_path) -> None:
 
     assert loaded == original
 
-    store_path = output_root / ".history" / "last_run_settings_import.json"
+    store_path = output_root.parent / ".history" / "last_run_settings_import.json"
     store_path.write_text("{broken", encoding="utf-8")
     assert load_last_run_settings("import", output_root) is None
 

@@ -1,7 +1,7 @@
 ---
 summary: "How the stats dashboard is built, what data it reads, and what files it writes."
 read_when:
-  - When you need to know how data/output/.history/dashboard/index.html is generated
+  - When you need to know how data/.history/dashboard/index.html is generated
   - When debugging missing stats in the dashboard
 ---
 
@@ -9,8 +9,8 @@ read_when:
 
 ## What this generates
 
-`cookimport stats-dashboard` builds a static dashboard rooted at `data/output/.history/dashboard/`.
-Main entry point: `data/output/.history/dashboard/index.html`.
+`cookimport stats-dashboard` builds a static dashboard rooted at `data/.history/dashboard/`.
+Main entry point: `data/.history/dashboard/index.html`.
 
 ## How it works (collect -> render)
 
@@ -22,7 +22,7 @@ Main entry point: `data/output/.history/dashboard/index.html`.
 
 ### Primary source (stage + benchmark rows from CSV)
 
-`<output_root>/.history/performance_history.csv` (default `<output_root>` is `data/output`)
+`<output_root parent>/.history/performance_history.csv` (default `<output_root>` is `data/output`)
 
 This CSV is populated by:
 
@@ -43,8 +43,8 @@ Used when the CSV is missing, and also used as a supplement when `--scan-reports
 
 ### Benchmark JSON source
 
-- `data/golden/eval-vs-pipeline/*/eval_report.json`
-- `data/golden/eval-vs-pipeline/*/all-method-benchmark/*/config_*/eval_report.json`
+- `data/golden/benchmark-vs-golden/*/eval_report.json`
+- `data/golden/benchmark-vs-golden/*/all-method-benchmark/*/config_*/eval_report.json`
 - `data/golden/*/eval_report.json`
 
 Optional enrichment files in each eval directory:
@@ -65,16 +65,16 @@ Manifest enrichment now includes benchmark run context used by the dashboard:
 
 ## Where dashboard stats are saved
 
-Default `--out-dir` is `data/output/.history/dashboard`.
+Default `--out-dir` is `data/.history/dashboard`.
 
 The renderer writes:
 
-- `data/output/.history/dashboard/index.html`
-- `data/output/.history/dashboard/assets/dashboard_data.json`
-- `data/output/.history/dashboard/assets/dashboard.js`
-- `data/output/.history/dashboard/assets/style.css`
-- `data/output/.history/dashboard/all-method-benchmark.html` (always generated)
-- `data/output/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html` (one per all-method benchmark run, when present)
+- `data/.history/dashboard/index.html`
+- `data/.history/dashboard/assets/dashboard_data.json`
+- `data/.history/dashboard/assets/dashboard.js`
+- `data/.history/dashboard/assets/style.css`
+- `data/.history/dashboard/all-method-benchmark.html` (always generated)
+- `data/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html` (one per all-method benchmark run, when present)
 
 Notes:
 
@@ -148,6 +148,6 @@ Useful options:
 
 ## Known gotcha
 
-`cookimport stats-dashboard` reads stage/import history primarily from `<output_root>/.history/performance_history.csv`.
+`cookimport stats-dashboard` reads stage/import history primarily from `<output_root parent>/.history/performance_history.csv`.
 
 If you stage into a non-default output root (for example `cookimport stage --out /tmp/out`), build the dashboard with the matching root (for example `cookimport stats-dashboard --output-root /tmp/out`) so the collector reads the same history CSV and report folders you just produced.

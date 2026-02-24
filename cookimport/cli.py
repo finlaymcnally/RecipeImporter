@@ -112,21 +112,36 @@ app.add_typer(bench_app)
 
 from cookimport.tagging.cli import tag_catalog_app, tag_recipes_app  # noqa: E402
 from cookimport.epubdebug.cli import epub_app, race_epub_extractors  # noqa: E402
+from cookimport.paths import (
+    GOLDEN_BENCHMARK_ROOT,
+    GOLDEN_PULLED_FROM_LABELSTUDIO_ROOT,
+    GOLDEN_ROOT,
+    GOLDEN_SENT_TO_LABELSTUDIO_ROOT,
+    HISTORY_ROOT,
+    INPUT_ROOT,
+    OUTPUT_ROOT,
+    REPO_ROOT,
+    history_csv_for_output,
+    history_root_for_output,
+)
 app.add_typer(tag_catalog_app)
 app.add_typer(tag_recipes_app)
 app.add_typer(epub_app, name="epub")
 console = Console()
 logger = logging.getLogger(__name__)
 
-DEFAULT_INPUT = Path(__file__).parent.parent / "data" / "input"
-DEFAULT_OUTPUT = Path(__file__).parent.parent / "data" / "output"
+DEFAULT_INPUT = INPUT_ROOT
+DEFAULT_OUTPUT = OUTPUT_ROOT
 DEFAULT_INTERACTIVE_OUTPUT = DEFAULT_OUTPUT
 DEFAULT_EPUB_RACE_OUTPUT_ROOT = DEFAULT_OUTPUT / "EPUBextractorRace"
-DEFAULT_GOLDEN = Path(__file__).parent.parent / "data" / "golden"
+DEFAULT_GOLDEN = GOLDEN_ROOT
+DEFAULT_GOLDEN_SENT_TO_LABELSTUDIO = GOLDEN_SENT_TO_LABELSTUDIO_ROOT
+DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO = GOLDEN_PULLED_FROM_LABELSTUDIO_ROOT
+DEFAULT_GOLDEN_BENCHMARK = GOLDEN_BENCHMARK_ROOT
+DEFAULT_HISTORY = HISTORY_ROOT
 DEFAULT_BENCH_SUITES = DEFAULT_GOLDEN / "bench" / "suites"
 DEFAULT_BENCH_RUNS = DEFAULT_GOLDEN / "bench" / "runs"
-DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "cookimport.json"
-REPO_ROOT = Path(__file__).parent.parent
+DEFAULT_CONFIG_PATH = REPO_ROOT / "cookimport.json"
 BACK_ACTION = "__back__"
 DEFAULT_PRELABEL_TIMEOUT_SECONDS = 300
 SUPPORTED_LABELSTUDIO_TASK_SCOPES = {"pipeline", "canonical-blocks", "freeform-spans"}
@@ -183,6 +198,18 @@ _STATUS_ELAPSED_THRESHOLD_SECONDS = 10
 _STATUS_TICK_SECONDS = 1.0
 _STATUS_COUNTER_PATTERN = re.compile(r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)")
 _StatusReturn = TypeVar("_StatusReturn")
+
+
+def _golden_sent_to_labelstudio_root() -> Path:
+    return DEFAULT_GOLDEN / "sent-to-labelstudio"
+
+
+def _golden_pulled_from_labelstudio_root() -> Path:
+    return DEFAULT_GOLDEN / "pulled-from-labelstudio"
+
+
+def _golden_benchmark_root() -> Path:
+    return DEFAULT_GOLDEN / "benchmark-vs-golden"
 
 
 def _menu_option_count(choices: list[Any]) -> int:
@@ -884,6 +911,7 @@ def _interactive_all_method_benchmark(
     *,
     selected_benchmark_settings: RunSettings,
     benchmark_eval_output: Path,
+    processed_output_root: Path,
 ) -> None:
     resolved_inputs = _resolve_benchmark_gold_and_source(
         gold_spans=None,
@@ -963,6 +991,12 @@ def _interactive_all_method_benchmark(
         / "all-method-benchmark"
         / slugify_name(selected_source.stem)
     )
+    all_method_processed_root = (
+        processed_output_root
+        / benchmark_eval_output.name
+        / "all-method-benchmark"
+        / slugify_name(selected_source.stem)
+    )
     report_md_path = _run_all_method_benchmark(
         gold_spans_path=selected_gold,
         source_file=selected_source,
@@ -970,10 +1004,15 @@ def _interactive_all_method_benchmark(
         include_codex_farm_requested=include_codex_requested,
         include_codex_farm_effective=include_codex_effective,
         root_output_dir=all_method_root,
+        processed_output_root=all_method_processed_root,
         overlap_threshold=0.5,
         force_source_match=False,
     )
     typer.secho(f"All method benchmark report: {report_md_path}", fg=typer.colors.CYAN)
+    typer.secho(
+        f"All method processed outputs: {all_method_processed_root}",
+        fg=typer.colors.CYAN,
+    )
 
 
 def _interactive_mode(*, limit: int | None = None) -> None:
@@ -1068,7 +1107,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             stats_dashboard(
                 output_root=output_folder,
                 golden_root=DEFAULT_GOLDEN,
-                out_dir=output_folder / ".history" / "dashboard",
+                out_dir=history_root_for_output(output_folder) / "dashboard",
                 open_browser=bool(open_dashboard),
                 since_days=None,
                 scan_reports=False,
@@ -1484,7 +1523,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     source_name=selected_file.name,
                     run_import=lambda update_progress: run_labelstudio_import(
                         path=selected_file,
-                        output_dir=DEFAULT_GOLDEN,
+                        output_dir=_golden_sent_to_labelstudio_root(),
                         pipeline="auto",
                         project_name=project_name,
                         chunk_level=chunk_level,
@@ -1544,7 +1583,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             continue
 
         elif action == "labelstudio_export":
-            target_output_dir = DEFAULT_GOLDEN
+            target_output_dir = _golden_pulled_from_labelstudio_root()
 
             resolved_creds = _resolve_interactive_labelstudio_settings(settings)
             if resolved_creds is None:
@@ -1604,10 +1643,30 @@ def _interactive_mode(*, limit: int | None = None) -> None:
 
         elif action == "labelstudio_benchmark":
             benchmark_eval_output = (
-                DEFAULT_GOLDEN
-                / "eval-vs-pipeline"
+                _golden_benchmark_root()
                 / dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
             )
+
+            benchmark_mode = _menu_select(
+                "How would you like to evaluate?",
+                menu_help=(
+                    "Single offline mode runs one local prediction + eval against freeform gold "
+                    "without Label Studio upload. All method benchmark runs many offline "
+                    "permutations with one summary report."
+                ),
+                choices=[
+                    questionary.Choice(
+                        "Generate predictions + evaluate (offline, no upload)",
+                        value="single_offline",
+                    ),
+                    questionary.Choice(
+                        "All method benchmark (offline, no upload)",
+                        value="all_method",
+                    ),
+                ],
+            )
+            if benchmark_mode in {None, BACK_ACTION}:
+                continue
 
             benchmark_defaults = RunSettings.from_dict(
                 settings,
@@ -1631,34 +1690,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 fg=typer.colors.CYAN,
             )
 
-            benchmark_mode = _menu_select(
-                "How would you like to evaluate?",
-                menu_help=(
-                    "Single offline mode runs one local prediction + eval against freeform gold "
-                    "without Label Studio upload. Upload mode is opt-in when you specifically "
-                    "want benchmark tasks pushed to Label Studio. All method benchmark runs many "
-                    "offline permutations with one summary report."
-                ),
-                choices=[
-                    questionary.Choice(
-                        "Generate predictions + evaluate (offline, no upload)",
-                        value="single_offline",
-                    ),
-                    questionary.Choice(
-                        "Generate predictions + evaluate (uploads to Label Studio)",
-                        value="single_upload",
-                    ),
-                    questionary.Choice(
-                        "All method benchmark (offline, no upload)",
-                        value="all_method",
-                    ),
-                ],
-            )
-            if benchmark_mode in {None, BACK_ACTION}:
-                continue
-
             benchmark_kwargs = dict(
-                output_dir=DEFAULT_GOLDEN,
+                output_dir=_golden_benchmark_root(),
                 eval_output_dir=benchmark_eval_output,
                 epub_extractor=selected_benchmark_settings.epub_extractor.value,
                 epub_unstructured_html_parser_version=(
@@ -1689,18 +1722,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 codex_farm_failure_mode=selected_benchmark_settings.codex_farm_failure_mode.value,
             )
 
-            if benchmark_mode == "single_upload":
-                resolved_creds = _resolve_interactive_labelstudio_settings(settings)
-                if resolved_creds is None:
-                    continue
-                url, api_key = resolved_creds
-                labelstudio_benchmark(
-                    **benchmark_kwargs,
-                    allow_labelstudio_write=True,
-                    label_studio_url=url,
-                    label_studio_api_key=api_key,
-                )
-            elif benchmark_mode == "single_offline":
+            if benchmark_mode == "single_offline":
                 labelstudio_benchmark(
                     **benchmark_kwargs,
                     no_upload=True,
@@ -1709,6 +1731,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 _interactive_all_method_benchmark(
                     selected_benchmark_settings=selected_benchmark_settings,
                     benchmark_eval_output=benchmark_eval_output,
+                    processed_output_root=output_folder,
                 )
 
             save_last_run_settings("benchmark", output_folder, selected_benchmark_settings)
@@ -3078,14 +3101,14 @@ def _run_all_method_benchmark(
     include_codex_farm_requested: bool,
     include_codex_farm_effective: bool,
     root_output_dir: Path,
+    processed_output_root: Path,
     overlap_threshold: float,
     force_source_match: bool,
 ) -> Path:
     root_output_dir.mkdir(parents=True, exist_ok=True)
     scratch_root = root_output_dir / ".scratch"
-    processed_root = root_output_dir / "processed"
     scratch_root.mkdir(parents=True, exist_ok=True)
-    processed_root.mkdir(parents=True, exist_ok=True)
+    processed_output_root.mkdir(parents=True, exist_ok=True)
 
     variant_rows: list[dict[str, Any]] = []
     total_variants = len(variants)
@@ -3102,7 +3125,7 @@ def _run_all_method_benchmark(
         config_dir_name = f"config_{config_index:03d}_{config_hash}_{variant.slug}"
         eval_output_dir = root_output_dir / config_dir_name
         scratch_output_dir = scratch_root / config_dir_name
-        processed_output_dir = processed_root / config_dir_name
+        processed_output_dir = processed_output_root / config_dir_name
         if eval_output_dir.exists():
             shutil.rmtree(eval_output_dir)
         if scratch_output_dir.exists():
@@ -3362,7 +3385,7 @@ def _write_stage_run_manifest(
     knowledge_index = run_root / "knowledge" / "knowledge_index.json"
     if knowledge_index.exists():
         artifacts["knowledge_index"] = str(knowledge_index.relative_to(run_root))
-    history_csv = output_root / ".history" / "performance_history.csv"
+    history_csv = history_csv_for_output(output_root)
     if history_csv.exists():
         artifacts["history_csv"] = str(history_csv)
 
@@ -5247,7 +5270,7 @@ def stats_dashboard(
         help="Root folder for golden-set / benchmark data.",
     ),
     out_dir: Path = typer.Option(
-        DEFAULT_OUTPUT / ".history" / "dashboard",
+        DEFAULT_HISTORY / "dashboard",
         "--out-dir",
         help="Directory where the dashboard will be written.",
     ),
@@ -5377,7 +5400,9 @@ def inspect(
 def labelstudio_import(
     path: Path = typer.Argument(..., help="Cookbook file to import for labeling."),
     output_dir: Path = typer.Option(
-        DEFAULT_GOLDEN, "--output-dir", help="Output folder for artifacts."
+        DEFAULT_GOLDEN_SENT_TO_LABELSTUDIO,
+        "--output-dir",
+        help="Output folder for import/upload run artifacts.",
     ),
     pipeline: str = typer.Option("auto", "--pipeline", help="Importer pipeline name or auto."),
     project_name: str | None = typer.Option(
@@ -5716,7 +5741,9 @@ def labelstudio_import(
 def labelstudio_export(
     project_name: str = typer.Option(..., "--project-name", help="Label Studio project name."),
     output_dir: Path = typer.Option(
-        DEFAULT_GOLDEN, "--output-dir", help="Output folder for manifests."
+        DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO,
+        "--output-dir",
+        help="Output folder for exported golden artifacts.",
     ),
     run_dir: Path | None = typer.Option(
         None, "--run-dir", help="Specific labelstudio run directory to export."
@@ -5891,7 +5918,7 @@ def labelstudio_eval(
             "eval_report_md": "eval_report.md",
             "missed_gold_spans_jsonl": "missed_gold_spans.jsonl",
             "false_positive_preds_jsonl": "false_positive_preds.jsonl",
-            "history_csv": str(csv_history_root / ".history" / "performance_history.csv"),
+            "history_csv": str(history_csv_for_output(csv_history_root)),
         },
         notes="Evaluation report against exported gold spans.",
     )
@@ -6144,7 +6171,7 @@ def labelstudio_benchmark(
     output_dir: Annotated[Path, typer.Option(
         "--output-dir",
         help="Scratch output root used while generating prediction tasks before co-locating under eval output.",
-    )] = DEFAULT_GOLDEN,
+    )] = DEFAULT_GOLDEN_BENCHMARK,
     processed_output_dir: Annotated[Path, typer.Option(
         "--processed-output-dir",
         help="Output root for staged cookbook outputs generated during benchmark (for upload/review).",
@@ -6317,7 +6344,7 @@ def labelstudio_benchmark(
 
     if eval_output_dir is None:
         timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-        eval_output_dir = selected_gold.parent.parent / "eval-vs-pipeline" / timestamp
+        eval_output_dir = _golden_benchmark_root() / timestamp
     eval_output_dir.mkdir(parents=True, exist_ok=True)
 
     if warm_models:
@@ -6529,7 +6556,7 @@ def labelstudio_benchmark(
         "eval_report_md": "eval_report.md",
         "missed_gold_spans_jsonl": "missed_gold_spans.jsonl",
         "false_positive_preds_jsonl": "false_positive_preds.jsonl",
-        "history_csv": str(processed_output_dir / ".history" / "performance_history.csv"),
+        "history_csv": str(history_csv_for_output(processed_output_dir)),
     }
     if csv_report_path:
         benchmark_artifacts["processed_report_json"] = _path_for_manifest(

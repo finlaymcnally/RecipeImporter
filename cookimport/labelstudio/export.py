@@ -18,7 +18,17 @@ _RECIPE_HEADER_LABEL = "RECIPE_TITLE"
 
 
 def _find_latest_manifest(output_root: Path, project_name: str) -> Path | None:
-    manifests = list(output_root.glob("**/labelstudio/**/manifest.json"))
+    search_roots = [output_root]
+    parent_root = output_root.parent
+    if parent_root not in search_roots:
+        search_roots.append(parent_root)
+
+    manifests: list[Path] = []
+    for root in search_roots:
+        if not root.exists():
+            continue
+        manifests.extend(root.glob("**/labelstudio/**/manifest.json"))
+
     candidates = []
     for path in manifests:
         try:
