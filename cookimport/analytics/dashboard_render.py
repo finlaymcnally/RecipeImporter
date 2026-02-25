@@ -827,7 +827,13 @@ def _render_all_method_index_html(runs: list[_AllMethodRun]) -> str:
         "<p class=\"section-note\">Each row links to a run summary page with config performance aggregated across all books in one all-method sweep.</p>"
         f"{empty_note}"
         "<table><thead><tr>"
-        "<th>Run Folder</th><th>Book Jobs</th><th>Configs</th><th>Winner</th><th>Mean Strict F1</th><th>Mean Practical F1</th><th>Details</th>"
+        "<th title=\"Run timestamp folder for the sweep.\">Run Folder</th>"
+        "<th title=\"How many book jobs were included in this sweep.\">Book Jobs</th>"
+        "<th title=\"How many configurations were evaluated/aggregated.\">Configs</th>"
+        "<th title=\"Best configuration for this sweep (ranking uses strict/practical metrics).\"><span>Winner</span></th>"
+        "<th title=\"Average Strict F1 for the winning configuration across books. Strict scoring is boundary-sensitive.\">Mean Strict F1</th>"
+        "<th title=\"Average Practical F1 for the winning configuration across books. Practical scoring is forgiving (any overlap counts).\">Mean Practical F1</th>"
+        "<th>Details</th>"
         "</tr></thead><tbody>"
         f"{''.join(row_html)}"
         "</tbody></table>"
@@ -1317,7 +1323,21 @@ def _render_all_method_run_html(run: _AllMethodRun) -> str:
         "<h2>Config Performance Across Books</h2>"
         "<p class=\"section-note\">Aggregated by configuration across all per-book jobs in this run.</p>"
         "<table><thead><tr>"
-        "<th>Rank</th><th>Configuration</th><th>Extractor</th><th>Parser</th><th>Skip HF</th><th>Preprocess</th><th>Books</th><th>Wins</th><th>Mean Strict Precision</th><th>Mean Strict Recall</th><th>Mean Strict F1</th><th>Mean Practical F1</th><th>Mean Recipes</th><th>Importer</th><th>Run Config</th>"
+        "<th>Rank</th>"
+        "<th title=\"Configuration directory/name.\">Configuration</th>"
+        "<th title=\"High-level dimension (extraction path).\"><span>Extractor</span></th>"
+        "<th title=\"High-level dimension (parser choice).\"><span>Parser</span></th>"
+        "<th title=\"Whether header/footer skipping was enabled.\">Skip HF</th>"
+        "<th title=\"Whether preprocessing was enabled.\">Preprocess</th>"
+        "<th title=\"How many books this configuration ran on.\">Books</th>"
+        "<th title=\"How many books this configuration 'won' (best score within that book).\"><span>Wins</span></th>"
+        "<th title=\"Average strict precision across books for this configuration.\">Mean Strict Precision</th>"
+        "<th title=\"Average strict recall across books for this configuration.\">Mean Strict Recall</th>"
+        "<th title=\"Average Strict F1 across books. Strict scoring is boundary-sensitive.\">Mean Strict F1</th>"
+        "<th title=\"Average Practical F1 across books. Practical scoring is forgiving (any overlap counts).\"><span>Mean Practical F1</span></th>"
+        "<th title=\"Average predicted recipe count (not a score).\"><span>Mean Recipes</span></th>"
+        "<th title=\"Importer used to generate predictions.\">Importer</th>"
+        "<th title=\"Key run settings summary (hover rows for full text).\"><span>Run Config</span></th>"
         "</tr></thead><tbody>"
         f"{''.join(aggregate_rows)}"
         "</tbody></table>"
@@ -1329,7 +1349,12 @@ def _render_all_method_run_html(run: _AllMethodRun) -> str:
         "<h2>Per-Book Drilldown</h2>"
         "<p class=\"section-note\">Open each source row for the existing per-book config breakdown page.</p>"
         "<table><thead><tr>"
-        "<th>Source</th><th>Configs</th><th>Winner</th><th>Strict F1</th><th>Practical F1</th><th>Details</th>"
+        "<th title=\"Which book/source file this row refers to.\">Source</th>"
+        "<th title=\"How many configurations were evaluated for this book.\">Configs</th>"
+        "<th title=\"Best configuration for this book.\">Winner</th>"
+        "<th title=\"Strict F1 for the best configuration (boundary-sensitive).\"><span>Strict F1</span></th>"
+        "<th title=\"Practical F1 for the best configuration (forgiving; any overlap counts).\"><span>Practical F1</span></th>"
+        "<th>Details</th>"
         "</tr></thead><tbody>"
         f"{''.join(book_rows)}"
         "</tbody></table>"
@@ -1607,7 +1632,21 @@ def _render_all_method_detail_html(
         "<section>"
         "<h2>Ranked Configurations</h2>"
         "<table><thead><tr>"
-        "<th>Rank</th><th>Configuration</th><th>Extractor</th><th>Parser</th><th>Skip HF</th><th>Preprocess</th><th>Strict Precision</th><th>Strict Recall</th><th>Strict F1</th><th>Practical F1</th><th>Recipes</th><th>Importer</th><th>Source</th><th>Run Config</th><th>Artifact</th>"
+        "<th>Rank</th>"
+        "<th title=\"Configuration directory/name.\">Configuration</th>"
+        "<th title=\"High-level dimension (extraction path).\"><span>Extractor</span></th>"
+        "<th title=\"High-level dimension (parser choice).\"><span>Parser</span></th>"
+        "<th title=\"Whether header/footer skipping was enabled.\">Skip HF</th>"
+        "<th title=\"Whether preprocessing was enabled.\">Preprocess</th>"
+        "<th title=\"Strict precision for this config.\"><span>Strict Precision</span></th>"
+        "<th title=\"Strict recall for this config.\"><span>Strict Recall</span></th>"
+        "<th title=\"Strict F1 for this config (boundary-sensitive).\"><span>Strict F1</span></th>"
+        "<th title=\"Practical F1 for this config (forgiving; any overlap counts).\"><span>Practical F1</span></th>"
+        "<th title=\"Predicted recipe count (not a score).\"><span>Recipes</span></th>"
+        "<th title=\"Importer used to generate predictions.\">Importer</th>"
+        "<th title=\"Which book/source file this config was evaluated on.\">Source</th>"
+        "<th title=\"Key run settings summary (hover rows for full text).\"><span>Run Config</span></th>"
+        "<th>Artifact</th>"
         "</tr></thead><tbody>"
         f"{''.join(rows)}"
         "</tbody></table>"
@@ -1726,18 +1765,35 @@ _HTML = """\
 
   <section id="diagnostics-section">
     <h2>Diagnostics (Latest Benchmark)</h2>
-    <p class="section-note">Deep quality views for the most recent benchmark evaluation.</p>
+    <p class="section-note">Deep quality views for the most recent benchmark evaluation. Use these when a score looks off and you want to know why.</p>
+    <details class="section-details">
+      <summary>Metric help (benchmarks)</summary>
+      <section>
+        <p class="section-note">Benchmarks compare predicted labeled spans to your labeled gold spans. Higher is better. Scores are 0.0–1.0 (1.0 == 100%).</p>
+        <ul class="metric-help-list">
+          <li><code>Precision</code>: false alarms. When we predicted a span, how often was it correct?</li>
+          <li><code>Recall</code>: misses. Of the gold spans, how many did we find?</li>
+          <li><code>Strict</code> vs <code>Practical</code>: strict is boundary-sensitive; practical is forgiving (any overlap counts).</li>
+          <li><code>Gold</code> / <code>Matched</code>: span counts for the benchmark (not recipe totals).</li>
+        </ul>
+      </section>
+    </details>
     <div class="diagnostics-grid">
       <section id="per-label-section" class="diagnostic-card">
         <h2>Per-Label Breakdown (Latest Benchmark)</h2>
+        <p class="section-note">Per label: precision answers false alarms, recall answers misses.</p>
         <table id="per-label-table"><thead><tr>
-          <th>Label</th><th>Precision</th><th>Recall</th>
-          <th>Gold</th><th>Pred</th>
+          <th title="The label name being scored (for example RECIPE_TITLE).">Label</th>
+          <th title="Of predicted spans for this label, fraction that matched gold (strict scoring).">Precision</th>
+          <th title="Of gold spans for this label, fraction found by predictions (strict scoring).">Recall</th>
+          <th title="Gold span count for this label.">Gold</th>
+          <th title="Predicted span count for this label.">Pred</th>
         </tr></thead><tbody></tbody></table>
       </section>
 
       <section id="boundary-section" class="diagnostic-card">
         <h2>Boundary Classification (Latest Benchmark)</h2>
+        <p class="section-note">How matched spans compare to gold boundaries: correct, too wide (over), too narrow (under), or misaligned (partial).</p>
         <div id="boundary-summary"></div>
       </section>
     </div>
@@ -1746,10 +1802,31 @@ _HTML = """\
   <section id="previous-runs-section">
     <h2>Previous Runs</h2>
     <p class="section-note">Timestamp links to the run artifact folder. Scroll for full history.</p>
+    <details class="section-details">
+      <summary>Metric help (table)</summary>
+      <section>
+        <p class="section-note">Strict scores require good enough overlap (boundary-sensitive). Practical scores count a hit when spans overlap at all.</p>
+        <ul class="metric-help-list">
+          <li><code>Strict Precision</code>: fewer false alarms when higher.</li>
+          <li><code>Strict Recall</code>: fewer misses when higher.</li>
+          <li><code>Strict F1</code>: one strict score combining precision + recall.</li>
+          <li><code>Practical F1</code>: same idea, but forgiving about boundaries.</li>
+          <li><code>Recipes</code>: predicted recipe count (when available). Separate from span scoring.</li>
+        </ul>
+      </section>
+    </details>
     <div class="table-wrap table-scroll">
       <table id="previous-runs-table"><thead><tr>
-        <th>Timestamp</th><th>Strict Precision</th><th>Strict Recall</th><th>Practical F1</th><th>Strict F1</th>
-        <th>Gold</th><th>Matched</th><th>Recipes</th><th>Source</th><th>Importer</th>
+        <th title="When the benchmark happened. Link opens the run artifact folder.">Timestamp</th>
+        <th title="Of predicted spans, fraction that match gold under strict overlap. Higher means fewer false alarms.">Strict Precision</th>
+        <th title="Of gold spans, fraction found by predictions under strict overlap. Higher means fewer misses.">Strict Recall</th>
+        <th title="F1 using the forgiving any-overlap rule. Helpful when strict boundaries are too harsh.">Practical F1</th>
+        <th title="F1 using strict overlap (IoU-style) scoring. Boundary-sensitive.">Strict F1</th>
+        <th title="How many gold spans were evaluated (span count, not recipes).">Gold</th>
+        <th title="How many gold spans were matched under strict scoring.">Matched</th>
+        <th title="Predicted recipe count (when available). Separate from span scoring.">Recipes</th>
+        <th title="Which source file/book was evaluated.">Source</th>
+        <th title="Importer used to generate predictions.">Importer</th>
       </tr></thead><tbody></tbody></table>
     </div>
   </section>
@@ -1933,6 +2010,12 @@ section h3 {
   color: var(--muted);
 }
 .section-note { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.85rem; }
+.metric-help-list {
+  margin: 0.15rem 0 0.4rem 1.1rem;
+  color: var(--muted);
+  font-size: 0.83rem;
+}
+.metric-help-list li { margin: 0.2rem 0; }
 
 .chart-container { width: 100%; overflow-x: auto; min-height: 120px; }
 .chart-container svg { display: block; }
@@ -3449,10 +3532,10 @@ _JS = """\
     const pct = function(v) { return total > 0 ? ((v || 0) / total * 100).toFixed(1) + "%" : "-"; };
     div.innerHTML =
       '<table><thead><tr><th>Category</th><th>Count</th><th>%</th></tr></thead><tbody>' +
-      '<tr><td>Correct</td><td class="num">' + (latest.boundary_correct != null ? latest.boundary_correct : "-") + '</td><td class="num">' + pct(latest.boundary_correct) + '</td></tr>' +
-      '<tr><td>Over-segmented</td><td class="num">' + (latest.boundary_over != null ? latest.boundary_over : "-") + '</td><td class="num">' + pct(latest.boundary_over) + '</td></tr>' +
-      '<tr><td>Under-segmented</td><td class="num">' + (latest.boundary_under != null ? latest.boundary_under : "-") + '</td><td class="num">' + pct(latest.boundary_under) + '</td></tr>' +
-      '<tr><td>Partial</td><td class="num">' + (latest.boundary_partial != null ? latest.boundary_partial : "-") + '</td><td class="num">' + pct(latest.boundary_partial) + '</td></tr>' +
+      '<tr><td title="Prediction span matches gold boundaries exactly.">Correct</td><td class="num">' + (latest.boundary_correct != null ? latest.boundary_correct : "-") + '</td><td class="num">' + pct(latest.boundary_correct) + '</td></tr>' +
+      '<tr><td title="Prediction fully contains the gold span (too wide).">Over-segmented</td><td class="num">' + (latest.boundary_over != null ? latest.boundary_over : "-") + '</td><td class="num">' + pct(latest.boundary_over) + '</td></tr>' +
+      '<tr><td title="Prediction is fully inside the gold span (too narrow).">Under-segmented</td><td class="num">' + (latest.boundary_under != null ? latest.boundary_under : "-") + '</td><td class="num">' + pct(latest.boundary_under) + '</td></tr>' +
+      '<tr><td title="Prediction overlaps but boundaries are misaligned.">Partial</td><td class="num">' + (latest.boundary_partial != null ? latest.boundary_partial : "-") + '</td><td class="num">' + pct(latest.boundary_partial) + '</td></tr>' +
       '</tbody></table>';
   }
 

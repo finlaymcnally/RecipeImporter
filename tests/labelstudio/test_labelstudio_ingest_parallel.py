@@ -279,24 +279,22 @@ def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path:
         lambda **_kwargs: processed_root / "2026-02-11_00:00:00",
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.chunk_structural",
-        lambda *_args, **_kwargs: [SimpleNamespace(chunk_id=f"c{i}") for i in range(401)],
-    )
-    monkeypatch.setattr("cookimport.labelstudio.ingest.chunk_atomic", lambda *_args, **_kwargs: [])
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_coverage",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            extracted_chars=1000,
-            chunked_chars=950,
-            warnings=[],
-        ),
-    )
-    monkeypatch.setattr("cookimport.labelstudio.ingest.sample_chunks", lambda chunks, **_kwargs: chunks)
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.chunk_records_to_tasks",
-        lambda chunks, source_hash: [
-            {"data": {"chunk_id": f"{source_hash}:{chunk.chunk_id}"}} for chunk in chunks
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: [
+            {"data": {"segment_id": f"seg-{i}"}} for i in range(401)
         ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 1000,
+            "segment_chars": 950,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks, **_kwargs: tasks,
     )
     monkeypatch.setattr("cookimport.labelstudio.ingest.LabelStudioClient", FakeLabelStudioClient)
 
@@ -306,9 +304,6 @@ def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path:
         output_dir=output_dir,
         pipeline="fake",
         project_name="benchmark project",
-        chunk_level="both",
-        task_scope="pipeline",
-        context_window=1,
         segment_blocks=40,
         segment_overlap=5,
         overwrite=False,
@@ -329,7 +324,7 @@ def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path:
 
     assert "Building extracted archive..." in progress_messages
     assert "Writing processed cookbook outputs..." in progress_messages
-    assert "Generating pipeline chunk candidates..." in progress_messages
+    assert "Building freeform span tasks..." in progress_messages
     assert "Uploading 401 task(s) in 3 batch(es)..." in progress_messages
     assert "Uploaded 401/401 task(s)." in progress_messages
     assert progress_messages[-1] == "Label Studio import artifacts complete."
@@ -440,30 +435,22 @@ def test_run_labelstudio_import_split_workers_emit_worker_activity(
         lambda **_kwargs: processed_root / "2026-02-11_00:00:00",
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.chunk_structural",
-        lambda *_args, **_kwargs: [SimpleNamespace(chunk_id=f"c{i}") for i in range(5)],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.chunk_atomic",
-        lambda *_args, **_kwargs: [],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_coverage",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            extracted_chars=1000,
-            chunked_chars=950,
-            warnings=[],
-        ),
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_chunks",
-        lambda chunks, **_kwargs: chunks,
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.chunk_records_to_tasks",
-        lambda chunks, source_hash: [
-            {"data": {"chunk_id": f"{source_hash}:{chunk.chunk_id}"}} for chunk in chunks
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: [
+            {"data": {"segment_id": f"seg-{i}"}} for i in range(5)
         ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 1000,
+            "segment_chars": 950,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks, **_kwargs: tasks,
     )
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.LabelStudioClient",
@@ -476,9 +463,6 @@ def test_run_labelstudio_import_split_workers_emit_worker_activity(
         output_dir=output_dir,
         pipeline="fake",
         project_name="benchmark project",
-        chunk_level="both",
-        task_scope="pipeline",
-        context_window=1,
         segment_blocks=40,
         segment_overlap=5,
         overwrite=False,
@@ -621,7 +605,6 @@ def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
         path=source,
         output_dir=output_dir,
         pipeline="fake",
-        task_scope="freeform-spans",
         prelabel=True,
         prelabel_granularity="span",
         prelabel_workers=2,
@@ -764,7 +747,6 @@ def test_generate_pred_run_artifacts_stops_prelabel_after_rate_limit_429(
         path=source,
         output_dir=output_dir,
         pipeline="fake",
-        task_scope="freeform-spans",
         prelabel=True,
         prelabel_workers=1,
         prelabel_allow_partial=True,
@@ -855,30 +837,20 @@ def test_generate_pred_run_artifacts_ignores_progress_callback_errors(
         lambda **_kwargs: output_dir / "processed",
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.chunk_structural",
-        lambda *_args, **_kwargs: [SimpleNamespace(chunk_id="c0")],
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.chunk_atomic",
-        lambda *_args, **_kwargs: [],
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 100,
+            "segment_chars": 90,
+            "warnings": [],
+        },
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_coverage",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            extracted_chars=100,
-            chunked_chars=90,
-            warnings=[],
-        ),
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_chunks",
-        lambda chunks, **_kwargs: chunks,
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.chunk_records_to_tasks",
-        lambda chunks, source_hash: [
-            {"data": {"chunk_id": f"{source_hash}:{chunk.chunk_id}"}} for chunk in chunks
-        ],
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks, **_kwargs: tasks,
     )
 
     progress_messages: list[str] = []
@@ -891,7 +863,6 @@ def test_generate_pred_run_artifacts_ignores_progress_callback_errors(
         path=source,
         output_dir=output_dir,
         pipeline="fake",
-        task_scope="pipeline",
         progress_callback=_broken_callback,
     )
 
@@ -960,7 +931,6 @@ def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(
         path=source,
         output_dir=output_dir,
         pipeline="fake",
-        task_scope="freeform-spans",
         segment_blocks=4,
         segment_overlap=1,
         segment_focus_blocks=2,
@@ -1053,7 +1023,6 @@ def test_generate_pred_run_artifacts_freeform_focus_floor_adjusts_overlap_withou
         path=source,
         output_dir=output_dir,
         pipeline="fake",
-        task_scope="freeform-spans",
         segment_blocks=4,
         segment_overlap=1,
         segment_focus_blocks=2,
@@ -1161,9 +1130,6 @@ def test_run_labelstudio_import_falls_back_to_post_import_annotations(
         output_dir=tmp_path / "golden",
         pipeline="auto",
         project_name="prelabel test",
-        chunk_level="both",
-        task_scope="freeform-spans",
-        context_window=1,
         segment_blocks=40,
         segment_overlap=5,
         overwrite=False,
@@ -1228,9 +1194,6 @@ def test_run_labelstudio_import_can_upload_prelabels_as_predictions(
         output_dir=tmp_path / "golden",
         pipeline="auto",
         project_name="prelabel prediction test",
-        chunk_level="both",
-        task_scope="freeform-spans",
-        context_window=1,
         segment_blocks=40,
         segment_overlap=5,
         overwrite=False,
@@ -1297,9 +1260,6 @@ def test_run_labelstudio_import_skips_resume_manifest_when_project_is_new(
         output_dir=output_dir,
         pipeline="auto",
         project_name="benchmark-project",
-        chunk_level="both",
-        task_scope="pipeline",
-        context_window=1,
         segment_blocks=40,
         segment_overlap=5,
         overwrite=False,
@@ -1368,9 +1328,6 @@ def test_run_labelstudio_import_scope_mismatch_auto_dedupes_project_for_benchmar
         output_dir=output_dir,
         pipeline="auto",
         project_name=None,
-        chunk_level="both",
-        task_scope="pipeline",
-        context_window=1,
         segment_blocks=40,
         segment_overlap=5,
         overwrite=False,

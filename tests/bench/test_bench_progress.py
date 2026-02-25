@@ -60,6 +60,20 @@ def test_run_suite_progress_messages_include_item_counters(
         run_root = out_dir / f"{source_path.stem}_pred_run"
         run_root.mkdir(parents=True, exist_ok=True)
         (run_root / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+        (run_root / "stage_block_predictions.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "stage_block_predictions.v1",
+                    "block_count": 1,
+                    "block_labels": {"0": "OTHER"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        (run_root / "extracted_archive.json").write_text(
+            json.dumps([{"index": 0, "text": "alpha"}]),
+            encoding="utf-8",
+        )
         (run_root / "manifest.json").write_text(
             json.dumps({"source_file": str(source_path), "source_hash": "abc123"}),
             encoding="utf-8",
@@ -72,10 +86,8 @@ def test_run_suite_progress_messages_include_item_counters(
         "cookimport.bench.runner.build_pred_run_for_source",
         _fake_build_pred_run_for_source,
     )
-    monkeypatch.setattr("cookimport.bench.runner.load_gold_freeform_ranges", lambda _path: [])
-    monkeypatch.setattr("cookimport.bench.runner.load_predicted_labeled_ranges", lambda _path: [])
     monkeypatch.setattr(
-        "cookimport.bench.runner.evaluate_predicted_vs_freeform",
+        "cookimport.bench.runner.evaluate_stage_blocks",
         lambda *_args, **_kwargs: _fake_eval_result(),
     )
 

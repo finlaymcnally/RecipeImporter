@@ -6,6 +6,7 @@ cookimport/c3imp_entrypoint.py
 cookimport/cli.py
 cookimport/cli_worker.py
 cookimport/entrypoint.py
+cookimport/epub_extractor_names.py
 cookimport/paths.py
 cookimport.egg-info/PKG-INFO
 cookimport.egg-info/SOURCES.txt
@@ -21,6 +22,7 @@ cookimport/analytics/dashboard_schema.py
 cookimport/analytics/perf_report.py
 cookimport/bench/__init__.py
 cookimport/bench/cost.py
+cookimport/bench/eval_stage_blocks.py
 cookimport/bench/knobs.py
 cookimport/bench/noise.py
 cookimport/bench/packet.py
@@ -52,17 +54,12 @@ cookimport/epubdebug/cli.py
 cookimport/epubdebug/epubcheck.py
 cookimport/epubdebug/models.py
 cookimport/labelstudio/__init__.py
-cookimport/labelstudio/block_tasks.py
-cookimport/labelstudio/canonical.py
-cookimport/labelstudio/chunking.py
+cookimport/labelstudio/archive.py
 cookimport/labelstudio/client.py
-cookimport/labelstudio/eval_canonical.py
 cookimport/labelstudio/eval_freeform.py
 cookimport/labelstudio/export.py
 cookimport/labelstudio/freeform_tasks.py
 cookimport/labelstudio/ingest.py
-cookimport/labelstudio/label_config.py
-cookimport/labelstudio/label_config_blocks.py
 cookimport/labelstudio/label_config_freeform.py
 cookimport/labelstudio/models.py
 cookimport/labelstudio/prelabel.py
@@ -124,6 +121,7 @@ cookimport/staging/__init__.py
 cookimport/staging/draft_v1.py
 cookimport/staging/jsonld.py
 cookimport/staging/pdf_jobs.py
+cookimport/staging/stage_block_predictions.py
 cookimport/staging/writer.py
 cookimport/tagging/__init__.py
 cookimport/tagging/catalog.py

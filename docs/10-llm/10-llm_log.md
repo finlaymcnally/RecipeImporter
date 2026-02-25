@@ -292,3 +292,41 @@ Anti-loop carry-forward from this retirement merge:
 - Do not reintroduce hardcoded pass IDs or implicit cwd-based root assumptions.
 - Do not interpret old `*.prompt.txt` references as current runtime contract.
 - Do not enable live codex-farm execution in routine loops until policy lock is intentionally lifted.
+
+## 2026-02-25 understanding merge batch (pass4 table wiring + pass5 stage tagging)
+
+### 2026-02-25_16.21.30 table extraction parity across stage/split/pred-run processed outputs
+
+Merged source:
+- `docs/understandings/2026-02-25_16.21.30-table-extraction-stage-pass4-wiring.md`
+
+Problem captured:
+- Table-aware chunking/pass4 hints can drift across non-split stage, split merge, and processed-output benchmark/Label Studio paths if annotation is not applied at each shared chunking boundary.
+
+Decision/outcome preserved:
+- Keep table annotation before chunking in all three critical paths:
+  - non-split `stage_one_file` (`cookimport/cli_worker.py`),
+  - split merge `_merge_split_jobs` (`cookimport/cli.py`),
+  - processed-output snapshots `_write_processed_outputs` (`cookimport/labelstudio/ingest.py`).
+- Keep pass4 hint mapping keyed to absolute non-recipe indices and verify against merged `full_text` indices when hints are missing.
+
+Anti-loop note:
+- Do not debug missing pass4 table hints purely in codex-farm output ingest first; parity drift usually starts earlier in stage/merge wiring.
+
+### 2026-02-25_16.24.24 pass5 stage-tagging flow and failure-mode contract
+
+Merged source:
+- `docs/understandings/2026-02-25_16.24.24-pass5-stage-tagging-wiring.md`
+
+Problem captured:
+- Pass5 tag artifacts can appear/disappear unexpectedly without clear distinction between gating, runtime failure mode, and output-path expectations.
+
+Decision/outcome preserved:
+- Pass5 executes after stage writers produce normal cookbook artifacts.
+- Input boundary is staged drafts under `final drafts/<workbook_slug>/`.
+- Output contract is fixed to `tags/<workbook_slug>/...` plus run-level `tags/tags_index.json`.
+- Raw codex-farm IO and manifest stay under `raw/llm/<workbook_slug>/pass5_tags/`.
+- `codex_farm_failure_mode` remains the controlling behavior (`fail` hard-stop vs `fallback` warn-and-continue).
+
+Anti-loop note:
+- If `tags/` artifacts are missing, verify `llm_tags_pipeline`, pass5 pipeline ID wiring, catalog path, and failure mode before changing tag scoring logic.

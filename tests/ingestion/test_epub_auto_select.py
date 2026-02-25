@@ -27,7 +27,7 @@ class _FakeImporter:
             raise RuntimeError("spine range required")
         if extractor == "unstructured":
             raise RuntimeError("unstructured failed")
-        if extractor == "legacy":
+        if extractor == "beautifulsoup":
             # Poor shape: single giant block.
             return [Block(text="x" * 5000)]
 
@@ -83,7 +83,7 @@ def test_selected_auto_score_reads_selected_candidate() -> None:
     artifact = {
         "effective_extractor": "markdown",
         "candidates": [
-            {"backend": "legacy", "status": "ok", "average_score": 0.42},
+            {"backend": "beautifulsoup", "status": "ok", "average_score": 0.42},
             {"backend": "markdown", "status": "ok", "average_score": 0.77},
         ],
     }
@@ -114,5 +114,5 @@ def test_select_epub_extractor_auto_real_importer_supports_direct_probe(
         lambda _name: EpubImporter(),
     )
 
-    resolution = select_epub_extractor_auto(source, candidate_extractors=("legacy",))
-    assert resolution.effective_extractor == "legacy"
+    resolution = select_epub_extractor_auto(source, candidate_extractors=("beautifulsoup",))
+    assert resolution.effective_extractor == "beautifulsoup"

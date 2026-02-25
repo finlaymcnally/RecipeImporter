@@ -283,3 +283,39 @@ Implementation gotcha preserved:
 Anti-loop notes:
 - Do not "fix" explicit-only runtime by reintroducing `auto` into variant builders or CLI help text without updating run-settings migration, docs, and benchmark tests together.
 - Do not remove debug auto-selector internals while runtime auto stays disabled; those internals still support extractor diagnostics workflows.
+
+## 2026-02-25 understanding merge batch (EPUB extractor variants + canonical naming)
+
+### 2026-02-25_17.57.34 extractor variants and unstructured-only knob contract
+
+Merged source:
+- `docs/understandings/epub-extractor-variants-unstructured-knobs.md`
+
+Problem captured:
+- Extractor-mode comparisons kept mixing backend selection with unstructured-only knobs, leading to false tuning loops.
+
+Decision/outcome preserved:
+- Keep four mutually exclusive extractor modes in runtime: `unstructured`, `beautifulsoup`, `markdown`, `markitdown`.
+- Keep `parser` / `skiphf` / `pre` as unstructured-only controls.
+- Preserve split-job boundary contract: `markitdown` remains whole-book only; other explicit extractors can split by spine ranges.
+- Keep separate run labels for `semantic_v1` and `br_split_v1` even while behavior is currently the same.
+
+Anti-loop notes:
+- Do not attribute non-unstructured behavior changes to unstructured-only knobs.
+- If reports/slugs imply those knobs changed non-unstructured runs, debug settings normalization/reporting before changing importer logic.
+
+### 2026-02-25_18.05.02 `beautifulsoup` canonical-name normalization boundary
+
+Merged source:
+- `docs/understandings/2026-02-25_18.05.02-epub-extractor-beautifulsoup-canonical-name.md`
+
+Problem captured:
+- Canonical-name drift across CLI/run-settings/importer paths can split one backend into multiple extractor names in manifests, dashboard groups, and fixtures.
+
+Decision/outcome preserved:
+- Canonical token is `beautifulsoup` only.
+- Normalization occurs centrally in `cookimport/epub_extractor_names.py` before validation.
+- Runtime/config/debug/ingest call sites must stay aligned (`run_settings`, CLI, epubdebug CLI, Label Studio ingest, EPUB plugin, auto-select helper).
+
+Anti-loop note:
+- If one backend appears under multiple names in analytics/benchmark history, treat canonical-name drift as the primary fix target.

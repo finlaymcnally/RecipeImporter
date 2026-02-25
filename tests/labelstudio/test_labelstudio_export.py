@@ -1,38 +1,79 @@
-from cookimport.labelstudio.export import _extract_labels, _map_to_tip_label, _select_annotation
-from cookimport.labelstudio.label_config import LABEL_CONFIG_XML
+import json
 
+import pytest
 
-def test_extract_labels_and_mapping() -> None:
-    annotation = {
-        "result": [
-            {"from_name": "content_type", "value": {"choices": ["tip"]}},
-            {"from_name": "value_usefulness", "value": {"choices": ["useful"]}},
-            {"from_name": "tags", "value": {"choices": ["timing", "storage"]}},
-        ]
-    }
-    labels = _extract_labels(annotation)
-    assert labels["content_type"] == "tip"
-    assert labels["value_usefulness"] == "useful"
-    assert labels["tags"] == ["timing", "storage"]
-    assert _map_to_tip_label(labels) == "tip"
-
-    labels["content_type"] = "mixed"
-    assert _map_to_tip_label(labels) is None
+from cookimport.labelstudio.export import (
+    _infer_scope_from_project_payload,
+    _select_annotation,
+    run_labelstudio_export,
+)
 
 
 def test_select_annotation_latest() -> None:
     task = {
         "annotations": [
-            {"id": 1, "result": [{"from_name": "content_type", "value": {"choices": ["tip"]}}]},
-            {"id": 2, "result": [{"from_name": "content_type", "value": {"choices": ["fluff"]}}]},
+            {"id": 1, "result": [{"value": {"labels": ["INGREDIENT_LINE"]}}]},
+            {"id": 2, "result": [{"value": {"labels": ["RECIPE_TITLE"]}}]},
         ]
     }
     selected = _select_annotation(task)
     assert selected is not None
-    labels = _extract_labels(selected)
-    assert labels["content_type"] == "fluff"
+    assert selected["id"] == 2
 
 
-def test_pipeline_label_config_includes_servings_and_pairings_tags() -> None:
-    assert '<Choice value="servings"/>' in LABEL_CONFIG_XML
-    assert '<Choice value="pairs_well_with"/>' in LABEL_CONFIG_XML
+def test_infer_scope_from_project_payload_detects_known_scopes() -> None:
+    assert (
+        _infer_scope_from_project_payload(
+            {"label_config": "<View><Label value='RECIPE_VARIANT'/></View>"}
+        )
+        == "freeform-spans"
+    )
+    assert (
+        _infer_scope_from_project_payload(
+            {"label_config": "<View><Choices name='mixed'><Choice value='x'/></Choices><Choices name='value_usefulness'/></View>"}
+        )
+        == "pipeline"
+    )
+
+
+@pytest.mark.parametrize("legacy_scope", ["pipeline", "canonical-blocks"])
+def test_export_rejects_legacy_scope_from_manifest(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    legacy_scope: str,
+) -> None:
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def find_project_by_title(self, title: str) -> dict[str, object]:
+            return {"id": 9, "title": title}
+
+        def export_tasks(self, _project_id: int) -> list[dict[str, object]]:
+            return []
+
+    run_root = tmp_path / "2026-02-25_22.45.00" / "labelstudio" / "book"
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "project_name": "Legacy Project",
+                "project_id": 9,
+                "task_scope": legacy_scope,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("cookimport.labelstudio.export.LabelStudioClient", FakeClient)
+
+    with pytest.raises(RuntimeError, match="supports freeform-spans projects only"):
+        run_labelstudio_export(
+            project_name="Legacy Project",
+            output_dir=tmp_path,
+            label_studio_url="http://localhost:8080",
+            label_studio_api_key="token",
+            run_dir=run_root,
+        )

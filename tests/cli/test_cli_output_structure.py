@@ -117,7 +117,7 @@ def test_epub_report_includes_extractor_setting(tmp_path):
             "--epub-split-workers",
             "1",
             "--epub-extractor",
-            "legacy",
+            "beautifulsoup",
         ],
     )
     assert result.exit_code == 0
@@ -132,10 +132,10 @@ def test_epub_report_includes_extractor_setting(tmp_path):
     report_path = timestamp_dir / "sample.excel_import_report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["importerName"] == "epub"
-    assert report["runConfig"]["epub_extractor"] == "legacy"
+    assert report["runConfig"]["epub_extractor"] == "beautifulsoup"
     assert isinstance(report.get("runConfigHash"), str)
     assert len(report["runConfigHash"]) == 64
-    assert "epub_extractor=legacy" in str(report.get("runConfigSummary", ""))
+    assert "epub_extractor=beautifulsoup" in str(report.get("runConfigSummary", ""))
 
 
 def test_epub_report_tracks_unstructured_option_flags(tmp_path):

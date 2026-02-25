@@ -31,6 +31,7 @@ from cookimport.staging.writer import (
     write_raw_artifacts,
     write_report,
     write_section_outputs,
+    write_stage_block_predictions,
     write_table_outputs,
     write_tip_outputs,
     write_topic_candidate_outputs,
@@ -415,6 +416,17 @@ def stage_one_file(
 
             with measure(file_stats, "write_raw_seconds"):
                 write_raw_artifacts(result, out, output_stats=output_stats)
+            with measure(file_stats, "write_stage_block_predictions_seconds"):
+                write_stage_block_predictions(
+                    results=result,
+                    run_root=out,
+                    workbook_slug=workbook_slug,
+                    source_file=str(file_path),
+                    knowledge_snippets_path=(
+                        out / "knowledge" / workbook_slug / "snippets.jsonl"
+                    ),
+                    output_stats=output_stats,
+                )
 
         file_stats.total_seconds = (dt.datetime.now() - start_total).total_seconds()
         if output_stats.file_counts:

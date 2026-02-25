@@ -80,6 +80,7 @@ Per workbook (slugified file stem):
 - `knowledge/<workbook_slug>/snippets.jsonl` (if pass4 knowledge harvesting is enabled)
 - `knowledge/<workbook_slug>/knowledge.md` (if pass4 knowledge harvesting is enabled)
 - `knowledge/knowledge_index.json` (if any knowledge artifacts were written in the run)
+- `.bench/<workbook_slug>/stage_block_predictions.json` (deterministic block-level benchmark evidence)
 - `tags/<workbook_slug>/r{index}.tags.json` (if pass5 tags pipeline is enabled)
 - `tags/<workbook_slug>/tagging_report.json` (if pass5 tags pipeline is enabled)
 - `tags/tags_index.json` (if any pass5 tag artifacts were written in the run)

@@ -21,7 +21,7 @@ class AutoExtractorResolution:
 def select_epub_extractor_auto(
     path: Path,
     *,
-    candidate_extractors: Sequence[str] = ("unstructured", "markdown", "legacy"),
+    candidate_extractors: Sequence[str] = ("unstructured", "markdown", "beautifulsoup"),
 ) -> AutoExtractorResolution:
     importer = registry.get_importer("epub")
     if importer is None:

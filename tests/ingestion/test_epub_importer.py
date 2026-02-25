@@ -58,8 +58,8 @@ def test_convert_epub_emits_post_candidate_progress(monkeypatch, tmp_path: Path)
     source = tmp_path / "book.epub"
     source.write_bytes(b"dummy-epub")
     importer = EpubImporter()
-    importer._extractor_diagnostics = {"legacy": [], "unstructured": [], "markdown": []}
-    importer._extractor_meta = {"legacy": {}, "unstructured": {}, "markdown": {}}
+    importer._extractor_diagnostics = {"beautifulsoup": [], "unstructured": [], "markdown": []}
+    importer._extractor_meta = {"beautifulsoup": {}, "unstructured": {}, "markdown": {}}
     importer._unstructured_spine_xhtml = []
     importer._markitdown_markdown = None
     blocks = [
@@ -72,7 +72,7 @@ def test_convert_epub_emits_post_candidate_progress(monkeypatch, tmp_path: Path)
     for block in blocks:
         signals.enrich_block(block)
 
-    monkeypatch.setenv("C3IMP_EPUB_EXTRACTOR", "legacy")
+    monkeypatch.setenv("C3IMP_EPUB_EXTRACTOR", "beautifulsoup")
     monkeypatch.setattr(importer, "_extract_docpack", lambda *_args, **_kwargs: blocks)
     monkeypatch.setattr(
         importer,

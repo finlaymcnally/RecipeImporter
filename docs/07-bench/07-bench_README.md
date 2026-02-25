@@ -17,12 +17,10 @@ If your question is "why isn’t benchmark just scoring regular import outputs?"
 
 ## 1. Short answer
 
-Benchmark does **not** score staged cookbook files (`final drafts`, `tips`, etc.) directly.
-It scores **prediction task artifacts** (`label_studio_tasks.jsonl`) against **gold freeform span artifacts** (`freeform_span_labels.jsonl`) because both are aligned to the same block/span coordinate system.
+Benchmark now scores what stage writes.
+Predictions come from stage evidence manifests (`stage_block_predictions.json`) and are compared to freeform gold block labels from `freeform_span_labels.jsonl`.
 
-That shared coordinate system is what makes comparison deterministic.
-
-## 2. The three artifact families
+## 2. Artifact families
 
 ### 2.1 Stage artifacts (human/product outputs)
 
@@ -34,163 +32,112 @@ Examples:
 - `chunks/...`
 - `<workbook>.excel_import_report.json`
 
-These are excellent for product output and manual inspection, but they are not the scoring contract used by freeform gold evaluation.
+### 2.2 Stage evidence artifacts (scored benchmark predictions)
 
-### 2.2 Prediction-run artifacts (benchmark prediction contract)
+Produced by stage writers (`cookimport/staging/writer.py`) during stage and processed-output benchmark runs.
+Key file per workbook:
+- `.bench/<workbook_slug>/stage_block_predictions.json`
+
+Prediction-run roots also keep a local copy:
+- `stage_block_predictions.json`
+
+### 2.3 Prediction-run support artifacts
 
 Produced by `generate_pred_run_artifacts(...)` in `cookimport/labelstudio/ingest.py`.
 Key files:
-- `label_studio_tasks.jsonl` (predicted tasks/ranges used for scoring)
-- `extracted_archive.json` (block stream used to derive tasks)
-- `manifest.json` (run metadata)
-- `run_manifest.json` (cross-command source/config/artifact linkage)
-- `coverage.json`
-- optional `llm_manifest.json` if recipe codex-farm correction is ever re-enabled in future (currently policy-locked `llm_recipe_pipeline=off`)
+- `extracted_archive.json` (block text for mismatch excerpts)
+- `manifest.json` and `run_manifest.json`
+- `label_studio_tasks.jsonl` (still generated for Label Studio workflows; not the scored benchmark prediction source)
 
-These are the canonical "predictions" for both:
-- `cookimport labelstudio-benchmark`
-- `cookimport bench run` (offline suite)
+### 2.4 Gold artifacts (annotation contract)
 
-### 2.3 Gold artifacts (annotation contract)
-
-Produced by `cookimport labelstudio-export --export-scope freeform-spans`.
+Produced by `cookimport labelstudio-export` (freeform-only export path).
 Key file:
 - `exports/freeform_span_labels.jsonl`
 
-This gold format stores span labels + touched block indices, which is why prediction side must use comparable block/range representation.
+## 3. Why stage evidence is scored
 
-## 3. Why benchmark uses task artifacts instead of staged outputs
+The goal is import alignment: benchmark should reflect what Cookbook import would receive from stage outputs.
+Stage evidence projects staged decisions back into one deterministic label per block, then compares those labels directly to exhaustive freeform gold block labels.
 
-### 3.1 Gold is span/block based, not final-json based
-
-Freeform gold labels represent highlighted text spans mapped to block indices.
-Staged outputs are normalized recipe/tip/chunk products, not direct span annotations.
-
-If benchmark tried to score staged outputs directly, it would need a reverse-projection layer back into block spans. That would add ambiguity and make scoring less stable.
-
-### 3.2 Shared coordinate system prevents "apples vs oranges"
-
-Both prediction and gold are evaluated as labeled ranges:
-- Prediction ranges are loaded from `label_studio_tasks.jsonl` (`load_predicted_labeled_ranges`)
-- Gold ranges are loaded from `freeform_span_labels.jsonl` (`load_gold_freeform_ranges`)
-- Matching is performed by overlap logic (`evaluate_predicted_vs_freeform`)
-
-This is a direct contract-to-contract comparison, not a derived approximation.
-
-### 3.3 Same artifact contract works for both online and offline loops
-
-`generate_pred_run_artifacts(...)` is reused in:
-- online Label Studio import/upload flows
-- offline suite benchmarking
-
-This keeps one prediction representation for all evaluation paths.
-
-## 4. Flow map: regular stage vs benchmark
+## 4. Flow map: stage vs benchmark
 
 ### 4.1 Regular stage flow (`cookimport stage`)
 
 1. Convert source file(s)
 2. Build recipes/tips/chunks
 3. Write staged outputs
-4. Done
-
-No scoring step is included in this command.
+4. Write stage evidence `.bench/.../stage_block_predictions.json`
+5. Done
 
 ### 4.2 Label Studio benchmark flow (`cookimport labelstudio-benchmark`)
 
-1. Select gold freeform export
-2. Select source file
-3. Build prediction-run artifacts (upload mode calls `run_labelstudio_import(...)`, which uses `generate_pred_run_artifacts(...)`; offline mode calls `generate_pred_run_artifacts(...)` directly).
-4. Choose upload vs offline: upload mode (default) sends tasks to Label Studio (`--allow-labelstudio-write` required), while offline mode (`--no-upload`) skips credential resolution and Label Studio API calls.
-5. Recipe codex-farm parsing correction is currently policy-locked OFF (`--llm-recipe-pipeline off` only); benchmark prediction runs stay deterministic until this policy is revisited.
-6. Evaluate predicted ranges vs gold ranges
-7. Write eval report artifacts (`eval_report.json`, `eval_report.md`, misses/FPs) plus `run_manifest.json`
+1. Select gold freeform export + source file
+2. Build prediction-run artifacts (upload or offline)
+3. Ensure processed outputs are written (benchmark prediction surface)
+4. Score `stage_block_predictions.json` vs freeform gold with block metrics
+5. Write eval artifacts + run manifest + history CSV row
 
 ### 4.3 Offline suite flow (`cookimport bench run`)
 
 1. For each suite item, call `generate_pred_run_artifacts` (offline, no upload)
-   - CLI spinner/progress now reports `item X/Y [item_id] ...` through the full per-item loop.
-2. Load predictions from `pred_run/label_studio_tasks.jsonl`
+2. Load stage predictions from `pred_run/stage_block_predictions.json`
 3. Load gold spans from `<gold_dir>/exports/freeform_span_labels.jsonl`
 4. Evaluate + aggregate
 5. Write `report.md`, `metrics.json`, `iteration_packet/*`
 
-This is the "no Label Studio write" benchmark loop.
+`cookimport bench sweep` wraps this loop with outer `config X/Y` status updates.
 
-`cookimport bench sweep` wraps this same loop with outer `config X/Y` status updates and forwards nested item progress as `config X/Y | item X/Y ...`.
-
-## 5. Where processed/staged outputs still fit in benchmark
-
-Benchmark can still emit staged cookbook-style outputs for review:
-- `labelstudio-benchmark` passes `processed_output_root` into prediction generation.
-
-Important:
-- Those staged outputs are side artifacts for inspection.
-- Scoring still uses prediction tasks vs freeform gold spans.
-
-So your intuition is partly right: benchmark does generate regular-looking outputs too, but they are not currently the scored surface.
-
-## 6. Exact scoring surface (freeform)
+## 5. Exact scoring surface (stage-block)
 
 Evaluation input A (predictions):
-- `label_studio_tasks.jsonl`
-- Parsed into labeled ranges via `load_predicted_labeled_ranges(...)`
-- Label mapping is inferred from chunk metadata (`chunk_level`, `chunk_type`, hints)
-  - `RECIPE_TITLE` prefers narrow `recipe_title` chunks when present; `recipe_block` is a fallback only for older artifacts that lack `recipe_title`.
+- `stage_block_predictions.json` (`schema_version=stage_block_predictions.v1`)
+- one final label per `block_index`
 
 Evaluation input B (gold):
 - `freeform_span_labels.jsonl`
-- Parsed via `load_gold_freeform_ranges(...)`
-- Uses touched block indices from export payload
-- Gold rows are deduped before scoring by `(source_hash, source_file, start_block_index, end_block_index)`.
-- Conflicting duplicate labels resolve by majority vote; exact ties are dropped from scored gold and reported in eval `gold_dedupe.conflicts`.
+- converted to one label per block (gold must be exhaustive and conflict-free)
 
-Matching:
-- Practical/content-overlap scoring (`practical_precision`, `practical_recall`, `practical_f1`): same label + source-compatible + any overlap (`intersection > 0`)
-- Strict/localization scoring (`precision`, `recall`, `f1`): same label + source-compatible + Jaccard overlap threshold (default `0.5`)
-- Optional source identity relaxation via `--force-source-match`
-- `eval_report` also persists width stats (`span_width_stats`) and a `granularity_mismatch` flag when practical overlap is high but strict IoU is near zero because prediction ranges are much wider than gold.
+Metrics:
+- `overall_block_accuracy`
+- per-label precision/recall/F1
+- `macro_f1_excluding_other`
+- `worst_label_recall`
+- confusion counts and mismatch lists
 
 Outputs:
 - `eval_report.json`
 - `eval_report.md`
-- `missed_gold_spans.jsonl`
-- `false_positive_preds.jsonl`
-- Freeform `eval_report` now includes `recipe_counts` diagnostics:
-  - golden recipes from exported `RECIPE_TITLE` header count (`summary.recipe_counts.recipe_headers` when available),
-  - predicted recipes from prediction-run manifest/report context (`recipe_count` / `totalRecipes` fallback),
-  - markdown summary line for predicted-vs-golden recipe deltas.
+- `missed_gold_blocks.jsonl`
+- `wrong_label_blocks.jsonl`
+- legacy aliases for compatibility:
+  - `missed_gold_spans.jsonl`
+  - `false_positive_preds.jsonl`
 
-### 6.1 Runtime telemetry emitted by benchmark runs
+### 5.1 Runtime telemetry
 
-`labelstudio-benchmark` now persists benchmark timing in:
+`labelstudio-benchmark` persists timing in:
 - prediction `manifest.json` (`timing`)
 - eval `eval_report.json` (`timing`)
 - benchmark `run_manifest.json` artifacts (`timing`)
 
-Timing payload keys:
-- wall/runtime totals: `total_seconds`, `prediction_seconds`, `evaluation_seconds`, `artifact_write_seconds`, `history_append_seconds`
-- stage-aligned runtime fields when available: `parsing_seconds`, `writing_seconds`, `ocr_seconds`
-- checkpoints: `prediction_load_seconds`, `gold_load_seconds`, `evaluate_seconds`, plus prediction-generation checkpoints (`conversion_seconds`, `task_build_seconds`, optional split/processed-output checkpoints)
+All-method reports include timing rollups in per-source and combined summaries.
 
-Interactive all-method reports now include timing rollups:
-- per-source `all_method_benchmark_report.json` / `.md` include `timing_summary` and per-config `timing`
-- combined `all_method_benchmark_multi_source_report.json` / `.md` include run-level `timing_summary` with slowest source/config references
-
-## 7. Command matrix
+## 6. Command matrix
 
 | Command | Uploads to Label Studio | Scores predictions | Primary prediction source |
 |---|---:|---:|---|
 | `cookimport stage` | No | No | N/A |
-| `cookimport labelstudio-benchmark` | Optional (upload mode only; `--allow-labelstudio-write`) | Yes | `label_studio_tasks.jsonl` from prediction run |
-| Interactive benchmark menu flow | No (always offline) | Yes | `label_studio_tasks.jsonl` from one or more `labelstudio-benchmark` runs |
-| `cookimport bench run` | No | Yes | `label_studio_tasks.jsonl` from offline pred run |
+| `cookimport labelstudio-benchmark` | Optional (upload mode only; `--allow-labelstudio-write`) | Yes | `stage_block_predictions.json` |
+| Interactive benchmark menu flow | No (always offline) | Yes | `stage_block_predictions.json` |
+| `cookimport bench run` | No | Yes | `stage_block_predictions.json` |
 
-## 8. Common confusion points
+## 7. Common confusion points
 
 ### 8.1 "Benchmark should just score final outputs"
 
-Today, benchmark contract is span/range based because gold is span/range based. Final outputs are downstream transforms and not the direct eval contract.
+It now does, via stage evidence projection.
+Benchmark still does not parse final draft JSON directly; it scores `.bench/.../stage_block_predictions.json`, which is generated from stage outputs and provenance.
 
 ### 8.2 "Why is upload happening during benchmark?"
 
@@ -240,36 +187,29 @@ Interactive benchmark from the main menu is now offline-only, with two modes:
 Split benchmark returns worker payloads through multiprocessing, so payload metadata must be pickle-safe primitives.
 The concrete failure case that already happened was `unstructured_version` resolving to a module object (`cannot pickle 'module' object`) instead of a string.
 
-## 9. If you want "regular output scoring" in the future
+## 8. If you want stricter import-level scoring in the future
 
-That is feasible, but it would be a different benchmark mode with a new contract.
+Current benchmark already aligns to stage outputs through deterministic block-label projection.
+Future enhancements can add grouping/order/import-integrity checks on top of current block classification metrics.
 
-At minimum it would need:
-1. A deterministic mapping from staged outputs back to block/range coordinates
-2. A label projection layer equivalent to current chunk/task label mapping
-3. Consistency rules for multi-recipe and non-recipe text spans
-4. Tests proving parity/reliability against current task-based scoring
-
-Until that exists, task-artifact scoring remains the most deterministic way to compare against freeform gold spans.
-
-## 10. Core code map
+## 9. Core code map
 
 - `cookimport/bench/suite.py`: suite manifest load/validate
 - `cookimport/bench/pred_run.py`: offline pred-run builder (calls `generate_pred_run_artifacts`)
 - `cookimport/bench/runner.py`: full suite run + per-item eval + aggregate report
+- `cookimport/bench/eval_stage_blocks.py`: stage-block gold/pred loaders, metrics, and eval artifact writing
 - `cookimport/bench/sweep.py`: parameter sweep orchestration
 - `cookimport/bench/report.py`: aggregate metrics/report rendering
 - `cookimport/bench/packet.py`: iteration packet generation
-- `cookimport/labelstudio/ingest.py`: prediction artifact generation + optional upload
-- `cookimport/labelstudio/eval_freeform.py`: freeform range loading + scoring
+- `cookimport/labelstudio/ingest.py`: prediction-run artifact generation + optional upload
 - `cookimport/cli.py`: command wiring for `stage`, `labelstudio-benchmark`, and `bench`
 
-## 11. Runbook
+## 10. Runbook
 
 For quick command examples and output interpretation:
 - `docs/07-bench/runbook.md`
 
-## 12. Merged Understandings Batch (2026-02-23 cleanup)
+## 11. Merged Understandings Batch (2026-02-23 cleanup)
 
 ### 2026-02-22_22.25.41 freeform gold dedupe behavior vs overlap
 
@@ -281,7 +221,7 @@ Durable evaluation rule:
 - Changing overlap can increase duplicate rows in exports, but exact range matches still collapse before scoring.
 - Near-duplicates with different block ranges are not merged; only exact-range matches dedupe.
 
-## 13. Merged Understandings Batch (2026-02-24 cleanup)
+## 12. Merged Understandings Batch (2026-02-24 cleanup)
 
 ### 13.1 Freeform scoring interpretation + practical-vs-strict contract
 
@@ -347,7 +287,7 @@ Durable output/timing rules:
 - Benchmark timing precedence in CSV remains: explicit benchmark `timing` argument -> processed report `timing` fallback -> blank timing fields.
 - Timing payload should be present end-to-end (prediction manifests, benchmark run manifest, eval report, all-method summaries), and `timing.total_seconds` should not under-report known subphase totals.
 
-## 14. Merged Task Specs (2026-02-24 docs/tasks archival batch)
+## 13. Merged Task Specs (2026-02-24 docs/tasks archival batch)
 
 ### 14.1 Practical-vs-strict benchmark scoring rollout
 
@@ -401,7 +341,7 @@ Current runtime contract:
 - Split-heavy conversion is slot-gated and benchmark CSV appends are file-locked for concurrency safety.
 - Interactive all-method uses one persistent outer dashboard spinner; nested per-config benchmark spinner and completion dumps are suppressed during the sweep.
 
-## 15. Merged Understandings Batch (2026-02-24 all-method scheduler + spinner refresh)
+## 14. Merged Understandings Batch (2026-02-24 all-method scheduler + spinner refresh)
 
 ### 15.1 Split-slot bottleneck and scheduler settings contract
 
@@ -463,7 +403,7 @@ Durable rules:
 - Combined reports should preserve deterministic source order via preindexed source slots.
 - Dashboard refresh is per-source in serial mode and batched once at multi-source completion in parallel source mode.
 
-## 16. 2026-02-24_22.44.09 docs/tasks archival merge batch (all-method scheduling/spinner/source parallel)
+## 15. 2026-02-24_22.44.09 docs/tasks archival merge batch (all-method scheduling/spinner/source parallel)
 
 ### 16.1 Archived source tasks merged into this section
 
@@ -512,3 +452,73 @@ Durable runtime contracts from the merged tasks:
 - Outer dispatch layer is thread-based; per-source config execution remains process-based.
 - Combined report ordering remains deterministic by source discovery/index, regardless of completion order.
 - Dashboard refresh policy splits by mode: serial per-source refresh vs one batched refresh at multi-source completion when source parallelism is active.
+
+## 16. Merged Understandings Batch (2026-02-25 stage-vs-benchmark clarifications)
+
+### 16.1 2026-02-25_17.25.05 stage vs benchmark pipeline map
+
+Merged source:
+- `docs/understandings/stage-vs-benchmark-pipeline.md`
+
+Durable contract:
+- Menu `1)` stage and menu `5)` benchmark share importer conversion plus stage writer machinery.
+- They differ in primary run intent and artifact roots:
+  - stage run focus: cookbook artifacts under `data/output/<timestamp>/...`
+  - benchmark run focus: prediction/eval artifacts under `data/golden/benchmark/<timestamp>/...`
+- Menu `5)` writes processed stage outputs as side artifacts; those processed outputs are importable cookbook artifacts.
+- Stage-only optional extras (for example knowledge harvest lanes) should not be assumed present in benchmark artifact roots.
+
+Anti-loop note:
+- Do not treat benchmark flow as a separate importer pipeline when debugging extraction differences; start from shared conversion/stage writer path and then inspect artifact-surface differences.
+
+### 16.2 2026-02-25_17.26.24 required stage-block prediction artifacts in pred-run roots
+
+Merged source:
+- `docs/understandings/2026-02-25_17.26.24-stage-block-benchmark-prediction-artifacts.md`
+
+Durable artifact contract:
+- `labelstudio-benchmark` and `bench run` require these files in each prediction-run root:
+  - `stage_block_predictions.json`
+  - `extracted_archive.json`
+- Legacy fixtures containing only `label_studio_tasks.jsonl` are insufficient for stage-block evaluation.
+- Stage evidence originates under `.bench/<workbook_slug>/stage_block_predictions.json` and is copied into pred-run root by `generate_pred_run_artifacts(...)`.
+
+Anti-loop note:
+- If benchmark fails with missing stage artifacts, fix fixture/build artifact generation first instead of changing evaluator label math.
+
+### 16.3 2026-02-25_17.27.08 historical per-label-zero caveat (legacy scoring surface)
+
+Merged source:
+- `docs/understandings/2026-02-25_03.41.19-per-label-zeros-notes-yield-time-variant.md`
+
+Historical note preserved:
+- Old pipeline-task span scoring could show `pred_total=0` for `RECIPE_NOTES`, `RECIPE_VARIANT`, `TIME_LINE`, and `YIELD_LINE` even when staged drafts carried notes/variants/time/yield fields.
+- That specific failure mode depended on missing pipeline chunk types and is not the current stage-block scoring contract.
+
+Current interpretation rule:
+- For current runs, benchmark truth is stage-block evidence (`stage_block_predictions.json`) vs freeform gold block labels.
+- When reviewing older reports produced before stage-block adoption, do not infer extractor failure solely from those legacy per-label zero rows without first confirming the scoring surface.
+
+### 16.4 2026-02-25_17.26.21 stage-block benchmark refactor archival merge
+
+Merged source:
+- `docs/tasks/bench-refactor.md`
+
+Durable benchmark contract from the refactor:
+- Scoring surface is stage evidence (`stage_block_predictions.json`) plus knowledge exports, not pipeline-task chunks.
+- Evaluation is block classification, not span IoU.
+- Gold is expected exhaustive (exactly one label per block, including `OTHER`), with conflict/missing-label failures treated as hard data-quality errors.
+- Reports must surface:
+  - `overall_block_accuracy`
+  - `macro_f1_excluding_other`
+  - `worst_label_recall`
+- Compatibility aliases stay in place (`missed_gold_spans.jsonl`, `false_positive_preds.jsonl`) while block-native artifacts are primary.
+
+Scope boundaries preserved:
+- Step-internal instruction `time_seconds` extraction is not benchmarked in this contract.
+- Recipe grouping correctness is currently outside benchmark scope.
+- Notes/variant scoring should use stage provenance only; derived metadata should not inflate those labels.
+
+Known pending follow-up from task record:
+- Full removal of legacy Label Studio scopes (`pipeline`, `canonical-blocks`) was marked as a separate migration after scoring contract rollout.
+- Real golden-set acceptance run evidence was still pending at that task checkpoint.

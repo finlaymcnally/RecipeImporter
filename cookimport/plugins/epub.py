@@ -39,10 +39,15 @@ from cookimport.core.reporting import (
 from cookimport.core.progress_messages import format_task_counter
 from cookimport.core.scoring import score_recipe_candidate
 from cookimport.core.blocks import Block, BlockType
+from cookimport.epub_extractor_names import (
+    EPUB_EXTRACTOR_CANONICAL_SET,
+    EPUB_EXTRACTOR_DEFAULT,
+    normalize_epub_extractor_name,
+)
 from cookimport.parsing import cleaning, signals
 from cookimport.parsing.epub_extractors import (
+    BeautifulSoupEpubExtractor,
     EpubExtractor,
-    LegacyEpubExtractor,
     MarkdownEpubExtractor,
     UnstructuredEpubExtractor,
 )
@@ -61,17 +66,12 @@ from cookimport.parsing.tips import (
 from cookimport.plugins import registry
 
 # ---------------------------------------------------------------------------
-# Extractor switch: C3IMP_EPUB_EXTRACTOR = legacy | unstructured | markdown | markitdown
+# Extractor switch: C3IMP_EPUB_EXTRACTOR = beautifulsoup | unstructured | markdown | markitdown
 # Default: unstructured
 # Read at call time (not import time) so interactive settings take effect.
 # ---------------------------------------------------------------------------
-_EPUB_EXTRACTOR_DEFAULT = "unstructured"
-_EPUB_EXTRACTOR_CHOICES = {
-    "legacy",
-    "unstructured",
-    "markdown",
-    "markitdown",  # legacy alias retained for compatibility
-}
+_EPUB_EXTRACTOR_DEFAULT = EPUB_EXTRACTOR_DEFAULT
+_EPUB_EXTRACTOR_CHOICES = set(EPUB_EXTRACTOR_CANONICAL_SET)
 _UNSTRUCTURED_HTML_PARSER_VERSION_DEFAULT = "v1"
 _UNSTRUCTURED_HTML_PARSER_VERSION_CHOICES = {"v1", "v2"}
 _UNSTRUCTURED_PREPROCESS_MODE_DEFAULT = "br_split_v1"
@@ -81,7 +81,9 @@ _STANDALONE_ANALYSIS_WORKERS_ENV = "C3IMP_STANDALONE_ANALYSIS_WORKERS"
 
 
 def _get_epub_extractor() -> str:
-    selected = os.environ.get("C3IMP_EPUB_EXTRACTOR", _EPUB_EXTRACTOR_DEFAULT).strip().lower()
+    selected = normalize_epub_extractor_name(
+        os.environ.get("C3IMP_EPUB_EXTRACTOR", _EPUB_EXTRACTOR_DEFAULT).strip().lower()
+    )
     if selected in _EPUB_EXTRACTOR_CHOICES:
         return selected
     if selected:
@@ -396,12 +398,12 @@ class EpubImporter:
             if extractor_diagnostics:
                 location_ids = {
                     "unstructured": "unstructured_elements",
-                    "legacy": "legacy_elements",
+                    "beautifulsoup": "beautifulsoup_elements",
                     "markdown": "markdown_blocks",
                 }
                 artifact_ids = {
                     "unstructured": "unstructured_diagnostics",
-                    "legacy": "legacy_diagnostics",
+                    "beautifulsoup": "beautifulsoup_diagnostics",
                     "markdown": "markdown_diagnostics",
                 }
                 jsonl_lines = "\n".join(
@@ -799,15 +801,16 @@ class EpubImporter:
 
         Extractors:
         - unstructured: semantic HTML partitioning with diagnostics rows.
-        - legacy: BeautifulSoup tag parser across spine docs.
+        - beautifulsoup: BeautifulSoup tag parser across spine docs.
         - markdown: spine-by-spine HTML->Markdown conversion with markdown diagnostics.
         - markitdown: whole-book EPUB->markdown conversion with markdown-line provenance.
         """
-        selected_extractor = extractor or _get_epub_extractor()
+        selected_extractor = normalize_epub_extractor_name(extractor or _get_epub_extractor())
         if selected_extractor == "auto":
             raise ValueError(
                 "EPUB extractor 'auto' is no longer supported. "
-                "Choose an explicit extractor: unstructured, legacy, markdown, or markitdown."
+                "Choose an explicit extractor: unstructured, beautifulsoup, markdown, "
+                "or markitdown."
             )
         if selected_extractor not in _EPUB_EXTRACTOR_CHOICES:
             raise ValueError(
@@ -815,12 +818,12 @@ class EpubImporter:
             )
 
         self._extractor_diagnostics: dict[str, list[dict[str, Any]]] = {
-            "legacy": [],
+            "beautifulsoup": [],
             "unstructured": [],
             "markdown": [],
         }
         self._extractor_meta: dict[str, dict[str, Any]] = {
-            "legacy": {},
+            "beautifulsoup": {},
             "unstructured": {},
             "markdown": {},
         }
@@ -835,7 +838,7 @@ class EpubImporter:
             if start_spine is not None or end_spine is not None:
                 raise ValueError(
                     "EPUB extractor 'markitdown' does not support split spine ranges. "
-                    "Set --epub-split-workers 1 or choose unstructured/legacy/markdown."
+                    "Set --epub-split-workers 1 or choose unstructured/beautifulsoup/markdown."
                 )
             blocks = self._extract_docpack_markitdown(path)
         elif epub is not None:
@@ -862,7 +865,7 @@ class EpubImporter:
                 extractor=selected_extractor,
             )
 
-        if selected_extractor in {"legacy", "unstructured", "markdown"}:
+        if selected_extractor in {"beautifulsoup", "unstructured", "markdown"}:
             blocks = postprocess_epub_blocks(blocks)
 
         for block in blocks:
@@ -1011,8 +1014,8 @@ class EpubImporter:
         return blocks
 
     def _build_extractor(self, extractor: str) -> EpubExtractor:
-        if extractor == "legacy":
-            return LegacyEpubExtractor()
+        if extractor == "beautifulsoup":
+            return BeautifulSoupEpubExtractor()
         if extractor == "unstructured":
             return UnstructuredEpubExtractor(
                 html_parser_version=self._unstructured_html_parser_version,
@@ -1255,7 +1258,7 @@ class EpubImporter:
         self,
         soup: BeautifulSoup,
         spine_index: int | None = None,
-        extraction_backend: str = "legacy",
+        extraction_backend: str = "beautifulsoup",
     ) -> List[Block]:
         blocks: list[Block] = []
         emitted_table_nodes: set[int] = set()

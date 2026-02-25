@@ -2,6 +2,7 @@
 
 The repo now tags tests by domain automatically in `tests/conftest.py`.
 Use marker filters so AI runs only what is needed.
+Durable low-noise and modularity contracts live in `tests/CONVENTIONS.md`.
 
 ## Folder Layout
 

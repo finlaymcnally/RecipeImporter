@@ -278,7 +278,6 @@ def test_export_freeform_spans_jsonl(tmp_path, monkeypatch) -> None:
         label_studio_url="http://localhost:8080",
         label_studio_api_key="token",
         run_dir=None,
-        export_scope="freeform-spans",
     )
     summary = result["summary"]
     assert summary["counts"]["labeled"] == 1
@@ -411,7 +410,6 @@ def test_export_freeform_spans_with_yield_and_time_labels(tmp_path, monkeypatch)
         label_studio_url="http://localhost:8080",
         label_studio_api_key="token",
         run_dir=None,
-        export_scope="freeform-spans",
     )
     summary = result["summary"]
     assert summary["counts"]["labeled"] == 3
@@ -604,7 +602,6 @@ def test_export_freeform_summary_counts_recipe_headers_deduped(tmp_path, monkeyp
         label_studio_url="http://localhost:8080",
         label_studio_api_key="token",
         run_dir=None,
-        export_scope="freeform-spans",
     )
     summary = result["summary"]
     assert summary["counts"]["labeled"] == 3
@@ -632,9 +629,9 @@ def test_export_uses_project_slug_run_root_when_manifest_exists(tmp_path, monkey
     prior_manifest_path.write_text(
         json.dumps(
             {
-                "project_name": "Pipeline Project",
+                "project_name": "Freeform Project",
                 "project_id": 123,
-                "task_scope": "pipeline",
+                "task_scope": "freeform-spans",
             },
             indent=2,
             sort_keys=True,
@@ -645,16 +642,15 @@ def test_export_uses_project_slug_run_root_when_manifest_exists(tmp_path, monkey
     monkeypatch.setattr("cookimport.labelstudio.export.LabelStudioClient", FakeClient)
 
     result = run_labelstudio_export(
-        project_name="Pipeline Project",
+        project_name="Freeform Project",
         output_dir=tmp_path,
         label_studio_url="http://localhost:8080",
         label_studio_api_key="token",
         run_dir=None,
-        export_scope="pipeline",
     )
 
     export_root = result["export_root"]
-    assert export_root == tmp_path / "pipeline_project" / "exports"
+    assert export_root == tmp_path / "freeform_project" / "exports"
     assert export_root.parent != prior_run_root
     assert result["summary"]["manifest_path"] == str(prior_manifest_path)
     assert (export_root / "summary.json").exists()

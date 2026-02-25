@@ -84,7 +84,7 @@ def test_epub_blocks_and_candidates_write_artifacts(tmp_path: Path) -> None:
             "blocks",
             str(source),
             "--extractor",
-            "legacy",
+            "beautifulsoup",
             "--out",
             str(blocks_dir),
         ],
@@ -105,7 +105,7 @@ def test_epub_blocks_and_candidates_write_artifacts(tmp_path: Path) -> None:
             "candidates",
             str(source),
             "--extractor",
-            "legacy",
+            "beautifulsoup",
             "--out",
             str(candidates_dir),
         ],
@@ -146,7 +146,7 @@ def test_epub_race_writes_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
                 "candidates": [
                     {"backend": "unstructured", "status": "ok", "average_score": 0.64},
                     {"backend": "markdown", "status": "ok", "average_score": 0.81},
-                    {"backend": "legacy", "status": "ok", "average_score": 0.47},
+                    {"backend": "beautifulsoup", "status": "ok", "average_score": 0.47},
                 ],
                 "selected_reason": "highest_average_score_then_candidate_order",
             },
@@ -163,7 +163,7 @@ def test_epub_race_writes_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             "--out",
             str(out_dir),
             "--candidates",
-            "unstructured,markdown,legacy",
+            "unstructured,markdown,beautifulsoup",
         ],
     )
     assert result.exit_code == 0
@@ -173,5 +173,5 @@ def test_epub_race_writes_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     payload = json.loads(report_path.read_text(encoding="utf-8"))
     assert payload["effective_extractor"] == "markdown"
     assert payload["selected_score"] == pytest.approx(0.81)
-    assert payload["candidate_extractors"] == ["unstructured", "markdown", "legacy"]
+    assert payload["candidate_extractors"] == ["unstructured", "markdown", "beautifulsoup"]
     assert "Selected extractor: markdown" in result.stdout

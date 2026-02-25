@@ -209,7 +209,7 @@ Behavior highlights:
 
 Extractor modes:
 - Default: `unstructured`
-- Alternates: `legacy`, `markdown`, `markitdown`
+- Alternates: `beautifulsoup`, `markdown`, `markitdown`
 - Debug-only selector: `select_epub_extractor_auto(...)` remains available for extractor race diagnostics, but it is not a stage/prediction runtime mode.
 - Control path:
   - CLI: `--epub-extractor`
@@ -221,12 +221,12 @@ Extractor modes:
 
 Block extraction:
 - Reads spine in order (ebooklib primary, zip fallback)
-- Supports range slicing via `start_spine`, `end_spine` (end exclusive) for `unstructured`/`legacy`/`markdown`
+- Supports range slicing via `start_spine`, `end_spine` (end exclusive) for `unstructured`/`beautifulsoup`/`markdown`
 - `markitdown` converts the whole EPUB to markdown first; it does not support spine-range split jobs
 - Adds `spine_index` feature to blocks for deterministic merge ordering
 - Skips nav/TOC spine docs when identified via OPF `properties="nav"` or nav/toc signatures in HTML.
-- Applies shared post-extraction cleanup for `unstructured`/`legacy`/`markdown` (`cookimport/parsing/epub_postprocess.py`) before segmentation.
-- Stage/benchmark prediction flows now require explicit extractor choices (`unstructured|legacy|markdown|markitdown`).
+- Applies shared post-extraction cleanup for `unstructured`/`beautifulsoup`/`markdown` (`cookimport/parsing/epub_postprocess.py`) before segmentation.
+- Stage/benchmark prediction flows now require explicit extractor choices (`unstructured|beautifulsoup|markdown|markitdown`).
 
 MarkItDown-specific behavior:
 - Uses `markitdown` with plugins disabled (`MarkItDown(enable_plugins=False)`)
@@ -258,11 +258,11 @@ Unstructured-specific behavior:
 
 Current behavior is one mutually exclusive extractor choice per run:
 
-- `EPUB -> [unstructured | legacy | markdown | markitdown] -> block stream -> shared segmentation/extraction`
+- `EPUB -> [unstructured | beautifulsoup | markdown | markitdown] -> block stream -> shared segmentation/extraction`
 
 This is intentionally not:
 
-- `EPUB -> optional markitdown pre-pass -> (legacy|unstructured)`
+- `EPUB -> optional markitdown pre-pass -> (beautifulsoup|unstructured)`
 
 `markitdown` is its own extractor path, not a preprocessing toggle.
 
@@ -275,10 +275,10 @@ This is intentionally not:
 - Maps heading/list semantics from unstructured categories (`Title` and `ListItem` handling).
 - Supports spine-range split jobs.
 
-`legacy`:
+`beautifulsoup`:
 - Parses spine XHTML via BeautifulSoup and scans block-level tags (`p`, `div`, `h1..h6`, `li`, `td`, `th`, `blockquote`).
 - Skips container tags with nested block tags to avoid parent+child duplicate emission.
-- Emits one block per leaf block-level element with `extraction_backend=legacy`.
+- Emits one block per leaf block-level element with `extraction_backend=beautifulsoup`.
 - Supports spine-range split jobs.
 
 `markdown`:
@@ -302,7 +302,7 @@ Boundary note for `markitdown`:
 
 Quick selection guidance:
 - Start with `unstructured` for general ingestion and richer traceability.
-- Use `legacy` when simpler HTML-tag parsing behavior is preferred.
+- Use `beautifulsoup` when simpler HTML-tag parsing behavior is preferred.
 - Use `markdown` when per-spine HTML conversion plus deterministic markdown parsing yields cleaner block boundaries.
 - Use `markitdown` when source XHTML is noisy and markdown normalization yields better block boundaries.
 - Stage/prediction runtime requires explicit extractor choices; debug-only auto-selection tooling is intentionally out-of-band.
@@ -505,7 +505,7 @@ If working in this area, keep these invariants:
 ### Shared postprocess and health join points
 
 - `_extract_docpack(...)` in `cookimport/plugins/epub.py` is the extractor join point.
-- `legacy`, `unstructured`, and `markdown` backends run shared cleanup (`postprocess_epub_blocks(...)`) before signal enrichment.
+- `beautifulsoup`, `unstructured`, and `markdown` backends run shared cleanup (`postprocess_epub_blocks(...)`) before signal enrichment.
 - `markitdown` intentionally skips shared HTML postprocess and only gets normal signal enrichment.
 - Conversion-level health is attached in `EpubImporter.convert(...)`:
   - writes raw artifact `epub_extraction_health.json`,
@@ -518,7 +518,7 @@ If working in this area, keep these invariants:
 
 ### Extractor selection + env scope
 
-- Stage and benchmark prediction generation now require an explicit EPUB extractor (`unstructured|legacy|markdown|markitdown`).
+- Stage and benchmark prediction generation now require an explicit EPUB extractor (`unstructured|beautifulsoup|markdown|markitdown`).
 - Stage/prediction workers receive that selected backend directly (no per-file auto-resolution branch).
 - Prediction-generation helper flows should apply `C3IMP_EPUB_*` overrides in scoped contexts and restore previous env values after conversion to avoid run/test leakage.
 - `select_epub_extractor_auto(...)` remains available for deterministic debug/race utilities only; it is not part of the stage/benchmark runtime path.
@@ -599,7 +599,7 @@ Merged source:
 - `docs/understandings/2026-02-23_22.45.22-epub-extractor-auto-removed.md`
 
 Durable ingestion contract:
-- Stage and prediction-generation runtime paths require explicit EPUB extractor selection (`unstructured|legacy|markdown|markitdown`).
+- Stage and prediction-generation runtime paths require explicit EPUB extractor selection (`unstructured|beautifulsoup|markdown|markitdown`).
 - `epub_extractor=auto` is a rejected runtime value in CLI/prediction validators.
 - Legacy saved run settings carrying `epub_extractor=auto` are migrated to `unstructured` with warning during settings load.
 - Deterministic auto-selector utilities remain available for extractor-debug/race workflows only, not normal stage/benchmark execution.
@@ -614,7 +614,7 @@ Task sources:
 
 Current runtime contract (code + task verification aligned):
 - Stage and prediction-generation validators reject `epub_extractor=auto`.
-- Runtime keeps explicit extractor modes only: `unstructured|legacy|markdown|markitdown`.
+- Runtime keeps explicit extractor modes only: `unstructured|beautifulsoup|markdown|markitdown`.
 - Run-config compatibility fields stay stable (`epub_extractor_requested`, `epub_extractor_effective`) and are equal for new runs.
 - All-method variant generation and benchmark knobs no longer include `auto` permutations.
 - Legacy saved run settings still load through migration (`auto -> unstructured`) with warning.
@@ -626,3 +626,43 @@ Implementation/testing notes worth preserving:
   - `source .venv/bin/activate && pytest tests/llm/test_run_settings.py tests/labelstudio/test_labelstudio_ingest_parallel.py tests/labelstudio/test_labelstudio_benchmark_helpers.py tests/cli/test_cli_output_structure.py`
   - Result captured in task docs: `86 passed, 7 warnings`.
 - Recorded CLI help evidence: `cookimport stage --help` showed explicit choices only (no `auto`).
+
+## Merged Understandings Batch (2026-02-25 extractor variants + canonical naming)
+
+### 2026-02-25_17.57.34 EPUB extractor variants and unstructured-only knobs
+
+Merged source:
+- `docs/understandings/epub-extractor-variants-unstructured-knobs.md`
+
+Durable operator contract:
+- Exactly one extractor runs per import: `unstructured`, `beautifulsoup`, `markdown`, or `markitdown`.
+- `parser` / `skiphf` / `pre` knobs only affect `unstructured`.
+- All-method slugs containing `parser`, `skiphf`, or `pre` represent unstructured-only variants.
+- Split compatibility is extractor-dependent:
+  - `unstructured`, `beautifulsoup`, and `markdown` support spine-range split jobs.
+  - `markitdown` is whole-book only.
+- `semantic_v1` currently aliases `br_split_v1`; keep both labels stable for historical benchmark comparability.
+
+Anti-loop notes:
+- Do not try to tune `parser` / `skiphf` / `pre` to improve `beautifulsoup` / `markdown` / `markitdown` runs; those knobs are no-ops there.
+- If non-unstructured runs appear to differ only by those knobs, treat it as config/reporting drift before changing extractor code.
+
+### 2026-02-25_18.05.02 `beautifulsoup` canonical-name contract
+
+Merged source:
+- `docs/understandings/2026-02-25_18.05.02-epub-extractor-beautifulsoup-canonical-name.md`
+
+Durable runtime contract:
+- `beautifulsoup` is the only canonical extractor token for the BeautifulSoup backend.
+- Normalization must happen before validation in shared helper `cookimport/epub_extractor_names.py`.
+- Keep these call sites aligned to canonical values:
+  - `cookimport/config/run_settings.py`
+  - `cookimport/cli.py`
+  - `cookimport/epubdebug/cli.py`
+  - `cookimport/labelstudio/ingest.py`
+  - `cookimport/plugins/epub.py`
+  - `cookimport/parsing/epub_auto_select.py`
+
+Anti-loop notes:
+- Mixed alias handling causes extractor slugs/history rows/dashboard groups/tests to split one backend into multiple names.
+- If benchmark analytics or fixtures show both `bs4`-style aliases and `beautifulsoup`, fix canonical normalization drift first.

@@ -45,8 +45,8 @@ def _soup_from_html(html: str) -> BeautifulSoup:
         return BeautifulSoup(html, "html.parser")
 
 
-class LegacyEpubExtractor:
-    name = "legacy"
+class BeautifulSoupEpubExtractor:
+    name = "beautifulsoup"
 
     _BULLET_PREFIX_RE = re.compile(r"^(?:[•●◦▪‣·*]|[-–—])\s+")
 
@@ -78,8 +78,10 @@ class LegacyEpubExtractor:
             if row_block is None:
                 continue
 
-            stable_key = f"{source_location_id}:spine{spine_index}:legacy{element_index}"
-            row_block.add_feature("legacy_stable_key", stable_key)
+            stable_key = (
+                f"{source_location_id}:spine{spine_index}:beautifulsoup{element_index}"
+            )
+            row_block.add_feature("beautifulsoup_stable_key", stable_key)
             blocks.append(row_block)
             diagnostics_rows.append(
                 {
@@ -149,8 +151,10 @@ class LegacyEpubExtractor:
             if elem.name in {"td", "th"}:
                 block.add_feature("epub_table_cell", True)
 
-            stable_key = f"{source_location_id}:spine{spine_index}:legacy{element_index}"
-            block.add_feature("legacy_stable_key", stable_key)
+            stable_key = (
+                f"{source_location_id}:spine{spine_index}:beautifulsoup{element_index}"
+            )
+            block.add_feature("beautifulsoup_stable_key", stable_key)
             blocks.append(block)
             diagnostics_rows.append(
                 {

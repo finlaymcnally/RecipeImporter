@@ -48,6 +48,11 @@ from cookimport.config.run_settings import (
     build_run_settings,
     compute_effective_workers,
 )
+from cookimport.epub_extractor_names import (
+    EPUB_EXTRACTOR_CANONICAL_SET,
+    epub_extractor_choices_for_help,
+    normalize_epub_extractor_name,
+)
 from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
 from cookimport.core.progress_messages import (
@@ -59,18 +64,15 @@ from cookimport.core.overrides_io import load_parsing_overrides
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
 from cookimport.core.slug import slugify_name
 from cookimport.core.timing import TimingStats, measure
+from cookimport.bench.eval_stage_blocks import (
+    evaluate_stage_blocks,
+    format_stage_block_eval_report_md,
+)
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.export import run_labelstudio_export
 from cookimport.labelstudio.ingest import (
     generate_pred_run_artifacts,
     run_labelstudio_import,
-)
-from cookimport.labelstudio.eval_canonical import (
-    evaluate_structural_vs_gold,
-    format_eval_report_md,
-    load_gold_spans,
-    load_predicted_spans,
-    write_jsonl,
 )
 from cookimport.labelstudio.eval_freeform import (
     attach_recipe_count_diagnostics,
@@ -113,6 +115,7 @@ from cookimport.staging.writer import (
     write_intermediate_outputs,
     write_report,
     write_section_outputs,
+    write_stage_block_predictions,
     write_table_outputs,
     write_tip_outputs,
     write_topic_candidate_outputs,
@@ -157,11 +160,12 @@ DEFAULT_BENCH_RUNS = DEFAULT_GOLDEN / "bench" / "runs"
 DEFAULT_CONFIG_PATH = REPO_ROOT / "cookimport.json"
 BACK_ACTION = "__back__"
 DEFAULT_PRELABEL_TIMEOUT_SECONDS = 300
-SUPPORTED_LABELSTUDIO_TASK_SCOPES = {"pipeline", "canonical-blocks", "freeform-spans"}
+KNOWN_LABELSTUDIO_TASK_SCOPES = {"pipeline", "canonical-blocks", "freeform-spans"}
+SUPPORTED_LABELSTUDIO_TASK_SCOPES = {"freeform-spans"}
 ALL_METHOD_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
 ALL_METHOD_EPUB_EXTRACTORS = (
     "unstructured",
-    "legacy",
+    "beautifulsoup",
     "markdown",
     "markitdown",
 )
@@ -879,7 +883,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     value=ALL_METHOD_SMART_SCHEDULER_SETTING_KEY,
                 ),
                 questionary.Choice(
-                    f"EPUB Extractor: {current_settings.get('epub_extractor', 'unstructured')} - unstructured/legacy/markdown/markitdown",
+                    f"EPUB Extractor: {current_settings.get('epub_extractor', 'unstructured')} - unstructured/beautifulsoup/markdown/markitdown",
                     value="epub_extractor",
                 ),
                 questionary.Choice(
@@ -1078,12 +1082,12 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
         elif choice == "epub_extractor":
             val = _menu_select(
                 "Select EPUB extraction engine:",
-                choices=["unstructured", "legacy", "markdown", "markitdown"],
+                choices=["unstructured", "beautifulsoup", "markdown", "markitdown"],
                 default=current_settings.get("epub_extractor", "unstructured"),
                 menu_help=(
                     "Unstructured uses semantic HTML partitioning for richer block extraction. "
-                    "Legacy uses BeautifulSoup tag-based parsing. Markdown converts spine HTML into markdown first. "
-                    "MarkItDown is retained as legacy whole-book markdown mode."
+                    "BeautifulSoup uses tag-based parsing. Markdown converts spine HTML into markdown first. "
+                    "MarkItDown is retained as a whole-book markdown mode."
                 ),
             )
             if val and val != BACK_ACTION:
@@ -1233,11 +1237,11 @@ def _interactive_epub_race(epub_files: list[Path]) -> None:
 
     candidates_raw = _prompt_text(
         "Candidate extractors (comma-separated):",
-        default="unstructured,markdown,legacy",
+        default="unstructured,markdown,beautifulsoup",
     )
     if candidates_raw is None:
         return
-    candidates = candidates_raw.strip() or "unstructured,markdown,legacy"
+    candidates = candidates_raw.strip() or "unstructured,markdown,beautifulsoup"
 
     try:
         race_epub_extractors(
@@ -1853,33 +1857,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             if project_name is not None:
                 project_name = project_name.strip() or None
 
-            task_scope = _menu_select(
-                "Task scope:",
-                menu_help=(
-                    "Scope controls labeling style. Pipeline labels chunk outputs, canonical "
-                    "labels every block, and freeform labels arbitrary spans."
-                ),
-                choices=[
-                    questionary.Choice(
-                        "pipeline chunks - label structural/atomic pipeline chunks",
-                        value="pipeline",
-                    ),
-                    questionary.Choice(
-                        "canonical blocks - one label per extracted block",
-                        value="canonical-blocks",
-                    ),
-                    questionary.Choice(
-                        "freeform spans - highlight arbitrary text spans",
-                        value="freeform-spans",
-                    ),
-                ],
-            )
-
-            if task_scope in {None, BACK_ACTION}:
-                continue
-
-            chunk_level = "both"
-            context_window = 1
+            # Label Studio import is freeform-only.
             segment_blocks = 40
             segment_overlap = 5
             segment_focus_blocks = 40
@@ -1897,266 +1875,230 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             codex_reasoning_effort: str | None = None
             prelabel_track_token_usage = True
 
-            if task_scope == "pipeline":
-                chunk_level = _menu_select(
-                    "Chunk level:",
+            freeform_segment_settings = _prompt_freeform_segment_settings(
+                segment_blocks_default=segment_blocks,
+                segment_overlap_default=segment_overlap,
+                segment_focus_blocks_default=segment_focus_blocks,
+                target_task_count_default=target_task_count,
+            )
+            if freeform_segment_settings is None:
+                continue
+            (
+                segment_blocks,
+                segment_overlap,
+                segment_focus_blocks,
+                target_task_count,
+            ) = freeform_segment_settings
+            prelabel_mode = _menu_select(
+                "AI prelabel mode before upload:",
+                menu_help=(
+                    "Choose strict vs allow-partial behavior for AI prelabels. "
+                    "Predictions mode is an advanced/debug option."
+                ),
+                choices=[
+                    questionary.Choice(
+                        "off - upload tasks without AI prelabels",
+                        value=(False, "annotations", False),
+                    ),
+                    questionary.Choice(
+                        "strict annotations (recommended) - fail upload if any prelabel task fails",
+                        value=(True, "annotations", False),
+                    ),
+                    questionary.Choice(
+                        "allow-partial annotations - continue upload and record failures",
+                        value=(True, "annotations", True),
+                    ),
+                    questionary.Choice(
+                        "strict predictions (advanced) - upload AI output as predictions",
+                        value=(True, "predictions", False),
+                    ),
+                    questionary.Choice(
+                        "allow-partial predictions (advanced) - predictions + partial failures",
+                        value=(True, "predictions", True),
+                    ),
+                ],
+            )
+            if prelabel_mode in {None, BACK_ACTION}:
+                continue
+            prelabel, prelabel_upload_as, prelabel_allow_partial = prelabel_mode
+            if prelabel:
+                prelabel_granularity_choice = _menu_select(
+                    "AI prelabel labeling style:",
                     menu_help=(
-                        "Choose which pipeline chunk types to upload for annotation."
+                        "Choose between real freeform span highlighting and "
+                        "the older one-label-per-block behavior."
                     ),
                     choices=[
                         questionary.Choice(
-                            "both - include structural recipe chunks and atomic line chunks",
-                            value="both",
+                            "actual freeform - allow sub-block span highlights",
+                            value=PRELABEL_GRANULARITY_SPAN,
                         ),
                         questionary.Choice(
-                            "structural only - recipe-level chunk boundaries",
-                            value="structural",
-                        ),
-                        questionary.Choice(
-                            "atomic only - line-level ingredient/instruction chunks",
-                            value="atomic",
+                            "block based - one label per block",
+                            value=PRELABEL_GRANULARITY_BLOCK,
                         ),
                     ],
                 )
-                if chunk_level in {None, BACK_ACTION}:
+                if prelabel_granularity_choice in {None, BACK_ACTION}:
                     continue
-            elif task_scope == "canonical-blocks":
-                context_window_raw = _prompt_text(
-                    "Canonical context window (blocks):",
-                    default="1",
-                )
-                if context_window_raw is None:
-                    continue
-                try:
-                    context_window = max(0, int(context_window_raw.strip()))
-                except ValueError:
-                    typer.secho("Context window must be an integer >= 0.", fg=typer.colors.RED)
-                    continue
-            elif task_scope == "freeform-spans":
-                freeform_segment_settings = _prompt_freeform_segment_settings(
-                    segment_blocks_default=segment_blocks,
-                    segment_overlap_default=segment_overlap,
-                    segment_focus_blocks_default=segment_focus_blocks,
-                    target_task_count_default=target_task_count,
-                )
-                if freeform_segment_settings is None:
-                    continue
-                (
-                    segment_blocks,
-                    segment_overlap,
-                    segment_focus_blocks,
-                    target_task_count,
-                ) = freeform_segment_settings
-                prelabel_mode = _menu_select(
-                    "AI prelabel mode before upload:",
-                    menu_help=(
-                        "Choose strict vs allow-partial behavior for AI prelabels. "
-                        "Predictions mode is an advanced/debug option."
-                    ),
-                    choices=[
-                        questionary.Choice(
-                            "off - upload tasks without AI prelabels",
-                            value=(False, "annotations", False),
-                        ),
-                        questionary.Choice(
-                            "strict annotations (recommended) - fail upload if any prelabel task fails",
-                            value=(True, "annotations", False),
-                        ),
-                        questionary.Choice(
-                            "allow-partial annotations - continue upload and record failures",
-                            value=(True, "annotations", True),
-                        ),
-                        questionary.Choice(
-                            "strict predictions (advanced) - upload AI output as predictions",
-                            value=(True, "predictions", False),
-                        ),
-                        questionary.Choice(
-                            "allow-partial predictions (advanced) - predictions + partial failures",
-                            value=(True, "predictions", True),
-                        ),
-                    ],
-                )
-                if prelabel_mode in {None, BACK_ACTION}:
-                    continue
-                prelabel, prelabel_upload_as, prelabel_allow_partial = prelabel_mode
-                if prelabel:
-                    prelabel_granularity_choice = _menu_select(
-                        "AI prelabel labeling style:",
-                        menu_help=(
-                            "Choose between real freeform span highlighting and "
-                            "the older one-label-per-block behavior."
-                        ),
-                        choices=[
-                            questionary.Choice(
-                                "actual freeform - allow sub-block span highlights",
-                                value=PRELABEL_GRANULARITY_SPAN,
-                            ),
-                            questionary.Choice(
-                                "legacy, block based - one label per block",
-                                value=PRELABEL_GRANULARITY_BLOCK,
-                            ),
-                        ],
+                prelabel_granularity = str(prelabel_granularity_choice)
+                codex_cmd = default_codex_cmd()
+                resolved_account = codex_account_summary(codex_cmd)
+                if resolved_account:
+                    typer.secho(
+                        f"Prelabel account: {resolved_account}",
+                        fg=typer.colors.CYAN,
                     )
-                    if prelabel_granularity_choice in {None, BACK_ACTION}:
-                        continue
-                    prelabel_granularity = str(prelabel_granularity_choice)
-                    codex_cmd = default_codex_cmd()
-                    resolved_account = codex_account_summary(codex_cmd)
-                    if resolved_account:
-                        typer.secho(
-                            f"Prelabel account: {resolved_account}",
-                            fg=typer.colors.CYAN,
-                        )
-                    else:
-                        typer.secho(
-                            "Prelabel account: unavailable for selected command.",
-                            fg=typer.colors.YELLOW,
-                        )
+                else:
+                    typer.secho(
+                        "Prelabel account: unavailable for selected command.",
+                        fg=typer.colors.YELLOW,
+                    )
 
-                    detected_model = default_codex_model(cmd=codex_cmd)
-                    detected_label = detected_model or "Codex CLI default"
-                    discovered_models = list_codex_models(cmd=codex_cmd)
-                    supported_efforts_by_model: dict[str, tuple[str, ...]] = {}
-                    model_choices: list[QuestionaryChoice] = [
-                        questionary.Choice(
-                            f"use Codex default ({detected_label})",
-                            value="__default__",
-                        )
-                    ]
-                    seen_model_ids: set[str] = set()
-                    for entry in discovered_models:
-                        model_id = str(entry.get("slug") or "").strip()
-                        if not model_id or model_id in seen_model_ids:
-                            continue
-                        description = str(entry.get("description") or "").strip()
-                        label = model_id if not description else f"{model_id} - {description}"
-                        model_choices.append(questionary.Choice(label, value=model_id))
-                        raw_supported_efforts = entry.get("supported_reasoning_efforts")
-                        if isinstance(raw_supported_efforts, list):
-                            normalized_supported_efforts: list[str] = []
-                            for raw_effort in raw_supported_efforts:
-                                if not isinstance(raw_effort, str):
-                                    continue
-                                try:
-                                    normalized_effort = normalize_codex_reasoning_effort(
-                                        raw_effort
-                                    )
-                                except ValueError:
-                                    continue
-                                if (
-                                    normalized_effort
-                                    and normalized_effort
-                                    not in normalized_supported_efforts
-                                ):
-                                    normalized_supported_efforts.append(normalized_effort)
-                            if normalized_supported_efforts:
-                                supported_efforts_by_model[model_id] = tuple(
-                                    normalized_supported_efforts
+                detected_model = default_codex_model(cmd=codex_cmd)
+                detected_label = detected_model or "Codex CLI default"
+                discovered_models = list_codex_models(cmd=codex_cmd)
+                supported_efforts_by_model: dict[str, tuple[str, ...]] = {}
+                model_choices: list[QuestionaryChoice] = [
+                    questionary.Choice(
+                        f"use Codex default ({detected_label})",
+                        value="__default__",
+                    )
+                ]
+                seen_model_ids: set[str] = set()
+                for entry in discovered_models:
+                    model_id = str(entry.get("slug") or "").strip()
+                    if not model_id or model_id in seen_model_ids:
+                        continue
+                    description = str(entry.get("description") or "").strip()
+                    label = model_id if not description else f"{model_id} - {description}"
+                    model_choices.append(questionary.Choice(label, value=model_id))
+                    raw_supported_efforts = entry.get("supported_reasoning_efforts")
+                    if isinstance(raw_supported_efforts, list):
+                        normalized_supported_efforts: list[str] = []
+                        for raw_effort in raw_supported_efforts:
+                            if not isinstance(raw_effort, str):
+                                continue
+                            try:
+                                normalized_effort = normalize_codex_reasoning_effort(
+                                    raw_effort
                                 )
-                        seen_model_ids.add(model_id)
-                    if not seen_model_ids:
-                        model_choices.append(
-                            questionary.Choice("gpt-5.3-codex", value="gpt-5.3-codex")
-                        )
-                    model_choices.append(
-                        questionary.Choice("custom model id...", value="__custom__")
-                    )
-                    model_choice = _menu_select(
-                        "Codex model for AI prelabeling:",
-                        menu_help=(
-                            "Pick a model explicitly for this run, or leave it on the "
-                            "Codex CLI default."
-                        ),
-                        choices=model_choices,
-                    )
-                    if model_choice in {None, BACK_ACTION}:
-                        continue
-                    if model_choice == "__custom__":
-                        custom_default = detected_model or ""
-                        custom_model = _prompt_text(
-                            "Codex model id:",
-                            default=custom_default,
-                        )
-                        if custom_model is None:
-                            continue
-                        codex_model = custom_model.strip() or None
-                    elif model_choice == "__default__":
-                        codex_model = None
-                    else:
-                        codex_model = str(model_choice)
-
-                    selected_model = (codex_model or detected_model or "").strip()
-                    allowed_efforts = [
-                        effort
-                        for effort in CODEX_REASONING_EFFORT_VALUES
-                        if effort != "minimal"
-                    ]
-                    model_supported_efforts = (
-                        supported_efforts_by_model.get(selected_model)
-                        if selected_model
-                        else None
-                    )
-                    if model_supported_efforts:
-                        supported_set = set(model_supported_efforts)
-                        allowed_efforts = [
-                            effort for effort in allowed_efforts if effort in supported_set
-                        ]
-
-                    detected_effort = codex_reasoning_effort_from_cmd(
-                        codex_cmd
-                    ) or default_codex_reasoning_effort(cmd=codex_cmd)
-                    detected_effort_label = detected_effort or "config default"
-                    effort_description = {
-                        "none": "disable extra reasoning",
-                        "minimal": "lightest reasoning",
-                        "low": "low reasoning budget",
-                        "medium": "balanced reasoning",
-                        "high": "deeper reasoning",
-                        "xhigh": "maximum reasoning",
-                    }
-                    effort_choices: list[QuestionaryChoice] = []
-                    if detected_effort is None or detected_effort in allowed_efforts:
-                        effort_choices.append(
-                            questionary.Choice(
-                                f"use Codex default ({detected_effort_label})",
-                                value="__default_effort__",
+                            except ValueError:
+                                continue
+                            if (
+                                normalized_effort
+                                and normalized_effort
+                                not in normalized_supported_efforts
+                            ):
+                                normalized_supported_efforts.append(normalized_effort)
+                        if normalized_supported_efforts:
+                            supported_efforts_by_model[model_id] = tuple(
+                                normalized_supported_efforts
                             )
-                        )
-                    else:
-                        typer.secho(
-                            (
-                                f"Codex default thinking effort '{detected_effort}' "
-                                "is incompatible with this model/workflow."
-                            ),
-                            fg=typer.colors.YELLOW,
-                        )
-                    for effort in allowed_efforts:
-                        detail = effort_description.get(effort, "")
-                        label = effort if not detail else f"{effort} - {detail}"
-                        effort_choices.append(
-                            questionary.Choice(label, value=effort)
-                        )
-                    if not effort_choices:
-                        typer.secho(
-                            "No compatible Codex thinking effort options are available.",
-                            fg=typer.colors.RED,
-                        )
-                        continue
-                    effort_choice = _menu_select(
-                        "Codex thinking effort for AI prelabeling:",
-                        menu_help=(
-                            "Pick a reasoning effort for this run "
-                            "(Codex config: model_reasoning_effort). "
-                            "Minimal is hidden due Codex tool compatibility."
-                        ),
-                        choices=effort_choices,
+                    seen_model_ids.add(model_id)
+                if not seen_model_ids:
+                    model_choices.append(
+                        questionary.Choice("gpt-5.3-codex", value="gpt-5.3-codex")
                     )
-                    if effort_choice in {None, BACK_ACTION}:
+                model_choices.append(
+                    questionary.Choice("custom model id...", value="__custom__")
+                )
+                model_choice = _menu_select(
+                    "Codex model for AI prelabeling:",
+                    menu_help=(
+                        "Pick a model explicitly for this run, or leave it on the "
+                        "Codex CLI default."
+                    ),
+                    choices=model_choices,
+                )
+                if model_choice in {None, BACK_ACTION}:
+                    continue
+                if model_choice == "__custom__":
+                    custom_default = detected_model or ""
+                    custom_model = _prompt_text(
+                        "Codex model id:",
+                        default=custom_default,
+                    )
+                    if custom_model is None:
                         continue
-                    if effort_choice == "__default_effort__":
-                        codex_reasoning_effort = None
-                    else:
-                        codex_reasoning_effort = str(effort_choice)
+                    codex_model = custom_model.strip() or None
+                elif model_choice == "__default__":
+                    codex_model = None
+                else:
+                    codex_model = str(model_choice)
+
+                selected_model = (codex_model or detected_model or "").strip()
+                allowed_efforts = [
+                    effort
+                    for effort in CODEX_REASONING_EFFORT_VALUES
+                    if effort != "minimal"
+                ]
+                model_supported_efforts = (
+                    supported_efforts_by_model.get(selected_model)
+                    if selected_model
+                    else None
+                )
+                if model_supported_efforts:
+                    supported_set = set(model_supported_efforts)
+                    allowed_efforts = [
+                        effort for effort in allowed_efforts if effort in supported_set
+                    ]
+
+                detected_effort = codex_reasoning_effort_from_cmd(
+                    codex_cmd
+                ) or default_codex_reasoning_effort(cmd=codex_cmd)
+                detected_effort_label = detected_effort or "config default"
+                effort_description = {
+                    "none": "disable extra reasoning",
+                    "minimal": "lightest reasoning",
+                    "low": "low reasoning budget",
+                    "medium": "balanced reasoning",
+                    "high": "deeper reasoning",
+                    "xhigh": "maximum reasoning",
+                }
+                effort_choices: list[QuestionaryChoice] = []
+                if detected_effort is None or detected_effort in allowed_efforts:
+                    effort_choices.append(
+                        questionary.Choice(
+                            f"use Codex default ({detected_effort_label})",
+                            value="__default_effort__",
+                        )
+                    )
+                else:
+                    typer.secho(
+                        (
+                            f"Codex default thinking effort '{detected_effort}' "
+                            "is incompatible with this model/workflow."
+                        ),
+                        fg=typer.colors.YELLOW,
+                    )
+                for effort in allowed_efforts:
+                    detail = effort_description.get(effort, "")
+                    label = effort if not detail else f"{effort} - {detail}"
+                    effort_choices.append(
+                        questionary.Choice(label, value=effort)
+                    )
+                if not effort_choices:
+                    typer.secho(
+                        "No compatible Codex thinking effort options are available.",
+                        fg=typer.colors.RED,
+                    )
+                    continue
+                effort_choice = _menu_select(
+                    "Codex thinking effort for AI prelabeling:",
+                    menu_help=(
+                        "Pick a reasoning effort for this run "
+                        "(Codex config: model_reasoning_effort). "
+                        "Minimal is hidden due Codex tool compatibility."
+                    ),
+                    choices=effort_choices,
+                )
+                if effort_choice in {None, BACK_ACTION}:
+                    continue
+                if effort_choice == "__default_effort__":
+                    codex_reasoning_effort = None
+                else:
+                    codex_reasoning_effort = str(effort_choice)
 
             # Interactive flow always recreates the project if it exists.
             overwrite = True
@@ -2175,9 +2117,6 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                         output_dir=_golden_sent_to_labelstudio_root(),
                         pipeline="auto",
                         project_name=project_name,
-                        chunk_level=chunk_level,
-                        task_scope=task_scope,
-                        context_window=context_window,
                         segment_blocks=segment_blocks,
                         segment_overlap=segment_overlap,
                         segment_focus_blocks=segment_focus_blocks,
@@ -2244,33 +2183,11 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             )
             if not project_name:
                 continue
-            if detected_scope in SUPPORTED_LABELSTUDIO_TASK_SCOPES:
-                export_scope = detected_scope
+            if detected_scope:
                 typer.secho(
-                    f"Using detected project type: {export_scope}",
+                    f"Detected project type: {detected_scope}",
                     fg=typer.colors.BRIGHT_BLACK,
                 )
-            else:
-                export_scope = _menu_select(
-                    "Export scope:",
-                    menu_help="Choose the task type used by the project you already labeled.",
-                    choices=[
-                        questionary.Choice(
-                            "pipeline chunks - chunk-level labels",
-                            value="pipeline",
-                        ),
-                        questionary.Choice(
-                            "canonical blocks - block-level labels and derived spans",
-                            value="canonical-blocks",
-                        ),
-                        questionary.Choice(
-                            "freeform spans - offset-based highlighted spans",
-                            value="freeform-spans",
-                        ),
-                    ],
-                )
-                if export_scope in {None, BACK_ACTION}:
-                    continue
 
             try:
                 result = run_labelstudio_export(
@@ -2279,7 +2196,6 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     label_studio_url=url,
                     label_studio_api_key=api_key,
                     run_dir=None,
-                    export_scope=export_scope,
                 )
             except Exception as exc:  # noqa: BLE001
                 _fail(str(exc))
@@ -2584,11 +2500,11 @@ def _unwrap_typer_option_default(value: Any) -> Any:
 
 
 def _normalize_epub_extractor(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized not in {"unstructured", "legacy", "markdown", "markitdown"}:
+    normalized = normalize_epub_extractor_name(value)
+    if normalized not in EPUB_EXTRACTOR_CANONICAL_SET:
         _fail(
             f"Invalid EPUB extractor: {value!r}. "
-            "Expected one of: unstructured, legacy, markdown, markitdown."
+            f"Expected one of: {epub_extractor_choices_for_help()}."
         )
     return normalized
 
@@ -2819,7 +2735,7 @@ def _discover_manifest_project_scopes(*roots: Path) -> dict[str, str]:
 def _infer_scope_from_project_payload(project: dict[str, Any]) -> str | None:
     """Infer task scope from Label Studio project payload when available."""
     explicit_scope = str(project.get("task_scope", "")).strip()
-    if explicit_scope in SUPPORTED_LABELSTUDIO_TASK_SCOPES:
+    if explicit_scope in KNOWN_LABELSTUDIO_TASK_SCOPES:
         return explicit_scope
 
     label_config = str(project.get("label_config", "") or "")
@@ -3481,6 +3397,7 @@ def _attach_freeform_recipe_count_context(
 class PredRunContext:
     recipes: int | None
     processed_report_path: str
+    stage_block_predictions_path: str
     source_file: str
     source_hash: str | None
     run_config: dict[str, Any] | None
@@ -3812,6 +3729,7 @@ def _load_pred_run_recipe_context(
         return PredRunContext(
             recipes=None,
             processed_report_path="",
+            stage_block_predictions_path="",
             source_file="",
             source_hash=None,
             run_config=None,
@@ -3826,6 +3744,7 @@ def _load_pred_run_recipe_context(
         return PredRunContext(
             recipes=None,
             processed_report_path="",
+            stage_block_predictions_path="",
             source_file="",
             source_hash=None,
             run_config=None,
@@ -3837,6 +3756,7 @@ def _load_pred_run_recipe_context(
         return PredRunContext(
             recipes=None,
             processed_report_path="",
+            stage_block_predictions_path="",
             source_file="",
             source_hash=None,
             run_config=None,
@@ -3848,6 +3768,11 @@ def _load_pred_run_recipe_context(
     source_file = str(payload.get("source_file") or "")
     source_hash = str(payload.get("source_hash") or "").strip() or None
     processed_report_path = str(payload.get("processed_report_path") or "")
+    stage_block_predictions_path = str(payload.get("stage_block_predictions_path") or "")
+    if not stage_block_predictions_path:
+        stage_block_predictions_path = str(
+            payload.get("processed_stage_block_predictions_path") or ""
+        )
     run_config = payload.get("run_config")
     if not isinstance(run_config, dict):
         run_config = None
@@ -3875,6 +3800,7 @@ def _load_pred_run_recipe_context(
     return PredRunContext(
         recipes=recipes,
         processed_report_path=processed_report_path,
+        stage_block_predictions_path=stage_block_predictions_path,
         source_file=source_file,
         source_hash=source_hash,
         run_config=run_config,
@@ -4029,7 +3955,7 @@ def _resolve_benchmark_gold_and_source(
         candidates = _discover_freeform_gold_exports(output_dir)
         if not candidates:
             return _abort(
-                "No freeform gold exports found. Run `cookimport labelstudio-export --export-scope freeform-spans` first."
+                "No freeform gold exports found. Run `cookimport labelstudio-export` first."
             )
         selected_gold = _menu_select(
             "Select a freeform gold export:",
@@ -6668,12 +6594,21 @@ def _write_stage_run_manifest(
         ("tips", "tips_dir"),
         ("chunks", "chunks_dir"),
         ("knowledge", "knowledge_dir"),
+        (".bench", "bench_dir"),
         ("tags", "tags_dir"),
         ("raw", "raw_dir"),
     ):
         target = run_root / path_key
         if target.exists():
             artifacts[artifact_key] = path_key
+    bench_prediction_paths = sorted(
+        run_root.glob(".bench/**/stage_block_predictions.json")
+    )
+    if bench_prediction_paths:
+        artifacts["stage_block_predictions"] = [
+            str(path.relative_to(run_root))
+            for path in bench_prediction_paths
+        ]
     knowledge_index = run_root / "knowledge" / "knowledge_index.json"
     if knowledge_index.exists():
         artifacts["knowledge_index"] = str(knowledge_index.relative_to(run_root))
@@ -7221,6 +7156,7 @@ def _merge_split_jobs(
             "Writing sections...",
             "Writing tips...",
             "Writing topic candidates...",
+            "Writing stage block predictions...",
         ]
     )
     if table_extraction_enabled:
@@ -7506,6 +7442,18 @@ def _merge_split_jobs(
                 with measure(merge_stats, "write_chunks_seconds"):
                     write_chunk_outputs(merged_result.chunks, chunks_dir, output_stats=output_stats)
 
+        _report_phase("Writing stage block predictions...")
+        with measure(merge_stats, "write_stage_block_predictions_seconds"):
+            write_stage_block_predictions(
+                results=merged_result,
+                run_root=out,
+                workbook_slug=workbook_slug,
+                source_file=str(file_path),
+                archive_blocks=merged_full_blocks,
+                knowledge_snippets_path=out / "knowledge" / workbook_slug / "snippets.jsonl",
+                output_stats=output_stats,
+            )
+
     merge_stats.parsing_seconds = sum(
         float(job.get("timing", {}).get("parsing_seconds", 0.0)) for job in job_results
     )
@@ -7663,8 +7611,8 @@ def stage(
         "unstructured",
         "--epub-extractor",
         help=(
-            "EPUB extraction engine: unstructured (semantic), legacy (BeautifulSoup), "
-            "markdown (HTML->Markdown), or markitdown (legacy whole-book "
+            "EPUB extraction engine: unstructured (semantic), beautifulsoup "
+            "(BeautifulSoup), markdown (HTML->Markdown), or markitdown (whole-book "
             "EPUB->markdown mode)."
         ),
     ),
@@ -8832,22 +8780,6 @@ def labelstudio_import(
     project_name: str | None = typer.Option(
         None, "--project-name", help="Label Studio project name."
     ),
-    chunk_level: str = typer.Option(
-        "both",
-        "--chunk-level",
-        help="Chunk level: structural, atomic, or both.",
-    ),
-    task_scope: str = typer.Option(
-        "pipeline",
-        "--task-scope",
-        help="Task scope: pipeline, canonical-blocks, or freeform-spans.",
-    ),
-    context_window: int = typer.Option(
-        1,
-        "--context-window",
-        min=0,
-        help="Block context window for canonical-blocks.",
-    ),
     segment_blocks: int = typer.Option(
         40,
         "--segment-blocks",
@@ -8974,7 +8906,7 @@ def labelstudio_import(
         PRELABEL_GRANULARITY_BLOCK,
         "--prelabel-granularity",
         help=(
-            "Freeform prelabel style: block (legacy, block based) or span "
+            "Freeform prelabel style: block (block based) or span "
             "(actual freeform highlights)."
         ),
     ),
@@ -9039,10 +8971,42 @@ def labelstudio_import(
         help="Behavior when codex-farm setup/invocation fails: fail or fallback.",
     ),
 ) -> None:
-    """Create and upload Label Studio tasks for pipeline/canonical/freeform scopes."""
+    """Create and upload freeform span Label Studio tasks."""
+    allow_labelstudio_write = _unwrap_typer_option_default(allow_labelstudio_write)
+    output_dir = _unwrap_typer_option_default(output_dir)
+    pipeline = _unwrap_typer_option_default(pipeline)
+    project_name = _unwrap_typer_option_default(project_name)
+    segment_blocks = _unwrap_typer_option_default(segment_blocks)
+    segment_overlap = _unwrap_typer_option_default(segment_overlap)
+    segment_focus_blocks = _unwrap_typer_option_default(segment_focus_blocks)
+    target_task_count = _unwrap_typer_option_default(target_task_count)
+    overwrite = _unwrap_typer_option_default(overwrite)
+    label_studio_url = _unwrap_typer_option_default(label_studio_url)
+    label_studio_api_key = _unwrap_typer_option_default(label_studio_api_key)
+    limit = _unwrap_typer_option_default(limit)
+    sample = _unwrap_typer_option_default(sample)
+    prelabel = _unwrap_typer_option_default(prelabel)
+    prelabel_provider = _unwrap_typer_option_default(prelabel_provider)
+    codex_cmd = _unwrap_typer_option_default(codex_cmd)
+    codex_model = _unwrap_typer_option_default(codex_model)
+    codex_reasoning_effort = _unwrap_typer_option_default(codex_reasoning_effort)
+    prelabel_timeout_seconds = _unwrap_typer_option_default(prelabel_timeout_seconds)
+    prelabel_cache_dir = _unwrap_typer_option_default(prelabel_cache_dir)
+    prelabel_workers = _unwrap_typer_option_default(prelabel_workers)
+    prelabel_upload_as = _unwrap_typer_option_default(prelabel_upload_as)
+    prelabel_granularity = _unwrap_typer_option_default(prelabel_granularity)
+    prelabel_allow_partial = _unwrap_typer_option_default(prelabel_allow_partial)
+    llm_recipe_pipeline = _unwrap_typer_option_default(llm_recipe_pipeline)
+    codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
+    codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
+    codex_farm_workspace_root = _unwrap_typer_option_default(codex_farm_workspace_root)
+    codex_farm_pipeline_pass1 = _unwrap_typer_option_default(codex_farm_pipeline_pass1)
+    codex_farm_pipeline_pass2 = _unwrap_typer_option_default(codex_farm_pipeline_pass2)
+    codex_farm_pipeline_pass3 = _unwrap_typer_option_default(codex_farm_pipeline_pass3)
+    codex_farm_context_blocks = _unwrap_typer_option_default(codex_farm_context_blocks)
+    codex_farm_failure_mode = _unwrap_typer_option_default(codex_farm_failure_mode)
+
     _require_labelstudio_write_consent(allow_labelstudio_write)
-    if prelabel and task_scope != "freeform-spans":
-        _fail("--prelabel is only supported with --task-scope freeform-spans.")
     normalized_prelabel_upload_as = prelabel_upload_as.strip().lower()
     if normalized_prelabel_upload_as not in {"annotations", "predictions"}:
         _fail(
@@ -9063,7 +9027,7 @@ def labelstudio_import(
     resolved_segment_focus_blocks = (
         segment_blocks if segment_focus_blocks is None else int(segment_focus_blocks)
     )
-    if task_scope == "freeform-spans" and resolved_segment_focus_blocks > segment_blocks:
+    if resolved_segment_focus_blocks > segment_blocks:
         _fail("--segment-focus-blocks must be <= --segment-blocks.")
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
@@ -9091,9 +9055,6 @@ def labelstudio_import(
                 output_dir=output_dir,
                 pipeline=pipeline,
                 project_name=project_name,
-                chunk_level=chunk_level,
-                task_scope=task_scope,
-                context_window=context_window,
                 segment_blocks=segment_blocks,
                 segment_overlap=segment_overlap,
                 segment_focus_blocks=resolved_segment_focus_blocks,
@@ -9172,11 +9133,6 @@ def labelstudio_export(
     run_dir: Path | None = typer.Option(
         None, "--run-dir", help="Specific labelstudio run directory to export."
     ),
-    export_scope: str = typer.Option(
-        "pipeline",
-        "--export-scope",
-        help="Export scope: pipeline, canonical-blocks, or freeform-spans.",
-    ),
     label_studio_url: str | None = typer.Option(
         None, "--label-studio-url", help="Label Studio base URL."
     ),
@@ -9193,7 +9149,6 @@ def labelstudio_export(
             label_studio_url=url,
             label_studio_api_key=api_key,
             run_dir=run_dir,
-            export_scope=export_scope,
         )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
@@ -9204,14 +9159,11 @@ def labelstudio_export(
 
 @app.command("labelstudio-eval")
 def labelstudio_eval(
-    scope: str = typer.Argument(
-        ..., help="Evaluation scope (canonical-blocks, freeform-spans)."
-    ),
     pred_run: Path = typer.Option(
         ..., "--pred-run", help="Label Studio run directory with label_studio_tasks.jsonl."
     ),
     gold_spans: Path = typer.Option(
-        ..., "--gold-spans", help="Path to canonical or freeform gold JSONL."
+        ..., "--gold-spans", help="Path to freeform gold JSONL."
     ),
     output_dir: Path = typer.Option(
         ..., "--output-dir", help="Output folder for eval artifacts."
@@ -9236,9 +9188,8 @@ def labelstudio_eval(
         ),
     ] = False,
 ) -> None:
-    """Evaluate pipeline predictions against canonical or freeform gold sets."""
-    if scope not in {"canonical-blocks", "freeform-spans"}:
-        _fail("Supported scopes: canonical-blocks, freeform-spans.")
+    """Evaluate freeform predictions against freeform gold sets."""
+    scope = "freeform-spans"
     if not pred_run.exists():
         _fail(f"Predicted run not found: {pred_run}")
     if not gold_spans.exists():
@@ -9246,37 +9197,26 @@ def labelstudio_eval(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if scope == "canonical-blocks":
-        predicted = load_predicted_spans(pred_run)
-        gold = load_gold_spans(gold_spans)
-        result = evaluate_structural_vs_gold(
-            predicted, gold, overlap_threshold=overlap_threshold
-        )
-        report = result["report"]
-    else:
-        predicted = load_predicted_labeled_ranges(pred_run)
-        gold = load_gold_freeform_ranges(gold_spans)
-        result = evaluate_predicted_vs_freeform(
-            predicted,
-            gold,
-            overlap_threshold=overlap_threshold,
-            force_source_match=force_source_match,
-        )
-        report = result["report"]
+    predicted = load_predicted_labeled_ranges(pred_run)
+    gold = load_gold_freeform_ranges(gold_spans)
+    result = evaluate_predicted_vs_freeform(
+        predicted,
+        gold,
+        overlap_threshold=overlap_threshold,
+        force_source_match=force_source_match,
+    )
+    report = result["report"]
 
     pred_context = _load_pred_run_recipe_context(pred_run)
-    if scope == "freeform-spans":
-        _attach_freeform_recipe_count_context(
-            report=report,
-            gold_spans_path=gold_spans,
-            predicted_recipe_count=pred_context.recipes,
-            predicted_recipe_count_source=(
-                "prediction_run_context" if pred_context.recipes is not None else None
-            ),
-        )
-        report_md = format_freeform_eval_report_md(report)
-    else:
-        report_md = format_eval_report_md(report)
+    _attach_freeform_recipe_count_context(
+        report=report,
+        gold_spans_path=gold_spans,
+        predicted_recipe_count=pred_context.recipes,
+        predicted_recipe_count_source=(
+            "prediction_run_context" if pred_context.recipes is not None else None
+        ),
+    )
+    report_md = format_freeform_eval_report_md(report)
 
     report_json_path = output_dir / "eval_report.json"
     report_json_path.write_text(
@@ -9285,8 +9225,8 @@ def labelstudio_eval(
     report_md_path = output_dir / "eval_report.md"
     report_md_path.write_text(report_md, encoding="utf-8")
 
-    write_jsonl(output_dir / "missed_gold_spans.jsonl", result["missed_gold"])
-    write_jsonl(
+    _write_jsonl_rows(output_dir / "missed_gold_spans.jsonl", result["missed_gold"])
+    _write_jsonl_rows(
         output_dir / "false_positive_preds.jsonl", result["false_positive_preds"]
     )
 
@@ -9623,10 +9563,6 @@ def labelstudio_benchmark(
         ),
     )] = False,
     pipeline: Annotated[str, typer.Option("--pipeline", help="Importer pipeline name or auto.")] = "auto",
-    chunk_level: Annotated[str, typer.Option(
-        "--chunk-level",
-        help="Chunk level for predictions: structural, atomic, or both.",
-    )] = "both",
     project_name: Annotated[str | None, typer.Option(
         "--project-name",
         help="Optional Label Studio project name for prediction import.",
@@ -9669,8 +9605,8 @@ def labelstudio_benchmark(
     epub_extractor: Annotated[str, typer.Option(
         "--epub-extractor",
         help=(
-            "EPUB extraction engine: unstructured (semantic), legacy (BeautifulSoup), "
-            "markdown (HTML->Markdown), or markitdown (legacy whole-book "
+            "EPUB extraction engine: unstructured (semantic), beautifulsoup "
+            "(BeautifulSoup), markdown (HTML->Markdown), or markitdown (whole-book "
             "EPUB->markdown mode)."
         ),
     )] = "unstructured",
@@ -9812,9 +9748,6 @@ def labelstudio_benchmark(
                             path=selected_source,
                             output_dir=output_dir,
                             pipeline=pipeline,
-                            chunk_level=chunk_level,
-                            task_scope="pipeline",
-                            context_window=1,
                             segment_blocks=40,
                             segment_overlap=5,
                             limit=None,
@@ -9853,9 +9786,6 @@ def labelstudio_benchmark(
                         output_dir=output_dir,
                         pipeline=pipeline,
                         project_name=project_name,
-                        chunk_level=chunk_level,
-                        task_scope="pipeline",
-                        context_window=1,
                         segment_blocks=40,
                         segment_overlap=5,
                         overwrite=overwrite,
@@ -9942,23 +9872,47 @@ def labelstudio_benchmark(
         Path(import_result["run_root"]),
         eval_output_dir,
     )
-    prediction_load_started = time.monotonic()
-    predicted = load_predicted_labeled_ranges(pred_run)
-    prediction_load_seconds = max(0.0, time.monotonic() - prediction_load_started)
-    gold_load_started = time.monotonic()
-    gold = load_gold_freeform_ranges(selected_gold)
-    gold_load_seconds = max(0.0, time.monotonic() - gold_load_started)
+    pred_context = _load_pred_run_recipe_context(pred_run)
+
+    stage_predictions_candidates: list[Path] = []
+    for value in (
+        import_result.get("stage_block_predictions_path"),
+        import_result.get("processed_stage_block_predictions_path"),
+        pred_context.stage_block_predictions_path,
+        pred_run / "stage_block_predictions.json",
+    ):
+        if not value:
+            continue
+        stage_predictions_candidates.append(Path(str(value)))
+
+    stage_predictions_path: Path | None = None
+    for candidate in stage_predictions_candidates:
+        if candidate.exists() and candidate.is_file():
+            stage_predictions_path = candidate
+            break
+    if stage_predictions_path is None:
+        _fail(
+            "This prediction run is missing stage block predictions. "
+            "Re-run benchmark after updating."
+        )
+
+    extracted_archive_path = pred_run / "extracted_archive.json"
+    if not extracted_archive_path.exists():
+        _fail(f"Prediction run is missing extracted_archive.json: {pred_run}")
+
+    prediction_load_seconds = 0.0
+    gold_load_seconds = 0.0
     evaluation_started = time.monotonic()
-    eval_result = evaluate_predicted_vs_freeform(
-        predicted,
-        gold,
-        overlap_threshold=overlap_threshold,
-        force_source_match=force_source_match,
+    eval_result = evaluate_stage_blocks(
+        gold_freeform_jsonl=selected_gold,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=eval_output_dir,
     )
     evaluate_seconds = max(0.0, time.monotonic() - evaluation_started)
-    evaluation_seconds = prediction_load_seconds + gold_load_seconds + evaluate_seconds
+    evaluation_seconds = evaluate_seconds
     report = eval_result["report"]
-    pred_context = _load_pred_run_recipe_context(pred_run)
+
     benchmark_recipes = pred_context.recipes
     benchmark_recipes_source: str | None = (
         "prediction_run_context" if benchmark_recipes is not None else None
@@ -9972,13 +9926,14 @@ def labelstudio_benchmark(
         benchmark_recipes = _load_total_recipes_from_report_path(processed_report_path)
         if benchmark_recipes is not None:
             benchmark_recipes_source = "processed_report.totalRecipes"
+    if benchmark_recipes is not None:
+        recipe_counts = report.get("recipe_counts")
+        if not isinstance(recipe_counts, dict):
+            recipe_counts = {}
+        recipe_counts["predicted_recipe_count"] = benchmark_recipes
+        recipe_counts["predicted_recipe_count_source"] = benchmark_recipes_source
+        report["recipe_counts"] = recipe_counts
 
-    _attach_freeform_recipe_count_context(
-        report=report,
-        gold_spans_path=selected_gold,
-        predicted_recipe_count=benchmark_recipes,
-        predicted_recipe_count_source=benchmark_recipes_source,
-    )
     prediction_timing = _normalize_timing_payload(import_result.get("timing"))
     prediction_seconds = _report_optional_metric(
         prediction_timing.get("prediction_seconds")
@@ -10008,18 +9963,7 @@ def labelstudio_benchmark(
     report["timing"] = benchmark_timing
     report_json_path = eval_output_dir / "eval_report.json"
     report_md_path = eval_output_dir / "eval_report.md"
-    artifact_write_started = time.monotonic()
-    report_md = format_freeform_eval_report_md(report)
-    report_json_path.write_text(
-        json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
-    )
-    report_md_path.write_text(report_md, encoding="utf-8")
-    write_jsonl(eval_output_dir / "missed_gold_spans.jsonl", eval_result["missed_gold"])
-    write_jsonl(
-        eval_output_dir / "false_positive_preds.jsonl",
-        eval_result["false_positive_preds"],
-    )
-    artifact_write_seconds = max(0.0, time.monotonic() - artifact_write_started)
+    artifact_write_seconds = 0.0
     total_floor_with_artifacts = (
         prediction_seconds_value + max(0.0, evaluation_seconds) + artifact_write_seconds
     )
@@ -10041,7 +9985,7 @@ def labelstudio_benchmark(
         csv_history_path,
         run_timestamp=dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         run_dir=str(eval_output_dir),
-        eval_scope="freeform-spans",
+        eval_scope="stage-blocks",
         source_file=str(selected_source),
         recipes=benchmark_recipes,
         processed_report_path=csv_report_path,
@@ -10069,13 +10013,14 @@ def labelstudio_benchmark(
         checkpoints={"history_csv_append_seconds": history_append_seconds},
     )
     report["timing"] = benchmark_timing
-    report_md = format_freeform_eval_report_md(report)
+    report_md = format_stage_block_eval_report_md(report)
     report_json_path.write_text(
         json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
     )
     report_md_path.write_text(report_md, encoding="utf-8")
 
     benchmark_run_config: dict[str, Any] = {
+        "eval_mode": "stage-blocks",
         "overlap_threshold": overlap_threshold,
         "force_source_match": force_source_match,
         "upload": not no_upload,
@@ -10098,6 +10043,7 @@ def labelstudio_benchmark(
         "codex_farm_pipeline_pass3": selected_codex_farm_pipeline_pass3,
         "codex_farm_context_blocks": codex_farm_context_blocks,
         "codex_farm_failure_mode": selected_codex_farm_failure_mode,
+        "stage_block_predictions_path": str(stage_predictions_path),
     }
     if codex_farm_root is not None:
         benchmark_run_config["codex_farm_root"] = str(codex_farm_root)
@@ -10115,8 +10061,14 @@ def labelstudio_benchmark(
     benchmark_artifacts: dict[str, Any] = {
         "pred_run_dir": _path_for_manifest(eval_output_dir, pred_run),
         "gold_spans_jsonl": _path_for_manifest(eval_output_dir, selected_gold),
+        "stage_block_predictions_json": _path_for_manifest(
+            eval_output_dir,
+            stage_predictions_path,
+        ),
         "eval_report_json": "eval_report.json",
         "eval_report_md": "eval_report.md",
+        "missed_gold_blocks_jsonl": "missed_gold_blocks.jsonl",
+        "wrong_label_blocks_jsonl": "wrong_label_blocks.jsonl",
         "missed_gold_spans_jsonl": "missed_gold_spans.jsonl",
         "false_positive_preds_jsonl": "false_positive_preds.jsonl",
         "history_csv": str(history_csv_for_output(processed_output_dir)),
@@ -10143,7 +10095,7 @@ def labelstudio_benchmark(
         run_config=benchmark_run_config,
         artifacts=benchmark_artifacts,
         notes=(
-            "Benchmark evaluation against freeform gold spans. "
+            "Benchmark evaluation against freeform gold using stage block predictions. "
             + ("Upload disabled." if no_upload else "Prediction tasks uploaded to Label Studio.")
         ),
     )
@@ -10154,24 +10106,30 @@ def labelstudio_benchmark(
         typer.secho(f"Prediction run: {pred_run}", fg=typer.colors.CYAN)
         if processed_run_root:
             typer.secho(f"Processed output: {processed_run_root}", fg=typer.colors.CYAN)
+        typer.secho(
+            "Overall block accuracy: "
+            f"{float(report.get('overall_block_accuracy') or 0.0):.3f}",
+            fg=typer.colors.CYAN,
+        )
+        typer.secho(
+            "Macro F1 (excluding OTHER): "
+            f"{float(report.get('macro_f1_excluding_other') or 0.0):.3f}",
+            fg=typer.colors.CYAN,
+        )
+        worst_label_payload = report.get("worst_label_recall")
+        if isinstance(worst_label_payload, dict):
+            worst_label = str(worst_label_payload.get("label") or "").strip()
+            worst_recall = float(worst_label_payload.get("recall") or 0.0)
+            if worst_label:
+                typer.secho(
+                    f"Worst-label recall: {worst_label} {worst_recall:.3f}",
+                    fg=typer.colors.YELLOW,
+                )
         typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
         recipe_counts = report.get("recipe_counts")
         if isinstance(recipe_counts, dict):
-            gold_recipe_headers = _coerce_int(recipe_counts.get("gold_recipe_headers"))
             predicted_recipe_count = _coerce_int(recipe_counts.get("predicted_recipe_count"))
-            if gold_recipe_headers is not None and predicted_recipe_count is not None:
-                delta = predicted_recipe_count - gold_recipe_headers
-                typer.secho(
-                    "Recipes (predicted vs golden): "
-                    + f"{predicted_recipe_count}/{gold_recipe_headers} (delta {delta:+d})",
-                    fg=typer.colors.CYAN,
-                )
-            elif gold_recipe_headers is not None:
-                typer.secho(
-                    f"Golden recipes (RECIPE_TITLE headers): {gold_recipe_headers}",
-                    fg=typer.colors.CYAN,
-                )
-            elif predicted_recipe_count is not None:
+            if predicted_recipe_count is not None:
                 typer.secho(
                     f"Predicted recipes from import: {predicted_recipe_count}",
                     fg=typer.colors.CYAN,
@@ -10202,6 +10160,110 @@ def bench_validate(
     typer.secho(
         f"Suite '{s.name}' is valid ({len(s.items)} item(s)).",
         fg=typer.colors.GREEN,
+    )
+
+
+@bench_app.command("eval-stage")
+def bench_eval_stage(
+    gold_spans: Path = typer.Option(
+        ...,
+        "--gold-spans",
+        help="Path to exported freeform_span_labels.jsonl gold file.",
+    ),
+    stage_run: Path = typer.Option(
+        ...,
+        "--stage-run",
+        help="Path to a stage run directory (for example data/output/<timestamp>).",
+    ),
+    workbook_slug: str | None = typer.Option(
+        None,
+        "--workbook-slug",
+        help="Workbook folder name under .bench (required when stage run contains multiple workbooks).",
+    ),
+    extracted_archive: Path | None = typer.Option(
+        None,
+        "--extracted-archive",
+        help="Optional extracted archive JSON path. Defaults to stage run raw/**/full_text.json when unique.",
+    ),
+    out_dir: Path | None = typer.Option(
+        None,
+        "--out-dir",
+        help="Output directory for eval artifacts. Defaults to data/golden/benchmark/<timestamp>/.",
+    ),
+) -> None:
+    if not gold_spans.exists() or not gold_spans.is_file():
+        _fail(f"Gold spans file not found: {gold_spans}")
+    if not stage_run.exists() or not stage_run.is_dir():
+        _fail(f"Stage run folder not found: {stage_run}")
+
+    stage_prediction_files = sorted(
+        stage_run.glob(".bench/*/stage_block_predictions.json")
+    )
+    if not stage_prediction_files:
+        _fail(
+            "No stage block prediction manifests found under "
+            f"{stage_run / '.bench'}."
+        )
+
+    stage_predictions_path: Path
+    if workbook_slug:
+        stage_predictions_path = (
+            stage_run / ".bench" / workbook_slug / "stage_block_predictions.json"
+        )
+        if not stage_predictions_path.exists():
+            _fail(
+                "Stage block predictions not found for workbook "
+                f"{workbook_slug}: {stage_predictions_path}"
+            )
+    elif len(stage_prediction_files) == 1:
+        stage_predictions_path = stage_prediction_files[0]
+    else:
+        choices = ", ".join(path.parent.name for path in stage_prediction_files)
+        _fail(
+            "Stage run contains multiple workbooks. "
+            f"Pass --workbook-slug. Choices: {choices}"
+        )
+
+    extracted_archive_path = extracted_archive
+    if extracted_archive_path is None:
+        candidates = sorted(stage_run.glob("raw/**/full_text.json"))
+        if len(candidates) == 1:
+            extracted_archive_path = candidates[0]
+        else:
+            _fail(
+                "Could not auto-resolve extracted archive. "
+                "Pass --extracted-archive explicitly."
+            )
+    if not extracted_archive_path.exists() or not extracted_archive_path.is_file():
+        _fail(f"Extracted archive not found: {extracted_archive_path}")
+
+    if out_dir is None:
+        out_dir = _golden_benchmark_root() / dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        result = evaluate_stage_blocks(
+            gold_freeform_jsonl=gold_spans,
+            stage_predictions_json=stage_predictions_path,
+            extracted_blocks_json=extracted_archive_path,
+            out_dir=out_dir,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _fail(str(exc))
+
+    report = result.get("report") if isinstance(result, dict) else {}
+    typer.secho("Stage evaluation complete.", fg=typer.colors.GREEN)
+    typer.secho(f"Stage predictions: {stage_predictions_path}", fg=typer.colors.CYAN)
+    typer.secho(f"Report: {out_dir / 'eval_report.md'}", fg=typer.colors.CYAN)
+    typer.secho(
+        "Overall block accuracy: "
+        f"{float((report or {}).get('overall_block_accuracy') or 0.0):.3f}",
+        fg=typer.colors.CYAN,
+    )
+    typer.secho(
+        "Macro F1 (excluding OTHER): "
+        f"{float((report or {}).get('macro_f1_excluding_other') or 0.0):.3f}",
+        fg=typer.colors.CYAN,
     )
 
 

@@ -186,3 +186,40 @@ Cross-boundary reminder:
 - `*.prompt.txt` references in older notes are superseded; current contract is `*.prompt.md`.
 - CLI help tests can hide long option names under narrow terminal width; preserve wide-column test env when asserting long LLM flag names.
 - Continue avoiding live codex-farm token-spend validation unless explicitly approved.
+
+## Merged Understandings Batch (2026-02-25 pass4/pass5 wiring)
+
+### 2026-02-25_16.21.30 table extraction wiring required for pass4 parity
+
+Merged source:
+- `docs/understandings/2026-02-25_16.21.30-table-extraction-stage-pass4-wiring.md`
+
+Durable pass4 wiring contract:
+- Non-split stage path must annotate table rows before chunking and before pass4 job building in `cookimport/cli_worker.py:stage_one_file`.
+- Split runs must apply the same annotation on merged `non_recipe_blocks` in `cookimport/cli.py:_merge_split_jobs` (workers only emit temporary raw artifacts).
+- Processed-output snapshots used by Label Studio/benchmark parity must mirror the same annotation + table-writer steps in `cookimport/labelstudio/ingest.py:_write_processed_outputs`.
+- Pass4 job bundles (`cookimport/llm/codex_farm_knowledge_jobs.py`) attach table hints by absolute non-recipe indices; missing hints usually mean non-recipe index drift from merged `full_text` ordering.
+
+Anti-loop notes:
+- If pass4 table hints disappear only in split or benchmark flows, debug stage/merge/processed-output wiring parity before changing prompt/schema logic.
+- Keep one table-annotation contract across stage and pred-run generation; do not fork a pass4-only table path.
+
+### 2026-02-25_16.24.24 pass5 stage-tagging artifact and failure semantics
+
+Merged source:
+- `docs/understandings/2026-02-25_16.24.24-pass5-stage-tagging-wiring.md`
+
+Durable pass5 wiring contract:
+- Stage writes normal cookbook artifacts first, then optional pass5 tagging (`llm_tags_pipeline`).
+- Pass5 reads staged drafts from `final drafts/<workbook_slug>/`.
+- Pass5 writes:
+  - `tags/<workbook_slug>/r{index}.tags.json`
+  - `tags/<workbook_slug>/tagging_report.json`
+  - run-level `tags/tags_index.json`
+- Raw pass5 codex-farm IO is under `raw/llm/<workbook_slug>/pass5_tags/` with `in/`, `out/`, and `pass5_tags_manifest.json`.
+- `codex_farm_failure_mode` controls behavior:
+  - `fail`: stage exits on pass5 setup/execution failure.
+  - `fallback`: warning + continue without pass5 artifacts.
+
+Anti-loop note:
+- Missing `tags/` outputs are usually wiring/gating/failure-mode issues, not deterministic tagging engine regressions.

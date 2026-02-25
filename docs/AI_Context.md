@@ -164,13 +164,10 @@ All run-producing paths now rely on `run_manifest.json` as a stable traceability
 
 ## 6. Label Studio and Benchmarking Capabilities
 
-### 6.1 Import scopes
+### 6.1 Label Studio import/export scope
 
-`labelstudio-import` supports:
-
-- `pipeline`
-- `canonical-blocks`
-- `freeform-spans`
+- `labelstudio-import`, `labelstudio-export`, and `labelstudio-eval` are freeform-only (`freeform-spans`).
+- Legacy Label Studio scopes (`pipeline`, `canonical-blocks`) are treated as historical artifacts and rejected by current export/eval workflows.
 
 ### 6.2 Freeform AI prelabel
 
@@ -179,7 +176,7 @@ All run-producing paths now rely on `run_manifest.json` as a stable traceability
 
 ### 6.3 Evaluation and offline suite
 
-- `labelstudio-eval` and `labelstudio-benchmark` support canonical/freeform evaluation paths.
+- `labelstudio-eval` and `labelstudio-benchmark` evaluate freeform predictions against freeform gold.
 - `bench run/sweep` provide fully offline prediction+eval loops from suite manifests in `data/golden/bench/suites`.
 
 ## 7. Tagging Subsystem

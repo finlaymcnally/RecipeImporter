@@ -8,7 +8,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence, get_args, get_origin
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from cookimport.epub_extractor_names import (
+    EPUB_EXTRACTOR_CANONICAL_SET,
+    normalize_epub_extractor_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +63,7 @@ RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR = (
 
 class EpubExtractor(str, Enum):
     unstructured = "unstructured"
-    legacy = "legacy"
+    beautifulsoup = "beautifulsoup"
     markdown = "markdown"
     markitdown = "markitdown"
 
@@ -213,7 +218,7 @@ class RunSettings(BaseModel):
             label="EPUB Extractor",
             order=60,
             description=(
-                "EPUB extraction engine (unstructured, legacy, markdown, or markitdown)."
+                "EPUB extraction engine (unstructured, beautifulsoup, markdown, or markitdown)."
             ),
         ),
     )
@@ -456,6 +461,16 @@ class RunSettings(BaseModel):
     mapping_path: str | None = Field(default=None, json_schema_extra={"ui_hidden": True})
     overrides_path: str | None = Field(default=None, json_schema_extra={"ui_hidden": True})
 
+    @field_validator("epub_extractor", mode="before")
+    @classmethod
+    def _normalize_epub_extractor(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        normalized = normalize_epub_extractor_name(value)
+        if normalized in EPUB_EXTRACTOR_CANONICAL_SET:
+            return normalized
+        return value
+
     @classmethod
     def from_dict(
         cls,
@@ -491,9 +506,13 @@ class RunSettings(BaseModel):
         epub_extractor_raw = data.get("epub_extractor")
         if epub_extractor_raw is not None:
             if isinstance(epub_extractor_raw, Enum):
-                normalized_epub_extractor = str(epub_extractor_raw.value).strip().lower()
+                normalized_epub_extractor = normalize_epub_extractor_name(
+                    str(epub_extractor_raw.value).strip().lower()
+                )
             else:
-                normalized_epub_extractor = str(epub_extractor_raw).strip().lower()
+                normalized_epub_extractor = normalize_epub_extractor_name(
+                    str(epub_extractor_raw).strip().lower()
+                )
             if normalized_epub_extractor == "auto":
                 logger.warning(
                     "Forcing epub_extractor=unstructured in %s because auto extractor mode "
@@ -502,6 +521,8 @@ class RunSettings(BaseModel):
                     epub_extractor_raw,
                 )
                 data["epub_extractor"] = EpubExtractor.unstructured.value
+            elif normalized_epub_extractor == "beautifulsoup":
+                data["epub_extractor"] = EpubExtractor.beautifulsoup.value
         return cls.model_validate(data)
 
     def to_run_config_dict(self) -> dict[str, object]:

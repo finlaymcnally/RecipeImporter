@@ -159,7 +159,7 @@ What each setting affects:
 - `all_method_max_parallel_sources`: all-matched source-level concurrency cap (how many books run at once).
 - `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`: per-source config scheduler controls (inflight cap, split-heavy slots, prewarm runway, smart/fixed admission mode; smart mode also adds a tail buffer equal to split slots so post-stage work does not block prewarming).
 - `all_method_config_timeout_seconds`, `all_method_retry_failed_configs`: all-method safety controls (per-config timeout and failed-config retry passes).
-- `epub_extractor`: runtime extractor choice (`unstructured`, `legacy`, `markdown`, or `markitdown`) via `C3IMP_EPUB_EXTRACTOR`.
+- `epub_extractor`: runtime extractor choice (`unstructured`, `beautifulsoup`, `markdown`, or `markitdown`) via `C3IMP_EPUB_EXTRACTOR`.
 - `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
 - `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
 - `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none`, `br_split_v1`, or `semantic_v1` alias).
@@ -205,7 +205,7 @@ Developer note:
 
 1. Choose one EPUB from top-level `data/input`.
 2. Confirm the output folder (default: `data/output/EPUBextractorRace/<book_stem>`).
-3. Confirm candidate list (default: `unstructured,markdown,legacy`).
+3. Confirm candidate list (default: `unstructured,markdown,beautifulsoup`).
 4. If output folder is non-empty, choose whether to continue with overwrite behavior.
 5. Interactive mode runs a deterministic extractor-quality scorer.
 6. It writes `epub_race_report.json` and prints a backend/score summary.
@@ -219,17 +219,22 @@ Developer note:
 2. Enter a project name (or leave it blank).
    - If blank, the tool uses a name based on the file name.
    - If a project with that final name already exists, this flow replaces it.
-3. Choose task type (`task_scope`): `pipeline`, `canonical-blocks`, or `freeform-spans`.
-4. Scope-specific prompts:
-   - `pipeline`: choose `chunk_level` (`both`, `structural`, `atomic`).
-   - `canonical-blocks`: enter `context_window` (integer `>= 0`).
-   - `freeform-spans`: enter `segment_blocks` (context blocks per task, integer `>= 1`), `segment_overlap` (integer `>= 0`), `segment_focus_blocks` (blocks to actively label per task, integer `>= 1` and `<= segment_blocks`), and optional `target_task_count` (blank disables auto-tuning). For freeform prelabel runs, effective overlap may be auto-raised to at least `segment_blocks - segment_focus_blocks` so focus coverage does not leave unlabeled gaps between tasks. Then choose AI prelabel mode (`off`, strict/allow-partial annotations, or advanced predictions mode variants). If prelabel is enabled, interactive mode then asks for labeling style (`actual freeform` span mode vs `legacy, block based` mode), uses the resolved Codex command (`COOKIMPORT_CODEX_CMD` or `codex exec -`), shows the resolved account email when available, then prompts for model (`use default`, discovered models from that command's Codex home / `CODEX_HOME`, or custom model id) and thinking effort (model-compatible subset of `none|low|medium|high|xhigh`; `minimal` is intentionally hidden for this workflow), mapped to Codex `model_reasoning_effort`. Freeform prelabel task calls run in parallel by default (`15` workers).
+3. Configure freeform task generation:
+   - enter `segment_blocks` (context blocks per task, integer `>= 1`),
+   - enter `segment_overlap` (integer `>= 0`),
+   - enter `segment_focus_blocks` (blocks to actively label per task, integer `>= 1` and `<= segment_blocks`),
+   - optional `target_task_count` (blank disables auto-tuning).
+4. Configure optional AI prelabeling:
+   - choose prelabel mode (`off`, strict/allow-partial annotations, or advanced predictions mode variants).
+   - if enabled, choose labeling style (`actual freeform` span mode vs `block based` mode).
+   - interactive mode uses the resolved Codex command (`COOKIMPORT_CODEX_CMD` or `codex exec -`), shows the resolved account email when available, then prompts for model (`use default`, discovered models from that command's Codex home / `CODEX_HOME`, or custom model id) and thinking effort (model-compatible subset of `none|low|medium|high|xhigh`; `minimal` is intentionally hidden for this workflow), mapped to Codex `model_reasoning_effort`.
+   - freeform prelabel task calls run in parallel by default (`15` workers).
 5. Enter Label Studio URL and API key if needed.
    - If `LABEL_STUDIO_URL` and `LABEL_STUDIO_API_KEY` are set, prompts are skipped.
    - Otherwise, interactive mode uses saved `cookimport.json` values when present.
    - If still missing, you are prompted once and the entered values are saved to `cookimport.json` for future interactive runs.
 6. The tool builds tasks on your machine.
-   - It prepares text/chunk or block/segment tasks based on your scope choice.
+   - It prepares freeform segment tasks (`freeform-spans`) from extracted source blocks.
    - Before per-task AI labeling starts, it runs a single Codex model-access preflight call and fails fast when the selected model/account combination is invalid.
    - A status spinner shows live phase updates with `task X/Y` progress for known-size loops (including freeform prelabeling when AI prelabel is enabled), adds ETA once enough `X/Y` progress is observed, and shows per-worker activity lines under the main status when worker telemetry is available.
    - It writes run files under `data/golden/sent-to-labelstudio`:
@@ -259,8 +264,9 @@ Developer note:
    - The picker shows each project with a detected type tag (for example `pipeline`, `canonical-blocks`, `freeform-spans`) when available.
    - Includes a manual-entry option when needed.
 3. Falls back to manual project-name entry when project discovery fails (or no projects exist).
-4. Uses the selected project's detected type as `export_scope` when available.
-   - If the selected project type is `unknown` (or project name is typed manually), interactive mode prompts for `export_scope` (`pipeline`, `canonical-blocks`, `freeform-spans`).
+4. Calls export directly (no scope prompt).
+   - Detected type is informational only.
+   - Export supports freeform projects only; legacy scopes are rejected with an explicit error.
 5. Calls `run_labelstudio_export(...)` with `output_dir=data/golden/pulled-from-labelstudio`.
    - By default, export writes to: `data/golden/pulled-from-labelstudio/<project_slug>/exports/`.
    - If `--run-dir` is supplied in non-interactive mode, export writes to that run directory.
@@ -404,7 +410,7 @@ Options:
 - `--workers, -w INTEGER>=1` (default `7`): total process pool workers.
 - `--pdf-split-workers INTEGER>=1` (default `7`): max workers for one split PDF.
 - `--epub-split-workers INTEGER>=1` (default `7`): max workers for one split EPUB.
-- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy|markdown|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
+- `--epub-extractor TEXT` (default `unstructured`): `unstructured|beautifulsoup|markdown|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
 - `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
@@ -425,7 +431,7 @@ Options:
 - `--tag-catalog-json PATH` (default `data/tagging/tag_catalog.json`): tag catalog snapshot path required when pass5 tags is enabled.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - `markitdown` note: EPUB split jobs are disabled for this extractor because conversion is whole-book EPUB -> markdown (no spine-range mode).
-- explicit-choice note: stage no longer supports `--epub-extractor auto`; choose a concrete backend (`unstructured|legacy|markdown|markitdown`).
+- explicit-choice note: stage no longer supports `--epub-extractor auto`; choose a concrete backend (`unstructured|beautifulsoup|markdown|markitdown`).
 
 Split-merge progress detail:
 - After split workers finish, the worker dashboard `MainProcess` row now advances with explicit `merge phase X/Y: ...` status messages (payload merge, ID reassignment, output writes, raw merge) instead of staying on a single static `Merging ...` label.
@@ -472,7 +478,7 @@ Subcommands:
 - `cookimport epub inspect PATH [--out OUTDIR] [--json] [--force]`
 - `cookimport epub dump PATH --spine-index N [--format xhtml|plain] --out OUTDIR [--open] [--force]`
 - `cookimport epub unpack PATH --out OUTDIR [--only-spine] [--force]`
-- `cookimport epub blocks PATH --out OUTDIR [--extractor unstructured|legacy|markdown|markitdown] [--start-spine N] [--end-spine M] [--html-parser-version v1|v2] [--skip-headers-footers] [--preprocess-mode none|br_split_v1|semantic_v1] [--force]`
+- `cookimport epub blocks PATH --out OUTDIR [--extractor unstructured|beautifulsoup|markdown|markitdown] [--start-spine N] [--end-spine M] [--html-parser-version v1|v2] [--skip-headers-footers] [--preprocess-mode none|br_split_v1|semantic_v1] [--force]`
 - `cookimport epub candidates PATH --out OUTDIR [--extractor ...] [--start-spine N] [--end-spine M] [--html-parser-version ...] [--skip-headers-footers] [--preprocess-mode ...] [--force]`
 - `cookimport epub validate PATH [--jar PATH] [--out OUTDIR] [--strict] [--force]`
 
@@ -566,9 +572,6 @@ Options:
 - `--output-dir PATH` (default `data/golden/sent-to-labelstudio`): artifact root.
 - `--pipeline TEXT` (default `auto`): importer selection.
 - `--project-name TEXT`: explicit Label Studio project name.
-- `--chunk-level TEXT` (default `both`): `structural|atomic|both`.
-- `--task-scope TEXT` (default `pipeline`): `pipeline|canonical-blocks|freeform-spans`.
-- `--context-window INTEGER>=0` (default `1`): canonical scope context window.
 - `--segment-blocks INTEGER>=1` (default `40`): freeform segment size.
 - `--segment-overlap INTEGER>=0` (default `5`): freeform overlap.
 - `--segment-focus-blocks INTEGER>=1` (default unset): freeform blocks per task that should receive labels; when omitted, focus equals `segment_blocks`.
@@ -586,11 +589,11 @@ Options:
 - `--prelabel-cache-dir PATH`: optional prompt/response cache directory.
 - `--prelabel-workers INTEGER>=1` (default `15`): concurrent freeform prelabel provider calls (`1` keeps serialized behavior).
 - `--prelabel-upload-as TEXT` (default `annotations`): `annotations|predictions`.
-- `--prelabel-granularity TEXT` (default `block`): `block|span` (`block` = legacy, block based; `span` = actual freeform).
+- `--prelabel-granularity TEXT` (default `block`): `block|span` (`block` = block based; `span` = actual freeform).
 - `--prelabel-allow-partial / --no-prelabel-allow-partial` (default disabled): continue upload when some prelabels fail.
 
 Prelabel behavior notes:
-- `--prelabel` is only valid with `--task-scope freeform-spans`.
+- `labelstudio-import` is freeform-only (`freeform-spans`), so `--prelabel` always applies to freeform tasks.
 - `--prelabel-upload-as annotations` first tries inline annotation upload and falls back to task-only upload + per-task annotation create when needed.
 - When prelabel failures occur (especially with `--prelabel-allow-partial`), the CLI prints an explicit red `PRELABEL ERRORS: X/Y ...` summary plus `prelabel_errors.jsonl` path at run completion.
 
@@ -607,18 +610,14 @@ Options:
 - `--project-name TEXT` (required): Label Studio project name.
 - `--output-dir PATH` (default `data/golden/pulled-from-labelstudio`): output root.
 - `--run-dir PATH`: export from a specific run directory.
-- `--export-scope TEXT` (default `pipeline`): `pipeline|canonical-blocks|freeform-spans`.
 - `--label-studio-url TEXT`: explicit Label Studio URL.
 - `--label-studio-api-key TEXT`: explicit Label Studio API key.
+- Legacy project scopes (`pipeline`, `canonical-blocks`) are rejected; export supports freeform projects only.
 
-### `cookimport labelstudio-eval SCOPE`
+### `cookimport labelstudio-eval`
 
-Scores prediction spans against canonical/freeform gold labels.
+Scores freeform prediction spans against freeform gold labels.
 The eval output directory now includes `run_manifest.json`.
-
-Arguments:
-
-- `SCOPE` (required): `canonical-blocks` or `freeform-spans`.
 
 Options:
 
@@ -666,7 +665,7 @@ Options:
 - `--epub-split-workers INTEGER>=1` (default `7`): EPUB split workers for prediction import.
 - `--pdf-pages-per-job INTEGER>=1` (default `50`): PDF shard size.
 - `--epub-spine-items-per-job INTEGER>=1` (default `10`): EPUB shard size.
-- `--epub-extractor TEXT` (default `unstructured`): `unstructured|legacy|markdown|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
+- `--epub-extractor TEXT` (default `unstructured`): `unstructured|beautifulsoup|markdown|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
 - `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
@@ -802,7 +801,7 @@ Options:
 CLI-relevant environment variables:
 
 - `C3IMP_LIMIT`: used by interactive mode callback. If set to an integer, interactive import uses it as `stage --limit`.
-- `C3IMP_EPUB_EXTRACTOR`: EPUB extractor switch (`unstructured`, `legacy`, `markdown`, `auto`, or `markitdown`) read at runtime by the EPUB importer.
+- `C3IMP_EPUB_EXTRACTOR`: EPUB extractor switch (`unstructured`, `beautifulsoup`, `markdown`, or `markitdown`) read at runtime by the EPUB importer.
 - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`: unstructured HTML parser version (`v1` or `v2`) for EPUB extraction.
 - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`: bool toggle for Unstructured `skip_headers_and_footers` on EPUB HTML.
 - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`: EPUB HTML preprocess mode before Unstructured (`none`, `br_split_v1`, `semantic_v1`).

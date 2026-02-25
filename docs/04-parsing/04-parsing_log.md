@@ -165,3 +165,115 @@ Major decisions preserved:
 
 Serious failed-path summary:
 - Debug extraction initially skipped shared postprocess, causing apparent importer-vs-debug drift; parity was restored by applying the same cleanup path.
+
+## 2026-02-25 understanding merge batch (chunk consolidation + step-link section context)
+
+### 2026-02-25_16.39.07 chunk consolidation absolute-range contract
+
+Merged source:
+- `docs/understandings/2026-02-25_16.39.07-chunk-consolidation-absolute-adjacency-and-table-guard.md`
+
+Problem captured:
+- Consolidation needed absolute adjacency checks for source ordering without breaking pass4's relative chunk index contract.
+
+Decision/outcome preserved:
+- Keep `KnowledgeChunk.block_ids` sequence-relative for pass4 job bundling.
+- Introduce/use `provenance.absolute_block_range` for adjacency checks.
+- Enforce table isolation: chunks with `provenance.table_ids` never merge in either `merge_small_chunks` or adjacent consolidation.
+
+Anti-loop note:
+- Converting `block_ids` to absolute indices is a regression path; use provenance absolute ranges instead.
+
+### 2026-02-25_16.42.42 section-aware step-linking and duplicate identity safety
+
+Merged source:
+- `docs/understandings/2026-02-25_16.42.42-step-linking-section-context-and-duplicate-indexing.md`
+
+Problem captured:
+- Repeated ingredient names and multi-section recipes could map ingredients to wrong steps under text-only identity and global fallback passes.
+
+Decision/outcome preserved:
+- Keep global candidate scoring, but bias near ties toward same-section steps when section context is available.
+- Apply section scope in `all ingredients` and collective-term fallback passes when recipes have multiple sections.
+- Track ingredient identity by original line index internally during assignment/sorting; remove internal index before staged return shape.
+
+Anti-loop note:
+- Do not downgrade assignment identity to text-only matching; it reintroduces duplicate-line collisions.
+
+## 2026-02-25 docs/tasks archival merge batch (parsing)
+
+### 2026-02-25_16.24.52 knowledge-table extraction rollout
+
+Merged source:
+- `docs/tasks/knowledge-tables.md`
+
+Problem captured:
+- Cookbook knowledge tables were flattening into prose-like blocks, making deterministic export and pass4 extraction unreliable.
+
+Major decisions preserved:
+- Treat table support as deterministic extraction/export first, optional LLM summarization second.
+- Keep block text verbatim for evidence and attach table structure as hints (`table_hint`) instead of rewriting text.
+- Annotate existing non-recipe block dicts (`features.table_id`, `features.table_row_index`) rather than introducing a new block model.
+- Always write `tables/<workbook_slug>/tables.jsonl` and `tables.md` when `table_extraction=on`, even when empty.
+
+Shipped outcomes:
+- Added `cookimport/parsing/tables.py` with row detection/grouping/header inference.
+- Wired table artifacts into stage, split-merge, and processed-output snapshot paths.
+- Made chunking table-aware (table rows stay atomic for splitting; table chunks stay in `knowledge` lane).
+- Added pass4 `table_hint` wiring in knowledge bundle construction.
+
+Validation evidence preserved:
+- Targeted tests passed for tables/chunks/pass4/CLI/run-settings wiring.
+- Fixture stage runs wrote table artifacts but detected zero tables in tested EPUB/PDF fixtures.
+
+Remaining gap preserved:
+- Positive in-repo sample with detectable row separators still needed for one end-to-end non-empty table validation case.
+
+Anti-loop note:
+- Empty table outputs under `table_extraction=on` can be a source-text-shape limitation (missing row separators), not necessarily a regression in extraction logic.
+
+### 2026-02-25_16.39.01 adjacent same-topic chunk consolidation
+
+Merged source:
+- `docs/tasks/combine-knowledge-chunks.md`
+
+Problem captured:
+- Adjacent knowledge chunks under one topic were fragmented, reducing chunk review quality and increasing pass4 work on near-duplicate neighbors.
+
+Major decisions preserved:
+- Consolidate adjacent chunks only (never reorder and never merge non-adjacent clusters).
+- Require true book adjacency via absolute block indices to avoid merges across removed recipe spans.
+- Use conservative topic matching (heading context first; tag-overlap fallback only when heading context missing).
+- Keep rollback/debug switch: `COOKIMPORT_CONSOLIDATE_ADJACENT_KNOWLEDGE_CHUNKS=0`.
+- Enforce strict table isolation across all merge phases.
+
+Validation evidence preserved:
+- Focused chunk tests: `29 passed`.
+- Pass4 bundle compatibility test: `1 passed`.
+- Broader suite snapshot had unrelated failures outside this scope (`toggle_editor` expectations and missing paprika/recipesage fixtures).
+
+Anti-loop notes:
+- Do not reinterpret `KnowledgeChunk.block_ids` as absolute source indices to solve adjacency issues; preserve sequence-relative IDs and use provenance ranges.
+- Do not allow table chunks into generic merge paths; that regresses table auditability.
+
+### 2026-02-25_16.45.50 multi-component recipe sections + section-aware linking
+
+Merged source:
+- `docs/tasks/Sub-grouping-recipe-steps.md`
+
+Problem captured:
+- Multi-component recipe headers (`For the meat`, `For the gravy`, etc.) needed structural handling for better step linking and auditable outputs.
+
+Major decisions preserved:
+- Keep cookbook3 draft schema stable; expose section structure through additive artifacts and intermediate JSON-LD only.
+- Emit intermediate `HowToSection/HowToStep` only when multiple instruction sections are detected.
+- Use index-based internal ingredient identity during assignment to prevent duplicate text collisions.
+
+Shipped outcomes:
+- Added deterministic section extraction module and tests.
+- Integrated section context into step-link scoring and fallback passes.
+- Added section output artifacts (`sections/<workbook_slug>/...`) and richer intermediate JSON-LD section metadata.
+- Verified with end-to-end fixture run on `tests/fixtures/sectioned_components_recipe.txt`.
+
+Anti-loop note:
+- If repeated ingredient names collapse to one step in multi-section recipes, check index-based identity flow before retuning alias scoring heuristics.

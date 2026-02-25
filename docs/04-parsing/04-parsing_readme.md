@@ -36,6 +36,7 @@ Core modules:
 - `cookimport/parsing/ingredients.py`
 - `cookimport/parsing/instruction_parser.py`
 - `cookimport/parsing/step_ingredients.py`
+- `cookimport/parsing/sections.py`
 - `cookimport/parsing/tips.py`
 - `cookimport/parsing/atoms.py`
 - `cookimport/parsing/chunks.py`
@@ -408,6 +409,7 @@ Under a run output folder:
 - Topic candidates summary: `data/output/<timestamp>/tips/<workbook_stem>/topic_candidates.md`
 - Chunks: `data/output/<timestamp>/chunks/<workbook_stem>/c{index}.json`
 - Chunk summary: `data/output/<timestamp>/chunks/<workbook_stem>/chunks.md`
+- Tables (when `table_extraction=on`): `data/output/<timestamp>/tables/<workbook_stem>/tables.jsonl` and `tables.md`
 
 ## Practical Change Workflow (Recommended)
 
@@ -475,3 +477,84 @@ Durable parsing-side contract:
 Known-bad loops to avoid:
 - Do not fork postprocess behavior per extractor backend unless there is extractor-specific evidence.
 - Keep debug extraction flows aligned with importer postprocess behavior to avoid false regression diagnosis.
+
+## Merged Understandings Batch (2026-02-25 parsing contracts)
+
+### 2026-02-25_16.39.07 chunk consolidation absolute-adjacency + table guard
+
+Merged source:
+- `docs/understandings/2026-02-25_16.39.07-chunk-consolidation-absolute-adjacency-and-table-guard.md`
+
+Durable parsing contract:
+- `KnowledgeChunk.block_ids` remain sequence-relative (pass4 bundle builders depend on this).
+- Adjacency checks for same-topic consolidation use `provenance.absolute_block_range` (inclusive rule: `left_end + 1 == right_start`).
+- Table chunks (`provenance.table_ids`) are excluded from all merge phases:
+  - `merge_small_chunks`
+  - `consolidate_adjacent_knowledge_chunks`
+
+Anti-loop note:
+- Do not reinterpret `block_ids` as absolute source indices to "fix" adjacency; that breaks pass4 index mapping contracts.
+
+### 2026-02-25_16.42.42 section-aware step linking + duplicate-safe ingredient identity
+
+Merged source:
+- `docs/understandings/2026-02-25_16.42.42-step-linking-section-context-and-duplicate-indexing.md`
+
+Durable parsing contract:
+- Section context inputs are optional in `assign_ingredient_lines_to_steps(...)`:
+  - `ingredient_section_key_by_line`
+  - `step_section_key_by_step`
+- Global matching still runs first, but near ties prefer same-section candidates.
+- Section scope also applies to the high-impact fallback passes when multiple sections exist:
+  - `all ingredients` phrases
+  - collective-term fallback (`spices`, `herbs`, `seasonings`)
+- Duplicate ingredient text is tracked internally by original ingredient index during assignment so repeated identical lines do not collapse.
+
+Anti-loop note:
+- Text-equality identity for ingredient lines is insufficient when duplicate lines are intentional; keep index-based internal identity through assignment.
+
+## Merged Task Specs (2026-02-25 docs/tasks archival batch)
+
+### 2026-02-25_16.24.52 deterministic table extraction + table-aware chunking + pass4 hints
+
+Merged source:
+- `docs/tasks/knowledge-tables.md`
+
+Durable parsing contract:
+- Deterministic table extraction lives in `cookimport/parsing/tables.py`:
+  - row detection supports pipe/tab/multispace separators,
+  - grouped runs are annotated onto non-recipe blocks (`features.table_id`, `features.table_row_index`, `table_hint`).
+- Chunking remains table-aware:
+  - no max-char split in the middle of a single detected table,
+  - chunks with `provenance.table_ids` are forced to the `knowledge` lane.
+- Pass4 receives table structure as hints only (`table_hint`) while keeping evidence text verbatim.
+
+Known caveat preserved:
+- Current fixture books may still produce empty detected table sets if extractor output flattened separators; this is expected and should not be treated as parser crash.
+
+### 2026-02-25_16.39.01 adjacent same-topic chunk consolidation
+
+Merged source:
+- `docs/tasks/combine-knowledge-chunks.md`
+
+Durable parsing contract:
+- Consolidation is adjacent-only and deterministic left-to-right; no reordering/non-adjacent merges.
+- True adjacency is checked with absolute source ranges (`provenance.absolute_block_range`), not filtered-list adjacency.
+- Topic similarity stays conservative:
+  - heading-context match first,
+  - tag-overlap fallback only when heading context is missing.
+- Kill switch remains available for isolation/debugging:
+  - `COOKIMPORT_CONSOLIDATE_ADJACENT_KNOWLEDGE_CHUNKS=0`
+
+### 2026-02-25_16.45.50 multi-component recipe sections and section-aware step linking
+
+Merged source:
+- `docs/tasks/Sub-grouping-recipe-steps.md`
+
+Durable parsing contract:
+- `cookimport/parsing/sections.py` is the section extraction boundary for ingredient + instruction headers.
+- Step-linking uses section context for near-tie resolution and fallback-pass scoping when multiple sections exist.
+- Duplicate ingredient lines are tracked internally by ingredient index during assignment to avoid text-collision regressions.
+
+Cross-boundary note:
+- Final cookbook3 output remains schema-stable; section structure is exposed through additive staging surfaces (`sections/...` artifacts and intermediate JSON-LD `HowToSection`).

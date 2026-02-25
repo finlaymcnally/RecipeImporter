@@ -21,9 +21,9 @@ def _text(fragments: list[tuple[str, str]]) -> str:
 def test_enum_rows_show_all_options_with_selected_boxed() -> None:
     spec = _spec("epub_extractor")
 
-    fragments = _render_value_fragments(spec, "legacy", row_selected=False)
+    fragments = _render_value_fragments(spec, "beautifulsoup", row_selected=False)
 
-    assert _text(fragments) == "unstructured | [legacy] | markdown | auto | markitdown"
+    assert _text(fragments) == "unstructured | [beautifulsoup] | markdown | markitdown"
 
 
 def test_bool_rows_show_both_options_with_selected_boxed() -> None:
@@ -37,9 +37,9 @@ def test_bool_rows_show_both_options_with_selected_boxed() -> None:
 def test_selected_row_uses_highlight_style_on_selected_option() -> None:
     spec = _spec("epub_extractor")
 
-    fragments = _render_value_fragments(spec, "legacy", row_selected=True)
+    fragments = _render_value_fragments(spec, "beautifulsoup", row_selected=True)
 
-    assert _text(fragments) == "unstructured | [legacy] | markdown | auto | markitdown"
+    assert _text(fragments) == "unstructured | [beautifulsoup] | markdown | markitdown"
     assert any(style == "reverse bold" for style, _ in fragments)
 
 

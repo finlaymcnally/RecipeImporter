@@ -128,12 +128,18 @@ For stage rows, key analytics columns include:
 For benchmark rows, key columns include:
 
 - `precision`, `recall`, `f1`
+- stage-block additions:
+  - `benchmark_overall_accuracy`
+  - `benchmark_macro_f1_excluding_other`
+  - `benchmark_worst_label`
+  - `benchmark_worst_label_recall`
 - `gold_total`, `gold_matched`, `pred_total`
 - `recipes` (from pred-run manifest `recipe_count` when available; fallback from processed report when available; fallback to eval `recipe_counts.predicted_recipe_count` when manifest/report paths are absent)
 - `gold_recipe_headers` (from eval `recipe_counts.gold_recipe_headers`, with per-label `RECIPE_TITLE` fallback when needed)
 - `supported_precision`, `supported_recall`
 - boundary columns: `boundary_correct`, `boundary_over`, `boundary_under`, `boundary_partial`
 - `eval_scope`, `source_file` (stored in `file_name`)
+- `eval_scope=stage-blocks` for stage evidence benchmark runs (legacy span-eval rows may still exist historically)
 - run context columns: `run_config_hash`, `run_config_summary`, `run_config_json`
 - benchmark runtime columns:
   - stage-aligned: `total_seconds`, `parsing_seconds`, `writing_seconds`, `ocr_seconds`

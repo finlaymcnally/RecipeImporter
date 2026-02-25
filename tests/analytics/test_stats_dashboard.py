@@ -157,15 +157,15 @@ SAMPLE_REPORT_JSON = {
         },
     },
     "runConfig": {
-        "epub_extractor": "legacy",
-        "epub_extractor_requested": "legacy",
-        "epub_extractor_effective": "legacy",
+        "epub_extractor": "beautifulsoup",
+        "epub_extractor_requested": "beautifulsoup",
+        "epub_extractor_effective": "beautifulsoup",
         "ocr_device": "auto",
         "ocr_batch_size": 1,
         "effective_workers": 10,
     },
     "runConfigHash": "abc123def456",
-    "runConfigSummary": "epub_extractor=legacy | ocr_device=auto | ocr_batch_size=1 | effective_workers=10",
+    "runConfigSummary": "epub_extractor=beautifulsoup | ocr_device=auto | ocr_batch_size=1 | effective_workers=10",
 }
 
 
@@ -337,9 +337,9 @@ class TestCollectors:
         assert r.warnings_count == 1
         assert r.errors_count == 0
         assert r.run_config == {
-            "epub_extractor": "legacy",
-            "epub_extractor_requested": "legacy",
-            "epub_extractor_effective": "legacy",
+            "epub_extractor": "beautifulsoup",
+            "epub_extractor_requested": "beautifulsoup",
+            "epub_extractor_effective": "beautifulsoup",
             "ocr_device": "auto",
             "ocr_batch_size": 1,
             "effective_workers": 10,
@@ -347,7 +347,7 @@ class TestCollectors:
         assert r.epub_extractor_requested is None
         assert r.epub_extractor_effective is None
         assert r.run_config_hash == "abc123def456"
-        assert "epub_extractor=legacy" in str(r.run_config_summary)
+        assert "epub_extractor=beautifulsoup" in str(r.run_config_summary)
 
     def test_csv_collector_stage_run_config_json(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
@@ -364,13 +364,13 @@ class TestCollectors:
                 "total_seconds": "9.5",
                 "recipes": "4",
                 "epub_extractor_requested": "auto",
-                "epub_extractor_effective": "legacy",
+                "epub_extractor_effective": "beautifulsoup",
                 "epub_auto_selected_score": "0.73",
                 "run_config_json": json.dumps(
                     {
                         "epub_extractor": "auto",
                         "epub_extractor_requested": "auto",
-                        "epub_extractor_effective": "legacy",
+                        "epub_extractor_effective": "beautifulsoup",
                         "epub_auto_selected_score": 0.73,
                         "ocr_device": "auto",
                         "ocr_batch_size": 1,
@@ -395,14 +395,14 @@ class TestCollectors:
         assert r.run_config == {
             "epub_extractor": "auto",
             "epub_extractor_requested": "auto",
-            "epub_extractor_effective": "legacy",
+            "epub_extractor_effective": "beautifulsoup",
             "epub_auto_selected_score": 0.73,
             "ocr_device": "auto",
             "ocr_batch_size": 1,
             "effective_workers": 10,
         }
         assert r.epub_extractor_requested == "auto"
-        assert r.epub_extractor_effective == "legacy"
+        assert r.epub_extractor_effective == "beautifulsoup"
         assert r.epub_auto_selected_score == pytest.approx(0.73)
         assert r.run_config_hash is not None
         assert "epub_extractor=auto" in str(r.run_config_summary)
@@ -436,9 +436,9 @@ class TestCollectors:
         )
         assert len(data.stage_records) == 1
         assert data.stage_records[0].run_config == {
-            "epub_extractor": "legacy",
-            "epub_extractor_requested": "legacy",
-            "epub_extractor_effective": "legacy",
+            "epub_extractor": "beautifulsoup",
+            "epub_extractor_requested": "beautifulsoup",
+            "epub_extractor_effective": "beautifulsoup",
             "ocr_device": "auto",
             "ocr_batch_size": 1,
             "effective_workers": 10,
@@ -446,7 +446,7 @@ class TestCollectors:
         assert data.stage_records[0].epub_extractor_requested is None
         assert data.stage_records[0].epub_extractor_effective is None
         assert data.stage_records[0].run_config_hash == "abc123def456"
-        assert "epub_extractor=legacy" in str(data.stage_records[0].run_config_summary)
+        assert "epub_extractor=beautifulsoup" in str(data.stage_records[0].run_config_summary)
 
     def test_csv_collector_stage_run_config_warning_when_report_missing(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
@@ -558,8 +558,8 @@ class TestCollectors:
                 "precision": "0.2",
                 "recall": "0.4",
                 "run_config_hash": "cfg123",
-                "run_config_summary": "epub_extractor=legacy | workers=7",
-                "run_config_json": json.dumps({"epub_extractor": "legacy", "workers": 7}),
+                "run_config_summary": "epub_extractor=beautifulsoup | workers=7",
+                "run_config_json": json.dumps({"epub_extractor": "beautifulsoup", "workers": 7}),
             }
         )
         with csv_path.open("w", newline="", encoding="utf-8") as fh:
@@ -574,8 +574,8 @@ class TestCollectors:
         assert len(data.benchmark_records) == 1
         record = data.benchmark_records[0]
         assert record.run_config_hash == "cfg123"
-        assert record.run_config_summary == "epub_extractor=legacy | workers=7"
-        assert record.run_config == {"epub_extractor": "legacy", "workers": 7}
+        assert record.run_config_summary == "epub_extractor=beautifulsoup | workers=7"
+        assert record.run_config == {"epub_extractor": "beautifulsoup", "workers": 7}
 
     def test_benchmark_csv_recipes_backfill_from_processed_report_path(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
@@ -640,7 +640,7 @@ class TestCollectors:
                     "source_file": "/tmp/source/book.epub",
                     "importer_name": "epub",
                     "run_config": {
-                        "epub_extractor": "legacy",
+                        "epub_extractor": "beautifulsoup",
                         "ocr_device": "auto",
                         "workers": 6,
                     },
@@ -664,7 +664,7 @@ class TestCollectors:
         assert b.source_file == "/tmp/source/book.epub"
         assert b.importer_name == "epub"
         assert b.run_config == {
-            "epub_extractor": "legacy",
+            "epub_extractor": "beautifulsoup",
             "ocr_device": "auto",
             "workers": 6,
         }
@@ -854,7 +854,7 @@ class TestRenderer:
                     precision=0.1,
                     recall=0.3,
                     importer_name="epub",
-                    run_config={"epub_extractor": "legacy", "ocr_device": "auto"},
+                    run_config={"epub_extractor": "beautifulsoup", "ocr_device": "auto"},
                 ),
             ],
         )
@@ -878,7 +878,7 @@ class TestRenderer:
                     practical_f1=0.55,
                     importer_name="epub",
                     source_file="/tmp/source/book.epub",
-                    run_config={"epub_extractor": "legacy", "ocr_device": "auto"},
+                    run_config={"epub_extractor": "beautifulsoup", "ocr_device": "auto"},
                 ),
             ],
         )
@@ -886,16 +886,16 @@ class TestRenderer:
         html = html_path.read_text(encoding="utf-8")
         assert "Previous Runs" in html
         assert 'id="previous-runs-table"' in html
-        assert "<th>Timestamp</th>" in html
-        assert "<th>Strict Precision</th>" in html
-        assert "<th>Strict Recall</th>" in html
-        assert "<th>Practical F1</th>" in html
-        assert "<th>Strict F1</th>" in html
-        assert "<th>Gold</th>" in html
-        assert "<th>Matched</th>" in html
-        assert "<th>Recipes</th>" in html
-        assert "<th>Source</th>" in html
-        assert "<th>Importer</th>" in html
+        assert ">Timestamp</th>" in html
+        assert ">Strict Precision</th>" in html
+        assert ">Strict Recall</th>" in html
+        assert ">Practical F1</th>" in html
+        assert ">Strict F1</th>" in html
+        assert ">Gold</th>" in html
+        assert ">Matched</th>" in html
+        assert ">Recipes</th>" in html
+        assert ">Source</th>" in html
+        assert ">Importer</th>" in html
         assert "Run Config" not in html
         assert "<th>Artifact</th>" not in html
 
@@ -907,7 +907,7 @@ class TestRenderer:
                     file_name="book.epub",
                     importer_name="epub",
                     run_config={
-                        "epub_extractor": "legacy",
+                        "epub_extractor": "beautifulsoup",
                         "ocr_device": "auto",
                         "ocr_batch_size": 1,
                         "effective_workers": 10,
@@ -1017,7 +1017,7 @@ class TestRenderer:
                     run_timestamp="2026-02-23T16:04:10",
                     artifact_dir=str(
                         all_method_root
-                        / "config_001_aaa_extractor_legacy"
+                        / "config_001_aaa_extractor_beautifulsoup"
                     ),
                     precision=0.12,
                     recall=0.44,
@@ -1027,7 +1027,7 @@ class TestRenderer:
                     gold_recipe_headers=10,
                     source_file="/tmp/thefoodlabCUTDOWN.epub",
                     importer_name="epub",
-                    run_config_summary="epub_extractor=legacy | workers=7",
+                    run_config_summary="epub_extractor=beautifulsoup | workers=7",
                     run_config_hash="hash001",
                 ),
                 BenchmarkRecord(
@@ -1067,7 +1067,7 @@ class TestRenderer:
                     run_timestamp="2026-02-23T16:07:10",
                     artifact_dir=str(
                         all_method_root_second
-                        / "config_001_aaa_extractor_legacy"
+                        / "config_001_aaa_extractor_beautifulsoup"
                     ),
                     precision=0.25,
                     recall=0.58,
@@ -1077,7 +1077,7 @@ class TestRenderer:
                     gold_recipe_headers=12,
                     source_file="/tmp/DinnerFor2CUTDOWN.epub",
                     importer_name="epub",
-                    run_config_summary="epub_extractor=legacy | workers=7",
+                    run_config_summary="epub_extractor=beautifulsoup | workers=7",
                     run_config_hash="hash001",
                 ),
                 BenchmarkRecord(
@@ -1157,10 +1157,10 @@ class TestRenderer:
         assert 'style="width:70.00%"' in recipes_identified_block
         assert "Strict Precision" in detail_html
         assert "Practical F1" in detail_html
-        assert "<th>Extractor</th>" in detail_html
-        assert "<th>Parser</th>" in detail_html
-        assert "<th>Skip HF</th>" in detail_html
-        assert "<th>Preprocess</th>" in detail_html
+        assert ">Extractor</span></th>" in detail_html
+        assert ">Parser</span></th>" in detail_html
+        assert ">Skip HF</th>" in detail_html
+        assert ">Preprocess</th>" in detail_html
         assert "<td>auto</td>" in detail_html
         assert "<td>v2</td>" in detail_html
         assert "<td>true</td>" in detail_html
@@ -1169,7 +1169,7 @@ class TestRenderer:
         assert "<td>-</td>" in detail_html
         assert "Ranked Configurations" in detail_html
         assert detail_html.find("config_002_bbb_extractor_markdown") < detail_html.find(
-            "config_001_aaa_extractor_legacy"
+            "config_001_aaa_extractor_beautifulsoup"
         )
         assert "strict_f1=0.3000" in detail_html
 
@@ -1237,7 +1237,7 @@ class TestRenderer:
         assert "all-method-benchmark__2026-02-23_16.01.06__thefoodlabcutdown.html" in run_detail_html
         assert "all-method-benchmark__2026-02-23_16.01.06__dinnerfor2cutdown.html" in run_detail_html
         assert run_detail_html.find("config_002_bbb_extractor_markdown") < run_detail_html.find(
-            "config_001_aaa_extractor_legacy"
+            "config_001_aaa_extractor_beautifulsoup"
         )
 
     def test_render_all_method_section_when_no_groups(self, tmp_path):
@@ -1329,7 +1329,7 @@ class TestBenchmarkCsv:
             source_file="my_book.pdf",
             recipes=31,
             processed_report_path="/tmp/output/2026-02-11_15.59.00/my_book.excel_import_report.json",
-            run_config={"epub_extractor": "legacy", "workers": 7},
+            run_config={"epub_extractor": "beautifulsoup", "workers": 7},
             timing={
                 "total_seconds": 21.5,
                 "prediction_seconds": 17.0,
@@ -1370,7 +1370,7 @@ class TestBenchmarkCsv:
         assert float(row["benchmark_gold_load_seconds"]) == pytest.approx(0.3)
         assert float(row["benchmark_evaluate_seconds"]) == pytest.approx(2.0)
         assert row["run_config_hash"] != ""
-        assert "epub_extractor=legacy" in row["run_config_summary"]
+        assert "epub_extractor=beautifulsoup" in row["run_config_summary"]
         assert row["run_config_json"] != ""
 
     def test_benchmark_csv_timing_falls_back_to_processed_report(self, tmp_path):

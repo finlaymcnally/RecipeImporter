@@ -15,6 +15,11 @@ import typer
 from bs4 import BeautifulSoup, FeatureNotFound
 
 from cookimport.core.blocks import Block
+from cookimport.epub_extractor_names import (
+    EPUB_EXTRACTOR_CANONICAL_SET,
+    epub_extractor_choices_for_help,
+    normalize_epub_extractor_name,
+)
 from cookimport.core.reporting import compute_file_hash
 from cookimport.parsing.block_roles import assign_block_roles
 from cookimport.parsing.epub_auto_select import (
@@ -65,11 +70,11 @@ def _require_epub_path(path: Path) -> Path:
 
 
 def _normalize_epub_extractor(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized not in {"unstructured", "legacy", "markdown", "markitdown"}:
+    normalized = normalize_epub_extractor_name(value)
+    if normalized not in EPUB_EXTRACTOR_CANONICAL_SET:
         _fail(
             f"Invalid EPUB extractor: {value!r}. "
-            "Expected one of: unstructured, legacy, markdown, markitdown."
+            f"Expected one of: {epub_extractor_choices_for_help()}."
         )
     return normalized
 
@@ -78,17 +83,19 @@ def _normalize_auto_candidates(value: str) -> tuple[str, ...]:
     raw_parts = [part.strip().lower() for part in str(value).split(",")]
     candidates: list[str] = []
     seen: set[str] = set()
-    allowed = {"unstructured", "markdown", "legacy", "markitdown"}
+    allowed = EPUB_EXTRACTOR_CANONICAL_SET
     for part in raw_parts:
         if not part or part in seen:
             continue
-        if part not in allowed:
+        normalized = normalize_epub_extractor_name(part)
+        if normalized not in allowed:
             _fail(
                 f"Invalid candidate extractor: {part!r}. "
-                "Expected comma-separated values from: unstructured, markdown, legacy, markitdown."
+                "Expected comma-separated values from: "
+                f"{epub_extractor_choices_for_help()}."
             )
-        seen.add(part)
-        candidates.append(part)
+        seen.add(normalized)
+        candidates.append(normalized)
     if not candidates:
         _fail("No extractor candidates were provided.")
     return tuple(candidates)
@@ -670,7 +677,7 @@ def debug_epub_blocks(
     extractor: str = typer.Option(
         "unstructured",
         "--extractor",
-        help="EPUB extractor: unstructured, legacy, markdown, or markitdown.",
+        help="EPUB extractor: unstructured, beautifulsoup, markdown, or markitdown.",
     ),
     start_spine: int | None = typer.Option(
         None,
@@ -773,7 +780,7 @@ def debug_epub_candidates(
     extractor: str = typer.Option(
         "unstructured",
         "--extractor",
-        help="EPUB extractor: unstructured, legacy, markdown, or markitdown.",
+        help="EPUB extractor: unstructured, beautifulsoup, markdown, or markitdown.",
     ),
     start_spine: int | None = typer.Option(
         None,
@@ -968,7 +975,7 @@ def race_epub_extractors(
     path: Path = typer.Argument(..., help="EPUB file to race candidate extractors on."),
     out: Path = typer.Option(..., "--out", help="Output directory for race artifacts."),
     candidates: str = typer.Option(
-        "unstructured,markdown,legacy",
+        "unstructured,markdown,beautifulsoup",
         "--candidates",
         help="Comma-separated candidate extractors for auto race.",
     ),

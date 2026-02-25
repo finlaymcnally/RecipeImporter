@@ -3,7 +3,7 @@ summary: "Code-verified Label Studio import/export/eval reference for current be
 read_when:
   - Working on any Label Studio import/export/evaluation flow
   - Debugging unexpected uploads, zero-match evals, or output-path confusion
-  - Deciding between pipeline, canonical, and freeform golden-set workflows
+  - Working on freeform golden-set workflows and legacy-scope migration behavior
 ---
 
 # Label Studio: Technical Readme
@@ -21,19 +21,20 @@ Use `docs/06-label-studio/06-label-studio_log.md` for historical architecture ve
 
 ### 1.1 Scope and purpose
 
-Label Studio integration is for creating/evaluating golden sets for cookbook extraction/parsing. It currently supports three task scopes:
-
-- `pipeline`: label pipeline-generated chunks.
-- `canonical-blocks`: label every extracted block with one class.
-- `freeform-spans`: highlight arbitrary spans in text segments with labels.
+Label Studio integration is for creating/evaluating freeform golden sets for cookbook extraction/parsing.
+Current workflow scope is `freeform-spans` only. Legacy `pipeline` and `canonical-blocks`
+projects/manifests are treated as historical artifacts and rejected by current export flows.
 
 Primary code paths:
 
 - Import/upload: `cookimport/labelstudio/ingest.py`
 - Export: `cookimport/labelstudio/export.py`
-- Canonical eval: `cookimport/labelstudio/eval_canonical.py`
 - Freeform eval: `cookimport/labelstudio/eval_freeform.py`
 - CLI + interactive routing: `cookimport/cli.py`
+
+Benchmark scoring update (current behavior):
+- `cookimport labelstudio-benchmark` and `cookimport bench run` now evaluate stage evidence manifests (`stage_block_predictions.json`) against freeform gold at block level.
+- `label_studio_tasks.jsonl` is still generated for Label Studio workflows, but it is no longer the benchmark scoring surface.
 
 ### 1.2 Commands and defaults
 
@@ -85,15 +86,7 @@ Relevant code:
 
 ### 1.4 Task generation and IDs
 
-Resume/idempotence is based on deterministic scope-specific task IDs, not Label Studio internal IDs.
-
-- Pipeline key: `chunk_id`
-- Canonical key: `block_id`
-- Freeform key: `segment_id`
-
-Canonical block IDs:
-
-- `urn:cookimport:block:{source_hash}:{block_index}`
+Resume/idempotence is based on deterministic freeform task IDs, not Label Studio internal IDs.
 
 Freeform segment IDs:
 
@@ -108,37 +101,12 @@ Resume behavior:
 
 ### 1.5 Label configs (actual current sets)
 
-Pipeline labels (`cookimport/labelstudio/label_config.py`):
-
-- Content type: `tip`, `recipe`, `step`, `ingredient`, `fluff`, `other`, `mixed`
-- Value/usefulness: `useful`, `neutral`, `useless`, `unclear`
-- Optional tags include: `servings`, `pairs_well_with`, etc.
-
-Canonical labels (`cookimport/labelstudio/label_config_blocks.py`):
-
-- `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `TIP`, `NARRATIVE`, `OTHER`
-
 Freeform labels (`cookimport/labelstudio/label_config_freeform.py`):
 
 - `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`
 - explicitly preserves whitespace with `style="white-space: pre-wrap;"` for stable offsets.
 
 ### 1.6 Export contracts
-
-Pipeline export produces:
-
-- `exports/labelstudio_export.json` (raw payload)
-- `exports/labeled_chunks.jsonl`
-- `exports/golden_set_tip_eval.jsonl`
-- optional `exports/skipped.jsonl`
-- `exports/summary.json`
-
-Canonical export produces:
-
-- `exports/labelstudio_export.json`
-- `exports/canonical_block_labels.jsonl`
-- `exports/canonical_gold_spans.jsonl` (derived)
-- `exports/summary.json`
 
 Freeform export produces:
 
@@ -148,11 +116,13 @@ Freeform export produces:
 - `exports/summary.json`
   - `summary.recipe_counts.recipe_headers` stores deduped golden recipe count based on `RECIPE_TITLE` header spans (dedupe key: source + block range).
 
+Legacy projects/manifests scoped as `pipeline` or `canonical-blocks` are rejected by export.
+
 Freeform span rows include offsets, label, touched block mapping, annotator/timestamp, and deterministic `span_id`.
 
 ### 1.6.1 Freeform prelabel contracts
 
-- `labelstudio-import --task-scope freeform-spans --prelabel` can attach completed freeform annotations before upload.
+- `labelstudio-import --prelabel` can attach completed freeform annotations before upload.
 - Prelabel supports two granularity modes (`--prelabel-granularity block|span`, interactive style picker):
   - `block` (legacy, block based): LLM output `{block_index, label}` -> full-block span.
   - `span` (actual freeform): LLM output quote-anchored spans (`{block_index, label, quote, occurrence?}`) and optional absolute spans (`{label, start, end}`) resolved deterministically to exact offsets.
@@ -385,15 +355,9 @@ Why this is expected:
 
 ### 1.7 Evaluation behavior
 
-Canonical eval (`labelstudio-eval canonical-blocks`):
+Freeform eval (`labelstudio-eval`):
 
-- compares predicted structural recipe spans from `label_studio_tasks.jsonl` vs `canonical_gold_spans.jsonl`.
-- Jaccard overlap threshold default `0.5`.
-- supports prefix-compatible source hash matching for older IDs.
-
-Freeform eval (`labelstudio-eval freeform-spans`):
-
-- compares predicted labeled ranges (mapped from pipeline chunks) vs gold freeform spans (mapped by touched block indices).
+- compares predicted labeled ranges from the prediction run vs gold freeform spans (mapped by touched block indices).
 - strict metrics remain canonical benchmark numbers.
 - gold spans are deduped by default before scoring using `(source_hash, source_file, start_block_index, end_block_index)` keys.
 - when deduped gold groups contain conflicting labels:
@@ -404,7 +368,7 @@ Freeform eval (`labelstudio-eval freeform-spans`):
   - `classification_only` diagnostics
 - supports `--force-source-match` to bypass source identity checks.
 
-Output artifacts for both eval scopes:
+Output artifacts:
 
 - `eval_report.json`
 - `eval_report.md`
@@ -469,7 +433,7 @@ For large EPUB/PDF prediction imports, split jobs can run in parallel.
 - planners reused from stage path (`plan_pdf_page_ranges`, `plan_job_ranges`)
 - merge step rebases block-index fields by cumulative offsets to restore global block coordinates
 
-This reindexing is critical; without it, freeform/canonical eval can report near-zero matches despite good extraction.
+This reindexing is critical; without it, freeform eval can report near-zero matches despite good extraction.
 
 ### 1.10 Artifact layout and run folders
 
@@ -500,7 +464,7 @@ Manifest includes:
 - Benchmark gold discovery checks both `data/output/**/exports/freeform_span_labels.jsonl` and `data/golden/**/exports/freeform_span_labels.jsonl`.
 - Split-job `labelstudio-import` and `labelstudio-benchmark` support the same PDF/EPUB split controls as stage imports (`workers`, split workers, pages/spine per job).
 - Progress callbacks include post-merge phases (archive/hash, processed-output writes, chunk/task generation, upload batching) so long runs continue surfacing advancing status.
-- Interactive `labelstudio` export resolves credentials first, then fetches project titles for a picker UI (showing a detected type tag beside each project when available). It now auto-uses the selected project's detected type as export scope and only prompts for scope when detection is `unknown` (or when the project name is typed manually).
+- Interactive `labelstudio` export resolves credentials first, then fetches project titles for a picker UI (showing a detected type tag beside each project when available). The detected type is informational; export itself is freeform-only and rejects legacy scopes.
 - Interactive Label Studio import/export credential resolution order is: CLI/env values first, then saved `cookimport.json` values, then one-time prompt (which persists back to `cookimport.json`).
 - Interactive freeform `labelstudio` import now prompts for context blocks, overlap, focus blocks, and optional target task count in one sequence, then uses an AI prelabel mode selector before upload, prints summary processing time, and writes `prelabel_report.json` when prelabel is enabled.
 - Interactive benchmark uses the same per-run settings chooser as interactive Import (`global defaults` / `last benchmark` / `change run settings`) and writes successful selections to `<output_dir_parent>/.history/last_run_settings_benchmark.json`.
@@ -572,13 +536,11 @@ Core package:
 - `cookimport/labelstudio/client.py`: API client wrapper
 - `cookimport/labelstudio/ingest.py`: import flow, task generation dispatch, resume/upload, artifacts
 - `cookimport/labelstudio/export.py`: export + JSONL shaping
-- `cookimport/labelstudio/chunking.py`: pipeline chunk generation helpers
-- `cookimport/labelstudio/block_tasks.py`: canonical task builder
+- `cookimport/labelstudio/archive.py`: extracted-archive builders/normalization shared by Label Studio and stage-block prediction flows
 - `cookimport/labelstudio/freeform_tasks.py`: freeform task builder + offset/block mapping
-- `cookimport/labelstudio/canonical.py`: canonical derived span rules
-- `cookimport/labelstudio/eval_canonical.py`: canonical metrics/report
+- `cookimport/labelstudio/prelabel.py`: optional Codex-CLI prelabel integration
 - `cookimport/labelstudio/eval_freeform.py`: freeform metrics/report
-- `cookimport/labelstudio/label_config*.py`: Label Studio XML configs
+- `cookimport/labelstudio/label_config_freeform.py`: freeform Label Studio XML config + label normalization
 
 CLI surfaces:
 
@@ -586,13 +548,11 @@ CLI surfaces:
 
 Tests:
 
-- `tests/test_labelstudio_canonical.py`
-- `tests/test_labelstudio_freeform.py`
-- `tests/test_labelstudio_export.py`
-- `tests/test_labelstudio_import_naming.py`
-- `tests/test_labelstudio_benchmark_helpers.py`
-- `tests/test_labelstudio_ingest_parallel.py`
-- `tests/test_labelstudio_chunking.py`
+- `tests/labelstudio/test_labelstudio_freeform.py`
+- `tests/labelstudio/test_labelstudio_export.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+- `tests/labelstudio/test_labelstudio_ingest_parallel.py`
+- `tests/staging/test_run_manifest_parity.py`
 
 ## 4) Practical Runbook
 
@@ -603,29 +563,8 @@ Tests:
 
 ### 4.2 Import examples
 
-Pipeline:
-
 ```bash
 cookimport labelstudio-import data/input/book.epub \
-  --task-scope pipeline \
-  --chunk-level both \
-  --allow-labelstudio-write
-```
-
-Canonical:
-
-```bash
-cookimport labelstudio-import data/input/book.epub \
-  --task-scope canonical-blocks \
-  --context-window 1 \
-  --allow-labelstudio-write
-```
-
-Freeform:
-
-```bash
-cookimport labelstudio-import data/input/book.epub \
-  --task-scope freeform-spans \
   --segment-blocks 40 \
   --segment-overlap 5 \
   --segment-focus-blocks 28 \
@@ -636,22 +575,13 @@ cookimport labelstudio-import data/input/book.epub \
 ### 4.3 Export examples
 
 ```bash
-cookimport labelstudio-export --project-name "Project" --export-scope pipeline
-cookimport labelstudio-export --project-name "Project" --export-scope canonical-blocks
-cookimport labelstudio-export --project-name "Project" --export-scope freeform-spans
+cookimport labelstudio-export --project-name "Project"
 ```
 
 ### 4.4 Eval examples
 
 ```bash
-cookimport labelstudio-eval canonical-blocks \
-  --pred-run data/golden/sent-to-labelstudio/<ts>/labelstudio/<book_slug> \
-  --gold-spans data/golden/pulled-from-labelstudio/<...>/exports/canonical_gold_spans.jsonl \
-  --output-dir data/golden/<...>/eval-canonical
-```
-
-```bash
-cookimport labelstudio-eval freeform-spans \
+cookimport labelstudio-eval \
   --pred-run data/golden/sent-to-labelstudio/<ts>/labelstudio/<book_slug> \
   --gold-spans data/golden/pulled-from-labelstudio/<...>/exports/freeform_span_labels.jsonl \
   --output-dir data/golden/<...>/eval-freeform \
@@ -683,8 +613,8 @@ Optional tuning:
 
 ## 5) Design Decisions Worth Preserving
 
-- Keep three workflows as separate project contracts (pipeline/canonical/freeform), not one overloaded project.
-- Keep deterministic URN-based task identifiers per scope.
+- Keep one explicit workflow contract: freeform spans (`freeform-spans`).
+- Keep deterministic URN-based task identifiers (`segment_id`, `span_id`).
 - Keep freeform offsets tied to exact uploaded text and source map.
 - Keep benchmark artifacts co-located with eval outputs for reproducibility.
 - Keep write consent explicit to avoid accidental Label Studio side effects.
@@ -692,7 +622,7 @@ Optional tuning:
 
 ## 6) What To Check First When Things Break
 
-1. Is `task_scope`/`export_scope`/`eval scope` aligned for the same project/run?
+1. Is this project/run a freeform (`freeform-spans`) workflow and not a legacy scope?
 2. Did upload actually happen (write consent on, not cancelled)?
 3. Are you looking under `data/golden` (not only `data/output`)?
 4. Did source identity mismatch collapse freeform overlap? Try `--force-source-match`.
@@ -701,8 +631,8 @@ Optional tuning:
 
 ## 7) Open Gaps / Future Work
 
-- Add stronger live-manual validation transcripts for each scope after config changes.
-- If PDF page box workflow is revived, treat as a separate task scope and keep this doc explicit about status.
+- Add stronger live-manual validation transcripts for freeform import/export/eval after config changes.
+- If a new workflow scope is introduced later, document it as a separate contract and keep migration rules explicit.
 
 ## 8) Merged Understandings Addendum (2026-02-20 to 2026-02-22)
 
@@ -756,7 +686,7 @@ Optional tuning:
 
 Durable contracts from the initial AI-labeling rollout:
 
-- `labelstudio-import --task-scope freeform-spans --prelabel` can generate AI labels and upload them as completed annotations.
+- `labelstudio-import --prelabel` can generate AI labels and upload them as completed annotations.
 - Inline annotation upload remains best-effort; if rejected by Label Studio, fallback path uploads tasks first and creates annotations after import.
 - Note: `labelstudio-decorate` was removed from runtime on 2026-02-22.
 
@@ -1126,7 +1056,7 @@ Current contract:
 
 ### 13.2 Freeform prelabel baseline preserved from 2026-02-20
 
-- The canonical workflow remains `labelstudio-import --task-scope freeform-spans --prelabel` with completed `annotations` as default and `predictions` only as an advanced/debug mode.
+- The canonical workflow remains `labelstudio-import --prelabel` with completed `annotations` as default and `predictions` only as an advanced/debug mode.
 - Inline-annotation rejection remains a known Label Studio compatibility case; the fallback contract stays: import tasks first, then create per-task annotations by deterministic `segment_id` mapping.
 - Offset safety remains strict: span offsets are always derived against the exact uploaded `segment_text` and validated against substring/text integrity.
 - Run audit artifacts from this batch remain required: `prelabel_report.json` and `prelabel_errors.jsonl`.
@@ -1153,7 +1083,7 @@ Merged source:
 - `docs/understandings/2026-02-23_15.55.42-golden-recipe-header-count-flow.md`
 
 Durable freeform export/eval contract:
-- `labelstudio-export --export-scope freeform-spans` persists recipe-header counts in `exports/summary.json` under:
+- `labelstudio-export` persists recipe-header counts in `exports/summary.json` under:
   - `counts.recipe_headers`,
   - `recipe_counts.recipe_headers` (deduped),
   - `recipe_counts.recipe_headers_raw` (raw).

@@ -50,7 +50,7 @@ Architecture priorities:
 ### Optional Label Studio lane
 - `cookimport/labelstudio/ingest.py` can:
   - run conversion (including split jobs for PDF/EPUB)
-  - generate tasks for `pipeline`, `canonical-blocks`, or `freeform-spans`
+  - generate tasks for `freeform-spans` (segment-based freeform labeling tasks)
   - write run artifacts (`manifest.json`, tasks JSONL, coverage, extracted archive/text)
   - upload tasks when write consent is explicit
   - perform merge-time block-index rebasing across split jobs

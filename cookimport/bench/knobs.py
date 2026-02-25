@@ -46,7 +46,7 @@ KNOB_REGISTRY: list[Tunable] = [
         name="epub_extractor",
         kind="str",
         default="unstructured",
-        choices=("unstructured", "legacy", "markdown", "markitdown"),
+        choices=("unstructured", "beautifulsoup", "markdown", "markitdown"),
         description="EPUB extractor backend used during prediction-run generation.",
     ),
 ]

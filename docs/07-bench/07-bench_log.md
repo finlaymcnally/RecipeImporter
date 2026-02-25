@@ -792,3 +792,93 @@ Known remaining gap recorded by original task:
 
 Anti-loop note for this merge batch:
 - If throughput looks low while pending work remains, debug in this order: scheduler phase telemetry and inflight/tail-headroom resolution, then active-config/spinner forwarding, then source-level parallel cap and refresh batching. Avoid jumping first to split-lock internals unless those signals implicate lock contention directly.
+
+## 2026-02-25 understanding merge batch (stage-vs-benchmark map + stage-block artifact contract)
+
+### 2026-02-25_17.25.05 stage vs benchmark artifact-surface clarification
+
+Merged source:
+- `docs/understandings/stage-vs-benchmark-pipeline.md`
+
+Problem captured:
+- Repeated confusion about whether benchmark runs are equivalent to stage/import runs and whether menu `5)` outputs can be used for downstream cookbook import.
+
+Decision/outcome preserved:
+- Stage and benchmark share conversion + stage writers; benchmark is not a separate importer engine.
+- Benchmark runs remain artifact-surface different by design (pred/eval roots under `data/golden/benchmark/...`).
+- Processed stage outputs produced during benchmark remain valid cookbook-import artifacts.
+
+Anti-loop note:
+- Debug pipeline differences from shared conversion/stage code first, then inspect artifact-surface divergence.
+
+### 2026-02-25_17.26.24 stage-block evidence required in prediction-run roots
+
+Merged source:
+- `docs/understandings/2026-02-25_17.26.24-stage-block-benchmark-prediction-artifacts.md`
+
+Problem captured:
+- Older helper fixtures with only `label_studio_tasks.jsonl` started failing once benchmark scoring moved to stage-block evidence.
+
+Decision/outcome preserved:
+- `labelstudio-benchmark` and `bench run` require `stage_block_predictions.json` + `extracted_archive.json` in pred-run roots.
+- Generation path remains:
+  - stage writer emits `.bench/<workbook_slug>/stage_block_predictions.json`,
+  - pred-run builder copies that into root `stage_block_predictions.json`.
+
+Anti-loop note:
+- Missing required pred-run artifacts is a fixture/build contract break, not an eval-math regression.
+
+### 2026-02-25_17.27.08 historical per-label zeros on legacy pipeline-task scoring
+
+Merged source:
+- `docs/understandings/2026-02-25_03.41.19-per-label-zeros-notes-yield-time-variant.md`
+
+Problem captured:
+- Historical reports showed zero precision/recall and `pred_total=0` for notes/variants/time/yield labels even when staged exports looked semantically correct.
+
+Preserved explanation:
+- Legacy pipeline-task span scoring depended on available chunk types/ranges and did not directly score staged draft semantic fields.
+- Missing chunk classes for those labels caused the per-label zeros in that older surface.
+
+Current contract clarification:
+- Stage-block scoring is now the active benchmark contract and removes that specific `pred_total=0 because chunk type missing` failure mode.
+
+Anti-loop note:
+- When triaging old benchmark artifacts, verify scorer generation/version before reworking current extractor/stager logic.
+
+## 2026-02-25_17.26.21 docs/tasks bench-refactor archival merge
+
+Merged source:
+- `docs/tasks/bench-refactor.md`
+
+Problem captured:
+- Benchmark could report near-zero or `pred_total=0` for labels like notes/time/yield/variant even when staged outputs contained those fields, because prediction surface was pipeline-task artifacts rather than staged export evidence.
+
+Major decisions preserved:
+- Canonical prediction surface is staged evidence (`.bench/.../stage_block_predictions.json` copied into pred-run roots), not Label Studio pipeline tasks.
+- Scoring model is block-level classification with exhaustive gold requirements, not span IoU.
+- Knowledge scoring should read stage knowledge artifacts, not recipe-local metadata.
+- Keep compatibility alias mismatch files while migrating tooling to block-native artifacts.
+- Preserve dashboard/CSV continuity by mapping new block metrics into existing strict/practical columns plus explicit new metrics.
+
+Surprises/discoveries preserved:
+- Pred-run roots must contain both `stage_block_predictions.json` and `extracted_archive.json`; legacy fixtures with only `label_studio_tasks.jsonl` fail immediately.
+- Gold loading needed explicit conflict/missing-label enforcement to avoid silent metric inflation.
+- Variant/time/yield correctness depends on provenance projection from stage outputs; pipeline chunk types were insufficient for those classes.
+
+What shipped:
+- Stage evidence writer: `cookimport/staging/stage_block_predictions.py`.
+- Block evaluator: `cookimport/bench/eval_stage_blocks.py`.
+- CLI wiring updates for `labelstudio-benchmark`, `bench run`, and `bench eval-stage`.
+- Eval artifacts/metrics updated to include:
+  - `overall_block_accuracy`
+  - `macro_f1_excluding_other`
+  - `worst_label_recall`
+
+Task-recorded remaining gaps:
+- Full legacy scope removal (`pipeline`, `canonical-blocks`) flagged as pending outside benchmark scorer migration.
+- One real golden-set end-to-end acceptance run was still pending in that task snapshot.
+
+Anti-loop notes:
+- If benchmark fails on missing stage-block files, fix artifact generation/fixtures before changing evaluator math.
+- Do not reintroduce span-IoU as primary truth for this benchmark contract; use block evidence first.

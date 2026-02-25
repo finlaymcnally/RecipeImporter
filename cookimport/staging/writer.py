@@ -25,6 +25,7 @@ from cookimport.parsing.tables import ExtractedTable
 from cookimport.parsing.sections import extract_ingredient_sections, extract_instruction_sections
 from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
 from cookimport.staging.jsonld import recipe_candidate_to_jsonld
+from cookimport.staging.stage_block_predictions import build_stage_block_predictions
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -36,6 +37,7 @@ _OUTPUT_CATEGORY_CHUNKS = "chunks"
 _OUTPUT_CATEGORY_TABLES = "tables"
 _OUTPUT_CATEGORY_RAW = "rawArtifacts"
 _OUTPUT_CATEGORY_SECTIONS = "sections"
+_OUTPUT_CATEGORY_BENCH = "benchArtifacts"
 
 
 @dataclass
@@ -940,6 +942,36 @@ def write_table_outputs(
         output_stats=output_stats,
         category=_OUTPUT_CATEGORY_TABLES,
     )
+
+
+def write_stage_block_predictions(
+    *,
+    results: ConversionResult,
+    run_root: Path,
+    workbook_slug: str,
+    source_file: str | None = None,
+    source_hash: str | None = None,
+    archive_blocks: list[dict[str, Any]] | None = None,
+    knowledge_snippets_path: Path | None = None,
+    output_stats: OutputStats | None = None,
+) -> Path:
+    """Write deterministic block-level stage predictions for benchmark scoring."""
+    payload = build_stage_block_predictions(
+        results,
+        workbook_slug,
+        source_file=source_file,
+        source_hash=source_hash,
+        archive_blocks=archive_blocks,
+        knowledge_snippets_path=knowledge_snippets_path,
+    )
+    out_path = run_root / ".bench" / workbook_slug / "stage_block_predictions.json"
+    _write_json_payload(
+        payload,
+        out_path,
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_BENCH,
+    )
+    return out_path
 
 
 def _format_chunks_md(chunks: list[KnowledgeChunk]) -> list[str]:

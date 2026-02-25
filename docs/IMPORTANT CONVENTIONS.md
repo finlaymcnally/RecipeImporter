@@ -1,270 +1,35 @@
 ---
-summary: "Cross-cutting project conventions and hidden rules that must stay aligned with implementation."
+summary: "Cross-cutting convention index pointing to code-adjacent convention docs."
 read_when:
-  - "When changing cross-cutting CLI/data/docs contracts"
-  - "When adding new architectural rules discovered during implementation"
+  - "When looking for hidden rules; start here to find the code-local convention file"
+  - "When adding a new convention and deciding where it should live"
 ---
 
 # Important Conventions
 
-## Documentation IA
+Most durable conventions now live next to the code they govern.
+This file is now an index, not a long rule dump.
 
-`docs/` subfolders are intentionally prefixed with two-digit numbers to express rough onboarding/implementation order.
+## Code-Adjacent Convention Files
 
-Current order:
-1. `docs/01-architecture`
-2. `docs/02-cli`
-3. `docs/03-ingestion`
-4. `docs/04-parsing`
-5. `docs/05-staging`
-6. `docs/06-label-studio`
-7. `docs/07-bench`
-8. `docs/08-analytics`
-9. `docs/09-tagging`
-10. `docs/10-llm`
-11. `docs/11-reference`
-12. `docs/plans`
-13. `docs/tasks`
-14. `docs/understandings`
+- `cookimport/CONVENTIONS.md` — CLI discovery/runtime behavior and dependency-resolution notes.
+- `cookimport/config/CONVENTIONS.md` — Run-settings source-of-truth and propagation contracts.
+- `cookimport/labelstudio/CONVENTIONS.md` — Label Studio prelabel/task/export contracts.
+- `cookimport/staging/CONVENTIONS.md` — Stage report and section-artifact output contracts.
+- `cookimport/plugins/CONVENTIONS.md` — Ingestion split/merge and extractor contracts.
+- `cookimport/bench/CONVENTIONS.md` — Benchmark scoring/orchestration contracts.
+- `cookimport/analytics/CONVENTIONS.md` — Analytics/dashboard caveats and history contracts.
+- `tests/CONVENTIONS.md` — Test modularity and low-noise pytest contracts.
 
-When adding new top-level docs sections, use the same `NN-name` convention and update `docs/README.md`.
+## Recent Cross-Cutting Update
 
-## Test Modularity Rule
+- Benchmark scoring now uses stage block evidence manifests (`.bench/<workbook_slug>/stage_block_predictions.json`) rather than pipeline chunk span overlap. See `cookimport/bench/CONVENTIONS.md` and `cookimport/staging/CONVENTIONS.md`.
+- Label Studio import/export/eval are freeform-only (`freeform-spans`); legacy `pipeline` and `canonical-blocks` scopes are rejected in current workflows. See `cookimport/CONVENTIONS.md` and `cookimport/labelstudio/CONVENTIONS.md`.
 
-- `pytest.ini` is the source of truth for low-noise defaults (`-q`, no traceback/capture/summary, plain asserts, strict markers).
-- With pytest 9.x, `-q` alone still emits per-test progress rows; keep `console_output_style = classic` in `pytest.ini` and keep `pytest_report_teststatus(...)` in `tests/conftest.py` suppressing pass/skip glyphs to avoid dot-flood output.
-- Keep `tests/conftest.py:pytest_configure(...)` enforcing compact mode (`no_header`, `no_summary`, warnings suppressed, `-v/-vv` clamped) so manual `-o addopts=''` invocations do not reintroduce noisy separator floods; opt out only with `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`.
-- Domain markers are assigned centrally in `tests/conftest.py`; keep per-file marker mapping there so targeted runs stay stable.
-- `tests/test_*.py` files are grouped under domain folders (`tests/analytics`, `tests/bench`, `tests/cli`, `tests/core`, `tests/ingestion`, `tests/labelstudio`, `tests/llm`, `tests/parsing`, `tests/staging`, `tests/tagging`).
-- Path-sensitive tests should resolve shared roots via `tests/paths.py` (fixtures/tagging gold/docs examples) instead of `Path(__file__).parent`.
-- Keep expensive files in the shared `slow` set and a tiny sanity slice in `smoke` for low-token checks.
-- Failed runs should print `docs/*_log.md` hints from `tests/conftest.py` so debugging details live in docs, not noisy test output.
+## Adding New Conventions
 
-## CLI Discovery Rule
+When you discover a new durable rule:
 
-Interactive file discovery and direct staging intentionally differ:
-
-- Interactive menu discovery (`cookimport` with no subcommand) scans only top-level files in `data/input`.
-- Direct staging (`cookimport stage <folder>`) scans recursively under the folder.
-- Interactive `labelstudio` import always recreates the resolved Label Studio project (`overwrite=True`, `resume=False`) and does not prompt for resume mode.
-- Interactive `labelstudio` import no longer asks for upload confirmation; once scope/options are chosen, it proceeds directly to upload (after credential resolution).
-- Interactive freeform `labelstudio` import prompts for AI prelabel mode (`off`, `strict`, `allow-partial`, plus advanced predictions modes) during the same prompt flow, then prompts for labeling style (`actual freeform` span mode vs `legacy, block based` mode); do not require leaving interactive mode for first-pass AI annotations.
-- Interactive freeform `labelstudio` prelabel flow includes explicit Codex model selection followed by model-compatible thinking effort selection (`none|low|medium|high|xhigh` and filtered by selected model metadata); `minimal` must stay hidden for this workflow due Codex tool compatibility failures. Token-usage tracking is always enabled and should not be a prompt.
-- Interactive and non-interactive `labelstudio` import must use the same status/progress callback wiring so long-running phases (especially AI prelabeling) show a live spinner/status update path.
-- `labelstudio` resume semantics apply only when the target Label Studio project already exists; if a run creates a new project, do not reuse local manifest task IDs from older runs.
-- Spinner/progress text for known-size worklists should include `<noun> X/Y` counters (for example `task`, `item`, `config`, `phase`) rather than phase-only text so operators can track throughput.
-- Callback-driven CLI spinners (`labelstudio` import, benchmark import, bench run/sweep) should append elapsed seconds after prolonged unchanged phases (default threshold: 10s) so users can see that work is still running when a phase message is stale. When status text includes `<noun> X/Y`, the same spinner path should estimate ETA as average seconds-per-unit times remaining units. When worker telemetry is emitted, render per-worker activity lines under the main spinner status.
-- Progress callback plumbing is telemetry-only: exceptions raised by UI/status callbacks must be logged and ignored (never allowed to abort extraction, task generation, or upload flows).
-- Interactive `labelstudio` export resolves credentials first, then lists project titles from Label Studio for selection, with manual entry fallback when discovery is unavailable. If the selected project has a detected task type, export uses that scope automatically and skips the separate scope prompt.
-- Golden workflow roots are split by purpose:
-  - Label Studio task-generation/import artifacts: `data/golden/sent-to-labelstudio/<timestamp>/...`
-  - Label Studio export artifacts: `data/golden/pulled-from-labelstudio/<project_slug>/exports/...`
-  - Benchmark/eval artifacts: `data/golden/benchmark-vs-golden/<timestamp>/...`
-- Label Studio export (interactive and non-interactive) writes to a stable project root by default: `data/golden/pulled-from-labelstudio/<project_slug>/exports/...`; it uses prior manifests for project/scope resolution, not for export destination. `--run-dir` still forces export into a specific run.
-- Interactive main menu is persistent: successful `import`, `labelstudio`, `labelstudio_export`, and `labelstudio_benchmark` actions all return to the main menu. The session exits only when the user selects `Exit`.
-- Interactive select menus should be wired through `_menu_select` so numbering, shortcuts, and Esc-go-back behavior remain consistent.
-- Interactive typed prompts in CLI flows should use `_prompt_text`, `_prompt_confirm`, or `_prompt_password` so `Esc` consistently maps to one-level back/cancel behavior.
-- Questionary `text/password/confirm` prompts expose merged key bindings (`_MergedKeyBindings`) at runtime; `Esc` overrides must be attached via `merge_key_bindings(...)` (not `.add(...)` on `application.key_bindings`).
-- Freeform interactive segment sizing (`segment_blocks`, `segment_overlap`, `segment_focus_blocks`, `target_task_count`) should route through `_prompt_freeform_segment_settings(...)` so `Esc` walks back one field instead of dropping to main menu.
-- Interactive Import and interactive benchmark single-offline mode go through a per-run settings chooser (`global defaults`, `last run settings`, `change run settings`) before execution.
-- Interactive benchmark (`labelstudio_benchmark`) now has a mode submenu:
-  - single offline mode (default first choice): one local evaluate run with `no_upload=True` (no Label Studio credential resolution, no upload),
-  - all-method mode: offline permutation sweep (no Label Studio credential resolution, no upload).
-- Interactive benchmark asks for mode first; only single-offline mode shows the benchmark run-settings chooser.
-- Interactive all-method benchmark must use global benchmark defaults directly, and should not overwrite `last_run_settings_benchmark` snapshots.
-- Interactive all-method benchmark must ask scope (`Single golden set` vs `All golden sets with matching input files`), print planned run counts before execution, default Codex Farm inclusion prompt to `No`, and require explicit proceed confirmation before running N configs.
-- Interactive all-method benchmark scheduler defaults are bounded (`inflight pipelines=4`, `split-phase slots=4`), and scheduler controls are configurable via `cookimport.json` keys:
-  - `all_method_max_parallel_sources`
-  - `all_method_max_inflight_pipelines`
-  - `all_method_max_split_phase_slots`
-  - `all_method_wing_backlog_target`
-  - `all_method_smart_scheduler`
-  - `all_method_config_timeout_seconds`
-  - `all_method_retry_failed_configs`
-- Interactive all-method benchmark should print resolved scheduler mode/limits before final confirmation, including source parallelism configured/effective, configured/effective inflight, split slots, wing backlog target, smart tail buffer, timeout, and retry settings.
-- Interactive all-method benchmark should render one persistent spinner dashboard (book queue + overall source/config counters + current task) and suppress per-config `labelstudio-benchmark` completion dumps while the sweep is running.
-- Interactive all-method spinner/dashboard task output should include a scheduler snapshot line: `scheduler heavy X/Y | wing Z | active A | pending P`.
-- All-method spinner `current config` should track active config slots in parallel mode; when multiple configs are active, render a range (`current configs A-B/N`) instead of a stale last-submitted slug.
-- All-matched all-method spinner queue should support multiple simultaneously running sources (`[>]` rows), with summary line `active sources: N`.
-- All-method dashboard snapshots (`overall source ... | config ...` + `queue:`) are already fully-rendered spinner payloads; upstream wrappers must not nest them into `task:` text. When an inbound snapshot is stale/partial, wrappers should rerender from shared dashboard state before emitting.
-- Split-slot acquire/wait/release telemetry in all-method worker configs should stay callback-driven; subprocess configs must not emit raw stdout `print(...)` slot lines while the outer spinner is active.
-- For multi-line spinner payloads (all-method dashboard snapshots), ETA/elapsed suffix decoration belongs on the first summary line, not the trailing `task:` line.
-- All-method scheduler phase telemetry should be persisted per config under `<source_root>/.scheduler_events/config_###.jsonl` so parent scheduling and post-run metrics can infer `prep`, `split_wait`, `split_active`, and `post` occupancy.
-- All-matched all-method source hint order is: run `manifest.json` `source_file` -> first non-empty `freeform_span_labels.jsonl` row `source_file` -> first non-empty `freeform_segment_manifest.jsonl` row `source_file`.
-- All-matched all-method runs must persist one combined summary report at `<benchmark_eval_output>/all-method-benchmark/all_method_benchmark_multi_source_report.{json,md}` in addition to per-source reports.
-- Freeform benchmark/reporting contract now exposes two metric tracks everywhere (eval JSON/MD, bench reports, CSV history, dashboard): Practical/content-overlap (`practical_*`) and Strict/localization IoU (`precision/recall/f1`), with strict semantics unchanged.
-- Benchmark upload should pass `auto_project_name_on_scope_mismatch=True` into `run_labelstudio_import(...)` so auto-named benchmark projects recover by suffixing project titles instead of failing on prior freeform/canonical scope collisions.
-- Typer command functions that are called directly from Python (interactive helpers/tests) must keep runtime defaults as plain Python values, typically via `Annotated[..., typer.Option(...)] = <default>`; avoid relying on `param: T = typer.Option(...)` defaults in those call paths.
-- If a command still uses `param: T = typer.Option(...)` defaults (legacy signatures), unwrap `OptionInfo` values to plain defaults at function entry before validation/normalization.
-- Interactive `generate_dashboard` asks whether to open the dashboard in a browser, then runs `stats_dashboard(output_root=<settings.output_dir>, out_dir=<output_root_parent>/.history/dashboard)` and returns to the main menu.
-- Interactive `epub_race` is a main-menu action shown only when top-level `data/input` includes at least one `.epub`; it prompts for output/candidates (default output root: `data/output/EPUBextractorRace/<book_stem>`), then runs `cookimport epub race` behavior and returns to the menu.
-- EPUB debug tooling lives under `cookimport epub ...` (sub-CLI module `cookimport/epubdebug`), and block/candidate debug commands must reuse production EPUB importer internals (`_extract_docpack`, `_detect_candidates`) to preserve stage/debug parity.
-
-When debugging "file missing from menu" reports, check whether the file is nested inside `data/input`.
-
-## Run Settings Source of Truth
-
-- `cookimport/config/run_settings.py` is the canonical definition of per-run knobs (`RunSettings`), UI metadata, summary rendering, and stable hash generation.
-- When a run-setting value changes split capability (for example `epub_extractor=markitdown`), update both split planners (`cookimport/cli.py:_plan_jobs`, `cookimport/labelstudio/ingest.py:_plan_parallel_convert_jobs`) and `compute_effective_workers(...)` together.
-- EPUB unstructured tuning knobs (`epub_unstructured_html_parser_version`, `epub_unstructured_skip_headers_footers`, `epub_unstructured_preprocess_mode`) are part of canonical run settings and must propagate in both stage and benchmark prediction paths; do not wire them only in one flow.
-- EPUB extractor auto mode is removed from stage/prediction flows; accepted choices are explicit only: `unstructured`, `legacy`, `markdown`, `markitdown`.
-- Stored run-settings migration must coerce legacy `epub_extractor=auto` payloads to `unstructured` with a warning so older snapshots stay loadable.
-- Run-config persistence still includes both `epub_extractor_requested` and `epub_extractor_effective`; in current explicit-choice mode they should match for new runs.
-- Runtime env overrides for EPUB extraction options in prediction/stage helper flows must be scoped and restored after conversion; do not leak `C3IMP_EPUB_*` values across runs/tests.
-- `stage(...)` should pass per-file effective extractor choices explicitly to workers (`stage_one_file` / `stage_epub_job`) instead of depending on persistent process-wide `C3IMP_EPUB_EXTRACTOR`.
-- `cookimport/cli_ui/run_settings_flow.py` and `cookimport/cli_ui/toggle_editor.py` must derive editor rows/options from `RunSettings` metadata; do not maintain a separate hard-coded field list.
-- `cookimport/cli_ui/toggle_editor.py` must keep the selected row in view for long lists (cursor-tracked viewport scrolling), so benchmark/LLM-heavy settings menus remain navigable in small terminals.
-- Last-run snapshots are stored in `<output_dir_parent>/.history/last_run_settings_{import|benchmark}.json` via `cookimport/config/last_run_store.py` (legacy `<output_dir>/.history/...` is read-only fallback for migration).
-- Schema evolution contract for stored run settings: missing keys default, unknown keys are ignored (warn once), and corrupt payloads degrade to `None` (treated as no saved run settings).
-- codex-farm knobs (`llm_recipe_pipeline`, `llm_knowledge_pipeline`, `llm_tags_pipeline`, `codex_farm_cmd`, `codex_farm_root`, `codex_farm_workspace_root`, `codex_farm_pipeline_pass1`, `codex_farm_pipeline_pass2`, `codex_farm_pipeline_pass3`, `codex_farm_pipeline_pass4_knowledge`, `codex_farm_pipeline_pass5_tags`, `codex_farm_context_blocks`, `codex_farm_knowledge_context_blocks`, `tag_catalog_json`, `codex_farm_failure_mode`) must be wired through stage and benchmark prediction-generation paths, and persisted in run-config surfaces (manifest/report/history).
-- `table_extraction` is a run setting (`off|on`) that gates deterministic table detection/export (`tables/<workbook>/tables.jsonl` + `tables.md`), table-aware chunking, and optional pass4 `chunk.blocks[*].table_hint` enrichment; keep these surfaces in sync when changing table behavior.
-- Chunk-consolidation contract: table chunks (`provenance.table_ids` present) must never merge with non-table chunks (or other table chunks) in either `merge_small_chunks` or adjacent-topic consolidation. Debug/rollback knob for consolidation remains `COOKIMPORT_CONSOLIDATE_ADJACENT_KNOWLEDGE_CHUNKS=0`.
-- `llm_recipe_pipeline` is policy-locked to `off` (recipe codex-farm parsing correction is TURNED OFF and must remain TURNED OFF until benchmark quality materially improves); CLI/pred-run input normalization should reject non-`off` values with an explicit policy message.
-- Run-settings migration contract: if stored/global settings contain legacy non-`off` `llm_recipe_pipeline` values, coerce them back to `off` with a warning so old configs cannot silently re-enable recipe codex-farm correction.
-- codex-farm orchestration should pass explicit `--root`/`--workspace-root` when those run settings are provided, and `llm_manifest.json` should record the effective pass pipeline ids.
-- pass5 tags artifacts are stage-run scoped and should stay in:
-  - `tags/<workbook_slug>/r{index}.tags.json`
-  - `tags/<workbook_slug>/tagging_report.json`
-  - `tags/tags_index.json`
-  - `raw/llm/<workbook_slug>/pass5_tags/{in,out}/*.json` + `raw/llm/<workbook_slug>/pass5_tags_manifest.json`
-- Default local codex-farm recipe pass prompts live in `llm_pipelines/prompts/recipe.{chunking,schemaorg,final}.v1.prompt.md`; text-only tuning should happen there without touching orchestration code.
-- For local codex-farm packs, pipeline JSON `prompt_template_path` / `output_schema_path` entries are the source of truth; avoid keeping duplicate filename schemes in `llm_pipelines/prompts/` that are not referenced by those pipeline specs.
-- New processing-option contract (do all, or the feature is incomplete):
-  - add option to `RunSettings` + interactive selectors,
-  - pass it through both run-producing command paths (`stage` and benchmark prediction generation),
-  - persist it in report/manifest + history CSV run-config fields,
-  - expose it in dashboard collector/renderer surfaces.
-- Pipeline option edit-map references:
-  - `cookimport/config/run_settings.py`
-  - `cookimport/cli.py`
-  - `cookimport/labelstudio/ingest.py`
-  - `cookimport/core/models.py`
-  - `cookimport/analytics/perf_report.py`
-  - `cookimport/analytics/dashboard_collect.py`
-  - `cookimport/analytics/dashboard_render.py`
-
-## Label Studio Prelabel Rule
-
-- Freeform prelabeling must derive final span offsets from task-local `segment_text` + `data.source_map.blocks[*].segment_start/end`; `block` mode uses block bounds directly and `span` mode resolves quotes against block text (with strict validation for optional absolute `start`/`end` fallbacks).
-- Freeform prelabel flows must preserve `data.segment_text` exactly (no whitespace normalization) so exported offsets remain stable.
-- Freeform Label Studio payload contract: `data.segment_text` + `data.source_map.blocks` are focus-only labelable rows; adjacent context for AI prompting must be carried in `data.source_map.context_before_blocks` / `data.source_map.context_after_blocks` so UI text stays dedupe-friendly while prompts keep boundary context.
-- Prompt text for freeform prelabel lives in `llm_pipelines/prompts/freeform-prelabel-full.prompt.md`; iterate prompt wording there and keep required placeholder tokens (`{{SEGMENT_ID}}`, `{{BLOCKS_JSON_LINES}}`, etc.) intact.
-- Freeform prelabel granularity contract: `block` mode is legacy, block based full-block spans; `span` mode is actual freeform quote-anchored spans (`block_index` + `quote` + optional `occurrence`) with optional validated absolute fallback (`start`/`end`).
-- Freeform context-vs-focus contract: `segment_blocks` controls context visibility, `segment_focus_blocks` controls which blocks may receive labels, focus windows should be centered inside each segment when possible (so context appears before and after), and prelabel runtime must enforce focus filtering parser-side (including absolute spans that cross non-focus blocks).
-- Freeform target-task contract: when `target_task_count` is provided, resolve and persist both `segment_overlap_requested` and `segment_overlap_effective` in manifests; `segment_overlap` should reflect the effective runtime overlap.
-- Freeform prelabel overlap floor: effective overlap must satisfy `segment_overlap_effective >= segment_blocks - segment_focus_blocks` so focus windows remain contiguous across tasks and do not leave uncovered block gaps.
-- Freeform prelabel concurrency contract: task-level provider calls are bounded by `prelabel_workers` (default `15`), progress should still report `task X/Y` completions (parallel status should keep `(workers=N)` visible), and prompt logs/reports must remain deterministic per task id.
-- Freeform prelabel rate-limit contract: if any provider call reports `HTTP 429`/rate-limit text, set a shared stop signal immediately, stop issuing new provider calls for queued tasks, mark queued tasks as skipped, and emit a visible warning containing `429`.
-- Freeform prelabel timeout default is `300` seconds per provider call unless overridden by `--prelabel-timeout-seconds`.
-- Label Studio import CLI must print an explicit red completion summary (`PRELABEL ERRORS: X/Y ...`) plus `prelabel_errors.jsonl` path whenever prelabel failures occur, including allow-partial runs.
-- Prompt text for actual freeform mode lives in `llm_pipelines/prompts/freeform-prelabel-span.prompt.md`; keep placeholder tokens intact.
-- Actual freeform (`span`) prompts should provide block text once via `{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}` (legacy alias `{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}` still supported) with explicit context-before/context-after markers plus `<<<START_LABELING_BLOCKS_HERE>>>` / `<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>` focus boundaries; avoid duplicating focus blocks as a second full text payload list.
-- Actual freeform (`span`) prompts should explicitly discourage whole-block selections for long blocks, treat nearby blocks as context-only (no auto-propagation to adjacent blocks), and include mixed-block split examples (for example yield+time or note+instruction in one block).
-- Freeform canonical label names are `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`; normalize legacy `TIP`/`NOTES`/`VARIANT` labels to those names.
-- Codex prelabel invocations must use non-interactive CLI mode (`codex exec -`); plain `codex` is interactive and fails in pipeline subprocess calls without a TTY.
-- Codex command resolution for prelabel is: explicit `--codex-cmd` -> `COOKIMPORT_CODEX_CMD` -> `codex exec -`.
-- Interactive freeform prelabel should use that resolved command directly (no command chooser prompt) and display the resolved account email when available.
-- Codex model resolution order for prelabel is: explicit `--codex-model` -> `COOKIMPORT_CODEX_MODEL` -> Codex config `model` (`~/.codex/config.toml`, `~/.codex-alt/config.toml`).
-- Codex thinking effort for prelabel resolves from explicit command/CLI override first (`--codex-thinking-effort` / `--codex-reasoning-effort`, mapped to `model_reasoning_effort`), then Codex config `model_reasoning_effort`.
-- Interactive prelabel model choices should be sourced from the selected command's Codex home cache metadata (`models_cache.json`) when available, with custom-id fallback.
-- Prelabel runs should perform one model-access preflight probe before task loops; account/model mismatches should fail once up front with provider detail.
-- Codex JSON `turn.failed` errors must be surfaced as provider failures (not collapsed into generic "no labels produced" parse misses).
-- Token usage accounting for prelabel is always on and should be persisted as aggregate totals in `prelabel_report.json` (including resolved command/account metadata) without changing annotation semantics; capture `reasoning_tokens` when present in Codex usage payloads.
-- Prelabel runs must persist `prelabel_prompt_log.md` in the run root (`data/golden/sent-to-labelstudio/<timestamp>/labelstudio/<book_slug>/`) with one section per prompt containing full prompt text and prompt-context metadata/description for auditing.
-
-## Dependency Resolution Rule
-
-- When checking package availability with `pip index versions`, remember it is stable-only by default; for pre-release-only packages use `--pre` before concluding a dependency is unavailable.
-- For optional debug/tooling dependencies that are pre-release-only (for example `epub-utils==0.1.0a1`), keep them in optional extras and maintain a no-extra fallback path.
-
-## Report Output Convention
-
-- The canonical stage report output path is set by `cookimport/staging/writer.py`:
-  - `<run_root>/<workbook_slug>.excel_import_report.json`
-- `cookimport/core/reporting.py` includes a legacy `ReportBuilder` that writes under `reports/`; treat it as legacy unless explicitly wired into active runtime flows.
-- When updating docs about report locations, verify `stage()` and split-merge paths in `cookimport/cli.py` before documenting.
-- Report metadata fields that must be consistent across normal and split runs (for example `importerName`, `runConfig`, `runConfigHash`, `runConfigSummary`) must be set in both:
-  - `cookimport/cli_worker.py` (single-file writer path)
-  - `cookimport/cli.py:_merge_split_jobs` (split merge writer path)
-
-## Recipe Section Artifact Convention
-
-- Stage-producing flows now write per-recipe section artifacts to:
-  - `sections/<workbook_slug>/r{index}.sections.json`
-  - `sections/<workbook_slug>/sections.md`
-- Keep section artifact writes wired in both:
-  - `cookimport/cli_worker.py` (single-file stage path)
-  - `cookimport/cli.py:_merge_split_jobs` (split merge path)
-  - `cookimport/labelstudio/ingest.py` (pred-run artifact path)
-- Intermediate JSON-LD section contract:
-  - instruction section-header lines are removed from literal step text,
-  - `recipeInstructions` uses `HowToSection` only when multiple sections are present,
-  - ingredient grouping metadata is emitted under `recipeimport:ingredientSections`.
-- Final cookbook3 draft contract remains unchanged (no first-class section objects in final draft JSON).
-
-## Ingestion Split/Merge Rule
-
-- Split PDF/EPUB workers write raw artifacts to `.job_parts/<workbook>/job_<index>/raw`, then the main process merges IDs/outputs and moves raw artifacts into run `raw/`.
-- `epub_extractor=markitdown` is intentionally whole-book only: do not split EPUB by spine ranges for this extractor.
-- `epub_extractor=markdown` is spine-range capable and should stay split-compatible; `markitdown` remains the legacy whole-book markdown path.
-- Unstructured EPUB diagnostics now include both raw and normalized spine XHTML artifacts (`raw_spine_xhtml_*.xhtml`, `norm_spine_xhtml_*.xhtml`) in `raw/epub/<source_hash>/`; keep both when changing EPUB diagnostics.
-- EPUB HTML extractors (`legacy` + `unstructured`) must run through shared `cookimport/parsing/epub_postprocess.py` cleanup before segmentation/signals so BR/table splitting, bullet stripping, and noise filtering remain consistent.
-- EPUB extraction reports should always emit raw artifact `epub_extraction_health.json` plus stable warning keys (`epub_*`) in `ConversionReport.warnings` when thresholds trip.
-- EPUB/PDF standalone knowledge-block analysis should emit `task X/Y` progress updates and uses bounded container-level parallelism controlled by `C3IMP_STANDALONE_ANALYSIS_WORKERS` (default `4`).
-- Unstructured HTML parser `v2` requires `body.Document`/`div.Page`-style inputs; adapter-level compatibility wrapping is required before `partition_html(..., html_parser_version=\"v2\")` on generic EPUB XHTML.
-- `.job_parts` should be removed after successful merge; if it remains, treat it as evidence of merge failure/interruption.
-- Split-merge paths that run codex-farm must rebuild merged `raw/<importer>/<source_hash>/full_text.json` and rebase block indices before pass1 bundle generation.
-- `stage` builds and passes a base `MappingConfig` to workers, so worker conversion typically skips importer `inspect()` unless planning/split metadata requires it.
-- Topic/Tip writer paths may call file-hash resolution many times; when provenance lacks `file_hash`, hashing must be cached by source file metadata to avoid repeated whole-file reads in high-cardinality merge runs.
-- Any payload returned from split workers (especially `ConversionResult.raw_artifacts[*].metadata`) must stay process-pickle-safe primitives; module objects in metadata will fail split benchmark/stage merges with `cannot pickle 'module' object`.
-
-## Benchmark Contract Rule
-
-- Freeform benchmark scoring (`labelstudio-benchmark`, interactive benchmark single-offline/all-method modes, and `bench run`) evaluates prediction task artifacts (`label_studio_tasks.jsonl`) against freeform gold spans (`freeform_span_labels.jsonl`), not staged cookbook outputs; optional processed outputs written during benchmark are review artifacts only.
-- Interactive all-method benchmark must keep processed cookbook outputs under the interactive stage output root (`<settings.output_dir>/<benchmark_timestamp>/all-method-benchmark/<source_slug>/config_*/<prediction_timestamp>/...`, defaulting to `data/output/...`), not under the golden eval root.
-- Interactive all-method all-matched scope should continue after per-source failures, record failed sources in the combined report, and keep successful per-source reports intact.
-- All-matched orchestration should use bounded source-level concurrency (`all_method_max_parallel_sources`) so multiple sources can run concurrently, while report ordering remains deterministic by discovery order.
-- `labelstudio-benchmark` currently generates prediction tasks with `task_scope="pipeline"`; if pipeline chunk locations are recipe-wide (not line-precise), strict freeform IoU (`>=0.5`) can collapse to near-zero even when `classification_only` / any-overlap coverage is high and staged outputs look good.
-- Pipeline chunk predictions currently do not emit chunk types that map to `YIELD_LINE`, `TIME_LINE`, or `RECIPE_VARIANT` (and often not `RECIPE_NOTES` unless `RecipeCandidate.comments` is populated), so per-label metrics for those labels can show `pred_total=0` even when staged exports contain yield/time/notes/variants.
-- Pipeline chunking emits a narrow structural `recipe_title` chunk when a title block can be inferred; freeform eval prefers `recipe_title` for `RECIPE_TITLE` metrics (and treats `recipe_block` as a fallback only when `recipe_title` is absent).
-- Freeform eval dedupes overlapping gold spans by default before scoring using `(source_hash, source_file, start_block_index, end_block_index)` keys. If duplicate groups disagree on label, use majority-vote label resolution; if label counts tie, drop that gold group from scoring and report it in `eval_report.json` `gold_dedupe.conflicts`.
-- Freeform golden recipe count source-of-truth is `exports/summary.json` -> `recipe_counts.recipe_headers`, derived from deduped `RECIPE_TITLE` spans by block range. Benchmark/eval reports should surface this against predicted recipe counts from prediction-run context.
-- Non-interactive `labelstudio-benchmark` supports an explicit offline path via `--no-upload`; this mode must skip Label Studio credential resolution and never call upload APIs.
-- `labelstudio-benchmark` currently mutates process-global `C3IMP_EPUB_*` runtime env vars and all-method per-source config runs append to a shared history CSV path; all-method source-level orchestration should use a bounded thread dispatcher around existing per-source runners, while per-source config execution stays process-based.
-- All-method parallel benchmark execution should use bounded process concurrency: split-heavy conversion is gate-limited via shared split-slot locking (`all_method_max_split_phase_slots`), while inflight submission can auto-expand in smart mode to keep split slots prewarmed (`all_method_wing_backlog_target`) and preserve extra tail headroom for post-stage overlap (`smart_tail_buffer_slots`, equal to split slots).
-- All-method per-source parallel scheduling supports per-config timeout/retry controls (`all_method_config_timeout_seconds`, `all_method_retry_failed_configs`): timeouts should mark configs failed, restart worker pools safely, and optional retries should rerun only failed configs.
-- All-method per-source reports should include a `scheduler` block with heavy-slot capacity/busy/utilization, wing backlog metrics, idle-gap seconds, and resolved scheduler control values; multi-source reports should include a `scheduler_summary` rollup.
-- Benchmark timing telemetry must be persisted end-to-end: prediction `manifest.json` `timing`, benchmark `eval_report.json` `timing`, and benchmark `run_manifest.json` artifacts `timing`.
-- Benchmark CSV timing precedence is: explicit benchmark timing payload first, then `processed_report_path` `timing`, then blanks; when timing exists, populate stage runtime columns (`total/parsing/writing/ocr`) and benchmark-specific runtime columns (`benchmark_*_seconds`).
-- All-method benchmark reports must include timing rollups (`timing_summary`) at both per-source and multi-source levels, plus per-config `timing` for successful config rows.
-- Run-producing flows must emit `run_manifest.json` so source identity (`path` + `source_hash`), effective config, and key artifacts are inspectable without reading code.
-- When codex-farm is enabled for stage/pred-run, report + manifest payloads should expose `llmCodexFarm`/`llm_codex_farm` metadata, and deterministic fallback semantics must be explicit (`codex_farm_failure_mode=fail|fallback`).
-
-## Analytics Caveats
-
-- `perf_report.resolve_run_dir()` must accept both timestamp folder styles (`YYYY-MM-DD_HH.MM.SS` and legacy `YYYY-MM-DD-HH-MM-SS`) and choose the latest parsed run directory.
-- Stage history append must target the actual chosen stage root's history sibling (`<stage --out parent>/.history/performance_history.csv`), not a hard-coded default output folder.
-- Any CLI flow that writes `performance_history.csv` rows should trigger a best-effort dashboard refresh for the same history root; all-method benchmark internals should batch that refresh to once per source in serial-source mode and once at multi-source completion when source parallelism is enabled.
-- CSV append paths in `cookimport/analytics/perf_report.py` (`append_history_csv` and `append_benchmark_csv`) must hold an inter-process file lock through schema-check + header decision + write so parallel benchmark rows cannot corrupt the shared history file.
-- Dashboard `index.html` embeds dashboard JSON inline (in addition to `assets/dashboard_data.json`) so opening via `file://` works even when browser local `fetch()` is blocked.
-- Dashboard timestamp ordering (recent runs/benchmarks and latest benchmark picks) must parse timestamps before sorting because history mixes `YYYY-MM-DDTHH:MM:SS` and `YYYY-MM-DD_HH.MM.SS` formats.
-- Dashboard frontend timestamp parsing should explicitly parse timestamp components for those two canonical formats; avoid relying only on `Date.parse(...)` for local `file://` dashboards.
-- Throughput dashboard should keep two complementary views: run/date history and file-over-time trend; file trend grouping key is `StageRecord.file_name`.
-- Throughput run/date trend should default to p95-clamped rendering with explicit `Raw`/`Log` toggles so outliers do not flatten normal runs.
-- Dashboard table collapse behavior should keep preview rows visible in reduced mode (`Show all` / `Show fewer`), not render zero-row collapsed tables.
-- Benchmark dashboard enrichment should read `manifest.json` and `coverage.json` from either eval root or `prediction-run/`; `labelstudio-benchmark` co-locates prediction artifacts under `prediction-run/`.
-- When combining benchmark rows from JSON + CSV, dedupe by eval artifact directory and merge fields; CSV timestamps can differ from eval-folder timestamps for the same run.
-- Dashboard benchmark collection should ignore pytest temp eval artifact paths (`.../pytest-<n>/test_*/eval`) so local Python test runs do not pollute benchmark history.
-- Dashboard benchmark collector must scan `eval_report.json` recursively under `golden_root` so nested all-method config runs (`.../all-method-benchmark/<source_slug>/config_*/eval_report.json`) appear in dashboard grouping/ranking.
-- Dashboard `Recent Benchmarks` `Gold`/`Matched` columns are freeform span-eval counts (`gold_total`/`gold_matched`), not recipe totals; benchmark `recipes` is stored in CSV when available and can be backfilled from `processed_report_path`.
-- Dashboard metrics contract is CSV-first: every stat shown in `stats-dashboard` must be written to `performance_history.csv`; JSON report scans are fallback/backfill only.
-- Standalone dashboard pages for all-method sweeps must also remain CSV-first: group benchmark rows by `run_dir`/`artifact_dir` paths containing `all-method-benchmark/<source_slug>/config_*` and rank configs from those CSV-backed benchmark metrics.
-- Dashboard should always emit an in-site all-method root page at `data/.history/dashboard/all-method-benchmark/index.html` (empty-state included), with one run-summary page per sweep at `all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html`.
-- All-method run-summary pages must aggregate configuration performance across all per-book jobs in the run folder and keep drilldown links to per-book pages (`all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html`).
-- All-method run-summary/detail pages should expose sticky quick-nav links and collapsible section groups so long metric pages remain scannable without removing metrics.
-- All-method detail pages should keep a compact stats-only summary block and per-metric bar-chart blocks ahead of the full ranked configuration table for quick scanability.
-- Ranked all-method rows should expose explicit dimension fields (`Extractor`, `Parser`, `Skip HF`, `Preprocess`) so users can compare configuration differences without parsing slug strings.
-- Run-config metrics contract is `run_config_hash` + `run_config_summary` + `run_config_json` in CSV. Dashboard UI should display summary/hash first and use JSON/report fallback only when CSV context is incomplete.
-- Benchmark CSV `recipes` should be populated for all benchmark entrypoints (`labelstudio-benchmark`, `labelstudio-eval`, `bench run`) using pred-run manifest `recipe_count` first, then `processed_report_path` fallback.
-- Benchmark CSV should also persist `gold_recipe_headers` from eval `recipe_counts.gold_recipe_headers`; all-method recipes charts must use `% identified` (`recipes / gold_recipe_headers`, clamped to 100%) on fixed 0-100% axes rather than max-relative recipe counts.
-- If historical benchmark rows predate that persistence path, use `cookimport benchmark-csv-backfill` to patch CSV `recipes/report_path/file_name` from benchmark manifests before regenerating the dashboard.
+1. Write it in the nearest code folder (`<folder>/CONVENTIONS.md`) first.
+2. Add that folder-level conventions file if it does not exist yet.
+3. Update this index only if a new conventions file/path should be discoverable here.

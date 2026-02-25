@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import threading
 import time
 from contextlib import contextmanager, nullcontext
@@ -12,6 +13,11 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from cookimport.epub_extractor_names import (
+    EPUB_EXTRACTOR_CANONICAL_SET,
+    epub_extractor_choices_for_help,
+    normalize_epub_extractor_name,
+)
 from cookimport.config.run_settings import (
     RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR,
     RunSettings,
@@ -34,29 +40,14 @@ from cookimport.parsing.chunks import (
 )
 from cookimport.parsing.tables import ExtractedTable, extract_and_annotate_tables
 from cookimport.plugins import registry
-from cookimport.labelstudio.block_tasks import (
-    build_block_tasks,
-    load_task_ids_from_jsonl,
-    sample_block_tasks,
-)
+from cookimport.labelstudio.archive import build_extracted_archive, normalize_display_text
 from cookimport.labelstudio.freeform_tasks import (
     build_freeform_span_tasks,
     compute_freeform_task_coverage,
     resolve_segment_overlap_for_target,
     sample_freeform_tasks,
 )
-from cookimport.labelstudio.chunking import (
-    build_extracted_archive,
-    chunk_atomic,
-    chunk_records_to_tasks,
-    chunk_structural,
-    compute_coverage,
-    normalize_display_text,
-    sample_chunks,
-)
 from cookimport.labelstudio.client import LabelStudioClient
-from cookimport.labelstudio.label_config import LABEL_CONFIG_XML
-from cookimport.labelstudio.label_config_blocks import build_block_label_config
 from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_ALLOWED_LABELS,
     build_freeform_label_config,
@@ -89,6 +80,7 @@ from cookimport.staging.writer import (
     write_raw_artifacts,
     write_report,
     write_section_outputs,
+    write_stage_block_predictions,
     write_table_outputs,
     write_tip_outputs,
     write_topic_candidate_outputs,
@@ -234,11 +226,11 @@ def _normalize_unstructured_preprocess_mode(value: str) -> str:
 
 
 def _normalize_epub_extractor(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized not in {"unstructured", "legacy", "markdown", "markitdown"}:
+    normalized = normalize_epub_extractor_name(value)
+    if normalized not in EPUB_EXTRACTOR_CANONICAL_SET:
         raise ValueError(
             "Invalid epub_extractor. "
-            "Expected one of: unstructured, legacy, markdown, markitdown."
+            f"Expected one of: {epub_extractor_choices_for_help()}."
         )
     return normalized
 
@@ -582,39 +574,12 @@ def _find_latest_manifest(output_root: Path, project_name: str) -> Path | None:
     return candidates[0][1]
 
 
-def _compute_block_task_coverage(
-    archive: list[Any], tasks: list[dict[str, Any]]
-) -> dict[str, Any]:
-    extracted_chars = sum(len(getattr(block, "text", "") or "") for block in archive)
-    chunked_chars = 0
-    for task in tasks:
-        data = task.get("data") if isinstance(task, dict) else {}
-        if isinstance(data, dict):
-            chunked_chars += len(str(data.get("block_text") or ""))
-    warnings: list[str] = []
-    if extracted_chars == 0:
-        warnings.append("No text extracted; OCR may be required for scanned documents.")
-    elif chunked_chars < extracted_chars * 0.9:
-        warnings.append(
-            f"Chunk coverage low: {chunked_chars} of {extracted_chars} characters represented."
-        )
-    return {
-        "extracted_chars": extracted_chars,
-        "chunked_chars": chunked_chars,
-        "warnings": warnings,
-    }
+def _task_id_key() -> str:
+    return "segment_id"
 
 
-def _task_id_key(task_scope: str) -> str:
-    if task_scope == "canonical-blocks":
-        return "block_id"
-    if task_scope == "freeform-spans":
-        return "segment_id"
-    return "chunk_id"
-
-
-def _task_id_value(task: dict[str, Any], task_scope: str) -> str | None:
-    key = _task_id_key(task_scope)
+def _task_id_value(task: dict[str, Any]) -> str | None:
+    key = _task_id_key()
     data = task.get("data")
     if not isinstance(data, dict):
         return None
@@ -642,12 +607,10 @@ def _strip_task_annotations(task: dict[str, Any]) -> dict[str, Any]:
 
 def _task_annotation_pairs_for_upload(
     tasks: list[dict[str, Any]],
-    *,
-    task_scope: str,
 ) -> list[tuple[str, dict[str, Any]]]:
     pairs: list[tuple[str, dict[str, Any]]] = []
     for task in tasks:
-        task_id = _task_id_value(task, task_scope)
+        task_id = _task_id_value(task)
         if not task_id:
             continue
         annotations = task.get("annotations")
@@ -658,6 +621,28 @@ def _task_annotation_pairs_for_upload(
             continue
         pairs.append((task_id, annotation))
     return pairs
+
+
+def _load_task_ids_from_jsonl(path: Path, key: str) -> set[str]:
+    task_ids: set[str] = set()
+    if not path.exists():
+        return task_ids
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            continue
+        value = data.get(key)
+        if value:
+            task_ids.add(str(value))
+    return task_ids
 
 
 def _annotations_to_predictions(task: dict[str, Any]) -> dict[str, Any]:
@@ -751,6 +736,7 @@ def _write_processed_outputs(
     schemaorg_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
     draft_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
     llm_codex_farm: dict[str, Any] | None = None,
+    knowledge_snippets_path: Path | None = None,
 ) -> Path:
     timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
     run_root = output_root / timestamp
@@ -834,11 +820,40 @@ def _write_processed_outputs(
         chunks_dir = run_root / "chunks" / workbook_name
         write_chunk_outputs(result.chunks, chunks_dir, output_stats=output_stats)
     write_raw_artifacts(result, run_root, output_stats=output_stats)
+    write_stage_block_predictions(
+        results=result,
+        run_root=run_root,
+        workbook_slug=workbook_name,
+        source_file=str(path),
+        knowledge_snippets_path=knowledge_snippets_path,
+        output_stats=output_stats,
+    )
 
     if output_stats.file_counts:
         result.report.output_stats = output_stats.to_report()
     write_report(result.report, run_root, workbook_name)
     return run_root
+
+
+def _resolve_knowledge_snippets_path(llm_report: dict[str, Any] | None) -> Path | None:
+    if not isinstance(llm_report, dict):
+        return None
+    knowledge_payload = llm_report.get("knowledge")
+    if not isinstance(knowledge_payload, dict):
+        return None
+    paths_payload = knowledge_payload.get("paths")
+    if not isinstance(paths_payload, dict):
+        return None
+    snippets_path = paths_payload.get("snippets_path")
+    if not snippets_path:
+        return None
+    try:
+        candidate = Path(str(snippets_path))
+    except Exception:
+        return None
+    if not candidate.exists() or not candidate.is_file():
+        return None
+    return candidate
 
 
 def _resolve_pdf_page_count(path: Path) -> int | None:
@@ -1175,9 +1190,6 @@ def generate_pred_run_artifacts(
     path: Path,
     output_dir: Path,
     pipeline: str = "auto",
-    chunk_level: str = "both",
-    task_scope: str = "pipeline",
-    context_window: int = 1,
     segment_blocks: int = 40,
     segment_overlap: int = 5,
     segment_focus_blocks: int | None = None,
@@ -1608,9 +1620,11 @@ def generate_pred_run_artifacts(
     book_id = result.workbook or path.stem
     processed_run_root: Path | None = None
     processed_report_path: Path | None = None
+    processed_stage_block_predictions_path: Path | None = None
     if processed_output_root is not None:
         _notify("Writing processed cookbook outputs...")
         processed_output_started = time.monotonic()
+        knowledge_snippets_path = _resolve_knowledge_snippets_path(llm_report)
         processed_run_root = _write_processed_outputs(
             result=result,
             path=path,
@@ -1625,30 +1639,29 @@ def generate_pred_run_artifacts(
             schemaorg_overrides_by_recipe_id=llm_schema_overrides,
             draft_overrides_by_recipe_id=llm_draft_overrides,
             llm_codex_farm=llm_report,
+            knowledge_snippets_path=knowledge_snippets_path,
         )
         processed_report_path = (
             processed_run_root / f"{path.stem}.excel_import_report.json"
         )
+        candidate_stage_predictions = (
+            processed_run_root
+            / ".bench"
+            / path.stem
+            / "stage_block_predictions.json"
+        )
+        if candidate_stage_predictions.exists():
+            processed_stage_block_predictions_path = candidate_stage_predictions
         processed_output_write_seconds = max(
             0.0, time.monotonic() - processed_output_started
         )
         _notify("Processed cookbook outputs complete.")
 
     task_build_started = time.monotonic()
-    scopes = {"pipeline", "canonical-blocks", "freeform-spans"}
-    if task_scope not in scopes:
-        raise ValueError(
-            "task_scope must be one of: pipeline, canonical-blocks, freeform-spans"
-        )
-    if prelabel and task_scope != "freeform-spans":
-        raise ValueError("prelabel is only supported for task_scope=freeform-spans")
 
     tasks: list[dict[str, Any]] = []
     task_ids: list[str] = []
     coverage_payload: dict[str, Any]
-    label_config = LABEL_CONFIG_XML
-    chunk_ids: list[str] | None = None
-    block_ids: list[str] | None = None
     segment_ids: list[str] | None = None
     prelabel_report_path: Path | None = None
     prelabel_errors_path: Path | None = None
@@ -1657,543 +1670,460 @@ def generate_pred_run_artifacts(
     resolved_segment_focus_blocks: int | None = None
     effective_segment_overlap: int | None = None
 
-    if task_scope == "pipeline":
-        levels = {"structural", "atomic", "both"}
-        if chunk_level not in levels:
-            raise ValueError("chunk_level must be one of: structural, atomic, both")
-
-        _notify("Generating pipeline chunk candidates...")
-        chunks = []
-        if chunk_level in {"structural", "both"}:
-            chunks.extend(
-                chunk_structural(
-                    result,
-                    archive,
-                    source_file=path.name,
-                    book_id=book_id,
-                    pipeline_used=importer.name,
-                    file_hash=file_hash,
-                )
-            )
-        if chunk_level in {"atomic", "both"}:
-            chunks.extend(
-                chunk_atomic(
-                    result,
-                    archive,
-                    source_file=path.name,
-                    book_id=book_id,
-                    pipeline_used=importer.name,
-                    file_hash=file_hash,
-                )
-            )
-
-        if not chunks:
-            raise RuntimeError("No chunks generated for labeling.")
-
-        _notify("Computing pipeline chunk coverage...")
-        coverage = compute_coverage(archive, chunks)
-        coverage_payload = {
-            "extracted_chars": coverage.extracted_chars,
-            "chunked_chars": coverage.chunked_chars,
-            "warnings": coverage.warnings,
-        }
-        if coverage.extracted_chars == 0:
-            raise RuntimeError(
-                "No text extracted; this may be a scanned document that requires OCR."
-            )
-
-        _notify("Sampling chunk candidates...")
-        chunks = sample_chunks(chunks, limit=limit, sample=sample)
-        if not chunks:
-            raise RuntimeError("No chunks generated after limit/sample filters.")
-
-        _notify("Building Label Studio pipeline tasks...")
-        tasks = chunk_records_to_tasks(chunks, source_hash=file_hash)
-        chunk_ids = [chunk.chunk_id for chunk in chunks]
-        task_ids = list(chunk_ids)
-    elif task_scope == "canonical-blocks":
-        if chunk_level != "both":
-            _notify("canonical-blocks ignores --chunk-level")
-        if not archive:
-            raise RuntimeError("No extracted blocks available for canonical labeling.")
-        _notify("Building canonical block tasks...")
-        tasks_all = build_block_tasks(
-            archive,
-            source_hash=file_hash,
-            source_file=path.name,
-            context_window=context_window,
-        )
-        if not tasks_all:
-            raise RuntimeError("No block tasks generated for labeling.")
-        coverage_payload = _compute_block_task_coverage(archive, tasks_all)
-        if coverage_payload["extracted_chars"] == 0:
-            raise RuntimeError(
-                "No text extracted; this may be a scanned document that requires OCR."
-            )
-        _notify("Sampling canonical block tasks...")
-        tasks = sample_block_tasks(tasks_all, limit=limit, sample=sample)
-        if not tasks:
-            raise RuntimeError("No block tasks generated after limit/sample filters.")
-        label_config = build_block_label_config()
-        block_ids = [task.get("data", {}).get("block_id") for task in tasks if task]
-        task_ids = [block_id for block_id in block_ids if block_id]
+    if not archive:
+        raise RuntimeError("No extracted blocks available for freeform labeling.")
+    if segment_focus_blocks is None:
+        resolved_segment_focus_blocks = segment_blocks
     else:
-        if chunk_level != "both":
-            _notify("freeform-spans ignores --chunk-level")
-        if not archive:
-            raise RuntimeError("No extracted blocks available for freeform labeling.")
-        if segment_focus_blocks is None:
-            resolved_segment_focus_blocks = segment_blocks
+        resolved_segment_focus_blocks = int(segment_focus_blocks)
+    if resolved_segment_focus_blocks < 1:
+        raise ValueError("segment_focus_blocks must be >= 1")
+    if resolved_segment_focus_blocks > segment_blocks:
+        raise ValueError("segment_focus_blocks must be <= segment_blocks")
+    focus_overlap_floor = max(0, segment_blocks - resolved_segment_focus_blocks)
+    effective_segment_overlap = resolve_segment_overlap_for_target(
+        total_blocks=len(archive),
+        segment_blocks=segment_blocks,
+        requested_overlap=segment_overlap,
+        target_task_count=target_task_count,
+        segment_focus_blocks=resolved_segment_focus_blocks,
+    )
+    if effective_segment_overlap != segment_overlap:
+        reasons: list[str] = []
+        if target_task_count is not None:
+            reasons.append(f"target tasks {target_task_count}")
+        if segment_overlap < focus_overlap_floor:
+            reasons.append(
+                "focus coverage "
+                f"(segment {segment_blocks}, focus {resolved_segment_focus_blocks})"
+            )
+        if reasons:
+            reason_suffix = f", {', '.join(reasons)}"
         else:
-            resolved_segment_focus_blocks = int(segment_focus_blocks)
-        if resolved_segment_focus_blocks < 1:
-            raise ValueError("segment_focus_blocks must be >= 1")
-        if resolved_segment_focus_blocks > segment_blocks:
-            raise ValueError("segment_focus_blocks must be <= segment_blocks")
-        focus_overlap_floor = max(0, segment_blocks - resolved_segment_focus_blocks)
-        effective_segment_overlap = resolve_segment_overlap_for_target(
-            total_blocks=len(archive),
-            segment_blocks=segment_blocks,
-            requested_overlap=segment_overlap,
-            target_task_count=target_task_count,
-            segment_focus_blocks=resolved_segment_focus_blocks,
+            reason_suffix = ""
+        _notify(
+            "Adjusted freeform overlap to "
+            f"{effective_segment_overlap} "
+            f"(requested {segment_overlap}{reason_suffix})."
         )
-        if effective_segment_overlap != segment_overlap:
-            reasons: list[str] = []
-            if target_task_count is not None:
-                reasons.append(f"target tasks {target_task_count}")
-            if segment_overlap < focus_overlap_floor:
-                reasons.append(
-                    "focus coverage "
-                    f"(segment {segment_blocks}, focus {resolved_segment_focus_blocks})"
-                )
-            if reasons:
-                reason_suffix = f", {', '.join(reasons)}"
-            else:
-                reason_suffix = ""
-            _notify(
-                "Adjusted freeform overlap to "
-                f"{effective_segment_overlap} "
-                f"(requested {segment_overlap}{reason_suffix})."
-            )
-        _notify("Building freeform span tasks...")
-        tasks_all = build_freeform_span_tasks(
-            archive=archive,
-            source_hash=file_hash,
-            source_file=path.name,
-            book_id=book_id,
-            segment_blocks=segment_blocks,
-            segment_overlap=effective_segment_overlap,
-            segment_focus_blocks=resolved_segment_focus_blocks,
+    _notify("Building freeform span tasks...")
+    tasks_all = build_freeform_span_tasks(
+        archive=archive,
+        source_hash=file_hash,
+        source_file=path.name,
+        book_id=book_id,
+        segment_blocks=segment_blocks,
+        segment_overlap=effective_segment_overlap,
+        segment_focus_blocks=resolved_segment_focus_blocks,
+    )
+    if not tasks_all:
+        raise RuntimeError("No freeform span tasks generated for labeling.")
+    coverage_payload = compute_freeform_task_coverage(archive, tasks_all)
+    if coverage_payload["extracted_chars"] == 0:
+        raise RuntimeError(
+            "No text extracted; this may be a scanned document that requires OCR."
         )
-        if not tasks_all:
-            raise RuntimeError("No freeform span tasks generated for labeling.")
-        coverage_payload = compute_freeform_task_coverage(archive, tasks_all)
-        if coverage_payload["extracted_chars"] == 0:
-            raise RuntimeError(
-                "No text extracted; this may be a scanned document that requires OCR."
-            )
-        _notify("Sampling freeform span tasks...")
-        tasks = sample_freeform_tasks(tasks_all, limit=limit, sample=sample)
-        if not tasks:
-            raise RuntimeError(
-                "No freeform span tasks generated after limit/sample filters."
-            )
-        if prelabel:
-            total_prelabel_tasks = len(tasks)
-            _notify(
-                _task_progress_message(
-                    "Running freeform prelabeling...",
-                    0,
-                    total_prelabel_tasks,
-                )
-            )
-            provider_cache_dir = prelabel_cache_dir or (run_root / "prelabel_cache")
-            provider = _build_prelabel_provider(
-                prelabel_provider=prelabel_provider,
-                codex_cmd=codex_cmd,
-                codex_model=codex_model,
-                codex_reasoning_effort=codex_reasoning_effort,
-                prelabel_timeout_seconds=prelabel_timeout_seconds,
-                prelabel_cache_dir=provider_cache_dir,
-                prelabel_track_token_usage=prelabel_track_token_usage,
-            )
-            provider_cmd = str(
-                getattr(provider, "cmd", (codex_cmd or default_codex_cmd()).strip())
-            )
-            _notify("Checking freeform prelabel model access...")
-            preflight_codex_model_access(
-                cmd=provider_cmd,
-                timeout_s=min(30, max(1, int(prelabel_timeout_seconds))),
-            )
-            provider_model = getattr(
-                provider,
-                "model",
-                resolve_codex_model(codex_model, cmd=provider_cmd),
-            )
-            provider_reasoning_effort = codex_reasoning_effort_from_cmd(provider_cmd)
-            if provider_reasoning_effort is None:
-                provider_reasoning_effort = normalize_codex_reasoning_effort(
-                    codex_reasoning_effort
-                )
-            if provider_reasoning_effort is None:
-                provider_reasoning_effort = default_codex_reasoning_effort(
-                    cmd=provider_cmd
-                )
-            provider_account = codex_account_summary(provider_cmd)
-            prelabel_prompt_log_path = run_root / "prelabel_prompt_log.md"
-            prelabel_prompt_log_path.write_text(
-                "\n".join(
-                    [
-                        "# Prelabel Prompt Log",
-                        "",
-                        f"- Generated at (UTC): {dt.datetime.now(tz=dt.timezone.utc).isoformat(timespec='seconds')}",
-                        "- One section per Codex prompt call.",
-                        "",
-                    ]
-                ),
-                encoding="utf-8",
-            )
-            prelabel_prompt_log_count = 0
-            prelabel_errors: list[dict[str, Any]] = []
-            prelabel_label_counts: dict[str, int] = {}
-            prelabel_success = 0
-            rate_limit_stop_event = threading.Event()
-            rate_limit_warning_emitted = False
-            rate_limit_skip_reason = (
-                "Skipped after prior HTTP 429 rate-limit failure from another task."
-            )
-            effective_prelabel_workers = min(
+    _notify("Sampling freeform span tasks...")
+    tasks = sample_freeform_tasks(tasks_all, limit=limit, sample=sample)
+    if not tasks:
+        raise RuntimeError(
+            "No freeform span tasks generated after limit/sample filters."
+        )
+    if prelabel:
+        total_prelabel_tasks = len(tasks)
+        _notify(
+            _task_progress_message(
+                "Running freeform prelabeling...",
+                0,
                 total_prelabel_tasks,
-                max(1, int(prelabel_workers)),
             )
+        )
+        provider_cache_dir = prelabel_cache_dir or (run_root / "prelabel_cache")
+        provider = _build_prelabel_provider(
+            prelabel_provider=prelabel_provider,
+            codex_cmd=codex_cmd,
+            codex_model=codex_model,
+            codex_reasoning_effort=codex_reasoning_effort,
+            prelabel_timeout_seconds=prelabel_timeout_seconds,
+            prelabel_cache_dir=provider_cache_dir,
+            prelabel_track_token_usage=prelabel_track_token_usage,
+        )
+        provider_cmd = str(
+            getattr(provider, "cmd", (codex_cmd or default_codex_cmd()).strip())
+        )
+        _notify("Checking freeform prelabel model access...")
+        preflight_codex_model_access(
+            cmd=provider_cmd,
+            timeout_s=min(30, max(1, int(prelabel_timeout_seconds))),
+        )
+        provider_model = getattr(
+            provider,
+            "model",
+            resolve_codex_model(codex_model, cmd=provider_cmd),
+        )
+        provider_reasoning_effort = codex_reasoning_effort_from_cmd(provider_cmd)
+        if provider_reasoning_effort is None:
+            provider_reasoning_effort = normalize_codex_reasoning_effort(
+                codex_reasoning_effort
+            )
+        if provider_reasoning_effort is None:
+            provider_reasoning_effort = default_codex_reasoning_effort(
+                cmd=provider_cmd
+            )
+        provider_account = codex_account_summary(provider_cmd)
+        prelabel_prompt_log_path = run_root / "prelabel_prompt_log.md"
+        prelabel_prompt_log_path.write_text(
+            "\n".join(
+                [
+                    "# Prelabel Prompt Log",
+                    "",
+                    f"- Generated at (UTC): {dt.datetime.now(tz=dt.timezone.utc).isoformat(timespec='seconds')}",
+                    "- One section per Codex prompt call.",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        prelabel_prompt_log_count = 0
+        prelabel_errors: list[dict[str, Any]] = []
+        prelabel_label_counts: dict[str, int] = {}
+        prelabel_success = 0
+        rate_limit_stop_event = threading.Event()
+        rate_limit_warning_emitted = False
+        rate_limit_skip_reason = (
+            "Skipped after prior HTTP 429 rate-limit failure from another task."
+        )
+        effective_prelabel_workers = min(
+            total_prelabel_tasks,
+            max(1, int(prelabel_workers)),
+        )
 
-            def _prelabel_progress_status(current: int) -> str:
-                status = _task_progress_message(
-                    "Running freeform prelabeling...",
-                    current,
-                    total_prelabel_tasks,
-                )
-                if effective_prelabel_workers > 1:
-                    return f"{status} (workers={effective_prelabel_workers})"
-                return status
-
-            def _prelabel_worker_status_label(task_index: int, segment_id: str) -> str:
-                segment_summary = segment_id.strip() or "<unknown>"
-                segment_parts = segment_summary.rsplit(":", 2)
-                if (
-                    len(segment_parts) == 3
-                    and segment_parts[1].isdigit()
-                    and segment_parts[2].isdigit()
-                ):
-                    segment_summary = f"blocks {segment_parts[1]}-{segment_parts[2]}"
-                if len(segment_summary) > 72:
-                    segment_summary = f"{segment_summary[:69]}..."
-                return f"task {task_index}/{total_prelabel_tasks} {segment_summary}"
-
-            worker_slot_by_thread: dict[int, int] = {}
-            worker_slot_lock = threading.Lock()
-            next_worker_slot = 1
-
-            def _resolve_worker_slot() -> int:
-                nonlocal next_worker_slot
-                thread_id = threading.get_ident()
-                with worker_slot_lock:
-                    existing = worker_slot_by_thread.get(thread_id)
-                    if existing is not None:
-                        return existing
-                    slot = min(next_worker_slot, effective_prelabel_workers)
-                    worker_slot_by_thread[thread_id] = slot
-                    next_worker_slot += 1
-                    return slot
-
-            def _emit_rate_limit_warning() -> None:
-                nonlocal rate_limit_warning_emitted
-                if rate_limit_warning_emitted:
-                    return
-                _notify(
-                    "WARNING: freeform prelabel rate limit (HTTP 429) detected; "
-                    "halting additional prelabel task requests."
-                )
-                rate_limit_warning_emitted = True
-
-            def _rate_limit_skip_result(
-                *,
-                task_index: int,
-                task_payload: dict[str, Any],
-                segment_id: str | None = None,
-            ) -> dict[str, Any]:
-                resolved_segment_id = segment_id or (
-                    _task_id_value(task_payload, "freeform-spans") or "<unknown>"
-                )
-                return {
-                    "task_index": task_index,
-                    "segment_id": resolved_segment_id,
-                    "annotation": None,
-                    "error": rate_limit_skip_reason,
-                    "prompt_entries": [],
-                    "task": task_payload,
-                    "rate_limit": False,
-                    "rate_limit_skipped": True,
-                }
-
+        def _prelabel_progress_status(current: int) -> str:
+            status = _task_progress_message(
+                "Running freeform prelabeling...",
+                current,
+                total_prelabel_tasks,
+            )
             if effective_prelabel_workers > 1:
-                _notify(format_worker_activity_reset())
-            _notify(_prelabel_progress_status(0))
+                return f"{status} (workers={effective_prelabel_workers})"
+            return status
 
-            def _run_prelabel_task(
-                *,
-                task_index: int,
-                task_payload: dict[str, Any],
-            ) -> dict[str, Any]:
-                segment_id = _task_id_value(task_payload, "freeform-spans") or "<unknown>"
-                if rate_limit_stop_event.is_set():
-                    return _rate_limit_skip_result(
-                        task_index=task_index,
-                        task_payload=task_payload,
-                        segment_id=segment_id,
+        def _prelabel_worker_status_label(task_index: int, segment_id: str) -> str:
+            segment_summary = segment_id.strip() or "<unknown>"
+            segment_parts = segment_summary.rsplit(":", 2)
+            if (
+                len(segment_parts) == 3
+                and segment_parts[1].isdigit()
+                and segment_parts[2].isdigit()
+            ):
+                segment_summary = f"blocks {segment_parts[1]}-{segment_parts[2]}"
+            if len(segment_summary) > 72:
+                segment_summary = f"{segment_summary[:69]}..."
+            return f"task {task_index}/{total_prelabel_tasks} {segment_summary}"
+
+        worker_slot_by_thread: dict[int, int] = {}
+        worker_slot_lock = threading.Lock()
+        next_worker_slot = 1
+
+        def _resolve_worker_slot() -> int:
+            nonlocal next_worker_slot
+            thread_id = threading.get_ident()
+            with worker_slot_lock:
+                existing = worker_slot_by_thread.get(thread_id)
+                if existing is not None:
+                    return existing
+                slot = min(next_worker_slot, effective_prelabel_workers)
+                worker_slot_by_thread[thread_id] = slot
+                next_worker_slot += 1
+                return slot
+
+        def _emit_rate_limit_warning() -> None:
+            nonlocal rate_limit_warning_emitted
+            if rate_limit_warning_emitted:
+                return
+            _notify(
+                "WARNING: freeform prelabel rate limit (HTTP 429) detected; "
+                "halting additional prelabel task requests."
+            )
+            rate_limit_warning_emitted = True
+
+        def _rate_limit_skip_result(
+            *,
+            task_index: int,
+            task_payload: dict[str, Any],
+            segment_id: str | None = None,
+        ) -> dict[str, Any]:
+            resolved_segment_id = segment_id or (
+                _task_id_value(task_payload) or "<unknown>"
+            )
+            return {
+                "task_index": task_index,
+                "segment_id": resolved_segment_id,
+                "annotation": None,
+                "error": rate_limit_skip_reason,
+                "prompt_entries": [],
+                "task": task_payload,
+                "rate_limit": False,
+                "rate_limit_skipped": True,
+            }
+
+        if effective_prelabel_workers > 1:
+            _notify(format_worker_activity_reset())
+        _notify(_prelabel_progress_status(0))
+
+        def _run_prelabel_task(
+            *,
+            task_index: int,
+            task_payload: dict[str, Any],
+        ) -> dict[str, Any]:
+            segment_id = _task_id_value(task_payload) or "<unknown>"
+            if rate_limit_stop_event.is_set():
+                return _rate_limit_skip_result(
+                    task_index=task_index,
+                    task_payload=task_payload,
+                    segment_id=segment_id,
+                )
+            prompt_entries: list[dict[str, Any]] = []
+            worker_slot: int | None = None
+            if effective_prelabel_workers > 1:
+                worker_slot = _resolve_worker_slot()
+                _notify(
+                    format_worker_activity(
+                        worker_slot,
+                        effective_prelabel_workers,
+                        _prelabel_worker_status_label(task_index, segment_id),
                     )
-                prompt_entries: list[dict[str, Any]] = []
-                worker_slot: int | None = None
-                if effective_prelabel_workers > 1:
-                    worker_slot = _resolve_worker_slot()
-                    _notify(
-                        format_worker_activity(
-                            worker_slot,
-                            effective_prelabel_workers,
-                            _prelabel_worker_status_label(task_index, segment_id),
-                        )
-                    )
+                )
 
-                def _collect_prompt_log(entry: dict[str, Any]) -> None:
-                    prompt_entries.append(dict(entry))
+            def _collect_prompt_log(entry: dict[str, Any]) -> None:
+                prompt_entries.append(dict(entry))
 
+            try:
                 try:
-                    try:
-                        annotation = prelabel_freeform_task(
-                            task_payload,
-                            provider=provider,
-                            allowed_labels=set(FREEFORM_ALLOWED_LABELS),
-                            prelabel_granularity=normalized_prelabel_granularity,
-                            prompt_log_callback=_collect_prompt_log,
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        error_message = str(exc)
-                        rate_limited = is_rate_limit_message(error_message)
-                        if rate_limited:
-                            rate_limit_stop_event.set()
-                        return {
-                            "task_index": task_index,
-                            "segment_id": segment_id,
-                            "annotation": None,
-                            "error": error_message,
-                            "prompt_entries": prompt_entries,
-                            "task": task_payload,
-                            "rate_limit": rate_limited,
-                            "rate_limit_skipped": False,
-                        }
-                    if annotation is None:
-                        return {
-                            "task_index": task_index,
-                            "segment_id": segment_id,
-                            "annotation": None,
-                            "error": "No valid labels produced by provider output.",
-                            "prompt_entries": prompt_entries,
-                            "task": task_payload,
-                            "rate_limit": False,
-                            "rate_limit_skipped": False,
-                        }
+                    annotation = prelabel_freeform_task(
+                        task_payload,
+                        provider=provider,
+                        allowed_labels=set(FREEFORM_ALLOWED_LABELS),
+                        prelabel_granularity=normalized_prelabel_granularity,
+                        prompt_log_callback=_collect_prompt_log,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    error_message = str(exc)
+                    rate_limited = is_rate_limit_message(error_message)
+                    if rate_limited:
+                        rate_limit_stop_event.set()
                     return {
                         "task_index": task_index,
                         "segment_id": segment_id,
-                        "annotation": annotation,
-                        "error": None,
+                        "annotation": None,
+                        "error": error_message,
+                        "prompt_entries": prompt_entries,
+                        "task": task_payload,
+                        "rate_limit": rate_limited,
+                        "rate_limit_skipped": False,
+                    }
+                if annotation is None:
+                    return {
+                        "task_index": task_index,
+                        "segment_id": segment_id,
+                        "annotation": None,
+                        "error": "No valid labels produced by provider output.",
                         "prompt_entries": prompt_entries,
                         "task": task_payload,
                         "rate_limit": False,
                         "rate_limit_skipped": False,
                     }
-                finally:
-                    if worker_slot is not None:
-                        _notify(
-                            format_worker_activity(
-                                worker_slot,
-                                effective_prelabel_workers,
-                                "idle",
-                            )
+                return {
+                    "task_index": task_index,
+                    "segment_id": segment_id,
+                    "annotation": annotation,
+                    "error": None,
+                    "prompt_entries": prompt_entries,
+                    "task": task_payload,
+                    "rate_limit": False,
+                    "rate_limit_skipped": False,
+                }
+            finally:
+                if worker_slot is not None:
+                    _notify(
+                        format_worker_activity(
+                            worker_slot,
+                            effective_prelabel_workers,
+                            "idle",
                         )
+                    )
 
-            task_results: list[dict[str, Any]] = []
-            if effective_prelabel_workers == 1:
-                for task_index, task in enumerate(tasks, start=1):
-                    row = _run_prelabel_task(task_index=task_index, task_payload=task)
+        task_results: list[dict[str, Any]] = []
+        if effective_prelabel_workers == 1:
+            for task_index, task in enumerate(tasks, start=1):
+                row = _run_prelabel_task(task_index=task_index, task_payload=task)
+                task_results.append(row)
+                if bool(row.get("rate_limit")):
+                    _emit_rate_limit_warning()
+                _notify(_prelabel_progress_status(task_index))
+        else:
+            with ThreadPoolExecutor(max_workers=effective_prelabel_workers) as executor:
+                futures = {
+                    executor.submit(
+                        _run_prelabel_task,
+                        task_index=task_index,
+                        task_payload=task,
+                    ): (task_index, task)
+                    for task_index, task in enumerate(tasks, start=1)
+                }
+                completed_tasks = 0
+                for future in as_completed(futures):
+                    task_index, task = futures[future]
+                    try:
+                        row = future.result()
+                    except Exception as exc:  # noqa: BLE001
+                        error_message = str(exc)
+                        rate_limited = is_rate_limit_message(error_message)
+                        if rate_limited:
+                            rate_limit_stop_event.set()
+                        row = {
+                            "task_index": task_index,
+                            "segment_id": _task_id_value(task)
+                            or "<unknown>",
+                            "annotation": None,
+                            "error": error_message,
+                            "prompt_entries": [],
+                            "task": task,
+                            "rate_limit": rate_limited,
+                            "rate_limit_skipped": False,
+                        }
                     task_results.append(row)
                     if bool(row.get("rate_limit")):
                         _emit_rate_limit_warning()
-                    _notify(_prelabel_progress_status(task_index))
-            else:
-                with ThreadPoolExecutor(max_workers=effective_prelabel_workers) as executor:
-                    futures = {
-                        executor.submit(
-                            _run_prelabel_task,
-                            task_index=task_index,
-                            task_payload=task,
-                        ): (task_index, task)
-                        for task_index, task in enumerate(tasks, start=1)
-                    }
-                    completed_tasks = 0
-                    for future in as_completed(futures):
-                        task_index, task = futures[future]
-                        try:
-                            row = future.result()
-                        except Exception as exc:  # noqa: BLE001
-                            error_message = str(exc)
-                            rate_limited = is_rate_limit_message(error_message)
-                            if rate_limited:
-                                rate_limit_stop_event.set()
-                            row = {
-                                "task_index": task_index,
-                                "segment_id": _task_id_value(task, "freeform-spans")
-                                or "<unknown>",
-                                "annotation": None,
-                                "error": error_message,
-                                "prompt_entries": [],
-                                "task": task,
-                                "rate_limit": rate_limited,
-                                "rate_limit_skipped": False,
-                            }
-                        task_results.append(row)
-                        if bool(row.get("rate_limit")):
-                            _emit_rate_limit_warning()
-                        completed_tasks += 1
-                        _notify(_prelabel_progress_status(completed_tasks))
-            if effective_prelabel_workers > 1:
-                _notify(format_worker_activity_reset())
+                    completed_tasks += 1
+                    _notify(_prelabel_progress_status(completed_tasks))
+        if effective_prelabel_workers > 1:
+            _notify(format_worker_activity_reset())
 
-            task_results.sort(key=lambda row: int(row.get("task_index") or 0))
+        task_results.sort(key=lambda row: int(row.get("task_index") or 0))
 
-            for row in task_results:
-                prompt_entries = row.get("prompt_entries")
-                if not isinstance(prompt_entries, list):
+        for row in task_results:
+            prompt_entries = row.get("prompt_entries")
+            if not isinstance(prompt_entries, list):
+                continue
+            for entry in prompt_entries:
+                if not isinstance(entry, dict):
                     continue
-                for entry in prompt_entries:
-                    if not isinstance(entry, dict):
-                        continue
-                    payload = dict(entry)
-                    payload.setdefault("segment_id", row.get("segment_id") or "<unknown>")
-                    payload["task_index"] = row.get("task_index")
-                    payload["task_total"] = total_prelabel_tasks
-                    payload["logged_at"] = dt.datetime.now(
-                        tz=dt.timezone.utc
-                    ).isoformat(timespec="seconds")
-                    payload["codex_cmd"] = provider_cmd
-                    payload["codex_model"] = provider_model
-                    payload["codex_reasoning_effort"] = provider_reasoning_effort
-                    payload["codex_account"] = provider_account
-                    with prelabel_prompt_log_path.open("a", encoding="utf-8") as handle:
-                        handle.write(_format_prelabel_prompt_log_entry_markdown(payload))
-                    prelabel_prompt_log_count += 1
+                payload = dict(entry)
+                payload.setdefault("segment_id", row.get("segment_id") or "<unknown>")
+                payload["task_index"] = row.get("task_index")
+                payload["task_total"] = total_prelabel_tasks
+                payload["logged_at"] = dt.datetime.now(
+                    tz=dt.timezone.utc
+                ).isoformat(timespec="seconds")
+                payload["codex_cmd"] = provider_cmd
+                payload["codex_model"] = provider_model
+                payload["codex_reasoning_effort"] = provider_reasoning_effort
+                payload["codex_account"] = provider_account
+                with prelabel_prompt_log_path.open("a", encoding="utf-8") as handle:
+                    handle.write(_format_prelabel_prompt_log_entry_markdown(payload))
+                prelabel_prompt_log_count += 1
 
-            rate_limit_failure_count = 0
-            rate_limit_skipped_count = 0
-            for row in task_results:
-                segment_id = str(row.get("segment_id") or "<unknown>")
-                error = row.get("error")
-                if error:
-                    error_payload: dict[str, Any] = {
+        rate_limit_failure_count = 0
+        rate_limit_skipped_count = 0
+        for row in task_results:
+            segment_id = str(row.get("segment_id") or "<unknown>")
+            error = row.get("error")
+            if error:
+                error_payload: dict[str, Any] = {
+                    "segment_id": segment_id,
+                    "reason": str(error),
+                }
+                if bool(row.get("rate_limit")):
+                    error_payload["rate_limit"] = True
+                    rate_limit_failure_count += 1
+                if bool(row.get("rate_limit_skipped")):
+                    error_payload["rate_limit_skipped"] = True
+                    rate_limit_skipped_count += 1
+                prelabel_errors.append(error_payload)
+                continue
+            annotation = row.get("annotation")
+            if not isinstance(annotation, dict):
+                prelabel_errors.append(
+                    {
                         "segment_id": segment_id,
-                        "reason": str(error),
+                        "reason": "No valid labels produced by provider output.",
                     }
-                    if bool(row.get("rate_limit")):
-                        error_payload["rate_limit"] = True
-                        rate_limit_failure_count += 1
-                    if bool(row.get("rate_limit_skipped")):
-                        error_payload["rate_limit_skipped"] = True
-                        rate_limit_skipped_count += 1
-                    prelabel_errors.append(error_payload)
-                    continue
-                annotation = row.get("annotation")
-                if not isinstance(annotation, dict):
-                    prelabel_errors.append(
-                        {
-                            "segment_id": segment_id,
-                            "reason": "No valid labels produced by provider output.",
-                        }
-                    )
-                    continue
-                task_payload = row.get("task")
-                prelabel_success += 1
-                if isinstance(task_payload, dict):
-                    annotation_result = annotation.get("result")
-                    if isinstance(annotation_result, list) and annotation_result:
-                        task_payload["annotations"] = [annotation]
-                for label in sorted(annotation_labels(annotation)):
-                    prelabel_label_counts[label] = prelabel_label_counts.get(label, 0) + 1
-
-            prelabel_errors_path = run_root / "prelabel_errors.jsonl"
-            if prelabel_errors:
-                prelabel_errors_path.write_text(
-                    "\n".join(
-                        json.dumps(row, sort_keys=True) for row in prelabel_errors
-                    )
-                    + "\n",
-                    encoding="utf-8",
                 )
-            else:
-                prelabel_errors_path.write_text("", encoding="utf-8")
-            provider_usage = None
-            usage_summary = getattr(provider, "usage_summary", None)
-            if callable(usage_summary):
-                provider_usage = usage_summary()
+                continue
+            task_payload = row.get("task")
+            prelabel_success += 1
+            if isinstance(task_payload, dict):
+                annotation_result = annotation.get("result")
+                if isinstance(annotation_result, list) and annotation_result:
+                    task_payload["annotations"] = [annotation]
+            for label in sorted(annotation_labels(annotation)):
+                prelabel_label_counts[label] = prelabel_label_counts.get(label, 0) + 1
 
-            prelabel_summary = {
-                "enabled": True,
-                "provider": prelabel_provider,
-                "granularity": normalized_prelabel_granularity,
-                "codex_cmd": provider_cmd,
-                "codex_model": provider_model,
-                "codex_reasoning_effort": provider_reasoning_effort,
-                "codex_account": provider_account,
-                "cache_dir": str(provider_cache_dir),
-                "workers": effective_prelabel_workers,
-                "task_count": len(tasks),
-                "success_count": prelabel_success,
-                "failure_count": len(prelabel_errors),
-                "rate_limit_stop_triggered": bool(rate_limit_stop_event.is_set()),
-                "rate_limit_failure_count": rate_limit_failure_count,
-                "rate_limit_skipped_count": rate_limit_skipped_count,
-                "allow_partial": bool(prelabel_allow_partial),
-                "token_usage_enabled": bool(prelabel_track_token_usage),
-                "token_usage": provider_usage if prelabel_track_token_usage else None,
-                "label_counts": prelabel_label_counts,
-                "errors_path": str(prelabel_errors_path),
-                "prompt_log_path": str(prelabel_prompt_log_path),
-                "prompt_log_count": prelabel_prompt_log_count,
-            }
-            prelabel_report_path = run_root / "prelabel_report.json"
-            prelabel_report_path.write_text(
-                json.dumps(prelabel_summary, indent=2, sort_keys=True),
+        prelabel_errors_path = run_root / "prelabel_errors.jsonl"
+        if prelabel_errors:
+            prelabel_errors_path.write_text(
+                "\n".join(
+                    json.dumps(row, sort_keys=True) for row in prelabel_errors
+                )
+                + "\n",
                 encoding="utf-8",
             )
+        else:
+            prelabel_errors_path.write_text("", encoding="utf-8")
+        provider_usage = None
+        usage_summary = getattr(provider, "usage_summary", None)
+        if callable(usage_summary):
+            provider_usage = usage_summary()
 
-            if rate_limit_stop_event.is_set() and not prelabel_allow_partial:
-                raise RuntimeError(
-                    "Prelabeling stopped after HTTP 429 rate-limit response. "
-                    "No additional prelabel task calls were sent after the first 429. "
-                    "Re-run later, or use --prelabel-allow-partial to continue upload "
-                    "with recorded prelabel failures."
-                )
-            if prelabel_errors and not prelabel_allow_partial:
-                raise RuntimeError(
-                    "Prelabeling failed for one or more tasks. "
-                    "Re-run with prelabel_allow_partial=True "
-                    "(CLI: --prelabel-allow-partial) to continue "
-                    "while recording failures."
-                )
+        prelabel_summary = {
+            "enabled": True,
+            "provider": prelabel_provider,
+            "granularity": normalized_prelabel_granularity,
+            "codex_cmd": provider_cmd,
+            "codex_model": provider_model,
+            "codex_reasoning_effort": provider_reasoning_effort,
+            "codex_account": provider_account,
+            "cache_dir": str(provider_cache_dir),
+            "workers": effective_prelabel_workers,
+            "task_count": len(tasks),
+            "success_count": prelabel_success,
+            "failure_count": len(prelabel_errors),
+            "rate_limit_stop_triggered": bool(rate_limit_stop_event.is_set()),
+            "rate_limit_failure_count": rate_limit_failure_count,
+            "rate_limit_skipped_count": rate_limit_skipped_count,
+            "allow_partial": bool(prelabel_allow_partial),
+            "token_usage_enabled": bool(prelabel_track_token_usage),
+            "token_usage": provider_usage if prelabel_track_token_usage else None,
+            "label_counts": prelabel_label_counts,
+            "errors_path": str(prelabel_errors_path),
+            "prompt_log_path": str(prelabel_prompt_log_path),
+            "prompt_log_count": prelabel_prompt_log_count,
+        }
+        prelabel_report_path = run_root / "prelabel_report.json"
+        prelabel_report_path.write_text(
+            json.dumps(prelabel_summary, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
 
-        label_config = build_freeform_label_config()
-        segment_ids = [task.get("data", {}).get("segment_id") for task in tasks if task]
-        task_ids = [segment_id for segment_id in segment_ids if segment_id]
+        if rate_limit_stop_event.is_set() and not prelabel_allow_partial:
+            raise RuntimeError(
+                "Prelabeling stopped after HTTP 429 rate-limit response. "
+                "No additional prelabel task calls were sent after the first 429. "
+                "Re-run later, or use --prelabel-allow-partial to continue upload "
+                "with recorded prelabel failures."
+            )
+        if prelabel_errors and not prelabel_allow_partial:
+            raise RuntimeError(
+                "Prelabeling failed for one or more tasks. "
+                "Re-run with prelabel_allow_partial=True "
+                "(CLI: --prelabel-allow-partial) to continue "
+                "while recording failures."
+            )
+
+    label_config = build_freeform_label_config()
+    segment_ids = [task.get("data", {}).get("segment_id") for task in tasks if task]
+    task_ids = [segment_id for segment_id in segment_ids if segment_id]
     task_build_seconds = max(0.0, time.monotonic() - task_build_started)
 
     _notify("Writing prediction run artifacts...")
@@ -2231,6 +2161,16 @@ def generate_pred_run_artifacts(
         ),
         encoding="utf-8",
     )
+    local_stage_block_predictions_path: Path | None = None
+    if (
+        processed_stage_block_predictions_path is not None
+        and processed_stage_block_predictions_path.exists()
+    ):
+        local_stage_block_predictions_path = run_root / "stage_block_predictions.json"
+        shutil.copy2(
+            processed_stage_block_predictions_path,
+            local_stage_block_predictions_path,
+        )
     artifact_write_seconds = max(0.0, time.monotonic() - artifact_write_started)
 
     result_timing_payload = (
@@ -2299,30 +2239,26 @@ def generate_pred_run_artifacts(
         "processed_report_path": (
             str(processed_report_path) if processed_report_path is not None else None
         ),
-        "chunk_level": chunk_level if task_scope == "pipeline" else None,
-        "task_scope": task_scope,
-        "context_window": context_window if task_scope == "canonical-blocks" else None,
-        "segment_blocks": segment_blocks if task_scope == "freeform-spans" else None,
-        "segment_focus_blocks": (
-            resolved_segment_focus_blocks if task_scope == "freeform-spans" else None
+        "processed_stage_block_predictions_path": (
+            str(processed_stage_block_predictions_path)
+            if processed_stage_block_predictions_path is not None
+            else None
         ),
-        "segment_overlap": (
-            effective_segment_overlap if task_scope == "freeform-spans" else None
+        "stage_block_predictions_path": (
+            str(local_stage_block_predictions_path)
+            if local_stage_block_predictions_path is not None
+            else None
         ),
-        "segment_overlap_requested": (
-            segment_overlap if task_scope == "freeform-spans" else None
-        ),
-        "segment_overlap_effective": (
-            effective_segment_overlap if task_scope == "freeform-spans" else None
-        ),
-        "target_task_count": (
-            target_task_count if task_scope == "freeform-spans" else None
-        ),
+        "task_scope": "freeform-spans",
+        "segment_blocks": segment_blocks,
+        "segment_focus_blocks": resolved_segment_focus_blocks,
+        "segment_overlap": effective_segment_overlap,
+        "segment_overlap_requested": segment_overlap,
+        "segment_overlap_effective": effective_segment_overlap,
+        "target_task_count": target_task_count,
         "timing": timing_payload,
         "task_count": len(tasks),
         "task_ids": task_ids,
-        "chunk_ids": chunk_ids,
-        "block_ids": block_ids,
         "segment_ids": segment_ids,
         "coverage": coverage_payload,
         "prelabel": prelabel_summary,
@@ -2367,6 +2303,22 @@ def generate_pred_run_artifacts(
     processed_report_manifest_path = _path_for_manifest(run_root, processed_report_path)
     if processed_report_manifest_path:
         run_manifest_artifacts["processed_report_json"] = processed_report_manifest_path
+    processed_stage_predictions_manifest_path = _path_for_manifest(
+        run_root,
+        processed_stage_block_predictions_path,
+    )
+    if processed_stage_predictions_manifest_path:
+        run_manifest_artifacts[
+            "processed_stage_block_predictions_json"
+        ] = processed_stage_predictions_manifest_path
+    local_stage_predictions_manifest_path = _path_for_manifest(
+        run_root,
+        local_stage_block_predictions_path,
+    )
+    if local_stage_predictions_manifest_path:
+        run_manifest_artifacts[
+            "stage_block_predictions_json"
+        ] = local_stage_predictions_manifest_path
     run_manifest_artifacts["timing"] = timing_payload
     llm_manifest_path = (
         run_root
@@ -2406,14 +2358,14 @@ def generate_pred_run_artifacts(
         "run_root": run_root,
         "processed_run_root": processed_run_root,
         "processed_report_path": processed_report_path,
+        "processed_stage_block_predictions_path": processed_stage_block_predictions_path,
+        "stage_block_predictions_path": local_stage_block_predictions_path,
         "epub_auto_selection": auto_selection_payload,
         "epub_auto_selected_score": auto_selection_score,
         "tasks_total": len(tasks),
         "manifest_path": manifest_path,
         "tasks": tasks,
         "task_ids": task_ids,
-        "chunk_ids": chunk_ids,
-        "block_ids": block_ids,
         "segment_ids": segment_ids,
         "coverage": coverage_payload,
         "prelabel": prelabel_summary,
@@ -2429,9 +2381,9 @@ def generate_pred_run_artifacts(
         "book_id": book_id,
         "file_hash": file_hash,
         "segment_focus_blocks": resolved_segment_focus_blocks,
-        "segment_overlap_requested": segment_overlap if task_scope == "freeform-spans" else None,
+        "segment_overlap_requested": segment_overlap,
         "segment_overlap_effective": effective_segment_overlap,
-        "target_task_count": target_task_count if task_scope == "freeform-spans" else None,
+        "target_task_count": target_task_count,
         "timing": timing_payload,
     }
 
@@ -2442,9 +2394,6 @@ def run_labelstudio_import(
     output_dir: Path,
     pipeline: str,
     project_name: str | None,
-    chunk_level: str,
-    task_scope: str,
-    context_window: int,
     segment_blocks: int = 40,
     segment_overlap: int = 5,
     segment_focus_blocks: int | None = None,
@@ -2511,9 +2460,6 @@ def run_labelstudio_import(
         path=path,
         output_dir=output_dir,
         pipeline=pipeline,
-        chunk_level=chunk_level,
-        task_scope=task_scope,
-        context_window=context_window,
         segment_blocks=segment_blocks,
         segment_overlap=segment_overlap,
         segment_focus_blocks=segment_focus_blocks,
@@ -2589,6 +2535,7 @@ def run_labelstudio_import(
     if project_id is None:
         raise RuntimeError("Label Studio project creation failed (missing id).")
 
+    supported_scope = "freeform-spans"
     existing_task_ids: set[str] = set()
     resume_source: str | None = None
     if resume and not overwrite and had_existing_project:
@@ -2596,12 +2543,12 @@ def run_labelstudio_import(
         manifest_path = _find_latest_manifest(output_dir, project_title)
         if manifest_path and manifest_path.exists():
             payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-            resume_scope = payload.get("task_scope", "pipeline")
-            if resume_scope != task_scope:
+            resume_scope = str(payload.get("task_scope") or supported_scope)
+            if resume_scope != supported_scope:
                 if auto_project_name_on_scope_mismatch and project_name is None:
                     _notify(
                         f"Existing project uses task_scope={resume_scope}; "
-                        f"creating a new project for task_scope={task_scope}."
+                        f"creating a new project for task_scope={supported_scope}."
                     )
                     existing_titles = {
                         str(candidate.get("title", ""))
@@ -2621,31 +2568,25 @@ def run_labelstudio_import(
                 else:
                     raise RuntimeError(
                         f"Existing project uses task_scope={resume_scope}; "
-                        "use a matching task_scope or a new project name."
+                        "use a freeform-spans project or a new project name."
                     )
             else:
                 resume_source = str(manifest_path)
                 existing_task_ids = set(
                     payload.get("segment_ids")
-                    or []
-                ) or set(
-                    payload.get("block_ids")
-                    or payload.get("chunk_ids")
                     or payload.get("task_ids")
                     or []
                 )
                 tasks_path = manifest_path.parent / "label_studio_tasks.jsonl"
                 if not existing_task_ids and tasks_path.exists():
-                    existing_task_ids = load_task_ids_from_jsonl(
-                        tasks_path, _task_id_key(task_scope)
-                    )
+                    existing_task_ids = _load_task_ids_from_jsonl(tasks_path, _task_id_key())
 
     upload_tasks: list[dict[str, Any]] = []
     for task in tasks:
-        task_id = _task_id_value(task, task_scope)
+        task_id = _task_id_value(task)
         if task_id and task_id in existing_task_ids:
             continue
-        if prelabel and task_scope == "freeform-spans" and upload_as == "predictions":
+        if prelabel and upload_as == "predictions":
             upload_tasks.append(_annotations_to_predictions(task))
         else:
             upload_tasks.append(task)
@@ -2668,7 +2609,6 @@ def run_labelstudio_import(
             continue
         use_inline_annotations = (
             prelabel
-            and task_scope == "freeform-spans"
             and upload_as == "annotations"
         )
         if use_inline_annotations:
@@ -2678,7 +2618,7 @@ def run_labelstudio_import(
                     [_strip_task_annotations(task) for task in batch],
                 )
                 post_import_annotation_pairs.extend(
-                    _task_annotation_pairs_for_upload(batch, task_scope=task_scope)
+                    _task_annotation_pairs_for_upload(batch)
                 )
             else:
                 try:
@@ -2695,7 +2635,7 @@ def run_labelstudio_import(
                         [_strip_task_annotations(task) for task in batch],
                     )
                     post_import_annotation_pairs.extend(
-                        _task_annotation_pairs_for_upload(batch, task_scope=task_scope)
+                        _task_annotation_pairs_for_upload(batch)
                     )
         else:
             client.import_tasks(project_id, batch)
@@ -2709,7 +2649,7 @@ def run_labelstudio_import(
         for remote_task in remote_tasks:
             if not isinstance(remote_task, dict):
                 continue
-            task_id = _task_id_value(remote_task, task_scope)
+            task_id = _task_id_value(remote_task)
             if not task_id:
                 continue
             remote_id = remote_task.get("id")

@@ -1,0 +1,44 @@
+# Run Settings Conventions
+
+Run-settings contracts for `cookimport/config/` and all call sites that consume `RunSettings`.
+
+## Run Settings Source of Truth
+
+- `cookimport/config/run_settings.py` is the canonical definition of per-run knobs (`RunSettings`), UI metadata, summary rendering, and stable hash generation.
+- When a run-setting value changes split capability (for example `epub_extractor=markitdown`), update both split planners (`cookimport/cli.py:_plan_jobs`, `cookimport/labelstudio/ingest.py:_plan_parallel_convert_jobs`) and `compute_effective_workers(...)` together.
+- EPUB unstructured tuning knobs (`epub_unstructured_html_parser_version`, `epub_unstructured_skip_headers_footers`, `epub_unstructured_preprocess_mode`) are part of canonical run settings and must propagate in both stage and benchmark prediction paths; do not wire them only in one flow.
+- EPUB extractor auto mode is removed from stage/prediction flows; accepted choices are explicit only: `unstructured`, `beautifulsoup`, `markdown`, `markitdown`.
+- Stored run-settings migration must coerce older `epub_extractor=auto` payloads to `unstructured` with a warning so older snapshots stay loadable.
+- Run-config persistence still includes both `epub_extractor_requested` and `epub_extractor_effective`; in current explicit-choice mode they should match for new runs.
+- Runtime env overrides for EPUB extraction options in prediction/stage helper flows must be scoped and restored after conversion; do not leak `C3IMP_EPUB_*` values across runs/tests.
+- `stage(...)` should pass per-file effective extractor choices explicitly to workers (`stage_one_file` / `stage_epub_job`) instead of depending on persistent process-wide `C3IMP_EPUB_EXTRACTOR`.
+- `cookimport/cli_ui/run_settings_flow.py` and `cookimport/cli_ui/toggle_editor.py` must derive editor rows/options from `RunSettings` metadata; do not maintain a separate hard-coded field list.
+- `cookimport/cli_ui/toggle_editor.py` must keep the selected row in view for long lists (cursor-tracked viewport scrolling), so benchmark/LLM-heavy settings menus remain navigable in small terminals.
+- Last-run snapshots are stored in `<output_dir_parent>/.history/last_run_settings_{import|benchmark}.json` via `cookimport/config/last_run_store.py` (older `<output_dir>/.history/...` path is read-only fallback for migration).
+- Schema evolution contract for stored run settings: missing keys default, unknown keys are ignored (warn once), and corrupt payloads degrade to `None` (treated as no saved run settings).
+- codex-farm knobs (`llm_recipe_pipeline`, `llm_knowledge_pipeline`, `llm_tags_pipeline`, `codex_farm_cmd`, `codex_farm_root`, `codex_farm_workspace_root`, `codex_farm_pipeline_pass1`, `codex_farm_pipeline_pass2`, `codex_farm_pipeline_pass3`, `codex_farm_pipeline_pass4_knowledge`, `codex_farm_pipeline_pass5_tags`, `codex_farm_context_blocks`, `codex_farm_knowledge_context_blocks`, `tag_catalog_json`, `codex_farm_failure_mode`) must be wired through stage and benchmark prediction-generation paths, and persisted in run-config surfaces (manifest/report/history).
+- `table_extraction` is a run setting (`off|on`) that gates deterministic table detection/export (`tables/<workbook>/tables.jsonl` + `tables.md`), table-aware chunking, and optional pass4 `chunk.blocks[*].table_hint` enrichment; keep these surfaces in sync when changing table behavior.
+- Chunk-consolidation contract: table chunks (`provenance.table_ids` present) must never merge with non-table chunks (or other table chunks) in either `merge_small_chunks` or adjacent-topic consolidation. Debug/rollback knob for consolidation remains `COOKIMPORT_CONSOLIDATE_ADJACENT_KNOWLEDGE_CHUNKS=0`.
+- `llm_recipe_pipeline` is policy-locked to `off` (recipe codex-farm parsing correction is TURNED OFF and must remain TURNED OFF until benchmark quality materially improves); CLI/pred-run input normalization should reject non-`off` values with an explicit policy message.
+- Run-settings migration contract: if stored/global settings contain older non-`off` `llm_recipe_pipeline` values, coerce them back to `off` with a warning so old configs cannot silently re-enable recipe codex-farm correction.
+- codex-farm orchestration should pass explicit `--root`/`--workspace-root` when those run settings are provided, and `llm_manifest.json` should record the effective pass pipeline ids.
+- pass5 tags artifacts are stage-run scoped and should stay in:
+  - `tags/<workbook_slug>/r{index}.tags.json`
+  - `tags/<workbook_slug>/tagging_report.json`
+  - `tags/tags_index.json`
+  - `raw/llm/<workbook_slug>/pass5_tags/{in,out}/*.json` + `raw/llm/<workbook_slug>/pass5_tags_manifest.json`
+- Default local codex-farm recipe pass prompts live in `llm_pipelines/prompts/recipe.{chunking,schemaorg,final}.v1.prompt.md`; text-only tuning should happen there without touching orchestration code.
+- For local codex-farm packs, pipeline JSON `prompt_template_path` / `output_schema_path` entries are the source of truth; avoid keeping duplicate filename schemes in `llm_pipelines/prompts/` that are not referenced by those pipeline specs.
+- New processing-option contract (do all, or the feature is incomplete):
+  - add option to `RunSettings` + interactive selectors,
+  - pass it through both run-producing command paths (`stage` and benchmark prediction generation),
+  - persist it in report/manifest + history CSV run-config fields,
+  - expose it in dashboard collector/renderer surfaces.
+- Pipeline option edit-map references:
+  - `cookimport/config/run_settings.py`
+  - `cookimport/cli.py`
+  - `cookimport/labelstudio/ingest.py`
+  - `cookimport/core/models.py`
+  - `cookimport/analytics/perf_report.py`
+  - `cookimport/analytics/dashboard_collect.py`
+  - `cookimport/analytics/dashboard_render.py`

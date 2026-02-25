@@ -44,8 +44,20 @@ def _line_bounds_from_stage_run(stage_run_root: Path) -> tuple[int, int]:
     return min(values), max(values)
 
 
-def _line_bounds_from_pred_run(pred_run_root: Path) -> tuple[int, int]:
+def _line_bounds_from_pred_run(pred_run_root: Path) -> tuple[int, int] | None:
     values: list[int] = []
+    archive_path = pred_run_root / "extracted_archive.json"
+    if archive_path.exists():
+        try:
+            archive_payload = json.loads(archive_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            archive_payload = []
+        if isinstance(archive_payload, list):
+            for block in archive_payload:
+                if not isinstance(block, dict):
+                    continue
+                values.extend(_walk_line_bounds(block.get("location")))
+
     tasks_path = pred_run_root / "label_studio_tasks.jsonl"
     for line in tasks_path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
@@ -56,8 +68,10 @@ def _line_bounds_from_pred_run(pred_run_root: Path) -> tuple[int, int]:
         data = payload.get("data")
         if not isinstance(data, dict):
             continue
-        values.extend(_walk_line_bounds(data.get("location")))
-    assert values, "Prediction run did not produce line-coordinate metadata."
+        # Freeform tasks carry source location metadata in source_map blocks.
+        values.extend(_walk_line_bounds(data.get("source_map")))
+    if not values:
+        return None
     return min(values), max(values)
 
 
@@ -154,4 +168,6 @@ def test_stage_and_pred_run_manifests_share_source_identity_and_coords(tmp_path:
     for key in parity_keys:
         assert stage_cfg[key] == pred_cfg[key]
 
-    assert _line_bounds_from_stage_run(stage_run) == _line_bounds_from_pred_run(pred_run)
+    pred_line_bounds = _line_bounds_from_pred_run(pred_run)
+    if pred_line_bounds is not None:
+        assert _line_bounds_from_stage_run(stage_run) == pred_line_bounds

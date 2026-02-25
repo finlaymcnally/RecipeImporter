@@ -101,11 +101,37 @@ def aggregate_metrics(per_item_results: list[dict[str, Any]]) -> dict[str, Any]:
     for label, accum in sorted(per_label_accum.items()):
         gt = accum["gold_total"]
         pt = accum["pred_total"]
+        precision_value = (accum["pred_matched"] / pt) if pt else 0.0
+        recall_value = (accum["gold_matched"] / gt) if gt else 0.0
+        f1_value = (
+            2 * precision_value * recall_value / (precision_value + recall_value)
+            if (precision_value + recall_value) > 0
+            else 0.0
+        )
         per_label[label] = {
             **accum,
-            "recall": (accum["gold_matched"] / gt) if gt else 0.0,
-            "precision": (accum["pred_matched"] / pt) if pt else 0.0,
+            "recall": recall_value,
+            "precision": precision_value,
+            "f1": f1_value,
         }
+
+    macro_labels = [
+        label
+        for label, stats in per_label.items()
+        if label != "OTHER" and (stats.get("gold_total", 0) > 0 or stats.get("pred_total", 0) > 0)
+    ]
+    macro_f1_excluding_other = (
+        sum(float(per_label[label].get("f1", 0.0)) for label in macro_labels) / len(macro_labels)
+        if macro_labels
+        else 0.0
+    )
+    worst_label = None
+    worst_label_recall = None
+    for label in macro_labels:
+        recall_value = float(per_label[label].get("recall", 0.0))
+        if worst_label_recall is None or recall_value < worst_label_recall:
+            worst_label = label
+            worst_label_recall = recall_value
 
     return {
         "counts": {
@@ -148,6 +174,12 @@ def aggregate_metrics(per_item_results: list[dict[str, Any]]) -> dict[str, Any]:
         "supported_practical_precision": supported_practical_precision,
         "supported_practical_f1": supported_practical_f1,
         "prediction_density": pred_density,
+        "overall_block_accuracy": recall,
+        "macro_f1_excluding_other": macro_f1_excluding_other,
+        "worst_label_recall": {
+            "label": worst_label,
+            "recall": worst_label_recall,
+        },
         "per_label": per_label,
         "items_evaluated": len(per_item_results),
     }
@@ -170,8 +202,14 @@ def format_suite_report_md(
         f"Predicted spans: {counts.get('pred_total', 0)}",
         f"Prediction density: {aggregate.get('prediction_density', 0):.2f} preds/gold",
         "",
-        "Practical metrics are content overlap (same label, any overlap).",
-        "Strict metrics are localization quality (same label, IoU threshold).",
+        "Stage-block benchmark metrics:",
+        f"Overall block accuracy: {aggregate.get('overall_block_accuracy', aggregate.get('recall', 0)):.3f}",
+        f"Macro F1 (excluding OTHER): {aggregate.get('macro_f1_excluding_other', 0):.3f}",
+        (
+            "Worst-label recall: "
+            f"{(aggregate.get('worst_label_recall') or {}).get('label') or 'n/a'} "
+            f"{float((aggregate.get('worst_label_recall') or {}).get('recall') or 0.0):.3f}"
+        ),
         "",
         f"**Practical Recall:** {aggregate.get('practical_recall', 0):.3f} "
         f"({practical_counts.get('gold_matched', 0)}/{practical_counts.get('gold_total', 0)})",

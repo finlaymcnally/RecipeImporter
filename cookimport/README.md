@@ -2,6 +2,7 @@
 
 This package provides the local CLI and shared pipeline modules for staging
 recipe sources into schema.org Recipe JSON (intermediate) and cookbook3 (final).
+Durable orchestration and CLI rules live in `cookimport/CONVENTIONS.md`.
 CLI entrypoints live in
 `cookimport/cli.py`, core models live in `cookimport/core/`, and staging output
 helpers live in `cookimport/staging/`.
@@ -35,9 +36,8 @@ current per-config task line while suppressing per-config benchmark summary
 dumps.
 Interactive `C3imp`/`cookimport` prompts now use `Esc` for one-level back/cancel
 navigation across both menu `select` prompts and typed text/confirm/password prompts.
-Interactive Label Studio import now supports all task scopes (`pipeline`,
-`canonical-blocks`, `freeform-spans`) and asks for scope-specific settings
-(chunk level, canonical context window, or freeform segment sizing).
+Interactive Label Studio import is freeform-only (`freeform-spans`) and asks
+for freeform segment sizing plus optional AI prelabel settings.
 Interactive menus now print short purpose blurbs and include concise per-option
 descriptions to make each branch easier to choose without external docs.
 

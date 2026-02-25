@@ -1,31 +1,11 @@
-Label Studio benchmark mode helpers.
+Label Studio helpers for freeform span workflows.
+Durable import/export/prelabel rules live in `cookimport/labelstudio/CONVENTIONS.md`.
 
-- `ingest.py` builds a full extracted text archive and uploads chunk tasks (pipeline), block tasks (canonical), or freeform span tasks.
-- `label_config_blocks.py` defines the block-classification labeling UI.
-- `label_config_freeform.py` defines text-span highlighting labels for freeform projects.
-- Freeform canonical labels are `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER` (legacy `TIP`/`NOTES`/`VARIANT` normalize to the new names).
-- `block_tasks.py` generates canonical block tasks with stable block IDs and context windows.
-- `freeform_tasks.py` builds segment-based freeform tasks with stable segment IDs; Label Studio `segment_text` + `source_map.blocks` now contain only focus (labelable) rows, while `source_map.context_before_blocks` / `source_map.context_after_blocks` preserve neighboring context rows for AI prompt construction.
-- `prelabel.py` adds Codex-CLI prelabel support: block-index suggestions -> deterministic span offsets. Default command is non-interactive (`codex exec -`) unless overridden by `COOKIMPORT_CODEX_CMD`, and plain `codex`/`codex2` auto-retry with `exec -` on TTY errors.
-- Span prelabel prompts now include explicit context-before/context-after marker lines around the START/STOP focus markers to make label scope boundaries easier to scan in prompt logs.
-- Freeform Label Studio projects now show per-task scope headers (`focus_scope_hint`, focus range, context-before range, context-after range) so annotators can see what to label vs read as context.
-- `export.py` pulls annotations back and converts them into JSONL (pipeline tip eval + canonical block labels + freeform spans).
-- `eval_canonical.py` compares pipeline structural chunks to canonical gold spans.
-- `eval_freeform.py` compares pipeline chunk predictions to freeform span gold labels via block-range overlap.
-- `eval_freeform.py` now also emits an `app_aligned` summary (deduped predictions, supported-label-only metrics, relaxed overlap, and any-overlap coverage) alongside strict span metrics.
-- `eval_freeform.py` also emits `classification_only` diagnostics focused on label agreement/coverage with boundary-insensitive overlap.
-- `labelstudio-benchmark` now also writes stage-style processed cookbook output to `data/output` (override via `--processed-output-dir`) while still writing benchmark artifacts to `data/golden`.
-- Interactive benchmark now has an offline `All method benchmark` mode that runs multiple `labelstudio-benchmark --no-upload` style configurations and writes a ranked aggregate report (`all_method_benchmark_report.json/.md`).
-- `labelstudio-import --prelabel` can upload completed freeform annotations (with fallback to post-import per-task annotation create if inline annotation import is rejected).
-- Prelabel progress callbacks now emit `task X/Y` counters for spinner visibility during long AI-label loops.
-- Prelabel parallel workers also emit worker-activity telemetry so callback-driven CLI spinners can show one live line per worker under the main status.
-- Split conversion workers now emit the same telemetry (`job X/Y`) so worker-aware spinner summaries work before merge phases too.
-- Progress callback exceptions are now treated as non-fatal telemetry failures (logged + ignored) so extraction and task generation continue even if a UI/status renderer crashes.
-- Freeform prelabel task generation runs with bounded parallelism (`--prelabel-workers`, default `15`; use `1` for serial behavior).
-- Freeform prelabel now treats provider `HTTP 429`/rate-limit errors as a stop signal: after the first 429, remaining queued tasks are skipped (no new provider calls), and progress logs include an explicit 429 warning.
-- Interactive freeform import now exposes prelabel modes (`off`, strict/allow-partial annotations, plus predictions variants) that map directly to `--prelabel-upload-as` and `--prelabel-allow-partial`.
-- Interactive freeform prelabel now resolves command from `COOKIMPORT_CODEX_CMD` or default `codex exec -`, shows the resolved account email when available, and offers model selection from that command's Codex home metadata (`CODEX_HOME` honored).
-- Freeform prelabel supports explicit `--codex-model` selection (or command-specific Codex CLI default discovery), and token usage totals are captured into `prelabel_report.json` with command/account fields (including `reasoning_tokens` when Codex emits them).
-- Freeform prelabel now also writes `prelabel_prompt_log.md` in each run root (`data/golden/<timestamp>/labelstudio/<book_slug>/`) with full `codex exec` prompt text plus prompt-context description/metadata.
-- Prelabel timeout now defaults to `300s` per provider call (`--prelabel-timeout-seconds` override).
-- CLI import summaries print a loud red `PRELABEL ERRORS: X/Y ...` line (plus `prelabel_errors.jsonl` path) when prelabel failures happen, even in allow-partial runs.
+- `ingest.py` builds extracted archives, freeform span tasks, prediction-run artifacts, and handles upload/resume.
+- `archive.py` contains shared archive/normalization helpers used by freeform ingest and stage-block prediction flows.
+- `freeform_tasks.py` builds segment-based freeform tasks (`segment_id`, `source_map`, focus/context metadata).
+- `label_config_freeform.py` defines the freeform labeling UI and label normalization rules.
+- `prelabel.py` runs optional Codex-CLI prelabeling for freeform tasks.
+- `export.py` exports freeform annotations only (`freeform_span_labels.jsonl`, `freeform_segment_manifest.jsonl`, `summary.json`) and rejects legacy project scopes.
+- `eval_freeform.py` evaluates predicted freeform labels against exported freeform gold.
+- `labelstudio-benchmark` scores stage evidence (`stage_block_predictions.json`) against freeform gold.

@@ -498,6 +498,16 @@ def append_benchmark_csv(
     gold_width_p50 = _safe_float_or_none((span_width_stats.get("gold") or {}).get("p50"))
 
     boundary = report.get("boundary") or {}
+    overall_block_accuracy = _safe_float_or_none(report.get("overall_block_accuracy"))
+    if overall_block_accuracy is None:
+        overall_block_accuracy = _safe_float_or_none(report.get("accuracy"))
+    macro_f1_excluding_other = _safe_float_or_none(report.get("macro_f1_excluding_other"))
+    worst_label = ""
+    worst_label_recall = None
+    worst_label_payload = report.get("worst_label_recall")
+    if isinstance(worst_label_payload, dict):
+        worst_label = str(worst_label_payload.get("label") or "").strip()
+        worst_label_recall = _safe_float_or_none(worst_label_payload.get("recall"))
     resolved_run_config_hash = run_config_hash
     resolved_run_config_summary = run_config_summary
     if run_config is not None:
@@ -586,14 +596,38 @@ def append_benchmark_csv(
         "recipes": recipes if recipes is not None else "",
         "run_category": run_category,
         "eval_scope": eval_scope,
-        "precision": precision if precision is not None else "",
-        "recall": recall if recall is not None else "",
-        "f1": f1 if f1 is not None else "",
+        "precision": (
+            precision
+            if precision is not None
+            else overall_block_accuracy
+            if overall_block_accuracy is not None
+            else ""
+        ),
+        "recall": (
+            recall
+            if recall is not None
+            else overall_block_accuracy
+            if overall_block_accuracy is not None
+            else ""
+        ),
+        "f1": (
+            f1
+            if f1 is not None
+            else overall_block_accuracy
+            if overall_block_accuracy is not None
+            else ""
+        ),
         "practical_precision": (
             practical_precision if practical_precision is not None else ""
         ),
         "practical_recall": practical_recall if practical_recall is not None else "",
-        "practical_f1": practical_f1 if practical_f1 is not None else "",
+        "practical_f1": (
+            practical_f1
+            if practical_f1 is not None
+            else macro_f1_excluding_other
+            if macro_f1_excluding_other is not None
+            else ""
+        ),
         "gold_total": counts.get("gold_total", ""),
         "gold_recipe_headers": (
             gold_recipe_headers if gold_recipe_headers is not None else ""
@@ -655,6 +689,16 @@ def append_benchmark_csv(
         ),
         "benchmark_evaluate_seconds": (
             benchmark_evaluate_seconds if benchmark_evaluate_seconds is not None else ""
+        ),
+        "benchmark_overall_accuracy": (
+            overall_block_accuracy if overall_block_accuracy is not None else ""
+        ),
+        "benchmark_macro_f1_excluding_other": (
+            macro_f1_excluding_other if macro_f1_excluding_other is not None else ""
+        ),
+        "benchmark_worst_label": worst_label,
+        "benchmark_worst_label_recall": (
+            worst_label_recall if worst_label_recall is not None else ""
         ),
         "run_config_hash": resolved_run_config_hash or "",
         "run_config_summary": resolved_run_config_summary or "",
@@ -1133,6 +1177,10 @@ _CSV_FIELDS = [
     "benchmark_prediction_load_seconds",
     "benchmark_gold_load_seconds",
     "benchmark_evaluate_seconds",
+    "benchmark_overall_accuracy",
+    "benchmark_macro_f1_excluding_other",
+    "benchmark_worst_label",
+    "benchmark_worst_label_recall",
     "epub_extractor_requested",
     "epub_extractor_effective",
     "epub_auto_selected_score",
@@ -1219,6 +1267,10 @@ def _row_to_csv(row: PerfRow) -> dict[str, Any]:
         "benchmark_prediction_load_seconds": "",
         "benchmark_gold_load_seconds": "",
         "benchmark_evaluate_seconds": "",
+        "benchmark_overall_accuracy": "",
+        "benchmark_macro_f1_excluding_other": "",
+        "benchmark_worst_label": "",
+        "benchmark_worst_label_recall": "",
         "epub_extractor_requested": row.epub_extractor_requested or "",
         "epub_extractor_effective": row.epub_extractor_effective or "",
         "epub_auto_selected_score": (

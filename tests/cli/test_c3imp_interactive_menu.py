@@ -215,7 +215,7 @@ def test_import_entrypoint_passes_extended_stage_settings(
     input_dir = tmp_path / "input"
     output_dir = tmp_path / "output"
     settings = {
-        "epub_extractor": "legacy",
+        "epub_extractor": "beautifulsoup",
         "epub_unstructured_html_parser_version": "v2",
         "epub_unstructured_skip_headers_footers": True,
         "epub_unstructured_preprocess_mode": "semantic_v1",
@@ -249,7 +249,7 @@ def test_import_entrypoint_passes_extended_stage_settings(
     assert captured["path"] == input_dir
     assert captured["limit"] is None
     assert captured["out"] == output_dir
-    assert captured["epub_extractor"] == "legacy"
+    assert captured["epub_extractor"] == "beautifulsoup"
     assert captured["epub_unstructured_html_parser_version"] == "v2"
     assert captured["epub_unstructured_skip_headers_footers"] is True
     assert captured["epub_unstructured_preprocess_mode"] == "semantic_v1"

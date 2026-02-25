@@ -239,8 +239,8 @@ def test_format_suite_report_md():
     md = format_suite_report_md(agg, per_item, suite_name="test")
     assert "Bench Suite Report" in md
     assert "test" in md
-    assert "Practical metrics are content overlap" in md
-    assert "Strict metrics are localization quality" in md
+    assert "Stage-block benchmark metrics" in md
+    assert "Macro F1 (excluding OTHER)" in md
     assert "**Practical F1:** 0.887" in md
     assert "**Strict F1:** 0.724" in md
 

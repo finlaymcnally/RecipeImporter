@@ -76,7 +76,7 @@ def test_run_settings_ui_specs_cover_all_editable_fields() -> None:
 
 def test_last_run_store_round_trip_and_corrupt_recovery(tmp_path) -> None:
     output_root = tmp_path / "output"
-    original = RunSettings(workers=9, epub_extractor="legacy")
+    original = RunSettings(workers=9, epub_extractor="beautifulsoup")
 
     save_last_run_settings("import", output_root, original)
     loaded = load_last_run_settings("import", output_root)
@@ -115,7 +115,7 @@ def test_compute_effective_workers_promotes_unstructured_epub_splits() -> None:
     assert effective == 12
 
 
-def test_run_settings_migrates_legacy_auto_extractor_to_unstructured() -> None:
+def test_run_settings_migrates_auto_extractor_to_unstructured() -> None:
     settings = RunSettings.from_dict({"epub_extractor": "auto"}, warn_context="test")
 
     assert settings.epub_extractor.value == "unstructured"

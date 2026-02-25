@@ -19,7 +19,7 @@ def _extract_blocks(epub_path: Path, *, extractor: str) -> list:
         raise
 
 
-@pytest.mark.parametrize("extractor", ["legacy", "unstructured"])
+@pytest.mark.parametrize("extractor", ["beautifulsoup", "unstructured"])
 def test_epub_text_normalization_handles_soft_hyphen_and_unicode_noise(
     tmp_path: Path,
     extractor: str,
@@ -48,7 +48,7 @@ def test_epub_text_normalization_handles_soft_hyphen_and_unicode_noise(
     assert "1/2 tsp salt" in text_blob
 
 
-@pytest.mark.parametrize("extractor", ["legacy", "unstructured"])
+@pytest.mark.parametrize("extractor", ["beautifulsoup", "unstructured"])
 def test_epub_br_collapsed_ingredient_lines_are_split(
     tmp_path: Path,
     extractor: str,
@@ -72,7 +72,7 @@ def test_epub_br_collapsed_ingredient_lines_are_split(
     assert {"1 cup flour", "2 eggs", "1/2 tsp salt"}.issubset(texts)
 
 
-@pytest.mark.parametrize("extractor", ["legacy", "unstructured"])
+@pytest.mark.parametrize("extractor", ["beautifulsoup", "unstructured"])
 def test_epub_bullet_prefixes_are_removed_before_signal_detection(
     tmp_path: Path,
     extractor: str,
@@ -104,7 +104,7 @@ def test_epub_bullet_prefixes_are_removed_before_signal_detection(
     assert any(block.features.get("starts_with_quantity") for block in ingredient_blocks)
 
 
-@pytest.mark.parametrize("extractor", ["legacy", "unstructured"])
+@pytest.mark.parametrize("extractor", ["beautifulsoup", "unstructured"])
 def test_epub_nav_spine_document_is_ignored(
     tmp_path: Path,
     extractor: str,
@@ -140,7 +140,7 @@ def test_epub_nav_spine_document_is_ignored(
     assert "Example Stew" in text_blob
 
 
-@pytest.mark.parametrize("extractor", ["legacy", "unstructured"])
+@pytest.mark.parametrize("extractor", ["beautifulsoup", "unstructured"])
 def test_epub_pagebreak_markers_are_filtered(
     tmp_path: Path,
     extractor: str,
@@ -167,7 +167,7 @@ def test_epub_pagebreak_markers_are_filtered(
     assert "1 cup flour" in block_texts
 
 
-def test_epub_table_rows_become_ingredient_like_lines_in_legacy(tmp_path: Path) -> None:
+def test_epub_table_rows_become_ingredient_like_lines_in_beautifulsoup(tmp_path: Path) -> None:
     source = make_synthetic_epub(
         tmp_path / "table-rows.epub",
         spine_documents=[
@@ -184,7 +184,7 @@ def test_epub_table_rows_become_ingredient_like_lines_in_legacy(tmp_path: Path) 
         ],
     )
 
-    blocks = _extract_blocks(source, extractor="legacy")
+    blocks = _extract_blocks(source, extractor="beautifulsoup")
     rows = [block for block in blocks if block.features.get("epub_table_row")]
     assert any(row.text == "1 cup sugar" for row in rows)
     assert any(row.text == "2 tbsp oil" for row in rows)
@@ -209,7 +209,7 @@ def test_epub_health_warnings_are_written_to_report_and_raw_artifacts(
         ],
     )
 
-    monkeypatch.setenv("C3IMP_EPUB_EXTRACTOR", "legacy")
+    monkeypatch.setenv("C3IMP_EPUB_EXTRACTOR", "beautifulsoup")
     result = EpubImporter().convert(source, None)
     assert "epub_duplicate_block_rate_high" in result.report.warnings
 

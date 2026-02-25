@@ -1,4 +1,5 @@
 Performance reporting utilities live here.
+Durable analytics caveats/contracts live in `cookimport/analytics/CONVENTIONS.md`.
 
 - Reads per-run conversion reports and prints one-line, per-file timing summaries.
 - Appends run history to `data/.history/performance_history.csv` for easy trending.
@@ -6,6 +7,7 @@ Performance reporting utilities live here.
 - Includes `cookimport benchmark-csv-backfill` to patch older benchmark rows from manifest/report artifacts.
 - CSV-writing CLI flows now also auto-refresh dashboard artifacts under the same `.history/dashboard` root (best effort).
 - Includes standalone topic coverage (`totalStandaloneBlocks`, `totalStandaloneTopicBlocks`, `standaloneTopicCoverage`) when available.
+- Benchmark rows now include stage-block metric columns (`benchmark_overall_accuracy`, `benchmark_macro_f1_excluding_other`, `benchmark_worst_label`, `benchmark_worst_label_recall`).
 
 Outliers are flagged across multiple metrics (total, parsing, writing, per-unit) and
 per-recipe only when the run is recipe-heavy (to avoid knowledge-heavy false positives).
@@ -19,6 +21,9 @@ Modules:
 - `dashboard_schema.py` – Pydantic v2 models (`DashboardData`, `StageRecord`, `BenchmarkRecord`)
 - `dashboard_collect.py` – Read-only collectors for CSV history + eval_report.json
 - `dashboard_render.py` – Writes `index.html` + local JS/CSS/JSON assets
+
+Dashboard UX rule:
+- Any new metric shown in the dashboard should come with a plain-English description (tooltips and/or an on-page help/glossary). See `cookimport/analytics/CONVENTIONS.md`.
 
 Data sources (read-only):
 - `data/.history/performance_history.csv` (primary for stage records)

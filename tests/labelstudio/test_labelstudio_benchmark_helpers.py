@@ -405,7 +405,6 @@ def test_labelstudio_import_prints_processing_time(
         allow_labelstudio_write=True,
         label_studio_url="http://example",
         label_studio_api_key="api-key",
-        task_scope="pipeline",
         prelabel=False,
         prelabel_upload_as="annotations",
         prelabel_granularity=cli.PRELABEL_GRANULARITY_BLOCK,
@@ -460,7 +459,6 @@ def test_labelstudio_import_prints_prelabel_failure_summary(
         allow_labelstudio_write=True,
         label_studio_url="http://example",
         label_studio_api_key="api-key",
-        task_scope="freeform-spans",
         segment_blocks=40,
         segment_focus_blocks=40,
         prelabel=True,
@@ -527,7 +525,6 @@ def test_labelstudio_import_prints_prelabel_token_usage_with_reasoning(
         allow_labelstudio_write=True,
         label_studio_url="http://example",
         label_studio_api_key="api-key",
-        task_scope="freeform-spans",
         segment_blocks=40,
         segment_focus_blocks=40,
         prelabel=True,
@@ -588,7 +585,6 @@ def test_labelstudio_import_routes_freeform_focus_and_target_options(
         allow_labelstudio_write=True,
         label_studio_url="http://example",
         label_studio_api_key="api-key",
-        task_scope="freeform-spans",
         segment_blocks=40,
         segment_overlap=5,
         segment_focus_blocks=28,
@@ -835,7 +831,7 @@ def test_infer_scope_from_project_payload_detects_new_freeform_labels() -> None:
     assert scope == "freeform-spans"
 
 
-def test_infer_scope_from_project_payload_keeps_legacy_freeform_detection() -> None:
+def test_infer_scope_from_project_payload_keeps_old_freeform_detection() -> None:
     scope = cli._infer_scope_from_project_payload(
         {"label_config": "<View><Label value='VARIANT'/></View>"}
     )
@@ -880,7 +876,6 @@ def test_labelstudio_eval_direct_call_uses_real_defaults(
     monkeypatch.setattr(cli, "evaluate_predicted_vs_freeform", fake_eval)
 
     cli.labelstudio_eval(
-        scope="freeform-spans",
         pred_run=pred_run,
         gold_spans=gold_spans,
         output_dir=output_dir,
@@ -950,7 +945,6 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
     monkeypatch.setattr(cli, "stats_dashboard", lambda **kwargs: captured_dashboard.update(kwargs))
 
     cli.labelstudio_eval(
-        scope="freeform-spans",
         pred_run=pred_run,
         gold_spans=gold_spans,
         output_dir=output_dir,
@@ -1201,7 +1195,6 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
         [
             "labelstudio",
             selected_file,
-            "freeform-spans",
             (True, "annotations", True),
             "span",
             "__default__",
@@ -1234,6 +1227,11 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
     monkeypatch.setattr(cli, "default_codex_model", lambda cmd=None: None)
     monkeypatch.setattr(cli, "list_codex_models", lambda cmd=None: [])
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", tmp_path / "golden")
+    monkeypatch.setattr(
+        cli,
+        "_resolve_interactive_labelstudio_settings",
+        lambda *_: ("http://example", "api-key"),
+    )
     monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
     monkeypatch.setenv("LABEL_STUDIO_URL", "http://localhost:8080")
     monkeypatch.setenv("LABEL_STUDIO_API_KEY", "key")
@@ -1260,8 +1258,6 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
 
-    assert captured["task_scope"] == "freeform-spans"
-    assert captured["chunk_level"] == "both"
     assert captured["segment_blocks"] == 42
     assert captured["segment_overlap"] == 6
     assert captured["segment_focus_blocks"] == 28
@@ -1292,7 +1288,6 @@ def test_interactive_labelstudio_filters_incompatible_effort_choices(
         [
             "labelstudio",
             selected_file,
-            "freeform-spans",
             (True, "annotations", True),
             "span",
             "gpt-5.3-codex-spark",
@@ -1397,7 +1392,6 @@ def test_interactive_labelstudio_freeform_focus_escape_steps_back_one_level(
         [
             "labelstudio",
             selected_file,
-            "freeform-spans",
             (False, "annotations", False),
             "exit",
         ]
@@ -1449,77 +1443,10 @@ def test_interactive_labelstudio_freeform_focus_escape_steps_back_one_level(
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
 
-    assert captured["task_scope"] == "freeform-spans"
     assert captured["segment_blocks"] == 40
     assert captured["segment_overlap"] == 7
     assert captured["segment_focus_blocks"] == 40
     assert prompt_messages.count("Freeform overlap (blocks):") == 2
-
-
-def test_interactive_labelstudio_import_forces_overwrite_without_prompt(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    selected_file = tmp_path / "book.epub"
-    selected_file.write_text("dummy", encoding="utf-8")
-
-    menu_answers = iter(["labelstudio", selected_file, "pipeline", "both", "exit"])
-
-    def fake_menu_select(*_args, **_kwargs):
-        return next(menu_answers)
-
-    class _Prompt:
-        def __init__(self, value: str | bool):
-            self._value = value
-
-        def ask(self):
-            return self._value
-
-    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [selected_file])
-    monkeypatch.setattr(cli, "_load_settings", lambda: {})
-    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
-    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", tmp_path / "golden")
-    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
-    monkeypatch.setenv("LABEL_STUDIO_URL", "http://localhost:8080")
-    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "key")
-    monkeypatch.setattr(
-        cli.questionary,
-        "text",
-        lambda *args, **kwargs: _Prompt(""),
-    )
-
-    confirm_prompts: list[str] = []
-
-    def fake_confirm(message: str, *args, **kwargs):
-        confirm_prompts.append(message)
-        if "Overwrite existing project" in message:
-            raise AssertionError("Interactive import should not ask overwrite confirmation.")
-        if "Upload tasks to Label Studio now?" in message:
-            return _Prompt(True)
-        raise AssertionError(f"Unexpected confirmation prompt: {message}")
-
-    monkeypatch.setattr(cli.questionary, "confirm", fake_confirm)
-
-    captured: dict[str, object] = {}
-
-    def fake_run_labelstudio_import(**kwargs):
-        captured.update(kwargs)
-        return {
-            "project_name": "book",
-            "project_id": 1,
-            "tasks_total": 10,
-            "tasks_uploaded": 10,
-            "run_root": tmp_path / "out",
-        }
-
-    monkeypatch.setattr(cli, "run_labelstudio_import", fake_run_labelstudio_import)
-
-    with pytest.raises(cli.typer.Exit):
-        cli._interactive_mode()
-
-    assert confirm_prompts == []
-    assert captured["overwrite"] is True
-    assert captured["resume"] is False
-    assert callable(captured["progress_callback"])
 
 
 def test_interactive_benchmark_uses_golden_output_roots(
@@ -1542,7 +1469,7 @@ def test_interactive_benchmark_uses_golden_output_roots(
     monkeypatch.setattr(
         cli,
         "_load_settings",
-        lambda: {"output_dir": str(configured_output), "epub_extractor": "legacy"},
+        lambda: {"output_dir": str(configured_output), "epub_extractor": "beautifulsoup"},
     )
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
 
@@ -1568,7 +1495,7 @@ def test_interactive_benchmark_uses_golden_output_roots(
     assert captured["no_upload"] is True
     assert "label_studio_url" not in captured
     assert "label_studio_api_key" not in captured
-    assert captured["epub_extractor"] == "legacy"
+    assert captured["epub_extractor"] == "beautifulsoup"
     assert mode_prompts
     assert any("offline, no upload" in title for title in mode_prompts[0])
     assert any("All method benchmark" in title for title in mode_prompts[0])
@@ -1587,7 +1514,7 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
     monkeypatch.setattr(
         cli,
         "_load_settings",
-        lambda: {"output_dir": str(configured_output), "epub_extractor": "legacy"},
+        lambda: {"output_dir": str(configured_output), "epub_extractor": "beautifulsoup"},
     )
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
     monkeypatch.setattr(
@@ -1727,9 +1654,7 @@ def test_interactive_labelstudio_export_routes_to_export_command(
     selected_output = tmp_path / "golden"
     menu_answers = iter(["labelstudio_export", "exit"])
 
-    def fake_menu_select(prompt: str, *_args, **_kwargs):
-        if prompt == "Export scope:":
-            raise AssertionError("Known project type should skip export scope prompt.")
+    def fake_menu_select(*_args, **_kwargs):
         return next(menu_answers)
 
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
@@ -1753,11 +1678,10 @@ def test_interactive_labelstudio_export_routes_to_export_command(
         cli._interactive_mode()
 
     assert captured["project_name"] == "Bench Project"
-    assert captured["export_scope"] == "freeform-spans"
     assert captured["output_dir"] == selected_output / "pulled-from-labelstudio"
 
 
-def test_interactive_labelstudio_export_selects_project_before_scope(
+def test_interactive_labelstudio_export_selects_project_before_export(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     selected_output = tmp_path / "golden"
@@ -1770,8 +1694,6 @@ def test_interactive_labelstudio_export_selects_project_before_scope(
         if prompt == "What would you like to do?":
             state["main_calls"] += 1
             return "labelstudio_export" if state["main_calls"] == 1 else "exit"
-        if prompt == "Export scope:":
-            return "pipeline"
         raise AssertionError(f"Unexpected prompt: {prompt}")
 
     def fake_select_export_project(**_kwargs):
@@ -1798,7 +1720,6 @@ def test_interactive_labelstudio_export_selects_project_before_scope(
     assert events == [
         "menu:What would you like to do?",
         "select_project",
-        "menu:Export scope:",
         "menu:What would you like to do?",
     ]
 
@@ -1942,7 +1863,7 @@ def test_interactive_epub_race_routes_to_race_command(
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [source_epub])
     monkeypatch.setattr(cli, "_load_settings", lambda: {})
 
-    text_answers = iter([str(race_out), "unstructured,markdown,legacy"])
+    text_answers = iter([str(race_out), "unstructured,markdown,beautifulsoup"])
     text_prompt_defaults: list[str | None] = []
 
     class _Prompt:
@@ -1979,7 +1900,7 @@ def test_interactive_epub_race_routes_to_race_command(
 
     assert captured["path"] == source_epub
     assert captured["out"] == race_out
-    assert captured["candidates"] == "unstructured,markdown,legacy"
+    assert captured["candidates"] == "unstructured,markdown,beautifulsoup"
     assert captured["json_output"] is False
     assert captured["force"] is False
     assert text_prompt_defaults[0] == str(cli.DEFAULT_EPUB_RACE_OUTPUT_ROOT / source_epub.stem)
@@ -1995,6 +1916,42 @@ def test_labelstudio_benchmark_passes_processed_output_root(
     prediction_run = tmp_path / "pred-run"
     prediction_run.mkdir(parents=True, exist_ok=True)
     (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
     monkeypatch.setattr(
         cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key")
@@ -2029,7 +1986,94 @@ def test_labelstudio_benchmark_passes_processed_output_root(
         },
     )
     monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(cli, "write_jsonl", lambda *_: None)
+    monkeypatch.setattr(cli, "_write_jsonl_rows", lambda *_: None)
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 0,
+                    "pred_total": 0,
+                    "gold_matched": 0,
+                    "pred_matched": 0,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_block_accuracy": 0.0,
+                "macro_f1_excluding_other": 0.0,
+                "worst_label_recall": {"label": None, "recall": 0.0},
+                "recall": 0.0,
+                "precision": 0.0,
+                "f1": 0.0,
+                "practical_recall": 0.0,
+                "practical_precision": 0.0,
+                "practical_f1": 0.0,
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 0,
+                    "pred_total": 0,
+                    "gold_matched": 0,
+                    "pred_matched": 0,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_block_accuracy": 0.0,
+                "macro_f1_excluding_other": 0.0,
+                "worst_label_recall": {"label": None, "recall": 0.0},
+                "recall": 0.0,
+                "precision": 0.0,
+                "f1": 0.0,
+                "practical_recall": 0.0,
+                "practical_precision": 0.0,
+                "practical_f1": 0.0,
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 0,
+                    "pred_total": 0,
+                    "gold_matched": 0,
+                    "pred_matched": 0,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_block_accuracy": 0.0,
+                "macro_f1_excluding_other": 0.0,
+                "worst_label_recall": {"label": None, "recall": 0.0},
+                "recall": 0.0,
+                "precision": 0.0,
+                "f1": 0.0,
+                "practical_recall": 0.0,
+                "practical_precision": 0.0,
+                "practical_f1": 0.0,
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
 
     captured: dict[str, object] = {}
 
@@ -2071,6 +2115,18 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     prediction_run = tmp_path / "pred-run"
     prediction_run.mkdir(parents=True, exist_ok=True)
     (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
     (prediction_run / "manifest.json").write_text(
         json.dumps(
             {
@@ -2128,7 +2184,36 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
         },
     )
     monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(cli, "write_jsonl", lambda *_: None)
+    monkeypatch.setattr(cli, "_write_jsonl_rows", lambda *_: None)
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 0,
+                    "pred_total": 0,
+                    "gold_matched": 0,
+                    "pred_matched": 0,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_block_accuracy": 0.0,
+                "macro_f1_excluding_other": 0.0,
+                "worst_label_recall": {"label": None, "recall": 0.0},
+                "recall": 0.0,
+                "precision": 0.0,
+                "f1": 0.0,
+                "practical_recall": 0.0,
+                "practical_precision": 0.0,
+                "practical_f1": 0.0,
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
     monkeypatch.setattr(
         "cookimport.analytics.perf_report.append_benchmark_csv",
         lambda *_args, **_kwargs: None,
@@ -2175,6 +2260,18 @@ def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
     prediction_run = tmp_path / "pred-run"
     prediction_run.mkdir(parents=True, exist_ok=True)
     (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
     (prediction_run / "manifest.json").write_text(
         json.dumps(
             {
@@ -2222,7 +2319,36 @@ def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
         },
     )
     monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(cli, "write_jsonl", lambda *_: None)
+    monkeypatch.setattr(cli, "_write_jsonl_rows", lambda *_: None)
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 1,
+                    "pred_total": 1,
+                    "gold_matched": 1,
+                    "pred_matched": 1,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_block_accuracy": 1.0,
+                "macro_f1_excluding_other": 1.0,
+                "worst_label_recall": {"label": "RECIPE_TITLE", "recall": 1.0},
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0,
+                "practical_precision": 1.0,
+                "practical_recall": 1.0,
+                "practical_f1": 1.0,
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
 
     captured_csv: dict[str, object] = {}
 
@@ -2286,6 +2412,18 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
     prediction_run = tmp_path / "pred-run"
     prediction_run.mkdir(parents=True, exist_ok=True)
     (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
     monkeypatch.setenv("C3IMP_EPUB_EXTRACTOR", "unstructured")
     monkeypatch.setattr(
@@ -2321,7 +2459,36 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
         },
     )
     monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(cli, "write_jsonl", lambda *_: None)
+    monkeypatch.setattr(cli, "_write_jsonl_rows", lambda *_: None)
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 0,
+                    "pred_total": 0,
+                    "gold_matched": 0,
+                    "pred_matched": 0,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_block_accuracy": 0.0,
+                "macro_f1_excluding_other": 0.0,
+                "worst_label_recall": {"label": None, "recall": 0.0},
+                "recall": 0.0,
+                "precision": 0.0,
+                "f1": 0.0,
+                "practical_recall": 0.0,
+                "practical_precision": 0.0,
+                "practical_f1": 0.0,
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
 
     captured: dict[str, object] = {}
 
@@ -2345,10 +2512,10 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
         output_dir=tmp_path / "golden",
         eval_output_dir=tmp_path / "eval",
         allow_labelstudio_write=True,
-        epub_extractor="legacy",
+        epub_extractor="beautifulsoup",
     )
 
-    assert captured["runtime_epub_extractor"] == "legacy"
+    assert captured["runtime_epub_extractor"] == "beautifulsoup"
     assert os.environ.get("C3IMP_EPUB_EXTRACTOR") == "unstructured"
 
 
@@ -2590,7 +2757,7 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
 ) -> None:
     base_settings = cli.RunSettings.from_dict({}, warn_context="test")
     base_payload = base_settings.to_run_config_dict()
-    extractors = ("unstructured", "legacy", "markdown", "markitdown")
+    extractors = ("unstructured", "beautifulsoup", "markdown", "markitdown")
     variants = [
         cli.AllMethodVariant(
             slug=f"extractor_{extractor}",
@@ -2604,13 +2771,13 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
     ]
     scores = {
         "unstructured": 0.44,
-        "legacy": 0.62,
+        "beautifulsoup": 0.62,
         "markdown": 0.71,
         "markitdown": 0.89,
     }
     delays = {
         "unstructured": 0.08,
-        "legacy": 0.03,
+        "beautifulsoup": 0.03,
         "markdown": 0.06,
         "markitdown": 0.01,
     }
@@ -2701,7 +2868,7 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
     assert ranked_hashes == [
         "hash-markitdown",
         "hash-markdown",
-        "hash-legacy",
+        "hash-beautifulsoup",
         "hash-unstructured",
     ]
 
@@ -2814,12 +2981,12 @@ def test_run_all_method_benchmark_retries_only_failed_configs(
             dimensions={"epub_extractor": "unstructured"},
         ),
         cli.AllMethodVariant(
-            slug="extractor_legacy",
+            slug="extractor_beautifulsoup",
             run_settings=cli.RunSettings.from_dict(
-                {**base_payload, "epub_extractor": "legacy"},
+                {**base_payload, "epub_extractor": "beautifulsoup"},
                 warn_context="test",
             ),
-            dimensions={"epub_extractor": "legacy"},
+            dimensions={"epub_extractor": "beautifulsoup"},
         ),
         cli.AllMethodVariant(
             slug="extractor_markdown",
@@ -2840,7 +3007,7 @@ def test_run_all_method_benchmark_retries_only_failed_configs(
     def fake_labelstudio_benchmark(**kwargs):
         extractor = str(kwargs.get("epub_extractor") or "")
         call_counts[extractor] = call_counts.get(extractor, 0) + 1
-        if extractor == "legacy" and call_counts[extractor] == 1:
+        if extractor == "beautifulsoup" and call_counts[extractor] == 1:
             raise RuntimeError("synthetic transient failure")
 
         eval_output_dir = kwargs["eval_output_dir"]
@@ -2848,7 +3015,7 @@ def test_run_all_method_benchmark_retries_only_failed_configs(
         eval_output_dir.mkdir(parents=True, exist_ok=True)
         score = {
             "unstructured": 0.5,
-            "legacy": 0.75,
+            "beautifulsoup": 0.75,
             "markdown": 0.9,
         }[extractor]
         report = {
@@ -2898,7 +3065,7 @@ def test_run_all_method_benchmark_retries_only_failed_configs(
     )
 
     payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
-    assert call_counts["legacy"] == 2
+    assert call_counts["beautifulsoup"] == 2
     assert call_counts["unstructured"] == 1
     assert call_counts["markdown"] == 1
     assert payload["successful_variants"] == 3

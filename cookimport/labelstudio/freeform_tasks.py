@@ -4,7 +4,6 @@ from dataclasses import dataclass
 import random
 from typing import Any, Iterable, Sequence
 
-from cookimport.labelstudio.block_tasks import build_block_id
 from cookimport.labelstudio.models import ArchiveBlock
 
 SEGMENT_SEPARATOR = "\n\n"
@@ -44,6 +43,10 @@ class SegmentTaskData:
 
 def build_segment_id(source_hash: str, start_block_index: int, end_block_index: int) -> str:
     return f"urn:cookimport:segment:{source_hash}:{start_block_index}:{end_block_index}"
+
+
+def build_block_id(source_hash: str, block_index: int) -> str:
+    return f"urn:cookimport:block:{source_hash}:{block_index}"
 
 
 def _coerce_archive(archive: Iterable[ArchiveBlock | dict[str, Any]]) -> list[ArchiveBlock]:
