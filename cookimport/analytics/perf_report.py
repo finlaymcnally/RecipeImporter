@@ -419,6 +419,21 @@ def append_benchmark_csv(
     benchmark-only columns are populated from *report* (an eval_report.json-shaped dict).
     """
     counts = report.get("counts") or {}
+    recipe_counts = report.get("recipe_counts") or {}
+    gold_recipe_headers = None
+    if isinstance(recipe_counts, dict):
+        gold_recipe_headers = _parse_int_or_none(
+            recipe_counts.get("gold_recipe_headers")
+        )
+    if gold_recipe_headers is None:
+        per_label = report.get("per_label") or {}
+        if isinstance(per_label, dict):
+            title_metrics = per_label.get("RECIPE_TITLE")
+            if isinstance(title_metrics, dict):
+                gold_recipe_headers = _parse_int_or_none(
+                    title_metrics.get("gold_total")
+                )
+
     precision = _safe_float_or_none(report.get("precision"))
     recall = _safe_float_or_none(report.get("recall"))
     f1 = _safe_float_or_none(report.get("f1"))
@@ -580,6 +595,9 @@ def append_benchmark_csv(
         "practical_recall": practical_recall if practical_recall is not None else "",
         "practical_f1": practical_f1 if practical_f1 is not None else "",
         "gold_total": counts.get("gold_total", ""),
+        "gold_recipe_headers": (
+            gold_recipe_headers if gold_recipe_headers is not None else ""
+        ),
         "gold_matched": counts.get("gold_matched", ""),
         "pred_total": counts.get("pred_total", ""),
         "supported_precision": supported_precision if supported_precision is not None else "",
@@ -1092,6 +1110,7 @@ _CSV_FIELDS = [
     "practical_recall",
     "practical_f1",
     "gold_total",
+    "gold_recipe_headers",
     "gold_matched",
     "pred_total",
     "supported_precision",
@@ -1177,6 +1196,7 @@ def _row_to_csv(row: PerfRow) -> dict[str, Any]:
         "practical_recall": "",
         "practical_f1": "",
         "gold_total": "",
+        "gold_recipe_headers": "",
         "gold_matched": "",
         "pred_total": "",
         "supported_precision": "",

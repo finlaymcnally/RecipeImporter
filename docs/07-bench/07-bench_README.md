@@ -136,6 +136,7 @@ Evaluation input A (predictions):
 - `label_studio_tasks.jsonl`
 - Parsed into labeled ranges via `load_predicted_labeled_ranges(...)`
 - Label mapping is inferred from chunk metadata (`chunk_level`, `chunk_type`, hints)
+  - `RECIPE_TITLE` prefers narrow `recipe_title` chunks when present; `recipe_block` is a fallback only for older artifacts that lack `recipe_title`.
 
 Evaluation input B (gold):
 - `freeform_span_labels.jsonl`
@@ -201,15 +202,38 @@ If you want no Label Studio side effects, use:
 Interactive benchmark from the main menu is now offline-only, with two modes:
 - single offline mode (one local eval run, no upload),
 - all-method mode (offline multi-config sweep, no upload).
-  - all-method scheduler defaults are bounded: inflight pipelines=`4`, split-phase slots=`2`.
-  - queued execution submits up to inflight capacity and refills as each config completes; if process workers cannot start, it auto-falls back to serial.
-  - split-worker-heavy conversion is slot-gated across configs, so at most two configs run split conversion concurrently while other configs can pre/post-process.
+  - all-matched source concurrency default is bounded to `2` (`all_method_max_parallel_sources`), so multiple books can run concurrently.
+  - all-method scheduler defaults are bounded: inflight pipelines=`4`, split-phase slots=`4`.
+  - scheduler controls are interactive `cookimport.json` keys:
+    - `all_method_max_parallel_sources`
+    - `all_method_max_inflight_pipelines`
+    - `all_method_max_split_phase_slots`
+    - `all_method_wing_backlog_target`
+    - `all_method_smart_scheduler`
+    - `all_method_config_timeout_seconds`
+    - `all_method_retry_failed_configs`
+  - smart mode uses phase-aware admission from worker telemetry (`prep`, `split_wait`, `split_active`, `post`) written to per-config JSONL files under `.scheduler_events/`.
+  - smart mode inflight resolution includes a tail buffer equal to split slots so long post-stage phases do not stall new prewarm admissions.
+  - fixed mode preserves classic refill-on-completion behavior.
+  - per-config timeout watchdog is controlled by `all_method_config_timeout_seconds` (default `900`; `0` disables):
+    - timeout marks that config failed,
+    - worker pool is recycled so one hung process cannot block source completion.
+  - failed-config retries are controlled by `all_method_retry_failed_configs` (default `1`; `0` disables):
+    - retry passes rerun only failed config indices, not already successful configs.
+  - if process workers cannot start, all-method still auto-falls back to serial.
+  - split-worker-heavy conversion is slot-gated across configs, so at most four configs run split conversion concurrently while other configs can pre/post-process.
+  - spinner/dashboard task output includes a scheduler state line: `scheduler heavy X/Y | wing Z | active A | pending P`.
+  - all-matched queue can show more than one running source row (`[>]`) at once; dashboard summary includes `active sources: N`.
+  - all-matched wrapper should rerender shared dashboard state when a nested callback emits a stale/partial dashboard snapshot, instead of forwarding a broken queue payload.
+  - per-source reports include scheduler utilization metrics, and all-matched combined reports include scheduler rollups.
+  - all-matched combined reports include source-level parallel metadata (`source_parallelism_configured`, `source_parallelism_effective`).
   - all-method now supports `Single golden set` or `All golden sets with matching input files`.
   - all-matched scope resolves source hints from freeform export metadata in this order:
     1. run `manifest.json` `source_file`,
     2. first non-empty `freeform_span_labels.jsonl` row `source_file`,
     3. first non-empty `freeform_segment_manifest.jsonl` row `source_file`.
   - all-matched runs write the usual per-source `all_method_benchmark_report.{json,md}` files plus one combined root summary: `all_method_benchmark_multi_source_report.{json,md}`.
+  - when source parallelism is greater than `1`, dashboard refresh is batched once at multi-source completion (not once per source).
 
 ### 8.3 "Why did split conversion fail with pickling?"
 
@@ -304,7 +328,10 @@ Durable all-method rules:
   3. first non-empty `freeform_segment_manifest.jsonl` row `source_file`.
 - Matching is by exact filename against top-level importable files in `data/input`; unresolved gold exports should be surfaced explicitly.
 - Outer all-method progress remains one persistent dashboard spinner; per-config nested benchmark spinner + summary output should stay suppressed via benchmark progress overrides.
-- Parallel all-method defaults remain bounded (inflight pipelines=`4`, split-phase slots=`2`), and benchmark CSV append paths keep file locking to avoid header duplication/partial writes.
+- Parallel all-method defaults remain bounded (inflight pipelines=`4`, split-phase slots=`4`), and benchmark CSV append paths keep file locking to avoid header duplication/partial writes.
+- Split-slot wait/acquire/release telemetry should flow through progress callbacks and spinner task updates; subprocess all-method workers should not emit standalone stdout slot lines.
+- All-method dashboard `current config` should reflect active config slots in parallel mode (`current configs A-B/N`), not a stale last-submitted slug.
+- ETA/elapsed suffix decoration for multi-line all-method dashboard payloads belongs on the top summary line (`overall ...`), not the trailing `task:` line.
 
 ### 13.4 Processed-output and timing telemetry contract
 
@@ -369,7 +396,119 @@ Task sources:
 - `docs/tasks/2026-02-24_00.29.50-all-method-dashboard-spinner.md`
 
 Current runtime contract:
-- All-method queue defaults are bounded (`inflight pipelines=4`, `split-phase slots=2`).
+- All-method queue defaults are bounded (`inflight pipelines=4`, `split-phase slots=4`).
 - Outer queue falls back to serial when process executor startup fails in restricted environments.
 - Split-heavy conversion is slot-gated and benchmark CSV appends are file-locked for concurrency safety.
 - Interactive all-method uses one persistent outer dashboard spinner; nested per-config benchmark spinner and completion dumps are suppressed during the sweep.
+
+## 15. Merged Understandings Batch (2026-02-24 all-method scheduler + spinner refresh)
+
+### 15.1 Split-slot bottleneck and scheduler settings contract
+
+Merged discoveries (chronological):
+- `2026-02-24_15.21.53-all-method-split-slot-default-bottleneck`
+- `2026-02-24_15.28.12-all-method-scheduler-settings-flow`
+
+Durable rules:
+- `inflight` alone is not throughput truth; split-slot caps can be the actual heavy-phase ceiling.
+- Interactive scheduler limits should come from `cookimport.json` keys and be validated/fallbacked to bounded defaults when invalid.
+- Keeping split slots aligned with inflight defaults avoids false "parallel idle" impressions in conversion-heavy runs.
+
+### 15.2 Heavy-slot occupancy and smart-admission telemetry contract
+
+Merged discoveries (chronological):
+- `2026-02-24_15.53.58-all-method-heavy-slot-flow-map`
+- `2026-02-24_16.10.45-smart-all-method-scheduler-event-gating`
+- `2026-02-24_20.56.39-smart-scheduler-post-tail-buffer`
+
+Durable rules:
+- Outer all-method scheduler decisions depend on worker phase telemetry (`prep`, `split_wait`, `split_active`, `post`), not completion-only signals.
+- Smart admission quality depends on preserving a wing backlog while heavy slots are active.
+- Effective smart inflight includes tail headroom (buffer equal to split slots) so long post phases do not starve new prewarm admissions.
+- `.scheduler_events/config_###.jsonl` remains the source for both live admission signals and post-run utilization rollups.
+
+### 15.3 Stalls, timeout, and failed-only retry contract
+
+Merged discoveries (chronological):
+- `2026-02-24_15.57.24-all-method-stall-single-config-lock`
+- `2026-02-24_16.11.17-all-method-timeout-and-failed-only-retry-flow`
+
+Durable rules:
+- A single stuck worker can hold completion at `N-1/N`; timeout handling belongs at per-source future scheduling, not deep inside one benchmark call.
+- Timeout path should mark that config failed, recycle worker pool, and continue source completion/report flush.
+- Retry passes should rerun failed config indices only and keep successful configs untouched.
+
+### 15.4 Multi-source spinner and dashboard forwarding contract
+
+Merged discoveries (chronological):
+- `2026-02-24_15.22.29-all-method-spinner-snapshot-and-split-slot-flow`
+- `2026-02-24_20.57.46-all-method-spinner-active-config-eta-placement`
+- `2026-02-24_21.05.24-all-method-spinner-partial-snapshot-rerender`
+
+Durable rules:
+- Wrapper-level progress forwarding should pass worker payloads through and rerender from shared dashboard state for dashboard-shaped nested payloads.
+- Active config display in parallel mode should be derived from active-slot state, not last-submitted config metadata.
+- For multi-line dashboard payloads, ETA/elapsed suffixes belong on the top summary line only.
+- Subprocess split-slot telemetry should flow through callbacks; raw fallback prints should not leak into spinner output.
+
+### 15.5 Source-level parallel dispatch contract
+
+Merged discoveries (chronological):
+- `2026-02-24_21.11.33-all-method-all-matched-source-serialization-limit`
+- `2026-02-24_21.31.58-all-method-source-parallel-dispatch-and-refresh-contract`
+
+Durable rules:
+- Serial source dispatch underutilizes CPU in all-matched mode even when per-source config schedulers are efficient.
+- Bounded source-level thread dispatch is the safe outer parallelism layer while per-source config execution remains process-based.
+- Combined reports should preserve deterministic source order via preindexed source slots.
+- Dashboard refresh is per-source in serial mode and batched once at multi-source completion in parallel source mode.
+
+## 16. 2026-02-24_22.44.09 docs/tasks archival merge batch (all-method scheduling/spinner/source parallel)
+
+### 16.1 Archived source tasks merged into this section
+
+- `docs/tasks/2026-02-24_15.21.53-all-method-split-slot-default-four.md`
+- `docs/tasks/2026-02-24_15.22.29-all-method-spinner-noise-cleanup.md`
+- `docs/tasks/2026-02-24_15.28.12-all-method-scheduler-settings-keys.md`
+- `docs/tasks/2026-02-24_15.52.15-smart-heavy-slot-scheduler-all-method.md`
+- `docs/tasks/2026-02-24_16.01.56-all-method-timeout-and-retry.md`
+- `docs/tasks/2026-02-24_20.56.39-smart-scheduler-tail-buffer-headroom.md`
+- `docs/tasks/2026-02-24_20.57.46-all-method-spinner-polish-active-config-eta.md`
+- `docs/tasks/2026-02-24_21.05.24-all-method-spinner-queue-stability-rerender.md`
+- `docs/tasks/2026-02-24_21.09.55-parallel-source-all-method-benchmark.md`
+
+### 16.2 Scheduler defaults and settings contracts
+
+Durable runtime contracts from the merged tasks:
+
+- Effective all-method defaults remain aligned for heavy work: inflight `4`, split slots `4`.
+- Scheduler limits are interactive settings (`cookimport.json`) rather than hardcoded-only constants.
+- Invalid/zero scheduler overrides are bounded/fallbacked to defaults.
+- Smart scheduler behavior is tunable and phase-aware, using worker lifecycle telemetry from `.scheduler_events/config_###.jsonl`.
+
+### 16.3 Smart heavy-slot utilization contracts
+
+- Admission decisions are phase-aware (`prep`, `split_wait`, `split_active`, `post`) and target heavy-slot occupancy, not completion-only refill.
+- Smart mode includes extra tail headroom so long post-stage workers do not starve prewarm admissions.
+- Scheduler metrics are persisted into all-method reports (`heavy_slot_*`, wing backlog, idle-gap style summaries).
+
+### 16.4 Reliability contracts: timeout + failed-only retry
+
+- Per-config timeout handling lives in outer all-method scheduler orchestration, not inside benchmark scoring internals.
+- Timeout path marks config failed, recycles worker pool, and continues report completion.
+- Retry passes rerun failed config indices only and keep final reporting at latest-attempt state per config.
+- Interactive settings surface timeout/retry values and report metadata records resolved behavior.
+
+### 16.5 Spinner/dashboard forwarding contracts
+
+- Spinner forwarding treats dashboard-shaped nested payloads specially to avoid recursive/noisy rewraps.
+- Worker-run split-slot status should flow via callbacks (including no-op callbacks in subprocess paths), not fallback raw stdout prints.
+- ETA/elapsed suffixes for multi-line dashboard payloads belong on the top summary line.
+- Active config display in parallel mode comes from active-slot state (single slug or index range), not last-submitted config metadata.
+
+### 16.6 Source-level parallel all-matched execution contracts
+
+- All-matched mode supports bounded source parallelism with settings-controlled effective cap.
+- Outer dispatch layer is thread-based; per-source config execution remains process-based.
+- Combined report ordering remains deterministic by source discovery/index, regardless of completion order.
+- Dashboard refresh policy splits by mode: serial per-source refresh vs one batched refresh at multi-source completion when source parallelism is active.

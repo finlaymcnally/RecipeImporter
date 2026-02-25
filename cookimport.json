@@ -2,6 +2,8 @@
   "workers": 10,
   "pdf_split_workers": 10,
   "epub_split_workers": 10,
+  "all_method_max_inflight_pipelines": 2,
+  "all_method_max_split_phase_slots": 2,
   "epub_extractor": "legacy",
   "ocr_device": "auto",
   "ocr_batch_size": 1,

@@ -116,6 +116,28 @@ def _notify_progress_callback(
         logger.warning("Ignoring progress callback failure: %s", exc)
 
 
+def _notify_scheduler_event_callback(
+    scheduler_event_callback: Callable[[dict[str, Any]], None] | None,
+    *,
+    event: str,
+    **payload: Any,
+) -> None:
+    if scheduler_event_callback is None:
+        return
+    event_name = str(event or "").strip()
+    if not event_name:
+        return
+    event_payload: dict[str, Any] = {
+        "event": event_name,
+        "timestamp": dt.datetime.now(tz=dt.timezone.utc).isoformat(timespec="milliseconds"),
+    }
+    event_payload.update(payload)
+    try:
+        scheduler_event_callback(event_payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Ignoring scheduler event callback failure: %s", exc)
+
+
 def _task_progress_message(phase: str, current: int, total: int) -> str:
     return format_task_counter(phase, current, total, noun="task")
 
@@ -1161,6 +1183,7 @@ def generate_pred_run_artifacts(
     prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
     prelabel_allow_partial: bool = False,
     prelabel_track_token_usage: bool = True,
+    scheduler_event_callback: Callable[[dict[str, Any]], None] | None = None,
     progress_callback: Callable[[str], None] | None = None,
     run_manifest_kind: str = "bench_pred_run",
 ) -> dict[str, Any]:
@@ -1182,6 +1205,12 @@ def generate_pred_run_artifacts(
     run_root = output_dir / timestamp / "labelstudio" / book_slug
     run_root.mkdir(parents=True, exist_ok=True)
     run_started = time.monotonic()
+    _notify_scheduler_event_callback(
+        scheduler_event_callback,
+        event="prep_started",
+        source_file=str(path),
+        run_root=str(run_root),
+    )
     conversion_seconds = 0.0
     split_wait_seconds = 0.0
     split_convert_seconds = 0.0
@@ -1320,10 +1349,26 @@ def generate_pred_run_artifacts(
                     status_label=split_phase_status_label,
                 )
 
+            _notify_scheduler_event_callback(
+                scheduler_event_callback,
+                event="split_wait_started",
+                split_job_count=len(job_specs),
+                split_slots=normalized_split_slots,
+            )
             split_wait_started = time.monotonic()
             with split_slot_context:
                 split_wait_seconds = max(0.0, time.monotonic() - split_wait_started)
+                _notify_scheduler_event_callback(
+                    scheduler_event_callback,
+                    event="split_wait_finished",
+                    split_wait_seconds=split_wait_seconds,
+                )
                 split_convert_started = time.monotonic()
+                _notify_scheduler_event_callback(
+                    scheduler_event_callback,
+                    event="split_active_started",
+                    split_job_count=len(job_specs),
+                )
                 _notify(
                     f"Running {len(job_specs)} split job(s) with up to {max(1, workers)} workers..."
                 )
@@ -1458,11 +1503,26 @@ def generate_pred_run_artifacts(
                 result = _merge_parallel_results(path, importer_name, job_results)
                 _notify("Merged split job results.")
                 split_convert_seconds = max(0.0, time.monotonic() - split_convert_started)
+                _notify_scheduler_event_callback(
+                    scheduler_event_callback,
+                    event="split_active_finished",
+                    split_active_seconds=split_convert_seconds,
+                )
     conversion_seconds = max(0.0, time.monotonic() - conversion_started)
+    _notify_scheduler_event_callback(
+        scheduler_event_callback,
+        event="prep_finished",
+        conversion_seconds=conversion_seconds,
+        split_wait_seconds=split_wait_seconds,
+    )
 
     llm_schema_overrides: dict[str, dict[str, Any]] | None = None
     llm_draft_overrides: dict[str, dict[str, Any]] | None = None
     llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
+    _notify_scheduler_event_callback(
+        scheduler_event_callback,
+        event="post_started",
+    )
     if run_settings.llm_recipe_pipeline.value != "off":
         _notify("Running codex-farm recipe pipeline...")
         try:
@@ -2025,9 +2085,11 @@ def generate_pred_run_artifacts(
                     )
                     continue
                 task_payload = row.get("task")
-                if isinstance(task_payload, dict):
-                    task_payload["annotations"] = [annotation]
                 prelabel_success += 1
+                if isinstance(task_payload, dict):
+                    annotation_result = annotation.get("result")
+                    if isinstance(annotation_result, list) and annotation_result:
+                        task_payload["annotations"] = [annotation]
                 for label in sorted(annotation_labels(annotation)):
                     prelabel_label_counts[label] = prelabel_label_counts.get(label, 0) + 1
 
@@ -2296,6 +2358,12 @@ def generate_pred_run_artifacts(
     )
     _write_manifest_best_effort(run_root, run_manifest_payload, notify=_notify)
     _notify("Prediction run artifacts complete.")
+    _notify_scheduler_event_callback(
+        scheduler_event_callback,
+        event="post_finished",
+        prediction_total_seconds=prediction_total_seconds,
+        task_count=len(tasks),
+    )
 
     return {
         "run_root": run_root,
@@ -2388,6 +2456,7 @@ def run_labelstudio_import(
     prelabel_upload_as: str = "annotations",
     prelabel_allow_partial: bool = False,
     prelabel_track_token_usage: bool = True,
+    scheduler_event_callback: Callable[[dict[str, Any]], None] | None = None,
     auto_project_name_on_scope_mismatch: bool = False,
     allow_labelstudio_write: bool = False,
 ) -> dict[str, Any]:
@@ -2450,6 +2519,7 @@ def run_labelstudio_import(
         prelabel_granularity=prelabel_granularity,
         prelabel_allow_partial=prelabel_allow_partial,
         prelabel_track_token_usage=prelabel_track_token_usage,
+        scheduler_event_callback=scheduler_event_callback,
         progress_callback=_notify,
         run_manifest_kind="labelstudio_import",
     )

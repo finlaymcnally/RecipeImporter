@@ -16,16 +16,18 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from html import escape
 import json
+import math
 from pathlib import Path
 import re
-import shutil
 from typing import Any
 
 from .dashboard_schema import BenchmarkRecord, DashboardData
 
 _ALL_METHOD_BENCHMARK_SEGMENT = "all-method-benchmark"
 _ALL_METHOD_CONFIG_PREFIX = "config_"
-_ALL_METHOD_INDEX_PAGE = "all-method-benchmark.html"
+_ALL_METHOD_OUTPUT_SUBDIR = _ALL_METHOD_BENCHMARK_SEGMENT
+_ALL_METHOD_INDEX_PAGE = "index.html"
+_ALL_METHOD_INDEX_HREF = f"{_ALL_METHOD_OUTPUT_SUBDIR}/{_ALL_METHOD_INDEX_PAGE}"
 _ALL_METHOD_RUN_PAGE_PREFIX = "all-method-benchmark-run__"
 _TS_PATTERN = re.compile(
     r"^(\d{4})-(\d{2})-(\d{2})[T_](\d{2})[.:](\d{2})[.:](\d{2})$"
@@ -60,6 +62,7 @@ class _AllMethodConfigAggregate:
     strict_f1_mean: float | None
     practical_f1_mean: float | None
     recipes_mean: float | None
+    recipe_identified_pct_mean: float | None
 
 
 @dataclass
@@ -69,6 +72,24 @@ class _AllMethodRun:
     groups: list[_AllMethodGroup] = field(default_factory=list)
     config_aggregates: list[_AllMethodConfigAggregate] = field(default_factory=list)
     detail_page_name: str = ""
+
+
+@dataclass
+class _AllMethodBookAggregate:
+    source_label: str
+    config_count: int
+    mean_strict_precision: float | None
+    mean_strict_recall: float | None
+    mean_strict_f1: float | None
+    mean_practical_f1: float | None
+    mean_recipe_identified_pct: float | None
+
+
+@dataclass
+class _MetricRadarItem:
+    label: str
+    title: str
+    values: list[float | None]
 
 
 def render_dashboard(out_dir: Path, data: DashboardData) -> Path:
@@ -227,6 +248,150 @@ def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values)
 
 
+def _render_metric_radar_cards(
+    *,
+    items: list[_MetricRadarItem],
+    metric_specs: list[tuple[str, str, int, float | None]],
+    aria_prefix: str,
+) -> str:
+    if not items or not metric_specs:
+        return "<p class=\"empty-note\">No metrics available for radar charts.</p>"
+
+    metric_count = len(metric_specs)
+    center_x = 90.0
+    center_y = 90.0
+    radius = 62.0
+
+    axis_points: list[tuple[float, float]] = []
+    for axis_index in range(metric_count):
+        angle = (-math.pi / 2.0) + ((2.0 * math.pi * axis_index) / metric_count)
+        axis_points.append(
+            (
+                center_x + (radius * math.cos(angle)),
+                center_y + (radius * math.sin(angle)),
+            )
+        )
+
+    metric_max_values: list[float] = []
+    for metric_index in range(metric_count):
+        _, _, _, fixed_max = metric_specs[metric_index]
+        if fixed_max is not None and fixed_max > 0:
+            metric_max_values.append(float(fixed_max))
+            continue
+        present_values = []
+        for item in items:
+            if metric_index >= len(item.values):
+                continue
+            value = item.values[metric_index]
+            if value is None:
+                continue
+            present_values.append(float(value))
+        metric_max_values.append(max(present_values) if present_values else 0.0)
+
+    rings_svg: list[str] = []
+    for level in (0.25, 0.5, 0.75, 1.0):
+        ring_points = " ".join(
+            f"{center_x + ((axis_x - center_x) * level):.2f},{center_y + ((axis_y - center_y) * level):.2f}"
+            for axis_x, axis_y in axis_points
+        )
+        rings_svg.append(
+            f"<polygon class=\"metric-radar-ring\" points=\"{ring_points}\"></polygon>"
+        )
+
+    axes_svg = "".join(
+        (
+            f"<line class=\"metric-radar-axis\" x1=\"{center_x:.2f}\" y1=\"{center_y:.2f}\" "
+            f"x2=\"{axis_x:.2f}\" y2=\"{axis_y:.2f}\"></line>"
+        )
+        for axis_x, axis_y in axis_points
+    )
+
+    axis_labels_svg: list[str] = []
+    for metric_index, (axis_x, axis_y) in enumerate(axis_points):
+        short_label, _, _, _ = metric_specs[metric_index]
+        label_x = center_x + ((axis_x - center_x) * 1.2)
+        label_y = center_y + ((axis_y - center_y) * 1.2)
+        anchor = "middle"
+        if label_x > center_x + 6:
+            anchor = "start"
+        elif label_x < center_x - 6:
+            anchor = "end"
+        axis_labels_svg.append(
+            (
+                f"<text class=\"metric-radar-axis-label\" x=\"{label_x:.2f}\" y=\"{label_y:.2f}\" "
+                f"text-anchor=\"{anchor}\" dominant-baseline=\"middle\">{escape(short_label)}</text>"
+            )
+        )
+
+    cards: list[str] = []
+    for item in items:
+        normalized_values: list[float] = []
+        for metric_index, max_value in enumerate(metric_max_values):
+            value = item.values[metric_index] if metric_index < len(item.values) else None
+            if value is None or max_value <= 0:
+                normalized_values.append(0.0)
+                continue
+            normalized_values.append(max(0.0, min(1.0, float(value) / max_value)))
+
+        shape_points = " ".join(
+            f"{center_x + ((axis_x - center_x) * level):.2f},{center_y + ((axis_y - center_y) * level):.2f}"
+            for (axis_x, axis_y), level in zip(axis_points, normalized_values, strict=False)
+        )
+
+        point_svg: list[str] = []
+        for metric_index, ((axis_x, axis_y), level) in enumerate(
+            zip(axis_points, normalized_values, strict=False)
+        ):
+            value = item.values[metric_index] if metric_index < len(item.values) else None
+            if value is None:
+                continue
+            point_x = center_x + ((axis_x - center_x) * level)
+            point_y = center_y + ((axis_y - center_y) * level)
+            point_svg.append(
+                f"<circle class=\"metric-radar-point\" cx=\"{point_x:.2f}\" cy=\"{point_y:.2f}\" r=\"2.3\"></circle>"
+            )
+
+        value_rows: list[str] = []
+        for metric_index, (_, value_label, digits, fixed_max) in enumerate(metric_specs):
+            value = item.values[metric_index] if metric_index < len(item.values) else None
+            if value is None:
+                value_text = "-"
+            elif fixed_max == 1.0:
+                value_text = f"{float(value) * 100.0:.1f}%"
+            else:
+                value_text = _fmt_float(float(value), digits=digits)
+            value_rows.append(
+                (
+                    f"<div class=\"metric-radar-value-label\">{escape(value_label)}</div>"
+                    f"<div class=\"metric-radar-value-number\">{escape(value_text)}</div>"
+                )
+            )
+
+        title_text = item.title.strip() or "-"
+        heading_text = f"{item.label}: {title_text}" if title_text != "-" else item.label
+        aria_label = f"{aria_prefix} {item.label}"
+        if title_text != "-":
+            aria_label = f"{aria_label} {title_text}"
+
+        cards.append(
+            (
+                "<article class=\"metric-radar-card\">"
+                f"<h4 title=\"{escape(title_text)}\">{escape(heading_text)}</h4>"
+                f"<svg class=\"metric-radar-svg\" viewBox=\"0 0 180 180\" role=\"img\" aria-label=\"{escape(aria_label)}\">"
+                f"{''.join(rings_svg)}"
+                f"{axes_svg}"
+                f"{''.join(axis_labels_svg)}"
+                f"<polygon class=\"metric-radar-shape\" points=\"{shape_points}\"></polygon>"
+                f"{''.join(point_svg)}"
+                "</svg>"
+                f"<div class=\"metric-radar-values\">{''.join(value_rows)}</div>"
+                "</article>"
+            )
+        )
+
+    return f"<div class=\"metric-radar-grid\">{''.join(cards)}</div>"
+
+
 def _dim_value(value: Any) -> str | None:
     if value is None:
         return None
@@ -296,6 +461,57 @@ def _source_label(record: BenchmarkRecord) -> str:
     if not source:
         return "-"
     return Path(source).name or source
+
+
+def _gold_recipe_headers(record: BenchmarkRecord) -> int | None:
+    explicit = getattr(record, "gold_recipe_headers", None)
+    if explicit is not None:
+        try:
+            value = int(explicit)
+            if value > 0:
+                return value
+        except (TypeError, ValueError):
+            pass
+
+    for label_metrics in record.per_label:
+        if str(label_metrics.label).upper() != "RECIPE_TITLE":
+            continue
+        value = label_metrics.gold_total
+        if value is None:
+            continue
+        try:
+            parsed = int(value)
+            if parsed > 0:
+                return parsed
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _group_gold_recipe_headers(group: _AllMethodGroup) -> int | None:
+    values = [
+        value
+        for value in (_gold_recipe_headers(record) for record in group.records)
+        if value is not None and value > 0
+    ]
+    if not values:
+        return None
+    return max(values)
+
+
+def _recipes_identified_ratio(
+    record: BenchmarkRecord,
+    *,
+    group_gold_recipe_headers: int | None = None,
+) -> float | None:
+    if record.recipes is None:
+        return None
+    gold_total = _gold_recipe_headers(record)
+    if gold_total is None:
+        gold_total = group_gold_recipe_headers
+    if gold_total is None or gold_total <= 0:
+        return None
+    return max(0.0, min(1.0, float(record.recipes) / float(gold_total)))
 
 
 def _slug_token(value: str | None) -> str:
@@ -425,6 +641,7 @@ def _aggregate_run_configs(
     state: dict[str, dict[str, Any]] = {}
 
     for group in groups:
+        group_gold_total = _group_gold_recipe_headers(group)
         winner = _best_record(group.records)
         winner_key = _aggregate_config_key(winner) if winner is not None else None
         for record in group.records:
@@ -458,6 +675,7 @@ def _aggregate_run_configs(
                     "strict_f1_values": [],
                     "practical_f1_values": [],
                     "recipes_values": [],
+                    "recipe_identified_pct_values": [],
                 }
                 state[config_key] = entry
 
@@ -473,6 +691,12 @@ def _aggregate_run_configs(
                 entry["practical_f1_values"].append(float(record.practical_f1))
             if record.recipes is not None:
                 entry["recipes_values"].append(float(record.recipes))
+            recipe_identified_ratio = _recipes_identified_ratio(
+                record,
+                group_gold_recipe_headers=group_gold_total,
+            )
+            if recipe_identified_ratio is not None:
+                entry["recipe_identified_pct_values"].append(recipe_identified_ratio)
 
         if winner_key is not None and winner_key in state:
             state[winner_key]["wins"] += 1
@@ -499,6 +723,9 @@ def _aggregate_run_configs(
                 strict_f1_mean=_mean(entry["strict_f1_values"]),
                 practical_f1_mean=_mean(entry["practical_f1_values"]),
                 recipes_mean=_mean(entry["recipes_values"]),
+                recipe_identified_pct_mean=_mean(
+                    entry["recipe_identified_pct_values"]
+                ),
             )
         )
 
@@ -589,11 +816,11 @@ def _render_all_method_index_html(runs: list[_AllMethodRun]) -> str:
         "<meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         "<title>cookimport – All Method Benchmarks</title>"
-        "<link rel=\"stylesheet\" href=\"assets/style.css\">"
+        "<link rel=\"stylesheet\" href=\"../assets/style.css\">"
         "</head>"
         "<body>"
         "<header><h1>All Method Benchmark Runs</h1>"
-        "<p><a href=\"index.html\">Dashboard home</a></p>"
+        "<p><a href=\"../index.html\">Dashboard home</a></p>"
         "</header>"
         "<main>"
         "<section>"
@@ -648,12 +875,63 @@ def _render_all_method_run_html(run: _AllMethodRun) -> str:
         )
 
     book_rows: list[str] = []
+    book_averages: list[_AllMethodBookAggregate] = []
     for group in run.groups:
+        source_label = _group_source_label(group)
         best_group = _best_record(group.records)
+        group_gold_headers = _group_gold_recipe_headers(group)
+        recipe_identified_values = [
+            ratio
+            for ratio in (
+                _recipes_identified_ratio(
+                    record,
+                    group_gold_recipe_headers=group_gold_headers,
+                )
+                for record in group.records
+            )
+            if ratio is not None
+        ]
+        book_averages.append(
+            _AllMethodBookAggregate(
+                source_label=source_label,
+                config_count=len(group.records),
+                mean_strict_precision=_mean(
+                    [
+                        float(record.precision)
+                        for record in group.records
+                        if record.precision is not None
+                    ]
+                ),
+                mean_strict_recall=_mean(
+                    [
+                        float(record.recall)
+                        for record in group.records
+                        if record.recall is not None
+                    ]
+                ),
+                mean_strict_f1=_mean(
+                    [
+                        float(record.f1)
+                        for record in group.records
+                        if record.f1 is not None
+                    ]
+                ),
+                mean_practical_f1=_mean(
+                    [
+                        float(record.practical_f1)
+                        for record in group.records
+                        if record.practical_f1 is not None
+                    ]
+                ),
+                mean_recipe_identified_pct=_mean(
+                    [float(value) for value in recipe_identified_values]
+                ),
+            )
+        )
         book_rows.append(
             (
                 "<tr>"
-                f"<td>{escape(_group_source_label(group))}</td>"
+                f"<td>{escape(source_label)}</td>"
                 f"<td class=\"num\">{len(group.records)}</td>"
                 f"<td>{escape(_config_name(best_group) if best_group else '-')}</td>"
                 f"<td class=\"num\">{_fmt_float(best_group.f1 if best_group else None)}</td>"
@@ -663,6 +941,316 @@ def _render_all_method_run_html(run: _AllMethodRun) -> str:
             )
         )
 
+    summary_specs: list[tuple[str, int, list[float]]] = [
+        (
+            "Mean Strict Precision",
+            4,
+            [
+                float(aggregate.strict_precision_mean)
+                for aggregate in run.config_aggregates
+                if aggregate.strict_precision_mean is not None
+            ],
+        ),
+        (
+            "Mean Strict Recall",
+            4,
+            [
+                float(aggregate.strict_recall_mean)
+                for aggregate in run.config_aggregates
+                if aggregate.strict_recall_mean is not None
+            ],
+        ),
+        (
+            "Mean Strict F1",
+            4,
+            [
+                float(aggregate.strict_f1_mean)
+                for aggregate in run.config_aggregates
+                if aggregate.strict_f1_mean is not None
+            ],
+        ),
+        (
+            "Mean Practical F1",
+            4,
+            [
+                float(aggregate.practical_f1_mean)
+                for aggregate in run.config_aggregates
+                if aggregate.practical_f1_mean is not None
+            ],
+        ),
+        (
+            "Recipes Identified %",
+            1,
+            [
+                float(aggregate.recipe_identified_pct_mean)
+                for aggregate in run.config_aggregates
+                if aggregate.recipe_identified_pct_mean is not None
+            ],
+        ),
+    ]
+    summary_rows: list[str] = []
+    for label, digits, values in summary_specs:
+        summary_rows.append(
+            (
+                "<tr>"
+                f"<td>{escape(label)}</td>"
+                f"<td class=\"num\">{len(values)}</td>"
+                f"<td class=\"num\">{_fmt_float(min(values) if values else None, digits=digits)}</td>"
+                f"<td class=\"num\">{_fmt_float(_median(values), digits=digits)}</td>"
+                f"<td class=\"num\">{_fmt_float(_mean(values), digits=digits)}</td>"
+                f"<td class=\"num\">{_fmt_float(max(values) if values else None, digits=digits)}</td>"
+                "</tr>"
+            )
+        )
+
+    chart_specs: list[tuple[str, int, list[float | None], float | None]] = [
+        (
+            "Mean Strict Precision",
+            4,
+            [aggregate.strict_precision_mean for aggregate in run.config_aggregates],
+            1.0,
+        ),
+        (
+            "Mean Strict Recall",
+            4,
+            [aggregate.strict_recall_mean for aggregate in run.config_aggregates],
+            1.0,
+        ),
+        (
+            "Mean Strict F1",
+            4,
+            [aggregate.strict_f1_mean for aggregate in run.config_aggregates],
+            1.0,
+        ),
+        (
+            "Mean Practical F1",
+            4,
+            [aggregate.practical_f1_mean for aggregate in run.config_aggregates],
+            1.0,
+        ),
+        (
+            "Recipes Identified %",
+            1,
+            [aggregate.recipe_identified_pct_mean for aggregate in run.config_aggregates],
+            1.0,
+        ),
+    ]
+    chart_blocks: list[str] = []
+    for label, digits, raw_values, fixed_max in chart_specs:
+        present_values = [value for value in raw_values if value is not None]
+        if fixed_max is not None and fixed_max > 0:
+            max_value = float(fixed_max)
+        else:
+            max_value = max(present_values) if present_values else 0.0
+        bar_rows: list[str] = []
+        for config_index, value in enumerate(raw_values, start=1):
+            width_pct = 0.0
+            if value is not None and max_value > 0:
+                width_pct = max(0.0, min(100.0, float(value) / float(max_value) * 100.0))
+            bar_fill_class = "metric-bar-fill" if value is not None else "metric-bar-fill metric-bar-fill-missing"
+            if value is None:
+                value_text = "-"
+            elif fixed_max == 1.0:
+                value_text = f"{float(value) * 100.0:.1f}%"
+            else:
+                value_text = _fmt_float(float(value), digits=digits)
+            bar_rows.append(
+                (
+                    "<div class=\"metric-bar-row\">"
+                    f"<span class=\"metric-bar-label\">Config {config_index:02d}</span>"
+                    "<span class=\"metric-bar-track\">"
+                    f"<span class=\"{bar_fill_class}\" style=\"width:{width_pct:.2f}%\"></span>"
+                    "</span>"
+                    f"<span class=\"metric-bar-value\">{escape(value_text)}</span>"
+                    "</div>"
+                )
+            )
+        chart_blocks.append(
+            (
+                "<section class=\"metric-chart-block\">"
+                f"<h3>{escape(label)}</h3>"
+                f"<div class=\"metric-chart-grid\">{''.join(bar_rows)}</div>"
+                "</section>"
+            )
+        )
+
+    def _book_leader_text(metric_label: str, values: list[tuple[str, float | None]]) -> str:
+        best_label = "-"
+        best_value: float | None = None
+        for label, value in values:
+            if value is None:
+                continue
+            if best_value is None or value > best_value:
+                best_label = label
+                best_value = float(value)
+        if best_value is None:
+            return f"{metric_label}: -"
+        return f"{metric_label}: {best_label} ({best_value * 100.0:.1f}%)"
+
+    book_highlights = [
+        _book_leader_text(
+            "Highest avg strict precision",
+            [
+                (book.source_label, book.mean_strict_precision)
+                for book in book_averages
+            ],
+        ),
+        _book_leader_text(
+            "Highest avg strict recall",
+            [
+                (book.source_label, book.mean_strict_recall)
+                for book in book_averages
+            ],
+        ),
+        _book_leader_text(
+            "Highest avg strict F1",
+            [(book.source_label, book.mean_strict_f1) for book in book_averages],
+        ),
+    ]
+    book_highlight_html = "".join(
+        f"<p class=\"section-note\">{escape(line)}</p>"
+        for line in book_highlights
+    )
+
+    book_chart_specs: list[tuple[str, int, list[float | None], float | None]] = [
+        (
+            "Avg Strict Precision",
+            4,
+            [
+                book.mean_strict_precision
+                for book in book_averages
+            ],
+            1.0,
+        ),
+        (
+            "Avg Strict Recall",
+            4,
+            [
+                book.mean_strict_recall
+                for book in book_averages
+            ],
+            1.0,
+        ),
+        (
+            "Avg Strict F1",
+            4,
+            [
+                book.mean_strict_f1
+                for book in book_averages
+            ],
+            1.0,
+        ),
+        (
+            "Avg Practical F1",
+            4,
+            [
+                book.mean_practical_f1
+                for book in book_averages
+            ],
+            1.0,
+        ),
+        (
+            "Avg Recipes Identified %",
+            1,
+            [book.mean_recipe_identified_pct for book in book_averages],
+            1.0,
+        ),
+    ]
+    book_chart_blocks: list[str] = []
+    for label, digits, raw_values, fixed_max in book_chart_specs:
+        present_values = [value for value in raw_values if value is not None]
+        if fixed_max is not None and fixed_max > 0:
+            max_value = float(fixed_max)
+        else:
+            max_value = max(present_values) if present_values else 0.0
+        bar_rows: list[str] = []
+        for book_index, value in enumerate(raw_values, start=1):
+            source_label = book_averages[book_index - 1].source_label
+            config_count = book_averages[book_index - 1].config_count
+            width_pct = 0.0
+            if value is not None and max_value > 0:
+                width_pct = max(0.0, min(100.0, float(value) / float(max_value) * 100.0))
+            bar_fill_class = "metric-bar-fill" if value is not None else "metric-bar-fill metric-bar-fill-missing"
+            if value is None:
+                value_text = "-"
+            elif fixed_max == 1.0:
+                value_text = f"{float(value) * 100.0:.1f}%"
+            else:
+                value_text = _fmt_float(float(value), digits=digits)
+            bar_rows.append(
+                (
+                    "<div class=\"metric-bar-row\">"
+                    f"<span class=\"metric-bar-label\" title=\"{escape(source_label)}\">Book {book_index:02d} (n={config_count})</span>"
+                    "<span class=\"metric-bar-track\">"
+                    f"<span class=\"{bar_fill_class}\" style=\"width:{width_pct:.2f}%\"></span>"
+                    "</span>"
+                    f"<span class=\"metric-bar-value\">{escape(value_text)}</span>"
+                    "</div>"
+                )
+            )
+        book_chart_blocks.append(
+            (
+                "<section class=\"metric-chart-block\">"
+                f"<h3>{escape(label)}</h3>"
+                f"<div class=\"metric-chart-grid\">{''.join(bar_rows)}</div>"
+                "</section>"
+            )
+        )
+
+    book_radar_metric_specs: list[tuple[str, str, int, float | None]] = [
+        ("Strict P", "Avg Strict Precision", 4, 1.0),
+        ("Strict R", "Avg Strict Recall", 4, 1.0),
+        ("Strict F1", "Avg Strict F1", 4, 1.0),
+        ("Prac F1", "Avg Practical F1", 4, 1.0),
+        ("Recipes", "Avg Recipes Identified %", 1, 1.0),
+    ]
+    book_radar_items = [
+        _MetricRadarItem(
+            label=f"Book {book_index:02d}",
+            title=f"{book.source_label} (configs={book.config_count})",
+            values=[
+                book.mean_strict_precision,
+                book.mean_strict_recall,
+                book.mean_strict_f1,
+                book.mean_practical_f1,
+                book.mean_recipe_identified_pct,
+            ],
+        )
+        for book_index, book in enumerate(book_averages, start=1)
+    ]
+    book_radar_cards = _render_metric_radar_cards(
+        items=book_radar_items,
+        metric_specs=book_radar_metric_specs,
+        aria_prefix="Cookbook",
+    )
+
+    run_radar_metric_specs: list[tuple[str, str, int, float | None]] = [
+        ("Strict P", "Mean Strict Precision", 4, 1.0),
+        ("Strict R", "Mean Strict Recall", 4, 1.0),
+        ("Strict F1", "Mean Strict F1", 4, 1.0),
+        ("Prac F1", "Mean Practical F1", 4, 1.0),
+        ("Recipes", "Recipes Identified %", 1, 1.0),
+    ]
+    run_radar_items = [
+        _MetricRadarItem(
+            label=f"Config {config_index:02d}",
+            title=aggregate.config_name,
+            values=[
+                aggregate.strict_precision_mean,
+                aggregate.strict_recall_mean,
+                aggregate.strict_f1_mean,
+                aggregate.practical_f1_mean,
+                aggregate.recipe_identified_pct_mean,
+            ],
+        )
+        for config_index, aggregate in enumerate(run.config_aggregates, start=1)
+    ]
+    run_radar_cards = _render_metric_radar_cards(
+        items=run_radar_items,
+        metric_specs=run_radar_metric_specs,
+        aria_prefix="Run config",
+    )
+
     return (
         "<!DOCTYPE html>"
         "<html lang=\"en\">"
@@ -670,20 +1258,61 @@ def _render_all_method_run_html(run: _AllMethodRun) -> str:
         "<meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         f"<title>cookimport – All Method Benchmark Run {escape(run.run_dir_timestamp or '')}</title>"
-        "<link rel=\"stylesheet\" href=\"assets/style.css\">"
+        "<link rel=\"stylesheet\" href=\"../assets/style.css\">"
         "</head>"
         "<body>"
         "<header>"
         "<h1>All Method Benchmark Run Summary</h1>"
-        f"<p><a href=\"index.html\">Dashboard home</a> · <a href=\"{_ALL_METHOD_INDEX_PAGE}\">All-method runs</a></p>"
+        f"<p><a href=\"../index.html\">Dashboard home</a> · <a href=\"{_ALL_METHOD_INDEX_PAGE}\">All-method runs</a></p>"
         "</header>"
         "<main>"
-        "<section>"
+        "<nav class=\"all-method-quick-nav\" aria-label=\"Run page sections\">"
+        "<a href=\"#run-summary\">Summary</a>"
+        "<a href=\"#run-charts\">Charts</a>"
+        "<a href=\"#run-config-table\">Ranked Table</a>"
+        "<a href=\"#run-drilldown\">Drilldown</a>"
+        "</nav>"
+        "<section id=\"run-overview\">"
         f"<p><strong>Run folder:</strong> {escape(run.run_dir_timestamp or '-')}</p>"
         f"<p><strong>Book jobs:</strong> {len(run.groups)}</p>"
         f"<p><strong>Configs aggregated:</strong> {len(run.config_aggregates)}</p>"
         f"<p><strong>Winner:</strong> {escape(winner_line)}</p>"
         "</section>"
+        "<section id=\"run-summary\">"
+        "<h2>Run Summary</h2>"
+        "<p class=\"section-note\">Compact stats across aggregated config rows: count, min, median, mean, max.</p>"
+        "<table class=\"summary-compact\"><thead><tr>"
+        "<th>Stat</th><th>N</th><th>Min</th><th>Median</th><th>Mean</th><th>Max</th>"
+        "</tr></thead><tbody>"
+        f"{''.join(summary_rows)}"
+        "</tbody></table>"
+        "</section>"
+        "<details id=\"run-charts\" class=\"section-details\" open>"
+        "<summary>Charts</summary>"
+        "<section id=\"run-chart-bars\">"
+        "<h2>Metric Bar Charts</h2>"
+        "<p class=\"section-note\">One bar per aggregated configuration for each metric category. All axes use fixed 0-100%; recipes is percent identified vs golden recipe headers for each book.</p>"
+        f"{''.join(chart_blocks)}"
+        "</section>"
+        "<section id=\"run-chart-radar\">"
+        "<h2>Metric Web Charts (Radar)</h2>"
+        "<p class=\"section-note\">Each web is one aggregated configuration. All axes use fixed 0-100%; recipes is percent identified vs golden recipe headers for each book.</p>"
+        f"{run_radar_cards}"
+        "</section>"
+        "<section id=\"run-book-chart-bars\">"
+        "<h2>Per-Cookbook Average Metric Bar Charts</h2>"
+        "<p class=\"section-note\">One bar per cookbook. Values are averaged across all configs that ran for that cookbook. Labels use Book 01/Book 02 order from Per-Book Drilldown. All axes use fixed 0-100%; recipes is percent identified vs each cookbook's golden recipe headers.</p>"
+        f"{book_highlight_html}"
+        f"{''.join(book_chart_blocks)}"
+        "</section>"
+        "<section id=\"run-book-chart-radar\">"
+        "<h2>Per-Cookbook Average Web Charts (Radar)</h2>"
+        "<p class=\"section-note\">Each web is one cookbook with metrics averaged across all configs that ran for that cookbook. All axes use fixed 0-100%; recipes is percent identified vs each cookbook's golden recipe headers.</p>"
+        f"{book_radar_cards}"
+        "</section>"
+        "</details>"
+        "<details id=\"run-config-table\" class=\"section-details\" open>"
+        "<summary>Ranked Config Table</summary>"
         "<section>"
         "<h2>Config Performance Across Books</h2>"
         "<p class=\"section-note\">Aggregated by configuration across all per-book jobs in this run.</p>"
@@ -693,6 +1322,9 @@ def _render_all_method_run_html(run: _AllMethodRun) -> str:
         f"{''.join(aggregate_rows)}"
         "</tbody></table>"
         "</section>"
+        "</details>"
+        "<details id=\"run-drilldown\" class=\"section-details\" open>"
+        "<summary>Per-Book Drilldown</summary>"
         "<section>"
         "<h2>Per-Book Drilldown</h2>"
         "<p class=\"section-note\">Open each source row for the existing per-book config breakdown page.</p>"
@@ -702,6 +1334,7 @@ def _render_all_method_run_html(run: _AllMethodRun) -> str:
         f"{''.join(book_rows)}"
         "</tbody></table>"
         "</section>"
+        "</details>"
         "</main>"
         "<footer>Generated by <code>cookimport stats-dashboard</code></footer>"
         "</body>"
@@ -760,6 +1393,14 @@ def _render_all_method_detail_html(
             f"{_config_name(best)} "
             f"(strict_f1={_fmt_float(best.f1)}, practical_f1={_fmt_float(best.practical_f1)})"
         )
+    group_gold_total = _group_gold_recipe_headers(group)
+    recipes_identified_values = [
+        _recipes_identified_ratio(
+            record,
+            group_gold_recipe_headers=group_gold_total,
+        )
+        for record in group.records
+    ]
 
     summary_specs: list[tuple[str, int, list[float]]] = [
         (
@@ -783,9 +1424,13 @@ def _render_all_method_detail_html(
             [float(record.practical_f1) for record in group.records if record.practical_f1 is not None],
         ),
         (
-            "Recipes",
+            "Recipes Identified %",
             1,
-            [float(record.recipes) for record in group.records if record.recipes is not None],
+            [
+                float(value)
+                for value in recipes_identified_values
+                if value is not None
+            ],
         ),
     ]
     summary_rows = []
@@ -803,44 +1448,57 @@ def _render_all_method_detail_html(
             )
         )
 
-    chart_specs: list[tuple[str, int, list[float | None]]] = [
+    chart_specs: list[tuple[str, int, list[float | None], float | None]] = [
         (
             "Strict Precision",
             4,
             [record.precision for record in group.records],
+            1.0,
         ),
         (
             "Strict Recall",
             4,
             [record.recall for record in group.records],
+            1.0,
         ),
         (
             "Strict F1",
             4,
             [record.f1 for record in group.records],
+            1.0,
         ),
         (
             "Practical F1",
             4,
             [record.practical_f1 for record in group.records],
+            1.0,
         ),
         (
-            "Recipes",
+            "Recipes Identified %",
             1,
-            [float(record.recipes) if record.recipes is not None else None for record in group.records],
+            recipes_identified_values,
+            1.0,
         ),
     ]
     chart_blocks: list[str] = []
-    for label, digits, raw_values in chart_specs:
+    for label, digits, raw_values, fixed_max in chart_specs:
         present_values = [value for value in raw_values if value is not None]
-        max_value = max(present_values) if present_values else 0.0
+        if fixed_max is not None and fixed_max > 0:
+            max_value = float(fixed_max)
+        else:
+            max_value = max(present_values) if present_values else 0.0
         bar_rows: list[str] = []
         for run_index, value in enumerate(raw_values, start=1):
             width_pct = 0.0
             if value is not None and max_value > 0:
                 width_pct = max(0.0, min(100.0, float(value) / float(max_value) * 100.0))
             bar_fill_class = "metric-bar-fill" if value is not None else "metric-bar-fill metric-bar-fill-missing"
-            value_text = _fmt_float(float(value), digits=digits) if value is not None else "-"
+            if value is None:
+                value_text = "-"
+            elif fixed_max == 1.0:
+                value_text = f"{float(value) * 100.0:.1f}%"
+            else:
+                value_text = _fmt_float(float(value), digits=digits)
             bar_rows.append(
                 (
                     "<div class=\"metric-bar-row\">"
@@ -861,7 +1519,34 @@ def _render_all_method_detail_html(
             )
         )
 
-    nav_links = ["<a href=\"index.html\">Dashboard home</a>"]
+    detail_radar_metric_specs: list[tuple[str, str, int, float | None]] = [
+        ("Strict P", "Strict Precision", 4, 1.0),
+        ("Strict R", "Strict Recall", 4, 1.0),
+        ("Strict F1", "Strict F1", 4, 1.0),
+        ("Prac F1", "Practical F1", 4, 1.0),
+        ("Recipes", "Recipes Identified %", 1, 1.0),
+    ]
+    detail_radar_items = [
+        _MetricRadarItem(
+            label=f"Run {run_index:02d}",
+            title=_config_name(record),
+            values=[
+                record.precision,
+                record.recall,
+                record.f1,
+                record.practical_f1,
+                recipes_identified_values[run_index - 1],
+            ],
+        )
+        for run_index, record in enumerate(group.records, start=1)
+    ]
+    detail_radar_cards = _render_metric_radar_cards(
+        items=detail_radar_items,
+        metric_specs=detail_radar_metric_specs,
+        aria_prefix="Config",
+    )
+
+    nav_links = ["<a href=\"../index.html\">Dashboard home</a>"]
     nav_links.append(f"<a href=\"{_ALL_METHOD_INDEX_PAGE}\">All-method runs</a>")
     if run_detail_page_name:
         nav_links.append(
@@ -875,7 +1560,7 @@ def _render_all_method_detail_html(
         "<meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         f"<title>cookimport – All Method Benchmark {escape(group.run_dir_timestamp or '')}</title>"
-        "<link rel=\"stylesheet\" href=\"assets/style.css\">"
+        "<link rel=\"stylesheet\" href=\"../assets/style.css\">"
         "</head>"
         "<body>"
         "<header>"
@@ -883,13 +1568,19 @@ def _render_all_method_detail_html(
         f"<p>{' · '.join(nav_links)}</p>"
         "</header>"
         "<main>"
-        "<section>"
+        "<nav class=\"all-method-quick-nav\" aria-label=\"Detail page sections\">"
+        "<a href=\"#detail-summary\">Summary</a>"
+        "<a href=\"#detail-charts\">Charts</a>"
+        "<a href=\"#detail-ranked-table\">Ranked Table</a>"
+        "</nav>"
+        "<section id=\"detail-overview\">"
         f"<p><strong>Run folder:</strong> {escape(group.run_dir_timestamp or '-')}</p>"
         f"<p><strong>Source:</strong> {escape(source_label)}</p>"
         f"<p><strong>Total configs:</strong> {len(group.records)}</p>"
+        f"<p><strong>Golden recipes:</strong> {escape(_fmt_int(group_gold_total))}</p>"
         f"<p><strong>Winner:</strong> {escape(winner_line)}</p>"
         "</section>"
-        "<section>"
+        "<section id=\"detail-summary\">"
         "<h2>Run Summary</h2>"
         "<p class=\"section-note\">Compact stats only (no per-config labels): count, min, median, mean, max.</p>"
         "<table class=\"summary-compact\"><thead><tr>"
@@ -898,11 +1589,21 @@ def _render_all_method_detail_html(
         f"{''.join(summary_rows)}"
         "</tbody></table>"
         "</section>"
-        "<section>"
+        "<details id=\"detail-charts\" class=\"section-details\" open>"
+        "<summary>Charts</summary>"
+        "<section id=\"detail-chart-bars\">"
         "<h2>Metric Bar Charts</h2>"
-        "<p class=\"section-note\">One bar per run/configuration for each metric category.</p>"
+        "<p class=\"section-note\">One bar per run/configuration for each metric category. All axes use fixed 0-100%; recipes is percent identified vs golden recipe headers for this source.</p>"
         f"{''.join(chart_blocks)}"
         "</section>"
+        "<section id=\"detail-chart-radar\">"
+        "<h2>Metric Web Charts (Radar)</h2>"
+        "<p class=\"section-note\">Each web is one run/configuration. All axes use fixed 0-100%; recipes is percent identified vs golden recipe headers for this source.</p>"
+        f"{detail_radar_cards}"
+        "</section>"
+        "</details>"
+        "<details id=\"detail-ranked-table\" class=\"section-details\" open>"
+        "<summary>Ranked Config Table</summary>"
         "<section>"
         "<h2>Ranked Configurations</h2>"
         "<table><thead><tr>"
@@ -911,6 +1612,7 @@ def _render_all_method_detail_html(
         f"{''.join(rows)}"
         "</tbody></table>"
         "</section>"
+        "</details>"
         "</main>"
         "<footer>Generated by <code>cookimport stats-dashboard</code></footer>"
         "</body>"
@@ -921,14 +1623,16 @@ def _render_all_method_detail_html(
 def _render_all_method_pages(out_dir: Path, data: DashboardData) -> str:
     groups = _collect_all_method_groups(data)
     runs = _collect_all_method_runs(groups)
-    legacy_dir = out_dir / _ALL_METHOD_BENCHMARK_SEGMENT
-    if legacy_dir.exists():
-        shutil.rmtree(legacy_dir, ignore_errors=True)
+    all_method_dir = out_dir / _ALL_METHOD_OUTPUT_SUBDIR
+    all_method_dir.mkdir(parents=True, exist_ok=True)
 
+    (out_dir / f"{_ALL_METHOD_BENCHMARK_SEGMENT}.html").unlink(missing_ok=True)
     for stale_detail_page in out_dir.glob(f"{_ALL_METHOD_BENCHMARK_SEGMENT}__*.html"):
         stale_detail_page.unlink(missing_ok=True)
     for stale_run_page in out_dir.glob(f"{_ALL_METHOD_RUN_PAGE_PREFIX}*.html"):
         stale_run_page.unlink(missing_ok=True)
+    for stale_subdir_page in all_method_dir.glob("*.html"):
+        stale_subdir_page.unlink(missing_ok=True)
 
     used_page_names: set[str] = set()
     for group in groups:
@@ -957,7 +1661,7 @@ def _render_all_method_pages(out_dir: Path, data: DashboardData) -> str:
     }
 
     for group in groups:
-        detail_path = out_dir / group.detail_page_name
+        detail_path = all_method_dir / group.detail_page_name
         detail_path.write_text(
             _render_all_method_detail_html(
                 group,
@@ -967,13 +1671,13 @@ def _render_all_method_pages(out_dir: Path, data: DashboardData) -> str:
         )
 
     for run in runs:
-        run_path = out_dir / run.detail_page_name
+        run_path = all_method_dir / run.detail_page_name
         run_path.write_text(
             _render_all_method_run_html(run),
             encoding="utf-8",
         )
 
-    index_path = out_dir / _ALL_METHOD_INDEX_PAGE
+    index_path = all_method_dir / _ALL_METHOD_INDEX_PAGE
     index_path.write_text(
         _render_all_method_index_html(runs),
         encoding="utf-8",
@@ -983,7 +1687,7 @@ def _render_all_method_pages(out_dir: Path, data: DashboardData) -> str:
         return (
             "<section id=\"all-method-section\">"
             "<h2>All-Method Benchmark Runs</h2>"
-            f"<p><a href=\"{_ALL_METHOD_INDEX_PAGE}\">Open all-method benchmark page</a> (0 runs)</p>"
+            f"<p><a href=\"{_ALL_METHOD_INDEX_HREF}\">Open all-method benchmark page</a> (0 runs)</p>"
             "<p class=\"empty-note\">No all-method benchmark runs found in benchmark history.</p>"
             "</section>"
         )
@@ -992,7 +1696,7 @@ def _render_all_method_pages(out_dir: Path, data: DashboardData) -> str:
         "<section id=\"all-method-section\">"
         "<h2>All-Method Benchmark Runs</h2>"
         "<p class=\"section-note\">Standalone run-summary and per-book pages generated from benchmark CSV rows grouped by all-method run folder.</p>"
-        f"<p><a href=\"{_ALL_METHOD_INDEX_PAGE}\">Open all-method benchmark page</a> ({len(runs)} runs)</p>"
+        f"<p><a href=\"{_ALL_METHOD_INDEX_HREF}\">Open all-method benchmark page</a> ({len(runs)} runs)</p>"
         "</section>"
     )
 
@@ -1013,66 +1717,41 @@ _HTML = """\
 <body>
 <header id="dash-header">
   <h1>cookimport Stats Dashboard</h1>
+  <p id="header-subtitle">All-method runs, latest benchmark diagnostics, and history.</p>
   <div id="header-meta"></div>
 </header>
 
-<nav id="filters">
-  <fieldset id="category-filters"><legend>Categories</legend></fieldset>
-  <fieldset id="extractor-filters"><legend>EPUB Extractor</legend></fieldset>
-  <fieldset id="date-filters"><legend>Date range</legend>
-    <button data-days="7">7d</button>
-    <button data-days="30">30d</button>
-    <button data-days="90">90d</button>
-    <button data-days="0" class="active">All</button>
-  </fieldset>
-</nav>
-
 <main>
-  <section id="throughput-section">
-    <h2>Stage / Import Throughput</h2>
-    <p class="section-note">Use the run/date view for overall history, then use file trend to see how one file's speed changes across runs.</p>
-    <h3>Run / Date Trend (sec/recipe)</h3>
-    <div id="throughput-chart" class="chart-container"></div>
-    <h3>Recent Runs (Date / Run View)</h3>
-    <table id="recent-runs"><thead><tr>
-      <th>Timestamp</th><th>File</th><th>Importer</th><th>Total (s)</th>
-      <th>Recipes</th><th>sec/recipe</th><th>EPUB Req</th><th>EPUB Eff</th><th>Auto Score</th><th>Run Config</th><th>Artifact</th>
-    </tr></thead><tbody></tbody></table>
-    <h3>File Trend (Selected File)</h3>
-    <div class="inline-controls">
-      <label for="file-trend-select">File:</label>
-      <select id="file-trend-select"></select>
-    </div>
-    <div id="file-trend-chart" class="chart-container"></div>
-    <table id="file-trend-table"><thead><tr>
-      <th>Timestamp</th><th>Total (s)</th><th>sec/recipe</th><th>Recipes</th><th>Importer</th><th>EPUB Req</th><th>EPUB Eff</th><th>Auto Score</th><th>Run Config</th><th>Artifact</th>
-    </tr></thead><tbody></tbody></table>
-  </section>
-
-  <section id="benchmark-section">
-    <h2>Benchmark Evaluations</h2>
-    <p class="section-note">Practical F1 measures content overlap (same label, any overlap). Strict F1 measures localization quality (IoU threshold).</p>
-    <div id="benchmark-chart" class="chart-container"></div>
-    <h3>Recent Benchmarks</h3>
-    <table id="benchmark-table"><thead><tr>
-      <th>Timestamp</th><th>Strict Precision</th><th>Strict Recall</th><th>Practical F1</th><th>Strict F1</th>
-      <th>Gold</th><th>Matched</th><th>Recipes</th><th>Source</th><th>Importer</th><th>Run Config</th><th>Artifact</th>
-    </tr></thead><tbody></tbody></table>
-  </section>
-
   __ALL_METHOD_SECTION__
 
-  <section id="per-label-section">
-    <h2>Per-Label Breakdown (Latest Benchmark)</h2>
-    <table id="per-label-table"><thead><tr>
-      <th>Label</th><th>Precision</th><th>Recall</th>
-      <th>Gold</th><th>Pred</th>
-    </tr></thead><tbody></tbody></table>
+  <section id="diagnostics-section">
+    <h2>Diagnostics (Latest Benchmark)</h2>
+    <p class="section-note">Deep quality views for the most recent benchmark evaluation.</p>
+    <div class="diagnostics-grid">
+      <section id="per-label-section" class="diagnostic-card">
+        <h2>Per-Label Breakdown (Latest Benchmark)</h2>
+        <table id="per-label-table"><thead><tr>
+          <th>Label</th><th>Precision</th><th>Recall</th>
+          <th>Gold</th><th>Pred</th>
+        </tr></thead><tbody></tbody></table>
+      </section>
+
+      <section id="boundary-section" class="diagnostic-card">
+        <h2>Boundary Classification (Latest Benchmark)</h2>
+        <div id="boundary-summary"></div>
+      </section>
+    </div>
   </section>
 
-  <section id="boundary-section">
-    <h2>Boundary Classification (Latest Benchmark)</h2>
-    <div id="boundary-summary"></div>
+  <section id="previous-runs-section">
+    <h2>Previous Runs</h2>
+    <p class="section-note">Timestamp links to the run artifact folder. Scroll for full history.</p>
+    <div class="table-wrap table-scroll">
+      <table id="previous-runs-table"><thead><tr>
+        <th>Timestamp</th><th>Strict Precision</th><th>Strict Recall</th><th>Practical F1</th><th>Strict F1</th>
+        <th>Gold</th><th>Matched</th><th>Recipes</th><th>Source</th><th>Importer</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
   </section>
 </main>
 
@@ -1086,50 +1765,222 @@ _HTML = """\
 
 _CSS = """\
 :root {
-  --bg: #f8f9fa;
+  --bg: #eef2f6;
+  --bg-accent: #dde7f1;
   --card: #ffffff;
-  --border: #dee2e6;
-  --accent: #0d6efd;
-  --accent2: #198754;
-  --accent3: #dc3545;
-  --text: #212529;
-  --muted: #6c757d;
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --border: #d4dde7;
+  --accent: #1f5ea8;
+  --accent2: #127a52;
+  --accent3: #bb3a2f;
+  --text: #18222c;
+  --muted: #546372;
+  --font: 'IBM Plex Sans', 'Avenir Next', 'Segoe UI', Arial, sans-serif;
   --mono: 'SF Mono', SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+  --focus: #0b72ff;
 }
 *, *::before, *::after { box-sizing: border-box; }
 body {
-  font-family: var(--font); color: var(--text); background: var(--bg);
-  margin: 0; padding: 0 1rem 2rem;
+  font-family: var(--font);
+  color: var(--text);
+  background: linear-gradient(180deg, var(--bg-accent) 0%, var(--bg) 220px, var(--bg) 100%);
+  margin: 0;
+  padding: 0 1rem 2rem;
   line-height: 1.5;
+  min-height: 100vh;
 }
-header { padding: 1.5rem 0 0.5rem; border-bottom: 2px solid var(--border); margin-bottom: 1rem; }
-header h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
-#header-meta { font-size: 0.85rem; color: var(--muted); }
-#header-meta span { margin-right: 1.5em; }
+a {
+  color: var(--accent);
+}
+a:focus-visible,
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+header {
+  padding: 1.5rem 0 0.65rem;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 0.8rem;
+}
+header h1 {
+  margin: 0;
+  font-size: 1.7rem;
+  letter-spacing: 0.015em;
+}
+#header-subtitle {
+  margin: 0.25rem 0 0.45rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+#header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  font-size: 0.83rem;
+  color: var(--muted);
+}
+#header-meta span {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  padding: 0.1rem 0.55rem;
+}
 
-nav#filters { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
-fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.75rem; }
-legend { font-size: 0.8rem; color: var(--muted); padding: 0 0.3rem; }
-fieldset label { margin-right: 0.75rem; font-size: 0.85rem; cursor: pointer; }
+#kpi-strip {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin-bottom: 1rem;
+}
+#kpi-strip h2 {
+  margin: 0 0 0.45rem;
+  font-size: 0.96rem;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+#kpi-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.65rem;
+}
+.kpi-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  padding: 0.7rem 0.8rem;
+}
+.kpi-label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.kpi-value {
+  display: block;
+  margin-top: 0.2rem;
+  font-family: var(--mono);
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+.kpi-detail {
+  display: block;
+  margin-top: 0.12rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+#controls-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.7rem;
+  margin-bottom: 1.2rem;
+}
+#filters {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+}
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem 0.65rem;
+  background: rgba(255, 255, 255, 0.85);
+}
+legend {
+  font-size: 0.73rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 0 0.28rem;
+}
+fieldset label {
+  margin-right: 0.65rem;
+  font-size: 0.83rem;
+  cursor: pointer;
+}
 fieldset button {
-  background: var(--card); border: 1px solid var(--border); border-radius: 4px;
-  padding: 0.2rem 0.6rem; margin-right: 0.3rem; cursor: pointer; font-size: 0.8rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.18rem 0.58rem;
+  margin-right: 0.22rem;
+  cursor: pointer;
+  font-size: 0.78rem;
 }
 fieldset button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-section { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
-  padding: 1.25rem; margin-bottom: 1.5rem; }
-section h2 { margin: 0 0 1rem; font-size: 1.2rem; }
-section h3 { margin: 1.25rem 0 0.5rem; font-size: 1rem; color: var(--muted); }
+section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.1rem;
+  margin-bottom: 1rem;
+}
+section h2 {
+  margin: 0 0 0.6rem;
+  font-size: 1.12rem;
+}
+section h3 {
+  margin: 1rem 0 0.4rem;
+  font-size: 0.93rem;
+  color: var(--muted);
+}
 .section-note { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.85rem; }
 
 .chart-container { width: 100%; overflow-x: auto; min-height: 120px; }
 .chart-container svg { display: block; }
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 0.2rem 0 0.45rem;
+}
+.chart-legend-item {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.chart-legend-dot {
+  display: inline-block;
+  width: 0.62rem;
+  height: 0.62rem;
+  border-radius: 999px;
+  margin-right: 0.28rem;
+  vertical-align: middle;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.table-scroll {
+  max-height: 12.5rem; /* ~5 visible rows */
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  z-index: 1;
+}
 
 table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
-th { font-weight: 600; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; }
+th, td { text-align: left; padding: 0.37rem 0.55rem; border-bottom: 1px solid var(--border); }
+th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.73rem;
+  text-transform: uppercase;
+  letter-spacing: 0.045em;
+}
 td.num { text-align: right; font-family: var(--mono); }
 td a { color: var(--accent); text-decoration: none; word-break: break-all; }
 td a:hover { text-decoration: underline; }
@@ -1146,6 +1997,7 @@ td.warn-note { color: #b45309; font-weight: 600; }
   align-items: center;
   gap: 0.5rem;
   margin: 0.25rem 0 0.75rem;
+  flex-wrap: wrap;
 }
 .inline-controls label {
   color: var(--muted);
@@ -1160,8 +2012,118 @@ td.warn-note { color: #b45309; font-weight: 600; }
   background: var(--card);
   color: var(--text);
 }
+.control-label {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.chart-mode-controls button {
+  border: 1px solid var(--border);
+  background: #f6f9fc;
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+}
+.chart-mode-controls button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.table-collapse-global {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  margin-left: auto;
+}
+
+.table-collapse-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.1rem 0 0.55rem;
+}
+.table-collapse-toggle {
+  background: #f6f9fc;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.62rem;
+}
+.table-collapse-toggle:hover {
+  border-color: #c7d0d9;
+}
+.table-collapse-status {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
 
 .empty-note { color: var(--muted); font-style: italic; padding: 1rem 0; }
+
+.all-method-quick-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.7rem;
+  position: sticky;
+  top: 0.35rem;
+  z-index: 4;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(3px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem 0.45rem;
+}
+.all-method-quick-nav a {
+  text-decoration: none;
+  font-size: 0.76rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.42rem;
+  color: var(--muted);
+}
+.all-method-quick-nav a:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.section-details {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.7rem;
+  background: #f8fbfe;
+}
+.section-details > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0.42rem 0.6rem;
+}
+.section-details > summary::-webkit-details-marker {
+  display: none;
+}
+.section-details > summary::before {
+  content: "+";
+  display: inline-block;
+  margin-right: 0.34rem;
+}
+.section-details[open] > summary::before {
+  content: "-";
+}
+.section-details > section {
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+}
 
 .summary-compact th,
 .summary-compact td {
@@ -1216,7 +2178,142 @@ td.warn-note { color: #b45309; font-weight: 600; }
   font-size: 0.75rem;
 }
 
-footer { text-align: center; color: var(--muted); font-size: 0.8rem; margin-top: 2rem; }
+.metric-radar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.75rem;
+}
+.metric-radar-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem;
+  background: var(--card);
+}
+.metric-radar-card h4 {
+  margin: 0 0 0.4rem;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.metric-radar-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.metric-radar-ring {
+  fill: none;
+  stroke: #d5dde5;
+  stroke-width: 1;
+}
+.metric-radar-axis {
+  stroke: #c2ccd7;
+  stroke-width: 1;
+}
+.metric-radar-axis-label {
+  fill: var(--muted);
+  font-size: 7px;
+  font-family: var(--mono);
+}
+.metric-radar-shape {
+  fill: rgba(37, 99, 235, 0.22);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.metric-radar-point {
+  fill: var(--accent);
+}
+.metric-radar-values {
+  margin-top: 0.45rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.15rem 0.55rem;
+}
+.metric-radar-value-label {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+.metric-radar-value-number {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.7rem;
+}
+.diagnostic-card {
+  margin: 0;
+  background: #f8fbfe;
+}
+
+footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top: 1.3rem; }
+
+@media (max-width: 1100px) {
+  #controls-bar {
+    align-items: stretch;
+  }
+  .table-collapse-global {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  body {
+    padding: 0 0.55rem 1.4rem;
+  }
+  header h1 {
+    font-size: 1.38rem;
+  }
+  #header-subtitle {
+    font-size: 0.88rem;
+  }
+  section {
+    padding: 0.82rem;
+  }
+  #recent-runs th:nth-child(7),
+  #recent-runs td:nth-child(7),
+  #recent-runs th:nth-child(8),
+  #recent-runs td:nth-child(8),
+  #recent-runs th:nth-child(10),
+  #recent-runs td:nth-child(10),
+  #recent-runs th:nth-child(11),
+  #recent-runs td:nth-child(11),
+  #file-trend-table th:nth-child(6),
+  #file-trend-table td:nth-child(6),
+  #file-trend-table th:nth-child(7),
+  #file-trend-table td:nth-child(7),
+  #file-trend-table th:nth-child(9),
+  #file-trend-table td:nth-child(9),
+  #file-trend-table th:nth-child(10),
+  #file-trend-table td:nth-child(10),
+  #benchmark-table th:nth-child(6),
+  #benchmark-table td:nth-child(6),
+  #benchmark-table th:nth-child(7),
+  #benchmark-table td:nth-child(7),
+  #benchmark-table th:nth-child(11),
+  #benchmark-table td:nth-child(11),
+  #benchmark-table th:nth-child(12),
+  #benchmark-table td:nth-child(12) {
+    display: none;
+  }
+  .all-method-quick-nav {
+    position: static;
+  }
+}
+
+@media (max-width: 620px) {
+  #kpi-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .metric-bar-row {
+    grid-template-columns: 3.2rem minmax(90px, 1fr) 3.8rem;
+  }
+}
 """
 
 _JS = """\
@@ -1228,6 +2325,18 @@ _JS = """\
   let activeExtractors = new Set();
   let activeDays = 0; // 0 = all
   let selectedFileTrend = "";
+  let throughputScaleMode = "clamp95";
+  const TABLE_COLLAPSE_DEFAULT_ROWS = {
+    "recent-runs": 8,
+    "file-trend-table": 8,
+    "benchmark-table": 12,
+  };
+  const THROUGHPUT_SCALE_NOTES = {
+    raw: "Raw sec/recipe values.",
+    clamp95: "Values above the 95th percentile are clamped to keep day-to-day runs readable.",
+    log: "Log scale (log10(sec/recipe + 1)) keeps large spikes visible without flattening small runs.",
+  };
+  const tableCollapsedState = Object.create(null);
 
   // ---- Load data ----
   function showLoadError(msg) {
@@ -1273,8 +2382,6 @@ _JS = """\
 
   function init() {
     renderHeader();
-    setupFilters();
-    setupExtractorFilters();
     renderAll();
   }
 
@@ -1366,6 +2473,23 @@ _JS = """\
     });
   }
 
+  function setupThroughputModeControls() {
+    const root = document.getElementById("throughput-mode-controls");
+    if (!root) return;
+    root.querySelectorAll("button[data-mode]").forEach(btn => {
+      if (!btn.dataset.bound) {
+        btn.addEventListener("click", () => {
+          throughputScaleMode = btn.dataset.mode || "clamp95";
+          root.querySelectorAll("button[data-mode]").forEach(other => {
+            other.classList.toggle("active", other === btn);
+          });
+          renderThroughput();
+        });
+        btn.dataset.bound = "1";
+      }
+    });
+  }
+
   // ---- Filtering helpers ----
   function parseTs(ts) {
     if (ts == null) return null;
@@ -1437,57 +2561,273 @@ _JS = """\
 
   // ---- Render all sections ----
   function renderAll() {
-    renderThroughput();
-    renderBenchmarks();
+    renderPreviousRuns();
     renderPerLabel();
     renderBoundary();
   }
 
-  // ---- SVG sparkline helper ----
-  function svgSparkline(points, opts) {
-    // points: [{x: date, y: number, label: string}]
-    // opts: {width, height, color, yLabel}
+  function setAllTableCollapsedState(collapsed) {
+    Object.keys(TABLE_COLLAPSE_DEFAULT_ROWS).forEach(tableId => {
+      tableCollapsedState[tableId] = collapsed;
+    });
+  }
+
+  function setupGlobalCollapseControls() {
+    const showAllBtn = document.getElementById("show-all-tables");
+    const collapseAllBtn = document.getElementById("collapse-all-tables");
+    if (!showAllBtn || !collapseAllBtn) return;
+
+    if (!showAllBtn.dataset.bound) {
+      showAllBtn.addEventListener("click", () => {
+        setAllTableCollapsedState(false);
+        renderAll();
+      });
+      showAllBtn.dataset.bound = "1";
+    }
+
+    if (!collapseAllBtn.dataset.bound) {
+      collapseAllBtn.addEventListener("click", () => {
+        setAllTableCollapsedState(true);
+        renderAll();
+      });
+      collapseAllBtn.dataset.bound = "1";
+    }
+  }
+
+  function renderRowsWithCollapse(options) {
+    const table = document.getElementById(options.tableId);
+    if (!table) return;
+    const tbody = table.querySelector("tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+
+    const rows = options.rows || [];
+    const defaultVisible = options.defaultVisible || 10;
+    const canCollapse = rows.length > defaultVisible;
+
+    if (canCollapse && typeof tableCollapsedState[options.tableId] !== "boolean") {
+      tableCollapsedState[options.tableId] = true;
+    }
+
+    const collapsed = canCollapse ? tableCollapsedState[options.tableId] : false;
+    const visibleRows = collapsed ? rows.slice(0, defaultVisible) : rows;
+    visibleRows.forEach(row => {
+      const tr = options.renderRow(row);
+      if (tr) tbody.appendChild(tr);
+    });
+
+    renderTableCollapseControl({
+      tableId: options.tableId,
+      canCollapse,
+      collapsed,
+      totalRows: rows.length,
+      defaultVisible,
+      label: options.label || "rows",
+      rerender: options.rerender,
+    });
+  }
+
+  function renderTableCollapseControl(options) {
+    const table = document.getElementById(options.tableId);
+    if (!table || !table.parentNode) return;
+    const controlId = "collapse-control-" + options.tableId;
+    let control = document.getElementById(controlId);
+    if (!control) {
+      control = document.createElement("div");
+      control.id = controlId;
+      control.className = "table-collapse-controls";
+      control.innerHTML =
+        '<button type="button" class="table-collapse-toggle"></button>' +
+        '<span class="table-collapse-status"></span>';
+      table.parentNode.insertBefore(control, table);
+    }
+
+    if (!options.canCollapse) {
+      control.style.display = "none";
+      return;
+    }
+
+    control.style.display = "";
+    const button = control.querySelector("button");
+    const status = control.querySelector(".table-collapse-status");
+    button.textContent = options.collapsed
+      ? "Show all " + options.totalRows
+      : "Show fewer";
+    status.textContent = options.collapsed
+      ? "Showing first " + Math.min(options.defaultVisible, options.totalRows) + " of " + options.totalRows + " " + options.label
+      : "Showing all " + options.totalRows + " " + options.label;
+    button.onclick = function () {
+      tableCollapsedState[options.tableId] = !options.collapsed;
+      options.rerender();
+    };
+  }
+
+  // ---- Stats helpers ----
+  function mean(values) {
+    if (!values.length) return null;
+    return values.reduce((acc, v) => acc + v, 0) / values.length;
+  }
+
+  function median(values) {
+    if (!values.length) return null;
+    const ordered = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(ordered.length / 2);
+    if (ordered.length % 2 === 1) return ordered[mid];
+    return (ordered[mid - 1] + ordered[mid]) / 2;
+  }
+
+  function percentile(values, pct) {
+    if (!values.length) return null;
+    const ordered = [...values].sort((a, b) => a - b);
+    const rank = (Math.max(0, Math.min(100, pct)) / 100) * (ordered.length - 1);
+    const lower = Math.floor(rank);
+    const upper = Math.ceil(rank);
+    if (lower === upper) return ordered[lower];
+    const weight = rank - lower;
+    return ordered[lower] * (1 - weight) + ordered[upper] * weight;
+  }
+
+  function fmtMaybe(value, digits) {
+    if (value == null || Number.isNaN(value)) return "-";
+    return Number(value).toFixed(digits);
+  }
+
+  function latestTimestampLabel(records) {
+    let latest = null;
+    records.forEach(record => {
+      const ts = parseTs(record.run_timestamp);
+      if (!ts) return;
+      if (latest == null || ts > latest) latest = ts;
+    });
+    if (!latest) return "-";
+    const yr = latest.getFullYear();
+    const mo = String(latest.getMonth() + 1).padStart(2, "0");
+    const dy = String(latest.getDate()).padStart(2, "0");
+    const hh = String(latest.getHours()).padStart(2, "0");
+    const mm = String(latest.getMinutes()).padStart(2, "0");
+    return yr + "-" + mo + "-" + dy + " " + hh + ":" + mm;
+  }
+
+  function renderKpis() {
+    const host = document.getElementById("kpi-cards");
+    if (!host) return;
+    const stage = filteredStage();
+    const benchmarks = filteredBenchmarks();
+    const perRecipeValues = stage
+      .map(r => r.per_recipe_seconds)
+      .filter(v => v != null && Number.isFinite(v));
+    const strictValues = benchmarks
+      .map(r => r.f1)
+      .filter(v => v != null && Number.isFinite(v));
+    const practicalValues = benchmarks
+      .map(r => r.practical_f1)
+      .filter(v => v != null && Number.isFinite(v));
+    const medianPerRecipe = median(perRecipeValues);
+    const strictMean = mean(strictValues);
+    const practicalMean = mean(practicalValues);
+    const latestLabel = latestTimestampLabel(stage.concat(benchmarks));
+
+    const cards = [
+      {
+        label: "Stage rows",
+        value: String(stage.length),
+        detail: stage.length ? "filtered rows" : "no visible rows",
+      },
+      {
+        label: "Median sec/recipe",
+        value: fmtMaybe(medianPerRecipe, 3),
+        detail: perRecipeValues.length + " runs with timing",
+      },
+      {
+        label: "Mean strict F1",
+        value: strictMean == null ? "-" : (strictMean * 100).toFixed(1) + "%",
+        detail: "practical " + (practicalMean == null ? "-" : (practicalMean * 100).toFixed(1) + "%"),
+      },
+      {
+        label: "Latest run",
+        value: latestLabel,
+        detail: benchmarks.length + " benchmark rows",
+      },
+    ];
+    host.innerHTML = cards.map(card =>
+      '<article class="kpi-card">' +
+        '<span class="kpi-label">' + esc(card.label) + '</span>' +
+        '<span class="kpi-value">' + esc(card.value) + '</span>' +
+        '<span class="kpi-detail">' + esc(card.detail) + '</span>' +
+      '</article>'
+    ).join("");
+  }
+
+  // ---- SVG line chart helper ----
+  function svgLineChart(seriesList, opts) {
     const w = opts.width || 700;
-    const h = opts.height || 140;
-    const pad = { top: 20, right: 20, bottom: 30, left: 55 };
+    const h = opts.height || 160;
+    const pad = { top: 20, right: 20, bottom: 32, left: 58 };
     const iw = w - pad.left - pad.right;
     const ih = h - pad.top - pad.bottom;
 
-    if (points.length === 0) return '<p class="empty-note">No data points for chart.</p>';
+    const usableSeries = (seriesList || []).map(s => ({
+      name: s.name || "",
+      color: s.color || "#0d6efd",
+      points: (s.points || []).filter(p => p && p.x && p.y != null),
+    })).filter(s => s.points.length > 0);
+    if (!usableSeries.length) return '<p class="empty-note">No data points for chart.</p>';
 
-    const xs = points.map(p => p.x.getTime());
-    const ys = points.map(p => p.y);
-    const xMin = Math.min(...xs), xMax = Math.max(...xs);
-    const yMin = Math.min(0, Math.min(...ys)), yMax = Math.max(...ys) * 1.1 || 1;
+    const allPoints = usableSeries.flatMap(s => s.points);
+    const xs = allPoints.map(p => p.x.getTime());
+    const ys = allPoints.map(p => p.y);
+    const xMin = Math.min(...xs);
+    const xMax = Math.max(...xs);
+    let yMin = opts.yMin != null ? opts.yMin : Math.min(...ys);
+    let yMax = opts.yMax != null ? opts.yMax : Math.max(...ys);
+    if (opts.includeZero) {
+      yMin = Math.min(0, yMin);
+    }
+    if (yMax === yMin) {
+      yMax = yMin + 1;
+    }
+    const yPad = (yMax - yMin) * 0.08;
+    if (!opts.yMax) yMax += yPad;
+    if (!opts.yMin) yMin = Math.max(0, yMin - yPad);
 
     function sx(v) { return pad.left + (xMax === xMin ? iw / 2 : (v - xMin) / (xMax - xMin) * iw); }
     function sy(v) { return pad.top + ih - (yMax === yMin ? ih / 2 : (v - yMin) / (yMax - yMin) * ih); }
 
     let svg = '<svg width="' + w + '" height="' + h + '" xmlns="http://www.w3.org/2000/svg">';
 
-    // Y-axis labels
-    const yTicks = 4;
+    const yTickFormatter = opts.yTickFormatter || (v => v.toFixed(2));
+    const yTicks = opts.yTicks || 4;
     for (let i = 0; i <= yTicks; i++) {
       const v = yMin + (yMax - yMin) * i / yTicks;
       const y = sy(v);
       svg += '<line x1="' + pad.left + '" y1="' + y + '" x2="' + (w - pad.right) + '" y2="' + y + '" stroke="#e9ecef" stroke-width="1"/>';
-      svg += '<text x="' + (pad.left - 5) + '" y="' + (y + 4) + '" text-anchor="end" font-size="10" fill="#6c757d">' + v.toFixed(2) + '</text>';
+      svg += '<text x="' + (pad.left - 5) + '" y="' + (y + 4) + '" text-anchor="end" font-size="10" fill="#6c757d">' + esc(yTickFormatter(v)) + '</text>';
     }
 
-    // Y-axis label
     if (opts.yLabel) {
-      svg += '<text x="12" y="' + (pad.top + ih / 2) + '" text-anchor="middle" font-size="11" fill="#6c757d" transform="rotate(-90, 12, ' + (pad.top + ih / 2) + ')">' + opts.yLabel + '</text>';
+      svg += '<text x="12" y="' + (pad.top + ih / 2) + '" text-anchor="middle" font-size="11" fill="#6c757d" transform="rotate(-90, 12, ' + (pad.top + ih / 2) + ')">' + esc(opts.yLabel) + '</text>';
     }
 
-    // Data line
-    const linePoints = points.map(p => sx(p.x.getTime()) + "," + sy(p.y)).join(" ");
-    svg += '<polyline fill="none" stroke="' + (opts.color || "#0d6efd") + '" stroke-width="2" points="' + linePoints + '"/>';
+    svg += '<line x1="' + pad.left + '" y1="' + (h - pad.bottom) + '" x2="' + (w - pad.right) + '" y2="' + (h - pad.bottom) + '" stroke="#d6dee8" stroke-width="1"/>';
+    const midTs = xMin + ((xMax - xMin) / 2);
+    const xTickValues = [xMin, midTs, xMax];
+    xTickValues.forEach(ts => {
+      const x = sx(ts);
+      const d = new Date(ts);
+      const label = String(d.getFullYear()) + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+      svg += '<text x="' + x + '" y="' + (h - pad.bottom + 14) + '" text-anchor="middle" font-size="10" fill="#6c757d">' + label + '</text>';
+    });
 
-    // Data points
-    points.forEach(p => {
-      const cx = sx(p.x.getTime()), cy = sy(p.y);
-      svg += '<circle cx="' + cx + '" cy="' + cy + '" r="3" fill="' + (opts.color || "#0d6efd") + '">';
-      svg += '<title>' + p.label + '</title></circle>';
+    usableSeries.forEach(series => {
+      const ordered = [...series.points].sort((a, b) => a.x - b.x);
+      const linePoints = ordered.map(p => sx(p.x.getTime()) + "," + sy(p.y)).join(" ");
+      svg += '<polyline fill="none" stroke="' + series.color + '" stroke-width="2.25" points="' + linePoints + '"/>';
+      ordered.forEach(point => {
+        const cx = sx(point.x.getTime());
+        const cy = sy(point.y);
+        svg += '<circle cx="' + cx + '" cy="' + cy + '" r="3.1" fill="' + series.color + '">';
+        svg += '<title>' + esc(point.label || "") + '</title></circle>';
+      });
     });
 
     svg += '</svg>';
@@ -1503,48 +2843,78 @@ _JS = """\
       return;
     }
 
-    // Chart: sec/recipe over time
+    const scaleNote = document.getElementById("throughput-scale-note");
+    if (scaleNote) {
+      scaleNote.textContent = THROUGHPUT_SCALE_NOTES[throughputScaleMode] || THROUGHPUT_SCALE_NOTES.clamp95;
+    }
+
     const chartDiv = document.getElementById("throughput-chart");
-    const points = records
+    const rawPoints = records
       .filter(r => r.per_recipe_seconds != null && r.run_timestamp)
       .map(r => ({
         x: parseTs(r.run_timestamp) || new Date(),
-        y: r.per_recipe_seconds,
+        rawY: r.per_recipe_seconds,
         label: r.file_name + ": " + r.per_recipe_seconds.toFixed(3) + " sec/recipe"
       }))
       .filter(p => p.x)
       .sort((a, b) => a.x - b.x);
 
-    chartDiv.innerHTML = svgSparkline(points, {
-      width: Math.min(900, Math.max(400, points.length * 30)),
-      height: 160,
-      color: "#0d6efd",
-      yLabel: "sec / recipe"
+    const rawValues = rawPoints.map(point => point.rawY);
+    const clamp95 = percentile(rawValues, 95);
+    const chartPoints = rawPoints.map(point => {
+      let y = point.rawY;
+      if (throughputScaleMode === "clamp95" && clamp95 != null) {
+        y = Math.min(point.rawY, clamp95);
+      } else if (throughputScaleMode === "log") {
+        y = Math.log10(point.rawY + 1);
+      }
+      return {
+        x: point.x,
+        y,
+        label: point.label,
+      };
     });
+    chartDiv.innerHTML = svgLineChart(
+      [
+        {
+          name: "sec/recipe",
+          color: "#1f5ea8",
+          points: chartPoints,
+        },
+      ],
+      {
+        width: Math.min(920, Math.max(400, chartPoints.length * 30)),
+        height: 170,
+        yLabel: throughputScaleMode === "log" ? "log10(sec/recipe + 1)" : "sec / recipe",
+        includeZero: throughputScaleMode !== "log",
+      }
+    );
 
-    // Recent runs table
-    const recentBody = document.querySelector("#recent-runs tbody");
-    recentBody.innerHTML = "";
     const recentRuns = [...records]
-      .sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp))
-      .slice(0, 20);
-    recentRuns.forEach(r => {
-      const tr = document.createElement("tr");
-      tr.innerHTML =
-        '<td>' + esc(r.run_timestamp || "") + '</td>' +
-        '<td>' + esc(r.file_name) + '</td>' +
-        '<td>' + esc(r.importer_name || "-") + '</td>' +
-        '<td class="num">' + (r.total_seconds != null ? r.total_seconds.toFixed(2) : "-") + '</td>' +
-        '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
-        '<td class="num">' + (r.per_recipe_seconds != null ? r.per_recipe_seconds.toFixed(3) : "-") + '</td>' +
-        extractorCells(r) +
-        autoScoreCell(r) +
-        runConfigCell(r) +
-        '<td><a href="' + esc(r.artifact_dir || "") + '">' + esc(shortPath(r.artifact_dir)) + '</a></td>';
-      recentBody.appendChild(tr);
+      .sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
+    renderRowsWithCollapse({
+      tableId: "recent-runs",
+      rows: recentRuns,
+      defaultVisible: TABLE_COLLAPSE_DEFAULT_ROWS["recent-runs"],
+      label: "runs",
+      rerender: renderThroughput,
+      renderRow: r => {
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+          '<td>' + esc(r.run_timestamp || "") + '</td>' +
+          '<td>' + esc(r.file_name) + '</td>' +
+          '<td>' + esc(r.importer_name || "-") + '</td>' +
+          '<td class="num">' + (r.total_seconds != null ? r.total_seconds.toFixed(2) : "-") + '</td>' +
+          '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
+          '<td class="num">' + (r.per_recipe_seconds != null ? r.per_recipe_seconds.toFixed(3) : "-") + '</td>' +
+          extractorCells(r) +
+          autoScoreCell(r) +
+          runConfigCell(r) +
+          '<td><a href="' + esc(r.artifact_dir || "") + '">' + esc(shortPath(r.artifact_dir)) + '</a></td>';
+        return tr;
+      },
     });
 
-    // File trend controls
     const fileSelect = document.getElementById("file-trend-select");
     const fileNames = Array.from(new Set(records.map(r => r.file_name).filter(Boolean)))
       .sort((a, b) => a.localeCompare(b));
@@ -1582,30 +2952,44 @@ _JS = """\
       .sort((a, b) => a.x - b.x);
 
     const fileChart = document.getElementById("file-trend-chart");
-    fileChart.innerHTML = svgSparkline(filePoints, {
-      width: Math.min(900, Math.max(400, filePoints.length * 55)),
-      height: 160,
-      color: "#198754",
-      yLabel: "total sec"
-    });
+    fileChart.innerHTML = svgLineChart(
+      [
+        {
+          name: "total seconds",
+          color: "#127a52",
+          points: filePoints,
+        },
+      ],
+      {
+        width: Math.min(920, Math.max(400, filePoints.length * 48)),
+        height: 165,
+        yLabel: "total sec",
+        includeZero: true,
+      }
+    );
 
-    const fileBody = document.querySelector("#file-trend-table tbody");
-    fileBody.innerHTML = "";
-    [...fileRecords]
-      .sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp))
-      .forEach(r => {
-      const tr = document.createElement("tr");
-      tr.innerHTML =
-        '<td>' + esc(r.run_timestamp || "") + '</td>' +
-        '<td class="num">' + (r.total_seconds != null ? r.total_seconds.toFixed(2) : "-") + '</td>' +
-        '<td class="num">' + (r.per_recipe_seconds != null ? r.per_recipe_seconds.toFixed(3) : "-") + '</td>' +
-        '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
-        '<td>' + esc(r.importer_name || "-") + '</td>' +
-        extractorCells(r) +
-        autoScoreCell(r) +
-        runConfigCell(r) +
-        '<td><a href="' + esc(r.artifact_dir || "") + '">' + esc(shortPath(r.artifact_dir)) + '</a></td>';
-      fileBody.appendChild(tr);
+    const fileRows = [...fileRecords]
+      .sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
+    renderRowsWithCollapse({
+      tableId: "file-trend-table",
+      rows: fileRows,
+      defaultVisible: TABLE_COLLAPSE_DEFAULT_ROWS["file-trend-table"],
+      label: "runs",
+      rerender: renderThroughput,
+      renderRow: r => {
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+          '<td>' + esc(r.run_timestamp || "") + '</td>' +
+          '<td class="num">' + (r.total_seconds != null ? r.total_seconds.toFixed(2) : "-") + '</td>' +
+          '<td class="num">' + (r.per_recipe_seconds != null ? r.per_recipe_seconds.toFixed(3) : "-") + '</td>' +
+          '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
+          '<td>' + esc(r.importer_name || "-") + '</td>' +
+          extractorCells(r) +
+          autoScoreCell(r) +
+          runConfigCell(r) +
+          '<td><a href="' + esc(r.artifact_dir || "") + '">' + esc(shortPath(r.artifact_dir)) + '</a></td>';
+        return tr;
+      },
     });
   }
 
@@ -1618,7 +3002,14 @@ _JS = """\
       return;
     }
 
-    // Chart: recall + precision over time
+    const legend = document.getElementById("benchmark-legend");
+    if (legend) {
+      legend.innerHTML = (
+        '<span class="chart-legend-item"><span class="chart-legend-dot" style="background:#127a52"></span>Strict Recall</span>' +
+        '<span class="chart-legend-item"><span class="chart-legend-dot" style="background:#1f5ea8"></span>Strict Precision</span>'
+      );
+    }
+
     const chartDiv = document.getElementById("benchmark-chart");
     const rPoints = records
       .filter(r => r.recall != null && r.run_timestamp)
@@ -1638,50 +3029,369 @@ _JS = """\
       }))
       .sort((a, b) => a.x - b.x);
 
-    // Build dual-line SVG
-    let chartHtml = "";
-    if (rPoints.length > 0) {
-      chartHtml += '<div style="margin-bottom:4px"><strong style="color:#198754;font-size:0.8rem">&#9679; Recall</strong> &nbsp; <strong style="color:#0d6efd;font-size:0.8rem">&#9679; Precision</strong></div>';
-      // Merge for a common scale
-      const allY = [...rPoints.map(p => p.y), ...pPoints.map(p => p.y)];
-      const allX = [...rPoints.map(p => p.x.getTime()), ...pPoints.map(p => p.x.getTime())];
-      const w = Math.min(900, Math.max(400, Math.max(rPoints.length, pPoints.length) * 40));
+    chartDiv.innerHTML = svgLineChart(
+      [
+        { name: "Strict Recall", color: "#127a52", points: rPoints },
+        { name: "Strict Precision", color: "#1f5ea8", points: pPoints },
+      ],
+      {
+        width: Math.min(920, Math.max(400, Math.max(rPoints.length, pPoints.length) * 38)),
+        height: 182,
+        yLabel: "score",
+        yMin: 0,
+        yMax: 1,
+      }
+    );
 
-      chartHtml += svgSparkline(rPoints, {width: w, height: 160, color: "#198754", yLabel: "score"});
-      // Overlay precision as second line (simpler: just render both)
-      // For v1, show them stacked
-      chartHtml += svgSparkline(pPoints, {width: w, height: 160, color: "#0d6efd", yLabel: "precision"});
-    }
-    chartDiv.innerHTML = chartHtml || '<p class="empty-note">Not enough data for trend chart.</p>';
-
-    // Table
-    const tbody = document.querySelector("#benchmark-table tbody");
-    tbody.innerHTML = "";
     const sorted = [...records].sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
-    sorted.forEach(r => {
-      const sourceLabel = basename(r.source_file || "");
-      const configSummary = runConfigSummary(r);
-      const configRaw = r.run_config ? JSON.stringify(r.run_config) : "";
-      const processedReportLink = r.processed_report_path
-        ? ' <a href="' + esc(r.processed_report_path) + '" title="' + esc(r.processed_report_path) + '">report</a>'
-        : "";
-      const mismatchTag = r.granularity_mismatch_likely
-        ? ' <span class="mismatch-tag" title="Strict IoU is low while practical overlap is high.">mismatch</span>'
-        : "";
+    renderRowsWithCollapse({
+      tableId: "benchmark-table",
+      rows: sorted,
+      defaultVisible: TABLE_COLLAPSE_DEFAULT_ROWS["benchmark-table"],
+      label: "benchmarks",
+      rerender: renderBenchmarks,
+      renderRow: r => {
+        const sourceLabel = basename(r.source_file || "");
+        const configSummary = runConfigSummary(r);
+        const configRaw = r.run_config ? JSON.stringify(r.run_config) : "";
+        const processedReportLink = r.processed_report_path
+          ? ' <a href="' + esc(r.processed_report_path) + '" title="' + esc(r.processed_report_path) + '">report</a>'
+          : "";
+        const mismatchTag = r.granularity_mismatch_likely
+          ? ' <span class="mismatch-tag" title="Strict IoU is low while practical overlap is high.">mismatch</span>'
+          : "";
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+          '<td>' + esc(r.run_timestamp || "") + '</td>' +
+          '<td class="num">' + fmt4(r.precision) + '</td>' +
+          '<td class="num">' + fmt4(r.recall) + '</td>' +
+          '<td class="num">' + fmt4(r.practical_f1) + '</td>' +
+          '<td class="num">' + fmt4(r.f1) + mismatchTag + '</td>' +
+          '<td class="num">' + (r.gold_total != null ? r.gold_total : "-") + '</td>' +
+          '<td class="num">' + (r.gold_matched != null ? r.gold_matched : "-") + '</td>' +
+          '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
+          '<td title="' + esc(r.source_file || "") + '">' + esc(sourceLabel || "-") + '</td>' +
+          '<td>' + esc(r.importer_name || "-") + '</td>' +
+          '<td title="' + esc(configRaw) + '">' + esc(configSummary || "-") + '</td>' +
+          '<td><a href="' + esc(r.artifact_dir || "") + '">' + esc(shortPath(r.artifact_dir)) + '</a>' + processedReportLink + '</td>';
+        return tr;
+      },
+    });
+  }
+
+  // ---- Previous runs section ----
+  function renderPreviousRuns() {
+    const records = filteredBenchmarks();
+    const section = document.getElementById("previous-runs-section");
+    const table = document.getElementById("previous-runs-table");
+    if (!section || !table) return;
+    const tbody = table.querySelector("tbody");
+    if (!tbody) return;
+
+    if (records.length === 0) {
+      section.innerHTML = '<h2>Previous Runs</h2><p class="empty-note">No benchmark evaluation records found. Run an eval workflow to generate eval_report.json files.</p>';
+      return;
+    }
+
+    const ALL_METHOD_SEGMENT = "all-method-benchmark";
+    const ALL_METHOD_CONFIG_PREFIX = "config_";
+
+    function normalizePathParts(pathValue) {
+      if (pathValue == null) return { prefix: "", parts: [] };
+      const raw = String(pathValue).trim().replace(/\\\\/g, "/");
+      if (!raw) return { prefix: "", parts: [] };
+      const prefix = raw.startsWith("/") ? "/" : "";
+      const parts = raw.split("/").filter(p => p && p !== ".");
+      return { prefix, parts };
+    }
+
+    function allMethodRunInfo(record) {
+      const artifactDir = record ? record.artifact_dir : null;
+      const info = normalizePathParts(artifactDir);
+      if (info.parts.length < 3) return null;
+      const lower = info.parts.map(p => String(p).toLowerCase());
+      for (let idx = 0; idx < lower.length; idx++) {
+        if (lower[idx] !== ALL_METHOD_SEGMENT) continue;
+        if (idx + 2 >= info.parts.length) continue;
+        const sourceSlug = info.parts[idx + 1];
+        const configDir = info.parts[idx + 2];
+        if (!String(configDir).startsWith(ALL_METHOD_CONFIG_PREFIX)) continue;
+        const runDirTimestamp = idx > 0 ? info.parts[idx - 1] : null;
+        const runRootDir = info.prefix + info.parts.slice(0, idx + 1).join("/");
+        const groupDir = info.prefix + info.parts.slice(0, idx + 2).join("/");
+        return {
+          runKey: runRootDir || groupDir,
+          groupKey: groupDir,
+          runDirTimestamp,
+          configDir: String(configDir),
+          sourceSlug: String(sourceSlug),
+        };
+      }
+      return null;
+    }
+
+    function slugToken(value) {
+      const token = String(value || "")
+        .trim()
+        .replace(/[^a-zA-Z0-9._-]+/g, "_")
+        .replace(/^[._-]+|[._-]+$/g, "");
+      return token || "unknown";
+    }
+
+    function metric(value) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function aggregateConfigKey(record, configDir) {
+      const hash = String(record.run_config_hash || "").trim().toLowerCase();
+      if (hash) return "hash:" + hash;
+      return "name:" + String(configDir || "");
+    }
+
+    function bestRecord(recordsForGroup) {
+      if (!recordsForGroup.length) return null;
+      let best = recordsForGroup[0];
+      recordsForGroup.slice(1).forEach(next => {
+        const bestKey = [
+          metric(best.f1),
+          metric(best.practical_f1),
+          metric(best.precision),
+          metric(best.recall),
+        ];
+        const nextKey = [
+          metric(next.f1),
+          metric(next.practical_f1),
+          metric(next.precision),
+          metric(next.recall),
+        ];
+        for (let i = 0; i < bestKey.length; i++) {
+          if (nextKey[i] > bestKey[i]) { best = next; return; }
+          if (nextKey[i] < bestKey[i]) return;
+        }
+      });
+      return best;
+    }
+
+    function mostCommonValue(counts) {
+      let best = null;
+      let bestCount = -1;
+      Object.keys(counts).forEach(key => {
+        const count = counts[key] || 0;
+        if (count > bestCount) {
+          best = key;
+          bestCount = count;
+        }
+      });
+      return best;
+    }
+
+    const singleRows = [];
+    const allMethodRuns = Object.create(null);
+
+    records.forEach(r => {
+      const info = allMethodRunInfo(r);
+      if (!info) {
+        singleRows.push({ type: "single", record: r });
+        return;
+      }
+      let run = allMethodRuns[info.runKey];
+      if (!run) {
+        run = {
+          runKey: info.runKey,
+          runDirTimestamp: info.runDirTimestamp,
+          groups: Object.create(null),
+        };
+        allMethodRuns[info.runKey] = run;
+      }
+      if (!run.runDirTimestamp && info.runDirTimestamp) {
+        run.runDirTimestamp = info.runDirTimestamp;
+      }
+      let group = run.groups[info.groupKey];
+      if (!group) {
+        group = { groupKey: info.groupKey, records: [] };
+        run.groups[info.groupKey] = group;
+      }
+      group.records.push({ record: r, configDir: info.configDir });
+    });
+
+    function summarizeAllMethodRun(run) {
+      const groups = Object.keys(run.groups).map(k => run.groups[k]);
+      if (!groups.length) return null;
+
+      const state = Object.create(null);
+      const winsByConfig = Object.create(null);
+
+      groups.forEach(group => {
+        const groupRecords = group.records.map(entry => entry.record);
+        const winner = bestRecord(groupRecords);
+        const winnerInfo = winner ? allMethodRunInfo(winner) : null;
+        const winnerKey = (winner && winnerInfo)
+          ? aggregateConfigKey(winner, winnerInfo.configDir)
+          : null;
+        if (winnerKey) {
+          winsByConfig[winnerKey] = (winsByConfig[winnerKey] || 0) + 1;
+        }
+
+        group.records.forEach(entry => {
+          const r = entry.record;
+          const configDir = entry.configDir;
+          const configKey = aggregateConfigKey(r, configDir);
+          let agg = state[configKey];
+          if (!agg) {
+            agg = {
+              configKey,
+              configName: configDir,
+              groupKeys: new Set(),
+              importerCounts: Object.create(null),
+              precisionValues: [],
+              recallValues: [],
+              strictF1Values: [],
+              practicalF1Values: [],
+              goldTotalSum: 0,
+              goldTotalN: 0,
+              goldMatchedSum: 0,
+              goldMatchedN: 0,
+              recipesSum: 0,
+              recipesN: 0,
+              wins: 0,
+            };
+            state[configKey] = agg;
+          }
+
+          agg.groupKeys.add(group.groupKey);
+          const importer = r.importer_name != null ? String(r.importer_name) : "-";
+          agg.importerCounts[importer] = (agg.importerCounts[importer] || 0) + 1;
+          if (r.precision != null) agg.precisionValues.push(Number(r.precision));
+          if (r.recall != null) agg.recallValues.push(Number(r.recall));
+          if (r.f1 != null) agg.strictF1Values.push(Number(r.f1));
+          if (r.practical_f1 != null) agg.practicalF1Values.push(Number(r.practical_f1));
+          if (r.gold_total != null) { agg.goldTotalSum += Number(r.gold_total); agg.goldTotalN += 1; }
+          if (r.gold_matched != null) { agg.goldMatchedSum += Number(r.gold_matched); agg.goldMatchedN += 1; }
+          if (r.recipes != null) { agg.recipesSum += Number(r.recipes); agg.recipesN += 1; }
+        });
+      });
+
+      Object.keys(winsByConfig).forEach(key => {
+        if (state[key]) state[key].wins = winsByConfig[key];
+      });
+
+      const aggregates = Object.keys(state).map(key => {
+        const agg = state[key];
+        const importer = mostCommonValue(agg.importerCounts) || "-";
+        return {
+          configKey: agg.configKey,
+          configName: agg.configName,
+          books: agg.groupKeys.size,
+          wins: agg.wins || 0,
+          strict_precision_mean: mean(agg.precisionValues),
+          strict_recall_mean: mean(agg.recallValues),
+          strict_f1_mean: mean(agg.strictF1Values),
+          practical_f1_mean: mean(agg.practicalF1Values),
+          gold_total: agg.goldTotalN ? agg.goldTotalSum : null,
+          gold_matched: agg.goldMatchedN ? agg.goldMatchedSum : null,
+          recipes: agg.recipesN ? agg.recipesSum : null,
+          importer_name: importer,
+        };
+      });
+
+      aggregates.sort((a, b) => {
+        const aKey = [
+          a.books,
+          metric(a.practical_f1_mean),
+          metric(a.strict_f1_mean),
+          a.wins,
+          metric(a.strict_precision_mean),
+          metric(a.strict_recall_mean),
+        ];
+        const bKey = [
+          b.books,
+          metric(b.practical_f1_mean),
+          metric(b.strict_f1_mean),
+          b.wins,
+          metric(b.strict_precision_mean),
+          metric(b.strict_recall_mean),
+        ];
+        for (let i = 0; i < aKey.length; i++) {
+          if (bKey[i] !== aKey[i]) return bKey[i] - aKey[i];
+        }
+        return String(a.configName || "").localeCompare(String(b.configName || ""));
+      });
+
+      const best = aggregates.length ? aggregates[0] : null;
+      const ts = run.runDirTimestamp || "";
+      const fileName = "all-method-benchmark-run__" + slugToken(ts) + ".html";
+      const href = "all-method-benchmark/" + fileName;
+
+      return {
+        type: "all_method",
+        run_timestamp: ts,
+        href,
+        precision: best ? best.strict_precision_mean : null,
+        recall: best ? best.strict_recall_mean : null,
+        practical_f1: best ? best.practical_f1_mean : null,
+        f1: best ? best.strict_f1_mean : null,
+        gold_total: best ? best.gold_total : null,
+        gold_matched: best ? best.gold_matched : null,
+        recipes: best ? best.recipes : null,
+        source: "all-method benchmark run",
+        importer_name: best ? best.importer_name : "-",
+      };
+    }
+
+    const bundledRows = Object.keys(allMethodRuns)
+      .map(key => summarizeAllMethodRun(allMethodRuns[key]))
+      .filter(Boolean);
+    const rows = bundledRows.concat(singleRows.map(item => ({
+      type: "single",
+      run_timestamp: item.record.run_timestamp || "",
+      href: item.record.artifact_dir || "",
+      record: item.record,
+    })));
+
+    rows.sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
+    tbody.innerHTML = "";
+    rows.forEach(row => {
       const tr = document.createElement("tr");
+      if (row.type === "all_method") {
+        const ts = row.run_timestamp || "";
+        const href = row.href || "";
+        const tsCell = href
+          ? '<a href="' + esc(href) + '" title="' + esc(href) + '">' + esc(ts) + "</a>"
+          : esc(ts);
+        tr.innerHTML =
+          "<td>" + tsCell + "</td>" +
+          '<td class="num">' + fmt4(row.precision) + "</td>" +
+          '<td class="num">' + fmt4(row.recall) + "</td>" +
+          '<td class="num">' + fmt4(row.practical_f1) + "</td>" +
+          '<td class="num">' + fmt4(row.f1) + "</td>" +
+          '<td class="num">' + (row.gold_total != null ? row.gold_total : "-") + "</td>" +
+          '<td class="num">' + (row.gold_matched != null ? row.gold_matched : "-") + "</td>" +
+          '<td class="num">' + (row.recipes != null ? row.recipes : "-") + "</td>" +
+          '<td>' + esc(row.source || "-") + "</td>" +
+          "<td>" + esc(row.importer_name || "-") + "</td>";
+        tbody.appendChild(tr);
+        return;
+      }
+
+      const r = row.record;
+      const sourceLabel = basename(r.source_file || "");
+      const ts = r.run_timestamp || "";
+      const href = r.artifact_dir || "";
+      const tsCell = href
+        ? '<a href="' + esc(href) + '" title="' + esc(href) + '">' + esc(ts) + "</a>"
+        : esc(ts);
       tr.innerHTML =
-        '<td>' + esc(r.run_timestamp || "") + '</td>' +
-        '<td class="num">' + fmt4(r.precision) + '</td>' +
-        '<td class="num">' + fmt4(r.recall) + '</td>' +
-        '<td class="num">' + fmt4(r.practical_f1) + '</td>' +
-        '<td class="num">' + fmt4(r.f1) + mismatchTag + '</td>' +
-        '<td class="num">' + (r.gold_total != null ? r.gold_total : "-") + '</td>' +
-        '<td class="num">' + (r.gold_matched != null ? r.gold_matched : "-") + '</td>' +
-        '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
-        '<td title="' + esc(r.source_file || "") + '">' + esc(sourceLabel || "-") + '</td>' +
-        '<td>' + esc(r.importer_name || "-") + '</td>' +
-        '<td title="' + esc(configRaw) + '">' + esc(configSummary || "-") + '</td>' +
-        '<td><a href="' + esc(r.artifact_dir || "") + '">' + esc(shortPath(r.artifact_dir)) + '</a>' + processedReportLink + '</td>';
+        "<td>" + tsCell + "</td>" +
+        '<td class="num">' + fmt4(r.precision) + "</td>" +
+        '<td class="num">' + fmt4(r.recall) + "</td>" +
+        '<td class="num">' + fmt4(r.practical_f1) + "</td>" +
+        '<td class="num">' + fmt4(r.f1) + "</td>" +
+        '<td class="num">' + (r.gold_total != null ? r.gold_total : "-") + "</td>" +
+        '<td class="num">' + (r.gold_matched != null ? r.gold_matched : "-") + "</td>" +
+        '<td class="num">' + (r.recipes != null ? r.recipes : "-") + "</td>" +
+        '<td title="' + esc(r.source_file || "") + '">' + esc(sourceLabel || "-") + "</td>" +
+        "<td>" + esc(r.importer_name || "-") + "</td>";
       tbody.appendChild(tr);
     });
   }
@@ -1690,11 +3400,11 @@ _JS = """\
   function renderPerLabel() {
     const records = filteredBenchmarks();
     const section = document.getElementById("per-label-section");
+    if (!section) return;
     if (records.length === 0) {
       section.innerHTML = '<h2>Per-Label Breakdown</h2><p class="empty-note">No benchmark records with per-label data.</p>';
       return;
     }
-    // Use the most recent benchmark that has per_label data
     const sorted = [...records].sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
     const latest = sorted.find(r => r.per_label && r.per_label.length > 0);
     if (!latest) {
@@ -1722,6 +3432,7 @@ _JS = """\
   function renderBoundary() {
     const records = filteredBenchmarks();
     const section = document.getElementById("boundary-section");
+    if (!section) return;
     if (records.length === 0) {
       section.innerHTML = '<h2>Boundary Classification</h2><p class="empty-note">No benchmark records.</p>';
       return;
@@ -1747,8 +3458,8 @@ _JS = """\
 
   // ---- Utils ----
   function esc(s) {
-    if (!s) return "";
-    return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    if (s == null) return "";
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
   function fmt4(v) { return v != null ? v.toFixed(4) : "-"; }
   function basename(path) {
@@ -1833,7 +3544,6 @@ _JS = """\
   }
   function shortPath(p) {
     if (!p) return "";
-    // Show last 3 path components
     const parts = p.replace(/\\\\/g, "/").split("/");
     return parts.slice(-3).join("/");
   }

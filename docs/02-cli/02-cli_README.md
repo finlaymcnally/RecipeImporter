@@ -117,6 +117,13 @@ Config keys and defaults:
 - `workers` (default `7`)
 - `pdf_split_workers` (default `7`)
 - `epub_split_workers` (default `7`)
+- `all_method_max_parallel_sources` (default `2`)
+- `all_method_max_inflight_pipelines` (default `4`)
+- `all_method_max_split_phase_slots` (default `4`)
+- `all_method_config_timeout_seconds` (default `900`; `0` disables timeout)
+- `all_method_retry_failed_configs` (default `1`; `0` disables retries)
+- `all_method_wing_backlog_target` (default follows split slots)
+- `all_method_smart_scheduler` (default `true`)
 - `epub_extractor` (default `unstructured`)
 - `epub_unstructured_html_parser_version` (default `v1`)
 - `epub_unstructured_skip_headers_footers` (default `false`)
@@ -145,6 +152,9 @@ Config keys and defaults:
 What each setting affects:
 
 - `workers`, split workers, page/spine split size: `stage` and benchmark import parallelism/sharding.
+- `all_method_max_parallel_sources`: all-matched source-level concurrency cap (how many books run at once).
+- `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`: per-source config scheduler controls (inflight cap, split-heavy slots, prewarm runway, smart/fixed admission mode; smart mode also adds a tail buffer equal to split slots so post-stage work does not block prewarming).
+- `all_method_config_timeout_seconds`, `all_method_retry_failed_configs`: all-method safety controls (per-config timeout and failed-config retry passes).
 - `epub_extractor`: runtime extractor choice (`unstructured`, `legacy`, `markdown`, or `markitdown`) via `C3IMP_EPUB_EXTRACTOR`.
 - `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
 - `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
@@ -206,7 +216,7 @@ Developer note:
 4. Scope-specific prompts:
    - `pipeline`: choose `chunk_level` (`both`, `structural`, `atomic`).
    - `canonical-blocks`: enter `context_window` (integer `>= 0`).
-   - `freeform-spans`: enter `segment_blocks` (context blocks per task, integer `>= 1`), `segment_overlap` (integer `>= 0`), `segment_focus_blocks` (blocks to actively label per task, integer `>= 1` and `<= segment_blocks`), and optional `target_task_count` (blank disables auto-tuning). For freeform prelabel runs, effective overlap may be auto-raised to at least `segment_blocks - segment_focus_blocks` so focus coverage does not leave unlabeled gaps between tasks. Then choose AI prelabel mode (`off`, strict/allow-partial annotations, or advanced predictions mode variants). If prelabel is enabled, interactive mode then asks for labeling style (`actual freeform` span mode vs `legacy, block based` mode), uses the resolved Codex command (`COOKIMPORT_CODEX_CMD` or `codex exec -`), shows the resolved account email when available, then prompts for model (`use default`, discovered models from that command's Codex home / `CODEX_HOME`, or custom model id) and thinking effort (`none|minimal|low|medium|high|xhigh`, mapped to Codex `model_reasoning_effort`). Freeform prelabel task calls run in parallel by default (`15` workers).
+   - `freeform-spans`: enter `segment_blocks` (context blocks per task, integer `>= 1`), `segment_overlap` (integer `>= 0`), `segment_focus_blocks` (blocks to actively label per task, integer `>= 1` and `<= segment_blocks`), and optional `target_task_count` (blank disables auto-tuning). For freeform prelabel runs, effective overlap may be auto-raised to at least `segment_blocks - segment_focus_blocks` so focus coverage does not leave unlabeled gaps between tasks. Then choose AI prelabel mode (`off`, strict/allow-partial annotations, or advanced predictions mode variants). If prelabel is enabled, interactive mode then asks for labeling style (`actual freeform` span mode vs `legacy, block based` mode), uses the resolved Codex command (`COOKIMPORT_CODEX_CMD` or `codex exec -`), shows the resolved account email when available, then prompts for model (`use default`, discovered models from that command's Codex home / `CODEX_HOME`, or custom model id) and thinking effort (model-compatible subset of `none|low|medium|high|xhigh`; `minimal` is intentionally hidden for this workflow), mapped to Codex `model_reasoning_effort`. Freeform prelabel task calls run in parallel by default (`15` workers).
 5. Enter Label Studio URL and API key if needed.
    - If `LABEL_STUDIO_URL` and `LABEL_STUDIO_API_KEY` are set, prompts are skipped.
    - Otherwise, interactive mode uses saved `cookimport.json` values when present.
@@ -268,12 +278,29 @@ Interactive benchmark now has a mode submenu before execution:
      - `All golden sets with matching input files`: discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename.
    - source hint fallback order is: run `manifest.json` `source_file`, then first non-empty `freeform_span_labels.jsonl` row `source_file`, then first non-empty `freeform_segment_manifest.jsonl` row `source_file`,
    - all-matched mode prints matched/skipped counts, planned permutation count, and sample skipped reasons before execution,
-   - asks whether to include Codex Farm permutations (default `No`; currently remains disabled by policy lock),
-   - prints scheduler limits before confirmation: inflight pipelines (default `4`) and split-phase slots (default `2`),
+  - asks whether to include Codex Farm permutations (default `No`; currently remains disabled by policy lock),
+  - prints scheduler limits before confirmation, including mode and resolved values:
+    - source parallelism (configured/effective),
+    - configured/effective inflight,
+    - split-phase slots,
+    - wing backlog target,
+    - smart tail buffer (equals split slots when smart mode is on),
+    - per-config timeout and failed-config retry limit,
+    sourced from `cookimport.json` keys `all_method_max_parallel_sources`, `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`, `all_method_config_timeout_seconds`, and `all_method_retry_failed_configs`,
    - asks final proceed confirmation (`Proceed with N benchmark runs?` for single or `Proceed with N benchmark runs across M matched golden sets?` for all-matched, default `No`),
-   - execution uses one persistent all-method spinner dashboard (book queue + overall source/config counters + current task line), so per-config benchmark summaries do not flood terminal scrollback,
-   - executes configs through a bounded queue: up to `4` in-flight benchmark pipelines, with startup fallback to serial mode when process workers are unavailable,
-   - split-worker-heavy conversion is gate-limited to at most `2` simultaneous configs (acquire/release slot telemetry is emitted as progress messages),
+  - execution uses one persistent all-method spinner dashboard (book queue + overall source/config counters + current task line), including a scheduler snapshot line:
+    - `scheduler heavy X/Y | wing Z | active A | pending P`,
+    - `current config` reflects active config slots in parallel mode (`current configs A-B/N`) rather than a stale last-submitted slug,
+    - when no config is actively running but source work remains, the line shows `<queued>`,
+    - outer multi-source progress should rerender from shared dashboard state when an inbound nested snapshot is stale/partial so queue rows stay stable,
+    - all-matched mode can show multiple `[>]` source rows simultaneously (`active sources: N`),
+  - executes configs through a bounded queue:
+    - fixed mode: submit up to inflight capacity and refill on completion,
+    - smart mode: phase-aware admission keeps `heavy + wing` near `split slots + wing backlog target` and auto-raises effective inflight with an additional split-slot tail buffer so long post phases do not starve preheating,
+    - timeout watchdog (`all_method_config_timeout_seconds`) marks timed-out configs failed and recycles worker pool so one hung config cannot block source completion,
+    - failed-only retry passes (`all_method_retry_failed_configs`) rerun only failed config indices, not successful ones,
+    - startup fallback to serial mode remains when process workers are unavailable,
+   - split-worker-heavy conversion is gate-limited to at most `4` simultaneous configs (slot telemetry updates spinner task/progress output instead of printing standalone worker lines),
    - runs each config offline (`--no-upload`) and writes per-source eval artifacts plus:
      - `<source_slug>/all_method_benchmark_report.json`
      - `<source_slug>/all_method_benchmark_report.md`
@@ -281,7 +308,9 @@ Interactive benchmark now has a mode submenu before execution:
    - all-matched mode also writes a combined summary report:
      - `all_method_benchmark_multi_source_report.json`
      - `all_method_benchmark_multi_source_report.md`
-     - combined report now includes run-level `timing_summary` (run/source/config totals + slowest source/config)
+     - combined report now includes run-level `timing_summary` (run/source/config totals + slowest source/config),
+     - combined report includes source-parallel metadata (`source_parallelism_configured`, `source_parallelism_effective`),
+     - dashboard refresh is batched once at multi-source completion when source parallelism is enabled (per-source refresh remains for serial source mode),
    - writes per-config processed cookbook outputs under:
      - `<interactive output_dir>/<benchmark_timestamp>/all-method-benchmark/<source_slug>/config_*/<prediction_timestamp>/...`
    - prints `All method processed outputs: ...` with that root path.
@@ -297,6 +326,9 @@ For re-scoring an existing prediction run directly, use `cookimport labelstudio-
 3. Writes dashboard files to `<output_dir_parent>/.history/dashboard`.
 4. Opens `index.html` automatically when you answer `Yes`.
 5. Returns to the main menu on completion.
+
+Note:
+- History-writing commands (`stage`, `perf-report --write-csv`, `labelstudio-eval`, `labelstudio-benchmark`, `bench run`, and non-dry `benchmark-csv-backfill` with updates) now auto-run the same dashboard refresh process for their target history root.
 
 ### [Z] Exit Conditions
 
@@ -345,6 +377,7 @@ cookimport labelstudio-benchmark --help
 
 Stages one file or all files under a folder (recursive for folder input). Always creates a timestamped run folder under `--out` using format `YYYY-MM-DD_HH.MM.SS`.
 Each stage run folder includes `run_manifest.json` for source/config/artifact traceability.
+After stage history CSV append, the CLI also auto-refreshes dashboard artifacts under `<out parent>/.history/dashboard` (best effort).
 
 Arguments:
 
@@ -469,6 +502,7 @@ Options:
 ### `cookimport perf-report`
 
 Builds a per-file timing summary from conversion reports.
+When `--write-csv` is enabled, the same run also auto-refreshes dashboard artifacts for that history root.
 
 Options:
 
@@ -486,6 +520,7 @@ What it does:
 - fills missing `recipes` from benchmark manifests (`recipe_count`) with fallback to `processed_report_path -> totalRecipes`
 - fills missing `report_path` and `file_name` from benchmark manifests when available
 - writes updates in-place to the CSV unless `--dry-run` is used
+- when rows are written, auto-refreshes dashboard artifacts for that history root
 
 Options:
 
@@ -581,6 +616,7 @@ Options:
 - `--output-dir PATH` (required): eval artifact directory.
 - `--overlap-threshold FLOAT 0..1` (default `0.5`): Jaccard match threshold.
 - `--force-source-match` (default `false`): ignore source identity checks while matching spans.
+- On successful benchmark CSV append, auto-refreshes dashboard artifacts for that history root.
 
 ### `cookimport labelstudio-benchmark`
 
@@ -594,6 +630,8 @@ Behavior note:
 - Interactive mode (`cookimport` -> Benchmark) always runs offline benchmark generation/eval (`single offline` or `all method`).
 - Successful runs persist benchmark timing under `eval_report.json` `timing`, including prediction/evaluation/write/history subphase timings and checkpoints.
 - Benchmark CSV append now receives that timing payload and records benchmark runtime columns in `performance_history.csv`.
+- Single benchmark runs auto-refresh dashboard artifacts after CSV append.
+- All-method benchmark internals suppress per-config refresh and refresh once per source batch.
 
 Options:
 
@@ -655,6 +693,7 @@ Runs offline benchmark suite and writes report/metrics/iteration packet.
 Status behavior:
 
 - Spinner updates include `item X/Y` counters for per-suite-item work, with item id prefixes in nested prediction/eval messages.
+- After benchmark CSV append, auto-refreshes dashboard artifacts for the benchmark history root.
 
 Options:
 
@@ -931,9 +970,10 @@ Merged sources:
 - `docs/understandings/2026-02-23_00.17.44-spinner-worker-activity-telemetry.md`
 
 Durable rules:
-- Callback spinner ETA is derived from the right-most `X/Y` counter and should only accumulate timing over real counter increments (`X` increase).
+- Callback spinner ETA is derived from the active `X/Y` counter and should only accumulate timing over real counter increments (`X` increase). For all-method dashboard snapshots, use top-line `overall ... | config X/Y`.
 - `task/item/config/phase` loops should emit counters from runtime loop boundaries; CLI renderer should format and decorate them, not invent totals.
 - Worker telemetry stays a side-channel payload parsed/rendered by shared spinner code so per-worker status lines do not overwrite the primary phase/task line.
+- For multi-line dashboard snapshots, ETA/elapsed suffixes decorate the top summary line (`overall ...`) instead of the trailing `task:` line.
 
 ## Merged Task Specs (2026-02-22_23 to 2026-02-23_00)
 
@@ -941,13 +981,13 @@ Durable rules:
 
 Current CLI spinner contract for callback-driven phases:
 
-- Parse the right-most `X/Y` counter in status text.
+- Parse the active `X/Y` counter in status text (all-method dashboard snapshots use top-line `overall ... | config X/Y`; other flows use right-most).
 - Compute average seconds per completed unit from observed `X` increments.
 - Render ETA only after at least one increment; keep stale-phase elapsed-seconds ticker behavior unchanged.
 - Keep this logic centralized in `_run_with_progress_status(...)` so import/benchmark/Label Studio wrappers stay consistent.
 
 Durable gotcha:
-- Nested counters can appear (`config`, `item`, `task`); right-most counter is the active unit.
+- Nested counters can appear (`config`, `item`, `task`); all-method dashboard snapshots are the exception where top-line overall config is the active unit.
 
 ### 2026-02-23_00.17.44 worker summary lines under spinner status
 

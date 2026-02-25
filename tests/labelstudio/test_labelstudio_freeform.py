@@ -1130,6 +1130,66 @@ def test_eval_freeform_app_aligned_summary_and_md_section(tmp_path) -> None:
     assert "Supported-label same-label any-overlap:" in report_md
 
 
+def test_eval_freeform_prefers_recipe_title_over_recipe_block(tmp_path) -> None:
+    predicted = [
+        {
+            "data": {
+                "chunk_id": "urn:recipeimport:chunk:text:deadbeef:structural:loc:block_index=22:title",
+                "chunk_level": "structural",
+                "chunk_type": "recipe_title",
+                "chunk_type_hint": "recipe_title",
+                "source_hash": "deadbeefcafebabe",
+                "source_file": "book.epub",
+                "location": {"start_block": 22, "end_block": 22},
+            }
+        },
+        {
+            "data": {
+                "chunk_id": "urn:recipeimport:chunk:text:deadbeef:structural:loc:block_index=20:block",
+                "chunk_level": "structural",
+                "chunk_type": "recipe_block",
+                "chunk_type_hint": "recipe",
+                "source_hash": "deadbeefcafebabe",
+                "source_file": "book.epub",
+                "location": {"start_block": 20, "end_block": 25},
+            }
+        },
+    ]
+    pred_run = tmp_path / "pred_run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "label_studio_tasks.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in predicted) + "\n",
+        encoding="utf-8",
+    )
+
+    gold_rows = [
+        {
+            "span_id": "gold-title",
+            "source_hash": "deadbeefcafebabe",
+            "source_file": "book.epub",
+            "label": "RECIPE_TITLE",
+            "touched_block_indices": [22],
+        }
+    ]
+    gold_path = tmp_path / "gold.jsonl"
+    gold_path.write_text(
+        "\n".join(json.dumps(row) for row in gold_rows) + "\n",
+        encoding="utf-8",
+    )
+
+    result = evaluate_predicted_vs_freeform(
+        load_predicted_labeled_ranges(pred_run),
+        load_gold_freeform_ranges(gold_path),
+        overlap_threshold=0.5,
+    )
+    report = result["report"]
+    title = report["per_label"]["RECIPE_TITLE"]
+    assert title["pred_total"] == 1
+    assert title["gold_total"] == 1
+    assert title["precision"] == 1.0
+    assert title["recall"] == 1.0
+
+
 def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
     gold_path = tmp_path / "gold_aliases.jsonl"
     gold_path.write_text(

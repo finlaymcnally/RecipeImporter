@@ -36,13 +36,13 @@ Analytics in this repo currently means three surfaces:
   - `data/.history/dashboard/assets/dashboard_data.json`
   - `data/.history/dashboard/assets/dashboard.js`
   - `data/.history/dashboard/assets/style.css`
-  - `data/.history/dashboard/all-method-benchmark.html` (always generated run index)
-  - `data/.history/dashboard/all-method-benchmark-run__<run_timestamp>.html` (one run summary page per all-method sweep)
-  - `data/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html` (one per grouped per-book all-method sweep)
+  - `data/.history/dashboard/all-method-benchmark/index.html` (always generated run index)
+  - `data/.history/dashboard/all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html` (one run summary page per all-method sweep)
+  - `data/.history/dashboard/all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html` (one per grouped per-book all-method sweep)
 - Producer: `cookimport stats-dashboard`
 - Collector: `cookimport/analytics/dashboard_collect.py`
 - Data contract: `cookimport/analytics/dashboard_schema.py`
-- Current schema version: `8` (adds practical benchmark metrics + granularity mismatch fields)
+- Current schema version: `9` (adds benchmark `gold_recipe_headers` enrichment for recipe-coverage chart scaling)
 - Renderer: `cookimport/analytics/dashboard_render.py`
 - `index.html` now embeds an inline copy of the same dashboard JSON so the dashboard still works when opened via `file://` in browsers that block local `fetch()`.
 
@@ -129,7 +129,8 @@ For benchmark rows, key columns include:
 
 - `precision`, `recall`, `f1`
 - `gold_total`, `gold_matched`, `pred_total`
-- `recipes` (from pred-run manifest `recipe_count` when available; fallback from processed report when available)
+- `recipes` (from pred-run manifest `recipe_count` when available; fallback from processed report when available; fallback to eval `recipe_counts.predicted_recipe_count` when manifest/report paths are absent)
+- `gold_recipe_headers` (from eval `recipe_counts.gold_recipe_headers`, with per-label `RECIPE_TITLE` fallback when needed)
 - `supported_precision`, `supported_recall`
 - boundary columns: `boundary_correct`, `boundary_over`, `boundary_under`, `boundary_partial`
 - `eval_scope`, `source_file` (stored in `file_name`)
@@ -162,7 +163,7 @@ Collector enrichment:
 - optional `coverage.json` adds `extracted_chars`, `chunked_chars`, `coverage_ratio`
 - optional `manifest.json` adds `task_count`, `source_file`, `recipe_count`
 - benchmark collector also checks `prediction-run/{coverage.json,manifest.json}` and can enrich `importer_name`, `run_config`, `run_config_hash`, `run_config_summary`, and `processed_report_path` when present
-  - benchmark `recipes` prefers manifest `recipe_count`; if missing, collector can backfill from `processed_report_path` -> report `totalRecipes`
+  - benchmark `recipes` prefers manifest `recipe_count`; if missing, collector can backfill from `processed_report_path` -> report `totalRecipes`; final fallback is eval `recipe_counts.predicted_recipe_count`
 
 Collector exclusions/filters:
 
@@ -181,11 +182,13 @@ Collector exclusions/filters:
 - At end of run:
   - prints formatted per-file perf summaries/outlier hints
   - appends rows to history CSV
+  - auto-refreshes dashboard artifacts at `<out parent>/.history/dashboard` (best effort)
 
 ### `cookimport perf-report`
 
 - Summarizes one run (`--run-dir` or auto-detect latest under `--out-dir`).
 - Optionally appends to CSV (`--write-csv/--no-csv`).
+- When CSV append runs, dashboard refresh is triggered for the same history root.
 
 ### `cookimport benchmark-csv-backfill`
 
@@ -199,19 +202,27 @@ Collector exclusions/filters:
 - For bench-suite `run_dir/per_item/*/pred_run/manifest.json` cases, recovered `recipes` is sum of per-item `recipe_count` values.
 - Repair is additive: only missing CSV fields are filled, existing values are not overwritten.
 - Writes changes in place (or preview only with `--dry-run`).
+- When rows are written (`--dry-run` off + updates found), dashboard refresh is triggered for that history root.
 
 ### `cookimport stats-dashboard`
 
 - Collects stage + benchmark analytics and writes static dashboard files.
 - `--scan-reports` can force direct JSON report scanning in addition to CSV path.
-- Always writes an in-site all-method benchmark run index page and, when grouped rows exist, writes run summary pages plus per-book detail pages from benchmark CSV rows whose `run_dir`/`artifact_dir` path includes `all-method-benchmark/<source_slug>/config_*`.
-- Run summary pages aggregate config metrics across all book jobs in one run folder and link through to existing per-book detail pages.
-- All-method detail pages include a compact stats-only summary table and per-metric bar charts (one bar per run/config) ahead of the ranked config table.
+- Benchmark-row appenders (`labelstudio-eval`, `labelstudio-benchmark`, `bench run`) now auto-run this refresh flow after successful CSV writes; all-method internals batch refresh to once per source.
+- Always writes an in-site all-method benchmark run index page at `data/.history/dashboard/all-method-benchmark/index.html` and, when grouped rows exist, writes run summary pages plus per-book detail pages from benchmark CSV rows whose `run_dir`/`artifact_dir` path includes `all-method-benchmark/<source_slug>/config_*`.
+- Run summary pages aggregate config metrics across all book jobs in one run folder, and now include a compact stats summary + per-metric bar charts (one bar per aggregated config), per-config radar/web charts, plus per-cookbook average bar/radar sections (book metrics averaged across all configs for that source) before the ranked aggregate table and per-book drilldown links.
+- All-method run-summary/detail pages now include sticky quick-nav links plus collapsible section grouping so long chart/table pages are easier to scan.
+- All-method detail pages include a compact stats-only summary table, per-metric bar charts (one bar per run/config), and per-config radar/web charts ahead of the ranked config table.
+- All-method standalone chart scaling contract: score metrics (`strict_precision`, `strict_recall`, `strict_f1`, `practical_f1`) render on fixed 0-100% axes (`1.0 == 100%`), and `recipes` now renders as `% identified` against golden recipe headers (`recipe_counts.gold_recipe_headers`) with the same fixed 0-100% axis.
 - Ranked all-method detail tables expose explicit dimension columns (`Extractor`, `Parser`, `Skip HF`, `Preprocess`) sourced from run config with config-name fallback.
+- Dashboard landing view now leads with a KPI card strip derived from filtered data (`Stage rows`, `Median sec/recipe`, `Mean strict/practical`, `Latest run`).
 - Throughput view is organized in two ways:
   - run/date trend + recent-runs table across all stage/import rows
   - file trend selector/table (grouped by file name) to track one file's processing speed over time
   - stage/import tables include importer and run-config summary columns
+- Throughput run/date chart supports outlier-aware display controls (`Clamp p95` default, plus `Raw` and `Log` modes).
+- Benchmark trend chart now renders strict precision and strict recall on one shared-axis SVG line chart (with legend) instead of stacked charts.
+- Dashboard run-list tables now use preview-collapse semantics (`Show all` / `Show fewer`) rather than hiding every row in collapsed state.
 
 ## 5) Known caveats / sharp edges (important)
 
@@ -338,11 +349,11 @@ Merged sources:
 
 Durable dashboard contract:
 - Grouping remains CSV-first and keyed by benchmark artifact paths containing `all-method-benchmark/<source_slug>/config_*`.
-- Dashboard always writes `all-method-benchmark.html` at dashboard root, even when grouped rows are absent.
+- Dashboard always writes `all-method-benchmark/index.html` under the dashboard root, even when grouped rows are absent.
 - Hierarchy is now explicit:
-  - root all-method index: `all-method-benchmark.html` (run rows),
-  - run summary pages: `all-method-benchmark-run__<run_timestamp>.html`,
-  - per-book detail pages: `all-method-benchmark__<run_timestamp>__<source_slug>.html`.
+  - root all-method index: `all-method-benchmark/index.html` (run rows),
+  - run summary pages: `all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html`,
+  - per-book detail pages: `all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html`.
 - Run-level config aggregation key is `run_config_hash` when available, with config-slug fallback for historical rows.
 
 ### 11.2 Recursive benchmark eval discovery contract
@@ -376,9 +387,9 @@ Task source:
 
 Current analytics contract clarified by task implementation:
 - Dashboard hierarchy is run-first, then per-book drilldown:
-  - `all-method-benchmark.html` (run index),
-  - `all-method-benchmark-run__<run_timestamp>.html` (run summary),
-  - `all-method-benchmark__<run_timestamp>__<source_slug>.html` (per-book detail).
+  - `all-method-benchmark/index.html` (run index),
+  - `all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html` (run summary),
+  - `all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html` (per-book detail).
 - Run-level config aggregation groups by `run_config_hash` when available, with config-name fallback for older rows.
 - Run-level ranking prioritizes breadth + quality:
   1. books covered,
@@ -413,3 +424,99 @@ Current telemetry contract clarified by task implementation:
 - Foundation helper exists for future coarse analysis:
   - `cookimport/analytics/benchmark_timing.py:collect_all_method_timing_summary(...)`.
 - Important scope boundary: no analyzer CLI command ships in this task; only stable telemetry data surfaces and helper APIs were added.
+
+## 13) Merged Understandings Batch (2026-02-24 dashboard + all-method refresh)
+
+### 13.1 All-method page placement and link contract
+
+Merged discoveries (chronological):
+- `2026-02-24_14.20.21-dashboard-all-method-subfolder-output`
+
+Durable rules:
+- All-method page location is renderer-owned (`_render_all_method_pages(...)`), not collector/schema-owned.
+- If page roots change, update all three together:
+  1. renderer write targets,
+  2. main index links into all-method pages,
+  3. relative nav/style links inside generated all-method pages.
+
+### 13.2 All-method charting contract (run summary + detail)
+
+Merged discoveries (chronological):
+- `2026-02-24_14.21.59-all-method-run-summary-charts`
+- `2026-02-24_14.31.37-all-method-radar-web-charts`
+- `2026-02-24_14.36.55-all-method-score-metrics-fixed-percent-scale`
+- `2026-02-24_14.49.43-all-method-recipes-gold-normalization`
+- `2026-02-24_20.49.47-all-method-run-summary-cookbook-average-charts`
+
+Durable rules:
+- Run-summary pages should reuse the same metric bar component family as per-book detail pages for visual parity.
+- Run-summary can render config-level bars/radar directly from aggregated config means; no collector/schema changes needed.
+- Score metrics are fixed-scale ratios (`1.0 == 100%`) in bar and radar charts; do not rescale to local max.
+- Recipes metric is `% identified` against golden recipe headers (`recipe_counts.gold_recipe_headers`), not span totals.
+- Per-cookbook run-summary charts use per-book averages across all configs, not winner-only rows.
+
+### 13.3 Dashboard refresh and collapse ownership contract
+
+Merged discoveries (chronological):
+- `2026-02-24_14.25.28-all-method-dashboard-refresh-batching`
+- `2026-02-24_14.28.22-dashboard-table-collapse-flow`
+- `2026-02-24_21.16.27-dashboard-renderer-ux-refresh-template-contract`
+
+Durable rules:
+- All-method benchmark refresh should be batched per source (or once at multi-source completion in parallel source mode), not once per config.
+- Run-list collapse behavior lives in renderer JS template helpers (`renderRowsWithCollapse`/`renderTableCollapseControl`), not static HTML shells.
+- Global collapse controls belong outside rerendered table regions and should trigger one `renderAll()` after state update.
+- UX refreshes should stay renderer-template-first and preserve existing section IDs used by JS hooks.
+
+### 13.4 Readability and metric interpretation guardrails
+
+Merged discoveries (chronological):
+- `2026-02-24_20.57.19-dashboard-ux-readability-baseline`
+- `2026-02-24_21.48.23-per-label-recipe-title-zero-strict-vs-overlap`
+- `2026-02-24_22.29.33-dashboard-metrics-cheatsheet`
+
+Durable rules:
+- Dashboard snapshot cards are filter-scoped summaries and should remain the first high-signal entrypoint.
+- Throughput `sec/recipe` and benchmark strict/practical metrics answer different questions and should stay explicitly separated.
+- Strict per-label zeros (for example `RECIPE_TITLE`) can coexist with high practical overlap when predicted ranges are much wider than gold; treat this as granularity localization mismatch unless other diagnostics disagree.
+
+## 14) 2026-02-24_22.44.09 docs/tasks archival merge batch (analytics)
+
+### 14.1 Archived source tasks merged into this section
+
+- `docs/tasks/2026-02-24_14.20.21-dashboard-all-method-pages-subfolder.md`
+- `docs/tasks/2026-02-24_14.22.37-all-method-run-summary-graphs.md`
+- `docs/tasks/2026-02-24_14.28.22-dashboard-collapsible-run-lists.md`
+- `docs/tasks/2026-02-24_14.28.44-all-method-web-radar-charts.md`
+- `docs/tasks/2026-02-24_14.28.56-auto-dashboard-refresh-on-history-writes.md`
+- `docs/tasks/2026-02-24_14.36.31-all-method-score-axis-100pct.md`
+- `docs/tasks/2026-02-24_14.49.43-all-method-recipes-vs-gold-percent.md`
+- `docs/tasks/2026-02-24_15.17.13-all-method-run-summary-per-cookbook-graphs.md`
+- `docs/tasks/2026-02-24_20.57.19-dashboard-readability-information-density-refresh.md`
+
+### 14.2 Current all-method page structure and chart contracts
+
+Durable rules preserved from the merged task set:
+
+- All-method pages are generated under `data/.history/dashboard/all-method-benchmark/`.
+- The root dashboard links into `all-method-benchmark/index.html`; legacy flat root files are not emitted.
+- Run-summary pages include per-config bar charts, per-config radar charts, and per-cookbook average bar/radar sections.
+- Chart scaling semantics are mixed by metric type:
+  - score metrics (`strict precision`, `strict recall`, `strict f1`, `practical f1`) are fixed to `0..100%` (`1.0 == 100%`),
+  - recipes are percent identified against golden recipe-header totals (`recipe_counts.gold_recipe_headers`), clamped to 100%.
+- Renderer reuse is intentional: run-summary and detail charts share the same metric chart component/CSS family.
+
+### 14.3 Dashboard refresh and table-behavior ownership
+
+- CSV writers that append benchmark/stage/perf rows are expected to trigger best-effort dashboard regeneration.
+- Refresh scope is intentionally batched where parallel all-method writes occur (not per config) to avoid dashboard writer contention.
+- Run-table collapse UX is JS-template-owned (`assets/dashboard.js`), with centralized preview-row defaults and global show/collapse controls.
+
+### 14.4 Readability redesign boundaries (implemented)
+
+From the readability/info-density ExecPlan merge:
+
+- The redesign remained renderer-first and static; no server or SPA migration.
+- CSV/schema contracts remained unchanged (`performance_history.csv` stays source-of-truth).
+- Main dashboard now emphasizes quick-scan hierarchy (KPI cards, clearer control grouping, outlier-aware throughput views, progressive disclosure in run tables).
+- All-method standalone pages use navigation/compression patterns (`quick-nav`, section grouping/collapse) without adding new dashboard runtime dependencies.

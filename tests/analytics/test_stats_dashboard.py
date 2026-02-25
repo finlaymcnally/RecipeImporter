@@ -115,6 +115,7 @@ SAMPLE_CSV_BENCH_ROW = _sample_csv_row(
         "practical_recall": "0.85",
         "practical_f1": "0.767741935483871",
         "gold_total": "100",
+        "gold_recipe_headers": "11",
         "gold_matched": "25",
         "pred_total": "500",
         "supported_precision": "0.08",
@@ -195,6 +196,10 @@ SAMPLE_EVAL_REPORT = {
         "pred_matched": 25,
         "pred_false_positive": 475,
     },
+    "recipe_counts": {
+        "gold_recipe_headers": 11,
+        "predicted_recipe_count": 14,
+    },
     "per_label": {
         "RECIPE_TITLE": {
             "precision": 0.1,
@@ -261,7 +266,7 @@ def _write_eval_report(tmp_path: Path) -> Path:
 class TestSchema:
     def test_dashboard_data_minimal(self):
         d = DashboardData()
-        assert d.schema_version == "8"
+        assert d.schema_version == "9"
         assert d.stage_records == []
         assert d.benchmark_records == []
 
@@ -491,6 +496,7 @@ class TestCollectors:
         assert b.practical_recall == pytest.approx(0.85)
         assert b.practical_f1 == pytest.approx(0.767741935483871)
         assert b.gold_total == 100
+        assert b.gold_recipe_headers == 11
         assert b.boundary_correct == 10
         assert len(b.per_label) == 2
         assert b.supported_recall == pytest.approx(0.55)
@@ -861,7 +867,7 @@ class TestRenderer:
         assert len(loaded.stage_records) == 1
         assert len(loaded.benchmark_records) == 1
 
-    def test_html_includes_benchmark_context_columns(self, tmp_path):
+    def test_html_includes_previous_runs_columns(self, tmp_path):
         data = DashboardData(
             benchmark_records=[
                 BenchmarkRecord(
@@ -878,11 +884,22 @@ class TestRenderer:
         )
         html_path = render_dashboard(tmp_path / "dash", data)
         html = html_path.read_text(encoding="utf-8")
-        assert "Run Config" in html
+        assert "Previous Runs" in html
+        assert 'id="previous-runs-table"' in html
+        assert "<th>Timestamp</th>" in html
+        assert "<th>Strict Precision</th>" in html
+        assert "<th>Strict Recall</th>" in html
+        assert "<th>Practical F1</th>" in html
+        assert "<th>Strict F1</th>" in html
+        assert "<th>Gold</th>" in html
+        assert "<th>Matched</th>" in html
         assert "<th>Recipes</th>" in html
-        assert "Practical F1 measures content overlap" in html
+        assert "<th>Source</th>" in html
+        assert "<th>Importer</th>" in html
+        assert "Run Config" not in html
+        assert "<th>Artifact</th>" not in html
 
-    def test_html_includes_run_and_file_trend_views(self, tmp_path):
+    def test_html_includes_diagnostics_and_history_frames(self, tmp_path):
         data = DashboardData(
             stage_records=[
                 StageRecord(
@@ -905,14 +922,12 @@ class TestRenderer:
         )
         html_path = render_dashboard(tmp_path / "dash", data)
         html = html_path.read_text(encoding="utf-8")
-        assert "Run / Date Trend (sec/recipe)" in html
-        assert "Recent Runs (Date / Run View)" in html
-        assert "File Trend (Selected File)" in html
-        assert 'id="file-trend-select"' in html
-        assert 'id="file-trend-chart"' in html
-        assert 'id="file-trend-table"' in html
-        assert "<th>File</th><th>Importer</th><th>Total (s)</th>" in html
-        assert "<th>Recipes</th><th>sec/recipe</th><th>EPUB Req</th><th>EPUB Eff</th><th>Auto Score</th><th>Run Config</th><th>Artifact</th>" in html
+        assert "All-Method Benchmark Runs" in html
+        assert "Diagnostics (Latest Benchmark)" in html
+        assert "Previous Runs" in html
+        assert 'class="table-wrap table-scroll"' in html
+        assert "Stage / Import Throughput" not in html
+        assert "Benchmark Evaluations" not in html
 
     def test_html_embeds_inline_data_for_file_scheme(self, tmp_path):
         data = DashboardData(
@@ -953,32 +968,31 @@ class TestRenderer:
         assert "function compareRunTimestampDesc(aTs, bTs)" in js
         assert "compareRunTimestampDesc(a.run_timestamp, b.run_timestamp)" in js
 
-    def test_js_marks_stale_run_config_warning(self, tmp_path):
-        data = DashboardData(
-            stage_records=[
-                StageRecord(
-                    run_timestamp="2026-02-11_16.00.00",
-                    file_name="book.epub",
-                    run_config_warning="missing report (stale row)",
-                    total_seconds=12.0,
-                    recipes=6,
-                    per_recipe_seconds=2.0,
-                    artifact_dir="/tmp/output/2026-02-11_16.00.00",
-                )
-            ],
-            summary=DashboardSummary(total_stage_records=1, total_recipes=6),
-        )
-        render_dashboard(tmp_path / "dash", data)
-        js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
-        assert "run_config_warning" in js
-        assert 'class="warn-note"' in js
-        assert "[warn] " in js
-
-    def test_js_escapes_run_config_hash_newline(self, tmp_path):
+    def test_js_renders_previous_runs_table_and_links_timestamp_to_artifact(
+        self, tmp_path
+    ):
         render_dashboard(tmp_path / "dash", DashboardData())
         js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
-        assert 'title = (title ? title + "\\n" : "") + "hash=" + hash;' in js
-        assert 'title = (title ? title + "\n" : "") + "hash=" + hash;' not in js
+        assert "function renderPreviousRuns()" in js
+        assert 'document.getElementById("previous-runs-section")' in js
+        assert 'document.getElementById("previous-runs-table")' in js
+        assert 'const href = r.artifact_dir || "";' in js
+        assert 'const ALL_METHOD_SEGMENT = "all-method-benchmark";' in js
+        assert '"all-method-benchmark-run__" + slugToken(ts) + ".html"' in js
+        assert 'source: "all-method benchmark run"' in js
+        assert (
+            '\'<a href="\' + esc(href) + \'" title="\' + esc(href) + \'">\' + esc(ts) + "</a>"'
+            in js
+        )
+
+    def test_js_init_skips_removed_control_setup(self, tmp_path):
+        render_dashboard(tmp_path / "dash", DashboardData())
+        js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
+        assert "setupFilters();" not in js
+        assert "setupExtractorFilters();" not in js
+        assert "setupThroughputModeControls();" not in js
+        assert "setupGlobalCollapseControls();" not in js
+        assert "renderPreviousRuns();" in js
 
     def test_render_builds_all_method_standalone_pages(self, tmp_path):
         all_method_root = (
@@ -1010,6 +1024,7 @@ class TestRenderer:
                     f1=0.19,
                     practical_f1=0.54,
                     recipes=7,
+                    gold_recipe_headers=10,
                     source_file="/tmp/thefoodlabCUTDOWN.epub",
                     importer_name="epub",
                     run_config_summary="epub_extractor=legacy | workers=7",
@@ -1026,6 +1041,7 @@ class TestRenderer:
                     f1=0.30,
                     practical_f1=0.62,
                     recipes=9,
+                    gold_recipe_headers=10,
                     source_file="/tmp/thefoodlabCUTDOWN.epub",
                     importer_name="epub",
                     run_config_summary="epub_extractor=markdown | workers=7",
@@ -1042,6 +1058,7 @@ class TestRenderer:
                     f1=0.13,
                     practical_f1=0.40,
                     recipes=8,
+                    gold_recipe_headers=10,
                     source_file="/tmp/thefoodlabCUTDOWN.epub",
                     importer_name="epub",
                     run_config_hash="hash003",
@@ -1057,6 +1074,7 @@ class TestRenderer:
                     f1=0.35,
                     practical_f1=0.68,
                     recipes=10,
+                    gold_recipe_headers=12,
                     source_file="/tmp/DinnerFor2CUTDOWN.epub",
                     importer_name="epub",
                     run_config_summary="epub_extractor=legacy | workers=7",
@@ -1073,6 +1091,7 @@ class TestRenderer:
                     f1=0.42,
                     practical_f1=0.81,
                     recipes=12,
+                    gold_recipe_headers=12,
                     source_file="/tmp/DinnerFor2CUTDOWN.epub",
                     importer_name="epub",
                     run_config_summary="epub_extractor=markdown | workers=7",
@@ -1083,37 +1102,59 @@ class TestRenderer:
         html_path = render_dashboard(tmp_path / "dash", data)
         html = html_path.read_text(encoding="utf-8")
         assert "All-Method Benchmark Runs" in html
-        assert "all-method-benchmark.html" in html
+        assert "all-method-benchmark/index.html" in html
 
-        all_method_index = tmp_path / "dash" / "all-method-benchmark.html"
+        all_method_dir = tmp_path / "dash" / "all-method-benchmark"
+        all_method_index = all_method_dir / "index.html"
         assert all_method_index.exists()
         run_detail_path = (
-            tmp_path
-            / "dash"
+            all_method_dir
             / "all-method-benchmark-run__2026-02-23_16.01.06.html"
         )
         assert run_detail_path.exists()
         detail_path = (
-            tmp_path
-            / "dash"
+            all_method_dir
             / "all-method-benchmark__2026-02-23_16.01.06__thefoodlabcutdown.html"
         )
         assert detail_path.exists()
         detail_path_second = (
-            tmp_path
-            / "dash"
+            all_method_dir
             / "all-method-benchmark__2026-02-23_16.01.06__dinnerfor2cutdown.html"
         )
         assert detail_path_second.exists()
 
         detail_html = detail_path.read_text(encoding="utf-8")
+        assert 'class="all-method-quick-nav"' in detail_html
+        assert 'href="#detail-summary"' in detail_html
+        assert 'href="#detail-charts"' in detail_html
+        assert 'href="#detail-ranked-table"' in detail_html
+        assert 'id="detail-charts"' in detail_html
+        assert 'id="detail-ranked-table"' in detail_html
+        assert 'class="section-details"' in detail_html
         assert "Run Summary" in detail_html
         assert "Compact stats only (no per-config labels)" in detail_html
         assert "<th>Stat</th><th>N</th><th>Min</th><th>Median</th><th>Mean</th><th>Max</th>" in detail_html
         assert "Metric Bar Charts" in detail_html
         assert "One bar per run/configuration for each metric category." in detail_html
+        assert "All axes use fixed 0-100%; recipes is percent identified vs golden recipe headers for this source." in detail_html
         assert "Run 01" in detail_html
         assert "metric-bar-fill" in detail_html
+        assert "Metric Web Charts (Radar)" in detail_html
+        assert "Each web is one run/configuration." in detail_html
+        assert "All axes use fixed 0-100%; recipes is percent identified vs golden recipe headers for this source." in detail_html
+        assert "metric-radar-svg" in detail_html
+        assert "Run 01: config_002_bbb_extractor_markdown" in detail_html
+        assert "<strong>Golden recipes:</strong> 10" in detail_html
+        strict_precision_block = detail_html.split("<h3>Strict Precision</h3>", 1)[1].split(
+            "</section>", 1
+        )[0]
+        assert 'style="width:20.00%"' in strict_precision_block
+        assert 'style="width:100.00%"' not in strict_precision_block
+        recipes_identified_block = detail_html.split("<h3>Recipes Identified %</h3>", 1)[1].split(
+            "</section>", 1
+        )[0]
+        assert 'style="width:90.00%"' in recipes_identified_block
+        assert 'style="width:70.00%"' in recipes_identified_block
         assert "Strict Precision" in detail_html
         assert "Practical F1" in detail_html
         assert "<th>Extractor</th>" in detail_html
@@ -1140,6 +1181,56 @@ class TestRenderer:
         assert "all-method-benchmark-run__2026-02-23_16.01.06.html" in index_html
 
         run_detail_html = run_detail_path.read_text(encoding="utf-8")
+        assert 'class="all-method-quick-nav"' in run_detail_html
+        assert 'href="#run-summary"' in run_detail_html
+        assert 'href="#run-charts"' in run_detail_html
+        assert 'href="#run-config-table"' in run_detail_html
+        assert 'href="#run-drilldown"' in run_detail_html
+        assert 'id="run-charts"' in run_detail_html
+        assert 'id="run-config-table"' in run_detail_html
+        assert 'id="run-drilldown"' in run_detail_html
+        assert "Run Summary" in run_detail_html
+        assert "Compact stats across aggregated config rows" in run_detail_html
+        assert "Metric Bar Charts" in run_detail_html
+        assert "One bar per aggregated configuration for each metric category." in run_detail_html
+        assert "All axes use fixed 0-100%; recipes is percent identified vs golden recipe headers for each book." in run_detail_html
+        assert "Config 01" in run_detail_html
+        assert "metric-bar-fill" in run_detail_html
+        assert "Metric Web Charts (Radar)" in run_detail_html
+        assert "Each web is one aggregated configuration." in run_detail_html
+        assert "All axes use fixed 0-100%; recipes is percent identified vs golden recipe headers for each book." in run_detail_html
+        assert "metric-radar-svg" in run_detail_html
+        assert "Config 01: config_002_bbb_extractor_markdown" in run_detail_html
+        assert "Per-Cookbook Average Metric Bar Charts" in run_detail_html
+        assert "One bar per cookbook. Values are averaged across all configs that ran for that cookbook." in run_detail_html
+        assert "Labels use Book 01/Book 02 order from Per-Book Drilldown." in run_detail_html
+        assert "Highest avg strict precision:" in run_detail_html
+        assert "Highest avg strict recall:" in run_detail_html
+        assert "Book 01" in run_detail_html
+        assert "Per-Cookbook Average Web Charts (Radar)" in run_detail_html
+        assert "Each web is one cookbook with metrics averaged across all configs that ran for that cookbook." in run_detail_html
+        assert "Book 01: DinnerFor2CUTDOWN.epub (configs=2)" in run_detail_html
+        avg_book_precision_block = run_detail_html.split("<h3>Avg Strict Precision</h3>", 1)[1].split(
+            "</section>", 1
+        )[0]
+        assert 'style="width:13.33%"' in avg_book_precision_block
+        assert 'style="width:28.00%"' in avg_book_precision_block
+        avg_book_recipes_identified_block = run_detail_html.split("<h3>Avg Recipes Identified %</h3>", 1)[1].split(
+            "</section>", 1
+        )[0]
+        assert 'style="width:80.00%"' in avg_book_recipes_identified_block
+        assert 'style="width:91.67%"' in avg_book_recipes_identified_block
+        mean_precision_block = run_detail_html.split("<h3>Mean Strict Precision</h3>", 1)[1].split(
+            "</section>", 1
+        )[0]
+        assert 'style="width:25.50%"' in mean_precision_block
+        assert 'style="width:100.00%"' not in mean_precision_block
+        mean_recipes_identified_block = run_detail_html.split("<h3>Recipes Identified %</h3>", 1)[1].split(
+            "</section>", 1
+        )[0]
+        assert 'style="width:95.00%"' in mean_recipes_identified_block
+        assert "Mean Strict Precision" in run_detail_html
+        assert "Mean Practical F1" in run_detail_html
         assert "Config Performance Across Books" in run_detail_html
         assert "Per-Book Drilldown" in run_detail_html
         assert "Open book details" in run_detail_html
@@ -1163,10 +1254,10 @@ class TestRenderer:
         )
         html_path = render_dashboard(tmp_path / "dash", data)
         html = html_path.read_text(encoding="utf-8")
-        assert "all-method-benchmark.html" in html
+        assert "all-method-benchmark/index.html" in html
         assert "No all-method benchmark runs found in benchmark history." in html
-        assert (tmp_path / "dash" / "all-method-benchmark.html").exists()
-        assert not (tmp_path / "dash" / "all-method-benchmark").exists()
+        assert (tmp_path / "dash" / "all-method-benchmark" / "index.html").exists()
+        assert not (tmp_path / "dash" / "all-method-benchmark.html").exists()
 
     def test_idempotent(self, tmp_path):
         data = DashboardData()
@@ -1206,6 +1297,7 @@ class TestBenchmarkCsv:
         assert float(row["practical_recall"]) == pytest.approx(0.85)
         assert float(row["practical_f1"]) == pytest.approx(0.767741935483871)
         assert row["gold_total"] == "100"
+        assert row["gold_recipe_headers"] == "11"
         assert row["gold_matched"] == "25"
         assert row["pred_total"] == "500"
         assert float(row["supported_precision"]) == pytest.approx(0.08)
@@ -1359,6 +1451,7 @@ class TestBenchmarkCsv:
         assert b.granularity_mismatch_likely is True
         assert b.source_file == "my_book.pdf"
         assert b.recipes is None
+        assert b.gold_recipe_headers == 11
 
     def test_csv_and_json_benchmark_rows_merge_by_artifact_dir(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
@@ -1404,7 +1497,8 @@ class TestBenchmarkCsv:
         b = data.benchmark_records[0]
         assert b.artifact_dir == str(eval_dir)
         assert b.source_file == "my_book.pdf"
-        assert b.recipes is None
+        assert b.recipes == 14
+        assert b.gold_recipe_headers == 11
         assert len(b.per_label) == 2
 
     def test_benchmark_csv_schema_migration(self, tmp_path):

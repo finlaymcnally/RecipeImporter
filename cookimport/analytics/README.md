@@ -4,6 +4,7 @@ Performance reporting utilities live here.
 - Appends run history to `data/.history/performance_history.csv` for easy trending.
 - Invoked by `cookimport perf-report` and auto-runs after `cookimport stage`.
 - Includes `cookimport benchmark-csv-backfill` to patch older benchmark rows from manifest/report artifacts.
+- CSV-writing CLI flows now also auto-refresh dashboard artifacts under the same `.history/dashboard` root (best effort).
 - Includes standalone topic coverage (`totalStandaloneBlocks`, `totalStandaloneTopicBlocks`, `standaloneTopicCoverage`) when available.
 
 Outliers are flagged across multiple metrics (total, parsing, writing, per-unit) and
@@ -27,12 +28,13 @@ Data sources (read-only):
   (includes source/importer/run-config context when available)
 
 Output: `data/.history/dashboard/` (configurable via `--out-dir`)
-- Always writes `data/.history/dashboard/all-method-benchmark.html` as an in-site run index page.
+- Always writes `data/.history/dashboard/all-method-benchmark/index.html` as an in-site run index page.
 - For grouped all-method runs, also writes run-level summary pages:
-  - `data/.history/dashboard/all-method-benchmark-run__<run_timestamp>.html`
-- Per-book detail pages still live at dashboard root:
-  - `data/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html`
+  - `data/.history/dashboard/all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html`
+- Per-book detail pages live in the same all-method subfolder:
+  - `data/.history/dashboard/all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html`
 - Grouping key remains benchmark artifact paths matching `all-method-benchmark/<source_slug>/config_*`; run-level pages aggregate those per-book groups by run folder.
+- Run-summary pages include config-level charts plus per-cookbook average bar/radar sections (averaged across all configs per source) before config and per-book tables.
 
 Throughput dashboard organization:
 - run/date view (`Run / Date Trend`, `Recent Runs`) for timeline-level comparisons

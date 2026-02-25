@@ -65,7 +65,7 @@ Uploads are intentionally gated.
   - `labelstudio` import proceeds directly to upload (no separate upload confirmation prompt).
   - `labelstudio` import always uses overwrite semantics for resolved project names (`overwrite=True`, `resume=False`); there is no overwrite/resume chooser in this flow.
   - Interactive freeform import includes an AI prelabel mode picker (off, strict/allow-partial annotations, advanced predictions modes; strict is marked recommended), then a style picker (`actual freeform` span mode vs `legacy, block based` mode), prints total processing time in the import summary, and prints `prelabel_report.json` when prelabel is enabled.
-  - Interactive freeform prelabel does not prompt for command selection; it resolves command from `COOKIMPORT_CODEX_CMD` or `codex exec -`, displays the resolved account email when available, then prompts for model and thinking effort (`none|minimal|low|medium|high|xhigh`) using metadata/defaults from that command's Codex home cache (`CODEX_HOME` honored).
+  - Interactive freeform prelabel does not prompt for command selection; it resolves command from `COOKIMPORT_CODEX_CMD` or `codex exec -`, displays the resolved account email when available, then prompts for model and thinking effort (model-compatible subset of `none|low|medium|high|xhigh`; `minimal` hidden) using metadata/defaults from that command's Codex home cache (`CODEX_HOME` honored).
   - Token usage tracking is always enabled for AI labeling runs.
 - non-interactive benchmark upload does not ask a second confirmation; passing upload flags is treated as explicit intent.
 - interactive benchmark now has two offline-only menu modes, and asks mode before run-settings:
@@ -265,6 +265,7 @@ Interactive style labels and runtime mode values are intentionally separate:
 4. Offset resolution behavior:
    - Quote mode resolves inside the selected block’s exact substring from `segment_text`.
    - Resolver tries exact `quote`, then stripped `quote` (leading/trailing whitespace only).
+   - If the quote does not exist in the selected `block_index`, runtime runs a small repair pass that tries to re-anchor the quote in nearby focus blocks (and finally accepts a unique match across the focus window). Context-only blocks are never labeled.
    - If quote appears multiple times in that block, `occurrence` is required (1-based). Missing/invalid ambiguity resolution drops that selection.
    - Absolute mode validates `0 <= start < end <= len(segment_text)`; invalid bounds are dropped.
 5. Emitted Label Studio results:
@@ -273,7 +274,8 @@ Interactive style labels and runtime mode values are intentionally separate:
    - `value.text` is always recomputed from `segment_text[start:end]` to keep exact LS offset/text integrity.
 6. Failure semantics:
    - Bad selections are dropped item-by-item.
-   - Task prelabel only fails when no valid spans survive (`annotation is None`) or provider call raises.
+   - Explicit empty output (`[]`) is treated as “no spans” (not an error).
+   - Task prelabel fails only when the provider call raises or the provider returns non-empty suggestions but no valid spans survive.
 
 **Option B: `legacy, block based` (`block`)**
 
@@ -303,7 +305,7 @@ Interactive style labels and runtime mode values are intentionally separate:
 
 When `--prelabel` is enabled:
 
-1. `generate_pred_run_artifacts(...)` attaches `task["annotations"] = [annotation]` for each successfully prelabelled segment task.
+1. `generate_pred_run_artifacts(...)` attaches `task["annotations"] = [annotation]` only when the prelabel result is non-empty (segments that return `[]` upload as plain tasks with no prelabels).
 2. `run_labelstudio_import(...)` uploads tasks in batches:
    - `--prelabel-upload-as annotations` (default): try importing tasks with inline `annotations`.
    - If Label Studio rejects inline annotations, it automatically:
@@ -437,11 +439,25 @@ Important:
 - Interactive all-method mode runs offline `labelstudio-benchmark --no-upload` style executions across a fixed extractor/tuning permutation set, then writes per-source summary artifacts at:
   - `.../all-method-benchmark/<source_slug>/all_method_benchmark_report.json`
   - `.../all-method-benchmark/<source_slug>/all_method_benchmark_report.md`
+  - each per-source report includes `scheduler` metrics (`heavy_slot_*`, wing backlog, idle gaps, and inflight/split/wing settings used).
 - All-matched scope also writes one combined report at:
   - `.../all-method-benchmark/all_method_benchmark_multi_source_report.json`
   - `.../all-method-benchmark/all_method_benchmark_multi_source_report.md`
+  - combined report includes `scheduler_summary` rollups across successful source sweeps.
 - Interactive all-method mode also writes processed cookbook outputs under the interactive output root (`cookimport.json.output_dir`, default `data/output`) scoped by benchmark timestamp:
   - `<output_dir>/<benchmark_timestamp>/all-method-benchmark/<source_slug>/config_*/<prediction_timestamp>/...`
+- Interactive all-method scheduler controls are read from `cookimport.json` keys:
+  - `all_method_max_inflight_pipelines`
+  - `all_method_max_split_phase_slots`
+  - `all_method_wing_backlog_target`
+  - `all_method_smart_scheduler`
+  - `all_method_config_timeout_seconds`
+  - `all_method_retry_failed_configs`
+- Smart scheduler mode is phase-aware:
+  - workers emit config phase telemetry (`prep`, `split_wait`, `split_active`, `post`) to `<source_root>/.scheduler_events/config_###.jsonl`,
+  - parent queue admission targets `heavy + wing ~= split slots + wing backlog`,
+  - effective inflight includes a smart tail buffer equal to split slots so post-stage configs do not block new prewarm admissions,
+  - spinner/dashboard task line shows live scheduler state: `scheduler heavy X/Y | wing Z | active A | pending P`.
 - Benchmark prediction manifests include run-config metadata (`run_config`, `run_config_hash`, `run_config_summary`) so analytics/dashboard rows can be grouped by configuration.
 - Non-interactive benchmark knobs include worker/split controls, OCR/warmup flags, knowledge-harvest codex-farm controls, and a recipe codex-farm policy knob that is currently forced to `off` (`--ocr-device`, `--ocr-batch-size`, `--warm-models`, `--epub-extractor`, `--llm-recipe-pipeline`, `--codex-farm-cmd`, `--codex-farm-root`, `--codex-farm-workspace-root`, `--codex-farm-pipeline-pass1`, `--codex-farm-pipeline-pass2`, `--codex-farm-pipeline-pass3`, `--codex-farm-context-blocks`, `--codex-farm-failure-mode`).
 - If recipe codex-farm correction is re-enabled in future, processed report payloads include `llmCodexFarm` and prediction-run artifacts include `llm_manifest.json` when produced.
@@ -1143,3 +1159,45 @@ Durable freeform export/eval contract:
   - `recipe_counts.recipe_headers_raw` (raw).
 - Header count source is normalized `RECIPE_TITLE` spans, deduped by source identity + block range.
 - Benchmark/eval reports should surface `recipe_counts` diagnostics with predicted-vs-golden deltas so operators can compare recipe totals separately from span metrics.
+
+## 15) Merged Understandings Batch (2026-02-24 prelabel reliability cleanup)
+
+### 15.1 Interactive prelabel effort compatibility filtering
+
+Merged discovery:
+- `2026-02-24_21.34.27-prelabel-effort-compatibility-filtering`
+
+Durable rules:
+- Interactive effort choices must be filtered by selected-model metadata (`supported_reasoning_levels`) and known Codex tool-compatibility constraints.
+- If configured default effort is incompatible with selected model/tool constraints, hide "use default" and force explicit valid choice.
+- Keep invalid values (for example `minimal` under incompatible toolset/model combinations) out of menus up front instead of relying on provider-error retries.
+
+### 15.2 Span prelabel quote-repair + empty-output semantics
+
+Merged discovery:
+- `2026-02-24_22.03.07-freeform-prelabel-repair-pass`
+
+Durable rules:
+- Empty `[]` model output is valid "no spans" and should not be treated as a provider failure.
+- For quote-anchored span rows where `quote` is valid but `block_index` is wrong, run repair pass:
+  - try nearby focus blocks first,
+  - then accept a unique match across focus window.
+- Only attach `task["annotations"]` when repaired/final result is non-empty.
+
+## 16) 2026-02-24_22.44.09 docs/tasks archival merge batch (prelabel effort filtering)
+
+### 16.1 Archived source task merged into this section
+
+- `docs/tasks/2026-02-24_21.34.27-prelabel-invalid-effort-choices.md`
+
+### 16.2 Current interactive effort-menu contract (durable)
+
+- Interactive freeform prelabel effort menus must not expose known-invalid choices that fail immediately at provider preflight/runtime.
+- `minimal` remains excluded in this workflow due known incompatibilities with current tool-enabled paths.
+- Effort choices are filtered against selected-model metadata when available (`supported_reasoning_levels`-style constraints).
+- If configured/default effort is incompatible with selected model + workflow constraints, the "use default" option is hidden and operator must pick a valid effort explicitly.
+
+### 16.3 Validation evidence preserved from task
+
+- `tests/labelstudio/test_labelstudio_prelabel.py -k 'list_codex_models'` passed in task session.
+- `tests/labelstudio/test_labelstudio_benchmark_helpers.py -k 'interactive_labelstudio_freeform_scope_routes_to_freeform_import or interactive_labelstudio_filters_incompatible_effort_choices'` passed in task session.

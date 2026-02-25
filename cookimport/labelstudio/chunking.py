@@ -238,6 +238,84 @@ def _build_recipe_text(recipe: RecipeCandidate) -> str:
     return normalize_display_text("\n".join(_recipe_section_lines(recipe)))
 
 
+def _infer_recipe_title_block_index(
+    recipe: RecipeCandidate,
+    location: dict[str, Any],
+    *,
+    archive_by_index: dict[int, ArchiveBlock],
+) -> int | None:
+    start = location.get("start_block")
+    end = location.get("end_block")
+    if not isinstance(start, int) or not isinstance(end, int):
+        return None
+    if start > end:
+        start, end = end, start
+    if start == end:
+        return start
+
+    recipe_name = recipe.name.strip() if recipe.name else ""
+    recipe_name_norm = _normalize_for_hash(recipe_name) if recipe_name else ""
+    window_end = min(end, start + 60)
+
+    if recipe_name_norm:
+        for idx in range(start, window_end + 1):
+            block = archive_by_index.get(idx)
+            if not block:
+                continue
+            if _normalize_for_hash(block.text) == recipe_name_norm:
+                return idx
+
+        for idx in range(start, window_end + 1):
+            block = archive_by_index.get(idx)
+            if not block:
+                continue
+            block_norm = _normalize_for_hash(block.text)
+            if recipe_name_norm in block_norm or block_norm in recipe_name_norm:
+                return idx
+
+    best_idx: int | None = None
+    best_score: int | None = None
+    heuristic_end = min(end, start + 20)
+    for idx in range(start, heuristic_end + 1):
+        block = archive_by_index.get(idx)
+        if not block:
+            continue
+        text = (block.text or "").strip()
+        if not text or len(text) > 140:
+            continue
+        block_loc = block.location if isinstance(block.location, dict) else {}
+        features = (
+            block_loc.get("features")
+            if isinstance(block_loc.get("features"), dict)
+            else {}
+        )
+
+        if features.get("is_yield") or features.get("is_time"):
+            continue
+        if features.get("is_ingredient_likely") or features.get("is_instruction_likely"):
+            continue
+
+        score = 0
+        if features.get("is_heading") or features.get("is_header_likely"):
+            score += 10
+        if str(block_loc.get("font_weight") or "").lower() in {"bold", "semibold"}:
+            score += 5
+        if features.get("block_role") in {"recipe_title", "section_heading"}:
+            score += 3
+        score -= (idx - start)
+
+        if best_score is None or score > best_score:
+            best_score = score
+            best_idx = idx
+
+    if best_idx is not None and best_score is not None and best_score > 0:
+        return best_idx
+
+    if start in archive_by_index:
+        return start
+    return None
+
+
 def _covered_block_indices(recipes: list[RecipeCandidate]) -> set[int]:
     covered: set[int] = set()
     for recipe in recipes:
@@ -325,9 +403,44 @@ def chunk_structural(
     trace_collector: Any | None = None,
 ) -> list[ChunkRecord]:
     chunks: list[ChunkRecord] = []
+    archive_by_index = {block.index: block for block in archive}
 
     for idx, recipe in enumerate(result.recipes):
         location = _recipe_location(recipe, idx)
+        title_block_index = _infer_recipe_title_block_index(
+            recipe, location, archive_by_index=archive_by_index
+        )
+        if title_block_index is not None:
+            title_text_raw = recipe.name
+            title_text_display = normalize_display_text(title_text_raw)
+            title_location = dict(location)
+            title_location["title_block_index"] = title_block_index
+            title_location["block_index"] = title_block_index
+            title_location["start_block"] = title_block_index
+            title_location["end_block"] = title_block_index
+            title_chunk_id = build_chunk_id(
+                file_hash=file_hash,
+                pipeline=pipeline_used,
+                chunk_level="structural",
+                location=title_location,
+                text=title_text_raw,
+            )
+            chunks.append(
+                ChunkRecord(
+                    chunk_id=title_chunk_id,
+                    chunk_level="structural",
+                    chunk_type="recipe_title",
+                    text_raw=title_text_raw,
+                    text_display=title_text_display,
+                    source_file=source_file,
+                    book_id=book_id,
+                    pipeline_used=pipeline_used,
+                    location=title_location,
+                    chunk_type_hint="recipe_title",
+                    text_hash=_text_hash(title_text_raw),
+                )
+            )
+
         text_raw = _build_recipe_text(recipe)
         text_display = normalize_display_text(text_raw)
         chunk_id = build_chunk_id(

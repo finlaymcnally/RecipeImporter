@@ -1000,3 +1000,53 @@ Preserved decisions:
 
 Anti-loop note:
 - Keep recipe-count diagnostics distinct from span matching metrics; high span quality and recipe-count mismatch can coexist.
+
+## 2026-02-24_21.34.27 to 2026-02-24_22.03.07 archival merge batch from `docs/understandings` (Label Studio)
+
+### 2026-02-24_21.34.27 prelabel effort compatibility filtering
+
+Preserved findings:
+- Interactive freeform prelabel effort menus can present invalid options if they do not respect selected-model metadata + tool constraints.
+- Captured incompatibilities included:
+  - `minimal` rejected under active tool combinations,
+  - model-specific invalid effort values (for example `none` for models whose metadata does not allow it).
+
+Durable rule:
+- Build interactive effort menu from model metadata and known tool compatibility constraints, and force explicit valid selection when configured defaults are incompatible.
+
+### 2026-02-24_22.03.07 quote repair pass for block-index mismatches
+
+Preserved findings:
+- Empty list (`[]`) output is a legitimate "no spans found" result and should not be logged as a model/parsing failure.
+- A recurring failure mode was valid quote text paired with off-by-one or otherwise incorrect `block_index`, producing false "no valid labels."
+
+Durable rule:
+- Keep quote repair pass in span-mode parsing:
+  1. retry quote anchoring in nearby focus blocks,
+  2. then accept unique focus-window match if available.
+- Only attach annotation payloads when the final span result is non-empty.
+
+Anti-loop note for this batch:
+- Do not classify empty `[]` prelabel outputs as automatic provider failures; inspect mismatch-repair and segment signal quality first.
+
+## 2026-02-24_22.44.09 archival merge batch from `docs/tasks` (Label Studio)
+
+### 2026-02-24_21.34.27 prelabel invalid-effort menu filtering
+
+Merged source:
+- `docs/tasks/2026-02-24_21.34.27-prelabel-invalid-effort-choices.md`
+
+Problem captured:
+- Interactive prelabel effort picker surfaced values that can fail immediately at preflight/runtime (`minimal` with tool-enabled path, model-incompatible efforts like `none` on unsupported models).
+
+Decision/outcome preserved:
+- Exclude `minimal` in interactive freeform prelabel effort menus.
+- Filter effort options by selected model metadata (`supported_reasoning_levels`) when available.
+- Hide incompatible "use Codex default (...)" effort option when default conflicts with selected model/workflow.
+
+Evidence preserved:
+- `pytest -q tests/labelstudio/test_labelstudio_prelabel.py -k 'list_codex_models'` passed.
+- `pytest -q tests/labelstudio/test_labelstudio_benchmark_helpers.py -k 'interactive_labelstudio_freeform_scope_routes_to_freeform_import or interactive_labelstudio_filters_incompatible_effort_choices'` passed.
+
+Anti-loop note:
+- For immediate provider-effort failures, inspect interactive menu filtering/model metadata compatibility first before changing prelabel prompt text or retry strategy.

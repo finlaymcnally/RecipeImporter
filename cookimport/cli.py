@@ -12,14 +12,20 @@ import shutil
 import threading
 import time
 import zipfile
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    as_completed,
+    wait,
+)
 from collections import defaultdict
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import product
 from pathlib import Path
-from typing import Iterable, Dict, Any, Annotated, Callable, TypeVar
+from typing import Iterable, Dict, Any, Annotated, Callable, TypeVar, cast
 
 import questionary
 import typer
@@ -29,6 +35,7 @@ from prompt_toolkit.keys import Keys
 from questionary.prompts.common import Choice as QuestionaryChoice, Separator as QuestionarySeparator
 from rich.console import Console, Group
 from rich.live import Live
+from rich.markup import escape as rich_escape
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 from rich.text import Text
@@ -158,7 +165,18 @@ ALL_METHOD_UNSTRUCTURED_HTML_PARSER_VERSIONS = ("v1", "v2")
 ALL_METHOD_UNSTRUCTURED_SKIP_HEADERS_FOOTERS = (False, True)
 ALL_METHOD_UNSTRUCTURED_PREPROCESS_MODES = ("none", "br_split_v1", "semantic_v1")
 ALL_METHOD_MAX_INFLIGHT_DEFAULT = 4
-ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT = 2
+ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT = 4
+ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT = 900
+ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT = 1
+ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT = 2
+ALL_METHOD_MAX_INFLIGHT_SETTING_KEY = "all_method_max_inflight_pipelines"
+ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY = "all_method_max_split_phase_slots"
+ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY = "all_method_config_timeout_seconds"
+ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY = "all_method_retry_failed_configs"
+ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY = "all_method_max_parallel_sources"
+ALL_METHOD_WING_BACKLOG_SETTING_KEY = "all_method_wing_backlog_target"
+ALL_METHOD_SMART_SCHEDULER_SETTING_KEY = "all_method_smart_scheduler"
+ALL_METHOD_SCHEDULER_POLL_SECONDS = 0.15
 _MENU_SHORTCUT_KEYS = (
     "1",
     "2",
@@ -202,6 +220,7 @@ _STATUS_ELAPSED_THRESHOLD_SECONDS = 10
 _STATUS_TICK_SECONDS = 1.0
 _STATUS_COUNTER_PATTERN = re.compile(r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)")
 _StatusReturn = TypeVar("_StatusReturn")
+_DASHBOARD_REFRESH_SENTINEL_DIRNAME = "__dashboard_refresh__"
 
 _BENCHMARK_PROGRESS_CALLBACK: ContextVar[Callable[[str], None] | None] = ContextVar(
     "_BENCHMARK_PROGRESS_CALLBACK",
@@ -227,6 +246,12 @@ _BENCHMARK_SPLIT_PHASE_STATUS_LABEL: ContextVar[str | None] = ContextVar(
     "_BENCHMARK_SPLIT_PHASE_STATUS_LABEL",
     default=None,
 )
+_BENCHMARK_SCHEDULER_EVENT_CALLBACK: ContextVar[
+    Callable[[dict[str, Any]], None] | None
+] = ContextVar(
+    "_BENCHMARK_SCHEDULER_EVENT_CALLBACK",
+    default=None,
+)
 
 
 def _golden_sent_to_labelstudio_root() -> Path:
@@ -239,6 +264,48 @@ def _golden_pulled_from_labelstudio_root() -> Path:
 
 def _golden_benchmark_root() -> Path:
     return DEFAULT_GOLDEN / "benchmark-vs-golden"
+
+
+def _infer_output_root_from_history_csv(csv_path: Path) -> Path | None:
+    if csv_path.name != "performance_history.csv":
+        return None
+    if csv_path.parent.name != ".history":
+        return None
+    return csv_path.parent.parent / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
+
+
+def _refresh_dashboard_after_history_write(
+    *,
+    csv_path: Path,
+    output_root: Path | None = None,
+    golden_root: Path = DEFAULT_GOLDEN,
+    reason: str | None = None,
+) -> None:
+    resolved_csv_path = csv_path.expanduser()
+    if not resolved_csv_path.exists():
+        return
+    resolved_output_root = output_root.expanduser() if output_root is not None else None
+    if resolved_output_root is None:
+        resolved_output_root = _infer_output_root_from_history_csv(resolved_csv_path)
+    reason_suffix = f" ({reason})" if reason else ""
+    if resolved_output_root is None:
+        logger.warning(
+            "Dashboard refresh skipped%s: unable to infer output root for %s",
+            reason_suffix,
+            resolved_csv_path,
+        )
+        return
+    try:
+        stats_dashboard(
+            output_root=resolved_output_root,
+            golden_root=golden_root,
+            out_dir=resolved_csv_path.parent / "dashboard",
+            open_browser=False,
+            since_days=None,
+            scan_reports=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Dashboard refresh failed%s: %s", reason_suffix, exc)
 
 
 def _menu_option_count(choices: list[Any]) -> int:
@@ -522,6 +589,12 @@ def _load_settings() -> Dict[str, Any]:
         "workers": 7,
         "pdf_split_workers": 7,
         "epub_split_workers": 7,
+        ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY: ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT,
+        ALL_METHOD_MAX_INFLIGHT_SETTING_KEY: ALL_METHOD_MAX_INFLIGHT_DEFAULT,
+        ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY: ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
+        ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY: ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT,
+        ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY: ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT,
+        ALL_METHOD_SMART_SCHEDULER_SETTING_KEY: True,
         "epub_extractor": "unstructured",
         "epub_unstructured_html_parser_version": "v1",
         "epub_unstructured_skip_headers_footers": False,
@@ -534,14 +607,27 @@ def _load_settings() -> Dict[str, Any]:
         "output_dir": str(DEFAULT_INTERACTIVE_OUTPUT),
     }
     if not DEFAULT_CONFIG_PATH.exists():
+        defaults[ALL_METHOD_WING_BACKLOG_SETTING_KEY] = defaults[
+            ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY
+        ]
         return defaults
     try:
         with open(DEFAULT_CONFIG_PATH, "r") as f:
             loaded = json.load(f)
             if isinstance(loaded, dict):
-                return {**defaults, **loaded}
+                merged = {**defaults, **loaded}
+                if ALL_METHOD_WING_BACKLOG_SETTING_KEY not in loaded:
+                    merged[ALL_METHOD_WING_BACKLOG_SETTING_KEY] = _resolve_positive_int_setting(
+                        merged,
+                        key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
+                        fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
+                    )
+                return merged
             return defaults
     except Exception:
+        defaults[ALL_METHOD_WING_BACKLOG_SETTING_KEY] = defaults[
+            ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY
+        ]
         return defaults
 
 
@@ -550,6 +636,63 @@ def _save_settings(settings: Dict[str, Any]) -> None:
     DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(DEFAULT_CONFIG_PATH, "w") as f:
         json.dump(settings, f, indent=2)
+
+
+def _coerce_positive_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
+
+
+def _coerce_non_negative_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    return parsed
+
+
+def _coerce_bool_setting(value: Any, *, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _resolve_positive_int_setting(
+    settings: Dict[str, Any],
+    *,
+    key: str,
+    fallback: int,
+) -> int:
+    parsed = _coerce_positive_int(settings.get(key))
+    if parsed is None:
+        return fallback
+    return parsed
+
+
+def _resolve_non_negative_int_setting(
+    settings: Dict[str, Any],
+    *,
+    key: str,
+    fallback: int,
+) -> int:
+    parsed = _coerce_non_negative_int(settings.get(key))
+    if parsed is None:
+        return fallback
+    return parsed
 
 
 def _resolve_interactive_labelstudio_settings(
@@ -676,6 +819,62 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     value="epub_split_workers",
                 ),
                 questionary.Choice(
+                    (
+                        "All-Method Parallel Sources: "
+                        f"{_resolve_positive_int_setting(current_settings, key=ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY, fallback=ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT)} "
+                        "- max matched sources run in parallel"
+                    ),
+                    value=ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY,
+                ),
+                questionary.Choice(
+                    (
+                        "All-Method Inflight Pipelines: "
+                        f"{_resolve_positive_int_setting(current_settings, key=ALL_METHOD_MAX_INFLIGHT_SETTING_KEY, fallback=ALL_METHOD_MAX_INFLIGHT_DEFAULT)} "
+                        "- max all-method configs run in parallel"
+                    ),
+                    value=ALL_METHOD_MAX_INFLIGHT_SETTING_KEY,
+                ),
+                questionary.Choice(
+                    (
+                        "All-Method Split Slots: "
+                        f"{_resolve_positive_int_setting(current_settings, key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY, fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT)} "
+                        "- max split-heavy all-method configs"
+                    ),
+                    value=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
+                ),
+                questionary.Choice(
+                    (
+                        "All-Method Config Timeout (s): "
+                        f"{_resolve_non_negative_int_setting(current_settings, key=ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY, fallback=ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT)} "
+                        "- 0 disables timeout for a single config run"
+                    ),
+                    value=ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY,
+                ),
+                questionary.Choice(
+                    (
+                        "All-Method Failed Retries: "
+                        f"{_resolve_non_negative_int_setting(current_settings, key=ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY, fallback=ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT)} "
+                        "- retry only failed configs after first pass"
+                    ),
+                    value=ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY,
+                ),
+                questionary.Choice(
+                    (
+                        "All-Method Wing Backlog: "
+                        f"{_resolve_positive_int_setting(current_settings, key=ALL_METHOD_WING_BACKLOG_SETTING_KEY, fallback=_resolve_positive_int_setting(current_settings, key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY, fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT))} "
+                        "- smart scheduler runway before split-heavy slots"
+                    ),
+                    value=ALL_METHOD_WING_BACKLOG_SETTING_KEY,
+                ),
+                questionary.Choice(
+                    (
+                        "All-Method Smart Scheduler: "
+                        f"{'On' if _coerce_bool_setting(current_settings.get(ALL_METHOD_SMART_SCHEDULER_SETTING_KEY), default=True) else 'Off'} "
+                        "- phase-aware queue admission"
+                    ),
+                    value=ALL_METHOD_SMART_SCHEDULER_SETTING_KEY,
+                ),
+                questionary.Choice(
                     f"EPUB Extractor: {current_settings.get('epub_extractor', 'unstructured')} - unstructured/legacy/markdown/markitdown",
                     value="epub_extractor",
                 ),
@@ -757,6 +956,119 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
             )
             if val and val.isdigit() and int(val) > 0:
                 current_settings["epub_split_workers"] = int(val)
+                _save_settings(current_settings)
+
+        elif choice == ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY:
+            val = _prompt_text(
+                "Enter all-method max parallel sources:",
+                default=str(
+                    _resolve_positive_int_setting(
+                        current_settings,
+                        key=ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY,
+                        fallback=ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT,
+                    )
+                ),
+            )
+            parsed = _coerce_positive_int(val)
+            if parsed is not None:
+                current_settings[ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY] = parsed
+                _save_settings(current_settings)
+
+        elif choice == ALL_METHOD_MAX_INFLIGHT_SETTING_KEY:
+            val = _prompt_text(
+                "Enter all-method max inflight pipelines:",
+                default=str(
+                    _resolve_positive_int_setting(
+                        current_settings,
+                        key=ALL_METHOD_MAX_INFLIGHT_SETTING_KEY,
+                        fallback=ALL_METHOD_MAX_INFLIGHT_DEFAULT,
+                    )
+                ),
+            )
+            parsed = _coerce_positive_int(val)
+            if parsed is not None:
+                current_settings[ALL_METHOD_MAX_INFLIGHT_SETTING_KEY] = parsed
+                _save_settings(current_settings)
+
+        elif choice == ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY:
+            val = _prompt_text(
+                "Enter all-method max split-phase slots:",
+                default=str(
+                    _resolve_positive_int_setting(
+                        current_settings,
+                        key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
+                        fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
+                    )
+                ),
+            )
+            parsed = _coerce_positive_int(val)
+            if parsed is not None:
+                current_settings[ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY] = parsed
+                _save_settings(current_settings)
+
+        elif choice == ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY:
+            val = _prompt_text(
+                "Enter all-method per-config timeout seconds (0 disables timeout):",
+                default=str(
+                    _resolve_non_negative_int_setting(
+                        current_settings,
+                        key=ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY,
+                        fallback=ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT,
+                    )
+                ),
+            )
+            parsed = _coerce_non_negative_int(val)
+            if parsed is not None:
+                current_settings[ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY] = parsed
+                _save_settings(current_settings)
+
+        elif choice == ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY:
+            val = _prompt_text(
+                "Enter all-method failed-config retry count (0 disables retries):",
+                default=str(
+                    _resolve_non_negative_int_setting(
+                        current_settings,
+                        key=ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY,
+                        fallback=ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT,
+                    )
+                ),
+            )
+            parsed = _coerce_non_negative_int(val)
+            if parsed is not None:
+                current_settings[ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY] = parsed
+                _save_settings(current_settings)
+
+        elif choice == ALL_METHOD_WING_BACKLOG_SETTING_KEY:
+            val = _prompt_text(
+                "Enter all-method wing backlog target:",
+                default=str(
+                    _resolve_positive_int_setting(
+                        current_settings,
+                        key=ALL_METHOD_WING_BACKLOG_SETTING_KEY,
+                        fallback=_resolve_positive_int_setting(
+                            current_settings,
+                            key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
+                            fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
+                        ),
+                    )
+                ),
+            )
+            parsed = _coerce_positive_int(val)
+            if parsed is not None:
+                current_settings[ALL_METHOD_WING_BACKLOG_SETTING_KEY] = parsed
+                _save_settings(current_settings)
+
+        elif choice == ALL_METHOD_SMART_SCHEDULER_SETTING_KEY:
+            current_value = _coerce_bool_setting(
+                current_settings.get(ALL_METHOD_SMART_SCHEDULER_SETTING_KEY),
+                default=True,
+            )
+            val = _prompt_confirm(
+                "Enable smart phase-aware all-method scheduler?",
+                default=current_value,
+            )
+            if val is not None:
+                current_settings[ALL_METHOD_SMART_SCHEDULER_SETTING_KEY] = bool(val)
                 _save_settings(current_settings)
 
         elif choice == "epub_extractor":
@@ -941,6 +1253,13 @@ def _interactive_all_method_benchmark(
     selected_benchmark_settings: RunSettings,
     benchmark_eval_output: Path,
     processed_output_root: Path,
+    max_parallel_sources: int | None = None,
+    max_inflight_pipelines: int | None = None,
+    max_concurrent_split_phases: int | None = None,
+    config_timeout_seconds: int | None = None,
+    retry_failed_configs: int | None = None,
+    wing_backlog_target: int | None = None,
+    smart_scheduler: bool | None = None,
 ) -> None:
     scope_choice = _menu_select(
         "Select all method benchmark scope:",
@@ -1097,16 +1416,68 @@ def _interactive_all_method_benchmark(
     if total_selected_runs <= 0:
         typer.secho("No benchmark variants were generated for this selection.", fg=typer.colors.YELLOW)
         return
-    max_inflight_pipelines, max_concurrent_split_phases = _resolve_all_method_scheduler_limits(
+    total_sources_selected = max(1, len(selected_target_variants))
+    source_parallelism_default = min(
+        ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT,
+        total_sources_selected,
+    )
+    requested_source_parallelism = _report_count(max_parallel_sources)
+    source_parallelism_configured = (
+        requested_source_parallelism
+        if requested_source_parallelism > 0
+        else source_parallelism_default
+    )
+    source_parallelism_effective = _resolve_all_method_source_parallelism(
+        total_sources=total_sources_selected,
+        requested=max_parallel_sources,
+    )
+    (
+        resolved_inflight_pipelines,
+        resolved_split_phase_slots,
+        resolved_wing_backlog_target,
+        resolved_smart_scheduler,
+        resolved_effective_inflight_pipelines,
+    ) = _resolve_all_method_scheduler_runtime(
         total_variants=total_selected_runs,
+        max_inflight_pipelines=max_inflight_pipelines,
+        max_concurrent_split_phases=max_concurrent_split_phases,
+        wing_backlog_target=wing_backlog_target,
+        smart_scheduler=smart_scheduler,
+    )
+    resolved_config_timeout_seconds = _resolve_all_method_config_timeout_seconds(
+        config_timeout_seconds
+    )
+    resolved_retry_failed_configs = _resolve_all_method_retry_failed_configs(
+        retry_failed_configs
+    )
+    timeout_display = (
+        f"{resolved_config_timeout_seconds}s"
+        if resolved_config_timeout_seconds is not None
+        else "off"
+    )
+    scheduler_mode = "smart" if resolved_smart_scheduler else "fixed"
+    smart_tail_buffer_display = (
+        str(resolved_split_phase_slots) if resolved_smart_scheduler else "0"
     )
     typer.secho(
         (
             "Scheduler: "
-            f"inflight pipelines={max_inflight_pipelines} "
+            f"source parallel={source_parallelism_effective} "
+            f"(configured {source_parallelism_configured}, "
+            f"default {ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT}), "
+            f"mode={scheduler_mode}, "
+            f"configured inflight={resolved_inflight_pipelines} "
             f"(default {ALL_METHOD_MAX_INFLIGHT_DEFAULT}), "
-            f"split slots={max_concurrent_split_phases} "
-            f"(default {ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT})"
+            f"effective inflight={resolved_effective_inflight_pipelines}, "
+            f"split slots={resolved_split_phase_slots} "
+            f"(default {ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT}), "
+            f"config timeout={timeout_display} "
+            f"(default {ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT}s), "
+            f"failed retries={resolved_retry_failed_configs} "
+            f"(default {ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT}), "
+            f"wing backlog={resolved_wing_backlog_target} "
+            "(default split slots), "
+            f"smart tail buffer={smart_tail_buffer_display}"
         ),
         fg=typer.colors.BRIGHT_BLACK,
     )
@@ -1154,8 +1525,13 @@ def _interactive_all_method_benchmark(
                 force_source_match=False,
                 progress_callback=update_progress,
                 dashboard=dashboard,
-                max_inflight_pipelines=max_inflight_pipelines,
-                max_concurrent_split_phases=max_concurrent_split_phases,
+                max_parallel_sources=max_parallel_sources,
+                max_inflight_pipelines=resolved_effective_inflight_pipelines,
+                max_concurrent_split_phases=resolved_split_phase_slots,
+                config_timeout_seconds=resolved_config_timeout_seconds,
+                retry_failed_configs=resolved_retry_failed_configs,
+                wing_backlog_target=resolved_wing_backlog_target,
+                smart_scheduler=resolved_smart_scheduler,
             ),
         )
         typer.secho(
@@ -1191,8 +1567,12 @@ def _interactive_all_method_benchmark(
                     progress_callback=update_progress,
                     dashboard=dashboard,
                     dashboard_source_index=0,
-                    max_inflight_pipelines=max_inflight_pipelines,
-                    max_concurrent_split_phases=max_concurrent_split_phases,
+                    max_inflight_pipelines=resolved_effective_inflight_pipelines,
+                    max_concurrent_split_phases=resolved_split_phase_slots,
+                    config_timeout_seconds=resolved_config_timeout_seconds,
+                    retry_failed_configs=resolved_retry_failed_configs,
+                    wing_backlog_target=resolved_wing_backlog_target,
+                    smart_scheduler=resolved_smart_scheduler,
                 )
             except Exception:
                 dashboard.finish_source(0, failed=True)
@@ -1626,6 +2006,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     detected_model = default_codex_model(cmd=codex_cmd)
                     detected_label = detected_model or "Codex CLI default"
                     discovered_models = list_codex_models(cmd=codex_cmd)
+                    supported_efforts_by_model: dict[str, tuple[str, ...]] = {}
                     model_choices: list[QuestionaryChoice] = [
                         questionary.Choice(
                             f"use Codex default ({detected_label})",
@@ -1640,6 +2021,28 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                         description = str(entry.get("description") or "").strip()
                         label = model_id if not description else f"{model_id} - {description}"
                         model_choices.append(questionary.Choice(label, value=model_id))
+                        raw_supported_efforts = entry.get("supported_reasoning_efforts")
+                        if isinstance(raw_supported_efforts, list):
+                            normalized_supported_efforts: list[str] = []
+                            for raw_effort in raw_supported_efforts:
+                                if not isinstance(raw_effort, str):
+                                    continue
+                                try:
+                                    normalized_effort = normalize_codex_reasoning_effort(
+                                        raw_effort
+                                    )
+                                except ValueError:
+                                    continue
+                                if (
+                                    normalized_effort
+                                    and normalized_effort
+                                    not in normalized_supported_efforts
+                                ):
+                                    normalized_supported_efforts.append(normalized_effort)
+                            if normalized_supported_efforts:
+                                supported_efforts_by_model[model_id] = tuple(
+                                    normalized_supported_efforts
+                                )
                         seen_model_ids.add(model_id)
                     if not seen_model_ids:
                         model_choices.append(
@@ -1672,6 +2075,23 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     else:
                         codex_model = str(model_choice)
 
+                    selected_model = (codex_model or detected_model or "").strip()
+                    allowed_efforts = [
+                        effort
+                        for effort in CODEX_REASONING_EFFORT_VALUES
+                        if effort != "minimal"
+                    ]
+                    model_supported_efforts = (
+                        supported_efforts_by_model.get(selected_model)
+                        if selected_model
+                        else None
+                    )
+                    if model_supported_efforts:
+                        supported_set = set(model_supported_efforts)
+                        allowed_efforts = [
+                            effort for effort in allowed_efforts if effort in supported_set
+                        ]
+
                     detected_effort = codex_reasoning_effort_from_cmd(
                         codex_cmd
                     ) or default_codex_reasoning_effort(cmd=codex_cmd)
@@ -1684,23 +2104,40 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                         "high": "deeper reasoning",
                         "xhigh": "maximum reasoning",
                     }
-                    effort_choices: list[QuestionaryChoice] = [
-                        questionary.Choice(
-                            f"use Codex default ({detected_effort_label})",
-                            value="__default_effort__",
+                    effort_choices: list[QuestionaryChoice] = []
+                    if detected_effort is None or detected_effort in allowed_efforts:
+                        effort_choices.append(
+                            questionary.Choice(
+                                f"use Codex default ({detected_effort_label})",
+                                value="__default_effort__",
+                            )
                         )
-                    ]
-                    for effort in CODEX_REASONING_EFFORT_VALUES:
+                    else:
+                        typer.secho(
+                            (
+                                f"Codex default thinking effort '{detected_effort}' "
+                                "is incompatible with this model/workflow."
+                            ),
+                            fg=typer.colors.YELLOW,
+                        )
+                    for effort in allowed_efforts:
                         detail = effort_description.get(effort, "")
                         label = effort if not detail else f"{effort} - {detail}"
                         effort_choices.append(
                             questionary.Choice(label, value=effort)
                         )
+                    if not effort_choices:
+                        typer.secho(
+                            "No compatible Codex thinking effort options are available.",
+                            fg=typer.colors.RED,
+                        )
+                        continue
                     effort_choice = _menu_select(
                         "Codex thinking effort for AI prelabeling:",
                         menu_help=(
                             "Pick a reasoning effort for this run "
-                            "(Codex config: model_reasoning_effort)."
+                            "(Codex config: model_reasoning_effort). "
+                            "Minimal is hidden due Codex tool compatibility."
                         ),
                         choices=effort_choices,
                     )
@@ -1933,10 +2370,39 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     "benchmark", output_folder, selected_benchmark_settings
                 )
             else:
+                all_method_max_parallel_sources = _coerce_positive_int(
+                    settings.get(ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY)
+                )
+                all_method_max_inflight = _coerce_positive_int(
+                    settings.get(ALL_METHOD_MAX_INFLIGHT_SETTING_KEY)
+                )
+                all_method_max_split_slots = _coerce_positive_int(
+                    settings.get(ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY)
+                )
+                all_method_config_timeout_seconds = _coerce_non_negative_int(
+                    settings.get(ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY)
+                )
+                all_method_retry_failed_configs = _coerce_non_negative_int(
+                    settings.get(ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY)
+                )
+                all_method_wing_backlog = _coerce_positive_int(
+                    settings.get(ALL_METHOD_WING_BACKLOG_SETTING_KEY)
+                )
+                all_method_smart_scheduler = _coerce_bool_setting(
+                    settings.get(ALL_METHOD_SMART_SCHEDULER_SETTING_KEY),
+                    default=True,
+                )
                 _interactive_all_method_benchmark(
                     selected_benchmark_settings=benchmark_defaults,
                     benchmark_eval_output=benchmark_eval_output,
                     processed_output_root=output_folder,
+                    max_parallel_sources=all_method_max_parallel_sources,
+                    max_inflight_pipelines=all_method_max_inflight,
+                    max_concurrent_split_phases=all_method_max_split_slots,
+                    config_timeout_seconds=all_method_config_timeout_seconds,
+                    retry_failed_configs=all_method_retry_failed_configs,
+                    wing_backlog_target=all_method_wing_backlog,
+                    smart_scheduler=all_method_smart_scheduler,
                 )
             continue
 
@@ -2439,6 +2905,22 @@ def _extract_progress_counter(message: str) -> tuple[int, int] | None:
     trimmed = message.strip()
     if not trimmed:
         return None
+
+    # All-method dashboard snapshots include many counters; prefer the top-line
+    # overall config counter so ETA tracks completed configs.
+    first_line = trimmed.splitlines()[0].strip()
+    if first_line.lower().startswith("overall source "):
+        first_line_matches = list(_STATUS_COUNTER_PATTERN.finditer(first_line))
+        for match in reversed(first_line_matches):
+            try:
+                current = int(match.group(1))
+                total = int(match.group(2))
+            except (TypeError, ValueError):
+                continue
+            if total <= 0:
+                continue
+            return max(0, min(current, total)), total
+
     matches = list(_STATUS_COUNTER_PATTERN.finditer(trimmed))
     for match in reversed(matches):
         try:
@@ -2455,6 +2937,11 @@ def _extract_progress_counter(message: str) -> tuple[int, int] | None:
 def _format_seconds_per_task(seconds_per_task: float) -> str:
     formatted = f"{max(0.0, seconds_per_task):.1f}".rstrip("0").rstrip(".")
     return f"{formatted}s/task"
+
+
+def _looks_like_all_method_dashboard_snapshot(message: str) -> bool:
+    trimmed = str(message or "").strip()
+    return bool(trimmed and trimmed.startswith("overall source ") and "\nqueue:" in trimmed)
 
 
 def _format_status_progress_message(
@@ -2478,7 +2965,14 @@ def _format_status_progress_message(
         suffix_parts.append(f"{elapsed_seconds}s")
     if not suffix_parts:
         return trimmed
-    return f"{trimmed} ({', '.join(suffix_parts)})"
+    suffix = f"({', '.join(suffix_parts)})"
+    if "\n" not in trimmed:
+        return f"{trimmed} {suffix}"
+    lines = trimmed.splitlines()
+    if not lines:
+        return f"{trimmed} {suffix}"
+    lines[0] = f"{lines[0]} {suffix}"
+    return "\n".join(lines)
 
 
 def _format_processing_time(elapsed_seconds: float) -> str:
@@ -2528,7 +3022,7 @@ def _run_with_progress_status(
                 for worker_index, status in worker_activity.items()
             }
         if not message:
-            base = f"[bold cyan]{initial_status}[/bold cyan]"
+            base = f"[bold cyan]{rich_escape(initial_status)}[/bold cyan]"
         else:
             elapsed = max(0, int(current - started_at))
             eta_seconds: int | None = None
@@ -2552,7 +3046,10 @@ def _run_with_progress_status(
                 eta_seconds=eta_seconds,
                 avg_seconds_per_task=avg_seconds_per_task,
             )
-            base = f"[bold cyan]{progress_prefix}: {decorated}[/bold cyan]"
+            base = (
+                f"[bold cyan]{rich_escape(progress_prefix)}: "
+                f"{rich_escape(decorated)}[/bold cyan]"
+            )
         if workers <= 0:
             return base
         worker_lines = [base]
@@ -2561,7 +3058,7 @@ def _run_with_progress_status(
             if len(worker_status) > 120:
                 worker_status = f"{worker_status[:117]}..."
             worker_lines.append(
-                f"[cyan]  worker {worker_index:02d}: {worker_status}[/cyan]"
+                f"[cyan]  worker {worker_index:02d}: {rich_escape(worker_status)}[/cyan]"
             )
         return "\n".join(worker_lines)
 
@@ -2685,6 +3182,20 @@ def _benchmark_split_phase_overrides(
         _BENCHMARK_SPLIT_PHASE_SLOTS.reset(slots_token)
         _BENCHMARK_SPLIT_PHASE_GATE_DIR.reset(gate_dir_token)
         _BENCHMARK_SPLIT_PHASE_STATUS_LABEL.reset(label_token)
+
+
+@contextmanager
+def _benchmark_scheduler_event_overrides(
+    *,
+    scheduler_event_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> Iterable[None]:
+    callback_token = _BENCHMARK_SCHEDULER_EVENT_CALLBACK.set(
+        scheduler_event_callback
+    )
+    try:
+        yield
+    finally:
+        _BENCHMARK_SCHEDULER_EVENT_CALLBACK.reset(callback_token)
 
 
 def _notify_progress_callback(
@@ -2989,7 +3500,9 @@ class _AllMethodProgressDashboard:
     current_config_index: int = 0
     current_config_total: int = 0
     current_config_slug: str = ""
+    active_config_slugs_by_source: dict[int, dict[int, str]] = field(default_factory=dict)
     task_message: str = ""
+    _lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
 
     @classmethod
     def from_target_variants(
@@ -3012,26 +3525,61 @@ class _AllMethodProgressDashboard:
     def _completed_configs(self) -> int:
         return sum(max(0, row.completed_configs) for row in self.rows)
 
-    def start_source(self, source_index: int) -> None:
-        if source_index < 0 or source_index >= len(self.rows):
-            return
-        self.current_source_index = source_index
-        row = self.rows[source_index]
-        row.status = "running"
-        self.current_config_index = 0
-        self.current_config_total = row.total_configs
-        self.current_config_slug = ""
+    def _running_source_indices(self) -> list[int]:
+        return [
+            index
+            for index, row in enumerate(self.rows)
+            if str(row.status).strip().lower() == "running"
+        ]
 
-    def finish_source(self, source_index: int, *, failed: bool = False) -> None:
-        if source_index < 0 or source_index >= len(self.rows):
-            return
-        row = self.rows[source_index]
-        row.status = "failed" if failed else "done"
-        if self.current_source_index == source_index:
+    def _set_focus_source_state(self, source_index: int | None) -> None:
+        if source_index is None or source_index < 0 or source_index >= len(self.rows):
             self.current_source_index = None
             self.current_config_index = 0
             self.current_config_total = 0
             self.current_config_slug = ""
+            return
+        row = self.rows[source_index]
+        self.current_source_index = source_index
+        self.current_config_total = max(0, row.total_configs)
+        active_for_source = self.active_config_slugs_by_source.get(source_index, {})
+        if active_for_source:
+            active_index = min(active_for_source)
+            self.current_config_index = active_index
+            self.current_config_slug = active_for_source.get(active_index, "")
+            return
+        if row.completed_configs >= row.total_configs:
+            self.current_config_index = 0
+            self.current_config_slug = ""
+            return
+        self.current_config_index = min(
+            max(0, row.total_configs),
+            max(1, row.completed_configs + 1),
+        )
+        self.current_config_slug = ""
+
+    def start_source(self, source_index: int) -> None:
+        with self._lock:
+            if source_index < 0 or source_index >= len(self.rows):
+                return
+            row = self.rows[source_index]
+            row.status = "running"
+            self.active_config_slugs_by_source.setdefault(source_index, {})
+            self._set_focus_source_state(source_index)
+
+    def finish_source(self, source_index: int, *, failed: bool = False) -> None:
+        with self._lock:
+            if source_index < 0 or source_index >= len(self.rows):
+                return
+            row = self.rows[source_index]
+            row.status = "failed" if failed else "done"
+            self.active_config_slugs_by_source.pop(source_index, None)
+            if self.current_source_index == source_index:
+                running_indices = self._running_source_indices()
+                if running_indices:
+                    self._set_focus_source_state(running_indices[0])
+                else:
+                    self._set_focus_source_state(None)
 
     def start_config(
         self,
@@ -3041,39 +3589,64 @@ class _AllMethodProgressDashboard:
         config_total: int,
         config_slug: str,
     ) -> None:
-        if source_index < 0 or source_index >= len(self.rows):
-            return
-        self.current_source_index = source_index
-        self.current_config_index = max(0, config_index)
-        self.current_config_total = max(0, config_total)
-        self.current_config_slug = str(config_slug or "").strip()
-        row = self.rows[source_index]
-        row.status = "running"
+        with self._lock:
+            if source_index < 0 or source_index >= len(self.rows):
+                return
+            self.current_source_index = source_index
+            self.current_config_index = max(0, config_index)
+            self.current_config_total = max(0, config_total)
+            self.current_config_slug = str(config_slug or "").strip()
+            if self.current_config_index > 0:
+                active_for_source = self.active_config_slugs_by_source.setdefault(
+                    source_index,
+                    {},
+                )
+                active_for_source[self.current_config_index] = self.current_config_slug
+            row = self.rows[source_index]
+            row.status = "running"
 
-    def complete_config(self, *, source_index: int, success: bool) -> None:
-        if source_index < 0 or source_index >= len(self.rows):
-            return
-        row = self.rows[source_index]
-        row.completed_configs = min(
-            row.total_configs,
-            max(0, row.completed_configs + 1),
-        )
-        if success:
-            row.successful_configs = min(
+    def complete_config(
+        self,
+        *,
+        source_index: int,
+        success: bool,
+        config_index: int | None = None,
+    ) -> None:
+        with self._lock:
+            if source_index < 0 or source_index >= len(self.rows):
+                return
+            row = self.rows[source_index]
+            row.completed_configs = min(
                 row.total_configs,
-                max(0, row.successful_configs + 1),
+                max(0, row.completed_configs + 1),
             )
-        else:
-            row.failed_configs = min(
-                row.total_configs,
-                max(0, row.failed_configs + 1),
+            if success:
+                row.successful_configs = min(
+                    row.total_configs,
+                    max(0, row.successful_configs + 1),
+                )
+            else:
+                row.failed_configs = min(
+                    row.total_configs,
+                    max(0, row.failed_configs + 1),
+                )
+            active_for_source = self.active_config_slugs_by_source.setdefault(
+                source_index,
+                {},
             )
+            if config_index is not None:
+                active_for_source.pop(max(0, config_index), None)
+            if not active_for_source:
+                self.active_config_slugs_by_source.pop(source_index, None)
+            if self.current_source_index == source_index:
+                self._set_focus_source_state(source_index)
 
     def set_task(self, message: str) -> None:
-        cleaned = str(message or "").strip().replace("\n", " ")
-        if len(cleaned) > 180:
-            cleaned = f"{cleaned[:177]}..."
-        self.task_message = cleaned
+        with self._lock:
+            cleaned = str(message or "").strip().replace("\n", " ")
+            if len(cleaned) > 180:
+                cleaned = f"{cleaned[:177]}..."
+            self.task_message = cleaned
 
     def _iter_queue_rows(self) -> Iterable[_AllMethodSourceDashboardRow]:
         if len(self.rows) <= 10:
@@ -3092,82 +3665,112 @@ class _AllMethodProgressDashboard:
                 yield row
 
     def render(self) -> str:
-        source_total = len(self.rows)
-        source_done = self._completed_sources()
-        config_done = self._completed_configs()
-        lines = [
-            (
-                "overall "
-                f"source {source_done}/{source_total} | "
-                f"config {config_done}/{max(0, self.total_planned_configs)}"
-            )
-        ]
-
-        if (
-            self.current_source_index is not None
-            and 0 <= self.current_source_index < len(self.rows)
-        ):
-            current_row = self.rows[self.current_source_index]
-            lines.append(
+        with self._lock:
+            source_total = len(self.rows)
+            source_done = self._completed_sources()
+            config_done = self._completed_configs()
+            lines = [
                 (
-                    "current source: "
-                    f"{current_row.source_name} "
-                    f"({current_row.completed_configs} of {current_row.total_configs} configs; "
-                    f"ok {current_row.successful_configs}, fail {current_row.failed_configs})"
+                    "overall "
+                    f"source {source_done}/{source_total} | "
+                    f"config {config_done}/{max(0, self.total_planned_configs)}"
                 )
-            )
-        if self.current_config_total > 0:
-            slug = self.current_config_slug or "<pending>"
-            lines.append(
-                (
-                    f"current config {self.current_config_index}/{self.current_config_total}: "
-                    f"{slug}"
-                )
-            )
-        lines.append("queue:")
+            ]
+            active_source_count = len(self._running_source_indices())
+            if active_source_count > 0:
+                lines.append(f"active sources: {active_source_count}")
 
-        if len(self.rows) <= 10:
-            for row in self.rows:
-                marker = {
-                    "pending": "[ ]",
-                    "running": "[>]",
-                    "done": "[x]",
-                    "failed": "[!]",
-                }.get(row.status, "[ ]")
+            if (
+                self.current_source_index is not None
+                and 0 <= self.current_source_index < len(self.rows)
+            ):
+                current_row = self.rows[self.current_source_index]
                 lines.append(
                     (
-                        f"  {marker} {row.source_name} - "
-                        f"{row.completed_configs} of {row.total_configs} "
-                        f"(ok {row.successful_configs}, fail {row.failed_configs})"
+                        "current source: "
+                        f"{current_row.source_name} "
+                        f"({current_row.completed_configs} of {current_row.total_configs} configs; "
+                        f"ok {current_row.successful_configs}, fail {current_row.failed_configs})"
                     )
                 )
-        else:
-            visible_rows = list(self._iter_queue_rows())
-            rendered_ids = {id(row) for row in visible_rows}
-            for row in visible_rows:
-                marker = {
-                    "pending": "[ ]",
-                    "running": "[>]",
-                    "done": "[x]",
-                    "failed": "[!]",
-                }.get(row.status, "[ ]")
-                lines.append(
-                    (
-                        f"  {marker} {row.source_name} - "
-                        f"{row.completed_configs} of {row.total_configs} "
-                        f"(ok {row.successful_configs}, fail {row.failed_configs})"
-                    )
+            if self.current_config_total > 0 and self.current_source_index is not None:
+                active_items = sorted(
+                    self.active_config_slugs_by_source.get(
+                        self.current_source_index,
+                        {},
+                    ).items()
                 )
-            hidden_count = sum(
-                1 for row in self.rows if id(row) not in rendered_ids
-            )
-            if hidden_count > 0:
-                lines.append(f"  ... {hidden_count} additional sources hidden")
+                if active_items:
+                    if len(active_items) == 1:
+                        active_index, active_slug = active_items[0]
+                        slug = active_slug or "<pending>"
+                        lines.append(
+                            (
+                                f"current config {active_index}/{self.current_config_total}: "
+                                f"{slug}"
+                            )
+                        )
+                    else:
+                        first_active = active_items[0][0]
+                        last_active = active_items[-1][0]
+                        lines.append(
+                            (
+                                f"current configs {first_active}-{last_active}/"
+                                f"{self.current_config_total} ({len(active_items)} active)"
+                            )
+                        )
+                elif 0 <= self.current_source_index < len(self.rows):
+                    current_row = self.rows[self.current_source_index]
+                    if current_row.completed_configs < current_row.total_configs:
+                        queued_index = min(
+                            current_row.total_configs,
+                            max(1, current_row.completed_configs + 1),
+                        )
+                        lines.append(
+                            f"current config {queued_index}/{self.current_config_total}: <queued>"
+                        )
+            lines.append("queue:")
 
-        if self.task_message:
-            lines.append(f"task: {self.task_message}")
+            if len(self.rows) <= 10:
+                for row in self.rows:
+                    marker = {
+                        "pending": "[ ]",
+                        "running": "[>]",
+                        "done": "[x]",
+                        "failed": "[!]",
+                    }.get(row.status, "[ ]")
+                    lines.append(
+                        (
+                            f"  {marker} {row.source_name} - "
+                            f"{row.completed_configs} of {row.total_configs} "
+                            f"(ok {row.successful_configs}, fail {row.failed_configs})"
+                        )
+                    )
+            else:
+                visible_rows = list(self._iter_queue_rows())
+                rendered_ids = {id(row) for row in visible_rows}
+                for row in visible_rows:
+                    marker = {
+                        "pending": "[ ]",
+                        "running": "[>]",
+                        "done": "[x]",
+                        "failed": "[!]",
+                    }.get(row.status, "[ ]")
+                    lines.append(
+                        (
+                            f"  {marker} {row.source_name} - "
+                            f"{row.completed_configs} of {row.total_configs} "
+                            f"(ok {row.successful_configs}, fail {row.failed_configs})"
+                        )
+                    )
+                hidden_count = sum(1 for row in self.rows if id(row) not in rendered_ids)
+                if hidden_count > 0:
+                    lines.append(f"  ... {hidden_count} additional sources hidden")
 
-        return "\n".join(lines)
+            if self.task_message:
+                lines.append(f"task: {self.task_message}")
+
+            return "\n".join(lines)
 
 
 def _load_pred_run_recipe_context(
@@ -3699,6 +4302,19 @@ def _report_count(value: Any) -> int:
         return 0
 
 
+def _resolve_all_method_source_parallelism(
+    *,
+    total_sources: int,
+    requested: int | None = None,
+) -> int:
+    total = max(1, _report_count(total_sources))
+    default_parallel_sources = min(ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT, total)
+    requested_parallel_sources = _report_count(requested)
+    if requested_parallel_sources <= 0:
+        return default_parallel_sources
+    return max(1, min(requested_parallel_sources, total))
+
+
 def _resolve_all_method_scheduler_limits(
     *,
     total_variants: int,
@@ -3711,19 +4327,77 @@ def _resolve_all_method_scheduler_limits(
     if max_inflight_pipelines is None:
         inflight = inflight_default
     else:
-        inflight = max(1, min(_report_count(max_inflight_pipelines), total))
-        if inflight <= 0:
+        requested_inflight = _report_count(max_inflight_pipelines)
+        if requested_inflight <= 0:
             inflight = inflight_default
+        else:
+            inflight = max(1, min(requested_inflight, total))
 
     split_default = min(ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT, inflight)
     if max_concurrent_split_phases is None:
         split_slots = split_default
     else:
-        split_slots = max(1, min(_report_count(max_concurrent_split_phases), inflight))
-        if split_slots <= 0:
+        requested_split_slots = _report_count(max_concurrent_split_phases)
+        if requested_split_slots <= 0:
             split_slots = split_default
+        else:
+            split_slots = max(1, min(requested_split_slots, inflight))
 
     return inflight, split_slots
+
+
+def _resolve_all_method_config_timeout_seconds(
+    config_timeout_seconds: int | None,
+) -> int | None:
+    if config_timeout_seconds is None:
+        return ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT
+    parsed = _coerce_non_negative_int(config_timeout_seconds)
+    if parsed is None:
+        return ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT
+    if parsed == 0:
+        return None
+    return parsed
+
+
+def _resolve_all_method_retry_failed_configs(retry_failed_configs: int | None) -> int:
+    if retry_failed_configs is None:
+        return ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT
+    parsed = _coerce_non_negative_int(retry_failed_configs)
+    if parsed is None:
+        return ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT
+    return parsed
+
+
+def _resolve_all_method_scheduler_runtime(
+    *,
+    total_variants: int,
+    max_inflight_pipelines: int | None = None,
+    max_concurrent_split_phases: int | None = None,
+    wing_backlog_target: int | None = None,
+    smart_scheduler: bool | None = None,
+) -> tuple[int, int, int, bool, int]:
+    inflight, split_slots = _resolve_all_method_scheduler_limits(
+        total_variants=total_variants,
+        max_inflight_pipelines=max_inflight_pipelines,
+        max_concurrent_split_phases=max_concurrent_split_phases,
+    )
+    total = max(1, _report_count(total_variants))
+    wing_default = max(1, split_slots)
+    wing_target_requested = _report_count(wing_backlog_target)
+    wing_target = wing_target_requested if wing_target_requested > 0 else wing_default
+    wing_target = max(1, wing_target)
+    smart_enabled = (
+        True if smart_scheduler is None else _coerce_bool_setting(smart_scheduler, default=True)
+    )
+    effective_inflight = inflight
+    if smart_enabled:
+        target_with_wing = min(total, split_slots + wing_target)
+        # Keep split slots fed while earlier configs are still draining post-stage work.
+        # Without this tail buffer, long post phases can consume all inflight slots and
+        # prevent preheating of new configs (heavy may dip to 0 while pending remains).
+        target_with_tail_buffer = min(total, target_with_wing + split_slots)
+        effective_inflight = max(effective_inflight, target_with_tail_buffer)
+    return inflight, split_slots, wing_target, smart_enabled, effective_inflight
 
 
 def _all_method_config_dir_name(config_index: int, variant: AllMethodVariant) -> str:
@@ -3772,6 +4446,7 @@ def _run_all_method_config_once(
     force_source_match: bool,
     max_concurrent_split_phases: int,
     split_phase_gate_dir: Path,
+    scheduler_events_dir: Path,
     progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     config_started = time.monotonic()
@@ -3791,6 +4466,57 @@ def _run_all_method_config_once(
         max(1, _report_count(total_variants)),
         noun="config",
     )
+    source_slug = slugify_name(source_file.stem)
+    scheduler_events_dir.mkdir(parents=True, exist_ok=True)
+    scheduler_event_path = scheduler_events_dir / f"config_{config_index:03d}.jsonl"
+    if scheduler_event_path.exists():
+        scheduler_event_path.unlink()
+
+    def _emit_scheduler_event(
+        event_name: str,
+        **payload: Any,
+    ) -> None:
+        event = str(event_name or "").strip()
+        if not event:
+            return
+        row = {
+            "event": event,
+            "timestamp": dt.datetime.now(tz=dt.timezone.utc).isoformat(timespec="milliseconds"),
+            "monotonic_seconds": time.monotonic(),
+            "config_index": config_index,
+            "config_slug": variant.slug,
+            "config_dir": config_dir_name,
+            "source_slug": source_slug,
+        }
+        row.update(payload)
+        try:
+            with scheduler_event_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(row, sort_keys=True) + "\n")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Ignoring scheduler event write failure for %s: %s",
+                scheduler_event_path,
+                exc,
+            )
+
+    def _scheduler_event_callback(payload: dict[str, Any]) -> None:
+        if not isinstance(payload, dict):
+            return
+        event_name = str(payload.get("event") or "").strip()
+        if not event_name:
+            return
+        event_payload = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"event", "config_index", "config_slug", "source_slug"}
+        }
+        _emit_scheduler_event(event_name, **event_payload)
+
+    def _discard_progress(_message: str) -> None:
+        return
+
+    benchmark_progress_callback = progress_callback or _discard_progress
+    _emit_scheduler_event("config_started")
 
     try:
         with _benchmark_split_phase_overrides(
@@ -3799,48 +4525,52 @@ def _run_all_method_config_once(
             split_phase_status_label=split_status_label,
         ):
             with _benchmark_progress_overrides(
-                progress_callback=progress_callback,
+                progress_callback=benchmark_progress_callback,
                 suppress_summary=True,
                 suppress_spinner=True,
             ):
-                labelstudio_benchmark(
-                    gold_spans=gold_spans_path,
-                    source_file=source_file,
-                    output_dir=scratch_output_dir,
-                    processed_output_dir=processed_output_dir,
-                    eval_output_dir=eval_output_dir,
-                    overlap_threshold=overlap_threshold,
-                    force_source_match=force_source_match,
-                    no_upload=True,
-                    workers=variant.run_settings.workers,
-                    pdf_split_workers=variant.run_settings.pdf_split_workers,
-                    epub_split_workers=variant.run_settings.epub_split_workers,
-                    pdf_pages_per_job=variant.run_settings.pdf_pages_per_job,
-                    epub_spine_items_per_job=variant.run_settings.epub_spine_items_per_job,
-                    ocr_device=variant.run_settings.ocr_device.value,
-                    ocr_batch_size=variant.run_settings.ocr_batch_size,
-                    warm_models=variant.run_settings.warm_models,
-                    epub_extractor=variant.run_settings.epub_extractor.value,
-                    epub_unstructured_html_parser_version=(
-                        variant.run_settings.epub_unstructured_html_parser_version.value
-                    ),
-                    epub_unstructured_skip_headers_footers=(
-                        variant.run_settings.epub_unstructured_skip_headers_footers
-                    ),
-                    epub_unstructured_preprocess_mode=(
-                        variant.run_settings.epub_unstructured_preprocess_mode.value
-                    ),
-                    llm_recipe_pipeline=variant.run_settings.llm_recipe_pipeline.value,
-                    codex_farm_cmd=variant.run_settings.codex_farm_cmd,
-                    codex_farm_root=variant.run_settings.codex_farm_root,
-                    codex_farm_workspace_root=variant.run_settings.codex_farm_workspace_root,
-                    codex_farm_pipeline_pass1=variant.run_settings.codex_farm_pipeline_pass1,
-                    codex_farm_pipeline_pass2=variant.run_settings.codex_farm_pipeline_pass2,
-                    codex_farm_pipeline_pass3=variant.run_settings.codex_farm_pipeline_pass3,
-                    codex_farm_context_blocks=variant.run_settings.codex_farm_context_blocks,
-                    codex_farm_failure_mode=variant.run_settings.codex_farm_failure_mode.value,
-                )
+                with _benchmark_scheduler_event_overrides(
+                    scheduler_event_callback=_scheduler_event_callback
+                ):
+                    labelstudio_benchmark(
+                        gold_spans=gold_spans_path,
+                        source_file=source_file,
+                        output_dir=scratch_output_dir,
+                        processed_output_dir=processed_output_dir,
+                        eval_output_dir=eval_output_dir,
+                        overlap_threshold=overlap_threshold,
+                        force_source_match=force_source_match,
+                        no_upload=True,
+                        workers=variant.run_settings.workers,
+                        pdf_split_workers=variant.run_settings.pdf_split_workers,
+                        epub_split_workers=variant.run_settings.epub_split_workers,
+                        pdf_pages_per_job=variant.run_settings.pdf_pages_per_job,
+                        epub_spine_items_per_job=variant.run_settings.epub_spine_items_per_job,
+                        ocr_device=variant.run_settings.ocr_device.value,
+                        ocr_batch_size=variant.run_settings.ocr_batch_size,
+                        warm_models=variant.run_settings.warm_models,
+                        epub_extractor=variant.run_settings.epub_extractor.value,
+                        epub_unstructured_html_parser_version=(
+                            variant.run_settings.epub_unstructured_html_parser_version.value
+                        ),
+                        epub_unstructured_skip_headers_footers=(
+                            variant.run_settings.epub_unstructured_skip_headers_footers
+                        ),
+                        epub_unstructured_preprocess_mode=(
+                            variant.run_settings.epub_unstructured_preprocess_mode.value
+                        ),
+                        llm_recipe_pipeline=variant.run_settings.llm_recipe_pipeline.value,
+                        codex_farm_cmd=variant.run_settings.codex_farm_cmd,
+                        codex_farm_root=variant.run_settings.codex_farm_root,
+                        codex_farm_workspace_root=variant.run_settings.codex_farm_workspace_root,
+                        codex_farm_pipeline_pass1=variant.run_settings.codex_farm_pipeline_pass1,
+                        codex_farm_pipeline_pass2=variant.run_settings.codex_farm_pipeline_pass2,
+                        codex_farm_pipeline_pass3=variant.run_settings.codex_farm_pipeline_pass3,
+                        codex_farm_context_blocks=variant.run_settings.codex_farm_context_blocks,
+                        codex_farm_failure_mode=variant.run_settings.codex_farm_failure_mode.value,
+                    )
     except Exception as exc:  # noqa: BLE001
+        _emit_scheduler_event("config_finished", status="failed", error=str(exc))
         return _all_method_failed_row(
             config_index=config_index,
             config_dir_name=config_dir_name,
@@ -3851,6 +4581,11 @@ def _run_all_method_config_once(
 
     report_json_path = eval_output_dir / "eval_report.json"
     if not report_json_path.exists():
+        _emit_scheduler_event(
+            "config_finished",
+            status="failed",
+            error=f"Missing eval_report.json in {eval_output_dir}",
+        )
         return _all_method_failed_row(
             config_index=config_index,
             config_dir_name=config_dir_name,
@@ -3862,6 +4597,11 @@ def _run_all_method_config_once(
     try:
         report = json.loads(report_json_path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
+        _emit_scheduler_event(
+            "config_finished",
+            status="failed",
+            error=f"Failed to parse eval report for {config_dir_name}: {exc}",
+        )
         return _all_method_failed_row(
             config_index=config_index,
             config_dir_name=config_dir_name,
@@ -3882,7 +4622,7 @@ def _run_all_method_config_once(
     )
 
     pred_context = _load_pred_run_recipe_context(eval_output_dir / "prediction-run")
-    return {
+    row = {
         "config_index": config_index,
         "config_dir": config_dir_name,
         "slug": variant.slug,
@@ -3906,6 +4646,12 @@ def _run_all_method_config_once(
         "timing": config_timing,
         "dimensions": dict(variant.dimensions),
     }
+    _emit_scheduler_event(
+        "config_finished",
+        status="ok",
+        duration_seconds=config_wall_seconds,
+    )
+    return row
 
 
 def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
@@ -3918,6 +4664,12 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
         f"- Total configurations: {report_payload.get('variant_count', 0)}",
         f"- Successful configurations: {report_payload.get('successful_variants', 0)}",
         f"- Failed configurations: {report_payload.get('failed_variants', 0)}",
+        (
+            "- Failed-config retries requested/executed/recovered: "
+            f"{_report_count(report_payload.get('retry_failed_configs_requested'))}/"
+            f"{_report_count(report_payload.get('retry_passes_executed'))}/"
+            f"{_report_count(report_payload.get('retry_recovered_configs'))}"
+        ),
         (
             "- Codex Farm permutations requested/effective: "
             f"{report_payload.get('include_codex_farm_requested', False)}/"
@@ -3975,8 +4727,59 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
         if slowest_config and slowest_seconds is not None:
             lines.append(
                 f"- Slowest config: {slowest_config} ({slowest_seconds:.2f}s)"
-            )
+        )
         lines.append("")
+
+    scheduler = report_payload.get("scheduler")
+    if isinstance(scheduler, dict):
+        lines.extend(
+            [
+                "## Scheduler Summary",
+                "",
+                (
+                    "- Scheduler mode: "
+                    f"{scheduler.get('mode', 'fixed')} "
+                    f"(smart enabled={bool(scheduler.get('smart_scheduler_enabled', False))})"
+                ),
+                (
+                    "- Inflight configured/effective: "
+                    f"{_report_count(scheduler.get('configured_inflight_pipelines'))}/"
+                    f"{_report_count(scheduler.get('effective_inflight_pipelines'))}"
+                ),
+                (
+                    "- Split slots / wing target / tail buffer: "
+                    f"{_report_count(scheduler.get('split_phase_slots'))}/"
+                    f"{_report_count(scheduler.get('wing_backlog_target'))}/"
+                    f"{_report_count(scheduler.get('smart_tail_buffer_slots'))}"
+                ),
+                (
+                    "- Config timeout / retry limit: "
+                    f"{('off' if scheduler.get('config_timeout_seconds') is None else str(_report_count(scheduler.get('config_timeout_seconds'))) + 's')}/"
+                    f"{_report_count(scheduler.get('failed_retry_limit'))}"
+                ),
+                (
+                    "- Retry passes executed / recovered configs: "
+                    f"{_report_count(scheduler.get('retry_passes_executed'))}/"
+                    f"{_report_count(scheduler.get('retry_recovered_configs'))}"
+                ),
+                (
+                    "- Heavy slot utilization: "
+                    f"{_report_metric(scheduler.get('heavy_slot_utilization_pct')):.1f}% "
+                    f"(busy { _report_metric(scheduler.get('heavy_slot_busy_seconds')):.2f}s / "
+                    f"capacity {_report_metric(scheduler.get('heavy_slot_capacity_seconds')):.2f}s)"
+                ),
+                (
+                    "- Wing backlog avg/max: "
+                    f"{_report_metric(scheduler.get('avg_wing_backlog')):.2f}/"
+                    f"{_report_count(scheduler.get('max_wing_backlog'))}"
+                ),
+                (
+                    "- Heavy idle gap while pending: "
+                    f"{_report_metric(scheduler.get('idle_gap_seconds')):.2f}s"
+                ),
+                "",
+            ]
+        )
 
     lines.extend(
         [
@@ -4026,9 +4829,19 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
         f"- Created at: {report_payload.get('created_at', '')}",
         f"- Matched targets: {report_payload.get('matched_target_count', 0)}",
         f"- Unmatched targets: {report_payload.get('unmatched_target_count', 0)}",
+        (
+            "- Source parallelism configured/effective: "
+            f"{_report_count(report_payload.get('source_parallelism_configured'))}/"
+            f"{_report_count(report_payload.get('source_parallelism_effective'))}"
+        ),
         f"- Planned config runs: {report_payload.get('total_config_runs_planned', 0)}",
         f"- Completed config runs: {report_payload.get('total_config_runs_completed', 0)}",
         f"- Successful config runs: {report_payload.get('total_config_runs_successful', 0)}",
+        (
+            "- Config timeout / failed-config retry limit: "
+            f"{('off' if report_payload.get('config_timeout_seconds') is None else str(_report_count(report_payload.get('config_timeout_seconds'))) + 's')}/"
+            f"{_report_count(report_payload.get('retry_failed_configs_requested'))}"
+        ),
     ]
 
     timing_summary = report_payload.get("timing_summary")
@@ -4071,6 +4884,43 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
             lines.append(
                 f"- Slowest config: {slowest_config_name} ({slowest_config_seconds:.2f}s)"
             )
+    scheduler_summary = report_payload.get("scheduler_summary")
+    if isinstance(scheduler_summary, dict):
+        lines.extend(
+            [
+                (
+                    "- Scheduler mode: "
+                    f"{scheduler_summary.get('mode', 'fixed')} "
+                    f"(sources { _report_count(scheduler_summary.get('source_count'))})"
+                ),
+                (
+                    "- Scheduler effective inflight / split slots / tail buffer: "
+                    f"{_report_count(scheduler_summary.get('effective_inflight_pipelines'))}/"
+                    f"{_report_count(scheduler_summary.get('split_phase_slots'))}/"
+                    f"{_report_count(scheduler_summary.get('smart_tail_buffer_slots'))}"
+                ),
+                (
+                    "- Scheduler heavy utilization: "
+                    f"{_report_metric(scheduler_summary.get('heavy_slot_utilization_pct')):.1f}% "
+                    f"(busy {_report_metric(scheduler_summary.get('heavy_slot_busy_seconds')):.2f}s / "
+                    f"capacity {_report_metric(scheduler_summary.get('heavy_slot_capacity_seconds')):.2f}s)"
+                ),
+                (
+                    "- Scheduler wing avg/max: "
+                    f"{_report_metric(scheduler_summary.get('avg_wing_backlog')):.2f}/"
+                    f"{_report_count(scheduler_summary.get('max_wing_backlog'))}"
+                ),
+                (
+                    "- Scheduler heavy idle gap while pending: "
+                    f"{_report_metric(scheduler_summary.get('idle_gap_seconds')):.2f}s"
+                ),
+                (
+                    "- Scheduler timeout / retry limit: "
+                    f"{('off' if scheduler_summary.get('config_timeout_seconds') is None else str(_report_count(scheduler_summary.get('config_timeout_seconds'))) + 's')}/"
+                    f"{_report_count(scheduler_summary.get('failed_retry_limit'))}"
+                ),
+            ]
+        )
     lines.extend(
         [
         "",
@@ -4167,17 +5017,67 @@ def _run_all_method_benchmark_multi_source(
     force_source_match: bool,
     progress_callback: Callable[[str], None] | None = None,
     dashboard: _AllMethodProgressDashboard | None = None,
+    max_parallel_sources: int | None = None,
     max_inflight_pipelines: int | None = None,
     max_concurrent_split_phases: int | None = None,
+    config_timeout_seconds: int | None = None,
+    retry_failed_configs: int | None = None,
+    wing_backlog_target: int | None = None,
+    smart_scheduler: bool = False,
 ) -> Path:
     run_started = time.monotonic()
     root_output_dir.mkdir(parents=True, exist_ok=True)
     processed_output_root.mkdir(parents=True, exist_ok=True)
+    effective_config_timeout_seconds = _resolve_all_method_config_timeout_seconds(
+        config_timeout_seconds
+    )
+    effective_retry_failed_configs = _resolve_all_method_retry_failed_configs(
+        retry_failed_configs
+    )
 
     total_targets = len(target_variants)
     total_planned_config_runs = sum(len(variants) for _target, variants in target_variants)
+    source_parallelism_default = min(
+        ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT,
+        max(1, total_targets),
+    )
+    requested_source_parallelism = _report_count(max_parallel_sources)
+    source_parallelism_configured = (
+        requested_source_parallelism
+        if requested_source_parallelism > 0
+        else source_parallelism_default
+    )
+    source_parallelism_effective = _resolve_all_method_source_parallelism(
+        total_sources=max(1, total_targets),
+        requested=max_parallel_sources,
+    )
+    refresh_dashboard_after_source = source_parallelism_effective <= 1
+
     slug_counts: dict[str, int] = {}
-    source_rows: list[dict[str, Any]] = []
+    source_jobs: list[dict[str, Any]] = []
+    for source_position, (target, variants) in enumerate(target_variants):
+        source_slug_base = slugify_name(target.source_file.stem)
+        source_slug_count = slug_counts.get(source_slug_base, 0) + 1
+        slug_counts[source_slug_base] = source_slug_count
+        source_slug = (
+            source_slug_base
+            if source_slug_count == 1
+            else f"{source_slug_base}__{source_slug_count:02d}"
+        )
+        source_jobs.append(
+            {
+                "source_position": source_position,
+                "source_index": source_position + 1,
+                "target": target,
+                "variants": variants,
+                "source_slug": source_slug,
+                "source_root": root_output_dir / source_slug,
+                "source_processed_root": processed_output_root / source_slug,
+            }
+        )
+
+    source_rows: list[dict[str, Any] | None] = [None] * len(source_jobs)
+    status_lock = threading.RLock()
 
     def _emit_status(
         message: str,
@@ -4187,65 +5087,95 @@ def _run_all_method_benchmark_multi_source(
         cleaned = str(message or "").strip()
         if not cleaned:
             return
-        if progress_callback is not None:
-            if dashboard is not None:
-                dashboard.set_task(cleaned)
-                _notify_progress_callback(progress_callback, dashboard.render())
-            else:
-                _notify_progress_callback(progress_callback, cleaned)
-            return
-        typer.secho(cleaned, fg=color)
+        with status_lock:
+            if progress_callback is not None:
+                if dashboard is not None:
+                    dashboard.set_task(cleaned)
+                    _notify_progress_callback(progress_callback, dashboard.render())
+                else:
+                    _notify_progress_callback(progress_callback, cleaned)
+                return
+            typer.secho(cleaned, fg=color)
 
-    for source_index, (target, variants) in enumerate(target_variants, start=1):
+    def _failed_source_row(
+        *,
+        target: AllMethodTarget,
+        source_slug: str,
+        variants: list[AllMethodVariant],
+        error: str,
+    ) -> dict[str, Any]:
+        return {
+            "status": "failed",
+            "source_file": str(target.source_file),
+            "source_file_name": target.source_file_name,
+            "gold_spans_path": str(target.gold_spans_path),
+            "gold_display": target.gold_display,
+            "source_slug": source_slug,
+            "report_path": "",
+            "report_json_path": "",
+            "variant_count_planned": len(variants),
+            "variant_count_completed": 0,
+            "variant_count_successful": 0,
+            "winner_metrics": {},
+            "timing_summary": {},
+            "scheduler": {},
+            "error": error,
+        }
+
+    def _run_source_job(job: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        source_position = int(job["source_position"])
+        source_index = int(job["source_index"])
+        target = cast(AllMethodTarget, job["target"])
+        variants = cast(list[AllMethodVariant], job["variants"])
+        source_slug = str(job["source_slug"])
+        source_root = cast(Path, job["source_root"])
+        source_processed_root = cast(Path, job["source_processed_root"])
+
         progress_label = format_task_counter(
             "Running",
             source_index,
-            total_targets,
+            max(1, total_targets),
             noun="source",
         )
         if dashboard is not None:
-            dashboard.start_source(source_index - 1)
+            dashboard.start_source(source_position)
         _emit_status(f"{progress_label}: {target.source_file_name}")
 
-        source_slug_base = slugify_name(target.source_file.stem)
-        source_slug_count = slug_counts.get(source_slug_base, 0) + 1
-        slug_counts[source_slug_base] = source_slug_count
-        source_slug = (
-            source_slug_base
-            if source_slug_count == 1
-            else f"{source_slug_base}__{source_slug_count:02d}"
-        )
-        source_root = root_output_dir / source_slug
-        source_processed_root = processed_output_root / source_slug
-
         if not variants:
-            source_rows.append(
-                {
-                    "status": "failed",
-                    "source_file": str(target.source_file),
-                    "source_file_name": target.source_file_name,
-                    "gold_spans_path": str(target.gold_spans_path),
-                    "gold_display": target.gold_display,
-                    "source_slug": source_slug,
-                    "report_path": "",
-                    "report_json_path": "",
-                    "variant_count_planned": 0,
-                    "variant_count_completed": 0,
-                    "variant_count_successful": 0,
-                    "winner_metrics": {},
-                    "error": "No benchmark variants generated for this source.",
-                }
-            )
             if dashboard is not None:
-                dashboard.finish_source(source_index - 1, failed=True)
-            continue
+                dashboard.finish_source(source_position, failed=True)
+            _emit_status(
+                (
+                    "Failed "
+                    f"{format_task_counter('', source_index, max(1, total_targets), noun='source')}: "
+                    "No benchmark variants generated for this source."
+                ),
+                color=typer.colors.RED,
+            )
+            return (
+                source_position,
+                _failed_source_row(
+                    target=target,
+                    source_slug=source_slug,
+                    variants=variants,
+                    error="No benchmark variants generated for this source.",
+                ),
+            )
 
-        try:
-            def _source_progress(message: str) -> None:
-                if progress_callback is None:
-                    return
+        def _source_progress(message: str) -> None:
+            if progress_callback is None:
+                return
+            with status_lock:
                 if parse_worker_activity(message) is not None:
                     _notify_progress_callback(progress_callback, message)
+                    return
+                if _looks_like_all_method_dashboard_snapshot(message):
+                    # Always render from shared dashboard state so outer queue rows
+                    # stay stable even if an inbound snapshot is stale/partial.
+                    if dashboard is not None:
+                        _notify_progress_callback(progress_callback, dashboard.render())
+                    else:
+                        _notify_progress_callback(progress_callback, message)
                     return
                 if dashboard is not None:
                     dashboard.set_task(message)
@@ -4253,6 +5183,7 @@ def _run_all_method_benchmark_multi_source(
                     return
                 _notify_progress_callback(progress_callback, message)
 
+        try:
             report_md_path = _run_all_method_benchmark(
                 gold_spans_path=target.gold_spans_path,
                 source_file=target.source_file,
@@ -4265,9 +5196,14 @@ def _run_all_method_benchmark_multi_source(
                 force_source_match=force_source_match,
                 progress_callback=_source_progress if progress_callback else None,
                 dashboard=dashboard,
-                dashboard_source_index=(source_index - 1) if dashboard is not None else None,
+                dashboard_source_index=source_position if dashboard is not None else None,
                 max_inflight_pipelines=max_inflight_pipelines,
                 max_concurrent_split_phases=max_concurrent_split_phases,
+                config_timeout_seconds=effective_config_timeout_seconds,
+                retry_failed_configs=effective_retry_failed_configs,
+                wing_backlog_target=wing_backlog_target,
+                smart_scheduler=smart_scheduler,
+                refresh_dashboard_after_source=refresh_dashboard_after_source,
             )
             report_json_path = report_md_path.with_suffix(".json")
             report_payload = json.loads(report_json_path.read_text(encoding="utf-8"))
@@ -4294,57 +5230,167 @@ def _run_all_method_benchmark_multi_source(
                 if isinstance(source_timing_summary, dict)
                 else {}
             )
-
-            source_rows.append(
-                {
-                    "status": "ok",
-                    "source_file": str(target.source_file),
-                    "source_file_name": target.source_file_name,
-                    "gold_spans_path": str(target.gold_spans_path),
-                    "gold_display": target.gold_display,
-                    "source_slug": source_slug,
-                    "report_path": _path_for_manifest(root_output_dir, report_md_path) or "",
-                    "report_json_path": (
-                        _path_for_manifest(root_output_dir, report_json_path) or ""
-                    ),
-                    "variant_count_planned": len(variants),
-                    "variant_count_completed": successful_variants + failed_variants,
-                    "variant_count_successful": successful_variants,
-                    "winner_metrics": winner_metrics,
-                    "timing_summary": normalized_source_timing,
-                    "error": "",
-                }
+            source_scheduler_summary = report_payload.get("scheduler")
+            normalized_source_scheduler = (
+                dict(source_scheduler_summary)
+                if isinstance(source_scheduler_summary, dict)
+                else {}
             )
+
+            row = {
+                "status": "ok",
+                "source_file": str(target.source_file),
+                "source_file_name": target.source_file_name,
+                "gold_spans_path": str(target.gold_spans_path),
+                "gold_display": target.gold_display,
+                "source_slug": source_slug,
+                "report_path": _path_for_manifest(root_output_dir, report_md_path) or "",
+                "report_json_path": (
+                    _path_for_manifest(root_output_dir, report_json_path) or ""
+                ),
+                "variant_count_planned": len(variants),
+                "variant_count_completed": successful_variants + failed_variants,
+                "variant_count_successful": successful_variants,
+                "winner_metrics": winner_metrics,
+                "timing_summary": normalized_source_timing,
+                "scheduler": normalized_source_scheduler,
+                "error": "",
+            }
             if dashboard is not None:
-                dashboard.finish_source(source_index - 1, failed=False)
+                dashboard.finish_source(source_position, failed=False)
+            _emit_status(
+                (
+                    "Completed "
+                    f"{format_task_counter('', source_index, max(1, total_targets), noun='source')}: "
+                    f"{target.source_file_name}"
+                ),
+                color=typer.colors.CYAN,
+            )
+            return source_position, row
         except Exception as exc:  # noqa: BLE001
+            if dashboard is not None:
+                dashboard.finish_source(source_position, failed=True)
             _emit_status(
                 (
                     "Failed "
-                    f"{format_task_counter('', source_index, total_targets, noun='source')}: {exc}"
+                    f"{format_task_counter('', source_index, max(1, total_targets), noun='source')}: {exc}"
                 ),
                 color=typer.colors.RED,
             )
-            source_rows.append(
-                {
-                    "status": "failed",
-                    "source_file": str(target.source_file),
-                    "source_file_name": target.source_file_name,
-                    "gold_spans_path": str(target.gold_spans_path),
-                    "gold_display": target.gold_display,
-                    "source_slug": source_slug,
-                    "report_path": "",
-                    "report_json_path": "",
-                    "variant_count_planned": len(variants),
-                    "variant_count_completed": 0,
-                    "variant_count_successful": 0,
-                    "winner_metrics": {},
-                    "timing_summary": {},
-                    "error": str(exc),
-                }
+            return (
+                source_position,
+                _failed_source_row(
+                    target=target,
+                    source_slug=source_slug,
+                    variants=variants,
+                    error=str(exc),
+                ),
             )
-            if dashboard is not None:
-                dashboard.finish_source(source_index - 1, failed=True)
+
+    if source_jobs:
+        if source_parallelism_effective <= 1:
+            for job in source_jobs:
+                source_position, row = _run_source_job(job)
+                source_rows[source_position] = row
+        else:
+            try:
+                source_executor = ThreadPoolExecutor(max_workers=source_parallelism_effective)
+            except (PermissionError, OSError) as exc:
+                _emit_status(
+                    (
+                        "Source parallel executor unavailable "
+                        f"({exc}); falling back to serial source mode."
+                    ),
+                    color=typer.colors.YELLOW,
+                )
+                source_parallelism_effective = 1
+                for job in source_jobs:
+                    source_position, row = _run_source_job(job)
+                    source_rows[source_position] = row
+            else:
+                pending_jobs = list(source_jobs)
+                futures: dict[Any, dict[str, Any]] = {}
+                with source_executor:
+                    while pending_jobs or futures:
+                        while pending_jobs and len(futures) < source_parallelism_effective:
+                            next_job = pending_jobs.pop(0)
+                            try:
+                                future = source_executor.submit(_run_source_job, next_job)
+                            except Exception as exc:  # noqa: BLE001
+                                source_position = int(next_job["source_position"])
+                                target = cast(AllMethodTarget, next_job["target"])
+                                variants = cast(list[AllMethodVariant], next_job["variants"])
+                                source_slug = str(next_job["source_slug"])
+                                _emit_status(
+                                    (
+                                        "Failed "
+                                        f"{format_task_counter('', source_position + 1, max(1, total_targets), noun='source')}: "
+                                        f"Failed to submit source worker: {exc}"
+                                    ),
+                                    color=typer.colors.RED,
+                                )
+                                source_rows[source_position] = _failed_source_row(
+                                    target=target,
+                                    source_slug=source_slug,
+                                    variants=variants,
+                                    error=f"Failed to submit source worker: {exc}",
+                                )
+                                if dashboard is not None:
+                                    dashboard.finish_source(source_position, failed=True)
+                                continue
+                            futures[future] = next_job
+
+                        if not futures:
+                            continue
+
+                        done, _ = wait(
+                            list(futures.keys()),
+                            return_when=FIRST_COMPLETED,
+                        )
+                        for done_future in done:
+                            submitted_job = futures.pop(done_future)
+                            try:
+                                source_position, row = done_future.result()
+                            except Exception as exc:  # noqa: BLE001
+                                source_position = int(submitted_job["source_position"])
+                                target = cast(AllMethodTarget, submitted_job["target"])
+                                variants = cast(list[AllMethodVariant], submitted_job["variants"])
+                                source_slug = str(submitted_job["source_slug"])
+                                _emit_status(
+                                    (
+                                        "Failed "
+                                        f"{format_task_counter('', source_position + 1, max(1, total_targets), noun='source')}: "
+                                        f"Source worker failed: {exc}"
+                                    ),
+                                    color=typer.colors.RED,
+                                )
+                                row = _failed_source_row(
+                                    target=target,
+                                    source_slug=source_slug,
+                                    variants=variants,
+                                    error=f"Source worker failed: {exc}",
+                                )
+                                if dashboard is not None:
+                                    dashboard.finish_source(source_position, failed=True)
+                            source_rows[source_position] = row
+
+    ordered_source_rows: list[dict[str, Any]] = []
+    for source_position, row in enumerate(source_rows):
+        if isinstance(row, dict):
+            ordered_source_rows.append(row)
+            continue
+        fallback_job = source_jobs[source_position]
+        fallback_target = cast(AllMethodTarget, fallback_job["target"])
+        fallback_variants = cast(list[AllMethodVariant], fallback_job["variants"])
+        ordered_source_rows.append(
+            _failed_source_row(
+                target=fallback_target,
+                source_slug=str(fallback_job["source_slug"]),
+                variants=fallback_variants,
+                error="Source run did not produce a result.",
+            )
+        )
+    source_rows = ordered_source_rows
 
     successful_source_count = sum(
         1 for row in source_rows if str(row.get("status", "")).lower() == "ok"
@@ -4414,15 +5460,78 @@ def _run_all_method_benchmark_multi_source(
             slowest_config_seconds = candidate_seconds
             slowest_config_name = candidate_name
 
+    scheduler_capacity_seconds = 0.0
+    scheduler_busy_seconds = 0.0
+    scheduler_idle_gap_seconds = 0.0
+    scheduler_wing_area_seconds = 0.0
+    scheduler_wing_seconds_weight = 0.0
+    scheduler_max_wing_backlog = 0
+    scheduler_max_active_pipelines = 0
+    scheduler_split_slots = 0
+    scheduler_smart_tail_buffer = 0
+    scheduler_effective_inflight = 0
+    scheduler_sources = 0
+    scheduler_modes: set[str] = set()
+    for row in source_rows:
+        if str(row.get("status", "")).lower() != "ok":
+            continue
+        scheduler = row.get("scheduler")
+        if not isinstance(scheduler, dict):
+            continue
+        scheduler_sources += 1
+        scheduler_modes.add(str(scheduler.get("mode") or "fixed"))
+        scheduler_split_slots = max(
+            scheduler_split_slots,
+            _report_count(scheduler.get("split_phase_slots")),
+        )
+        scheduler_smart_tail_buffer = max(
+            scheduler_smart_tail_buffer,
+            _report_count(scheduler.get("smart_tail_buffer_slots")),
+        )
+        scheduler_effective_inflight = max(
+            scheduler_effective_inflight,
+            _report_count(scheduler.get("effective_inflight_pipelines")),
+        )
+        capacity_seconds = _report_metric(scheduler.get("heavy_slot_capacity_seconds"))
+        busy_seconds = _report_metric(scheduler.get("heavy_slot_busy_seconds"))
+        idle_gap_seconds = _report_metric(scheduler.get("idle_gap_seconds"))
+        avg_wing = _report_metric(scheduler.get("avg_wing_backlog"))
+        max_wing = _report_count(scheduler.get("max_wing_backlog"))
+        max_active = _report_count(scheduler.get("max_active_pipelines_observed"))
+        scheduler_capacity_seconds += capacity_seconds
+        scheduler_busy_seconds += busy_seconds
+        scheduler_idle_gap_seconds += idle_gap_seconds
+        scheduler_wing_area_seconds += avg_wing * capacity_seconds
+        scheduler_wing_seconds_weight += capacity_seconds
+        scheduler_max_wing_backlog = max(scheduler_max_wing_backlog, max_wing)
+        scheduler_max_active_pipelines = max(
+            scheduler_max_active_pipelines,
+            max_active,
+        )
+    scheduler_utilization_pct = (
+        (scheduler_busy_seconds / scheduler_capacity_seconds) * 100.0
+        if scheduler_capacity_seconds > 0
+        else 0.0
+    )
+    scheduler_avg_wing_backlog = (
+        scheduler_wing_area_seconds / scheduler_wing_seconds_weight
+        if scheduler_wing_seconds_weight > 0
+        else 0.0
+    )
+
     report_payload: dict[str, Any] = {
         "created_at": dt.datetime.now().isoformat(timespec="seconds"),
         "matched_target_count": total_targets,
         "unmatched_target_count": len(unmatched_targets),
+        "source_parallelism_configured": source_parallelism_configured,
+        "source_parallelism_effective": source_parallelism_effective,
         "total_config_runs_planned": total_planned_config_runs,
         "total_config_runs_completed": total_completed_config_runs,
         "total_config_runs_successful": total_successful_config_runs,
         "successful_source_count": successful_source_count,
         "failed_source_count": total_targets - successful_source_count,
+        "config_timeout_seconds": effective_config_timeout_seconds,
+        "retry_failed_configs_requested": effective_retry_failed_configs,
         "include_codex_farm_requested": include_codex_farm_requested,
         "include_codex_farm_effective": include_codex_farm_effective,
         "timing_summary": {
@@ -4440,6 +5549,26 @@ def _run_all_method_benchmark_multi_source(
             "slowest_config": slowest_config_name,
             "slowest_config_seconds": slowest_config_seconds,
         },
+        "scheduler_summary": {
+            "mode": (
+                "mixed"
+                if len(scheduler_modes) > 1
+                else (next(iter(scheduler_modes)) if scheduler_modes else "fixed")
+            ),
+            "source_count": scheduler_sources,
+            "effective_inflight_pipelines": scheduler_effective_inflight,
+            "split_phase_slots": scheduler_split_slots,
+            "smart_tail_buffer_slots": scheduler_smart_tail_buffer,
+            "config_timeout_seconds": effective_config_timeout_seconds,
+            "failed_retry_limit": effective_retry_failed_configs,
+            "heavy_slot_capacity_seconds": scheduler_capacity_seconds,
+            "heavy_slot_busy_seconds": scheduler_busy_seconds,
+            "heavy_slot_utilization_pct": scheduler_utilization_pct,
+            "avg_wing_backlog": scheduler_avg_wing_backlog,
+            "max_wing_backlog": scheduler_max_wing_backlog,
+            "idle_gap_seconds": scheduler_idle_gap_seconds,
+            "max_active_pipelines_observed": scheduler_max_active_pipelines,
+        },
         "sources": source_rows,
         "unmatched": [
             {
@@ -4451,6 +5580,15 @@ def _run_all_method_benchmark_multi_source(
             for unmatched in unmatched_targets
         ],
     }
+
+    if not refresh_dashboard_after_source:
+        history_csv_path = history_csv_for_output(
+            processed_output_root / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
+        )
+        _refresh_dashboard_after_history_write(
+            csv_path=history_csv_path,
+            reason="all-method benchmark multi-source batch append",
+        )
 
     report_json_path = root_output_dir / "all_method_benchmark_multi_source_report.json"
     report_json_path.write_text(
@@ -4498,6 +5636,11 @@ def _run_all_method_benchmark(
     dashboard_source_index: int | None = None,
     max_inflight_pipelines: int | None = None,
     max_concurrent_split_phases: int | None = None,
+    config_timeout_seconds: int | None = None,
+    retry_failed_configs: int | None = None,
+    wing_backlog_target: int | None = None,
+    smart_scheduler: bool = False,
+    refresh_dashboard_after_source: bool = True,
 ) -> Path:
     source_started = time.monotonic()
     root_output_dir.mkdir(parents=True, exist_ok=True)
@@ -4506,15 +5649,30 @@ def _run_all_method_benchmark(
     processed_output_root.mkdir(parents=True, exist_ok=True)
     split_phase_gate_dir = root_output_dir / ".split_phase_slots"
     split_phase_gate_dir.mkdir(parents=True, exist_ok=True)
+    scheduler_events_dir = root_output_dir / ".scheduler_events"
+    if scheduler_events_dir.exists():
+        shutil.rmtree(scheduler_events_dir)
+    scheduler_events_dir.mkdir(parents=True, exist_ok=True)
 
     total_variants = len(variants)
     (
-        effective_inflight_pipelines,
+        configured_inflight_pipelines,
         effective_split_phase_slots,
-    ) = _resolve_all_method_scheduler_limits(
+        effective_wing_backlog_target,
+        effective_smart_scheduler,
+        effective_inflight_pipelines,
+    ) = _resolve_all_method_scheduler_runtime(
         total_variants=total_variants,
         max_inflight_pipelines=max_inflight_pipelines,
         max_concurrent_split_phases=max_concurrent_split_phases,
+        wing_backlog_target=wing_backlog_target,
+        smart_scheduler=smart_scheduler,
+    )
+    effective_config_timeout_seconds = _resolve_all_method_config_timeout_seconds(
+        config_timeout_seconds
+    )
+    effective_retry_failed_configs = _resolve_all_method_retry_failed_configs(
+        retry_failed_configs
     )
 
     def _emit_status(
@@ -4539,8 +5697,353 @@ def _run_all_method_benchmark(
 
     variant_rows: list[dict[str, Any]] = []
     indexed_variants = list(enumerate(variants, start=1))
+    scheduler_phase_by_config: dict[int, str] = {}
+    scheduler_event_offsets: dict[int, int] = {}
+    scheduler_last_tick = time.monotonic()
+    scheduler_capacity_seconds = 0.0
+    scheduler_busy_seconds = 0.0
+    scheduler_idle_gap_seconds = 0.0
+    scheduler_wing_area_seconds = 0.0
+    scheduler_max_wing_backlog = 0
+    scheduler_max_active_pipelines = 0
+    scheduler_last_snapshot = ""
+    scheduler_smart_enabled = bool(effective_smart_scheduler)
 
-    def _run_serial_variants(items: list[tuple[int, AllMethodVariant]]) -> None:
+    def _scheduler_event_path(config_index: int) -> Path:
+        return scheduler_events_dir / f"config_{config_index:03d}.jsonl"
+
+    def _scheduler_phase_for_event(event_name: str) -> str | None:
+        event = str(event_name or "").strip()
+        if event in {"config_started", "prep_started"}:
+            return "prep"
+        if event == "split_wait_started":
+            return "split_wait"
+        if event == "split_active_started":
+            return "split_active"
+        if event in {"split_active_finished", "post_started"}:
+            return "post"
+        if event in {"post_finished", "config_finished"}:
+            return "done"
+        return None
+
+    def _poll_scheduler_events(active_indices: set[int]) -> None:
+        for active_index in sorted(active_indices):
+            event_path = _scheduler_event_path(active_index)
+            if not event_path.exists():
+                continue
+            offset = max(0, scheduler_event_offsets.get(active_index, 0))
+            with event_path.open("r", encoding="utf-8") as handle:
+                handle.seek(offset)
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        payload = json.loads(line)
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            "Ignoring malformed scheduler event in %s: %s",
+                            event_path,
+                            line[:160],
+                        )
+                        continue
+                    if not isinstance(payload, dict):
+                        continue
+                    phase = _scheduler_phase_for_event(str(payload.get("event") or ""))
+                    if phase is not None:
+                        scheduler_phase_by_config[active_index] = phase
+                scheduler_event_offsets[active_index] = handle.tell()
+
+    def _compute_scheduler_counts(active_indices: set[int]) -> dict[str, int]:
+        heavy_active = 0
+        split_wait = 0
+        prep_active = 0
+        post_active = 0
+        for active_index in active_indices:
+            phase = scheduler_phase_by_config.get(active_index, "prep")
+            if phase == "split_active":
+                heavy_active += 1
+            elif phase == "split_wait":
+                split_wait += 1
+            elif phase == "post":
+                post_active += 1
+            elif phase == "done":
+                continue
+            else:
+                prep_active += 1
+        wing_backlog = split_wait + prep_active
+        return {
+            "heavy_active": heavy_active,
+            "split_wait": split_wait,
+            "prep_active": prep_active,
+            "post_active": post_active,
+            "wing_backlog": wing_backlog,
+            "active": len(active_indices),
+        }
+
+    def _tick_scheduler_metrics(*, active_indices: set[int], pending_count: int) -> dict[str, int]:
+        nonlocal scheduler_last_tick
+        nonlocal scheduler_capacity_seconds
+        nonlocal scheduler_busy_seconds
+        nonlocal scheduler_idle_gap_seconds
+        nonlocal scheduler_wing_area_seconds
+        nonlocal scheduler_max_wing_backlog
+        nonlocal scheduler_max_active_pipelines
+
+        now = time.monotonic()
+        delta = max(0.0, now - scheduler_last_tick)
+        counts = _compute_scheduler_counts(active_indices)
+        scheduler_capacity_seconds += float(effective_split_phase_slots) * delta
+        scheduler_busy_seconds += float(
+            min(effective_split_phase_slots, counts["heavy_active"])
+        ) * delta
+        if pending_count > 0 and counts["heavy_active"] < effective_split_phase_slots:
+            scheduler_idle_gap_seconds += delta
+        scheduler_wing_area_seconds += float(counts["wing_backlog"]) * delta
+        scheduler_max_wing_backlog = max(
+            scheduler_max_wing_backlog,
+            counts["wing_backlog"],
+        )
+        scheduler_max_active_pipelines = max(
+            scheduler_max_active_pipelines,
+            counts["active"],
+        )
+        scheduler_last_tick = now
+        return counts
+
+    def _scheduler_snapshot(*, counts: dict[str, int], pending_count: int) -> str:
+        return (
+            f"scheduler heavy {counts['heavy_active']}/{effective_split_phase_slots} "
+            f"| wing {counts['wing_backlog']} "
+            f"| active {counts['active']} | pending {max(0, pending_count)}"
+        )
+
+    def _emit_scheduler_snapshot(*, counts: dict[str, int], pending_count: int) -> None:
+        nonlocal scheduler_last_snapshot
+        if progress_callback is None:
+            return
+        snapshot = _scheduler_snapshot(counts=counts, pending_count=pending_count)
+        if snapshot == scheduler_last_snapshot:
+            return
+        scheduler_last_snapshot = snapshot
+        _emit_status(snapshot, color=typer.colors.BRIGHT_BLACK)
+
+    def _compute_scheduler_metrics_from_event_files(
+        *,
+        source_end_monotonic: float,
+    ) -> dict[str, float | int] | None:
+        rows: list[tuple[float, str, int]] = []
+        for event_path in sorted(scheduler_events_dir.glob("config_*.jsonl")):
+            try:
+                lines = event_path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                event_name = str(payload.get("event") or "").strip()
+                if not event_name:
+                    continue
+                event_time = _report_optional_metric(payload.get("monotonic_seconds"))
+                event_index = _report_count(payload.get("config_index"))
+                if event_time is None or event_index <= 0:
+                    continue
+                rows.append((event_time, event_name, event_index))
+        if not rows:
+            return None
+
+        rows.sort(key=lambda item: item[0])
+        phases: dict[int, str] = {}
+        started_configs: set[int] = set()
+        capacity_seconds = 0.0
+        busy_seconds = 0.0
+        idle_gap_seconds = 0.0
+        wing_area_seconds = 0.0
+        max_wing_backlog = 0
+        max_active_pipelines = 0
+
+        def _counts() -> dict[str, int]:
+            heavy_active = 0
+            split_wait = 0
+            prep_active = 0
+            post_active = 0
+            for phase in phases.values():
+                if phase == "split_active":
+                    heavy_active += 1
+                elif phase == "split_wait":
+                    split_wait += 1
+                elif phase == "post":
+                    post_active += 1
+                elif phase == "done":
+                    continue
+                else:
+                    prep_active += 1
+            wing_backlog = split_wait + prep_active
+            active = heavy_active + split_wait + prep_active + post_active
+            return {
+                "heavy_active": heavy_active,
+                "wing_backlog": wing_backlog,
+                "active": active,
+            }
+
+        previous_time = rows[0][0]
+        for event_time, event_name, event_index in rows:
+            delta = max(0.0, event_time - previous_time)
+            counts = _counts()
+            capacity_seconds += float(effective_split_phase_slots) * delta
+            busy_seconds += float(
+                min(effective_split_phase_slots, counts["heavy_active"])
+            ) * delta
+            if (
+                len(started_configs) < total_variants
+                and counts["heavy_active"] < effective_split_phase_slots
+            ):
+                idle_gap_seconds += delta
+            wing_area_seconds += float(counts["wing_backlog"]) * delta
+            max_wing_backlog = max(max_wing_backlog, counts["wing_backlog"])
+            max_active_pipelines = max(max_active_pipelines, counts["active"])
+            previous_time = event_time
+
+            mapped_phase = _scheduler_phase_for_event(event_name)
+            if event_name == "config_started":
+                started_configs.add(event_index)
+            if mapped_phase is not None:
+                phases[event_index] = mapped_phase
+            if event_name == "config_finished":
+                phases[event_index] = "done"
+
+        tail_delta = max(0.0, source_end_monotonic - previous_time)
+        if tail_delta > 0:
+            counts = _counts()
+            capacity_seconds += float(effective_split_phase_slots) * tail_delta
+            busy_seconds += float(
+                min(effective_split_phase_slots, counts["heavy_active"])
+            ) * tail_delta
+            if (
+                len(started_configs) < total_variants
+                and counts["heavy_active"] < effective_split_phase_slots
+            ):
+                idle_gap_seconds += tail_delta
+            wing_area_seconds += float(counts["wing_backlog"]) * tail_delta
+            max_wing_backlog = max(max_wing_backlog, counts["wing_backlog"])
+            max_active_pipelines = max(max_active_pipelines, counts["active"])
+
+        return {
+            "heavy_slot_capacity_seconds": capacity_seconds,
+            "heavy_slot_busy_seconds": busy_seconds,
+            "idle_gap_seconds": idle_gap_seconds,
+            "wing_backlog_area_seconds": wing_area_seconds,
+            "max_wing_backlog": max_wing_backlog,
+            "max_active_pipelines_observed": max_active_pipelines,
+        }
+
+    def _finalize_scheduler_metrics() -> dict[str, Any]:
+        event_metrics = _compute_scheduler_metrics_from_event_files(
+            source_end_monotonic=time.monotonic()
+        )
+        capacity_seconds = scheduler_capacity_seconds
+        busy_seconds = scheduler_busy_seconds
+        idle_gap_seconds = scheduler_idle_gap_seconds
+        wing_area_seconds = scheduler_wing_area_seconds
+        max_wing_backlog = scheduler_max_wing_backlog
+        max_active = scheduler_max_active_pipelines
+        if isinstance(event_metrics, dict):
+            capacity_seconds = _report_metric(
+                event_metrics.get("heavy_slot_capacity_seconds")
+            )
+            busy_seconds = _report_metric(event_metrics.get("heavy_slot_busy_seconds"))
+            idle_gap_seconds = _report_metric(event_metrics.get("idle_gap_seconds"))
+            wing_area_seconds = _report_metric(event_metrics.get("wing_backlog_area_seconds"))
+            max_wing_backlog = max(
+                max_wing_backlog,
+                _report_count(event_metrics.get("max_wing_backlog")),
+            )
+            max_active = max(
+                max_active,
+                _report_count(event_metrics.get("max_active_pipelines_observed")),
+            )
+        utilization_pct = (
+            (busy_seconds / capacity_seconds) * 100.0
+            if capacity_seconds > 0
+            else 0.0
+        )
+        avg_wing_backlog = (
+            wing_area_seconds / capacity_seconds
+            if capacity_seconds > 0
+            else 0.0
+        )
+        return {
+            "mode": "smart" if scheduler_smart_enabled else "fixed",
+            "configured_inflight_pipelines": configured_inflight_pipelines,
+            "effective_inflight_pipelines": effective_inflight_pipelines,
+            "split_phase_slots": effective_split_phase_slots,
+            "wing_backlog_target": effective_wing_backlog_target,
+            "smart_tail_buffer_slots": (
+                effective_split_phase_slots if bool(effective_smart_scheduler) else 0
+            ),
+            "smart_scheduler_enabled": bool(effective_smart_scheduler),
+            "heavy_slot_capacity_seconds": capacity_seconds,
+            "heavy_slot_busy_seconds": busy_seconds,
+            "heavy_slot_utilization_pct": utilization_pct,
+            "avg_wing_backlog": avg_wing_backlog,
+            "max_wing_backlog": max_wing_backlog,
+            "idle_gap_seconds": idle_gap_seconds,
+            "max_active_pipelines_observed": max_active,
+        }
+
+    def _shutdown_parallel_executor(
+        executor: Any,
+        *,
+        terminate_workers: bool,
+    ) -> None:
+        if terminate_workers:
+            worker_map = getattr(executor, "_processes", None)
+            if isinstance(worker_map, dict):
+                for process in list(worker_map.values()):
+                    if process is None:
+                        continue
+                    try:
+                        if process.is_alive():
+                            process.terminate()
+                    except Exception:
+                        continue
+                for process in list(worker_map.values()):
+                    if process is None:
+                        continue
+                    try:
+                        process.join(timeout=1.0)
+                        if process.is_alive() and hasattr(process, "kill"):
+                            process.kill()
+                    except Exception:
+                        continue
+        shutdown_fn = getattr(executor, "shutdown", None)
+        if not callable(shutdown_fn):
+            return
+        try:
+            shutdown_fn(wait=not terminate_workers, cancel_futures=terminate_workers)
+        except TypeError:
+            shutdown_fn(wait=not terminate_workers)
+        except Exception:
+            return
+
+    def _latest_rows_by_config(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        latest_by_index: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            config_index = _report_count(row.get("config_index"))
+            latest_by_index[config_index] = row
+        return [latest_by_index[index] for index in sorted(latest_by_index)]
+
+    def _run_serial_variants(
+        items: list[tuple[int, AllMethodVariant]],
+        *,
+        dashboard_tracking: bool = True,
+    ) -> None:
         for config_index, variant in items:
             progress_label = format_task_counter(
                 "Running",
@@ -4548,7 +6051,11 @@ def _run_all_method_benchmark(
                 max(1, total_variants),
                 noun="config",
             )
-            if dashboard is not None and dashboard_source_index is not None:
+            if (
+                dashboard_tracking
+                and dashboard is not None
+                and dashboard_source_index is not None
+            ):
                 dashboard.start_config(
                     source_index=dashboard_source_index,
                     config_index=config_index,
@@ -4588,15 +6095,21 @@ def _run_all_method_benchmark(
                 force_source_match=force_source_match,
                 max_concurrent_split_phases=effective_split_phase_slots,
                 split_phase_gate_dir=split_phase_gate_dir,
+                scheduler_events_dir=scheduler_events_dir,
                 progress_callback=_variant_progress if progress_callback else None,
             )
             variant_rows.append(row)
 
             success = str(row.get("status") or "").strip().lower() == "ok"
-            if dashboard is not None and dashboard_source_index is not None:
+            if (
+                dashboard_tracking
+                and dashboard is not None
+                and dashboard_source_index is not None
+            ):
                 dashboard.complete_config(
                     source_index=dashboard_source_index,
                     success=success,
+                    config_index=config_index,
                 )
             if success:
                 if progress_callback is not None:
@@ -4612,14 +6125,21 @@ def _run_all_method_benchmark(
                     color=typer.colors.RED,
                 )
 
-    def _run_parallel_variants(items: list[tuple[int, AllMethodVariant]]) -> None:
-        if len(items) <= 1 or effective_inflight_pipelines <= 1:
-            _run_serial_variants(items)
+    def _run_parallel_variants(
+        items: list[tuple[int, AllMethodVariant]],
+        *,
+        dashboard_tracking: bool = True,
+    ) -> None:
+        nonlocal scheduler_smart_enabled
+        force_parallel_timeout = effective_config_timeout_seconds is not None
+        if (len(items) <= 1 or effective_inflight_pipelines <= 1) and not force_parallel_timeout:
+            _run_serial_variants(items, dashboard_tracking=dashboard_tracking)
             return
 
         pending_items = list(items)
-        futures: dict[Any, tuple[int, AllMethodVariant]] = {}
+        futures: dict[Any, tuple[int, AllMethodVariant, float]] = {}
         worker_limit = min(effective_inflight_pipelines, len(items))
+        scheduler_target = effective_split_phase_slots + effective_wing_backlog_target
 
         try:
             executor = ProcessPoolExecutor(max_workers=worker_limit)
@@ -4628,111 +6148,313 @@ def _run_all_method_benchmark(
                 f"Parallel executor unavailable ({exc}); falling back to serial mode.",
                 color=typer.colors.YELLOW,
             )
-            _run_serial_variants(items)
+            _run_serial_variants(items, dashboard_tracking=dashboard_tracking)
             return
 
-        with executor:
-            def _submit_next() -> bool:
-                if not pending_items:
-                    return False
-                config_index, variant = pending_items.pop(0)
-                progress_label = format_task_counter(
-                    "Running",
-                    config_index,
-                    max(1, total_variants),
-                    noun="config",
+        def _record_completion(
+            *,
+            config_index: int,
+            variant: AllMethodVariant,
+            row: dict[str, Any],
+        ) -> None:
+            variant_rows.append(row)
+            success = str(row.get("status") or "").strip().lower() == "ok"
+            scheduler_phase_by_config.pop(config_index, None)
+            scheduler_event_offsets.pop(config_index, None)
+            if (
+                dashboard_tracking
+                and dashboard is not None
+                and dashboard_source_index is not None
+            ):
+                dashboard.complete_config(
+                    source_index=dashboard_source_index,
+                    success=success,
+                    config_index=config_index,
                 )
-                if dashboard is not None and dashboard_source_index is not None:
-                    dashboard.start_config(
-                        source_index=dashboard_source_index,
-                        config_index=config_index,
-                        config_total=max(1, total_variants),
-                        config_slug=variant.slug,
-                    )
-                _emit_status(f"{progress_label}: {variant.slug}", color=typer.colors.CYAN)
-
-                try:
-                    future = executor.submit(
-                        _run_all_method_config_once,
-                        gold_spans_path=gold_spans_path,
-                        source_file=source_file,
-                        variant=variant,
-                        config_index=config_index,
-                        total_variants=max(1, total_variants),
-                        root_output_dir=root_output_dir,
-                        scratch_root=scratch_root,
-                        processed_output_root=processed_output_root,
-                        overlap_threshold=overlap_threshold,
-                        force_source_match=force_source_match,
-                        max_concurrent_split_phases=effective_split_phase_slots,
-                        split_phase_gate_dir=split_phase_gate_dir,
-                        progress_callback=None,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    row = _all_method_failed_row(
-                        config_index=config_index,
-                        config_dir_name=_all_method_config_dir_name(config_index, variant),
-                        variant=variant,
-                        error=f"Failed to submit benchmark config: {exc}",
-                    )
-                    variant_rows.append(row)
-                    if dashboard is not None and dashboard_source_index is not None:
-                        dashboard.complete_config(
-                            source_index=dashboard_source_index,
-                            success=False,
-                        )
+            if success:
+                if progress_callback is not None:
                     _emit_status(
                         (
-                            f"Failed {format_task_counter('', config_index, max(1, total_variants), noun='config')}: "
-                            f"{row.get('error', 'unknown error')}"
-                        ),
-                        color=typer.colors.RED,
+                            "Completed "
+                            f"{format_task_counter('', config_index, max(1, total_variants), noun='config')}: "
+                            f"{variant.slug}"
+                        )
                     )
-                    return True
+            else:
+                _emit_status(
+                    (
+                        f"Failed {format_task_counter('', config_index, max(1, total_variants), noun='config')}: "
+                        f"{row.get('error', 'unknown error')}"
+                    ),
+                    color=typer.colors.RED,
+                )
 
-                futures[future] = (config_index, variant)
+        def _submit_next() -> bool:
+            if not pending_items:
+                return False
+            config_index, variant = pending_items.pop(0)
+            progress_label = format_task_counter(
+                "Running",
+                config_index,
+                max(1, total_variants),
+                noun="config",
+            )
+            if (
+                dashboard_tracking
+                and dashboard is not None
+                and dashboard_source_index is not None
+            ):
+                dashboard.start_config(
+                    source_index=dashboard_source_index,
+                    config_index=config_index,
+                    config_total=max(1, total_variants),
+                    config_slug=variant.slug,
+                )
+            _emit_status(f"{progress_label}: {variant.slug}", color=typer.colors.CYAN)
+
+            try:
+                future = executor.submit(
+                    _run_all_method_config_once,
+                    gold_spans_path=gold_spans_path,
+                    source_file=source_file,
+                    variant=variant,
+                    config_index=config_index,
+                    total_variants=max(1, total_variants),
+                    root_output_dir=root_output_dir,
+                    scratch_root=scratch_root,
+                    processed_output_root=processed_output_root,
+                    overlap_threshold=overlap_threshold,
+                    force_source_match=force_source_match,
+                    max_concurrent_split_phases=effective_split_phase_slots,
+                    split_phase_gate_dir=split_phase_gate_dir,
+                    scheduler_events_dir=scheduler_events_dir,
+                    progress_callback=None,
+                )
+            except Exception as exc:  # noqa: BLE001
+                row = _all_method_failed_row(
+                    config_index=config_index,
+                    config_dir_name=_all_method_config_dir_name(config_index, variant),
+                    variant=variant,
+                    error=f"Failed to submit benchmark config: {exc}",
+                )
+                _record_completion(
+                    config_index=config_index,
+                    variant=variant,
+                    row=row,
+                )
                 return True
 
-            for _worker_index in range(worker_limit):
-                if not _submit_next():
-                    break
+            futures[future] = (config_index, variant, time.monotonic())
+            scheduler_phase_by_config[config_index] = "prep"
+            scheduler_event_offsets[config_index] = 0
+            return True
 
-            while futures:
-                future = next(as_completed(list(futures.keys())))
-                config_index, variant = futures.pop(future)
-                try:
-                    row = future.result()
-                except Exception as exc:  # noqa: BLE001
+        try:
+            while pending_items or futures:
+                active_indices = {
+                    config_index for config_index, _variant, _submitted in futures.values()
+                }
+                counts = _tick_scheduler_metrics(
+                    active_indices=active_indices,
+                    pending_count=len(pending_items),
+                )
+                if active_indices:
+                    try:
+                        _poll_scheduler_events(active_indices)
+                    except Exception as exc:  # noqa: BLE001
+                        if scheduler_smart_enabled:
+                            scheduler_smart_enabled = False
+                            _emit_status(
+                                (
+                                    "Smart scheduler telemetry failed "
+                                    f"({exc}); falling back to fixed queue refill."
+                                ),
+                                color=typer.colors.YELLOW,
+                            )
+                counts = _compute_scheduler_counts(
+                    {
+                        config_index
+                        for config_index, _variant, _submitted in futures.values()
+                    }
+                )
+                _emit_scheduler_snapshot(
+                    counts=counts,
+                    pending_count=len(pending_items),
+                )
+
+                while len(futures) < worker_limit and pending_items:
+                    if scheduler_smart_enabled:
+                        heavy_plus_wing = counts["heavy_active"] + counts["wing_backlog"]
+                        if heavy_plus_wing >= scheduler_target:
+                            break
+                    submitted = _submit_next()
+                    if not submitted:
+                        break
+                    counts = _compute_scheduler_counts(
+                        {
+                            config_index
+                            for config_index, _variant, _submitted in futures.values()
+                        }
+                    )
+                    _emit_scheduler_snapshot(
+                        counts=counts,
+                        pending_count=len(pending_items),
+                    )
+
+                if not futures:
+                    if pending_items:
+                        time.sleep(ALL_METHOD_SCHEDULER_POLL_SECONDS)
+                    continue
+
+                done, _ = wait(
+                    list(futures.keys()),
+                    timeout=ALL_METHOD_SCHEDULER_POLL_SECONDS,
+                    return_when=FIRST_COMPLETED,
+                )
+                for done_future in done:
+                    config_index, variant, _submitted = futures.pop(done_future)
+                    try:
+                        row = done_future.result()
+                    except Exception as exc:  # noqa: BLE001
+                        row = _all_method_failed_row(
+                            config_index=config_index,
+                            config_dir_name=_all_method_config_dir_name(config_index, variant),
+                            variant=variant,
+                            error=f"Benchmark config worker failed: {exc}",
+                        )
+                    _record_completion(
+                        config_index=config_index,
+                        variant=variant,
+                        row=row,
+                    )
+
+                if effective_config_timeout_seconds is None:
+                    continue
+                timeout_threshold = float(max(1, effective_config_timeout_seconds))
+                now = time.monotonic()
+                timed_out: list[tuple[Any, int, AllMethodVariant, float]] = []
+                for future, (config_index, variant, submitted_at) in list(futures.items()):
+                    elapsed_seconds = max(0.0, now - submitted_at)
+                    if elapsed_seconds < timeout_threshold:
+                        continue
+                    timed_out.append((future, config_index, variant, elapsed_seconds))
+                if not timed_out:
+                    continue
+
+                timed_out.sort(key=lambda item: item[1])
+                for timed_out_future, config_index, variant, elapsed_seconds in timed_out:
+                    futures.pop(timed_out_future, None)
                     row = _all_method_failed_row(
                         config_index=config_index,
                         config_dir_name=_all_method_config_dir_name(config_index, variant),
                         variant=variant,
-                        error=f"Benchmark config worker failed: {exc}",
+                        error=(
+                            f"Config timed out after {int(timeout_threshold)}s "
+                            f"(elapsed {elapsed_seconds:.1f}s)."
+                        ),
+                        elapsed_seconds=elapsed_seconds,
+                    )
+                    _record_completion(
+                        config_index=config_index,
+                        variant=variant,
+                        row=row,
                     )
 
-                variant_rows.append(row)
-                success = str(row.get("status") or "").strip().lower() == "ok"
-                if dashboard is not None and dashboard_source_index is not None:
-                    dashboard.complete_config(
-                        source_index=dashboard_source_index,
-                        success=success,
+                if futures:
+                    requeued = sorted(
+                        [
+                            (config_index, variant)
+                            for config_index, variant, _submitted in futures.values()
+                        ],
+                        key=lambda item: item[0],
                     )
-                if success:
-                    if progress_callback is not None:
-                        _emit_status(
-                            f"Completed {format_task_counter('', config_index, max(1, total_variants), noun='config')}: {variant.slug}"
-                        )
-                else:
+                    pending_items = requeued + pending_items
+                    futures.clear()
+                scheduler_smart_enabled = False
+                _emit_status(
+                    (
+                        "Config timeout reached for "
+                        f"{len(timed_out)} run(s); restarting worker pool."
+                    ),
+                    color=typer.colors.YELLOW,
+                )
+                _shutdown_parallel_executor(executor, terminate_workers=True)
+                try:
+                    executor = ProcessPoolExecutor(max_workers=worker_limit)
+                except (PermissionError, OSError) as exc:
                     _emit_status(
                         (
-                            f"Failed {format_task_counter('', config_index, max(1, total_variants), noun='config')}: "
-                            f"{row.get('error', 'unknown error')}"
+                            "Parallel executor unavailable after timeout restart "
+                            f"({exc}); continuing in serial mode for remaining configs."
                         ),
-                        color=typer.colors.RED,
+                        color=typer.colors.YELLOW,
                     )
-                _submit_next()
+                    _run_serial_variants(
+                        pending_items,
+                        dashboard_tracking=dashboard_tracking,
+                    )
+                    pending_items.clear()
+                    futures.clear()
+                    break
+        finally:
+            _shutdown_parallel_executor(executor, terminate_workers=False)
 
-    _run_parallel_variants(indexed_variants)
+    _run_parallel_variants(indexed_variants, dashboard_tracking=True)
+    variant_rows = _latest_rows_by_config(variant_rows)
+    initial_failed_indices = [
+        _report_count(row.get("config_index"))
+        for row in variant_rows
+        if str(row.get("status") or "").strip().lower() != "ok"
+    ]
+    retry_passes_executed = 0
+    retry_recovered_configs = 0
+    if effective_retry_failed_configs > 0 and initial_failed_indices:
+        variant_by_index = {config_index: variant for config_index, variant in indexed_variants}
+        remaining_failed_indices = sorted(set(initial_failed_indices))
+        for retry_pass in range(1, effective_retry_failed_configs + 1):
+            if not remaining_failed_indices:
+                break
+            retry_items = [
+                (config_index, variant_by_index[config_index])
+                for config_index in remaining_failed_indices
+                if config_index in variant_by_index
+            ]
+            if not retry_items:
+                break
+            retry_passes_executed += 1
+            _emit_status(
+                (
+                    f"Retry pass {retry_pass}/{effective_retry_failed_configs}: "
+                    f"rerunning {len(retry_items)} failed config(s)."
+                ),
+                color=typer.colors.YELLOW,
+            )
+            prior_failed = set(remaining_failed_indices)
+            _run_parallel_variants(retry_items, dashboard_tracking=False)
+            variant_rows = _latest_rows_by_config(variant_rows)
+            remaining_failed_indices = sorted(
+                {
+                    _report_count(row.get("config_index"))
+                    for row in variant_rows
+                    if str(row.get("status") or "").strip().lower() != "ok"
+                }
+            )
+            recovered_this_pass = len(prior_failed - set(remaining_failed_indices))
+            retry_recovered_configs += max(0, recovered_this_pass)
+            if recovered_this_pass > 0:
+                _emit_status(
+                    (
+                        f"Retry pass {retry_pass} recovered "
+                        f"{recovered_this_pass} config(s)."
+                    ),
+                    color=typer.colors.CYAN,
+                )
+    _tick_scheduler_metrics(active_indices=set(), pending_count=0)
+    scheduler_summary = _finalize_scheduler_metrics()
+    scheduler_summary["config_timeout_seconds"] = effective_config_timeout_seconds
+    scheduler_summary["failed_retry_limit"] = effective_retry_failed_configs
+    scheduler_summary["retry_passes_executed"] = retry_passes_executed
+    scheduler_summary["retry_recovered_configs"] = retry_recovered_configs
 
     successful_rows = [row for row in variant_rows if row.get("status") == "ok"]
     failed_rows = [row for row in variant_rows if row.get("status") != "ok"]
@@ -4788,6 +6510,9 @@ def _run_all_method_benchmark(
         "variant_count": total_variants,
         "successful_variants": len(successful_rows),
         "failed_variants": len(failed_rows),
+        "retry_failed_configs_requested": effective_retry_failed_configs,
+        "retry_passes_executed": retry_passes_executed,
+        "retry_recovered_configs": retry_recovered_configs,
         "include_codex_farm_requested": include_codex_farm_requested,
         "include_codex_farm_effective": include_codex_farm_effective,
         "timing_summary": {
@@ -4802,6 +6527,7 @@ def _run_all_method_benchmark(
             ),
             "slowest_config_seconds": slowest_config_seconds,
         },
+        "scheduler": scheduler_summary,
         "variants": final_rows,
         "winner_by_f1": winner,
     }
@@ -4816,6 +6542,15 @@ def _run_all_method_benchmark(
         _render_all_method_report_md(report_payload),
         encoding="utf-8",
     )
+
+    if refresh_dashboard_after_source:
+        history_csv_path = history_csv_for_output(
+            processed_output_root / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
+        )
+        _refresh_dashboard_after_history_write(
+            csv_path=history_csv_path,
+            reason="all-method benchmark source batch append",
+        )
 
     completion_color = (
         typer.colors.GREEN if len(failed_rows) == 0 else typer.colors.YELLOW
@@ -6678,7 +8413,13 @@ def stage(
                     fg=typer.colors.CYAN,
                 )
 
-            append_history_csv(summary.rows, history_path(output_root))
+            csv_history_path = history_path(output_root)
+            append_history_csv(summary.rows, csv_history_path)
+            _refresh_dashboard_after_history_write(
+                csv_path=csv_history_path,
+                output_root=output_root,
+                reason="stage history append",
+            )
     except Exception as exc:
         logger.warning("Performance summary skipped: %s", exc)
 
@@ -6780,7 +8521,13 @@ def perf_report(
         )
 
     if write_csv:
-        append_history_csv(summary.rows, history_path(out_dir))
+        csv_history_path = history_path(out_dir)
+        append_history_csv(summary.rows, csv_history_path)
+        _refresh_dashboard_after_history_write(
+            csv_path=csv_history_path,
+            output_root=out_dir,
+            reason="perf-report history append",
+        )
 
 
 @app.command("stats-dashboard")
@@ -6888,6 +8635,20 @@ def benchmark_csv_backfill(
 
     if dry_run and summary.rows_updated > 0:
         typer.secho("Re-run without --dry-run to persist these patches.", fg=typer.colors.YELLOW)
+    if not dry_run and summary.rows_updated > 0:
+        default_history_csv = history_path(out_dir)
+        refresh_output_root: Path | None = out_dir
+        try:
+            if csv_path.resolve() != default_history_csv.resolve():
+                refresh_output_root = None
+        except OSError:
+            if csv_path != default_history_csv:
+                refresh_output_root = None
+        _refresh_dashboard_after_history_write(
+            csv_path=csv_path,
+            output_root=refresh_output_root,
+            reason="benchmark-csv-backfill write",
+        )
 
 
 @app.command()
@@ -7403,9 +9164,10 @@ def labelstudio_eval(
             csv_history_root = processed_report.parents[1]
 
     from cookimport.analytics.perf_report import append_benchmark_csv, history_path
+    csv_history_path = history_path(csv_history_root)
     append_benchmark_csv(
         report,
-        history_path(csv_history_root),
+        csv_history_path,
         run_timestamp=dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         run_dir=str(output_dir),
         eval_scope=scope,
@@ -7416,6 +9178,11 @@ def labelstudio_eval(
         run_config_hash=pred_context.run_config_hash,
         run_config_summary=pred_context.run_config_summary,
         epub_auto_selected_score=pred_context.epub_auto_selected_score,
+    )
+    _refresh_dashboard_after_history_write(
+        csv_path=csv_history_path,
+        output_root=csv_history_root,
+        reason="labelstudio-eval history append",
     )
 
     eval_run_config: dict[str, Any] = {
@@ -7836,6 +9603,7 @@ def labelstudio_benchmark(
         Path(split_phase_gate_dir_raw) if split_phase_gate_dir_raw else None
     )
     split_phase_status_label = _BENCHMARK_SPLIT_PHASE_STATUS_LABEL.get()
+    scheduler_event_callback = _BENCHMARK_SCHEDULER_EVENT_CALLBACK.get()
 
     def _emit_external_progress(message: str) -> None:
         _notify_progress_callback(external_progress_callback, message)
@@ -7939,6 +9707,7 @@ def labelstudio_benchmark(
                             split_phase_slots=split_phase_slots,
                             split_phase_gate_dir=split_phase_gate_dir,
                             split_phase_status_label=split_phase_status_label,
+                            scheduler_event_callback=scheduler_event_callback,
                             progress_callback=callback,
                             run_manifest_kind="bench_pred_run",
                         )
@@ -7984,6 +9753,7 @@ def labelstudio_benchmark(
                         split_phase_slots=split_phase_slots,
                         split_phase_gate_dir=split_phase_gate_dir,
                         split_phase_status_label=split_phase_status_label,
+                        scheduler_event_callback=scheduler_event_callback,
                         auto_project_name_on_scope_mismatch=True,
                         allow_labelstudio_write=True,
                     )
@@ -8128,9 +9898,10 @@ def labelstudio_benchmark(
 
     from cookimport.analytics.perf_report import append_benchmark_csv, history_path
     history_append_started = time.monotonic()
+    csv_history_path = history_path(processed_output_dir)
     append_benchmark_csv(
         report,
-        history_path(processed_output_dir),
+        csv_history_path,
         run_timestamp=dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         run_dir=str(eval_output_dir),
         eval_scope="freeform-spans",
@@ -8143,6 +9914,12 @@ def labelstudio_benchmark(
         epub_auto_selected_score=pred_context.epub_auto_selected_score,
         timing=benchmark_timing,
     )
+    if not suppress_summary:
+        _refresh_dashboard_after_history_write(
+            csv_path=csv_history_path,
+            output_root=processed_output_dir,
+            reason="labelstudio-benchmark history append",
+        )
     history_append_seconds = max(0.0, time.monotonic() - history_append_started)
     total_floor_with_history = total_floor_with_artifacts + history_append_seconds
     benchmark_timing = _timing_with_updates(
@@ -8350,15 +10127,21 @@ def bench_run(
     bench_recipe_total = _sum_bench_recipe_count(run_root)
 
     from cookimport.analytics.perf_report import append_benchmark_csv, history_path
+    csv_history_path = history_path(DEFAULT_OUTPUT)
     append_benchmark_csv(
         agg_metrics,
-        history_path(DEFAULT_OUTPUT),
+        csv_history_path,
         run_timestamp=run_root.name,
         run_dir=str(run_root),
         eval_scope="bench-suite",
         source_file=s.name,
         recipes=bench_recipe_total,
         run_config=config,
+    )
+    _refresh_dashboard_after_history_write(
+        csv_path=csv_history_path,
+        output_root=DEFAULT_OUTPUT,
+        reason="bench run history append",
     )
 
     typer.secho("Bench suite complete.", fg=typer.colors.GREEN)

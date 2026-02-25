@@ -960,9 +960,33 @@ def default_codex_reasoning_effort(cmd: str | None = None) -> str | None:
     return None
 
 
-def list_codex_models(cmd: str | None = None) -> list[dict[str, str]]:
+def _supported_reasoning_efforts_from_model_row(row: dict[str, Any]) -> list[str]:
+    """Best-effort normalized reasoning-effort list from one models_cache row."""
+    raw_levels = row.get("supported_reasoning_levels")
+    if not isinstance(raw_levels, list):
+        return []
+    efforts: list[str] = []
+    seen: set[str] = set()
+    for level in raw_levels:
+        candidate: Any = level
+        if isinstance(level, dict):
+            candidate = level.get("effort")
+        if not isinstance(candidate, str):
+            continue
+        try:
+            normalized = normalize_codex_reasoning_effort(candidate)
+        except ValueError:
+            continue
+        if not normalized or normalized in seen:
+            continue
+        efforts.append(normalized)
+        seen.add(normalized)
+    return efforts
+
+
+def list_codex_models(cmd: str | None = None) -> list[dict[str, Any]]:
     """Read visible Codex model rows from local Codex model cache files."""
-    models: list[dict[str, str]] = []
+    models: list[dict[str, Any]] = []
     seen: set[str] = set()
     for cache_path in _codex_models_cache_paths(cmd=cmd):
         if not cache_path.exists():
@@ -985,13 +1009,15 @@ def list_codex_models(cmd: str | None = None) -> list[dict[str, str]]:
                 continue
             display_name = str(row.get("display_name") or slug).strip() or slug
             description = str(row.get("description") or "").strip()
-            models.append(
-                {
-                    "slug": slug,
-                    "display_name": display_name,
-                    "description": description,
-                }
-            )
+            entry: dict[str, Any] = {
+                "slug": slug,
+                "display_name": display_name,
+                "description": description,
+            }
+            supported_efforts = _supported_reasoning_efforts_from_model_row(row)
+            if supported_efforts:
+                entry["supported_reasoning_efforts"] = supported_efforts
+            models.append(entry)
             seen.add(slug)
     return models
 
@@ -1360,6 +1386,141 @@ def _resolve_quote_offsets(
     return None
 
 
+def _contiguous_block_index_span(indices: set[int]) -> tuple[int, int] | None:
+    if not indices:
+        return None
+    ordered = sorted(indices)
+    start = ordered[0]
+    end = ordered[-1]
+    if end - start + 1 != len(ordered):
+        return None
+    return start, end
+
+
+def _quote_match_count(block_text: str, quote: str) -> int:
+    if not quote:
+        return 0
+    candidates = [quote]
+    stripped = quote.strip()
+    if stripped and stripped != quote:
+        candidates.append(stripped)
+    for needle in candidates:
+        matches = _find_substring_matches(block_text, needle)
+        if matches:
+            return len(matches)
+    return 0
+
+
+def _candidate_focus_block_indices_for_quote_repair(
+    *,
+    block_index: int,
+    focus_block_indices: set[int],
+) -> list[int]:
+    if not focus_block_indices:
+        return []
+    focus_span = _contiguous_block_index_span(focus_block_indices)
+    focus_start = focus_span[0] if focus_span is not None else None
+    focus_len = (focus_span[1] - focus_span[0] + 1) if focus_span is not None else None
+
+    anchors: list[int] = []
+    if block_index in focus_block_indices:
+        anchors.append(block_index)
+    if focus_start is not None and focus_len is not None:
+        if 0 <= block_index < focus_len:
+            anchors.append(focus_start + block_index)
+        if 1 <= block_index <= focus_len:
+            anchors.append(focus_start + (block_index - 1))
+
+    if not anchors:
+        ordered_focus = sorted(focus_block_indices)
+        anchors.append(min(ordered_focus, key=lambda value: abs(value - block_index)))
+
+    candidates: list[int] = []
+    seen: set[int] = set()
+    for anchor in anchors:
+        for delta in (0, -1, 1, -2, 2):
+            candidate = anchor + delta
+            if candidate not in focus_block_indices:
+                continue
+            if candidate in seen:
+                continue
+            candidates.append(candidate)
+            seen.add(candidate)
+
+    return candidates
+
+
+def _resolve_quote_span_in_block(
+    *,
+    block_index: int,
+    quote: str,
+    occurrence: int | None,
+    segment_text: str,
+    block_map: dict[int, tuple[int, int]],
+) -> tuple[int, int] | None:
+    block_offsets = block_map.get(block_index)
+    if block_offsets is None:
+        return None
+    block_start, block_end = block_offsets
+    block_text = segment_text[block_start:block_end]
+    resolved = _resolve_quote_offsets(
+        block_text=block_text,
+        quote=quote,
+        occurrence=occurrence,
+    )
+    if resolved is None:
+        return None
+    start = block_start + resolved[0]
+    end = block_start + resolved[1]
+    if start < 0 or end <= start or end > len(segment_text):
+        return None
+    return start, end
+
+
+def _repair_quote_selection(
+    *,
+    block_index: int,
+    quote: str,
+    occurrence: int | None,
+    segment_text: str,
+    block_map: dict[int, tuple[int, int]],
+    focus_block_indices: set[int],
+) -> tuple[int, int, int] | None:
+    candidates = _candidate_focus_block_indices_for_quote_repair(
+        block_index=block_index,
+        focus_block_indices=focus_block_indices,
+    )
+    for candidate in candidates:
+        resolved = _resolve_quote_span_in_block(
+            block_index=candidate,
+            quote=quote,
+            occurrence=occurrence,
+            segment_text=segment_text,
+            block_map=block_map,
+        )
+        if resolved is None:
+            continue
+        return candidate, resolved[0], resolved[1]
+
+    matches: list[tuple[int, int, int]] = []
+    for candidate in sorted(focus_block_indices):
+        resolved = _resolve_quote_span_in_block(
+            block_index=candidate,
+            quote=quote,
+            occurrence=occurrence,
+            segment_text=segment_text,
+            block_map=block_map,
+        )
+        if resolved is None:
+            continue
+        matches.append((candidate, resolved[0], resolved[1]))
+        if len(matches) > 1:
+            break
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
 def _touched_block_indices_for_span(
     *,
     source_blocks: list[dict[str, Any]],
@@ -1464,26 +1625,54 @@ def _build_results_for_span_mode(
                 block_index = int(selection.get("block_index"))
             except (TypeError, ValueError):
                 continue
-            if block_index not in focus_block_indices:
-                continue
-            block_offsets = block_map.get(block_index)
-            if block_offsets is None:
-                continue
-            block_start, block_end = block_offsets
-            block_text = segment_text[block_start:block_end]
             quote = str(selection.get("quote") or "")
             if not quote:
                 continue
             occurrence = _parse_optional_occurrence(selection.get("occurrence"))
-            resolved = _resolve_quote_offsets(
-                block_text=block_text,
-                quote=quote,
-                occurrence=occurrence,
-            )
-            if resolved is None:
-                continue
-            start = block_start + resolved[0]
-            end = block_start + resolved[1]
+            resolved_block_index: int | None = None
+            if block_index in focus_block_indices:
+                block_offsets = block_map.get(block_index)
+                if block_offsets is not None:
+                    block_start, block_end = block_offsets
+                    block_text = segment_text[block_start:block_end]
+                    match_count = _quote_match_count(block_text, quote)
+                    if match_count > 1 and occurrence is None:
+                        continue
+                    if match_count > 0 and occurrence is not None:
+                        resolved = _resolve_quote_offsets(
+                            block_text=block_text,
+                            quote=quote,
+                            occurrence=occurrence,
+                        )
+                        if resolved is None:
+                            continue
+                        start = block_start + resolved[0]
+                        end = block_start + resolved[1]
+                        resolved_block_index = block_index
+                    elif match_count == 1:
+                        resolved = _resolve_quote_offsets(
+                            block_text=block_text,
+                            quote=quote,
+                            occurrence=occurrence,
+                        )
+                        if resolved is not None:
+                            start = block_start + resolved[0]
+                            end = block_start + resolved[1]
+                            resolved_block_index = block_index
+
+            if resolved_block_index is None:
+                repaired = _repair_quote_selection(
+                    block_index=block_index,
+                    quote=quote,
+                    occurrence=occurrence,
+                    segment_text=segment_text,
+                    block_map=block_map,
+                    focus_block_indices=focus_block_indices,
+                )
+                if repaired is None:
+                    continue
+                resolved_block_index, start, end = repaired
+                block_index = resolved_block_index
         else:
             continue
         if start < 0 or end <= start or end > len(segment_text):
@@ -1945,6 +2134,8 @@ def prelabel_freeform_task(
         )
 
     raw = provider.complete(prompt)
+    payload = extract_first_json_value(raw)
+    raw_was_empty_array = isinstance(payload, list) and not payload
     if normalized_granularity == PRELABEL_GRANULARITY_SPAN:
         selections = parse_span_label_output(raw)
         generated = _build_results_for_span_mode(
@@ -1968,6 +2159,17 @@ def prelabel_freeform_task(
         )
 
     if not generated:
+        if raw_was_empty_array:
+            return {
+                "result": [],
+                "meta": {
+                    "cookimport_prelabel": True,
+                    "mode": "empty",
+                    "provider": provider.__class__.__name__,
+                    "prompt_hash": prompt_hash,
+                    "granularity": normalized_granularity,
+                },
+            }
         return None
 
     return {

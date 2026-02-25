@@ -14,6 +14,7 @@ Schema version history:
     6 – explicit run_config_hash/run_config_summary support in CSV + manifests
     7 – explicit EPUB extractor requested/effective/auto-score fields on stage records
     8 – practical benchmark metrics + granularity mismatch fields
+    9 – benchmark golden recipe-header count (`gold_recipe_headers`) for recipe-coverage charts
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-SCHEMA_VERSION = "8"
+SCHEMA_VERSION = "9"
 
 
 class RunCategory(str, Enum):
@@ -107,6 +108,7 @@ class BenchmarkRecord(BaseModel):
     practical_recall: float | None = None
     practical_f1: float | None = None
     gold_total: int | None = None
+    gold_recipe_headers: int | None = None
     pred_total: int | None = None
     gold_matched: int | None = None
     recipes: int | None = None

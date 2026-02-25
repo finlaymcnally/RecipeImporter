@@ -59,8 +59,36 @@ def test_format_status_progress_message_appends_eta_and_average() -> None:
     )
 
 
+def test_format_status_progress_message_appends_eta_to_top_line_for_multiline_payload() -> None:
+    message = (
+        "overall source 3/7 | config 58/91\n"
+        "current source: AMatterOfTasteCUTDOWN.epub (13 of 15 configs; ok 13, fail 0)\n"
+        "task: scheduler heavy 0/2 | wing 1 | active 2 | pending 0"
+    )
+    assert cli._format_status_progress_message(
+        message,
+        elapsed_seconds=3,
+        elapsed_threshold_seconds=10,
+        eta_seconds=174,
+        avg_seconds_per_task=5.3,
+    ) == (
+        "overall source 3/7 | config 58/91 (eta 2m 54s, avg 5.3s/task)\n"
+        "current source: AMatterOfTasteCUTDOWN.epub (13 of 15 configs; ok 13, fail 0)\n"
+        "task: scheduler heavy 0/2 | wing 1 | active 2 | pending 0"
+    )
+
+
 def test_extract_progress_counter_uses_right_most_counter() -> None:
     assert cli._extract_progress_counter("item 1/5 [book] task 3/12") == (3, 12)
+    dashboard_snapshot = (
+        "overall source 0/7 | config 0/91\n"
+        "current source: SeaAndSmokeCUTDOWN.epub (0 of 15 configs; ok 0, fail 0)\n"
+        "current config 4/15: extractor_unstructured__parser_v1__skiphf_true__pre_none\n"
+        "queue:\n"
+        "  [>] SeaAndSmokeCUTDOWN.epub - 0 of 15 (ok 0, fail 0)\n"
+        "task: overall source 0/7 | config 0/91 current config 4/15"
+    )
+    assert cli._extract_progress_counter(dashboard_snapshot) == (0, 91)
     assert cli._extract_progress_counter("Phase done.") is None
 
 
@@ -215,6 +243,133 @@ def test_run_with_progress_status_renders_worker_activity_summary(
         for message in capture.messages
     )
     assert "worker 01:" not in capture.messages[-1]
+
+
+def test_all_method_dashboard_current_config_tracks_active_parallel_configs() -> None:
+    source = cli.AllMethodTarget(
+        gold_spans_path=Path("dummy/exports/freeform_span_labels.jsonl"),
+        source_file=Path("dummy/book.epub"),
+        source_file_name="book.epub",
+        gold_display="dummy",
+    )
+    variants = [
+        cli.AllMethodVariant(
+            slug="extractor_unstructured",
+            run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+            dimensions={"epub_extractor": "unstructured"},
+        )
+        for _ in range(3)
+    ]
+    dashboard = cli._AllMethodProgressDashboard.from_target_variants([(source, variants)])
+    dashboard.start_source(0)
+    dashboard.start_config(
+        source_index=0,
+        config_index=1,
+        config_total=3,
+        config_slug="config-one",
+    )
+    dashboard.start_config(
+        source_index=0,
+        config_index=2,
+        config_total=3,
+        config_slug="config-two",
+    )
+    render_parallel = dashboard.render()
+    assert "current configs 1-2/3 (2 active)" in render_parallel
+
+    dashboard.complete_config(source_index=0, success=True, config_index=1)
+    render_single_active = dashboard.render()
+    assert "current config 2/3: config-two" in render_single_active
+
+    dashboard.complete_config(source_index=0, success=True, config_index=2)
+    render_queued = dashboard.render()
+    assert "current config 3/3: <queued>" in render_queued
+
+    dashboard.start_config(
+        source_index=0,
+        config_index=3,
+        config_total=3,
+        config_slug="config-three",
+    )
+    dashboard.complete_config(source_index=0, success=True, config_index=3)
+    render_done = dashboard.render()
+    assert "current config " not in render_done
+
+
+def test_all_method_dashboard_renders_multiple_running_sources() -> None:
+    source_a = cli.AllMethodTarget(
+        gold_spans_path=Path("dummy-a/exports/freeform_span_labels.jsonl"),
+        source_file=Path("dummy-a/book-a.epub"),
+        source_file_name="book-a.epub",
+        gold_display="dummy-a",
+    )
+    source_b = cli.AllMethodTarget(
+        gold_spans_path=Path("dummy-b/exports/freeform_span_labels.jsonl"),
+        source_file=Path("dummy-b/book-b.epub"),
+        source_file_name="book-b.epub",
+        gold_display="dummy-b",
+    )
+    variants = [
+        cli.AllMethodVariant(
+            slug="extractor_unstructured",
+            run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+            dimensions={"epub_extractor": "unstructured"},
+        )
+    ]
+    dashboard = cli._AllMethodProgressDashboard.from_target_variants(
+        [
+            (source_a, variants),
+            (source_b, variants),
+        ]
+    )
+    dashboard.start_source(0)
+    dashboard.start_source(1)
+
+    rendered = dashboard.render()
+    assert "active sources: 2" in rendered
+    assert "  [>] book-a.epub" in rendered
+    assert "  [>] book-b.epub" in rendered
+
+
+def test_run_with_progress_status_escapes_dashboard_markers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots") -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("queue:\n  [x] done row")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Import",
+        run=_run,
+    )
+
+    assert result == {"ok": True}
+    assert any("\\[x]" in message for message in capture.messages)
 
 
 def test_labelstudio_import_prints_processing_time(
@@ -748,7 +903,12 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
             {
                 "recipe_count": 14,
                 "source_file": str(tmp_path / "input" / "book.epub"),
-                "processed_report_path": "",
+                "processed_report_path": str(
+                    tmp_path
+                    / "output"
+                    / "2026-02-16_15.00.00"
+                    / "book.excel_import_report.json"
+                ),
             }
         ),
         encoding="utf-8",
@@ -772,14 +932,22 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
     )
 
     captured_csv: dict[str, object] = {}
+    captured_dashboard: dict[str, object] = {}
 
-    def _capture_append(*_args, **kwargs):
+    def _capture_append(*args, **kwargs):
         captured_csv.update(kwargs)
+        csv_path = Path(args[1])
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        csv_path.write_text(
+            "run_timestamp,run_dir,file_name,run_category\n",
+            encoding="utf-8",
+        )
 
     monkeypatch.setattr(
         "cookimport.analytics.perf_report.append_benchmark_csv",
         _capture_append,
     )
+    monkeypatch.setattr(cli, "stats_dashboard", lambda **kwargs: captured_dashboard.update(kwargs))
 
     cli.labelstudio_eval(
         scope="freeform-spans",
@@ -790,6 +958,8 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
 
     assert captured_csv["recipes"] == 14
     assert captured_csv["source_file"] == str(tmp_path / "input" / "book.epub")
+    assert captured_dashboard["output_root"] == tmp_path / "output"
+    assert captured_dashboard["out_dir"] == tmp_path / ".history" / "dashboard"
 
 
 def test_sum_bench_recipe_count_from_per_item_manifests(tmp_path: Path) -> None:
@@ -1110,6 +1280,111 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
     assert captured["output_dir"] == (tmp_path / "golden" / "sent-to-labelstudio")
     assert captured["overwrite"] is True
     assert captured["resume"] is False
+
+
+def test_interactive_labelstudio_filters_incompatible_effort_choices(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    selected_file = tmp_path / "book.epub"
+    selected_file.write_text("dummy", encoding="utf-8")
+
+    menu_answers = iter(
+        [
+            "labelstudio",
+            selected_file,
+            "freeform-spans",
+            (True, "annotations", True),
+            "span",
+            "gpt-5.3-codex-spark",
+            "low",
+            "exit",
+        ]
+    )
+    effort_choice_values: list[str] = []
+
+    def fake_menu_select(message: str, *_args, **kwargs):
+        if message == "Codex thinking effort for AI prelabeling:":
+            for choice in kwargs.get("choices", []):
+                value = getattr(choice, "value", None)
+                if isinstance(value, str):
+                    effort_choice_values.append(value)
+        return next(menu_answers)
+
+    text_answers = iter(["", "42", "6", "28", "55"])
+
+    class _Prompt:
+        def __init__(self, value: str | bool):
+            self._value = value
+
+        def ask(self):
+            return self._value
+
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [selected_file])
+    monkeypatch.setattr(cli, "_load_settings", lambda: {})
+    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
+    monkeypatch.setattr(cli, "default_codex_cmd", lambda: "codex exec -")
+    monkeypatch.setattr(
+        cli,
+        "codex_account_summary",
+        lambda _cmd=None: "prelabel@example.com (pro)",
+    )
+    monkeypatch.setattr(
+        cli,
+        "default_codex_model",
+        lambda cmd=None: "gpt-5.3-codex-spark",
+    )
+    monkeypatch.setattr(
+        cli,
+        "default_codex_reasoning_effort",
+        lambda cmd=None: "minimal",
+    )
+    monkeypatch.setattr(
+        cli,
+        "list_codex_models",
+        lambda cmd=None: [
+            {
+                "slug": "gpt-5.3-codex-spark",
+                "display_name": "gpt-5.3-codex-spark",
+                "description": "Ultra-fast coding model",
+                "supported_reasoning_efforts": ["low", "medium", "high", "xhigh"],
+            }
+        ],
+    )
+    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", tmp_path / "golden")
+    monkeypatch.setattr(
+        cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key")
+    )
+    monkeypatch.setenv("LABEL_STUDIO_URL", "http://localhost:8080")
+    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "key")
+    monkeypatch.setattr(
+        cli.questionary,
+        "text",
+        lambda *args, **kwargs: _Prompt(next(text_answers)),
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_run_labelstudio_import(**kwargs):
+        captured.update(kwargs)
+        return {
+            "project_name": "book",
+            "project_id": 1,
+            "tasks_total": 10,
+            "tasks_uploaded": 10,
+            "run_root": tmp_path / "out",
+        }
+
+    monkeypatch.setattr(cli, "run_labelstudio_import", fake_run_labelstudio_import)
+
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
+
+    assert captured["codex_model"] == "gpt-5.3-codex-spark"
+    assert captured["codex_reasoning_effort"] == "low"
+    assert "__default_effort__" not in effort_choice_values
+    assert "minimal" not in effort_choice_values
+    assert "none" not in effort_choice_values
+    assert effort_choice_values == ["low", "medium", "high", "xhigh"]
 
 
 def test_interactive_labelstudio_freeform_focus_escape_steps_back_one_level(
@@ -2123,6 +2398,86 @@ def test_resolve_all_method_codex_choice_remains_disabled(
     assert "policy-locked OFF" in warning_unlocked
 
 
+def test_resolve_all_method_scheduler_limits_defaults_raise_split_slots_to_four() -> None:
+    inflight, split_slots = cli._resolve_all_method_scheduler_limits(total_variants=12)
+    assert inflight == 4
+    assert split_slots == 4
+
+
+def test_resolve_all_method_source_parallelism_defaults_to_two() -> None:
+    resolved = cli._resolve_all_method_source_parallelism(total_sources=7)
+    assert resolved == 2
+
+
+def test_resolve_all_method_source_parallelism_invalid_override_falls_back_to_default() -> None:
+    resolved = cli._resolve_all_method_source_parallelism(
+        total_sources=5,
+        requested=0,
+    )
+    assert resolved == 2
+
+
+def test_resolve_all_method_scheduler_limits_invalid_overrides_fall_back_to_defaults() -> None:
+    inflight, split_slots = cli._resolve_all_method_scheduler_limits(
+        total_variants=12,
+        max_inflight_pipelines=0,
+        max_concurrent_split_phases=0,
+    )
+    assert inflight == 4
+    assert split_slots == 4
+
+
+def test_resolve_all_method_scheduler_runtime_defaults_and_smart_backlog() -> None:
+    configured, split_slots, wing_target, smart_enabled, effective = (
+        cli._resolve_all_method_scheduler_runtime(
+            total_variants=12,
+            max_inflight_pipelines=2,
+            max_concurrent_split_phases=2,
+            wing_backlog_target=3,
+            smart_scheduler=True,
+        )
+    )
+    assert configured == 2
+    assert split_slots == 2
+    assert wing_target == 3
+    assert smart_enabled is True
+    assert effective == 7
+
+
+def test_resolve_all_method_scheduler_runtime_invalid_wing_respects_fixed_mode() -> None:
+    configured, split_slots, wing_target, smart_enabled, effective = (
+        cli._resolve_all_method_scheduler_runtime(
+            total_variants=12,
+            max_inflight_pipelines=3,
+            max_concurrent_split_phases=2,
+            wing_backlog_target=0,
+            smart_scheduler=False,
+        )
+    )
+    assert configured == 3
+    assert split_slots == 2
+    assert wing_target == 2
+    assert smart_enabled is False
+    assert effective == 3
+
+
+def test_resolve_all_method_scheduler_runtime_smart_tail_buffer_clamps_to_total() -> None:
+    configured, split_slots, wing_target, smart_enabled, effective = (
+        cli._resolve_all_method_scheduler_runtime(
+            total_variants=4,
+            max_inflight_pipelines=2,
+            max_concurrent_split_phases=2,
+            wing_backlog_target=3,
+            smart_scheduler=True,
+        )
+    )
+    assert configured == 2
+    assert split_slots == 2
+    assert wing_target == 3
+    assert smart_enabled is True
+    assert effective == 4
+
+
 def test_run_all_method_benchmark_writes_ranked_summary(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2154,6 +2509,8 @@ def test_run_all_method_benchmark_writes_ranked_summary(
     captured_processed_dirs: list[Path] = []
 
     def fake_labelstudio_benchmark(**kwargs):
+        progress_callback = cli._BENCHMARK_PROGRESS_CALLBACK.get()
+        assert callable(progress_callback)
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
         eval_output_dir.mkdir(parents=True, exist_ok=True)
@@ -2347,6 +2704,336 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
         "hash-legacy",
         "hash-unstructured",
     ]
+
+
+def test_run_all_method_benchmark_marks_timeout_and_finishes_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_payload = base_settings.to_run_config_dict()
+    variants = [
+        cli.AllMethodVariant(
+            slug="extractor_unstructured",
+            run_settings=cli.RunSettings.from_dict(
+                {**base_payload, "epub_extractor": "unstructured"},
+                warn_context="test",
+            ),
+            dimensions={"epub_extractor": "unstructured"},
+        ),
+        cli.AllMethodVariant(
+            slug="extractor_markdown",
+            run_settings=cli.RunSettings.from_dict(
+                {**base_payload, "epub_extractor": "markdown"},
+                warn_context="test",
+            ),
+            dimensions={"epub_extractor": "markdown"},
+        ),
+    ]
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    def fake_labelstudio_benchmark(**kwargs):
+        extractor = str(kwargs.get("epub_extractor") or "")
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        if extractor == "unstructured":
+            time.sleep(1.35)
+        else:
+            time.sleep(0.02)
+        score = 0.9 if extractor == "markdown" else 0.2
+        report = {
+            "precision": score,
+            "recall": score,
+            "f1": score,
+            "practical_precision": score,
+            "practical_recall": score,
+            "practical_f1": score,
+        }
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
+        pred_run = eval_output_dir / "prediction-run"
+        pred_run.mkdir(parents=True, exist_ok=True)
+        (pred_run / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_file": str(source_file),
+                    "run_config_hash": f"hash-{extractor}",
+                    "run_config_summary": f"epub_extractor={extractor}",
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+
+    report_md_path = cli._run_all_method_benchmark(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variants=variants,
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method",
+        processed_output_root=tmp_path / "processed-output",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_inflight_pipelines=2,
+        max_concurrent_split_phases=1,
+        config_timeout_seconds=1,
+        retry_failed_configs=0,
+    )
+
+    payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
+    assert payload["successful_variants"] == 1
+    assert payload["failed_variants"] == 1
+    failed_rows = [row for row in payload["variants"] if row.get("status") != "ok"]
+    assert len(failed_rows) == 1
+    assert "timed out after 1s" in str(failed_rows[0].get("error", "")).lower()
+
+
+def test_run_all_method_benchmark_retries_only_failed_configs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_payload = base_settings.to_run_config_dict()
+    variants = [
+        cli.AllMethodVariant(
+            slug="extractor_unstructured",
+            run_settings=cli.RunSettings.from_dict(
+                {**base_payload, "epub_extractor": "unstructured"},
+                warn_context="test",
+            ),
+            dimensions={"epub_extractor": "unstructured"},
+        ),
+        cli.AllMethodVariant(
+            slug="extractor_legacy",
+            run_settings=cli.RunSettings.from_dict(
+                {**base_payload, "epub_extractor": "legacy"},
+                warn_context="test",
+            ),
+            dimensions={"epub_extractor": "legacy"},
+        ),
+        cli.AllMethodVariant(
+            slug="extractor_markdown",
+            run_settings=cli.RunSettings.from_dict(
+                {**base_payload, "epub_extractor": "markdown"},
+                warn_context="test",
+            ),
+            dimensions={"epub_extractor": "markdown"},
+        ),
+    ]
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    call_counts: dict[str, int] = {}
+
+    def fake_labelstudio_benchmark(**kwargs):
+        extractor = str(kwargs.get("epub_extractor") or "")
+        call_counts[extractor] = call_counts.get(extractor, 0) + 1
+        if extractor == "legacy" and call_counts[extractor] == 1:
+            raise RuntimeError("synthetic transient failure")
+
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        score = {
+            "unstructured": 0.5,
+            "legacy": 0.75,
+            "markdown": 0.9,
+        }[extractor]
+        report = {
+            "precision": score,
+            "recall": score,
+            "f1": score,
+            "practical_precision": score,
+            "practical_recall": score,
+            "practical_f1": score,
+        }
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
+        pred_run = eval_output_dir / "prediction-run"
+        pred_run.mkdir(parents=True, exist_ok=True)
+        (pred_run / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_file": str(source_file),
+                    "run_config_hash": f"hash-{extractor}",
+                    "run_config_summary": f"epub_extractor={extractor}",
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+
+    report_md_path = cli._run_all_method_benchmark(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variants=variants,
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method",
+        processed_output_root=tmp_path / "processed-output",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_inflight_pipelines=3,
+        max_concurrent_split_phases=2,
+        retry_failed_configs=1,
+    )
+
+    payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
+    assert call_counts["legacy"] == 2
+    assert call_counts["unstructured"] == 1
+    assert call_counts["markdown"] == 1
+    assert payload["successful_variants"] == 3
+    assert payload["failed_variants"] == 0
+    assert payload["retry_failed_configs_requested"] == 1
+    assert payload["retry_passes_executed"] == 1
+    assert payload["retry_recovered_configs"] == 1
+
+
+def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilization(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variants = [
+        cli.AllMethodVariant(
+            slug=f"config_{index:02d}",
+            run_settings=base_settings,
+            dimensions={"index": index},
+        )
+        for index in range(1, 7)
+    ]
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    phase_profile = {
+        "prep": 0.18,
+        "split_wait": 0.02,
+        "split_active": 0.22,
+        "post": 0.15,
+    }
+    split_gate = threading.Semaphore(2)
+
+    def fake_labelstudio_benchmark(**kwargs):
+        callback = cli._BENCHMARK_SCHEDULER_EVENT_CALLBACK.get()
+        if callback is not None:
+            callback({"event": "prep_started"})
+            time.sleep(phase_profile["prep"])
+            callback({"event": "prep_finished"})
+            callback({"event": "split_wait_started"})
+            time.sleep(phase_profile["split_wait"])
+            split_gate.acquire()
+            try:
+                callback({"event": "split_wait_finished"})
+                callback({"event": "split_active_started"})
+                time.sleep(phase_profile["split_active"])
+                callback({"event": "split_active_finished"})
+            finally:
+                split_gate.release()
+            callback({"event": "post_started"})
+            time.sleep(phase_profile["post"])
+            callback({"event": "post_finished"})
+
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        config_parts = eval_output_dir.name.split("_", 2)
+        config_index = int(config_parts[1]) if len(config_parts) > 1 else 0
+        score = 0.5 + (config_index * 0.01)
+        report = {
+            "precision": score,
+            "recall": score,
+            "f1": score,
+            "practical_precision": score,
+            "practical_recall": score,
+            "practical_f1": score,
+        }
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
+        pred_run = eval_output_dir / "prediction-run"
+        pred_run.mkdir(parents=True, exist_ok=True)
+        (pred_run / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_file": str(source_file),
+                    "run_config_hash": f"hash-{config_index:03d}",
+                    "run_config_summary": f"config={config_index}",
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+
+    fixed_report = cli._run_all_method_benchmark(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variants=variants,
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method-fixed",
+        processed_output_root=tmp_path / "processed-fixed",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_inflight_pipelines=2,
+        max_concurrent_split_phases=2,
+        wing_backlog_target=2,
+        smart_scheduler=False,
+    )
+    fixed_payload = json.loads(fixed_report.with_suffix(".json").read_text(encoding="utf-8"))
+    fixed_scheduler = fixed_payload["scheduler"]
+
+    smart_report = cli._run_all_method_benchmark(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variants=variants,
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method-smart",
+        processed_output_root=tmp_path / "processed-smart",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_inflight_pipelines=2,
+        max_concurrent_split_phases=2,
+        wing_backlog_target=2,
+        smart_scheduler=True,
+    )
+    smart_payload = json.loads(smart_report.with_suffix(".json").read_text(encoding="utf-8"))
+    smart_scheduler = smart_payload["scheduler"]
+
+    assert smart_scheduler["heavy_slot_utilization_pct"] > (
+        fixed_scheduler["heavy_slot_utilization_pct"] + 15.0
+    )
+    assert smart_scheduler["max_active_pipelines_observed"] <= smart_scheduler[
+        "effective_inflight_pipelines"
+    ]
+    assert smart_scheduler["max_active_pipelines_observed"] >= 3
 
 
 def test_run_all_method_benchmark_falls_back_to_serial_when_executor_unavailable(
@@ -2554,6 +3241,421 @@ def test_run_all_method_benchmark_multi_source_writes_combined_summary_with_fail
     assert payload["timing_summary"]["source_total_seconds"] == pytest.approx(7.5)
     assert payload["timing_summary"]["slowest_source"] == str(source_a)
     assert payload["timing_summary"]["slowest_config"] == "book_a/config_001"
+
+
+def test_run_all_method_benchmark_multi_source_forwards_dashboard_snapshots_without_rewrap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variant = cli.AllMethodVariant(
+        slug="extractor_unstructured",
+        run_settings=base_settings,
+        dimensions={"epub_extractor": "unstructured"},
+    )
+    source = tmp_path / "book.epub"
+    source.write_text("x", encoding="utf-8")
+    gold = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold.parent.mkdir(parents=True, exist_ok=True)
+    gold.write_text("{}\n", encoding="utf-8")
+
+    target_variants = [
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold,
+                source_file=source,
+                source_file_name=source.name,
+                gold_display="gold",
+            ),
+            [variant],
+        )
+    ]
+    dashboard = cli._AllMethodProgressDashboard.from_target_variants(target_variants)
+    emitted_messages: list[str] = []
+
+    def fake_run_all_method_benchmark(**kwargs):
+        progress_callback = kwargs["progress_callback"]
+        assert callable(progress_callback)
+        progress_callback(
+            "\n".join(
+                [
+                    "overall source 0/1 | config 0/1",
+                    f"current source: {source.name} (0 of 1 configs; ok 0, fail 0)",
+                    "current config 1/1: extractor_unstructured",
+                    "queue:",
+                    f"  [>] {source.name} - 0 of 1 (ok 0, fail 0)",
+                ]
+            )
+        )
+
+        root_output_dir = kwargs["root_output_dir"]
+        root_output_dir.mkdir(parents=True, exist_ok=True)
+        report_md_path = root_output_dir / "all_method_benchmark_report.md"
+        report_md_path.write_text("ok", encoding="utf-8")
+        report_payload = {
+            "successful_variants": 1,
+            "failed_variants": 0,
+            "winner_by_f1": {"precision": 1.0, "recall": 1.0, "f1": 1.0},
+            "timing_summary": {"source_wall_seconds": 1.0, "config_total_seconds": 1.0},
+        }
+        report_md_path.with_suffix(".json").write_text(
+            json.dumps(report_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        return report_md_path
+
+    monkeypatch.setattr(cli, "_run_all_method_benchmark", fake_run_all_method_benchmark)
+
+    cli._run_all_method_benchmark_multi_source(
+        target_variants=target_variants,
+        unmatched_targets=[],
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method-root",
+        processed_output_root=tmp_path / "processed-root",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        progress_callback=emitted_messages.append,
+        dashboard=dashboard,
+    )
+
+    assert any(message.startswith("overall source ") for message in emitted_messages)
+    assert not any("task: overall source" in message for message in emitted_messages)
+
+
+def test_run_all_method_benchmark_multi_source_rerenders_partial_dashboard_snapshots(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variant = cli.AllMethodVariant(
+        slug="extractor_unstructured",
+        run_settings=base_settings,
+        dimensions={"epub_extractor": "unstructured"},
+    )
+    source_a = tmp_path / "book-a.epub"
+    source_b = tmp_path / "book-b.epub"
+    source_a.write_text("x", encoding="utf-8")
+    source_b.write_text("x", encoding="utf-8")
+    gold_a = tmp_path / "gold-a" / "exports" / "freeform_span_labels.jsonl"
+    gold_b = tmp_path / "gold-b" / "exports" / "freeform_span_labels.jsonl"
+    gold_a.parent.mkdir(parents=True, exist_ok=True)
+    gold_b.parent.mkdir(parents=True, exist_ok=True)
+    gold_a.write_text("{}\n", encoding="utf-8")
+    gold_b.write_text("{}\n", encoding="utf-8")
+
+    target_variants = [
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold_a,
+                source_file=source_a,
+                source_file_name=source_a.name,
+                gold_display="gold-a",
+            ),
+            [variant],
+        ),
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold_b,
+                source_file=source_b,
+                source_file_name=source_b.name,
+                gold_display="gold-b",
+            ),
+            [variant],
+        ),
+    ]
+    dashboard = cli._AllMethodProgressDashboard.from_target_variants(target_variants)
+    emitted_messages: list[str] = []
+
+    def fake_run_all_method_benchmark(**kwargs):
+        progress_callback = kwargs["progress_callback"]
+        assert callable(progress_callback)
+        # Simulate a stale/partial snapshot from a nested callback. The wrapper
+        # should rerender from the shared dashboard state instead.
+        progress_callback(
+            "\n".join(
+                [
+                    "overall source 0/2 | config 0/2",
+                    f"current source: {source_a.name} (0 of 1 configs; ok 0, fail 0)",
+                    "current config 1/1: extractor_unstructured",
+                    "queue:",
+                    f"  [>] {source_a.name} - 0 of 1 (ok 0, fail 0)",
+                ]
+            )
+        )
+
+        root_output_dir = kwargs["root_output_dir"]
+        root_output_dir.mkdir(parents=True, exist_ok=True)
+        report_md_path = root_output_dir / "all_method_benchmark_report.md"
+        report_md_path.write_text("ok", encoding="utf-8")
+        report_payload = {
+            "successful_variants": 1,
+            "failed_variants": 0,
+            "winner_by_f1": {"precision": 1.0, "recall": 1.0, "f1": 1.0},
+            "timing_summary": {"source_wall_seconds": 1.0, "config_total_seconds": 1.0},
+        }
+        report_md_path.with_suffix(".json").write_text(
+            json.dumps(report_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        return report_md_path
+
+    monkeypatch.setattr(cli, "_run_all_method_benchmark", fake_run_all_method_benchmark)
+
+    cli._run_all_method_benchmark_multi_source(
+        target_variants=target_variants,
+        unmatched_targets=[],
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method-root",
+        processed_output_root=tmp_path / "processed-root",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        progress_callback=emitted_messages.append,
+        dashboard=dashboard,
+    )
+
+    dashboard_messages = [
+        message for message in emitted_messages if message.startswith("overall source ")
+    ]
+    assert dashboard_messages
+    for message in dashboard_messages:
+        assert source_a.name in message
+        assert source_b.name in message
+
+
+def test_run_all_method_benchmark_multi_source_parallel_cap_and_ordering(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variant = cli.AllMethodVariant(
+        slug="extractor_unstructured",
+        run_settings=base_settings,
+        dimensions={"epub_extractor": "unstructured"},
+    )
+    source_a = tmp_path / "book-a.epub"
+    source_b = tmp_path / "book-b.epub"
+    source_c = tmp_path / "book-c.epub"
+    source_a.write_text("x", encoding="utf-8")
+    source_b.write_text("x", encoding="utf-8")
+    source_c.write_text("x", encoding="utf-8")
+    gold_a = tmp_path / "gold-a" / "exports" / "freeform_span_labels.jsonl"
+    gold_b = tmp_path / "gold-b" / "exports" / "freeform_span_labels.jsonl"
+    gold_c = tmp_path / "gold-c" / "exports" / "freeform_span_labels.jsonl"
+    gold_a.parent.mkdir(parents=True, exist_ok=True)
+    gold_b.parent.mkdir(parents=True, exist_ok=True)
+    gold_c.parent.mkdir(parents=True, exist_ok=True)
+    gold_a.write_text("{}\n", encoding="utf-8")
+    gold_b.write_text("{}\n", encoding="utf-8")
+    gold_c.write_text("{}\n", encoding="utf-8")
+
+    target_variants = [
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold_a,
+                source_file=source_a,
+                source_file_name=source_a.name,
+                gold_display="gold-a",
+            ),
+            [variant],
+        ),
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold_b,
+                source_file=source_b,
+                source_file_name=source_b.name,
+                gold_display="gold-b",
+            ),
+            [variant],
+        ),
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold_c,
+                source_file=source_c,
+                source_file_name=source_c.name,
+                gold_display="gold-c",
+            ),
+            [variant],
+        ),
+    ]
+    delays = {
+        source_a: 0.12,
+        source_b: 0.02,
+        source_c: 0.04,
+    }
+    active_sources = 0
+    max_active_sources = 0
+    state_lock = threading.Lock()
+
+    def fake_run_all_method_benchmark(**kwargs):
+        nonlocal active_sources, max_active_sources
+        with state_lock:
+            active_sources += 1
+            max_active_sources = max(max_active_sources, active_sources)
+        try:
+            source_file = kwargs["source_file"]
+            root_output_dir = kwargs["root_output_dir"]
+            assert isinstance(source_file, Path)
+            assert isinstance(root_output_dir, Path)
+            time.sleep(delays[source_file])
+            root_output_dir.mkdir(parents=True, exist_ok=True)
+            report_md_path = root_output_dir / "all_method_benchmark_report.md"
+            report_md_path.write_text("ok", encoding="utf-8")
+            report_payload = {
+                "successful_variants": 1,
+                "failed_variants": 0,
+                "winner_by_f1": {"precision": 0.9, "recall": 0.8, "f1": 0.85},
+                "timing_summary": {
+                    "source_wall_seconds": delays[source_file],
+                    "config_total_seconds": delays[source_file],
+                    "slowest_config_dir": "config_001",
+                    "slowest_config_seconds": delays[source_file],
+                },
+                "scheduler": {
+                    "mode": "smart",
+                    "split_phase_slots": 2,
+                    "smart_tail_buffer_slots": 2,
+                    "effective_inflight_pipelines": 4,
+                    "heavy_slot_capacity_seconds": 1.0,
+                    "heavy_slot_busy_seconds": 1.0,
+                    "idle_gap_seconds": 0.0,
+                    "avg_wing_backlog": 1.0,
+                    "max_wing_backlog": 2,
+                    "max_active_pipelines_observed": 4,
+                },
+            }
+            report_md_path.with_suffix(".json").write_text(
+                json.dumps(report_payload, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            return report_md_path
+        finally:
+            with state_lock:
+                active_sources -= 1
+
+    monkeypatch.setattr(cli, "_run_all_method_benchmark", fake_run_all_method_benchmark)
+
+    report_md_path = cli._run_all_method_benchmark_multi_source(
+        target_variants=target_variants,
+        unmatched_targets=[],
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method-root",
+        processed_output_root=tmp_path / "processed-root",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_parallel_sources=2,
+    )
+
+    payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
+    assert payload["source_parallelism_configured"] == 2
+    assert payload["source_parallelism_effective"] == 2
+    assert max_active_sources <= 2
+    assert max_active_sources >= 2
+    assert [row["source_file_name"] for row in payload["sources"]] == [
+        source_a.name,
+        source_b.name,
+        source_c.name,
+    ]
+
+
+def test_run_all_method_benchmark_multi_source_batches_dashboard_refresh_when_parallel(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variant = cli.AllMethodVariant(
+        slug="extractor_unstructured",
+        run_settings=base_settings,
+        dimensions={"epub_extractor": "unstructured"},
+    )
+    source_a = tmp_path / "book-a.epub"
+    source_b = tmp_path / "book-b.epub"
+    source_a.write_text("x", encoding="utf-8")
+    source_b.write_text("x", encoding="utf-8")
+    gold_a = tmp_path / "gold-a" / "exports" / "freeform_span_labels.jsonl"
+    gold_b = tmp_path / "gold-b" / "exports" / "freeform_span_labels.jsonl"
+    gold_a.parent.mkdir(parents=True, exist_ok=True)
+    gold_b.parent.mkdir(parents=True, exist_ok=True)
+    gold_a.write_text("{}\n", encoding="utf-8")
+    gold_b.write_text("{}\n", encoding="utf-8")
+    target_variants = [
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold_a,
+                source_file=source_a,
+                source_file_name=source_a.name,
+                gold_display="gold-a",
+            ),
+            [variant],
+        ),
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold_b,
+                source_file=source_b,
+                source_file_name=source_b.name,
+                gold_display="gold-b",
+            ),
+            [variant],
+        ),
+    ]
+
+    per_source_refresh_values: list[bool] = []
+    batch_refresh_calls: list[dict[str, object]] = []
+
+    def fake_run_all_method_benchmark(**kwargs):
+        per_source_refresh_values.append(bool(kwargs["refresh_dashboard_after_source"]))
+        root_output_dir = kwargs["root_output_dir"]
+        root_output_dir.mkdir(parents=True, exist_ok=True)
+        report_md_path = root_output_dir / "all_method_benchmark_report.md"
+        report_md_path.write_text("ok", encoding="utf-8")
+        report_payload = {
+            "successful_variants": 1,
+            "failed_variants": 0,
+            "winner_by_f1": {"precision": 0.9, "recall": 0.8, "f1": 0.85},
+            "timing_summary": {
+                "source_wall_seconds": 1.0,
+                "config_total_seconds": 1.0,
+                "slowest_config_dir": "config_001",
+                "slowest_config_seconds": 1.0,
+            },
+            "scheduler": {
+                "mode": "smart",
+                "split_phase_slots": 2,
+                "smart_tail_buffer_slots": 2,
+                "effective_inflight_pipelines": 4,
+                "heavy_slot_capacity_seconds": 1.0,
+                "heavy_slot_busy_seconds": 1.0,
+                "idle_gap_seconds": 0.0,
+                "avg_wing_backlog": 1.0,
+                "max_wing_backlog": 2,
+                "max_active_pipelines_observed": 4,
+            },
+        }
+        report_md_path.with_suffix(".json").write_text(
+            json.dumps(report_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        return report_md_path
+
+    monkeypatch.setattr(cli, "_run_all_method_benchmark", fake_run_all_method_benchmark)
+    monkeypatch.setattr(
+        cli,
+        "_refresh_dashboard_after_history_write",
+        lambda **kwargs: batch_refresh_calls.append(kwargs),
+    )
+
+    cli._run_all_method_benchmark_multi_source(
+        target_variants=target_variants,
+        unmatched_targets=[],
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method-root",
+        processed_output_root=tmp_path / "processed-root",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_parallel_sources=2,
+    )
+
+    assert per_source_refresh_values == [False, False]
+    assert len(batch_refresh_calls) == 1
 
 
 def test_interactive_all_method_benchmark_uses_timestamped_output_root(
@@ -2784,3 +3886,67 @@ def test_interactive_benchmark_all_method_mode_routes_to_runner(
     )
     assert captured["selected_benchmark_settings"].to_run_config_dict() == expected_defaults.to_run_config_dict()
     assert captured["processed_output_root"] == cli.DEFAULT_INTERACTIVE_OUTPUT
+
+
+def test_interactive_benchmark_all_method_mode_uses_scheduler_limits_from_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    menu_answers = iter(["labelstudio_benchmark", "all_method", "exit"])
+    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
+    monkeypatch.setattr(
+        cli,
+        "_load_settings",
+        lambda: {
+            cli.ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY: "4",
+            cli.ALL_METHOD_MAX_INFLIGHT_SETTING_KEY: "6",
+            cli.ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY: 3,
+            cli.ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY: "120",
+            cli.ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY: "2",
+            cli.ALL_METHOD_WING_BACKLOG_SETTING_KEY: "5",
+            cli.ALL_METHOD_SMART_SCHEDULER_SETTING_KEY: "false",
+        },
+    )
+    monkeypatch.setattr(
+        cli,
+        "choose_run_settings",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("All-method mode should not prompt for run settings.")
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "save_last_run_settings",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("All-method mode should not overwrite last benchmark settings.")
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_resolve_interactive_labelstudio_settings",
+        lambda _settings: (_ for _ in ()).throw(
+            AssertionError("All-method mode should not resolve Label Studio credentials.")
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_interactive_all_method_benchmark(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        cli,
+        "_interactive_all_method_benchmark",
+        fake_interactive_all_method_benchmark,
+    )
+
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
+
+    assert captured["max_parallel_sources"] == 4
+    assert captured["max_inflight_pipelines"] == 6
+    assert captured["max_concurrent_split_phases"] == 3
+    assert captured["config_timeout_seconds"] == 120
+    assert captured["retry_failed_configs"] == 2
+    assert captured["wing_backlog_target"] == 5
+    assert captured["smart_scheduler"] is False

@@ -489,3 +489,240 @@ Evidence preserved:
 
 Anti-loop note for this batch:
 - If timing columns are blank, verify prediction/report timing propagation before changing CSV schema; append precedence already handles explicit timing first and processed-report fallback second.
+
+## 2026-02-24_14.20.21 to 2026-02-24_22.29.33 archival merge batch from `docs/understandings` (analytics)
+
+### 2026-02-24_14.20.21 all-method dashboard subfolder output pathing
+
+Preserved findings:
+- All-method pages are emitted by `dashboard_render.py` and can be relocated without collector/schema changes.
+- Relocation requires coordinated updates to output paths, index links, and per-page relative nav/style paths.
+
+### 2026-02-24_14.21.59 run-summary chart reuse from config aggregates
+
+Preserved findings:
+- Run-summary pages already had config aggregate metrics needed for per-config bars.
+- Existing detail-page chart CSS classes were reusable, so this stayed renderer-only.
+
+### 2026-02-24_14.25.28 refresh-batching boundary in all-method benchmark
+
+Preserved findings:
+- Per-config benchmark calls in all-method mode caused repeated dashboard rewrites when refresh was not suppressed.
+- Durable fix shape is suppress per-config refresh in internal calls and refresh once after source-level completion.
+- Per-source all-method benchmark rows are appended under source-specific processed-output history roots, not necessarily one global history root.
+
+### 2026-02-24_14.28.22 dashboard table collapse ownership
+
+Preserved findings:
+- Run table rows are fully JS-rendered (`dashboard.js`), so collapse state must live in JS state and survive rerenders.
+- Renderer template sources (`dashboard_render.py`) are the only durable location for collapse behavior changes.
+- Prior binary hide/show behavior (0 preview rows when collapsed) was explicitly identified as a readability pain point.
+
+### 2026-02-24_14.31.37 all-method radar/web chart addition path
+
+Preserved findings:
+- Radar charts were derived from existing per-page metric arrays with inline SVG; no JS dependency add was required.
+- Mixed metric types required per-axis normalization for radar geometry, with raw values retained in chart cards.
+
+### 2026-02-24_14.36.55 fixed score-axis scaling
+
+Preserved findings:
+- Ratio score metrics should be fixed to `0..1` axes to preserve absolute quality comparison across configs.
+- Local-max scaling was identified as misleading because it visually saturated weaker configs.
+
+### 2026-02-24_14.49.43 recipes denominator correction
+
+Preserved findings:
+- `gold_total` in freeform eval is span-level and not valid for recipe-count normalization.
+- Recipes percentage denominator should come from `recipe_counts.gold_recipe_headers` with fallback support where required.
+
+### 2026-02-24_20.49.47 run-summary cookbook-average charts
+
+Preserved findings:
+- Cookbook-level averages were computed directly from existing grouped run records; no collector/schema migration required.
+- Cookbook recipes metric remained aligned to `% identified` (`_recipes_identified_ratio(...)`) rather than raw counts.
+
+### 2026-02-24_20.57.19 dashboard readability baseline audit
+
+Preserved findings:
+- Dense tables, weak hierarchy, and outlier-flattened throughput charts were documented as scan-speed bottlenecks.
+- Mobile table compression/overflow was captured as a persistent readability risk for current layout density.
+
+### 2026-02-24_21.16.27 renderer-template UX refactor contract
+
+Preserved findings:
+- Main dashboard UX changes were safest when preserving stable section IDs used by existing JS render entrypoints.
+- All-method static pages could gain navigation/density improvements via native HTML (`<nav>`, `<details>`) and shared CSS without adding page-specific JS runtime.
+
+### 2026-02-24_21.48.23 per-label `RECIPE_TITLE` strict-zero interpretation
+
+Preserved findings:
+- Strict per-label zeros can appear with nonzero recipe detection due to wide predicted ranges vs narrow gold spans.
+- In the captured run, high practical overlap and nonzero any-overlap coverage coexisted with strict-zero due to IoU thresholds never being met.
+
+Anti-loop note:
+- Do not treat strict-zero per-label rows as automatic "no extraction" failure without width/overlap diagnostics.
+
+### 2026-02-24_22.29.33 dashboard metrics cheat-sheet
+
+Preserved findings:
+- Snapshot cards are filter-scoped aggregates, not global constants.
+- Throughput and benchmark fields were explicitly separated to prevent recurring confusion between speed and quality surfaces.
+
+## 2026-02-24_22.44.09 archival merge batch from `docs/tasks` (analytics)
+
+### 2026-02-24_14.20.21 all-method pages moved under dedicated subfolder
+
+Merged source:
+- `docs/tasks/2026-02-24_14.20.21-dashboard-all-method-pages-subfolder.md`
+
+Problem captured:
+- All-method generated pages cluttered dashboard root.
+
+Decision/outcome preserved:
+- Move all-method outputs to `data/.history/dashboard/all-method-benchmark/`.
+- Keep run/detail filenames stable; change placement + relative links only.
+- Keep collector grouping contract unchanged (`all-method-benchmark/<source_slug>/config_*`, CSV-first).
+
+Evidence preserved:
+- `pytest tests/analytics/test_stats_dashboard.py -k all_method` -> `3 passed, 38 deselected`.
+- full dashboard suite -> `41 passed`.
+
+### 2026-02-24_14.22.37 run-summary bar charts added
+
+Merged source:
+- `docs/tasks/2026-02-24_14.22.37-all-method-run-summary-graphs.md`
+
+Problem captured:
+- Run-summary pages had tables only while per-book pages had quick-scan charts.
+
+Decision/outcome preserved:
+- Add run-summary metric bar charts + compact summary stats.
+- Reuse existing `metric-bar-*` chart styling and `config_aggregates` means (renderer-only change).
+
+Evidence preserved:
+- `pytest tests/analytics/test_stats_dashboard.py -k all_method_standalone_pages` -> `1 passed, 40 deselected`.
+- full dashboard suite -> `41 passed`.
+
+### 2026-02-24_14.28.22 collapsible run-list controls
+
+Merged source:
+- `docs/tasks/2026-02-24_14.28.22-dashboard-collapsible-run-lists.md`
+
+Problem captured:
+- Long run tables forced heavy scrolling.
+
+Decision/outcome preserved:
+- Collapse behavior implemented in JS table helpers (not static HTML rows).
+- Global `Show all` / `Collapse all` controls apply across run tables.
+- Preview-row defaults centralized in `TABLE_COLLAPSE_DEFAULT_ROWS`.
+
+Evidence preserved:
+- targeted collapse/run-view regression selection -> `4 passed, 38 deselected`.
+- `cookimport stats-dashboard` regenerated artifacts successfully.
+
+### 2026-02-24_14.28.44 all-method radar/web charts
+
+Merged source:
+- `docs/tasks/2026-02-24_14.28.44-all-method-web-radar-charts.md`
+
+Problem captured:
+- No combined per-config metric web view on all-method pages.
+
+Decision/outcome preserved:
+- Add radar/web charts on run-summary and per-book detail pages.
+- Keep implementation static server-rendered HTML/SVG.
+- Normalize per-axis for mixed metric types.
+
+Evidence preserved:
+- standalone page regression -> `1 passed, 40 deselected`.
+- full dashboard suite -> `41 passed`.
+
+### 2026-02-24_14.28.56 auto dashboard refresh after history writes
+
+Merged source:
+- `docs/tasks/2026-02-24_14.28.56-auto-dashboard-refresh-on-history-writes.md`
+
+Problem captured:
+- `stats-dashboard` required manual rerun after CSV append flows.
+
+Decision/outcome preserved:
+- Successful CSV append paths trigger best-effort dashboard refresh.
+- Dry-run backfill does not refresh.
+- All-method internal append paths batch refresh to avoid concurrent dashboard writer collisions.
+- Custom `--history-csv` refresh root inference uses history-parent fallback behavior.
+
+Evidence preserved:
+- combined benchmark backfill + benchmark-helper selection -> `7 passed, 60 deselected`.
+
+### 2026-02-24_14.36.31 fixed score-axis semantics (0-100%)
+
+Merged source:
+- `docs/tasks/2026-02-24_14.36.31-all-method-score-axis-100pct.md`
+
+Problem captured:
+- Local-max scaling made weaker score rows look saturated.
+
+Decision/outcome preserved:
+- Score ratios remain absolute (`1.0 == 100%`) in bars/radar.
+- Recipes kept separate from score-axis semantics.
+
+Evidence preserved:
+- standalone page regression -> `1 passed, 41 deselected`.
+- full dashboard suite -> `42 passed`.
+
+### 2026-02-24_14.49.43 recipes normalized by gold recipe headers
+
+Merged source:
+- `docs/tasks/2026-02-24_14.49.43-all-method-recipes-vs-gold-percent.md`
+
+Problem captured:
+- Recipes bars/radars used raw/local-max counts rather than `% identified` vs gold recipe totals.
+
+Decision/outcome preserved:
+- Use `recipes / gold_recipe_headers` semantics.
+- Store/marshal `gold_recipe_headers` through benchmark CSV/dashboard records.
+- `gold_total` is span-level and not a valid recipe denominator.
+- Clamp recipes percent to 100% for chart scaling consistency.
+
+Evidence preserved:
+- dashboard suite -> `42 passed`.
+- perf report suite -> `5 passed`.
+- benchmark CSV backfill suite -> `2 passed`.
+
+### 2026-02-24_15.17.13 per-cookbook run-summary graph sections
+
+Merged source:
+- `docs/tasks/2026-02-24_15.17.13-all-method-run-summary-per-cookbook-graphs.md`
+
+Problem captured:
+- Run-summary lacked per-cookbook graph layer.
+
+Decision/outcome preserved:
+- Add per-cookbook average bar + radar sections below per-config sections.
+- Cookbook values are cross-config averages (not winner-only rows).
+- Cookbook recipes metric stays `% identified` aligned to gold recipe totals.
+
+Evidence preserved:
+- standalone page regression -> `1 passed, 41 deselected`.
+- full dashboard suite -> `42 passed`.
+
+### 2026-02-24_20.57.19 readability/information-density dashboard redesign
+
+Merged source:
+- `docs/tasks/2026-02-24_20.57.19-dashboard-readability-information-density-refresh.md`
+
+Problem captured:
+- Existing hierarchy/tables/charts were high-density but slow to scan, especially with outlier throughput distortion and mobile width pressure.
+
+Decision/outcome preserved:
+- Keep redesign renderer-first and static (no architecture migration).
+- Keep CSV/collector/schema contracts unchanged.
+- Landed improvements include KPI-first hierarchy, outlier-aware throughput display modes, shared-axis strict precision/recall charting, preview-row table behavior, and all-method quick-nav/collapsible section compression.
+
+Evidence preserved:
+- `pytest -q tests/analytics/test_stats_dashboard.py` passed.
+- `cookimport stats-dashboard` regeneration passed.
+
+Anti-loop note for this merge batch:
+- For all-method/dashboard regressions, prefer checking renderer pathing/scaling/collapse and refresh batching contracts before editing collector schema; this batch was predominantly renderer/flow-contract work with explicit tests proving that boundary.

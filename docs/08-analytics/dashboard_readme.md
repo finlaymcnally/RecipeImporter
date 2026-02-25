@@ -34,6 +34,8 @@ This CSV is populated by:
   - `bench run`
 - optional one-off repair command for older benchmark rows:
   - `benchmark-csv-backfill` (patches missing benchmark `recipes/report_path/file_name` from manifests)
+- After successful CSV writes, these commands now auto-refresh dashboard artifacts under the same history root (`.history/dashboard`) in best-effort mode.
+- All-method benchmark internals suppress per-config refreshes and refresh once per source batch to avoid concurrent dashboard rewrites.
 
 ### Stage-report fallback/supplement
 
@@ -61,7 +63,7 @@ Manifest enrichment now includes benchmark run context used by the dashboard:
 - `run_config_summary`
 - `recipe_count` (extracted recipes in prediction run)
 - `processed_report_path` when processed outputs were written during benchmark
-  - benchmark `recipes` prefers `recipe_count`; collector backfills from `processed_report_path` (`totalRecipes`) when needed
+  - benchmark `recipes` prefers `recipe_count`; collector backfills from `processed_report_path` (`totalRecipes`) when needed, then falls back to eval `recipe_counts.predicted_recipe_count`
 
 ## Where dashboard stats are saved
 
@@ -73,57 +75,49 @@ The renderer writes:
 - `data/.history/dashboard/assets/dashboard_data.json`
 - `data/.history/dashboard/assets/dashboard.js`
 - `data/.history/dashboard/assets/style.css`
-- `data/.history/dashboard/all-method-benchmark.html` (always generated run index)
-- `data/.history/dashboard/all-method-benchmark-run__<run_timestamp>.html` (one run summary page per all-method sweep, when present)
-- `data/.history/dashboard/all-method-benchmark__<run_timestamp>__<source_slug>.html` (per-book config breakdown pages, when present)
+- `data/.history/dashboard/all-method-benchmark/index.html` (always generated run index)
+- `data/.history/dashboard/all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html` (one run summary page per all-method sweep, when present)
+- `data/.history/dashboard/all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html` (per-book config breakdown pages, when present)
 
 Notes:
 
 - `index.html` embeds an inline copy of `dashboard_data.json`, so it still works via `file://` even when browser local fetches are restricted.
 - Collectors are read-only. They do not modify the source metrics in `data/output` or `data/golden`.
-- Benchmark rows pointing at pytest temp eval paths (for example `.../pytest-46/test_foo0/eval`) are ignored so local `pytest` runs do not appear in `Recent Benchmarks`.
-- All-method standalone pages are built from benchmark CSV rows (`run_dir` / `artifact_dir`) grouped by paths containing `all-method-benchmark/<source_slug>/config_*` (CSV-first; no extra dashboard-only metric store). The hierarchy is run index -> run summary -> per-book detail. The run index page is always written, even when there are zero runs.
+- Benchmark rows pointing at pytest temp eval paths (for example `.../pytest-46/test_foo0/eval`) are ignored so local `pytest` runs do not appear in `Previous Runs`.
+- All-method standalone pages are built from benchmark CSV rows (`run_dir` / `artifact_dir`) grouped by paths containing `all-method-benchmark/<source_slug>/config_*` (CSV-first; no extra dashboard-only metric store). The hierarchy is run index -> run summary -> per-book detail, and all pages are written under `data/.history/dashboard/all-method-benchmark/`. The run index page is always written, even when there are zero runs.
 
-## Import speed organization in the dashboard
+## Index layout
 
-The throughput section is intentionally split into two complementary views:
+`index.html` is intentionally minimal:
 
-- Run/date view:
-  - `Run / Date Trend (sec/recipe)` chart across all visible stage/import rows.
-  - `Recent Runs (Date / Run View)` table sorted by newest run timestamp.
-  - Includes explicit EPUB visibility columns: `EPUB Req`, `EPUB Eff`, and `Auto Score`.
-  - Includes `Importer` and `Run Config` columns for stage/import rows.
-- File view:
-  - `File Trend (Selected File)` selector + chart + table.
-  - File-trend rows include `Importer`, `EPUB Req`, `EPUB Eff`, `Auto Score`, and `Run Config` summary columns.
-  - Grouping key is `stage_records[*].file_name`, so you can track how one file's processing speed changes across runs.
-  - Filters include category/date plus a dedicated `EPUB Extractor` checkbox group keyed by effective/requested extractor values.
+- `All-Method Benchmark Runs`: links to a standalone all-method run index page.
+- `Diagnostics (Latest Benchmark)`: per-label + boundary breakdown for the most recent benchmark record that contains that data.
+- `Previous Runs`: scrollable table (about ~5 visible rows) with key benchmark columns only.
+  - Normal benchmark rows: timestamp links to `artifact_dir`.
+  - All-method benchmark sweeps: collapsed to one row; `Source` shows `all-method benchmark run`, and the timestamp links to the generated run-summary HTML page under `all-method-benchmark/`.
 
 Timestamp ordering note:
-- Recent-run and benchmark tables sort by parsed time (not raw string compare), so mixed timestamp formats like `YYYY-MM-DDTHH:MM:SS` and `YYYY-MM-DD_HH.MM.SS` still appear in true chronological order.
+- The `Previous Runs` table sorts by parsed time (not raw string compare), so mixed timestamp formats like `YYYY-MM-DDTHH:MM:SS` and `YYYY-MM-DD_HH.MM.SS` still appear in true chronological order.
 - Frontend timestamp parsing should use explicit component parsing for these two forms (with `Date` fallback for timezone-bearing ISO values) rather than relying only on `Date.parse`.
 
-Run config note:
-- Stage/import `Run Config` values primarily come from CSV `run_config_summary` and `run_config_hash` (with `run_config_json` kept for full details/tooltips).
-- If `run_config_json` is empty on older history rows, the collector attempts to backfill from each row's `report_path` (`runConfig` in `*.excel_import_report.json`) when available.
-- If neither CSV nor report data is available and a report path reference exists, dashboard tables show `[warn] missing report (stale row)`.
-- Dashboard run-config cells show the summary and append a short hash suffix (`[abcdef1234]`) when `run_config_hash` is available; tooltip includes full hash and JSON/details.
-
 Benchmark recipes note:
-- `Recent Benchmarks` includes a `Recipes` column.
+- `Previous Runs` includes a `Recipes` column.
 - Benchmark recipe counts are persisted in CSV `recipes` for benchmark entrypoints (`labelstudio-benchmark`, `labelstudio-eval`, `bench run`) whenever recipe context is available.
 - Collector prefers manifest `recipe_count`, then falls back to `processed_report_path` -> report `totalRecipes` when needed.
 - For historical rows created before CSV persistence was complete, run `cookimport benchmark-csv-backfill` once to patch missing values.
 
 Benchmark metrics note:
-- `Recent Benchmarks` shows both `Practical F1` and `Strict F1`.
+- `Previous Runs` shows strict precision/recall plus both `Practical F1` and `Strict F1`.
 - `Strict F1` is the IoU-threshold localization metric (`precision/recall/f1` fields from eval).
 - `Practical F1` is the any-overlap content metric (`practical_*` eval fields).
-- Rows with likely granularity mismatch display a small `mismatch` tag beside strict score so low strict/high practical runs are interpreted correctly.
 - Main dashboard includes an `All-Method Benchmark Runs` section linking to a run index page.
 - All-method run index rows link to run-summary pages that aggregate config metrics across all book jobs in the sweep.
+- Run-summary pages now include a compact stats table plus per-metric bar charts (one bar per aggregated configuration), per-config radar/web charts, and per-cookbook average bar/radar sections before the aggregate table/drilldown links.
+  - Score metrics on those charts (`Strict Precision`, `Strict Recall`, `Strict F1`, `Practical F1`) are fixed to a 0-100% scale (`1.0 == 100%`).
+  - `Recipes` now charts `% identified` against golden recipe headers for each book (from eval `recipe_counts.gold_recipe_headers`) on the same fixed 0-100% scale.
 - Run-summary pages link to per-book detail pages for existing single-source config drilldown.
-- All-method detail pages now start with a compact `Run Summary` table (stats-only, no per-config labels) and metric-category bar charts (one bar per run/config) before the full ranked table.
+- All-method run-summary/detail pages include a sticky quick-nav (Summary / Charts / Ranked Table / Drilldown) and use native collapsible section groups (`details`) to shorten default scan length without hiding metrics.
+- All-method detail pages now start with a compact `Run Summary` table (stats-only, no per-config labels), metric-category bar charts (one bar per run/config), and per-config radar/web charts before the full ranked table.
 - Ranked all-method tables now include explicit dimension columns (`Extractor`, `Parser`, `Skip HF`, `Preprocess`) so config differences are readable without decoding slug strings.
 
 ## Historical decisions worth preserving
@@ -131,11 +125,9 @@ Benchmark metrics note:
 Timeline notes merged from former `docs/understandings` files:
 
 - `2026-02-15_23.17.17`: local `file://` dashboard failures were fixed by embedding inline JSON in `index.html`; keep inline-first + fetch-fallback behavior.
-- `2026-02-15_23.51.02` -> `2026-02-16_00.25.07`: throughput UI intentionally keeps both run/date trend and single selected-file trend; full per-file list/cards were tried (`00.12.54`) and rejected as too heavy.
-- `2026-02-16_10.37.22` -> `2026-02-16_10.51.07`: stage run-config display must stay CSV-first, report-path fallback second, with explicit stale-row warning text when report references are missing.
 - `2026-02-16_10.56.36`: benchmark `Gold`/`Matched` are span-eval metrics; `Recipes` is separate and should not be interpreted as score denominator.
 - `2026-02-16_11.33.17`: benchmark `recipes` must be persisted across all benchmark CSV append paths (`labelstudio-benchmark`, `labelstudio-eval`, `bench run`) to avoid blank `Recipes` rows.
-- `2026-02-23_12.29.05`: keep JS template escaping explicit for `\\n` in run-config tooltip assembly (`runConfigCell`) so generated `dashboard.js` stays parseable when opened directly in browsers.
+- `2026-02-25`: main dashboard index was trimmed to focus on all-method links, latest-benchmark diagnostics, and a scrollable benchmark history table (no throughput/speed views).
 
 ## Regenerate
 

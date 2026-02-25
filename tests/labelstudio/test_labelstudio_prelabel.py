@@ -209,6 +209,72 @@ def test_prelabel_freeform_task_span_mode_creates_partial_block_spans() -> None:
     ) != (0, len(task["data"]["segment_text"]))
 
 
+def test_prelabel_freeform_task_allows_explicit_empty_array_output() -> None:
+    task = _single_block_task("CONTENTS")
+    provider = _StaticProvider("[]")
+
+    annotation = prelabel_freeform_task(
+        task,
+        provider=provider,
+        prelabel_granularity="span",
+    )
+    assert annotation is not None
+    assert annotation["result"] == []
+    assert annotation["meta"]["mode"] == "empty"
+
+
+def test_prelabel_span_mode_repairs_quote_block_index_mismatch() -> None:
+    task = {
+        "id": 400,
+        "data": {
+            "segment_id": "urn:cookimport:segment:testhash:0:2",
+            "segment_text": "A\n\nB\n\nC",
+            "source_map": {
+                "separator": "\n\n",
+                "focus_start_block_index": 0,
+                "focus_end_block_index": 2,
+                "focus_block_indices": [0, 1, 2],
+                "blocks": [
+                    {
+                        "block_id": "urn:cookimport:block:testhash:0",
+                        "block_index": 0,
+                        "segment_start": 0,
+                        "segment_end": 1,
+                    },
+                    {
+                        "block_id": "urn:cookimport:block:testhash:1",
+                        "block_index": 1,
+                        "segment_start": 3,
+                        "segment_end": 4,
+                    },
+                    {
+                        "block_id": "urn:cookimport:block:testhash:2",
+                        "block_index": 2,
+                        "segment_start": 6,
+                        "segment_end": 7,
+                    },
+                ],
+            },
+        },
+    }
+    provider = _StaticProvider(
+        '[{"block_index": 0, "label": "OTHER", "quote": "B"}]'
+    )
+
+    annotation = prelabel_freeform_task(
+        task,
+        provider=provider,
+        prelabel_granularity="span",
+    )
+    assert annotation is not None
+    assert len(annotation["result"]) == 1
+    value = annotation["result"][0]["value"]
+    assert value["labels"] == ["OTHER"]
+    assert value["text"] == "B"
+    assert value["start"] == 3
+    assert value["end"] == 4
+
+
 def test_span_resolution_requires_occurrence_for_ambiguous_quote() -> None:
     task = _single_block_task("Prep 10 min; Prep 10 min")
 
@@ -774,6 +840,48 @@ def test_list_codex_models_reads_command_specific_cache(monkeypatch, tmp_path: P
             "slug": "gpt-5.3-codex-pro",
             "display_name": "gpt-5.3-codex-pro",
             "description": "Pro model",
+        }
+    ]
+
+
+def test_list_codex_models_includes_supported_reasoning_efforts(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "custom_codex"))
+    custom_root = tmp_path / "custom_codex"
+    custom_root.mkdir(parents=True, exist_ok=True)
+    (custom_root / "models_cache.json").write_text(
+        json.dumps(
+            {
+                "models": [
+                    {
+                        "slug": "gpt-5.3-codex-spark",
+                        "display_name": "gpt-5.3-codex-spark",
+                        "description": "Ultra-fast coding model",
+                        "visibility": "list",
+                        "supported_reasoning_levels": [
+                            {"effort": "low"},
+                            {"effort": "high"},
+                            {"effort": "high"},
+                            {"effort": "invalid"},
+                            "xhigh",
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("cookimport.labelstudio.prelabel.Path.home", lambda: tmp_path)
+
+    models = list_codex_models()
+
+    assert models == [
+        {
+            "slug": "gpt-5.3-codex-spark",
+            "display_name": "gpt-5.3-codex-spark",
+            "description": "Ultra-fast coding model",
+            "supported_reasoning_efforts": ["low", "high", "xhigh"],
         }
     ]
 

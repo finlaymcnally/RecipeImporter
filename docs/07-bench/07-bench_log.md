@@ -545,3 +545,250 @@ Evidence preserved:
 
 Anti-loop note for this batch:
 - If all-method output becomes noisy again, first inspect scoped benchmark progress override plumbing before changing report-generation code paths.
+
+## 2026-02-24_15.21.53 to 2026-02-24_21.31.58 archival merge batch from `docs/understandings` (bench)
+
+### 2026-02-24_15.21.53 split-slot default bottleneck
+
+Preserved findings:
+- Config-level inflight parallelism was not the full throughput story; split-phase slot caps were a hidden heavy-phase limiter.
+- Raising split-slot defaults to match inflight defaults was the practical correction for conversion-heavy sweeps.
+
+### 2026-02-24_15.22.29 spinner snapshot forwarding + split-slot stdout noise
+
+Preserved findings:
+- Nested dashboard payloads were being re-rendered as task text, causing recursive/duplicated spinner lines.
+- Worker runs without callbacks leaked split-slot fallback `print(...)` output into interactive spinner streams.
+
+Durable fix pattern:
+- Detect dashboard-shaped payloads and rerender from shared dashboard state.
+- Keep a callback set for worker benchmark calls (no-op if needed) so split-slot telemetry avoids raw stdout fallbacks.
+
+### 2026-02-24_15.28.12 interactive scheduler settings flow
+
+Preserved findings:
+- Scheduler caps should be user-tunable from `cookimport.json` and settings menu without code edits.
+- Invalid scheduler values should fail back to bounded defaults, not silently collapse to `1`.
+
+### 2026-02-24_15.53.58 heavy-slot flow map
+
+Preserved findings:
+- Split-slot gating occurs inside prediction generation; outer scheduler sees completion unless additional telemetry is surfaced.
+- Heavy-slot occupancy depends on maintaining enough prep/split-wait backlog, not only increasing split-slot count.
+
+### 2026-02-24_15.57.24 single-config lock stall recovery
+
+Preserved findings:
+- One stuck config future can keep source completion at `N-1/N` while other artifacts are already complete.
+- In captured incident, one split-slot lock remained held and parent waited indefinitely in completion loop.
+
+Operational recovery preserved:
+- Terminate the stuck worker process only; parent flow can mark that config failed and still flush per-source + combined reports.
+
+### 2026-02-24_16.10.45 smart scheduler event-gating dependency
+
+Preserved findings:
+- Smart-vs-fixed utilization comparisons are meaningful only when phase telemetry is faithfully captured and split-slot behavior is represented.
+- `.scheduler_events/config_###.jsonl` files were the durable admission + post-run utilization data surface.
+
+### 2026-02-24_16.11.17 timeout watchdog + failed-only retry path
+
+Preserved findings:
+- Reliability hook is source-level future orchestration (`wait(..., timeout=...)` with scheduler poll), not deep benchmark internals.
+- Timeout flow marks config failed, recycles worker pool, requeues pending work, and continues.
+- Retry passes rerun failed config indices only and collapse reporting to latest attempt per index.
+
+### 2026-02-24_20.56.39 smart scheduler tail-buffer headroom
+
+Preserved findings:
+- Smart heavy-target logic can still underutilize heavy slots when long post-stage configs consume all inflight slots.
+- Tail buffer headroom (equal to split slots) was identified as the fix for this starvation pattern.
+
+### 2026-02-24_20.57.46 active-config map + ETA suffix placement
+
+Preserved findings:
+- Submission-time current-config tracking was stale in parallel mode.
+- Correct rendering requires active-config map updates on start/finish and summary-level ETA suffix placement (top line only).
+
+### 2026-02-24_21.05.24 partial nested snapshot rerender
+
+Preserved findings:
+- Nested callbacks can emit stale/partial dashboard payloads; wrapper should rerender from canonical shared state instead of forwarding broken snapshots.
+
+### 2026-02-24_21.11.33 all-matched source serialization limit
+
+Preserved findings:
+- Serial source loop in all-matched mode capped CPU at one source scheduler at a time even with many pending sources.
+
+### 2026-02-24_21.31.58 bounded source-parallel dispatch + refresh contract
+
+Preserved findings:
+- Safe source-level parallelism used bounded `ThreadPoolExecutor` dispatch over existing per-source runners.
+- Deterministic source-order reporting required precomputed source order + indexed result slots.
+- Shared spinner dashboard state needed internal locking.
+- Refresh policy split: per-source refresh in serial mode; single batched refresh at multi-source completion in parallel mode.
+
+Anti-loop note for this batch:
+- If heavy slots idle with pending configs, inspect phase telemetry + tail-buffer inflight resolution before changing split-slot lock mechanics.
+
+## 2026-02-24_22.44.09 archival merge batch from `docs/tasks` (all-method benchmark)
+
+### 2026-02-24_15.21.53 split-slot default raised to four
+
+Merged source:
+- `docs/tasks/2026-02-24_15.21.53-all-method-split-slot-default-four.md`
+
+Problem captured:
+- Inflight already allowed 4, but split-phase default at 2 limited conversion-heavy concurrency.
+
+Decision/outcome preserved:
+- Keep inflight default at 4.
+- Raise split-slot default to 4 to remove hidden heavy-phase cap.
+
+Evidence preserved:
+- `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k resolve_all_method_scheduler_limits_defaults` -> `1 passed, 67 deselected`.
+- full helper suite at task time -> `68 passed`.
+
+### 2026-02-24_15.22.29 spinner-noise cleanup (dashboard recursion + split stdout)
+
+Merged source:
+- `docs/tasks/2026-02-24_15.22.29-all-method-spinner-noise-cleanup.md`
+
+Problem captured:
+- Interactive spinner had duplicated dashboard/task lines and raw split-slot acquire/release output.
+
+Decision/outcome preserved:
+- Forward dashboard snapshots without recursive wrapping.
+- Ensure worker benchmark paths keep callback wiring (no-op callback acceptable) so split-slot telemetry avoids raw `print(...)` fallback.
+- Escape queue markers so literal `[x]` style output survives rich rendering.
+
+Evidence preserved:
+- focused spinner/helper selection -> `6 passed, 61 deselected`.
+
+### 2026-02-24_15.28.12 scheduler settings keys added to interactive config
+
+Merged source:
+- `docs/tasks/2026-02-24_15.28.12-all-method-scheduler-settings-keys.md`
+
+Problem captured:
+- Scheduler limits required code edits instead of settings updates.
+
+Decision/outcome preserved:
+- Expose scheduler settings in menu and persist to `cookimport.json`.
+- Keep these controls as operator-level global settings, not per-run extraction config.
+- Invalid values fall back to bounded defaults.
+
+Evidence preserved:
+- focused settings/scheduler selection -> `4 passed, 66 deselected`.
+- full helper suite at task time -> `70 passed`.
+
+### 2026-02-24_15.52.15 smart heavy-slot scheduler implementation
+
+Merged source:
+- `docs/tasks/2026-02-24_15.52.15-smart-heavy-slot-scheduler-all-method.md`
+
+Problem captured:
+- Existing bounded queue could still produce heavy-stage CPU spikes/valleys due to non-phase-aware refill.
+
+Decision/outcome preserved:
+- Implement phase telemetry + phase-aware admission targeting heavy-slot occupancy.
+- Persist per-config scheduler events under `.scheduler_events/config_###.jsonl`.
+- Include scheduler metrics in per-source and multi-source reports.
+
+Evidence preserved:
+- scheduler-focused helper selection -> `6 passed, 69 deselected`.
+- full helper suite at task time -> `75 passed`.
+
+Known remaining gap recorded by original task:
+- Manual interactive evidence snippet was still pending in that task session.
+
+### 2026-02-24_16.01.56 timeout watchdog + failed-only retry
+
+Merged source:
+- `docs/tasks/2026-02-24_16.01.56-all-method-timeout-and-retry.md`
+
+Problem captured:
+- One stuck config could hold run completion indefinitely.
+
+Decision/outcome preserved:
+- Timeout enforcement in outer per-source future scheduling loop.
+- Timeout marks config failed, recycles worker pool, and continues.
+- Retry loop reruns failed config indices only; reporting keeps latest attempt per config index.
+- Interactive/settings defaults recorded at task time: `all_method_config_timeout_seconds=900`, `all_method_retry_failed_configs=1`.
+
+Evidence preserved:
+- focused all-method timeout/retry selection -> `6 passed, 69 deselected`.
+- broader all-method selection -> `21 passed, 54 deselected`.
+
+### 2026-02-24_20.56.39 smart tail-buffer headroom
+
+Merged source:
+- `docs/tasks/2026-02-24_20.56.39-smart-scheduler-tail-buffer-headroom.md`
+
+Problem captured:
+- Pending configs remained while heavy slots idled because post-stage configs consumed inflight capacity.
+
+Decision/outcome preserved:
+- Keep smart admission target (`heavy + wing`) and add deterministic smart tail buffer headroom (`+ split slots`) to effective inflight.
+- Root cause explicitly recorded as inflight accounting under post-stage drain, not missing event telemetry.
+
+Evidence preserved:
+- scheduler-focused helper selection -> `7 passed, 69 deselected`.
+- full helper suite at task time -> `76 passed`.
+
+### 2026-02-24_20.57.46 active-config tracking + ETA placement fix
+
+Merged source:
+- `docs/tasks/2026-02-24_20.57.46-all-method-spinner-polish-active-config-eta.md`
+
+Problem captured:
+- `current config` display stayed stale in parallel mode and ETA suffix landed on trailing task line.
+
+Decision/outcome preserved:
+- Track active configs as state map; render slug or index range from active state.
+- For multiline dashboard payloads, append ETA/elapsed suffixes to first summary line only.
+
+Evidence preserved:
+- focused spinner/helper selection -> `6 passed, 72 deselected`.
+- full helper suite command passed.
+
+### 2026-02-24_21.05.24 stale/partial nested snapshot rerender stabilization
+
+Merged source:
+- `docs/tasks/2026-02-24_21.05.24-all-method-spinner-queue-stability-rerender.md`
+
+Problem captured:
+- Multi-source nested progress occasionally showed incomplete queue rows.
+
+Decision/outcome preserved:
+- Keep no-rewrap forwarding for dashboard-shaped messages, but rerender from shared canonical dashboard state when nested snapshot text is stale/partial.
+
+Evidence preserved:
+- focused helper selection passed.
+- full helper suite command passed.
+
+### 2026-02-24_21.09.55 source-level parallel all-matched dispatch
+
+Merged source:
+- `docs/tasks/2026-02-24_21.09.55-parallel-source-all-method-benchmark.md`
+
+Problem captured:
+- All-matched source loop was serial, leaving CPU headroom unused.
+
+Decision/outcome preserved:
+- Add settings-controlled bounded source parallelism (`all_method_max_parallel_sources`, default 2).
+- Use thread-based outer source dispatcher over existing process-based per-source config layer.
+- Preserve deterministic source-order report emission via indexed source slots.
+- Synchronize shared dashboard model with lock.
+- Batch dashboard refresh once at multi-source completion in parallel source mode.
+
+Evidence preserved:
+- `python -m py_compile cookimport/cli.py tests/labelstudio/test_labelstudio_benchmark_helpers.py` passed.
+- focused helper selection -> `15 passed`.
+- full helper suite at task time -> `84 passed`.
+
+Known remaining gap recorded by original task:
+- Manual interactive all-matched evidence snippet was pending in that task session.
+
+Anti-loop note for this merge batch:
+- If throughput looks low while pending work remains, debug in this order: scheduler phase telemetry and inflight/tail-headroom resolution, then active-config/spinner forwarding, then source-level parallel cap and refresh batching. Avoid jumping first to split-lock internals unless those signals implicate lock contention directly.

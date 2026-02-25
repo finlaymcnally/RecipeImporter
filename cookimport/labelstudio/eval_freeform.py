@@ -135,53 +135,75 @@ def load_predicted_labeled_ranges(run_dir: Path) -> list[LabeledRange]:
     tasks_path = run_dir / "label_studio_tasks.jsonl"
     if not tasks_path.exists():
         raise FileNotFoundError(f"Missing label_studio_tasks.jsonl in {run_dir}")
+    prefer_recipe_title = False
+    with tasks_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                continue
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                continue
+            if data.get("chunk_level") == "structural" and data.get("chunk_type") == "recipe_title":
+                prefer_recipe_title = True
+                break
     spans: list[LabeledRange] = []
-    for line in tasks_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        payload = json.loads(line)
-        if not isinstance(payload, dict):
-            continue
-        data = payload.get("data")
-        if not isinstance(data, dict):
-            continue
-        chunk_id = data.get("chunk_id")
-        if not chunk_id:
-            continue
-        label = _map_chunk_to_label(data)
-        if label is None:
-            continue
-        location = data.get("location")
-        if not isinstance(location, dict):
-            location = {}
-        start, end = _location_to_range(location)
-        if start is None or end is None:
-            continue
-        source_hash = data.get("source_hash")
-        if source_hash is None:
-            source_hash = _parse_chunk_id(chunk_id)
-        source_file = data.get("source_file") or "unknown"
-        spans.append(
-            LabeledRange(
-                span_id=str(chunk_id),
-                source_hash=str(source_hash) if source_hash else None,
-                source_file=str(source_file),
-                label=label,
-                start_block_index=start,
-                end_block_index=end,
-            ).normalized()
-        )
+    with tasks_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                continue
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                continue
+            chunk_id = data.get("chunk_id")
+            if not chunk_id:
+                continue
+            label = _map_chunk_to_label(data, prefer_recipe_title=prefer_recipe_title)
+            if label is None:
+                continue
+            location = data.get("location")
+            if not isinstance(location, dict):
+                location = {}
+            start, end = _location_to_range(location)
+            if start is None or end is None:
+                continue
+            source_hash = data.get("source_hash")
+            if source_hash is None:
+                source_hash = _parse_chunk_id(chunk_id)
+            source_file = data.get("source_file") or "unknown"
+            spans.append(
+                LabeledRange(
+                    span_id=str(chunk_id),
+                    source_hash=str(source_hash) if source_hash else None,
+                    source_file=str(source_file),
+                    label=label,
+                    start_block_index=start,
+                    end_block_index=end,
+                ).normalized()
+            )
     return spans
 
 
-def _map_chunk_to_label(data: dict[str, Any]) -> str | None:
+def _map_chunk_to_label(
+    data: dict[str, Any], *, prefer_recipe_title: bool = False
+) -> str | None:
     chunk_level = str(data.get("chunk_level") or "")
     chunk_type = str(data.get("chunk_type") or "")
     chunk_hint = str(data.get("chunk_type_hint") or "")
 
     if chunk_level == "structural":
+        if chunk_type == "recipe_title" or chunk_hint == "recipe_title":
+            return "RECIPE_TITLE"
         if chunk_type == "recipe_block" or chunk_hint == "recipe":
+            if prefer_recipe_title:
+                return None
             return "RECIPE_TITLE"
         return None
 

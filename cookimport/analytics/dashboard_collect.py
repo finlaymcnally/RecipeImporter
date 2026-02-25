@@ -687,6 +687,7 @@ def _benchmark_record_from_csv_row(
         practical_recall=practical_recall,
         practical_f1=practical_f1,
         gold_total=_safe_int(row.get("gold_total")),
+        gold_recipe_headers=_safe_int(row.get("gold_recipe_headers")),
         pred_total=_safe_int(row.get("pred_total")),
         gold_matched=_safe_int(row.get("gold_matched")),
         recipes=_safe_int(row.get("recipes")),
@@ -746,6 +747,7 @@ def _merge_benchmark_record_fields(
         "practical_recall",
         "practical_f1",
         "gold_total",
+        "gold_recipe_headers",
         "pred_total",
         "gold_matched",
         "recipes",
@@ -1065,6 +1067,14 @@ def _collect_benchmarks(
         span_width_stats = data.get("span_width_stats") or {}
         pred_width_p50 = _safe_float((span_width_stats.get("pred") or {}).get("p50"))
         gold_width_p50 = _safe_float((span_width_stats.get("gold") or {}).get("p50"))
+        recipe_counts = data.get("recipe_counts") or {}
+        gold_recipe_headers = None
+        predicted_recipe_count = None
+        if isinstance(recipe_counts, dict):
+            gold_recipe_headers = _safe_int(recipe_counts.get("gold_recipe_headers"))
+            predicted_recipe_count = _safe_int(
+                recipe_counts.get("predicted_recipe_count")
+            )
 
         # Per-label breakdown
         per_label_raw = data.get("per_label") or {}
@@ -1094,6 +1104,7 @@ def _collect_benchmarks(
             practical_recall=practical_recall,
             practical_f1=practical_f1,
             gold_total=_safe_int(counts.get("gold_total")),
+            gold_recipe_headers=gold_recipe_headers,
             pred_total=_safe_int(counts.get("pred_total")),
             gold_matched=_safe_int(counts.get("gold_matched")),
             supported_precision=supported_precision,
@@ -1176,6 +1187,9 @@ def _collect_benchmarks(
                 break
             except (OSError, json.JSONDecodeError) as exc:
                 warnings.append(f"Malformed manifest.json in {manifest_path.parent}: {exc}")
+
+        if record.recipes is None and predicted_recipe_count is not None:
+            record.recipes = predicted_recipe_count
 
         records.append(record)
 
