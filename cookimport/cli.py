@@ -99,6 +99,7 @@ from cookimport.plugins import registry
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
 from cookimport.runs import RunManifest, RunSource, write_run_manifest
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
+from cookimport.parsing.tables import ExtractedTable, extract_and_annotate_tables
 from cookimport.parsing.tips import partition_tip_candidates
 from cookimport.staging.pdf_jobs import (
     plan_job_ranges,
@@ -111,6 +112,8 @@ from cookimport.staging.writer import (
     write_draft_outputs,
     write_intermediate_outputs,
     write_report,
+    write_section_outputs,
+    write_table_outputs,
     write_tip_outputs,
     write_topic_candidate_outputs,
 )
@@ -120,6 +123,7 @@ bench_app = typer.Typer(name="bench", help="Offline benchmark suite tools.")
 app.add_typer(bench_app)
 
 from cookimport.tagging.cli import tag_catalog_app, tag_recipes_app  # noqa: E402
+from cookimport.tagging.orchestrator import run_stage_tagging_pass  # noqa: E402
 from cookimport.epubdebug.cli import epub_app, race_epub_extractors  # noqa: E402
 from cookimport.paths import (
     GOLDEN_BENCHMARK_ROOT,
@@ -1781,6 +1785,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 "epub_unstructured_preprocess_mode": (
                     selected_run_settings.epub_unstructured_preprocess_mode.value
                 ),
+                "table_extraction": selected_run_settings.table_extraction.value,
                 "ocr_device": selected_run_settings.ocr_device.value,
                 "ocr_batch_size": selected_run_settings.ocr_batch_size,
                 "pdf_pages_per_job": selected_run_settings.pdf_pages_per_job,
@@ -1788,6 +1793,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 "warm_models": selected_run_settings.warm_models,
                 "llm_recipe_pipeline": selected_run_settings.llm_recipe_pipeline.value,
                 "llm_knowledge_pipeline": selected_run_settings.llm_knowledge_pipeline.value,
+                "llm_tags_pipeline": selected_run_settings.llm_tags_pipeline.value,
                 "codex_farm_cmd": selected_run_settings.codex_farm_cmd,
                 "codex_farm_root": selected_run_settings.codex_farm_root,
                 "codex_farm_workspace_root": selected_run_settings.codex_farm_workspace_root,
@@ -1797,10 +1803,14 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 "codex_farm_pipeline_pass4_knowledge": (
                     selected_run_settings.codex_farm_pipeline_pass4_knowledge
                 ),
+                "codex_farm_pipeline_pass5_tags": (
+                    selected_run_settings.codex_farm_pipeline_pass5_tags
+                ),
                 "codex_farm_context_blocks": selected_run_settings.codex_farm_context_blocks,
                 "codex_farm_knowledge_context_blocks": (
                     selected_run_settings.codex_farm_knowledge_context_blocks
                 ),
+                "tag_catalog_json": selected_run_settings.tag_catalog_json,
                 "codex_farm_failure_mode": selected_run_settings.codex_farm_failure_mode.value,
             }
 
@@ -2613,6 +2623,16 @@ def _normalize_ocr_device(value: str) -> str:
     return normalized
 
 
+def _normalize_table_extraction(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"off", "on"}:
+        _fail(
+            f"Invalid table extraction mode: {value!r}. "
+            "Expected one of: off, on."
+        )
+    return normalized
+
+
 def _normalize_llm_recipe_pipeline(value: str) -> str:
     normalized = value.strip().lower()
     if normalized != "off":
@@ -2629,6 +2649,16 @@ def _normalize_llm_knowledge_pipeline(value: str) -> str:
         _fail(
             f"Invalid LLM knowledge pipeline: {value!r}. "
             "Expected one of: off, codex-farm-knowledge-v1."
+        )
+    return normalized
+
+
+def _normalize_llm_tags_pipeline(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"off", "codex-farm-tags-v1"}:
+        _fail(
+            f"Invalid LLM tags pipeline: {value!r}. "
+            "Expected one of: off, codex-farm-tags-v1."
         )
     return normalized
 
@@ -6638,6 +6668,7 @@ def _write_stage_run_manifest(
         ("tips", "tips_dir"),
         ("chunks", "chunks_dir"),
         ("knowledge", "knowledge_dir"),
+        ("tags", "tags_dir"),
         ("raw", "raw_dir"),
     ):
         target = run_root / path_key
@@ -6646,6 +6677,9 @@ def _write_stage_run_manifest(
     knowledge_index = run_root / "knowledge" / "knowledge_index.json"
     if knowledge_index.exists():
         artifacts["knowledge_index"] = str(knowledge_index.relative_to(run_root))
+    tags_index = run_root / "tags" / "tags_index.json"
+    if tags_index.exists():
+        artifacts["tags_index"] = str(tags_index.relative_to(run_root))
     history_csv = history_csv_for_output(output_root)
     if history_csv.exists():
         artifacts["history_csv"] = str(history_csv)
@@ -7146,6 +7180,7 @@ def _merge_split_jobs(
     run_settings = RunSettings.from_dict(run_config, warn_context="split merge run config")
     llm_enabled = run_settings.llm_recipe_pipeline.value != "off"
     knowledge_enabled = run_settings.llm_knowledge_pipeline.value != "off"
+    table_extraction_enabled = run_settings.table_extraction.value == "on"
     merged_full_blocks, job_offsets, _job_block_counts = _build_split_full_blocks(
         out=out,
         workbook_slug=workbook_slug,
@@ -7173,6 +7208,8 @@ def _merge_split_jobs(
     ]
     if llm_enabled:
         phase_labels.append("Running codex-farm recipe pipeline...")
+    if table_extraction_enabled:
+        phase_labels.append("Extracting tables...")
     phase_labels.append("Building chunks...")
     if knowledge_enabled:
         phase_labels.append("Running codex-farm knowledge harvest...")
@@ -7181,10 +7218,13 @@ def _merge_split_jobs(
             "Writing merged outputs...",
             "Writing intermediate drafts...",
             "Writing final drafts...",
+            "Writing sections...",
             "Writing tips...",
             "Writing topic candidates...",
         ]
     )
+    if table_extraction_enabled:
+        phase_labels.append("Writing tables...")
     if should_write_chunks:
         phase_labels.append("Writing chunks...")
     phase_labels.extend(
@@ -7360,6 +7400,13 @@ def _merge_split_jobs(
     parsing_overrides = (
         mapping_config.parsing_overrides if mapping_config and mapping_config.parsing_overrides else None
     )
+    extracted_tables: list[ExtractedTable] = []
+    if table_extraction_enabled:
+        _report_phase("Extracting tables...")
+        extracted_tables = extract_and_annotate_tables(
+            merged_result.non_recipe_blocks,
+            source_hash=file_hash,
+        )
     _report_phase("Building chunks...")
     if merged_result.non_recipe_blocks:
         merged_result.chunks = chunks_from_non_recipe_blocks(
@@ -7427,12 +7474,30 @@ def _merge_split_jobs(
                 output_stats=output_stats,
                 draft_overrides_by_recipe_id=llm_draft_overrides,
             )
+        _report_phase("Writing sections...")
+        with measure(merge_stats, "write_sections_seconds"):
+            write_section_outputs(
+                out,
+                workbook_slug,
+                merged_result.recipes,
+                output_stats=output_stats,
+            )
         _report_phase("Writing tips...")
         with measure(merge_stats, "write_tips_seconds"):
             write_tip_outputs(merged_result, tips_dir, output_stats=output_stats)
         _report_phase("Writing topic candidates...")
         with measure(merge_stats, "write_topic_candidates_seconds"):
             write_topic_candidate_outputs(merged_result, tips_dir, output_stats=output_stats)
+        if table_extraction_enabled:
+            _report_phase("Writing tables...")
+            with measure(merge_stats, "write_tables_seconds"):
+                write_table_outputs(
+                    out,
+                    workbook_slug,
+                    extracted_tables,
+                    source_file=file_path.name,
+                    output_stats=output_stats,
+                )
 
         if should_write_chunks:
             _report_phase("Writing chunks...")
@@ -7618,6 +7683,11 @@ def stage(
         "--epub-unstructured-preprocess-mode",
         help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1, semantic_v1.",
     ),
+    table_extraction: str = typer.Option(
+        "off",
+        "--table-extraction",
+        help="Deterministic table extraction mode: off or on.",
+    ),
     llm_recipe_pipeline: str = typer.Option(
         "off",
         "--llm-recipe-pipeline",
@@ -7630,6 +7700,11 @@ def stage(
         "off",
         "--llm-knowledge-pipeline",
         help="Optional knowledge LLM pipeline: off or codex-farm-knowledge-v1.",
+    ),
+    llm_tags_pipeline: str = typer.Option(
+        "off",
+        "--llm-tags-pipeline",
+        help="Optional tags LLM pipeline: off or codex-farm-tags-v1.",
     ),
     codex_farm_cmd: str = typer.Option(
         "codex-farm",
@@ -7669,6 +7744,11 @@ def stage(
         "--codex-farm-pipeline-pass4-knowledge",
         help="Pass-4 codex-farm pipeline id (non-recipe knowledge harvesting).",
     ),
+    codex_farm_pipeline_pass5_tags: str = typer.Option(
+        "recipe.tags.v1",
+        "--codex-farm-pipeline-pass5-tags",
+        help="Pass-5 codex-farm pipeline id (tag suggestions).",
+    ),
     codex_farm_context_blocks: int = typer.Option(
         30,
         "--codex-farm-context-blocks",
@@ -7680,6 +7760,11 @@ def stage(
         "--codex-farm-knowledge-context-blocks",
         min=0,
         help="Blocks before/after each non-recipe chunk included as context in pass-4 bundles.",
+    ),
+    tag_catalog_json: Path = typer.Option(
+        Path("data/tagging/tag_catalog.json"),
+        "--tag-catalog-json",
+        help="Tag catalog snapshot used when --llm-tags-pipeline is enabled.",
     ),
     codex_farm_failure_mode: str = typer.Option(
         "fail",
@@ -7717,8 +7802,10 @@ def stage(
     epub_unstructured_preprocess_mode = _unwrap_typer_option_default(
         epub_unstructured_preprocess_mode
     )
+    table_extraction = _unwrap_typer_option_default(table_extraction)
     llm_recipe_pipeline = _unwrap_typer_option_default(llm_recipe_pipeline)
     llm_knowledge_pipeline = _unwrap_typer_option_default(llm_knowledge_pipeline)
+    llm_tags_pipeline = _unwrap_typer_option_default(llm_tags_pipeline)
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
     codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
     codex_farm_workspace_root = _unwrap_typer_option_default(codex_farm_workspace_root)
@@ -7728,10 +7815,14 @@ def stage(
     codex_farm_pipeline_pass4_knowledge = _unwrap_typer_option_default(
         codex_farm_pipeline_pass4_knowledge
     )
+    codex_farm_pipeline_pass5_tags = _unwrap_typer_option_default(
+        codex_farm_pipeline_pass5_tags
+    )
     codex_farm_context_blocks = _unwrap_typer_option_default(codex_farm_context_blocks)
     codex_farm_knowledge_context_blocks = _unwrap_typer_option_default(
         codex_farm_knowledge_context_blocks
     )
+    tag_catalog_json = _unwrap_typer_option_default(tag_catalog_json)
     codex_farm_failure_mode = _unwrap_typer_option_default(codex_farm_failure_mode)
 
     selected_epub_extractor = _normalize_epub_extractor(epub_extractor)
@@ -7743,8 +7834,10 @@ def stage(
     )
     selected_skip_headers_footers = bool(epub_unstructured_skip_headers_footers)
     selected_ocr_device = _normalize_ocr_device(ocr_device)
+    selected_table_extraction = _normalize_table_extraction(table_extraction)
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
     selected_llm_knowledge_pipeline = _normalize_llm_knowledge_pipeline(llm_knowledge_pipeline)
+    selected_llm_tags_pipeline = _normalize_llm_tags_pipeline(llm_tags_pipeline)
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
@@ -7764,6 +7857,11 @@ def stage(
         codex_farm_pipeline_pass4_knowledge,
         option="--codex-farm-pipeline-pass4-knowledge",
     )
+    selected_codex_farm_pipeline_pass5_tags = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass5_tags,
+        option="--codex-farm-pipeline-pass5-tags",
+    )
+    selected_tag_catalog_json = Path(tag_catalog_json).expanduser()
 
     # Apply EPUB unstructured runtime options for this run.
     # Extractor choice is passed explicitly into worker calls.
@@ -7779,6 +7877,14 @@ def stage(
         _fail(f"Mapping file not found: {mapping}")
     if overrides is not None and not overrides.exists():
         _fail(f"Overrides file not found: {overrides}")
+    if (
+        selected_llm_tags_pipeline != "off"
+        and not selected_tag_catalog_json.exists()
+    ):
+        _fail(
+            "Tag catalog JSON not found for --llm-tags-pipeline: "
+            f"{selected_tag_catalog_json}"
+        )
 
     if warm_models:
         with console.status("[bold cyan]Warming models...[/bold cyan]", spinner="dots"):
@@ -7833,8 +7939,10 @@ def stage(
         ocr_device=selected_ocr_device,
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,
+        table_extraction=selected_table_extraction,
         llm_recipe_pipeline=selected_llm_recipe_pipeline,
         llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
+        llm_tags_pipeline=selected_llm_tags_pipeline,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_root=codex_farm_root,
         codex_farm_workspace_root=codex_farm_workspace_root,
@@ -7842,8 +7950,10 @@ def stage(
         codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
         codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
         codex_farm_pipeline_pass4_knowledge=selected_codex_farm_pipeline_pass4_knowledge,
+        codex_farm_pipeline_pass5_tags=selected_codex_farm_pipeline_pass5_tags,
         codex_farm_context_blocks=codex_farm_context_blocks,
         codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
+        tag_catalog_json=selected_tag_catalog_json,
         codex_farm_failure_mode=selected_codex_farm_failure_mode,
         mapping_path=mapping,
         overrides_path=overrides,
@@ -8424,6 +8534,33 @@ def stage(
         logger.warning("Performance summary skipped: %s", exc)
 
     _write_knowledge_index_best_effort(out)
+
+    if run_settings.llm_tags_pipeline.value != "off":
+        typer.secho("\nRunning codex-farm tags pass...", fg=typer.colors.CYAN)
+        try:
+            tags_result = run_stage_tagging_pass(
+                run_root=out,
+                run_settings=run_settings,
+                status_callback=lambda message: typer.secho(
+                    message, fg=typer.colors.BRIGHT_BLACK
+                ),
+            )
+        except (CodexFarmRunnerError, FileNotFoundError, ValueError) as exc:
+            if run_settings.codex_farm_failure_mode.value == "fallback":
+                warning = (
+                    "LLM tags pass failed; continuing without tag artifacts: "
+                    f"{exc}"
+                )
+                typer.secho(warning, fg=typer.colors.YELLOW)
+                logger.warning(warning)
+            else:
+                raise
+        else:
+            if tags_result.tags_index_path is not None:
+                typer.secho(
+                    f"Tags pass complete: {tags_result.tags_index_path}",
+                    fg=typer.colors.GREEN,
+                )
 
     _write_stage_run_manifest(
         run_root=out,

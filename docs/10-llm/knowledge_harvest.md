@@ -23,6 +23,11 @@ Optional knobs:
 - `--codex-farm-pipeline-pass4-knowledge recipe.knowledge.v1`
 - `--codex-farm-knowledge-context-blocks 12`
 - `--codex-farm-root <pack_root>` and `--codex-farm-workspace-root <dir>`
+- `--table-extraction on` (recommended for table-heavy books; pass4 bundles then include `chunk.blocks[*].table_hint`)
+
+Chunking note:
+- pass4 inputs now come from a post-highlight adjacent-chunk consolidation step, so run-to-run chunk counts may decrease when same-topic knowledge blocks are contiguous.
+- table chunks are intentionally excluded from consolidation and remain isolated.
 
 ## Output locations
 
@@ -47,3 +52,7 @@ Local default pack files:
 - `llm_pipelines/pipelines/recipe.knowledge.v1.json`
 - `llm_pipelines/prompts/recipe.knowledge.v1.prompt.md`
 - `llm_pipelines/schemas/recipe.knowledge.v1.output.schema.json`
+
+`table_hint` contract note:
+- When table extraction is enabled, pass4 input can include `chunk.blocks[*].table_hint` (`table_id`, `caption`, `markdown`, `row_index_in_table`) to help structural interpretation.
+- Evidence still must quote verbatim from `chunk.blocks[*].text`.

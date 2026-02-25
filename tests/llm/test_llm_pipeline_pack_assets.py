@@ -34,6 +34,12 @@ EXPECTED_PIPELINES = {
         "schema_path": "schemas/recipe.knowledge.v1.output.schema.json",
         "required_keys": {"bundle_version", "chunk_id"},
     },
+    "recipe.tags.v1": {
+        "pipeline_file": "recipe.tags.v1.json",
+        "prompt_path": "prompts/recipe.tags.v1.prompt.md",
+        "schema_path": "schemas/recipe.tags.v1.output.schema.json",
+        "required_keys": {"bundle_version", "recipe_id", "selected_tags"},
+    },
 }
 
 

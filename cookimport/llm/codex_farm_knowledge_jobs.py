@@ -15,6 +15,7 @@ from .codex_farm_knowledge_contracts import (
     KnowledgeHeuristicsPayloadV1,
     KnowledgeJobSourceV1,
     KnowledgeChunkPayloadV1,
+    KnowledgeTableHintV1,
     Pass4KnowledgeJobInputV1,
     SpanV1,
 )
@@ -52,6 +53,7 @@ def build_pass4_knowledge_jobs(
 
     non_recipe_sorted = _sorted_blocks_by_index(non_recipe_blocks)
     non_recipe_indices = {int(block["index"]) for block in non_recipe_sorted}
+    table_hints_by_index = _table_hints_by_index(non_recipe_sorted)
 
     recipe_spans = _recipe_spans_from_indices(
         recipe_indices=[
@@ -76,6 +78,7 @@ def build_pass4_knowledge_jobs(
                 chunk=chunk,
                 sequence=sequence,
                 full_blocks_by_index=full_blocks_by_index,
+                table_hints_by_index=table_hints_by_index,
                 recipe_spans_payload=recipe_spans_payload,
                 context_blocks=context_blocks,
             )
@@ -173,6 +176,7 @@ def _build_job_payload(
     chunk: KnowledgeChunk,
     sequence: Sequence[dict[str, Any]],
     full_blocks_by_index: dict[int, dict[str, Any]],
+    table_hints_by_index: Mapping[int, KnowledgeTableHintV1],
     recipe_spans_payload: list[SpanV1],
     context_blocks: int,
 ) -> Pass4KnowledgeJobInputV1:
@@ -184,19 +188,31 @@ def _build_job_payload(
     block_end_index = absolute_indices[-1] + 1
 
     blocks_payload = [
-        _to_knowledge_block(full_blocks_by_index.get(idx) or {}, fallback_index=idx)
+        _to_knowledge_block(
+            full_blocks_by_index.get(idx) or {},
+            fallback_index=idx,
+            table_hint=table_hints_by_index.get(idx),
+        )
         for idx in absolute_indices
     ]
 
     before_indices = range(max(0, block_start_index - context_blocks), block_start_index)
     after_indices = range(block_end_index, block_end_index + max(0, int(context_blocks)))
     blocks_before = [
-        _to_knowledge_block(full_blocks_by_index[idx], fallback_index=idx)
+        _to_knowledge_block(
+            full_blocks_by_index[idx],
+            fallback_index=idx,
+            table_hint=table_hints_by_index.get(idx),
+        )
         for idx in before_indices
         if idx in full_blocks_by_index
     ]
     blocks_after = [
-        _to_knowledge_block(full_blocks_by_index[idx], fallback_index=idx)
+        _to_knowledge_block(
+            full_blocks_by_index[idx],
+            fallback_index=idx,
+            table_hint=table_hints_by_index.get(idx),
+        )
         for idx in after_indices
         if idx in full_blocks_by_index
     ]
@@ -264,7 +280,12 @@ def _absolute_indices_for_chunk(
     return indices
 
 
-def _to_knowledge_block(block: Mapping[str, Any], *, fallback_index: int) -> KnowledgeBlockV1:
+def _to_knowledge_block(
+    block: Mapping[str, Any],
+    *,
+    fallback_index: int,
+    table_hint: KnowledgeTableHintV1 | None = None,
+) -> KnowledgeBlockV1:
     features = block.get("features")
     if not isinstance(features, Mapping):
         features = {}
@@ -289,16 +310,72 @@ def _to_knowledge_block(block: Mapping[str, Any], *, fallback_index: int) -> Kno
         spine_index=spine_index,
         heading_level=heading_level,
         features_subset=_features_subset(features),
+        table_hint=table_hint,
     )
 
 
 def _features_subset(features: Mapping[str, Any]) -> dict[str, Any]:
     subset: dict[str, Any] = {}
-    for key in ("is_header_likely", "block_role"):
+    for key in ("is_header_likely", "block_role", "table_id", "table_row_index"):
         value = features.get(key)
         if isinstance(value, (str, int, float, bool)):
             subset[key] = value
     return subset
+
+
+def _table_hints_by_index(
+    non_recipe_blocks_sorted: Sequence[Mapping[str, Any]],
+) -> dict[int, KnowledgeTableHintV1]:
+    table_hints: dict[int, KnowledgeTableHintV1] = {}
+    for block in non_recipe_blocks_sorted:
+        index = _coerce_int(block.get("index"))
+        if index is None:
+            continue
+        table_hint = _normalize_table_hint(block)
+        if table_hint is None:
+            continue
+        table_hints[index] = table_hint
+    return table_hints
+
+
+def _normalize_table_hint(block: Mapping[str, Any]) -> KnowledgeTableHintV1 | None:
+    raw_hint = block.get("table_hint")
+    if isinstance(raw_hint, Mapping):
+        table_id = str(raw_hint.get("table_id") or "").strip()
+        if not table_id:
+            return None
+        caption = str(raw_hint.get("caption") or "").strip() or None
+        markdown = str(raw_hint.get("markdown") or "").strip() or None
+        row_index = _coerce_int(raw_hint.get("row_index_in_table"))
+        return KnowledgeTableHintV1(
+            table_id=table_id,
+            caption=caption,
+            markdown=markdown,
+            row_index_in_table=row_index,
+        )
+
+    features = block.get("features")
+    if not isinstance(features, Mapping):
+        features = {}
+    table_id = str(
+        block.get("table_id")
+        or features.get("table_id")
+        or ""
+    ).strip()
+    if not table_id:
+        return None
+    caption = str(features.get("table_caption") or "").strip() or None
+    row_index = _coerce_int(
+        block.get("table_row_index")
+        if block.get("table_row_index") is not None
+        else features.get("table_row_index")
+    )
+    return KnowledgeTableHintV1(
+        table_id=table_id,
+        caption=caption,
+        markdown=None,
+        row_index_in_table=row_index,
+    )
 
 
 def _coerce_int(value: Any) -> int | None:

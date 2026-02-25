@@ -3,16 +3,117 @@ from __future__ import annotations
 from typing import Any
 
 from cookimport.core.models import HowToStep, RecipeCandidate
+from cookimport.parsing.sections import (
+    extract_ingredient_sections,
+    extract_instruction_sections,
+)
 
 
-def _serialize_instructions(instructions: list[object]) -> list[object]:
-    serialized: list[object] = []
-    for item in instructions:
-        if isinstance(item, HowToStep):
-            serialized.append(item.model_dump(by_alias=True, exclude_none=True))
-        else:
-            serialized.append(item)
-    return serialized
+def _serialize_instruction_item(item: object) -> dict[str, Any]:
+    if isinstance(item, HowToStep):
+        return item.model_dump(by_alias=True, exclude_none=True)
+    return {"@type": "HowToStep", "text": str(item)}
+
+
+def _section_display_name(key: str, displays: dict[str, str]) -> str:
+    display_name = displays.get(key)
+    if display_name:
+        return display_name
+    return key.replace("_", " ").strip().title() or "Main"
+
+
+def _build_recipe_instructions(candidate: RecipeCandidate) -> list[object]:
+    if not candidate.instructions:
+        return []
+
+    raw_items = list(candidate.instructions)
+    raw_texts = [item.text if isinstance(item, HowToStep) else str(item) for item in raw_items]
+    sectioned = extract_instruction_sections(raw_texts)
+    header_indices = {hit.original_index for hit in sectioned.header_hits}
+
+    serialized_steps: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_items):
+        if index in header_indices:
+            continue
+        serialized_steps.append(_serialize_instruction_item(item))
+
+    if not serialized_steps:
+        return []
+
+    section_keys = sectioned.section_key_by_line
+    if len(section_keys) != len(serialized_steps):
+        return serialized_steps
+
+    ordered_unique_keys: list[str] = []
+    for key in section_keys:
+        if key not in ordered_unique_keys:
+            ordered_unique_keys.append(key)
+
+    if len(ordered_unique_keys) <= 1:
+        return serialized_steps
+
+    grouped: list[dict[str, Any]] = []
+    current_key: str | None = None
+    current_steps: list[dict[str, Any]] = []
+
+    for step, key in zip(serialized_steps, section_keys):
+        if key != current_key:
+            if current_key is not None:
+                grouped.append(
+                    {
+                        "@type": "HowToSection",
+                        "name": _section_display_name(current_key, sectioned.section_display_by_key),
+                        "itemListElement": current_steps,
+                    }
+                )
+            current_key = key
+            current_steps = [step]
+            continue
+        current_steps.append(step)
+
+    if current_key is not None:
+        grouped.append(
+            {
+                "@type": "HowToSection",
+                "name": _section_display_name(current_key, sectioned.section_display_by_key),
+                "itemListElement": current_steps,
+            }
+        )
+
+    return grouped
+
+
+def _build_ingredient_sections(candidate: RecipeCandidate) -> list[dict[str, Any]]:
+    if not candidate.ingredients:
+        return []
+
+    sectioned = extract_ingredient_sections(candidate.ingredients)
+    if not sectioned.header_hits:
+        return []
+
+    section_lines: dict[str, list[str]] = {}
+    for line, key in zip(sectioned.lines_no_headers, sectioned.section_key_by_line):
+        section_lines.setdefault(key, []).append(line)
+
+    ordered_keys: list[str] = []
+    for key in sectioned.section_key_by_line:
+        if key not in ordered_keys:
+            ordered_keys.append(key)
+
+    payload: list[dict[str, Any]] = []
+    for key in ordered_keys:
+        lines = section_lines.get(key, [])
+        if not lines:
+            continue
+        payload.append(
+            {
+                "name": _section_display_name(key, sectioned.section_display_by_key),
+                "key": key,
+                "recipeIngredient": lines,
+            }
+        )
+
+    return payload
 
 
 def recipe_candidate_to_jsonld(candidate: RecipeCandidate) -> dict[str, Any]:
@@ -37,8 +138,15 @@ def recipe_candidate_to_jsonld(candidate: RecipeCandidate) -> dict[str, Any]:
         payload["recipeYield"] = candidate.recipe_yield
     if candidate.ingredients:
         payload["recipeIngredient"] = candidate.ingredients
-    if candidate.instructions:
-        payload["recipeInstructions"] = _serialize_instructions(candidate.instructions)
+
+    instructions_payload = _build_recipe_instructions(candidate)
+    if instructions_payload:
+        payload["recipeInstructions"] = instructions_payload
+
+    ingredient_sections = _build_ingredient_sections(candidate)
+    if ingredient_sections:
+        payload["recipeimport:ingredientSections"] = ingredient_sections
+
     if candidate.tags:
         payload["keywords"] = ", ".join(candidate.tags)
     if candidate.image:

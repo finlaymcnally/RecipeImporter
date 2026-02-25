@@ -19,6 +19,7 @@ _SUMMARY_ORDER = (
     "epub_unstructured_html_parser_version",
     "epub_unstructured_skip_headers_footers",
     "epub_unstructured_preprocess_mode",
+    "table_extraction",
     "ocr_device",
     "ocr_batch_size",
     "workers",
@@ -30,14 +31,17 @@ _SUMMARY_ORDER = (
     "warm_models",
     "llm_recipe_pipeline",
     "llm_knowledge_pipeline",
+    "llm_tags_pipeline",
     "codex_farm_cmd",
     "codex_farm_pipeline_pass1",
     "codex_farm_pipeline_pass2",
     "codex_farm_pipeline_pass3",
     "codex_farm_pipeline_pass4_knowledge",
+    "codex_farm_pipeline_pass5_tags",
     "codex_farm_context_blocks",
     "codex_farm_knowledge_context_blocks",
     "codex_farm_failure_mode",
+    "tag_catalog_json",
     "mapping_path",
     "overrides_path",
 )
@@ -77,6 +81,11 @@ class OcrDevice(str, Enum):
     mps = "mps"
 
 
+class TableExtraction(str, Enum):
+    off = "off"
+    on = "on"
+
+
 class LlmRecipePipeline(str, Enum):
     off = "off"
     codex_farm_3pass_v1 = "codex-farm-3pass-v1"
@@ -85,6 +94,11 @@ class LlmRecipePipeline(str, Enum):
 class LlmKnowledgePipeline(str, Enum):
     off = "off"
     codex_farm_knowledge_v1 = "codex-farm-knowledge-v1"
+
+
+class LlmTagsPipeline(str, Enum):
+    off = "off"
+    codex_farm_tags_v1 = "codex-farm-tags-v1"
 
 
 class CodexFarmFailureMode(str, Enum):
@@ -230,6 +244,18 @@ class RunSettings(BaseModel):
             description="EPUB HTML preprocessing mode before Unstructured partitioning.",
         ),
     )
+    table_extraction: TableExtraction = Field(
+        default=TableExtraction.off,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="Table Extraction",
+            order=65,
+            description=(
+                "Detect and export non-recipe tables (tables.jsonl/tables.md) and keep "
+                "table rows together during knowledge chunking."
+            ),
+        ),
+    )
     ocr_device: OcrDevice = Field(
         default=OcrDevice.auto,
         json_schema_extra=_ui_meta(
@@ -282,6 +308,18 @@ class RunSettings(BaseModel):
             order=105,
             description=(
                 "Optional non-recipe knowledge harvesting pipeline. "
+                "Off keeps deterministic behavior."
+            ),
+        ),
+    )
+    llm_tags_pipeline: LlmTagsPipeline = Field(
+        default=LlmTagsPipeline.off,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Tags LLM Pipeline",
+            order=106,
+            description=(
+                "Optional pass-5 tag suggestion pipeline over staged final drafts. "
                 "Off keeps deterministic behavior."
             ),
         ),
@@ -352,6 +390,15 @@ class RunSettings(BaseModel):
             description="codex-farm pipeline id used for knowledge harvesting (pass4).",
         ),
     )
+    codex_farm_pipeline_pass5_tags: str = Field(
+        default="recipe.tags.v1",
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Pass5 Tags Pipeline",
+            order=130,
+            description="codex-farm pipeline id used for tag suggestions (pass5).",
+        ),
+    )
     codex_farm_context_blocks: int = Field(
         default=30,
         ge=0,
@@ -359,7 +406,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Context Blocks",
-            order=130,
+            order=131,
             description="Blocks before/after a candidate included in pass-1 bundles.",
             step=1,
             minimum=0,
@@ -373,11 +420,22 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Knowledge Context Blocks",
-            order=131,
+            order=132,
             description="Blocks before/after a knowledge chunk included as context in pass-4 bundles.",
             step=1,
             minimum=0,
             maximum=500,
+        ),
+    )
+    tag_catalog_json: str = Field(
+        default="data/tagging/tag_catalog.json",
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Tag Catalog JSON",
+            order=133,
+            description=(
+                "Tag catalog snapshot path used by pass-5 tag suggestions when llm_tags_pipeline is enabled."
+            ),
         ),
     )
     codex_farm_failure_mode: CodexFarmFailureMode = Field(
@@ -604,8 +662,10 @@ def build_run_settings(
     ocr_device: str | OcrDevice,
     ocr_batch_size: int,
     warm_models: bool,
+    table_extraction: str | TableExtraction = TableExtraction.off,
     llm_recipe_pipeline: str | LlmRecipePipeline = LlmRecipePipeline.off,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
+    llm_tags_pipeline: str | LlmTagsPipeline = LlmTagsPipeline.off,
     codex_farm_cmd: str = "codex-farm",
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
@@ -613,8 +673,10 @@ def build_run_settings(
     codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
     codex_farm_pipeline_pass3: str = "recipe.final.v1",
     codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.v1",
+    codex_farm_pipeline_pass5_tags: str = "recipe.tags.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_knowledge_context_blocks: int = 12,
+    tag_catalog_json: Path | str = "data/tagging/tag_catalog.json",
     codex_farm_failure_mode: str | CodexFarmFailureMode = CodexFarmFailureMode.fail,
     mapping_path: Path | None = None,
     overrides_path: Path | None = None,
@@ -651,8 +713,10 @@ def build_run_settings(
             "ocr_device": _normalized_value(ocr_device),
             "ocr_batch_size": ocr_batch_size,
             "warm_models": bool(warm_models),
+            "table_extraction": _normalized_value(table_extraction),
             "llm_recipe_pipeline": _normalized_value(llm_recipe_pipeline),
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
+            "llm_tags_pipeline": _normalized_value(llm_tags_pipeline),
             "codex_farm_cmd": str(codex_farm_cmd).strip() or "codex-farm",
             "codex_farm_root": (
                 str(codex_farm_root) if codex_farm_root is not None else None
@@ -675,8 +739,14 @@ def build_run_settings(
                 str(codex_farm_pipeline_pass4_knowledge).strip()
                 or "recipe.knowledge.v1"
             ),
+            "codex_farm_pipeline_pass5_tags": (
+                str(codex_farm_pipeline_pass5_tags).strip() or "recipe.tags.v1"
+            ),
             "codex_farm_context_blocks": int(codex_farm_context_blocks),
             "codex_farm_knowledge_context_blocks": int(codex_farm_knowledge_context_blocks),
+            "tag_catalog_json": (
+                str(tag_catalog_json).strip() or "data/tagging/tag_catalog.json"
+            ),
             "codex_farm_failure_mode": _normalized_value(codex_farm_failure_mode),
             "effective_workers": resolved_effective_workers,
             "mapping_path": str(mapping_path) if mapping_path is not None else None,

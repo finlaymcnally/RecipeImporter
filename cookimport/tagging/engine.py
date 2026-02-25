@@ -21,6 +21,8 @@ class TagSuggestion:
     category_key: str
     confidence: float
     evidence: list[str] = field(default_factory=list)
+    source: str = "deterministic"
+    llm_pipeline_id: str | None = None
 
 
 # Precompile regex patterns once at import time

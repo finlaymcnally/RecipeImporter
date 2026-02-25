@@ -38,7 +38,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Final conversion to cookbook3 output shape (internal model label still `RecipeDraftV1`).
   - Applies staging safety normalization for ingredient lines.
 - `cookimport/staging/writer.py`
-  - Writes intermediate/final outputs, tips, topic candidates, chunks, raw artifacts, and report JSON.
+  - Writes intermediate/final outputs, section artifacts, tips, topic candidates, chunks, raw artifacts, and report JSON.
   - Generates/stabilizes IDs where needed.
 - `cookimport/staging/pdf_jobs.py`
   - Split-job helpers: range planning and post-merge recipe/tip ID reassignment by source order.
@@ -68,22 +68,37 @@ Per workbook (slugified file stem):
 
 - `intermediate drafts/<workbook_slug>/r{index}.jsonld`
 - `final drafts/<workbook_slug>/r{index}.json`
+- `sections/<workbook_slug>/r{index}.sections.json`
+- `sections/<workbook_slug>/sections.md`
 - `tips/<workbook_slug>/t{index}.json`
 - `tips/<workbook_slug>/tips.md`
 - `tips/<workbook_slug>/topic_candidates.json` (if any)
 - `tips/<workbook_slug>/topic_candidates.md` (if any)
 - `chunks/<workbook_slug>/c{index}.json` (if any)
 - `chunks/<workbook_slug>/chunks.md` (if any)
+- `tables/<workbook_slug>/tables.jsonl` and `tables/<workbook_slug>/tables.md` (when `table_extraction=on`)
 - `knowledge/<workbook_slug>/snippets.jsonl` (if pass4 knowledge harvesting is enabled)
 - `knowledge/<workbook_slug>/knowledge.md` (if pass4 knowledge harvesting is enabled)
 - `knowledge/knowledge_index.json` (if any knowledge artifacts were written in the run)
+- `tags/<workbook_slug>/r{index}.tags.json` (if pass5 tags pipeline is enabled)
+- `tags/<workbook_slug>/tagging_report.json` (if pass5 tags pipeline is enabled)
+- `tags/tags_index.json` (if any pass5 tag artifacts were written in the run)
 - `raw/<importer>/<source_hash>/<location_id>.<ext>` (if any)
+- `raw/llm/<workbook_slug>/pass5_tags/in/*.json` + `out/*.json` + `pass5_tags_manifest.json` (if pass5 tags pipeline is enabled)
 - `<workbook_slug>.excel_import_report.json` at run root
 
 Code pointers (prefer these over line numbers, which drift often):
 
 - `cookimport/cli_worker.py` (`stage_one_file`) and `cookimport/cli.py` (`_merge_split_jobs`) assemble per-run output dirs and invoke staging writers.
-- `cookimport/staging/writer.py` (`write_intermediate_outputs`, `write_draft_outputs`, `write_tip_outputs`, `write_topic_candidate_outputs`, `write_chunk_outputs`, `write_raw_artifacts`, `write_report`) implements the file layout above.
+- `cookimport/staging/writer.py` (`write_intermediate_outputs`, `write_draft_outputs`, `write_section_outputs`, `write_tip_outputs`, `write_topic_candidate_outputs`, `write_chunk_outputs`, `write_table_outputs`, `write_raw_artifacts`, `write_report`) implements the file layout above.
+
+## Intermediate JSON-LD Section Behavior
+
+- `cookimport/staging/jsonld.py` now removes detected instruction section headers from literal step text.
+- When multiple instruction sections are detected, `recipeInstructions` is emitted as `HowToSection` objects with `itemListElement` `HowToStep` entries.
+- Ingredient section groupings are emitted in custom metadata:
+  - `recipeimport:ingredientSections` with `name`, `key`, and grouped `recipeIngredient` lines.
+- Final cookbook3 (`draft_v1`) shape is unchanged; this richer structure is intermediate-only.
 
 ## ID and Provenance Behavior in Staging
 

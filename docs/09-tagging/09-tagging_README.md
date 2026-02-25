@@ -18,12 +18,16 @@ For tagging architecture/build/fix-attempt history and anti-loop context, use `d
 - `policies.py`: category policy enforcement
 - `engine.py`: scoring and selection
 - `db_write.py`: idempotent DB apply path
-- `llm_second_pass.py`: optional second-pass LLM scaffolding
+- `llm_second_pass.py`: optional codex-farm-backed second pass for missing categories
+- `codex_farm_tags_provider.py`: strict pass-5 shortlist/catalog validation and codex-farm IO boundary
+- `orchestrator.py`: shared draft-folder tagging runner and stage pass integration
 
 ## Operational docs
 
 - Module-level quickstart:
   `cookimport/tagging/README.md`
+- Pass5 LLM tagging details:
+  `docs/10-llm/tags_pass.md`
 - Implementation plan details:
   `docs/plans/I4.1-Auto-tag.md`
 - Version/build/fix-attempt history:

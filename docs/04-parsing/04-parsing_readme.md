@@ -39,6 +39,7 @@ Core modules:
 - `cookimport/parsing/tips.py`
 - `cookimport/parsing/atoms.py`
 - `cookimport/parsing/chunks.py`
+- `cookimport/parsing/tables.py`
 - `cookimport/parsing/signals.py`
 - `cookimport/parsing/cleaning.py`
 - `cookimport/parsing/tip_taxonomy.py`
@@ -170,6 +171,16 @@ Matching order:
 - `reference` verbs: negative score
 - `split` signals (`half`, `remaining`, `reserved`, etc.) enable multi-step behavior only when strong conditions are met
 
+### Section extraction and context
+
+- `cookimport/parsing/sections.py` provides deterministic section extraction for:
+  - ingredient headers (for example `For the gravy:`),
+  - instruction headers (conservative heuristics; header-like short lines only).
+- Section keys are normalized (`For the Gravy:` -> `gravy`) so ingredient/instruction sections align.
+- In `assign_ingredient_lines_to_steps(...)`, optional section context can bias ambiguous matches:
+  - near-tied candidates prefer same-section steps,
+  - repeated ingredient names across components resolve by section when context is available.
+
 ### Assignment rules
 
 - Default: one best step per ingredient.
@@ -185,20 +196,22 @@ Matching order:
 ### Special passes after global assignment
 
 - `all ingredients` phrases can assign all non-header ingredients to a step.
+  - when section context is present and the recipe has multiple sections, this scopes to ingredients in that same section.
 - Section-header groups can add grouped ingredients to steps mentioning group aliases.
 - Collective-term fallback for unmatched ingredients:
   - categories currently: `spices`, `herbs`, `seasonings`
-  - assigns to first step mentioning collective term
+  - prefers same-section steps when section context exists, then falls back globally
 
 ### Critical tradeoffs and known bad behavior
 
 - Collective-term fallback is intentionally conservative but can misassign when the same collective term appears later for a different subcomponent.
 - Weak single-token aliases are filtered against strong overlapping tokens in same step, but token-only matching can still be noisy on generic terms.
-- Duplicate ingredient names are keyed by text during some merge checks, which can blur identical repeated lines.
+- Section detection for instructions is intentionally conservative; odd short lines can still be false negatives (left as literal steps) to avoid deleting real instructions.
 
 ### Tests to read
 
-- `tests/test_step_ingredient_linking.py`
+- `tests/parsing/test_step_ingredient_linking.py`
+- `tests/parsing/test_recipe_sections.py`
 
 ## EPUB Segmentation Rules That Matter (`cookimport/plugins/epub.py`)
 
@@ -297,6 +310,7 @@ Gates include:
 2. `merge_small_chunks`
 3. `assign_lanes`
 4. `extract_highlights`
+5. `consolidate_adjacent_knowledge_chunks` (adjacent same-topic knowledge only)
 
 ### Chunk construction
 
@@ -305,6 +319,22 @@ Gates include:
 - Format-mode boundaries (prose/list shifts).
 - Max-char boundary.
 - Stop headings (index, acknowledgments, etc.) can be excluded.
+
+### Table-aware behavior
+
+- When stage run setting `table_extraction=on` is enabled, table rows in `non_recipe_blocks` are tagged with `features.table_id` + `features.table_row_index`.
+- `chunk_non_recipe_blocks` treats same-`table_id` runs as atomic for max-char splitting (it does not split in the middle of a detected table).
+- Chunks carrying `provenance.table_ids` are forced to `knowledge` lane so table facts are not dropped as noise.
+- Table chunks are never merged with non-table chunks, in either `merge_small_chunks` or adjacent-chunk consolidation.
+
+### Adjacent consolidation behavior
+
+- Runs after highlights so heading context + merged tags can be used as topic signals.
+- Only considers adjacent `knowledge` chunks.
+- Requires contiguous absolute block ranges (`left_end + 1 == right_start`, inclusive-range convention).
+- Same-topic rule is conservative: same heading context first; tag-only fallback is allowed only when heading context is missing.
+- Chunk-size cap uses the active chunk profile max chars.
+- Kill switch: set `COOKIMPORT_CONSOLIDATE_ADJACENT_KNOWLEDGE_CHUNKS=0` to disable this pass for debugging/regression isolation.
 
 ### Lane assignment
 
@@ -330,7 +360,7 @@ Current effective lanes:
 
 ### Tests to read
 
-- `tests/test_chunks.py`
+- `tests/parsing/test_chunks.py`
 
 ## Signals and Cleaning (Support Modules)
 

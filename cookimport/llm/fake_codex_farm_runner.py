@@ -111,4 +111,70 @@ def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]
                 }
             ],
         }
+    if pipeline_id == "recipe.tags.v1":
+        recipe_id = str(payload.get("recipe_id") or "").strip() or "recipe"
+        missing_categories = payload.get("missing_categories") or []
+        candidates_by_category = payload.get("candidates_by_category") or {}
+        combined_text = " ".join(
+            [
+                str(payload.get("title") or ""),
+                str(payload.get("description") or ""),
+                str(payload.get("notes") or ""),
+                " ".join(str(line) for line in (payload.get("ingredients") or [])),
+                " ".join(str(line) for line in (payload.get("instructions") or [])),
+            ]
+        ).lower()
+        selected_tags: list[dict[str, Any]] = []
+        for category in missing_categories:
+            candidates = candidates_by_category.get(category) or []
+            chosen = _choose_tag_candidate(candidates, combined_text=combined_text)
+            if chosen is None:
+                continue
+            selected_tags.append(
+                {
+                    "tag_key_norm": chosen["tag_key_norm"],
+                    "category_key_norm": str(category),
+                    "confidence": 0.74,
+                    "evidence": chosen["evidence"],
+                }
+            )
+        return {
+            "bundle_version": "1",
+            "recipe_id": recipe_id,
+            "selected_tags": selected_tags,
+            "new_tag_proposals": [],
+        }
     raise ValueError(f"Unsupported fake pipeline id: {pipeline_id}")
+
+
+def _choose_tag_candidate(
+    candidates: list[dict[str, Any]],
+    *,
+    combined_text: str,
+) -> dict[str, str] | None:
+    for candidate in candidates:
+        tag_key = str(candidate.get("tag_key_norm") or "").strip()
+        display_name = str(candidate.get("display_name") or "").strip()
+        if not tag_key:
+            continue
+        evidence_hint = display_name or tag_key
+        keywords = {
+            token.strip().lower()
+            for token in evidence_hint.replace("-", " ").split()
+            if token.strip()
+        }
+        for keyword in keywords:
+            if len(keyword) >= 3 and keyword in combined_text:
+                return {
+                    "tag_key_norm": tag_key,
+                    "evidence": f"Matched keyword '{keyword}' in recipe text.",
+                }
+    if candidates:
+        first = candidates[0]
+        tag_key = str(first.get("tag_key_norm") or "").strip()
+        if tag_key:
+            return {
+                "tag_key_norm": tag_key,
+                "evidence": "Fallback to first shortlist candidate.",
+            }
+    return None

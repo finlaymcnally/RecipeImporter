@@ -10,6 +10,7 @@ from typing import Any
 from ingredient_parser import parse_ingredient
 from ingredient_parser.dataclasses import ParsedIngredient, IngredientAmount
 
+from cookimport.parsing.sections import is_ingredient_section_header_line
 
 _APPROXIMATE_PATTERNS = (
     re.compile(r"\bto taste\b"),
@@ -99,29 +100,7 @@ def _is_section_header_heuristic(text: str) -> bool:
     - Title case section names: "For the Filling"
     - Known section keywords: "Garnish", "Marinade", etc.
     """
-    stripped = text.strip().rstrip(":")
-
-    # Single word, all caps, no numbers
-    if re.match(r"^[A-Z][A-Z\s]{0,20}$", stripped) and not any(c.isdigit() for c in stripped):
-        words = stripped.split()
-        if len(words) <= 3:
-            return True
-
-    # "For the X" pattern
-    if re.match(r"^[Ff]or [Tt]he \w+", stripped):
-        return True
-
-    # Known section header keywords (single word, title case)
-    section_keywords = {
-        "marinade", "filling", "garnish", "topping", "sauce",
-        "dressing", "crust", "glaze", "frosting", "batter",
-        "seasoning", "rub", "brine", "assembly", "ingredients",
-        "topping", "coating", "stuffing", "drizzle",
-    }
-    if stripped.lower() in section_keywords:
-        return True
-
-    return False
+    return is_ingredient_section_header_line(text)
 
 
 def _is_section_header_from_parsed(text: str, parsed: ParsedIngredient) -> bool:

@@ -21,6 +21,8 @@ from cookimport.core.models import (
     TipTags,
     TopicCandidate,
 )
+from cookimport.parsing.tables import ExtractedTable
+from cookimport.parsing.sections import extract_ingredient_sections, extract_instruction_sections
 from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
 from cookimport.staging.jsonld import recipe_candidate_to_jsonld
 
@@ -31,7 +33,9 @@ _OUTPUT_CATEGORY_FINAL = "finalDrafts"
 _OUTPUT_CATEGORY_TIPS = "tips"
 _OUTPUT_CATEGORY_TOPIC_CANDIDATES = "topicCandidates"
 _OUTPUT_CATEGORY_CHUNKS = "chunks"
+_OUTPUT_CATEGORY_TABLES = "tables"
 _OUTPUT_CATEGORY_RAW = "rawArtifacts"
+_OUTPUT_CATEGORY_SECTIONS = "sections"
 
 
 @dataclass
@@ -370,6 +374,130 @@ def write_draft_outputs(
             output_stats=output_stats,
             category=_OUTPUT_CATEGORY_FINAL,
         )
+
+
+def _coerce_instruction_text(value: Any) -> str:
+    text = getattr(value, "text", value)
+    return str(text).strip()
+
+
+def _section_display_name(key: str, *display_maps: dict[str, str]) -> str:
+    for mapping in display_maps:
+        display_name = mapping.get(key)
+        if display_name:
+            return display_name
+    return key.replace("_", " ").strip().title() or "Main"
+
+
+def write_section_outputs(
+    out_dir: Path,
+    workbook_slug: str,
+    candidates: list[RecipeCandidate],
+    *,
+    output_stats: OutputStats | None = None,
+) -> None:
+    """Write grouped ingredient/step section artifacts per recipe."""
+    sections_dir = out_dir / "sections" / workbook_slug
+    sections_dir.mkdir(parents=True, exist_ok=True)
+
+    markdown_lines = [
+        "# Recipe Sections",
+        "",
+    ]
+
+    for index, candidate in enumerate(candidates):
+        ingredient_sections = extract_ingredient_sections(candidate.ingredients)
+        instruction_texts = [_coerce_instruction_text(item) for item in candidate.instructions]
+        instruction_sections = extract_instruction_sections(instruction_texts)
+
+        ingredient_by_key: dict[str, list[str]] = {}
+        for line, key in zip(
+            ingredient_sections.lines_no_headers,
+            ingredient_sections.section_key_by_line,
+        ):
+            ingredient_by_key.setdefault(key, []).append(line)
+
+        steps_by_key: dict[str, list[str]] = {}
+        for line, key in zip(
+            instruction_sections.lines_no_headers,
+            instruction_sections.section_key_by_line,
+        ):
+            steps_by_key.setdefault(key, []).append(line)
+
+        ordered_keys: list[str] = []
+        for key in ingredient_sections.section_key_by_line + instruction_sections.section_key_by_line:
+            if key not in ordered_keys:
+                ordered_keys.append(key)
+
+        section_entries: list[dict[str, Any]] = []
+        for key in ordered_keys:
+            ingredients = ingredient_by_key.get(key, [])
+            steps = steps_by_key.get(key, [])
+            if not ingredients and not steps:
+                continue
+            section_entries.append(
+                {
+                    "name": _section_display_name(
+                        key,
+                        instruction_sections.section_display_by_key,
+                        ingredient_sections.section_display_by_key,
+                    ),
+                    "key": key,
+                    "ingredients": ingredients,
+                    "steps": steps,
+                }
+            )
+
+        recipe_id = (
+            candidate.provenance.get("@id")
+            or candidate.provenance.get("id")
+            or candidate.identifier
+            or f"r{index}"
+        )
+        payload = {
+            "recipe_id": recipe_id,
+            "title": candidate.name,
+            "sections": section_entries,
+        }
+        section_json_path = sections_dir / f"r{index}.sections.json"
+        _write_json_payload(
+            payload,
+            section_json_path,
+            output_stats=output_stats,
+            category=_OUTPUT_CATEGORY_SECTIONS,
+        )
+
+        markdown_lines.append(f"## r{index}: {candidate.name}")
+        if not section_entries:
+            markdown_lines.append("")
+            markdown_lines.append("(No section groups detected.)")
+            markdown_lines.append("")
+            continue
+        markdown_lines.append("")
+        for section in section_entries:
+            markdown_lines.append(f"### {section['name']} ({section['key']})")
+            ingredients = section.get("ingredients", [])
+            steps = section.get("steps", [])
+            if ingredients:
+                markdown_lines.append("Ingredients:")
+                for ingredient in ingredients:
+                    markdown_lines.append(f"- {ingredient}")
+            else:
+                markdown_lines.append("Ingredients: (none)")
+            if steps:
+                markdown_lines.append("Steps:")
+                for step in steps:
+                    markdown_lines.append(f"- {step}")
+            else:
+                markdown_lines.append("Steps: (none)")
+            markdown_lines.append("")
+
+    _write_text_payload(
+        "\n".join(markdown_lines).rstrip() + "\n",
+        sections_dir / "sections.md",
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_SECTIONS,
+    )
 
 
 def write_tip_outputs(
@@ -758,6 +886,59 @@ def write_chunk_outputs(
         summary_path,
         output_stats=output_stats,
         category=_OUTPUT_CATEGORY_CHUNKS,
+    )
+
+
+def write_table_outputs(
+    run_out_dir: Path,
+    workbook_slug: str,
+    tables: list[ExtractedTable],
+    *,
+    source_file: str | None = None,
+    output_stats: OutputStats | None = None,
+) -> None:
+    tables_dir = run_out_dir / "tables" / workbook_slug
+    tables_dir.mkdir(parents=True, exist_ok=True)
+
+    jsonl_lines = [
+        json.dumps(table.model_dump(mode="json", exclude_none=True), sort_keys=True)
+        for table in tables
+    ]
+    jsonl_payload = "\n".join(jsonl_lines)
+    if jsonl_payload:
+        jsonl_payload += "\n"
+    _write_text_payload(
+        jsonl_payload,
+        tables_dir / "tables.jsonl",
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_TABLES,
+    )
+
+    lines = ["# Extracted Tables", ""]
+    if not tables:
+        lines.append("(No tables detected.)")
+    else:
+        for table_index, table in enumerate(tables, start=1):
+            title = table.caption or f"Table {table_index}"
+            lines.append(f"## {title}")
+            lines.append("")
+            source_value = source_file or "unknown"
+            lines.append(
+                "Source: "
+                f"{source_value} | Blocks: {table.start_block_index}-{table.end_block_index} "
+                f"| Confidence: {table.confidence:.2f}"
+            )
+            lines.append("")
+            if table.markdown:
+                lines.append(table.markdown)
+            else:
+                lines.append("(No renderable rows)")
+            lines.append("")
+    _write_text_payload(
+        "\n".join(lines).rstrip() + "\n",
+        tables_dir / "tables.md",
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_TABLES,
     )
 
 

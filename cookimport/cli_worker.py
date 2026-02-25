@@ -13,7 +13,7 @@ from typing import Any
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionReport, MappingConfig
 from cookimport.core.slug import slugify_name
-from cookimport.core.reporting import enrich_report_with_stats
+from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
 from cookimport.core.timing import TimingStats, measure
 from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_knowledge_harvest
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
@@ -22,6 +22,7 @@ from cookimport.plugins import registry
 # Ensure plugins are registered in workers
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
+from cookimport.parsing.tables import ExtractedTable, extract_and_annotate_tables
 from cookimport.staging.writer import (
     OutputStats,
     write_chunk_outputs,
@@ -29,6 +30,8 @@ from cookimport.staging.writer import (
     write_intermediate_outputs,
     write_raw_artifacts,
     write_report,
+    write_section_outputs,
+    write_table_outputs,
     write_tip_outputs,
     write_topic_candidate_outputs,
 )
@@ -145,6 +148,17 @@ def _apply_epub_auto_metadata(
         report.epub_auto_selection = dict(epub_auto_selection)
     if epub_auto_selected_score is not None:
         report.epub_auto_selected_score = float(epub_auto_selected_score)
+
+
+def _resolve_table_source_hash(result: Any, file_path: Path) -> str:
+    for artifact in getattr(result, "raw_artifacts", []):
+        source_hash = getattr(artifact, "source_hash", None)
+        if source_hash:
+            return str(source_hash)
+    try:
+        return compute_file_hash(file_path)
+    except Exception:
+        return "unknown"
 
 
 def _run_import(
@@ -290,6 +304,14 @@ def stage_one_file(
                 llm_draft_overrides = llm_apply.final_overrides_by_recipe_id
                 llm_report = dict(llm_apply.llm_report)
 
+        extracted_tables: list[ExtractedTable] = []
+        if run_settings.table_extraction.value == "on" and result.non_recipe_blocks:
+            _report_progress("Extracting knowledge tables...")
+            extracted_tables = extract_and_annotate_tables(
+                result.non_recipe_blocks,
+                source_hash=_resolve_table_source_hash(result, file_path),
+            )
+
         # Generate knowledge chunks
         _report_progress("Generating knowledge chunks...")
         parsing_overrides = None
@@ -365,6 +387,13 @@ def stage_one_file(
                     output_stats=output_stats,
                     draft_overrides_by_recipe_id=llm_draft_overrides,
                 )
+            with measure(file_stats, "write_sections_seconds"):
+                write_section_outputs(
+                    out,
+                    workbook_slug,
+                    result.recipes,
+                    output_stats=output_stats,
+                )
             with measure(file_stats, "write_tips_seconds"):
                 write_tip_outputs(result, tips_dir, output_stats=output_stats)
             with measure(file_stats, "write_topic_candidates_seconds"):
@@ -374,6 +403,15 @@ def stage_one_file(
                 chunks_dir = out / "chunks" / workbook_slug
                 with measure(file_stats, "write_chunks_seconds"):
                     write_chunk_outputs(result.chunks, chunks_dir, output_stats=output_stats)
+            if run_settings.table_extraction.value == "on":
+                with measure(file_stats, "write_tables_seconds"):
+                    write_table_outputs(
+                        out,
+                        workbook_slug,
+                        extracted_tables,
+                        source_file=file_path.name,
+                        output_stats=output_stats,
+                    )
 
             with measure(file_stats, "write_raw_seconds"):
                 write_raw_artifacts(result, out, output_stats=output_stats)

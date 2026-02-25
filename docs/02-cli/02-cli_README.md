@@ -128,6 +128,7 @@ Config keys and defaults:
 - `epub_unstructured_html_parser_version` (default `v1`)
 - `epub_unstructured_skip_headers_footers` (default `false`)
 - `epub_unstructured_preprocess_mode` (default `br_split_v1`)
+- `table_extraction` (default `off`)
 - `ocr_device` (default `auto`)
 - `ocr_batch_size` (default `1`)
 - `output_dir` (default `data/output`)
@@ -138,6 +139,7 @@ Config keys and defaults:
 - `warm_models` (default `false`)
 - `llm_recipe_pipeline` (default `off`)
 - `llm_knowledge_pipeline` (default `off`)
+- `llm_tags_pipeline` (default `off`)
 - `codex_farm_cmd` (default `codex-farm`)
 - `codex_farm_root` (default unset; falls back to `<repo_root>/llm_pipelines`)
 - `codex_farm_workspace_root` (default unset; pipeline `codex_cd_mode` decides Codex `--cd`)
@@ -145,8 +147,10 @@ Config keys and defaults:
 - `codex_farm_pipeline_pass2` (default `recipe.schemaorg.v1`)
 - `codex_farm_pipeline_pass3` (default `recipe.final.v1`)
 - `codex_farm_pipeline_pass4_knowledge` (default `recipe.knowledge.v1`)
+- `codex_farm_pipeline_pass5_tags` (default `recipe.tags.v1`)
 - `codex_farm_context_blocks` (default `30`)
 - `codex_farm_knowledge_context_blocks` (default `12`)
+- `tag_catalog_json` (default `data/tagging/tag_catalog.json`)
 - `codex_farm_failure_mode` (default `fail`)
 
 What each setting affects:
@@ -159,19 +163,22 @@ What each setting affects:
 - `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
 - `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
 - `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none`, `br_split_v1`, or `semantic_v1` alias).
+- `table_extraction`: deterministic non-recipe table detection/export (`tables.jsonl`, `tables.md`) and table-aware chunking behavior.
 - `ocr_device`, `ocr_batch_size`: OCR path for PDFs.
 - `output_dir`: interactive `stage` target output root.
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
 - `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
 - `llm_recipe_pipeline`: recipe codex-farm parsing correction flow. Policy-locked `off` for now (non-`off` values are rejected).
 - `llm_knowledge_pipeline`: optional knowledge-harvest flow (`off` or `codex-farm-knowledge-v1`) used by `stage` only.
+- `llm_tags_pipeline`: optional tags pass (`off` or `codex-farm-tags-v1`) used by `stage` only.
+- `tag_catalog_json`: required catalog snapshot path when `llm_tags_pipeline` is enabled.
 - `codex_farm_*`: codex-farm command/root/workspace/pipeline-id/context/failure behavior used by `stage`; recipe-pass subset remains wired for benchmark prediction generation but is inactive while `llm_recipe_pipeline` is policy-locked to `off`.
 
 Developer note:
 - Per-run toggle definitions live in `cookimport/config/run_settings.py`. Add new fields there with `ui_*` metadata so the interactive editor picks them up automatically.
 - The full-screen run-settings editor auto-scrolls to keep the selected row visible when the settings list exceeds terminal height.
 - `stage(...)` is called both by Typer CLI dispatch and direct Python callers (interactive helpers/entrypoints/tests); it must coerce any Typer `OptionInfo` default objects back to plain values before normalization/building run settings.
-- Interactive import should pass the full selected run-settings surface into `stage(...)` (including `llm_knowledge_pipeline`, pass4 pipeline id, and pass4 context blocks), not a partial subset.
+- Interactive import should pass the full selected run-settings surface into `stage(...)` (including knowledge/tags pipeline toggles, pass4/pass5 pipeline IDs, and related context/catalog settings), not a partial subset.
 - `import` / `C3import` entrypoint shims should forward the expanded stage run-settings arguments so persisted settings can affect direct-entrypoint runs.
 
 ### [D] Import Flow
@@ -401,8 +408,10 @@ Options:
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
 - `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
+- `--table-extraction TEXT` (default `off`): `off|on` deterministic table detection/export and table-aware chunking.
 - `--llm-recipe-pipeline TEXT` (default `off`): policy-locked `off` (recipe codex-farm parsing correction is currently disabled).
 - `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-farm-knowledge-v1`.
+- `--llm-tags-pipeline TEXT` (default `off`): `off|codex-farm-tags-v1`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
@@ -410,8 +419,10 @@ Options:
 - `--codex-farm-pipeline-pass2 TEXT` (default `recipe.schemaorg.v1`): pass-2 pipeline id (schema.org extraction).
 - `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.v1`): pass-3 pipeline id (final draft generation).
 - `--codex-farm-pipeline-pass4-knowledge TEXT` (default `recipe.knowledge.v1`): pass-4 pipeline id (non-recipe knowledge harvesting).
+- `--codex-farm-pipeline-pass5-tags TEXT` (default `recipe.tags.v1`): pass-5 pipeline id (tag suggestions).
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
 - `--codex-farm-knowledge-context-blocks INTEGER>=0` (default `12`): context blocks before/after each knowledge chunk for pass4 bundles.
+- `--tag-catalog-json PATH` (default `data/tagging/tag_catalog.json`): tag catalog snapshot path required when pass5 tags is enabled.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - `markitdown` note: EPUB split jobs are disabled for this extractor because conversion is whole-book EPUB -> markdown (no spine-range mode).
 - explicit-choice note: stage no longer supports `--epub-extractor auto`; choose a concrete backend (`unstructured|legacy|markdown|markitdown`).

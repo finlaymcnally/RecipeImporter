@@ -16,18 +16,24 @@ Editable pipeline specs:
 - `pipelines/recipe.chunking.v1.json`
 - `pipelines/recipe.schemaorg.v1.json`
 - `pipelines/recipe.final.v1.json`
+- `pipelines/recipe.knowledge.v1.json` (optional pass4 knowledge harvest)
+- `pipelines/recipe.tags.v1.json` (optional pass5 tag suggestions)
 
 Editable prompt text:
 
 - `prompts/recipe.chunking.v1.prompt.md`
 - `prompts/recipe.schemaorg.v1.prompt.md`
 - `prompts/recipe.final.v1.prompt.md`
+- `prompts/recipe.knowledge.v1.prompt.md`
+- `prompts/recipe.tags.v1.prompt.md`
 
 Output schemas:
 
 - `schemas/recipe.chunking.v1.output.schema.json`
 - `schemas/recipe.schemaorg.v1.output.schema.json`
 - `schemas/recipe.final.v1.output.schema.json`
+- `schemas/recipe.knowledge.v1.output.schema.json`
+- `schemas/recipe.tags.v1.output.schema.json`
 
 To tune pass behavior, edit prompt text files in `prompts/` and keep `{{INPUT_PATH}}` in each template.
 

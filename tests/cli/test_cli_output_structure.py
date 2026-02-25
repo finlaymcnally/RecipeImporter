@@ -83,6 +83,12 @@ def test_stage_output_structure(tmp_path):
     assert tips_dir.exists()
     list(tips_dir.rglob("t*.json"))
 
+    # Expected: output/timestamp/sections/simple_text/
+    sections_dir = timestamp_dir / "sections" / file_slug
+    assert sections_dir.exists()
+    assert (sections_dir / "r0.sections.json").exists()
+    assert (sections_dir / "sections.md").exists()
+
     # Expected: output/timestamp/raw/text/<hash>/
     raw_dir = timestamp_dir / "raw" / "text"
     assert raw_dir.exists()

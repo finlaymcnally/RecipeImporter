@@ -169,8 +169,11 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
     selected_settings = cli.RunSettings.from_dict(
         {
             "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "llm_tags_pipeline": "codex-farm-tags-v1",
             "codex_farm_pipeline_pass4_knowledge": "recipe.knowledge.custom.v9",
+            "codex_farm_pipeline_pass5_tags": "recipe.tags.custom.v3",
             "codex_farm_knowledge_context_blocks": 37,
+            "tag_catalog_json": "data/tagging/custom_catalog.json",
         },
         warn_context="test settings",
     )
@@ -197,8 +200,11 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
 
     assert captured["path"] == selected_file
     assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
+    assert captured["llm_tags_pipeline"] == "codex-farm-tags-v1"
     assert captured["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.custom.v9"
+    assert captured["codex_farm_pipeline_pass5_tags"] == "recipe.tags.custom.v3"
     assert captured["codex_farm_knowledge_context_blocks"] == 37
+    assert captured["tag_catalog_json"] == "data/tagging/custom_catalog.json"
 
 
 def test_import_entrypoint_passes_extended_stage_settings(
@@ -215,8 +221,11 @@ def test_import_entrypoint_passes_extended_stage_settings(
         "epub_unstructured_preprocess_mode": "semantic_v1",
         "llm_recipe_pipeline": "off",
         "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+        "llm_tags_pipeline": "codex-farm-tags-v1",
         "codex_farm_pipeline_pass4_knowledge": "recipe.knowledge.custom.v9",
+        "codex_farm_pipeline_pass5_tags": "recipe.tags.custom.v3",
         "codex_farm_knowledge_context_blocks": 42,
+        "tag_catalog_json": "data/tagging/custom_catalog.json",
     }
 
     def fake_stage(*, path, limit, **kwargs):
@@ -245,8 +254,11 @@ def test_import_entrypoint_passes_extended_stage_settings(
     assert captured["epub_unstructured_skip_headers_footers"] is True
     assert captured["epub_unstructured_preprocess_mode"] == "semantic_v1"
     assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
+    assert captured["llm_tags_pipeline"] == "codex-farm-tags-v1"
     assert captured["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.custom.v9"
+    assert captured["codex_farm_pipeline_pass5_tags"] == "recipe.tags.custom.v3"
     assert captured["codex_farm_knowledge_context_blocks"] == 42
+    assert captured["tag_catalog_json"] == "data/tagging/custom_catalog.json"
 
 
 def test_stage_direct_call_uses_plain_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

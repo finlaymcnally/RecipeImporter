@@ -41,6 +41,20 @@ Always add a test case in `tests/test_tagging.py` and a gold label in `tests/tag
 - `engine.py` — Scoring engine, category policy enforcement
 - `render.py` — Output formatting (text, JSON, run reports)
 - `db_write.py` — Idempotent INSERT for recipe_tag_assignments
-- `llm_second_pass.py` — LLM scaffolding (disabled by default)
+- `llm_second_pass.py` — LLM second-pass orchestration (codex-farm-backed, still optional)
+- `codex_farm_tags_provider.py` — Pass-5 codex-farm runner + strict shortlist/catalog validation
+- `orchestrator.py` — Shared deterministic+LLM draft-folder runner and stage pass integration
 - `eval.py` — Precision/recall evaluation harness
 - `cli.py` — Typer commands wired into main app
+
+## Stage integration (optional)
+
+Stage can now run an optional tags pass after drafts are written:
+
+```bash
+cookimport stage <path> \
+  --llm-tags-pipeline codex-farm-tags-v1 \
+  --tag-catalog-json data/tagging/tag_catalog.json
+```
+
+Outputs are written under `data/output/<ts>/tags/<workbook_slug>/` with raw codex-farm IO under `raw/llm/<workbook_slug>/pass5_tags/`.

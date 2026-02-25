@@ -101,9 +101,11 @@ cookimport/parsing/instruction_parser.py
 cookimport/parsing/markdown_blocks.py
 cookimport/parsing/markitdown_adapter.py
 cookimport/parsing/patterns.py
+cookimport/parsing/sections.py
 cookimport/parsing/signals.py
 cookimport/parsing/spacy_support.py
 cookimport/parsing/step_ingredients.py
+cookimport/parsing/tables.py
 cookimport/parsing/tip_taxonomy.py
 cookimport/parsing/tips.py
 cookimport/parsing/unstructured_adapter.py
@@ -126,11 +128,13 @@ cookimport/staging/writer.py
 cookimport/tagging/__init__.py
 cookimport/tagging/catalog.py
 cookimport/tagging/cli.py
+cookimport/tagging/codex_farm_tags_provider.py
 cookimport/tagging/db_read.py
 cookimport/tagging/db_write.py
 cookimport/tagging/engine.py
 cookimport/tagging/eval.py
 cookimport/tagging/llm_second_pass.py
+cookimport/tagging/orchestrator.py
 cookimport/tagging/policies.py
 cookimport/tagging/render.py
 cookimport/tagging/rules.py

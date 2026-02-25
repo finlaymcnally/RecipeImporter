@@ -6,6 +6,7 @@ from typing import Any
 from cookimport.core.models import HowToStep, RecipeCandidate
 from cookimport.parsing.ingredients import parse_ingredient_line
 from cookimport.parsing.instruction_parser import parse_instruction
+from cookimport.parsing.sections import extract_instruction_sections, normalize_section_key
 from cookimport.parsing.tips import extract_recipe_specific_notes
 from cookimport.parsing.step_ingredients import assign_ingredient_lines_to_steps
 
@@ -19,6 +20,7 @@ _LOWERCASE_FIELDS = ("raw_text", "raw_ingredient_text", "raw_unit_text", "prepar
 _MISSING_INGREDIENT_LABEL = "__missing_ingredient__"
 _UNTITLED_RECIPE_TITLE = "Untitled Recipe"
 _MAX_RECIPE_LINE_MULTIPLIER = 100.0
+_DEFAULT_SECTION_KEY = "main"
 
 
 def _normalize_nonempty_text(value: Any) -> str | None:
@@ -135,6 +137,20 @@ def _convert_instruction(instruction: str | HowToStep) -> str:
     return str(instruction)
 
 
+def _derive_ingredient_section_keys(ingredient_lines: list[dict[str, Any]]) -> list[str]:
+    """Derive per-line section keys from parsed ingredient lines."""
+    section_keys: list[str] = []
+    active_key = _DEFAULT_SECTION_KEY
+    for line in ingredient_lines:
+        if line.get("quantity_kind") == "section_header":
+            label = line.get("raw_ingredient_text") or line.get("raw_text") or ""
+            active_key = normalize_section_key(str(label)) or active_key
+            section_keys.append(active_key)
+            continue
+        section_keys.append(active_key)
+    return section_keys
+
+
 def _split_variants(instructions: list[str]) -> tuple[list[str], list[str]]:
     """
     Extract variant instructions from the instruction list.
@@ -228,12 +244,22 @@ def recipe_candidate_to_draft_v1(candidate: RecipeCandidate) -> dict[str, Any]:
     if variants:
         recipe_meta["variants"] = variants
 
+    instruction_sections = extract_instruction_sections(instruction_texts)
+    instruction_texts = instruction_sections.lines_no_headers
+    step_section_key_by_step = instruction_sections.section_key_by_line
+
     if not instruction_texts:
         instruction_texts = ["See original recipe for details."]
+        step_section_key_by_step = [_DEFAULT_SECTION_KEY]
 
-    step_ingredient_lines = assign_ingredient_lines_to_steps(
+    ingredient_section_key_by_line = _derive_ingredient_section_keys(all_ingredient_lines)
+
+    step_ingredient_lines, assignment_debug = assign_ingredient_lines_to_steps(
         instruction_texts,
         all_ingredient_lines,
+        ingredient_section_key_by_line=ingredient_section_key_by_line,
+        step_section_key_by_step=step_section_key_by_step,
+        debug=True,
     )
 
     total_step_time_seconds = 0
@@ -257,14 +283,15 @@ def recipe_candidate_to_draft_v1(candidate: RecipeCandidate) -> dict[str, Any]:
         steps_data.append(step_entry)
 
     # Find any ingredients that weren't assigned to any step
-    assigned_texts: set[str] = set()
-    for step in steps_data:
-        for line in step.get("ingredient_lines", []):
-            assigned_texts.add(line.get("raw_ingredient_text", ""))
+    assigned_indices = {
+        assignment.ingredient_index
+        for assignment in assignment_debug.assignments
+        if assignment.assigned_steps
+    }
 
     unassigned_raw = [
-        line for line in all_ingredient_lines
-        if line.get("raw_ingredient_text", "") not in assigned_texts
+        line for idx, line in enumerate(all_ingredient_lines)
+        if idx not in assigned_indices
         and line.get("quantity_kind") != "section_header"
     ]
     unassigned = _sanitize_staging_lines(unassigned_raw)

@@ -220,6 +220,37 @@ def test_section_header_grouping_preserved():
     assert _names(result[1]) == ["cheese"]
 
 
+def test_section_context_disambiguates_repeated_ingredient_names() -> None:
+    ingredient_lines = [
+        {
+            "quantity_kind": "exact",
+            "raw_ingredient_text": "salt",
+            "raw_text": "1 tsp salt (for meat)",
+            "input_qty": 1.0,
+        },
+        {
+            "quantity_kind": "exact",
+            "raw_ingredient_text": "salt",
+            "raw_text": "1 tsp salt (for gravy)",
+            "input_qty": 1.0,
+        },
+    ]
+    steps = [
+        "Season the meat with salt.",
+        "Season the gravy with salt.",
+    ]
+
+    result = assign_ingredient_lines_to_steps(
+        steps,
+        ingredient_lines,
+        ingredient_section_key_by_line=["meat", "gravy"],
+        step_section_key_by_step=["meat", "gravy"],
+    )
+
+    assert [line["raw_text"] for line in result[0]] == ["1 tsp salt (for meat)"]
+    assert [line["raw_text"] for line in result[1]] == ["1 tsp salt (for gravy)"]
+
+
 def test_all_ingredients_phrase_preserved():
     """'Combine all ingredients' still works."""
     ingredient_lines = [

@@ -43,8 +43,10 @@ Policy-lock implementation details (merged from `2026-02-23_11.39.45-recipe-code
 
 codex-farm orchestration settings are run-config surfaced and shared between stage and benchmark prediction generation:
 - command/root/workspace: `codex_farm_cmd`, `codex_farm_root`, `codex_farm_workspace_root`
-- pass pipeline ids: `codex_farm_pipeline_pass1`, `codex_farm_pipeline_pass2`, `codex_farm_pipeline_pass3`
+- pass pipeline ids: `codex_farm_pipeline_pass1`, `codex_farm_pipeline_pass2`, `codex_farm_pipeline_pass3`, `codex_farm_pipeline_pass4_knowledge`, `codex_farm_pipeline_pass5_tags`
 - pass1 context size: `codex_farm_context_blocks`
+- pass4 context size: `codex_farm_knowledge_context_blocks`
+- tag catalog path for pass5: `tag_catalog_json`
 
 Default local pack assets for those pass ids live in `llm_pipelines/`:
 - pipeline specs: `llm_pipelines/pipelines/recipe.{chunking,schemaorg,final}.v1.json`
@@ -57,6 +59,13 @@ Pass 4 knowledge harvesting:
 - pipeline spec: `llm_pipelines/pipelines/recipe.knowledge.v1.json`
 - prompt: `llm_pipelines/prompts/recipe.knowledge.v1.prompt.md`
 - output schema: `llm_pipelines/schemas/recipe.knowledge.v1.output.schema.json`
+
+Pass 5 tag suggestions:
+
+- `docs/10-llm/tags_pass.md`
+- pipeline spec: `llm_pipelines/pipelines/recipe.tags.v1.json`
+- prompt: `llm_pipelines/prompts/recipe.tags.v1.prompt.md`
+- output schema: `llm_pipelines/schemas/recipe.tags.v1.output.schema.json`
 
 ## Understanding Notes (2026-02-22 batch)
 
@@ -136,6 +145,15 @@ Cross-boundary reminder:
   - `knowledge/<workbook_slug>/snippets.jsonl`
   - `knowledge/<workbook_slug>/knowledge.md`
   - `knowledge/knowledge_index.json`
+
+### 2026-02-25 pass5 codex-farm tag suggestions
+
+- Optional pass5 is enabled by run settings (`llm_tags_pipeline=codex-farm-tags-v1` + `tag_catalog_json` + `codex_farm_pipeline_pass5_tags`).
+- Job bundles are staged at `raw/llm/<workbook_slug>/pass5_tags/in/` with strict output ingest from `.../out/`.
+- User-facing artifacts are written under:
+  - `tags/<workbook_slug>/r{index}.tags.json`
+  - `tags/<workbook_slug>/tagging_report.json`
+  - `tags/tags_index.json`
 
 ### 2026-02-22_16.20.10 local editable pass prompt files (historical merge note)
 

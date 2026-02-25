@@ -32,6 +32,7 @@ from cookimport.parsing.chunks import (
     chunks_from_non_recipe_blocks,
     chunks_from_topic_candidates,
 )
+from cookimport.parsing.tables import ExtractedTable, extract_and_annotate_tables
 from cookimport.plugins import registry
 from cookimport.labelstudio.block_tasks import (
     build_block_tasks,
@@ -87,6 +88,8 @@ from cookimport.staging.writer import (
     write_intermediate_outputs,
     write_raw_artifacts,
     write_report,
+    write_section_outputs,
+    write_table_outputs,
     write_tip_outputs,
     write_topic_candidate_outputs,
 )
@@ -758,6 +761,26 @@ def _write_processed_outputs(
     final_dir = run_root / "final drafts" / workbook_name
     tips_dir = run_root / "tips" / workbook_name
 
+    extracted_tables: list[ExtractedTable] = []
+    table_extraction_enabled = (
+        str((run_config or {}).get("table_extraction", "off")).strip().lower() == "on"
+    )
+    if table_extraction_enabled and result.non_recipe_blocks:
+        source_hash = "unknown"
+        for artifact in result.raw_artifacts:
+            if artifact.source_hash:
+                source_hash = str(artifact.source_hash)
+                break
+        if source_hash == "unknown":
+            try:
+                source_hash = compute_file_hash(path)
+            except Exception:
+                source_hash = "unknown"
+        extracted_tables = extract_and_annotate_tables(
+            result.non_recipe_blocks,
+            source_hash=source_hash,
+        )
+
     if result.non_recipe_blocks:
         result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
     elif result.topic_candidates:
@@ -791,8 +814,22 @@ def _write_processed_outputs(
         output_stats=output_stats,
         draft_overrides_by_recipe_id=draft_overrides_by_recipe_id,
     )
+    write_section_outputs(
+        run_root,
+        workbook_name,
+        result.recipes,
+        output_stats=output_stats,
+    )
     write_tip_outputs(result, tips_dir, output_stats=output_stats)
     write_topic_candidate_outputs(result, tips_dir, output_stats=output_stats)
+    if table_extraction_enabled:
+        write_table_outputs(
+            run_root,
+            workbook_name,
+            extracted_tables,
+            source_file=path.name,
+            output_stats=output_stats,
+        )
     if result.chunks:
         chunks_dir = run_root / "chunks" / workbook_name
         write_chunk_outputs(result.chunks, chunks_dir, output_stats=output_stats)

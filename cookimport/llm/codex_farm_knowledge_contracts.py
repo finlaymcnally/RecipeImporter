@@ -22,6 +22,15 @@ class SpanV1(BaseModel):
         return int(value)
 
 
+class KnowledgeTableHintV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    table_id: str
+    caption: str | None = None
+    markdown: str | None = None
+    row_index_in_table: int | None = None
+
+
 class KnowledgeBlockV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -32,6 +41,7 @@ class KnowledgeBlockV1(BaseModel):
     spine_index: int | None = None
     heading_level: int | None = None
     features_subset: dict[str, Any] = Field(default_factory=dict)
+    table_hint: KnowledgeTableHintV1 | None = None
 
     @field_validator("block_index", mode="before")
     @classmethod

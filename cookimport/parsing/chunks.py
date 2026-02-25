@@ -7,9 +7,10 @@ punctuation or sentence boundaries.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
-from typing import Sequence
+from typing import Any, Sequence
 
 from cookimport.core.blocks import Block, BlockType
 from cookimport.core.models import (
@@ -48,6 +49,30 @@ _DEFAULT_STOP_HEADINGS = frozenset({
 # Format mode indicators
 _BULLET_RE = re.compile(r"^\s*[-*•]\s+")
 _NUMBERED_RE = re.compile(r"^\s*\d+[.)]\s+")
+_TOPIC_TOKEN_RE = re.compile(r"[^a-z0-9]+")
+
+_CONSOLIDATE_ADJACENT_KNOWLEDGE_CHUNKS_ENV = (
+    "COOKIMPORT_CONSOLIDATE_ADJACENT_KNOWLEDGE_CHUNKS"
+)
+
+_TAG_FIELD_NAMES = (
+    "recipes",
+    "dishes",
+    "meats",
+    "vegetables",
+    "herbs",
+    "spices",
+    "dairy",
+    "grains",
+    "legumes",
+    "fruits",
+    "sweeteners",
+    "oils_fats",
+    "techniques",
+    "cooking_methods",
+    "tools",
+    "other",
+)
 
 
 @dataclass
@@ -86,6 +111,32 @@ class _ChunkBuilder:
 
     def is_empty(self) -> bool:
         return not self.blocks or not self.text.strip()
+
+
+def _table_id_for_block(block: Block) -> str | None:
+    features = block.features if isinstance(block.features, dict) else {}
+    table_id = features.get("table_id")
+    if not isinstance(table_id, str):
+        return None
+    normalized = table_id.strip()
+    return normalized or None
+
+
+def _coerce_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _source_block_index_for_block(block: Block, *, fallback_index: int) -> int:
+    features = block.features if isinstance(block.features, dict) else {}
+    source_index = _coerce_int(features.get("source_block_index"))
+    if source_index is not None:
+        return source_index
+    return fallback_index
 
 
 def chunk_non_recipe_blocks(
@@ -131,9 +182,18 @@ def chunk_non_recipe_blocks(
 
         # Aggregate block_role counts for lane scoring
         role_counts: dict[str, int] = {}
+        table_ids: list[str] = []
+        absolute_block_ids: list[int] = []
         for b in current.blocks:
             role = b.features.get("block_role", "other")
             role_counts[role] = role_counts.get(role, 0) + 1
+            table_id = _table_id_for_block(b)
+            if table_id and table_id not in table_ids:
+                table_ids.append(table_id)
+        for block_id, block in zip(current.block_ids, current.blocks):
+            absolute_block_ids.append(
+                _source_block_index_for_block(block, fallback_index=block_id)
+            )
 
         chunk = KnowledgeChunk(
             identifier=f"c{chunk_index}",
@@ -149,7 +209,11 @@ def chunk_non_recipe_blocks(
                 "block_range": [min(current.block_ids), max(current.block_ids)]
                 if current.block_ids
                 else [],
+                "absolute_block_range": [min(absolute_block_ids), max(absolute_block_ids)]
+                if absolute_block_ids
+                else [],
                 "block_role_counts": role_counts,
+                "table_ids": table_ids,
             },
         )
         chunks.append(chunk)
@@ -164,13 +228,17 @@ def chunk_non_recipe_blocks(
         if not text:
             continue
 
+        table_id = _table_id_for_block(block)
+        previous_table_id = _table_id_for_block(current.blocks[-1]) if current.blocks else None
+        in_same_table_run = bool(table_id and previous_table_id and table_id == previous_table_id)
+
         heading_level = _detect_heading_level(block, profile)
 
         # Check for callout prefix
         callout_match = _is_callout_start(text, profile)
 
         # Check for stop heading (INDEX, ACKNOWLEDGMENTS, etc.)
-        if heading_level and _is_stop_heading(text, profile):
+        if not in_same_table_run and heading_level and _is_stop_heading(text, profile):
             if current.block_ids:
                 flush_chunk(ChunkBoundaryReason.NOISE_BREAK)
             if not profile.include_stop_sections:
@@ -187,7 +255,7 @@ def chunk_non_recipe_blocks(
                 continue
 
         # Major heading creates a hard boundary
-        if heading_level and heading_level in profile.major_heading_levels:
+        if not in_same_table_run and heading_level and heading_level in profile.major_heading_levels:
             if current.block_ids:
                 flush_chunk(ChunkBoundaryReason.HEADING)
             # Update section stack
@@ -199,7 +267,11 @@ def chunk_non_recipe_blocks(
             current.start_reason = ChunkBoundaryReason.HEADING
 
         # Minor heading: include in current chunk but may update title
-        elif heading_level and heading_level in profile.minor_heading_levels:
+        elif (
+            not in_same_table_run
+            and heading_level
+            and heading_level in profile.minor_heading_levels
+        ):
             while section_stack and section_stack[-1][0] >= heading_level:
                 section_stack.pop()
             section_stack.append((heading_level, text))
@@ -208,7 +280,7 @@ def chunk_non_recipe_blocks(
                 current.title = text
 
         # Callout prefix creates a boundary if configured
-        elif callout_match and profile.split_on_callouts:
+        elif not in_same_table_run and callout_match and profile.split_on_callouts:
             if current.block_ids:
                 flush_chunk(ChunkBoundaryReason.CALLOUT_SEED)
             current.title = text if len(text) < 80 else None
@@ -216,13 +288,21 @@ def chunk_non_recipe_blocks(
             current.start_reason = ChunkBoundaryReason.CALLOUT_SEED
 
         # Check for format mode change (prose -> bullets, etc.)
-        elif current.block_ids and _is_format_mode_change(current.blocks[-1], block):
+        elif (
+            not in_same_table_run
+            and current.block_ids
+            and _is_format_mode_change(current.blocks[-1], block)
+        ):
             # Only split if we have reasonable content
             if current.char_count >= profile.min_chars:
                 flush_chunk(ChunkBoundaryReason.FORMAT_MODE_CHANGE)
 
         # Check max size
-        if current.char_count + len(text) > profile.max_chars and current.block_ids:
+        if (
+            not in_same_table_run
+            and current.char_count + len(text) > profile.max_chars
+            and current.block_ids
+        ):
             flush_chunk(ChunkBoundaryReason.MAX_CHARS)
 
         # Add block to current chunk
@@ -334,28 +414,44 @@ def merge_small_chunks(
 
     for chunk in chunks:
         if pending is None:
-            if len(chunk.text) < min_chars:
+            if _chunk_has_table_content(chunk):
+                result.append(chunk)
+            elif len(chunk.text) < min_chars:
                 pending = chunk
             else:
                 result.append(chunk)
         else:
+            if _chunk_has_table_content(pending) or _chunk_has_table_content(chunk):
+                result.append(pending)
+                if _chunk_has_table_content(chunk):
+                    result.append(chunk)
+                    pending = None
+                elif len(chunk.text) < min_chars:
+                    pending = chunk
+                else:
+                    result.append(chunk)
+                    pending = None
+                continue
+
             # Check if we should merge
             shared_path = _shared_section_prefix(pending.section_path, chunk.section_path)
             if shared_path or len(pending.text) < min_chars // 2:
                 # Merge pending into current
+                merged_block_ids = pending.block_ids + chunk.block_ids
                 merged = KnowledgeChunk(
                     identifier=pending.identifier,
                     lane=pending.lane,
                     title=pending.title or chunk.title,
                     section_path=pending.section_path or chunk.section_path,
                     text=pending.text + "\n\n" + chunk.text,
-                    block_ids=pending.block_ids + chunk.block_ids,
+                    block_ids=merged_block_ids,
                     boundary_start_reason=pending.boundary_start_reason,
                     boundary_end_reason=chunk.boundary_end_reason,
-                    provenance={
-                        **pending.provenance,
-                        "merged_from": [pending.identifier, chunk.identifier],
-                    },
+                    provenance=_merge_chunk_provenance(
+                        pending,
+                        chunk,
+                        merged_block_ids=merged_block_ids,
+                    ),
                 )
                 if len(merged.text) < min_chars:
                     pending = merged
@@ -373,11 +469,7 @@ def merge_small_chunks(
     if pending:
         result.append(pending)
 
-    # Renumber identifiers
-    for i, chunk in enumerate(result):
-        chunk.identifier = f"c{i}"
-        chunk.provenance["chunk_index"] = i
-
+    _renumber_chunk_ids(result)
     return result
 
 
@@ -390,6 +482,137 @@ def _shared_section_prefix(path1: list[str], path2: list[str]) -> list[str]:
         else:
             break
     return shared
+
+
+def _chunk_has_table_content(chunk: KnowledgeChunk) -> bool:
+    provenance = chunk.provenance if isinstance(chunk.provenance, dict) else {}
+    table_ids = provenance.get("table_ids")
+    if not isinstance(table_ids, list):
+        return False
+    return any(isinstance(table_id, str) and table_id.strip() for table_id in table_ids)
+
+
+def _chunk_identifier_for_merge(chunk: KnowledgeChunk) -> str:
+    if isinstance(chunk.identifier, str) and chunk.identifier.strip():
+        return chunk.identifier
+    return "unknown"
+
+
+def _merged_identifier_lineage(left: KnowledgeChunk, right: KnowledgeChunk) -> list[str]:
+    lineage: list[str] = []
+    for chunk in (left, right):
+        provenance = chunk.provenance if isinstance(chunk.provenance, dict) else {}
+        merged_from = provenance.get("merged_from")
+        if isinstance(merged_from, list):
+            for identifier in merged_from:
+                if isinstance(identifier, str) and identifier and identifier not in lineage:
+                    lineage.append(identifier)
+        chunk_identifier = _chunk_identifier_for_merge(chunk)
+        if chunk_identifier not in lineage:
+            lineage.append(chunk_identifier)
+    return lineage
+
+
+def _merged_role_counts(
+    left: KnowledgeChunk,
+    right: KnowledgeChunk,
+) -> dict[str, int]:
+    merged: dict[str, int] = {}
+    for chunk in (left, right):
+        provenance = chunk.provenance if isinstance(chunk.provenance, dict) else {}
+        role_counts = provenance.get("block_role_counts")
+        if not isinstance(role_counts, dict):
+            continue
+        for key, value in role_counts.items():
+            normalized = str(key)
+            count = _coerce_int(value)
+            if count is None:
+                continue
+            merged[normalized] = merged.get(normalized, 0) + count
+    return merged
+
+
+def _merged_table_ids(
+    left: KnowledgeChunk,
+    right: KnowledgeChunk,
+) -> list[str]:
+    merged: list[str] = []
+    for chunk in (left, right):
+        provenance = chunk.provenance if isinstance(chunk.provenance, dict) else {}
+        table_ids = provenance.get("table_ids")
+        if not isinstance(table_ids, list):
+            continue
+        for table_id in table_ids:
+            if not isinstance(table_id, str):
+                continue
+            normalized = table_id.strip()
+            if normalized and normalized not in merged:
+                merged.append(normalized)
+    return merged
+
+
+def _parse_range(value: Any) -> tuple[int, int] | None:
+    if not isinstance(value, list) or len(value) != 2:
+        return None
+    start = _coerce_int(value[0])
+    end = _coerce_int(value[1])
+    if start is None or end is None:
+        return None
+    if end < start:
+        return (end, start)
+    return (start, end)
+
+
+def _relative_chunk_range(chunk: KnowledgeChunk) -> tuple[int, int] | None:
+    if not chunk.block_ids:
+        return None
+    return (min(chunk.block_ids), max(chunk.block_ids))
+
+
+def _renumber_chunk_ids(chunks: list[KnowledgeChunk]) -> None:
+    for i, chunk in enumerate(chunks):
+        chunk.identifier = f"c{i}"
+        provenance = chunk.provenance if isinstance(chunk.provenance, dict) else {}
+        provenance["chunk_index"] = i
+        chunk.provenance = provenance
+
+
+def _merge_chunk_provenance(
+    left: KnowledgeChunk,
+    right: KnowledgeChunk,
+    *,
+    merged_block_ids: list[int],
+) -> dict[str, Any]:
+    left_provenance = left.provenance if isinstance(left.provenance, dict) else {}
+    merged: dict[str, Any] = dict(left_provenance)
+
+    relative_range: list[int] = []
+    if merged_block_ids:
+        relative_range = [min(merged_block_ids), max(merged_block_ids)]
+    merged["block_range"] = relative_range
+
+    left_abs = chunk_abs_range(left)
+    right_abs = chunk_abs_range(right)
+    if left_abs and right_abs:
+        merged["absolute_block_range"] = [
+            min(left_abs[0], right_abs[0]),
+            max(left_abs[1], right_abs[1]),
+        ]
+    elif left_abs:
+        merged["absolute_block_range"] = [left_abs[0], left_abs[1]]
+    elif right_abs:
+        merged["absolute_block_range"] = [right_abs[0], right_abs[1]]
+
+    merged_role_counts = _merged_role_counts(left, right)
+    if merged_role_counts:
+        merged["block_role_counts"] = merged_role_counts
+
+    merged_table_ids = _merged_table_ids(left, right)
+    if merged_table_ids:
+        merged["table_ids"] = merged_table_ids
+
+    merged["merged_from"] = _merged_identifier_lineage(left, right)
+    return merged
 
 
 # --------------------------------------------------------------------------
@@ -481,6 +704,9 @@ def _score_lane(chunk: KnowledgeChunk) -> ChunkLane:
     """
     text = chunk.text
     title = (chunk.title or "").lower().strip().rstrip(":")
+    table_ids = (chunk.provenance or {}).get("table_ids") or []
+    if any(isinstance(table_id, str) and table_id.strip() for table_id in table_ids):
+        return ChunkLane.KNOWLEDGE
 
     # Check for noise indicators first
     noise_score = _noise_score(text, title)
@@ -738,6 +964,241 @@ def _merge_tags(target: TipTags, source: TipTags) -> None:
 
 
 # --------------------------------------------------------------------------
+# Adjacent Knowledge Consolidation
+# --------------------------------------------------------------------------
+
+
+def chunk_abs_range(chunk: KnowledgeChunk) -> tuple[int, int] | None:
+    """Return a chunk's absolute [start, end] block range (inclusive)."""
+    provenance = chunk.provenance if isinstance(chunk.provenance, dict) else {}
+
+    absolute_range = _parse_range(provenance.get("absolute_block_range"))
+    if absolute_range is not None:
+        return absolute_range
+
+    explicit_range = _parse_range(provenance.get("block_range"))
+    if explicit_range is not None:
+        return explicit_range
+
+    return _relative_chunk_range(chunk)
+
+
+def _normalize_topic_token(value: str) -> str:
+    return _TOPIC_TOKEN_RE.sub(" ", value.lower()).strip()
+
+
+def _chunk_heading_topic_key(chunk: KnowledgeChunk) -> str | None:
+    normalized_section = [
+        _normalize_topic_token(str(part))
+        for part in chunk.section_path
+        if _normalize_topic_token(str(part))
+    ]
+    if normalized_section:
+        return " > ".join(normalized_section)
+
+    if isinstance(chunk.title, str):
+        normalized_title = _normalize_topic_token(chunk.title)
+        if normalized_title:
+            return normalized_title
+    return None
+
+
+def _chunk_tag_set(chunk: KnowledgeChunk) -> set[str]:
+    tags = chunk.tags if isinstance(chunk.tags, TipTags) else TipTags()
+    tag_values: set[str] = set()
+    for field_name in _TAG_FIELD_NAMES:
+        values = getattr(tags, field_name, [])
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            normalized = _normalize_topic_token(str(value))
+            if normalized:
+                tag_values.add(normalized)
+    return tag_values
+
+
+def topic_key(chunk: KnowledgeChunk) -> str | tuple[str, ...] | None:
+    """Return a stable topic key from heading context or chunk tags."""
+    heading_key = _chunk_heading_topic_key(chunk)
+    if heading_key is not None:
+        return heading_key
+
+    tag_values = sorted(_chunk_tag_set(chunk))
+    if tag_values:
+        return tuple(tag_values)
+    return None
+
+
+def _jaccard_similarity(left: set[str], right: set[str]) -> float:
+    union = left | right
+    if not union:
+        return 0.0
+    return len(left & right) / len(union)
+
+
+def _is_knowledge_chunk(chunk: KnowledgeChunk) -> bool:
+    if isinstance(chunk.lane, ChunkLane):
+        return chunk.lane == ChunkLane.KNOWLEDGE
+    return str(chunk.lane).strip().lower() == ChunkLane.KNOWLEDGE.value
+
+
+def should_merge_adjacent_chunks(
+    left: KnowledgeChunk,
+    right: KnowledgeChunk,
+    *,
+    max_merged_chars: int,
+    require_contiguous_blocks: bool = True,
+) -> bool:
+    """Return True when two adjacent chunks are safe to merge."""
+    if not _is_knowledge_chunk(left) or not _is_knowledge_chunk(right):
+        return False
+
+    if _chunk_has_table_content(left) or _chunk_has_table_content(right):
+        return False
+
+    if require_contiguous_blocks:
+        left_range = chunk_abs_range(left)
+        right_range = chunk_abs_range(right)
+        if left_range is None or right_range is None:
+            return False
+        # Ranges are inclusive, so right.start must be left.end + 1.
+        if left_range[1] + 1 != right_range[0]:
+            return False
+
+    merged_size = len(left.text.rstrip()) + 2 + len(right.text.lstrip())
+    if merged_size > max_merged_chars:
+        return False
+
+    left_key = topic_key(left)
+    right_key = topic_key(right)
+    if left_key is not None and left_key == right_key:
+        return True
+
+    left_heading = _chunk_heading_topic_key(left)
+    right_heading = _chunk_heading_topic_key(right)
+    if left_heading is None and right_heading is None:
+        left_tags = _chunk_tag_set(left)
+        right_tags = _chunk_tag_set(right)
+        if left_tags and right_tags and _jaccard_similarity(left_tags, right_tags) >= 0.7:
+            return True
+
+    return False
+
+
+def _merge_int_lists(left: list[int], right: list[int]) -> list[int]:
+    merged: list[int] = []
+    for value in left + right:
+        parsed = _coerce_int(value)
+        if parsed is None or parsed in merged:
+            continue
+        merged.append(parsed)
+    return merged
+
+
+def _dedupe_chunk_highlights(highlights: list[ChunkHighlight]) -> list[ChunkHighlight]:
+    deduped: list[ChunkHighlight] = []
+    seen: set[tuple[str, tuple[int, ...]]] = set()
+    for highlight in highlights:
+        source_ids = []
+        for source_id in highlight.source_block_ids:
+            parsed = _coerce_int(source_id)
+            if parsed is not None:
+                source_ids.append(parsed)
+        normalized_text = _normalize_topic_token(highlight.text) or highlight.text.strip().lower()
+        key = (normalized_text, tuple(sorted(set(source_ids))))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(highlight)
+    return deduped
+
+
+def _merge_adjacent_chunk_pair(left: KnowledgeChunk, right: KnowledgeChunk) -> KnowledgeChunk:
+    merged_text = left.text.rstrip() + "\n\n" + right.text.lstrip()
+    merged_block_ids = left.block_ids + right.block_ids
+    merged_highlights = _dedupe_chunk_highlights(list(left.highlights) + list(right.highlights))
+    merged_tags = TipTags()
+    _merge_tags(merged_tags, left.tags)
+    _merge_tags(merged_tags, right.tags)
+
+    merged_section_path = left.section_path or right.section_path
+    left_heading = _chunk_heading_topic_key(left)
+    right_heading = _chunk_heading_topic_key(right)
+    if (
+        left_heading is not None
+        and right_heading is not None
+        and left_heading == right_heading
+        and right.section_path
+        and len(right.section_path) > len(merged_section_path)
+    ):
+        merged_section_path = right.section_path
+
+    merged = KnowledgeChunk(
+        identifier=left.identifier,
+        lane=left.lane,
+        title=left.title or right.title,
+        section_path=merged_section_path,
+        text=merged_text,
+        block_ids=merged_block_ids,
+        aside_block_ids=_merge_int_lists(left.aside_block_ids, right.aside_block_ids),
+        excluded_block_ids=_merge_int_lists(left.excluded_block_ids, right.excluded_block_ids),
+        distill_text=left.distill_text or right.distill_text,
+        boundary_start_reason=left.boundary_start_reason,
+        boundary_end_reason=right.boundary_end_reason,
+        tags=merged_tags,
+        highlight_count=len(merged_highlights),
+        highlights=merged_highlights,
+        source=left.source or right.source,
+        provenance=_merge_chunk_provenance(
+            left,
+            right,
+            merged_block_ids=merged_block_ids,
+        ),
+    )
+    merged.tip_density = len(merged_highlights) / (max(len(merged.text), 1) / 1000)
+    return merged
+
+
+def consolidate_adjacent_knowledge_chunks(
+    chunks: list[KnowledgeChunk],
+    *,
+    max_merged_chars: int,
+    require_contiguous_blocks: bool = True,
+) -> list[KnowledgeChunk]:
+    """Merge adjacent knowledge chunks that represent the same topic."""
+    if not chunks:
+        return []
+
+    consolidated: list[KnowledgeChunk] = []
+    pending = chunks[0]
+    for chunk in chunks[1:]:
+        if should_merge_adjacent_chunks(
+            pending,
+            chunk,
+            max_merged_chars=max_merged_chars,
+            require_contiguous_blocks=require_contiguous_blocks,
+        ):
+            pending = _merge_adjacent_chunk_pair(pending, chunk)
+        else:
+            consolidated.append(pending)
+            pending = chunk
+    consolidated.append(pending)
+
+    _renumber_chunk_ids(consolidated)
+    return consolidated
+
+
+def _consolidate_adjacent_knowledge_chunks_enabled() -> bool:
+    raw_value = os.getenv(_CONSOLIDATE_ADJACENT_KNOWLEDGE_CHUNKS_ENV)
+    if raw_value is None:
+        return True
+    normalized = str(raw_value).strip().lower()
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return True
+
+
+# --------------------------------------------------------------------------
 # Full Pipeline
 # --------------------------------------------------------------------------
 
@@ -762,8 +1223,10 @@ def process_blocks_to_chunks(
     Returns:
         List of fully processed KnowledgeChunk objects.
     """
+    effective_profile = profile or ChunkingProfile()
+
     # Step 1: Create initial chunks from block structure
-    chunks = chunk_non_recipe_blocks(blocks, profile=profile)
+    chunks = chunk_non_recipe_blocks(blocks, profile=effective_profile)
 
     # Step 2: Merge small chunks
     chunks = merge_small_chunks(chunks, min_chars=min_merge_chars)
@@ -773,6 +1236,14 @@ def process_blocks_to_chunks(
 
     # Step 4: Extract highlights from knowledge chunks
     chunks = extract_highlights(chunks, overrides=overrides)
+
+    # Step 5: Consolidate adjacent same-topic knowledge chunks (can be disabled).
+    if _consolidate_adjacent_knowledge_chunks_enabled():
+        chunks = consolidate_adjacent_knowledge_chunks(
+            chunks,
+            max_merged_chars=effective_profile.max_chars,
+            require_contiguous_blocks=True,
+        )
 
     return chunks
 
@@ -849,10 +1320,23 @@ def chunks_from_non_recipe_blocks(
     blocks: list[Block] = []
     for block_dict in non_recipe_blocks:
         features = block_dict.get("features", {})
+        normalized_features = dict(features) if isinstance(features, dict) else {}
+        source_block_index = _coerce_int(block_dict.get("index"))
+        if source_block_index is not None:
+            normalized_features.setdefault("source_block_index", source_block_index)
+        table_id = block_dict.get("table_id")
+        if isinstance(table_id, str) and table_id.strip():
+            normalized_features.setdefault("table_id", table_id.strip())
+        table_row_index = block_dict.get("table_row_index")
+        try:
+            if table_row_index is not None:
+                normalized_features.setdefault("table_row_index", int(table_row_index))
+        except (TypeError, ValueError):
+            pass
         block = Block(
             text=block_dict.get("text", ""),
             type=BlockType.TEXT,
-            features=features if isinstance(features, dict) else {},
+            features=normalized_features,
         )
         blocks.append(block)
 

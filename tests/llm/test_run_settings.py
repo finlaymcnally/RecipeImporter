@@ -21,8 +21,10 @@ def test_run_settings_hash_and_summary_are_stable() -> None:
     )
     assert settings.to_run_config_dict()["epub_unstructured_skip_headers_footers"] is False
     assert settings.to_run_config_dict()["epub_unstructured_preprocess_mode"] == "br_split_v1"
+    assert settings.to_run_config_dict()["table_extraction"] == "off"
     assert settings.to_run_config_dict()["llm_recipe_pipeline"] == "off"
     assert settings.to_run_config_dict()["llm_knowledge_pipeline"] == "off"
+    assert settings.to_run_config_dict()["llm_tags_pipeline"] == "off"
     assert settings.to_run_config_dict()["codex_farm_cmd"] == "codex-farm"
     assert settings.to_run_config_dict()["codex_farm_pipeline_pass1"] == "recipe.chunking.v1"
     assert settings.to_run_config_dict()["codex_farm_pipeline_pass2"] == "recipe.schemaorg.v1"
@@ -31,8 +33,13 @@ def test_run_settings_hash_and_summary_are_stable() -> None:
         settings.to_run_config_dict()["codex_farm_pipeline_pass4_knowledge"]
         == "recipe.knowledge.v1"
     )
+    assert (
+        settings.to_run_config_dict()["codex_farm_pipeline_pass5_tags"]
+        == "recipe.tags.v1"
+    )
     assert settings.to_run_config_dict()["codex_farm_context_blocks"] == 30
     assert settings.to_run_config_dict()["codex_farm_knowledge_context_blocks"] == 12
+    assert settings.to_run_config_dict()["tag_catalog_json"] == "data/tagging/tag_catalog.json"
     assert settings.to_run_config_dict()["codex_farm_failure_mode"] == "fail"
     assert "codex_farm_workspace_root" not in settings.to_run_config_dict()
     assert "workers=7" in settings.summary()
@@ -63,6 +70,8 @@ def test_run_settings_ui_specs_cover_all_editable_fields() -> None:
     assert by_name == expected
     llm_recipe_spec = next(spec for spec in specs if spec.name == "llm_recipe_pipeline")
     assert llm_recipe_spec.choices == ("off",)
+    llm_tags_spec = next(spec for spec in specs if spec.name == "llm_tags_pipeline")
+    assert llm_tags_spec.choices == ("off", "codex-farm-tags-v1")
 
 
 def test_last_run_store_round_trip_and_corrupt_recovery(tmp_path) -> None:

@@ -116,10 +116,17 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - `cookimport/cli_ui/toggle_editor.py` must keep the selected row in view for long lists (cursor-tracked viewport scrolling), so benchmark/LLM-heavy settings menus remain navigable in small terminals.
 - Last-run snapshots are stored in `<output_dir_parent>/.history/last_run_settings_{import|benchmark}.json` via `cookimport/config/last_run_store.py` (legacy `<output_dir>/.history/...` is read-only fallback for migration).
 - Schema evolution contract for stored run settings: missing keys default, unknown keys are ignored (warn once), and corrupt payloads degrade to `None` (treated as no saved run settings).
-- codex-farm knobs (`llm_recipe_pipeline`, `llm_knowledge_pipeline`, `codex_farm_cmd`, `codex_farm_root`, `codex_farm_workspace_root`, `codex_farm_pipeline_pass1`, `codex_farm_pipeline_pass2`, `codex_farm_pipeline_pass3`, `codex_farm_pipeline_pass4_knowledge`, `codex_farm_context_blocks`, `codex_farm_knowledge_context_blocks`, `codex_farm_failure_mode`) must be wired through stage and benchmark prediction-generation paths, and persisted in run-config surfaces (manifest/report/history).
+- codex-farm knobs (`llm_recipe_pipeline`, `llm_knowledge_pipeline`, `llm_tags_pipeline`, `codex_farm_cmd`, `codex_farm_root`, `codex_farm_workspace_root`, `codex_farm_pipeline_pass1`, `codex_farm_pipeline_pass2`, `codex_farm_pipeline_pass3`, `codex_farm_pipeline_pass4_knowledge`, `codex_farm_pipeline_pass5_tags`, `codex_farm_context_blocks`, `codex_farm_knowledge_context_blocks`, `tag_catalog_json`, `codex_farm_failure_mode`) must be wired through stage and benchmark prediction-generation paths, and persisted in run-config surfaces (manifest/report/history).
+- `table_extraction` is a run setting (`off|on`) that gates deterministic table detection/export (`tables/<workbook>/tables.jsonl` + `tables.md`), table-aware chunking, and optional pass4 `chunk.blocks[*].table_hint` enrichment; keep these surfaces in sync when changing table behavior.
+- Chunk-consolidation contract: table chunks (`provenance.table_ids` present) must never merge with non-table chunks (or other table chunks) in either `merge_small_chunks` or adjacent-topic consolidation. Debug/rollback knob for consolidation remains `COOKIMPORT_CONSOLIDATE_ADJACENT_KNOWLEDGE_CHUNKS=0`.
 - `llm_recipe_pipeline` is policy-locked to `off` (recipe codex-farm parsing correction is TURNED OFF and must remain TURNED OFF until benchmark quality materially improves); CLI/pred-run input normalization should reject non-`off` values with an explicit policy message.
 - Run-settings migration contract: if stored/global settings contain legacy non-`off` `llm_recipe_pipeline` values, coerce them back to `off` with a warning so old configs cannot silently re-enable recipe codex-farm correction.
 - codex-farm orchestration should pass explicit `--root`/`--workspace-root` when those run settings are provided, and `llm_manifest.json` should record the effective pass pipeline ids.
+- pass5 tags artifacts are stage-run scoped and should stay in:
+  - `tags/<workbook_slug>/r{index}.tags.json`
+  - `tags/<workbook_slug>/tagging_report.json`
+  - `tags/tags_index.json`
+  - `raw/llm/<workbook_slug>/pass5_tags/{in,out}/*.json` + `raw/llm/<workbook_slug>/pass5_tags_manifest.json`
 - Default local codex-farm recipe pass prompts live in `llm_pipelines/prompts/recipe.{chunking,schemaorg,final}.v1.prompt.md`; text-only tuning should happen there without touching orchestration code.
 - For local codex-farm packs, pipeline JSON `prompt_template_path` / `output_schema_path` entries are the source of truth; avoid keeping duplicate filename schemes in `llm_pipelines/prompts/` that are not referenced by those pipeline specs.
 - New processing-option contract (do all, or the feature is incomplete):
@@ -179,6 +186,21 @@ When debugging "file missing from menu" reports, check whether the file is neste
 - Report metadata fields that must be consistent across normal and split runs (for example `importerName`, `runConfig`, `runConfigHash`, `runConfigSummary`) must be set in both:
   - `cookimport/cli_worker.py` (single-file writer path)
   - `cookimport/cli.py:_merge_split_jobs` (split merge writer path)
+
+## Recipe Section Artifact Convention
+
+- Stage-producing flows now write per-recipe section artifacts to:
+  - `sections/<workbook_slug>/r{index}.sections.json`
+  - `sections/<workbook_slug>/sections.md`
+- Keep section artifact writes wired in both:
+  - `cookimport/cli_worker.py` (single-file stage path)
+  - `cookimport/cli.py:_merge_split_jobs` (split merge path)
+  - `cookimport/labelstudio/ingest.py` (pred-run artifact path)
+- Intermediate JSON-LD section contract:
+  - instruction section-header lines are removed from literal step text,
+  - `recipeInstructions` uses `HowToSection` only when multiple sections are present,
+  - ingredient grouping metadata is emitted under `recipeimport:ingredientSections`.
+- Final cookbook3 draft contract remains unchanged (no first-class section objects in final draft JSON).
 
 ## Ingestion Split/Merge Rule
 

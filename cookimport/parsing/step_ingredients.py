@@ -8,6 +8,7 @@ from typing import Any, Iterable
 from rapidfuzz import fuzz
 
 from cookimport.core.models import HowToStep
+from cookimport.parsing.sections import normalize_section_key
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
@@ -187,6 +188,8 @@ _INGREDIENT_CATEGORIES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
 
 _SECTION_DROP_LEADING = {"for", "the"}
 _SECTION_DROP_TRAILING = {"ingredients"}
+_SECTION_SCORE_TIE_EPSILON = 0.2
+_INTERNAL_INGREDIENT_INDEX_KEY = "__ingredient_index"
 
 
 @dataclass(frozen=True)
@@ -526,10 +529,24 @@ def _score_candidate(candidate: StepCandidate) -> float:
     return score
 
 
+def _resolve_line_section_key(keys: list[str] | None, index: int) -> str | None:
+    if keys is None:
+        return None
+    if index < 0 or index >= len(keys):
+        return None
+    value = str(keys[index]).strip()
+    if not value:
+        return None
+    return value
+
+
 def _resolve_assignments(
     candidates: list[StepCandidate],
     ingredient_count: int,
     ingredient_lines: list[dict[str, Any]],
+    *,
+    ingredient_section_key_by_line: list[str] | None = None,
+    step_section_key_by_step: list[str] | None = None,
 ) -> list[IngredientAssignment]:
     """
     Resolve which steps each ingredient should be assigned to.
@@ -598,25 +615,75 @@ def _resolve_assignments(
         else:
             # Pick single best candidate
             # But prefer earlier step when multiple "use" verb candidates exist
-            best = max(ingredient_candidates, key=_score_candidate)
+            scored_candidates = [
+                (candidate, _score_candidate(candidate))
+                for candidate in ingredient_candidates
+            ]
+            best, best_score = max(scored_candidates, key=lambda item: item[1])
+            ingredient_section_key = _resolve_line_section_key(
+                ingredient_section_key_by_line, ingredient_index
+            )
+
+            # Section-aware tie-breaker:
+            # If scores are near-tied, prefer the candidate in the same section.
+            if ingredient_section_key and step_section_key_by_step is not None:
+                same_section = [
+                    (candidate, score)
+                    for candidate, score in scored_candidates
+                    if _resolve_line_section_key(step_section_key_by_step, candidate.step_index)
+                    == ingredient_section_key
+                ]
+                if same_section:
+                    best_same, best_same_score = max(
+                        same_section,
+                        key=lambda item: item[1],
+                    )
+                    if (best_score - best_same_score) <= _SECTION_SCORE_TIE_EPSILON:
+                        best, best_score = best_same, best_same_score
 
             # Check if there's an earlier candidate with "use" verb that should win
             use_verb_candidates = [c for c in ingredient_candidates if c.verb_signal == "use"]
             if len(use_verb_candidates) > 1 and best.verb_signal == "use":
                 # Multiple use verbs: prefer earliest (first introduction of ingredient)
-                earliest_use = min(use_verb_candidates, key=lambda c: c.step_index)
-                if earliest_use.step_index < best.step_index:
+                use_pool = use_verb_candidates
+                if ingredient_section_key and step_section_key_by_step is not None:
+                    same_section_use = [
+                        candidate
+                        for candidate in use_verb_candidates
+                        if _resolve_line_section_key(
+                            step_section_key_by_step, candidate.step_index
+                        )
+                        == ingredient_section_key
+                    ]
+                    if same_section_use:
+                        use_pool = same_section_use
+
+                earliest_use = min(use_pool, key=lambda c: c.step_index)
+                prefer_same_section_pool = use_pool is not use_verb_candidates
+                if (
+                    prefer_same_section_pool
+                    and earliest_use.step_index != best.step_index
+                ) or (
+                    not prefer_same_section_pool
+                    and earliest_use.step_index < best.step_index
+                ):
                     best = earliest_use
+                    reason = f"earliest use verb wins (step {best.step_index})"
+                    if prefer_same_section_pool:
+                        reason = (
+                            f"earliest use verb wins in same section "
+                            f"(step {best.step_index})"
+                        )
                     preliminary_assignments[ingredient_index] = (
                         [best.step_index],
-                        f"earliest use verb wins (step {best.step_index})",
+                        reason,
                         None,
                     )
                     continue
 
             preliminary_assignments[ingredient_index] = (
                 [best.step_index],
-                f"best step wins (score={_score_candidate(best):.1f})",
+                f"best step wins (score={best_score:.1f})",
                 None,
             )
 
@@ -769,6 +836,7 @@ def _build_final_step_lines(
             line = ingredient_lines[ing_idx]
             if line.get("quantity_kind") != "section_header":
                 line_copy = copy.deepcopy(line)
+                line_copy[_INTERNAL_INGREDIENT_INDEX_KEY] = ing_idx
                 # Apply fraction to quantity if detected
                 if fraction is not None and "input_qty" in line_copy:
                     original_qty = line_copy.get("input_qty")
@@ -800,6 +868,8 @@ def assign_ingredient_lines_to_steps(
     steps: list[str | HowToStep],
     ingredient_lines: list[dict[str, Any]],
     *,
+    ingredient_section_key_by_line: list[str] | None = None,
+    step_section_key_by_step: list[str] | None = None,
     debug: bool = False,
 ) -> list[list[dict[str, Any]]] | tuple[list[list[dict[str, Any]]], DebugInfo]:
     """
@@ -812,6 +882,11 @@ def assign_ingredient_lines_to_steps(
     Args:
         steps: List of step texts or HowToStep objects
         ingredient_lines: List of ingredient dicts with raw_ingredient_text, quantity_kind, etc.
+        ingredient_section_key_by_line: Optional section keys per ingredient line.
+            Accepts either:
+            - len == len(ingredient_lines), or
+            - len == number of non-header ingredient lines.
+        step_section_key_by_step: Optional section keys per step (len == len(steps)).
         debug: If True, return (results, DebugInfo) tuple with assignment trace
 
     Returns:
@@ -835,6 +910,18 @@ def assign_ingredient_lines_to_steps(
         for idx, line in enumerate(ingredient_lines)
         if line.get("quantity_kind") != "section_header"
     ]
+    normalized_ingredient_section_keys = _normalize_ingredient_section_keys(
+        ingredient_lines,
+        ingredient_section_key_by_line,
+    )
+    normalized_step_section_keys = _normalize_step_section_keys(
+        len(step_texts),
+        step_section_key_by_step,
+    )
+    has_section_scope = _has_multiple_section_scope(
+        normalized_ingredient_section_keys,
+        normalized_step_section_keys,
+    )
 
     # Debug tracking
     group_assignments: dict[int, list[int]] = {}
@@ -873,7 +960,13 @@ def assign_ingredient_lines_to_steps(
         candidates.extend(fuzzy_candidates)
 
     # Phase 2: Resolve assignments (best step wins, with multi-step exception for split language)
-    assignments = _resolve_assignments(candidates, len(ingredient_lines), ingredient_lines)
+    assignments = _resolve_assignments(
+        candidates,
+        len(ingredient_lines),
+        ingredient_lines,
+        ingredient_section_key_by_line=normalized_ingredient_section_keys,
+        step_section_key_by_step=normalized_step_section_keys,
+    )
 
     # Build initial results from two-phase assignments
     results = _build_final_step_lines(assignments, ingredient_lines, len(step_texts))
@@ -889,7 +982,20 @@ def assign_ingredient_lines_to_steps(
         # "All ingredients" phrase overrides everything for this step
         if _has_all_ingredients_phrase(normalized_step):
             all_ingredients_steps.append(step_idx)
-            results[step_idx] = _build_step_lines(non_header_indices, ingredient_lines)
+            include_indices = list(non_header_indices)
+            if has_section_scope:
+                step_section_key = _resolve_line_section_key(
+                    normalized_step_section_keys,
+                    step_idx,
+                )
+                scoped_indices = _indices_for_section(
+                    include_indices,
+                    normalized_ingredient_section_keys,
+                    step_section_key,
+                )
+                if scoped_indices:
+                    include_indices = scoped_indices
+            results[step_idx] = _build_step_lines(include_indices, ingredient_lines)
             continue
 
         # Section header group matching adds to results (doesn't replace)
@@ -901,35 +1007,24 @@ def assign_ingredient_lines_to_steps(
 
                 # Merge group indices into this step's results
                 existing_indices = {
-                    idx for idx, line in enumerate(ingredient_lines)
-                    for result_line in results[step_idx]
-                    if line.get("raw_ingredient_text") == result_line.get("raw_ingredient_text")
+                    idx
+                    for idx in (_result_line_index(result_line) for result_line in results[step_idx])
+                    if idx is not None
                 }
                 for ing_idx in group.indices:
                     if ing_idx not in existing_indices:
                         line = ingredient_lines[ing_idx]
                         if line.get("quantity_kind") != "section_header":
-                            results[step_idx].append(copy.deepcopy(line))
+                            line_copy = copy.deepcopy(line)
+                            line_copy[_INTERNAL_INGREDIENT_INDEX_KEY] = ing_idx
+                            results[step_idx].append(line_copy)
 
         # Re-sort by original ingredient order
-        results[step_idx] = sorted(
-            results[step_idx],
-            key=lambda line: next(
-                (i for i, orig in enumerate(ingredient_lines)
-                 if orig.get("raw_ingredient_text") == line.get("raw_ingredient_text")),
-                len(ingredient_lines)
-            )
-        )
+        results[step_idx] = _sort_step_lines_by_index(results[step_idx], ingredient_lines)
 
     # Fallback pass: assign unmatched ingredients via collective term matching
     # Find which ingredients are not yet assigned to any step
-    assigned_indices: set[int] = set()
-    for step_lines in results:
-        for line in step_lines:
-            for idx, orig in enumerate(ingredient_lines):
-                if orig.get("raw_ingredient_text") == line.get("raw_ingredient_text"):
-                    assigned_indices.add(idx)
-                    break
+    assigned_indices = _collect_assigned_indices(results, ingredient_lines)
 
     unassigned_indices = [
         idx for idx in non_header_indices
@@ -945,25 +1040,48 @@ def assign_ingredient_lines_to_steps(
         if not category:
             continue
 
+        step_candidates = list(range(len(step_texts)))
+        if has_section_scope:
+            ingredient_key = _resolve_line_section_key(
+                normalized_ingredient_section_keys,
+                ing_idx,
+            )
+            if ingredient_key:
+                same_section_steps = [
+                    step_idx
+                    for step_idx in step_candidates
+                    if _resolve_line_section_key(normalized_step_section_keys, step_idx)
+                    == ingredient_key
+                ]
+                if same_section_steps:
+                    remaining_steps = [
+                        step_idx
+                        for step_idx in step_candidates
+                        if step_idx not in same_section_steps
+                    ]
+                    step_candidates = same_section_steps + remaining_steps
+
         # Find the first step that mentions this category's collective term
-        for step_idx, step_text in enumerate(step_texts):
+        for step_idx in step_candidates:
+            step_text = step_texts[step_idx]
             if _step_has_collective_term(step_text, category):
                 # Add ingredient to this step if not already there
-                existing_texts = {l.get("raw_ingredient_text") for l in results[step_idx]}
-                if raw_text not in existing_texts:
-                    results[step_idx].append(copy.deepcopy(line))
+                existing_indices = {
+                    idx
+                    for idx in (_result_line_index(result_line) for result_line in results[step_idx])
+                    if idx is not None
+                }
+                if ing_idx not in existing_indices:
+                    line_copy = copy.deepcopy(line)
+                    line_copy[_INTERNAL_INGREDIENT_INDEX_KEY] = ing_idx
+                    results[step_idx].append(line_copy)
                 break
 
     # Final re-sort for any steps that got new ingredients
     for step_idx in range(len(results)):
-        results[step_idx] = sorted(
-            results[step_idx],
-            key=lambda line: next(
-                (i for i, orig in enumerate(ingredient_lines)
-                 if orig.get("raw_ingredient_text") == line.get("raw_ingredient_text")),
-                len(ingredient_lines)
-            )
-        )
+        results[step_idx] = _sort_step_lines_by_index(results[step_idx], ingredient_lines)
+
+    cleaned_results = _strip_internal_ingredient_indices(results)
 
     if debug:
         debug_info = DebugInfo(
@@ -972,9 +1090,141 @@ def assign_ingredient_lines_to_steps(
             group_assignments=group_assignments,
             all_ingredients_steps=all_ingredients_steps,
         )
-        return results, debug_info
+        return cleaned_results, debug_info
 
-    return results
+    return cleaned_results
+
+
+def _normalize_ingredient_section_keys(
+    ingredient_lines: list[dict[str, Any]],
+    section_keys: list[str] | None,
+) -> list[str] | None:
+    if section_keys is None:
+        return None
+    normalized = [str(value).strip() for value in section_keys]
+    if not normalized:
+        return None
+
+    if len(normalized) == len(ingredient_lines):
+        return [_normalize_key(value) or "main" for value in normalized]
+
+    non_header_indices = [
+        idx
+        for idx, line in enumerate(ingredient_lines)
+        if line.get("quantity_kind") != "section_header"
+    ]
+    if len(normalized) != len(non_header_indices):
+        return None
+
+    expanded: list[str] = []
+    current_key = "main"
+    cursor = 0
+    for idx, line in enumerate(ingredient_lines):
+        if line.get("quantity_kind") == "section_header":
+            label = line.get("raw_ingredient_text") or line.get("raw_text") or ""
+            header_key = _normalize_key(str(label))
+            if header_key:
+                current_key = header_key
+            expanded.append(current_key)
+            continue
+        value = normalized[cursor]
+        cursor += 1
+        resolved = _normalize_key(value) or current_key
+        current_key = resolved
+        expanded.append(resolved)
+    return expanded
+
+
+def _normalize_step_section_keys(
+    step_count: int,
+    section_keys: list[str] | None,
+) -> list[str] | None:
+    if section_keys is None:
+        return None
+    if len(section_keys) != step_count:
+        return None
+    normalized = [_normalize_key(str(value)) for value in section_keys]
+    return [value or "main" for value in normalized]
+
+
+def _normalize_key(value: str) -> str:
+    key = normalize_section_key(value)
+    if key:
+        return key
+    return value.strip().lower()
+
+
+def _has_multiple_section_scope(
+    ingredient_keys: list[str] | None,
+    step_keys: list[str] | None,
+) -> bool:
+    ingredient_unique = {key for key in (ingredient_keys or []) if key}
+    step_unique = {key for key in (step_keys or []) if key}
+    return len(ingredient_unique) > 1 and len(step_unique) > 1
+
+
+def _indices_for_section(
+    indices: list[int],
+    ingredient_section_keys: list[str] | None,
+    section_key: str | None,
+) -> list[int]:
+    if ingredient_section_keys is None or not section_key:
+        return []
+    return [
+        idx
+        for idx in indices
+        if _resolve_line_section_key(ingredient_section_keys, idx) == section_key
+    ]
+
+
+def _result_line_index(line: dict[str, Any]) -> int | None:
+    value = line.get(_INTERNAL_INGREDIENT_INDEX_KEY)
+    if isinstance(value, int):
+        return value
+    return None
+
+
+def _sort_step_lines_by_index(
+    step_lines: list[dict[str, Any]],
+    ingredient_lines: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return sorted(
+        step_lines,
+        key=lambda line: _result_line_index(line) if _result_line_index(line) is not None else len(ingredient_lines),
+    )
+
+
+def _collect_assigned_indices(
+    results: list[list[dict[str, Any]]],
+    ingredient_lines: list[dict[str, Any]],
+) -> set[int]:
+    assigned: set[int] = set()
+    for step_lines in results:
+        for line in step_lines:
+            idx = _result_line_index(line)
+            if idx is not None:
+                assigned.add(idx)
+                continue
+            # Fallback for external callers that pass prebuilt lines without index tags.
+            for origin_idx, origin in enumerate(ingredient_lines):
+                if origin.get("raw_ingredient_text") == line.get("raw_ingredient_text"):
+                    assigned.add(origin_idx)
+                    break
+    return assigned
+
+
+def _strip_internal_ingredient_indices(
+    results: list[list[dict[str, Any]]],
+) -> list[list[dict[str, Any]]]:
+    cleaned: list[list[dict[str, Any]]] = []
+    for step_lines in results:
+        cleaned_step: list[dict[str, Any]] = []
+        for line in step_lines:
+            line_copy = dict(line)
+            line_copy.pop(_INTERNAL_INGREDIENT_INDEX_KEY, None)
+            cleaned_step.append(line_copy)
+        cleaned.append(cleaned_step)
+    return cleaned
 
 
 def _coerce_step_text(step: str | HowToStep) -> str:
@@ -1293,8 +1543,11 @@ def _build_step_lines(
     ingredient_lines: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     include_set = set(include_indices)
-    return [
-        copy.deepcopy(line)
-        for idx, line in enumerate(ingredient_lines)
-        if idx in include_set and line.get("quantity_kind") != "section_header"
-    ]
+    lines: list[dict[str, Any]] = []
+    for idx, line in enumerate(ingredient_lines):
+        if idx not in include_set or line.get("quantity_kind") == "section_header":
+            continue
+        line_copy = copy.deepcopy(line)
+        line_copy[_INTERNAL_INGREDIENT_INDEX_KEY] = idx
+        lines.append(line_copy)
+    return lines

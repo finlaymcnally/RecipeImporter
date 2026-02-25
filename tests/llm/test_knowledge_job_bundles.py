@@ -28,8 +28,26 @@ def test_build_pass4_jobs_writes_only_non_recipe_blocks_and_is_idempotent(tmp_pa
     non_recipe_blocks = [
         {"index": 0, "text": "Preface", "features": {"is_header_likely": True}},
         {"index": 1, "text": "A beautiful gorgeous stunning book."},
-        {"index": 4, "text": "Technique: To prevent curdling, whisk constantly."},
-        {"index": 5, "text": "Use low heat and add acid slowly."},
+        {
+            "index": 4,
+            "text": "Technique: To prevent curdling, whisk constantly.",
+            "table_hint": {
+                "table_id": "tbl_demo",
+                "caption": "Sauce Troubleshooting",
+                "markdown": "| Symptom | Fix |\n| --- | --- |\n| Curdled | Whisk gently |",
+                "row_index_in_table": 0,
+            },
+        },
+        {
+            "index": 5,
+            "text": "Use low heat and add acid slowly.",
+            "table_hint": {
+                "table_id": "tbl_demo",
+                "caption": "Sauce Troubleshooting",
+                "markdown": "| Symptom | Fix |\n| --- | --- |\n| Curdled | Whisk gently |",
+                "row_index_in_table": 1,
+            },
+        },
         {"index": 6, "text": "More notes."},
         {"index": 7, "text": "End."},
     ]
@@ -63,6 +81,14 @@ def test_build_pass4_jobs_writes_only_non_recipe_blocks_and_is_idempotent(tmp_pa
         assert "suggested_lane" in payload["heuristics"]
         assert "suggested_highlights" in payload["heuristics"]
         assert "suggested_skip_reason" in payload["heuristics"]
+
+    table_hints = [
+        block.get("table_hint")
+        for payload in payloads
+        for block in payload["chunk"]["blocks"]
+        if block["block_index"] in {4, 5}
+    ]
+    assert any(isinstance(hint, dict) and hint.get("table_id") == "tbl_demo" for hint in table_hints)
 
     # Context may include recipe blocks; ensure we captured at least one.
     context_indices = {

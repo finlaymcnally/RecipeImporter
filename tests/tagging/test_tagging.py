@@ -7,6 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
+from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner
+from cookimport.config.run_settings import RunSettings
 from cookimport.tagging.catalog import (
     TagCatalog,
     TagCategory,
@@ -15,8 +18,20 @@ from cookimport.tagging.catalog import (
     export_catalog_to_json,
     _build_catalog,
 )
+from cookimport.tagging.codex_farm_tags_provider import (
+    CodexFarmTagsJob,
+    TagCandidate,
+    run_codex_farm_tags_pass,
+)
 from cookimport.tagging.engine import TagSuggestion, suggest_tags_deterministic
 from cookimport.tagging.eval import evaluate, EvalResult, format_eval_report
+from cookimport.tagging.llm_second_pass import (
+    LlmSecondPassConfig,
+    LlmSecondPassRequest,
+    suggest_tags_with_llm_batch,
+)
+from cookimport.tagging.orchestrator import suggest_tags_for_draft_files
+from cookimport.tagging.orchestrator import run_stage_tagging_pass
 from cookimport.tagging.signals import (
     RecipeSignalPack,
     normalize_text_for_matching,
@@ -264,3 +279,154 @@ class TestGoldSet:
             f"Overall recall dropped to {result.overall_recall:.2%}. "
             f"Investigate false negatives."
         )
+
+
+class _AlwaysFailRunner:
+    def run_pipeline(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        raise CodexFarmRunnerError("synthetic failure")
+
+
+class TestLlmTagPass:
+    def test_codex_farm_provider_rejects_tag_outside_shortlist(self, catalog: TagCatalog):
+        signals = signals_from_dict(
+            {
+                "recipe_id": "r-test",
+                "title": "Beef stew",
+                "ingredients": ["beef chuck"],
+                "instructions": ["Simmer until tender."],
+            }
+        )
+        job = CodexFarmTagsJob(
+            recipe_key="r-test",
+            recipe_id="r-test",
+            signals=signals,
+            missing_categories=("main-protein",),
+            candidates_by_category={
+                "main-protein": (TagCandidate(tag_key_norm="chicken", display_name="Chicken"),)
+            },
+        )
+
+        runner = FakeCodexFarmRunner(
+            output_builders={
+                "recipe.tags.v1": lambda payload: {
+                    "bundle_version": "1",
+                    "recipe_id": payload["recipe_id"],
+                    "selected_tags": [
+                        {
+                            "tag_key_norm": "beef",
+                            "category_key_norm": "main-protein",
+                            "confidence": 0.82,
+                            "evidence": "mentions beef",
+                        }
+                    ],
+                    "new_tag_proposals": [],
+                }
+            }
+        )
+
+        result = run_codex_farm_tags_pass(
+            jobs=[job],
+            catalog=catalog,
+            pipeline_id="recipe.tags.v1",
+            runner=runner,
+        )
+
+        assert result.suggestions_by_recipe["r-test"] == []
+        assert result.llm_validation["selected_entries_dropped"] == 1
+        assert result.llm_validation["drop_reasons"]["tag_not_in_shortlist"] == 1
+
+    def test_llm_second_pass_fallback_mode_returns_deterministic_only(self, catalog: TagCatalog):
+        request = LlmSecondPassRequest(
+            recipe_key="r0",
+            signals=signals_from_dict(
+                {
+                    "recipe_id": "r0",
+                    "title": "Mystery Dish",
+                    "ingredients": [],
+                    "instructions": [],
+                }
+            ),
+            missing_categories=("main-protein",),
+        )
+        result = suggest_tags_with_llm_batch(
+            [request],
+            catalog,
+            config=LlmSecondPassConfig(
+                enabled=True,
+                runner=_AlwaysFailRunner(),
+                failure_mode="fallback",
+            ),
+        )
+
+        assert result.suggestions_by_recipe == {}
+        assert result.llm_report.get("fallbackApplied") is True
+        assert result.llm_report.get("fatalError")
+
+    def test_suggest_tags_for_drafts_uses_fake_runner(self, catalog: TagCatalog, tmp_path: Path):
+        draft_path = tmp_path / "r0.json"
+        draft_path.write_text(
+            json.dumps(
+                {
+                    "recipe": {"title": "Mystery Dish", "description": "", "notes": ""},
+                    "steps": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report_path = tmp_path / "tags" / "tagging_report.json"
+        result = suggest_tags_for_draft_files(
+            draft_files=[draft_path],
+            catalog=catalog,
+            catalog_fingerprint="test-fingerprint",
+            per_recipe_out_dir=tmp_path / "tags",
+            report_path=report_path,
+            llm_config=LlmSecondPassConfig(
+                enabled=True,
+                pipeline_id="recipe.tags.v1",
+                runner=FakeCodexFarmRunner(),
+                failure_mode="fail",
+            ),
+        )
+
+        assert len(result.records) == 1
+        assert report_path.exists()
+        assert (tmp_path / "tags" / "r0.tags.json").exists()
+        assert any(suggestion.source == "llm" for suggestion in result.records[0].suggestions)
+
+    def test_stage_tagging_pass_writes_tags_and_raw_io(self, tmp_path: Path):
+        run_root = tmp_path / "2026-02-25_12.00.00"
+        workbook_dir = run_root / "final drafts" / "book-a"
+        workbook_dir.mkdir(parents=True, exist_ok=True)
+        (workbook_dir / "r0.json").write_text(
+            json.dumps(
+                {
+                    "recipe": {"title": "Mystery Dish", "description": "", "notes": ""},
+                    "steps": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        settings = RunSettings.from_dict(
+            {
+                "llm_tags_pipeline": "codex-farm-tags-v1",
+                "codex_farm_pipeline_pass5_tags": "recipe.tags.v1",
+                "codex_farm_failure_mode": "fail",
+                "tag_catalog_json": str(CATALOG_PATH),
+            },
+            warn_context="test stage tags",
+        )
+        result = run_stage_tagging_pass(
+            run_root=run_root,
+            run_settings=settings,
+            llm_runner=FakeCodexFarmRunner(),
+        )
+
+        assert result.enabled is True
+        assert (run_root / "tags" / "book-a" / "r0.tags.json").exists()
+        assert (run_root / "tags" / "book-a" / "tagging_report.json").exists()
+        assert (run_root / "tags" / "tags_index.json").exists()
+        assert (run_root / "raw" / "llm" / "book-a" / "pass5_tags" / "in").exists()
+        assert (run_root / "raw" / "llm" / "book-a" / "pass5_tags" / "out").exists()
+        assert (run_root / "raw" / "llm" / "book-a" / "pass5_tags_manifest.json").exists()

@@ -28,6 +28,7 @@ def main() -> None:
             "epub_unstructured_preprocess_mode",
             "br_split_v1",
         ),
+        "table_extraction": settings.get("table_extraction", "off"),
         "ocr_device": settings.get("ocr_device", "auto"),
         "ocr_batch_size": settings.get("ocr_batch_size", 1),
         "pdf_pages_per_job": settings.get("pdf_pages_per_job", 50),
@@ -35,6 +36,7 @@ def main() -> None:
         "warm_models": settings.get("warm_models", False),
         "llm_recipe_pipeline": settings.get("llm_recipe_pipeline", "off"),
         "llm_knowledge_pipeline": settings.get("llm_knowledge_pipeline", "off"),
+        "llm_tags_pipeline": settings.get("llm_tags_pipeline", "off"),
         "codex_farm_cmd": settings.get("codex_farm_cmd", "codex-farm"),
         "codex_farm_root": settings.get("codex_farm_root"),
         "codex_farm_workspace_root": settings.get("codex_farm_workspace_root"),
@@ -54,10 +56,18 @@ def main() -> None:
             "codex_farm_pipeline_pass4_knowledge",
             "recipe.knowledge.v1",
         ),
+        "codex_farm_pipeline_pass5_tags": settings.get(
+            "codex_farm_pipeline_pass5_tags",
+            "recipe.tags.v1",
+        ),
         "codex_farm_context_blocks": settings.get("codex_farm_context_blocks", 30),
         "codex_farm_knowledge_context_blocks": settings.get(
             "codex_farm_knowledge_context_blocks",
             12,
+        ),
+        "tag_catalog_json": settings.get(
+            "tag_catalog_json",
+            "data/tagging/tag_catalog.json",
         ),
         "codex_farm_failure_mode": settings.get("codex_farm_failure_mode", "fail"),
     }

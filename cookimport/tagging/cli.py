@@ -2,18 +2,11 @@
 
 from __future__ import annotations
 
-import json
-import logging
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import typer
-from rich.console import Console
-
-logger = logging.getLogger(__name__)
-console = Console()
 
 tag_catalog_app = typer.Typer(name="tag-catalog", help="Tag catalog management.")
 tag_recipes_app = typer.Typer(name="tag-recipes", help="Auto-tag recipes.")
@@ -95,17 +88,36 @@ def suggest(
     explain: bool = typer.Option(False, "--explain", help="Show evidence for each suggestion."),
     limit: Optional[int] = typer.Option(None, "--limit", help="Process at most N recipes."),
     llm: bool = typer.Option(False, "--llm", help="Enable LLM second pass (disabled by default)."),
+    codex_farm_cmd: str = typer.Option(
+        "codex-farm",
+        "--codex-farm-cmd",
+        help="Executable used for codex-farm tagging calls when --llm is enabled.",
+    ),
+    codex_farm_root: Optional[Path] = typer.Option(
+        None,
+        "--codex-farm-root",
+        help="Optional codex-farm pipeline-pack root. Defaults to <repo_root>/llm_pipelines.",
+    ),
+    codex_farm_workspace_root: Optional[Path] = typer.Option(
+        None,
+        "--codex-farm-workspace-root",
+        help="Optional workspace root passed to codex-farm.",
+    ),
+    codex_farm_pipeline_pass5_tags: str = typer.Option(
+        "recipe.tags.v1",
+        "--codex-farm-pipeline-pass5-tags",
+        help="Pass-5 codex-farm pipeline id used for tag suggestions.",
+    ),
+    codex_farm_failure_mode: str = typer.Option(
+        "fallback",
+        "--codex-farm-failure-mode",
+        help="Behavior when codex-farm fails: fail or fallback.",
+    ),
 ) -> None:
     """Suggest tags for staged draft recipes (deterministic + optional LLM)."""
     from cookimport.tagging.catalog import load_catalog_from_json, get_catalog_fingerprint_from_json
-    from cookimport.tagging.engine import suggest_tags_deterministic
-    from cookimport.tagging.signals import signals_from_draft_json
-    from cookimport.tagging.render import (
-        render_suggestions_text,
-        serialize_suggestions_json,
-        write_tags_json,
-        write_run_report,
-    )
+    from cookimport.tagging.llm_second_pass import LlmSecondPassConfig
+    from cookimport.tagging.orchestrator import suggest_tags_for_draft_files
 
     catalog = load_catalog_from_json(catalog_json)
     fingerprint = get_catalog_fingerprint_from_json(catalog_json)
@@ -131,47 +143,41 @@ def suggest(
         typer.secho("No draft JSON files found.", fg=typer.colors.YELLOW)
         raise typer.Exit(0)
 
-    per_recipe: list[dict] = []
-    for path in draft_files:
-        try:
-            signals = signals_from_draft_json(path)
-        except Exception as exc:
-            typer.secho(f"  Skip {path.name}: {exc}", fg=typer.colors.YELLOW)
-            continue
-
-        suggestions = suggest_tags_deterministic(catalog, signals)
-
-        # Optional LLM second pass
-        if llm:
-            from cookimport.tagging.llm_second_pass import suggest_tags_with_llm
-            from cookimport.tagging.policies import CATEGORY_POLICIES
-            filled_cats = {s.category_key for s in suggestions}
-            missing = [k for k in CATEGORY_POLICIES if k not in filled_cats]
-            if missing:
-                llm_suggestions = suggest_tags_with_llm(signals, catalog, missing, suggestions)
-                if llm_suggestions:
-                    suggestions.extend(llm_suggestions)
-                    # Re-apply policies after merge
-                    from cookimport.tagging.engine import _apply_policies
-                    suggestions = _apply_policies(catalog, suggestions)
-
-        text = render_suggestions_text(signals.title, suggestions, explain=explain)
-        typer.echo(text)
-        typer.echo("")
-
-        if out_dir:
-            tag_path = out_dir / path.with_suffix(".tags.json").name
-            write_tags_json(tag_path, suggestions, title=signals.title, catalog_fingerprint=fingerprint)
-
-        per_recipe.append(serialize_suggestions_json(
-            suggestions, title=signals.title, catalog_fingerprint=fingerprint,
-        ))
+    failure_mode = _normalize_codex_farm_failure_mode(codex_farm_failure_mode)
+    llm_config = None
+    if llm:
+        llm_config = LlmSecondPassConfig(
+            enabled=True,
+            pipeline_id=codex_farm_pipeline_pass5_tags,
+            codex_farm_cmd=codex_farm_cmd,
+            codex_farm_root=codex_farm_root,
+            codex_farm_workspace_root=codex_farm_workspace_root,
+            failure_mode=failure_mode,
+        )
 
     # Write run report
     report_dir = out_dir or Path("data/output") / datetime.now(timezone.utc).strftime("%Y-%m-%d_%H.%M.%S")
     report_path = report_dir / "tagging_report.json"
-    write_run_report(report_path, len(per_recipe), per_recipe, catalog_fingerprint=fingerprint)
-    typer.secho(f"\nProcessed {len(per_recipe)} recipes. Report: {report_path}", fg=typer.colors.GREEN)
+    result = suggest_tags_for_draft_files(
+        draft_files=draft_files,
+        catalog=catalog,
+        catalog_fingerprint=fingerprint,
+        explain=explain,
+        per_recipe_out_dir=out_dir,
+        report_path=report_path,
+        llm_config=llm_config,
+    )
+
+    for record in result.records:
+        typer.echo(record.rendered_text)
+        typer.echo("")
+    for skipped in result.skipped_files:
+        typer.secho(f"  Skip {skipped}", fg=typer.colors.YELLOW)
+
+    typer.secho(
+        f"\nProcessed {len(result.records)} recipes. Report: {report_path}",
+        fg=typer.colors.GREEN,
+    )
 
 
 @tag_recipes_app.command("apply")
@@ -187,6 +193,31 @@ def apply_tags(
     explain: bool = typer.Option(False, "--explain", help="Show evidence for each suggestion."),
     min_confidence: Optional[float] = typer.Option(None, "--min-confidence", help="Override minimum confidence."),
     llm: bool = typer.Option(False, "--llm", help="Enable LLM second pass."),
+    codex_farm_cmd: str = typer.Option(
+        "codex-farm",
+        "--codex-farm-cmd",
+        help="Executable used for codex-farm tagging calls when --llm is enabled.",
+    ),
+    codex_farm_root: Optional[Path] = typer.Option(
+        None,
+        "--codex-farm-root",
+        help="Optional codex-farm pipeline-pack root. Defaults to <repo_root>/llm_pipelines.",
+    ),
+    codex_farm_workspace_root: Optional[Path] = typer.Option(
+        None,
+        "--codex-farm-workspace-root",
+        help="Optional workspace root passed to codex-farm.",
+    ),
+    codex_farm_pipeline_pass5_tags: str = typer.Option(
+        "recipe.tags.v1",
+        "--codex-farm-pipeline-pass5-tags",
+        help="Pass-5 codex-farm pipeline id used for tag suggestions.",
+    ),
+    codex_farm_failure_mode: str = typer.Option(
+        "fallback",
+        "--codex-farm-failure-mode",
+        help="Behavior when codex-farm fails: fail or fallback.",
+    ),
     import_batch_id: Optional[str] = typer.Option(None, "--import-batch-id", help="Scope to import batch."),
     source: Optional[str] = typer.Option(None, "--source", help="Scope to source."),
     batch_limit: Optional[int] = typer.Option(None, "--limit", help="Max recipes in batch."),
@@ -196,6 +227,7 @@ def apply_tags(
     from cookimport.tagging.db_read import fetch_recipe_bundle
     from cookimport.tagging.db_write import insert_tag_assignments, verify_tag_ids_exist
     from cookimport.tagging.engine import suggest_tags_deterministic
+    from cookimport.tagging.llm_second_pass import LlmSecondPassConfig
     from cookimport.tagging.render import render_suggestions_text
 
     if not db_url:
@@ -242,6 +274,18 @@ def apply_tags(
 
     typer.secho(f"Processing {len(recipe_ids)} recipe(s)...", fg=typer.colors.CYAN)
 
+    failure_mode = _normalize_codex_farm_failure_mode(codex_farm_failure_mode)
+    llm_config = None
+    if llm:
+        llm_config = LlmSecondPassConfig(
+            enabled=True,
+            pipeline_id=codex_farm_pipeline_pass5_tags,
+            codex_farm_cmd=codex_farm_cmd,
+            codex_farm_root=codex_farm_root,
+            codex_farm_workspace_root=codex_farm_workspace_root,
+            failure_mode=failure_mode,
+        )
+
     total_inserted = 0
     for rid in recipe_ids:
         try:
@@ -259,7 +303,14 @@ def apply_tags(
             filled_cats = {s.category_key for s in suggestions}
             missing = [k for k in CATEGORY_POLICIES if k not in filled_cats]
             if missing:
-                llm_suggestions = suggest_tags_with_llm(signals, catalog, missing, suggestions)
+                llm_suggestions = suggest_tags_with_llm(
+                    signals,
+                    catalog,
+                    missing,
+                    suggestions,
+                    config=llm_config,
+                    recipe_key=rid,
+                )
                 if llm_suggestions:
                     suggestions.extend(llm_suggestions)
                     from cookimport.tagging.engine import _apply_policies
@@ -304,3 +355,14 @@ def apply_tags(
         typer.secho(f"Done. Total new assignments: {total_inserted}", fg=typer.colors.GREEN)
     else:
         typer.secho("Dry-run complete. Use --apply to write tags.", fg=typer.colors.CYAN)
+
+
+def _normalize_codex_farm_failure_mode(value: str) -> str:
+    normalized = str(value).strip().lower()
+    if normalized not in {"fail", "fallback"}:
+        typer.secho(
+            f"Invalid --codex-farm-failure-mode: {value!r}. Expected fail or fallback.",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(1)
+    return normalized

@@ -9,20 +9,52 @@ from cookimport.core.models import (
     ChunkBoundaryReason,
     ChunkLane,
     KnowledgeChunk,
+    TipTags,
 )
 from cookimport.parsing.chunks import (
     ChunkingProfile,
     assign_lanes,
     chunk_non_recipe_blocks,
+    consolidate_adjacent_knowledge_chunks,
     extract_highlights,
     merge_small_chunks,
     process_blocks_to_chunks,
+    should_merge_adjacent_chunks,
 )
 
 
 def _make_block(text: str, **kwargs) -> Block:
     """Helper to create Block objects for testing."""
     return Block(text=text, type=BlockType.TEXT, **kwargs)
+
+
+def _make_chunk(
+    *,
+    identifier: str,
+    text: str,
+    block_ids: list[int],
+    abs_start: int,
+    abs_end: int,
+    section_path: list[str] | None = None,
+    lane: ChunkLane = ChunkLane.KNOWLEDGE,
+    title: str | None = None,
+    table_ids: list[str] | None = None,
+    tags: TipTags | None = None,
+) -> KnowledgeChunk:
+    return KnowledgeChunk(
+        identifier=identifier,
+        lane=lane,
+        title=title,
+        section_path=section_path or [],
+        text=text,
+        block_ids=block_ids,
+        tags=tags or TipTags(),
+        provenance={
+            "block_range": [min(block_ids), max(block_ids)] if block_ids else [],
+            "absolute_block_range": [abs_start, abs_end],
+            "table_ids": table_ids or [],
+        },
+    )
 
 
 class TestHeadingDetection:
@@ -238,6 +270,267 @@ class TestBoundaryReasons:
         chunks = chunk_non_recipe_blocks(blocks)
 
         assert chunks[-1].boundary_end_reason == ChunkBoundaryReason.END_OF_INPUT
+
+
+class TestTableAwareChunking:
+    """Test table-aware chunk boundaries and lane scoring."""
+
+    def test_table_rows_are_not_split_by_max_chars(self):
+        blocks = [
+            _make_block("Intro text. " * 30),
+            _make_block(
+                "Column A  Column B " + ("x" * 80),
+                features={"table_id": "tbl_demo"},
+            ),
+            _make_block(
+                "Row 1  Value " + ("y" * 80),
+                features={"table_id": "tbl_demo"},
+            ),
+            _make_block(
+                "Row 2  Value " + ("z" * 80),
+                features={"table_id": "tbl_demo"},
+            ),
+            _make_block("Outro text. " * 30),
+        ]
+
+        chunks = chunk_non_recipe_blocks(
+            blocks,
+            profile=ChunkingProfile(min_chars=20, max_chars=180),
+        )
+        chunk_indexes_for_table_rows = {
+            chunk_index
+            for chunk_index, chunk in enumerate(chunks)
+            if any(block_id in {1, 2, 3} for block_id in chunk.block_ids)
+        }
+        assert len(chunk_indexes_for_table_rows) == 1
+
+    def test_table_chunk_is_forced_to_knowledge_lane(self):
+        chunk = KnowledgeChunk(
+            identifier="c0",
+            text="A beautiful, award-winning cookbook with stunning photos.",
+            block_ids=[0],
+            provenance={"table_ids": ["tbl_demo"]},
+        )
+
+        assign_lanes([chunk])
+        assert chunk.lane == ChunkLane.KNOWLEDGE
+
+
+class TestAdjacentKnowledgeConsolidation:
+    def test_should_merge_adjacent_chunks_when_heading_matches(self):
+        left = _make_chunk(
+            identifier="c0",
+            text="Always keep the knife sharp for better control.",
+            block_ids=[0],
+            abs_start=10,
+            abs_end=10,
+            section_path=["Knife Skills"],
+            title="Knife Skills",
+        )
+        right = _make_chunk(
+            identifier="c1",
+            text="Use a claw grip so your fingertips stay protected.",
+            block_ids=[1],
+            abs_start=11,
+            abs_end=11,
+            section_path=["Knife Skills"],
+            title="Knife Skills",
+        )
+
+        assert should_merge_adjacent_chunks(left, right, max_merged_chars=2000)
+
+    def test_does_not_merge_across_absolute_index_gap(self):
+        left = _make_chunk(
+            identifier="c0",
+            text="Keep knives dry after washing.",
+            block_ids=[0],
+            abs_start=10,
+            abs_end=10,
+            section_path=["Knife Care"],
+        )
+        right = _make_chunk(
+            identifier="c1",
+            text="Store the knife in a sheath.",
+            block_ids=[1],
+            abs_start=12,
+            abs_end=12,
+            section_path=["Knife Care"],
+        )
+
+        assert not should_merge_adjacent_chunks(left, right, max_merged_chars=2000)
+
+    def test_does_not_merge_across_lane_boundary(self):
+        left = _make_chunk(
+            identifier="c0",
+            text="Salt pasta water so noodles absorb seasoning.",
+            block_ids=[0],
+            abs_start=2,
+            abs_end=2,
+            section_path=["Pasta"],
+        )
+        right = _make_chunk(
+            identifier="c1",
+            text="A stunning and award-winning chapter introduction.",
+            block_ids=[1],
+            abs_start=3,
+            abs_end=3,
+            section_path=["Pasta"],
+            lane=ChunkLane.NOISE,
+        )
+
+        assert not should_merge_adjacent_chunks(left, right, max_merged_chars=2000)
+
+    def test_does_not_merge_when_over_max_chars(self):
+        left = _make_chunk(
+            identifier="c0",
+            text="A" * 300,
+            block_ids=[0],
+            abs_start=0,
+            abs_end=0,
+            section_path=["Roasting"],
+        )
+        right = _make_chunk(
+            identifier="c1",
+            text="B" * 300,
+            block_ids=[1],
+            abs_start=1,
+            abs_end=1,
+            section_path=["Roasting"],
+        )
+
+        assert not should_merge_adjacent_chunks(left, right, max_merged_chars=500)
+
+    def test_merges_chain_of_adjacent_chunks(self):
+        chunks = [
+            _make_chunk(
+                identifier="c0",
+                text="Sear over high heat first.",
+                block_ids=[0],
+                abs_start=4,
+                abs_end=4,
+                section_path=["Braising"],
+            ),
+            _make_chunk(
+                identifier="c1",
+                text="Then add liquid and cover.",
+                block_ids=[1],
+                abs_start=5,
+                abs_end=5,
+                section_path=["Braising"],
+            ),
+            _make_chunk(
+                identifier="c2",
+                text="Cook gently until tender.",
+                block_ids=[2],
+                abs_start=6,
+                abs_end=6,
+                section_path=["Braising"],
+            ),
+        ]
+
+        merged = consolidate_adjacent_knowledge_chunks(chunks, max_merged_chars=2000)
+
+        assert len(merged) == 1
+        assert merged[0].identifier == "c0"
+        assert merged[0].block_ids == [0, 1, 2]
+        assert "Sear over high heat first." in merged[0].text
+        assert "Cook gently until tender." in merged[0].text
+
+    def test_inclusive_end_index_adjacency_convention(self):
+        left = _make_chunk(
+            identifier="c0",
+            text="Start with dry pans to improve browning.",
+            block_ids=[0],
+            abs_start=20,
+            abs_end=22,
+            section_path=["Saute"],
+        )
+        right = _make_chunk(
+            identifier="c1",
+            text="Add oil only once the pan is hot.",
+            block_ids=[1],
+            abs_start=23,
+            abs_end=25,
+            section_path=["Saute"],
+        )
+        not_adjacent = _make_chunk(
+            identifier="c2",
+            text="Do not overcrowd the pan.",
+            block_ids=[2],
+            abs_start=24,
+            abs_end=26,
+            section_path=["Saute"],
+        )
+
+        assert should_merge_adjacent_chunks(left, right, max_merged_chars=2000)
+        assert not should_merge_adjacent_chunks(left, not_adjacent, max_merged_chars=2000)
+
+    def test_table_chunks_never_merge_with_other_chunks(self):
+        table_chunk = _make_chunk(
+            identifier="c0",
+            text="Temp  Internal\n125F  Medium rare",
+            block_ids=[0],
+            abs_start=40,
+            abs_end=40,
+            section_path=["Temperature Guide"],
+            table_ids=["tbl_temp_guide"],
+        )
+        prose_chunk = _make_chunk(
+            identifier="c1",
+            text="Rest steak for 5 minutes before slicing.",
+            block_ids=[1],
+            abs_start=41,
+            abs_end=41,
+            section_path=["Temperature Guide"],
+        )
+
+        assert not should_merge_adjacent_chunks(table_chunk, prose_chunk, max_merged_chars=2000)
+        merged = consolidate_adjacent_knowledge_chunks(
+            [table_chunk, prose_chunk],
+            max_merged_chars=2000,
+        )
+        assert len(merged) == 2
+
+    def test_merge_small_chunks_does_not_absorb_table_chunks(self):
+        table_chunk = _make_chunk(
+            identifier="c0",
+            text="Row 1  100",
+            block_ids=[0],
+            abs_start=100,
+            abs_end=100,
+            section_path=["Conversion Chart"],
+            table_ids=["tbl_conversion"],
+        )
+        prose_chunk = _make_chunk(
+            identifier="c1",
+            text="Short note.",
+            block_ids=[1],
+            abs_start=101,
+            abs_end=101,
+            section_path=["Conversion Chart"],
+        )
+
+        merged = merge_small_chunks([table_chunk, prose_chunk], min_chars=120)
+        assert len(merged) == 2
+
+    def test_process_pipeline_respects_consolidation_kill_switch(self, monkeypatch: pytest.MonkeyPatch):
+        blocks = [
+            _make_block("KNIFE SKILLS"),
+            _make_block(
+                "Always keep your knife sharp. This helps maintain control and improves safety."
+            ),
+            _make_block("- Use a claw grip while chopping."),
+            _make_block("- Let the blade do the work."),
+        ]
+        profile = ChunkingProfile(min_chars=20, max_chars=6000)
+
+        monkeypatch.setenv("COOKIMPORT_CONSOLIDATE_ADJACENT_KNOWLEDGE_CHUNKS", "0")
+        disabled = process_blocks_to_chunks(blocks, profile=profile, min_merge_chars=0)
+        monkeypatch.delenv("COOKIMPORT_CONSOLIDATE_ADJACENT_KNOWLEDGE_CHUNKS", raising=False)
+        enabled = process_blocks_to_chunks(blocks, profile=profile, min_merge_chars=0)
+
+        assert len(disabled) > len(enabled)
+        assert len(enabled) == 1
 
 
 class TestFullPipeline:
