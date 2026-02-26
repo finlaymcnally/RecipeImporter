@@ -24,7 +24,12 @@ This file is now an index, not a long rule dump.
 ## Recent Cross-Cutting Update
 
 - Benchmark scoring now uses stage block evidence manifests (`.bench/<workbook_slug>/stage_block_predictions.json`) rather than pipeline chunk span overlap. See `cookimport/bench/CONVENTIONS.md` and `cookimport/staging/CONVENTIONS.md`.
+- Stage-block benchmark gold now allows multi-label blocks, and missing predicted-block gold rows default to `OTHER`; evaluator logs both diagnostics in `gold_conflicts.jsonl`. See `cookimport/bench/CONVENTIONS.md`.
+- Stage-block benchmark quality depends on extractor/blockization parity between gold-generation and benchmark-prediction runs; matching source hash alone is not sufficient to avoid block-index drift. See `cookimport/bench/CONVENTIONS.md`.
+- Stage block evidence `KNOWLEDGE` labels now prefer pass4 snippets and fall back to deterministic chunk lanes when snippets are absent. See `cookimport/staging/CONVENTIONS.md`.
 - Label Studio import/export/eval are freeform-only (`freeform-spans`); legacy `pipeline` and `canonical-blocks` scopes are rejected in current workflows. See `cookimport/CONVENTIONS.md` and `cookimport/labelstudio/CONVENTIONS.md`.
+- EPUB extractor race mode is retired from both interactive and direct CLI commands; EPUB debug support remains via `cookimport epub inspect|dump|unpack|blocks|candidates|validate`. See `cookimport/CONVENTIONS.md` and `docs/02-cli/02-cli_README.md`.
+- Race-only parsing modules (`parsing/epub_auto_select.py`, `parsing/extraction_quality.py`) are removed, and compatibility fields (`epubAutoSelection`, `epubAutoSelectedScore`, `epub_auto_selected_score`) are removed from reports/manifests/history/dashboard contracts.
 
 ## Adding New Conventions
 

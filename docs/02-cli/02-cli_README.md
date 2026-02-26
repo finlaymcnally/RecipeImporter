@@ -49,8 +49,6 @@ Legend:
 [C] Main Menu
   +--> [D] Import -------------------------> stage(...) ------------------> [C]
   |
-  +--> [R] EPUB extractor race (debug) ----> cookimport epub race --------> [C]
-  |
   +--> [E] Label Studio import
   |       `--> [E] Unified prompt + artifact generation + upload flow -> run_labelstudio_import(...) -> [C]
   |
@@ -88,7 +86,6 @@ Menu options:
 
 - `Stage files from data/input - produce cookbook outputs`
 - `Label Studio: create labeling tasks (uploads)`
-- `EPUB debug: race extractors on one file`
 - `Label Studio: export completed labels to golden artifacts`
 - `Generate predictions + evaluate vs freeform gold`
 - `Generate dashboard - build lifetime stats dashboard HTML`
@@ -98,7 +95,6 @@ Menu options:
 Availability rule:
 
 - `Import` and `Label Studio task upload` only appear when at least one supported top-level file exists in `data/input`.
-- `EPUB debug: race extractors on one file` appears only when at least one top-level `.epub` exists in `data/input`.
 - `inspect` remains available as a direct command (`cookimport inspect <path>`), not as an interactive menu action.
 
 Menu numbering and shortcuts:
@@ -200,16 +196,6 @@ Developer note:
 6. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
 7. Prints `Outputs written to: <run_folder>`.
 8. Returns to the main menu after successful import.
-
-### [R] EPUB Extractor Race Flow (Debug)
-
-1. Choose one EPUB from top-level `data/input`.
-2. Confirm the output folder (default: `data/output/EPUBextractorRace/<book_stem>`).
-3. Confirm candidate list (default: `unstructured,markdown,beautifulsoup`).
-4. If output folder is non-empty, choose whether to continue with overwrite behavior.
-5. Interactive mode runs a deterministic extractor-quality scorer.
-6. It writes `epub_race_report.json` and prints a backend/score summary.
-7. Returns to the main menu.
 
 ### [E] Label Studio Import Flow
 
@@ -837,14 +823,6 @@ Use that file to check prior attempts before retrying a fix path.
 
 ## Merged Understandings (2026-02-20 and durable checklist)
 
-### Interactive EPUB race routing contract (2026-02-20_13.20.47)
-
-- Keep `epub_race` as a top-level main-menu action, not a settings sub-flow.
-- Show it only when top-level `data/input` has at least one `.epub`.
-- Prompt only for interactive concerns (file, output path, candidate set, overwrite handling).
-- Route to shared command behavior (`race_epub_extractors(...)`) instead of duplicating scorer/report logic in interactive code.
-- Always return to main menu after completion/failure.
-
 ### New pipeline-option wiring checklist (IMPORTANT-INSTRUCTION-pipeline-option-edit-map)
 
 When introducing a new processing option, complete all four surfaces together:
@@ -886,28 +864,6 @@ Important implementation constraints:
 - Direct calls to `EpubImporter._extract_docpack(...)` require `_overrides` initialized (current rule: default `None` in importer init).
 - `epub-utils` is optional and may require pre-release install handling (`epub-utils==0.1.0a1`); ZIP/OPF fallback must remain available.
 - EPUBCheck support stays optional; strict failure is opt-in with `--strict`.
-
-### 2026-02-20_13.21.49 interactive EPUB race menu
-
-Interactive CLI behavior contract:
-
-- Main menu exposes `EPUB debug: race extractors on one file` only when top-level `data/input` contains at least one `.epub`.
-- Interactive flow prompts for:
-  - source EPUB,
-  - output folder,
-  - candidate extractors,
-  - overwrite handling.
-- Runtime logic must continue to call shared `race_epub_extractors(...)` rather than duplicating race internals.
-- Flow always returns to the main menu.
-
-### 2026-02-22_10.14.15 interactive EPUB race default output root
-
-Current default path contract:
-
-- Interactive race default output path is:
-  - `data/output/EPUBextractorRace/<book_stem>`
-- The previous `/tmp/epub-race/<book_stem>` default is retired for interactive mode.
-- Direct non-interactive command behavior remains unchanged (`cookimport epub race --out ...` still user-controlled).
 
 ## Merged Task Specs (2026-02-23 docs/tasks archival batch)
 

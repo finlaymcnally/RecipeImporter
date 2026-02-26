@@ -59,7 +59,6 @@ Interactive file discovery and direct staging intentionally differ:
 - Typer command functions that are called directly from Python (interactive helpers/tests) must keep runtime defaults as plain Python values, typically via `Annotated[..., typer.Option(...)] = <default>`; avoid relying on `param: T = typer.Option(...)` defaults in those call paths.
 - If a command still uses `param: T = typer.Option(...)` defaults (legacy signatures), unwrap `OptionInfo` values to plain defaults at function entry before validation/normalization.
 - Interactive `generate_dashboard` asks whether to open the dashboard in a browser, then runs `stats_dashboard(output_root=<settings.output_dir>, out_dir=<output_root_parent>/.history/dashboard)` and returns to the main menu.
-- Interactive `epub_race` is a main-menu action shown only when top-level `data/input` includes at least one `.epub`; it prompts for output/candidates (default output root: `data/output/EPUBextractorRace/<book_stem>`), then runs `cookimport epub race` behavior and returns to the menu.
 - EPUB debug tooling lives under `cookimport epub ...` (sub-CLI module `cookimport/epubdebug`), and block/candidate debug commands must reuse production EPUB importer internals (`_extract_docpack`, `_detect_candidates`) to preserve stage/debug parity.
 
 When debugging "file missing from menu" reports, check whether the file is nested inside `data/input`.

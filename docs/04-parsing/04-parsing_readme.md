@@ -47,8 +47,6 @@ Core modules:
 - `cookimport/parsing/block_roles.py`
 - `cookimport/parsing/markdown_blocks.py`
 - `cookimport/parsing/epub_extractors.py`
-- `cookimport/parsing/extraction_quality.py`
-- `cookimport/parsing/epub_auto_select.py`
 
 Major call sites:
 
@@ -385,13 +383,11 @@ Heuristics are intentionally simple; downstream logic should not assume high-pre
 
 ## EPUB Postprocess and Health (`cookimport/parsing/epub_postprocess.py`, `cookimport/parsing/epub_health.py`)
 
-- `postprocess_epub_blocks(...)` runs after `legacy`/`unstructured`/`markdown` extraction to do shared structural cleanup:
+- `postprocess_epub_blocks(...)` runs after `beautifulsoup`/`unstructured`/`markdown` extraction to do shared structural cleanup:
   - split BR-collapsed/table/list multi-line blocks into deterministic per-line blocks
   - strip leading bullet markers
   - drop obvious noise blocks (pagebreak markers/nav leftovers)
 - `compute_epub_extraction_health(...)` computes extraction sanity metrics and warning keys (`epub_*`) that are attached to EPUB conversion reports.
-- `score_blocks(...)` in `cookimport/parsing/extraction_quality.py` provides deterministic 0..1 extraction scoring used by EPUB extractor race/debug workflows.
-- `select_epub_extractor_auto(...)` in `cookimport/parsing/epub_auto_select.py` samples deterministic spine indices and records rationale artifacts for those debug workflows.
 
 ### Caveat
 

@@ -266,7 +266,7 @@ def _write_eval_report(tmp_path: Path) -> Path:
 class TestSchema:
     def test_dashboard_data_minimal(self):
         d = DashboardData()
-        assert d.schema_version == "9"
+        assert d.schema_version == "10"
         assert d.stage_records == []
         assert d.benchmark_records == []
 
@@ -365,13 +365,11 @@ class TestCollectors:
                 "recipes": "4",
                 "epub_extractor_requested": "auto",
                 "epub_extractor_effective": "beautifulsoup",
-                "epub_auto_selected_score": "0.73",
                 "run_config_json": json.dumps(
                     {
                         "epub_extractor": "auto",
                         "epub_extractor_requested": "auto",
                         "epub_extractor_effective": "beautifulsoup",
-                        "epub_auto_selected_score": 0.73,
                         "ocr_device": "auto",
                         "ocr_batch_size": 1,
                         "effective_workers": 10,
@@ -396,14 +394,12 @@ class TestCollectors:
             "epub_extractor": "auto",
             "epub_extractor_requested": "auto",
             "epub_extractor_effective": "beautifulsoup",
-            "epub_auto_selected_score": 0.73,
             "ocr_device": "auto",
             "ocr_batch_size": 1,
             "effective_workers": 10,
         }
         assert r.epub_extractor_requested == "auto"
         assert r.epub_extractor_effective == "beautifulsoup"
-        assert r.epub_auto_selected_score == pytest.approx(0.73)
         assert r.run_config_hash is not None
         assert "epub_extractor=auto" in str(r.run_config_summary)
 

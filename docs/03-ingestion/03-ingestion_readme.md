@@ -210,7 +210,7 @@ Behavior highlights:
 Extractor modes:
 - Default: `unstructured`
 - Alternates: `beautifulsoup`, `markdown`, `markitdown`
-- Debug-only selector: `select_epub_extractor_auto(...)` remains available for extractor race diagnostics, but it is not a stage/prediction runtime mode.
+- Runtime no longer exposes an EPUB extractor auto-race mode; extraction uses explicit backend selection only.
 - Control path:
   - CLI: `--epub-extractor`
   - Env: `C3IMP_EPUB_EXTRACTOR`
@@ -521,7 +521,7 @@ If working in this area, keep these invariants:
 - Stage and benchmark prediction generation now require an explicit EPUB extractor (`unstructured|beautifulsoup|markdown|markitdown`).
 - Stage/prediction workers receive that selected backend directly (no per-file auto-resolution branch).
 - Prediction-generation helper flows should apply `C3IMP_EPUB_*` overrides in scoped contexts and restore previous env values after conversion to avoid run/test leakage.
-- `select_epub_extractor_auto(...)` remains available for deterministic debug/race utilities only; it is not part of the stage/benchmark runtime path.
+- EPUB extractor race selection is retired from current CLI/runtime flows.
 
 ## Merged Task Specs (2026-02-22 spinner visibility)
 
@@ -618,7 +618,7 @@ Current runtime contract (code + task verification aligned):
 - Run-config compatibility fields stay stable (`epub_extractor_requested`, `epub_extractor_effective`) and are equal for new runs.
 - All-method variant generation and benchmark knobs no longer include `auto` permutations.
 - Legacy saved run settings still load through migration (`auto -> unstructured`) with warning.
-- `select_epub_extractor_auto(...)` remains available only for debug/race utilities.
+- EPUB extractor race selection remains out of current runtime/CLI contracts.
 
 Implementation/testing notes worth preserving:
 - CLI tests should not rely on invalid-choice text always appearing in `stdout`; Typer error output can be stream-dependent in test harnesses.
@@ -661,7 +661,6 @@ Durable runtime contract:
   - `cookimport/epubdebug/cli.py`
   - `cookimport/labelstudio/ingest.py`
   - `cookimport/plugins/epub.py`
-  - `cookimport/parsing/epub_auto_select.py`
 
 Anti-loop notes:
 - Mixed alias handling causes extractor slugs/history rows/dashboard groups/tests to split one backend into multiple names.

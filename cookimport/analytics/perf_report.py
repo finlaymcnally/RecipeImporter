@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from cookimport.parsing.epub_auto_select import selected_auto_score
 from cookimport.paths import history_csv_for_output
 
 _RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}$")
@@ -50,7 +49,6 @@ class PerfRow:
     run_config_summary: str | None = None
     epub_extractor_requested: str | None = None
     epub_extractor_effective: str | None = None
-    epub_auto_selected_score: float | None = None
 
     @property
     def total_units(self) -> int:
@@ -409,7 +407,6 @@ def append_benchmark_csv(
     run_config_summary: str | None = None,
     epub_extractor_requested: str | None = None,
     epub_extractor_effective: str | None = None,
-    epub_auto_selected_score: float | None = None,
     run_category: str = "benchmark_eval",
     timing: dict[str, Any] | None = None,
 ) -> None:
@@ -530,10 +527,6 @@ def append_benchmark_csv(
         )
     if resolved_effective is None and run_config is not None:
         resolved_effective = _normalize_optional_text(run_config.get("epub_extractor"))
-
-    resolved_auto_score = epub_auto_selected_score
-    if resolved_auto_score is None and run_config is not None:
-        resolved_auto_score = _safe_float_or_none(run_config.get("epub_auto_selected_score"))
 
     resolved_timing = _resolve_benchmark_timing_payload(
         timing=timing,
@@ -709,9 +702,6 @@ def append_benchmark_csv(
         ),
         "epub_extractor_requested": resolved_requested or "",
         "epub_extractor_effective": resolved_effective or "",
-        "epub_auto_selected_score": (
-            resolved_auto_score if resolved_auto_score is not None else ""
-        ),
     })
 
     append_started = time.monotonic()
@@ -856,16 +846,9 @@ def _row_from_report(run_dir: Path, report_path: Path, data: dict[str, Any]) -> 
         effective_extractor = _normalize_optional_text(data.get("epubBackend"))
     if effective_extractor is None and run_config is not None:
         effective_extractor = _normalize_optional_text(run_config.get("epub_extractor"))
-    auto_selected_score = _safe_float_or_none(data.get("epubAutoSelectedScore"))
-    if auto_selected_score is None:
-        artifact = data.get("epubAutoSelection")
-        auto_selected_score = selected_auto_score(artifact if isinstance(artifact, dict) else None)
-    if auto_selected_score is None and run_config is not None:
-        auto_selected_score = _safe_float_or_none(run_config.get("epub_auto_selected_score"))
     if (importer_name or "").lower() != "epub":
         requested_extractor = None
         effective_extractor = None
-        auto_selected_score = None
 
     source_file = data.get("sourceFile")
     if source_file:
@@ -898,7 +881,6 @@ def _row_from_report(run_dir: Path, report_path: Path, data: dict[str, Any]) -> 
         run_config_summary=run_config_summary,
         epub_extractor_requested=requested_extractor,
         epub_extractor_effective=effective_extractor,
-        epub_auto_selected_score=auto_selected_score,
     )
 
 
@@ -1183,7 +1165,6 @@ _CSV_FIELDS = [
     "benchmark_worst_label_recall",
     "epub_extractor_requested",
     "epub_extractor_effective",
-    "epub_auto_selected_score",
     "run_config_hash",
     "run_config_summary",
     "run_config_json",
@@ -1273,9 +1254,6 @@ def _row_to_csv(row: PerfRow) -> dict[str, Any]:
         "benchmark_worst_label_recall": "",
         "epub_extractor_requested": row.epub_extractor_requested or "",
         "epub_extractor_effective": row.epub_extractor_effective or "",
-        "epub_auto_selected_score": (
-            row.epub_auto_selected_score if row.epub_auto_selected_score is not None else ""
-        ),
         "run_config_hash": row.run_config_hash or "",
         "run_config_summary": row.run_config_summary or "",
         "run_config_json": (

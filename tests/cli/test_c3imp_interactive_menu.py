@@ -47,7 +47,10 @@ def test_interactive_main_menu_includes_generate_dashboard(monkeypatch):
     assert "generate_dashboard" in captured_choice_values
 
 
-def test_interactive_main_menu_includes_epub_race_when_epub_available(monkeypatch, tmp_path):
+def test_interactive_main_menu_does_not_include_epub_race_when_epub_available(
+    monkeypatch,
+    tmp_path,
+):
     captured_choice_values: list[str] = []
     epub_path = tmp_path / "book.epub"
     epub_path.write_text("dummy", encoding="utf-8")
@@ -65,7 +68,7 @@ def test_interactive_main_menu_includes_epub_race_when_epub_available(monkeypatc
     with pytest.raises(typer.Exit):
         cli._interactive_mode()
 
-    assert "epub_race" in captured_choice_values
+    assert "epub_race" not in captured_choice_values
 
 
 def test_ask_with_escape_back_handles_real_text_prompt() -> None:

@@ -87,12 +87,10 @@ cookimport/parsing/block_roles.py
 cookimport/parsing/chunks.py
 cookimport/parsing/classifier.py
 cookimport/parsing/cleaning.py
-cookimport/parsing/epub_auto_select.py
 cookimport/parsing/epub_extractors.py
 cookimport/parsing/epub_health.py
 cookimport/parsing/epub_html_normalize.py
 cookimport/parsing/epub_postprocess.py
-cookimport/parsing/extraction_quality.py
 cookimport/parsing/ingredients.py
 cookimport/parsing/instruction_parser.py
 cookimport/parsing/markdown_blocks.py

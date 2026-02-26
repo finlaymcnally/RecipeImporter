@@ -44,6 +44,23 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     )
 
 
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists() or not path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        raw = line.strip()
+        if not raw:
+            continue
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows
+
+
 def _excerpt(text: str, *, limit: int = 220) -> str:
     cleaned = " ".join(str(text or "").split())
     if len(cleaned) <= limit:
@@ -81,11 +98,49 @@ def _load_extracted_block_texts(extracted_blocks_json: Path) -> dict[int, str]:
     return by_index
 
 
+def _coerce_gold_label_set(raw: Any, *, block_index: int) -> set[str]:
+    if isinstance(raw, str):
+        items: list[Any] = [raw]
+    elif isinstance(raw, (list, tuple, set)):
+        items = list(raw)
+    else:
+        raise ValueError(
+            "Gold label payload must be a label string or label collection; "
+            f"block_index={block_index} got {type(raw).__name__}."
+        )
+
+    labels: set[str] = set()
+    for item in items:
+        value = str(item or "").strip()
+        if not value:
+            continue
+        normalized = normalize_freeform_label(value)
+        if normalized not in _FREEFORM_LABEL_SET:
+            raise ValueError(
+                f"Unsupported freeform label in gold payload: {value!r}"
+            )
+        labels.add(normalized)
+
+    if not labels:
+        raise ValueError(f"Gold block {block_index} has no usable labels.")
+    return labels
+
+
+def _primary_gold_label(labels: set[str], *, pred_label: str | None = None) -> str:
+    if pred_label and pred_label in labels:
+        return pred_label
+    for label in FREEFORM_LABELS:
+        if label in labels:
+            return label
+    return sorted(labels)[0]
+
+
 def load_gold_block_labels(
     freeform_span_labels_jsonl_path: Path,
     *,
     conflict_output_path: Path | None = None,
-) -> dict[int, str]:
+    require_exhaustive: bool = True,
+) -> dict[int, set[str]]:
     assignments: dict[int, set[str]] = {}
     assignment_spans: dict[int, list[dict[str, Any]]] = {}
 
@@ -142,6 +197,7 @@ def load_gold_block_labels(
             continue
         conflicts.append(
             {
+                "warning": "gold_block_has_multiple_labels",
                 "block_index": block_index,
                 "labels": sorted(labels),
                 "spans": assignment_spans.get(block_index, []),
@@ -151,31 +207,26 @@ def load_gold_block_labels(
     if conflicts:
         if conflict_output_path is not None:
             _write_jsonl(conflict_output_path, conflicts)
-        raise ValueError(
-            "Gold conflicts detected: one or more blocks have multiple labels. "
-            "Fix gold labeling and retry."
-        )
 
     max_index = max(assignments)
     missing = [index for index in range(max_index + 1) if index not in assignments]
-    if missing:
+    if require_exhaustive and missing:
+        diagnostics = list(conflicts)
+        diagnostics.append(
+            {
+                "error": "gold_missing_block_labels",
+                "missing_block_indices": missing,
+            }
+        )
         if conflict_output_path is not None:
-            _write_jsonl(
-                conflict_output_path,
-                [
-                    {
-                        "error": "gold_missing_block_labels",
-                        "missing_block_indices": missing,
-                    }
-                ],
-            )
+            _write_jsonl(conflict_output_path, diagnostics)
         raise ValueError(
             "Gold is not exhaustive: missing labels for "
             f"{len(missing)} blocks (examples: {missing[:10]})."
         )
 
     return {
-        block_index: next(iter(labels))
+        block_index: set(labels)
         for block_index, labels in sorted(assignments.items())
     }
 
@@ -233,8 +284,22 @@ def load_stage_block_labels(stage_block_predictions_json_path: Path) -> dict[int
     return dict(sorted(labels.items()))
 
 
-def compute_block_metrics(gold: dict[int, str], pred: dict[int, str]) -> dict[str, Any]:
-    gold_indices = set(gold)
+def compute_block_metrics(
+    gold: dict[int, str | list[str] | tuple[str, ...] | set[str]],
+    pred: dict[int, str],
+) -> dict[str, Any]:
+    gold_sets: dict[int, set[str]] = {}
+    for raw_index, raw_labels in gold.items():
+        try:
+            block_index = int(raw_index)
+        except (TypeError, ValueError):
+            raise ValueError(f"Invalid gold block index: {raw_index!r}") from None
+        gold_sets[block_index] = _coerce_gold_label_set(
+            raw_labels,
+            block_index=block_index,
+        )
+
+    gold_indices = set(gold_sets)
     pred_indices = set(pred)
     if gold_indices != pred_indices:
         missing_in_gold = sorted(pred_indices - gold_indices)
@@ -246,14 +311,26 @@ def compute_block_metrics(gold: dict[int, str], pred: dict[int, str]) -> dict[st
 
     ordered_indices = sorted(gold)
     total_blocks = len(ordered_indices)
-    matches = sum(1 for index in ordered_indices if gold[index] == pred[index])
+    matches = sum(1 for index in ordered_indices if pred[index] in gold_sets[index])
     accuracy = (matches / total_blocks) if total_blocks else 0.0
 
     per_label: dict[str, dict[str, Any]] = {}
     for label in FREEFORM_LABELS:
-        tp = sum(1 for index in ordered_indices if gold[index] == label and pred[index] == label)
-        fp = sum(1 for index in ordered_indices if gold[index] != label and pred[index] == label)
-        fn = sum(1 for index in ordered_indices if gold[index] == label and pred[index] != label)
+        tp = sum(
+            1
+            for index in ordered_indices
+            if label in gold_sets[index] and pred[index] == label
+        )
+        fp = sum(
+            1
+            for index in ordered_indices
+            if label not in gold_sets[index] and pred[index] == label
+        )
+        fn = sum(
+            1
+            for index in ordered_indices
+            if label in gold_sets[index] and pred[index] != label
+        )
         gold_total = tp + fn
         pred_total = tp + fp
         precision = tp / pred_total if pred_total else 0.0
@@ -274,10 +351,14 @@ def compute_block_metrics(gold: dict[int, str], pred: dict[int, str]) -> dict[st
             "recall": recall,
             "f1": f1,
             "missed_block_indices": [
-                index for index in ordered_indices if gold[index] == label and pred[index] != label
+                index
+                for index in ordered_indices
+                if label in gold_sets[index] and pred[index] != label
             ],
             "false_positive_block_indices": [
-                index for index in ordered_indices if gold[index] != label and pred[index] == label
+                index
+                for index in ordered_indices
+                if label not in gold_sets[index] and pred[index] == label
             ],
         }
 
@@ -310,26 +391,34 @@ def compute_block_metrics(gold: dict[int, str], pred: dict[int, str]) -> dict[st
             worst_gold_total = gold_total
 
     confusion: dict[str, dict[str, int]] = {}
+    effective_gold: dict[int, str] = {
+        index: _primary_gold_label(gold_sets[index], pred_label=pred[index])
+        for index in ordered_indices
+    }
     for index in ordered_indices:
-        gold_label = gold[index]
+        gold_label = effective_gold[index]
         pred_label = pred[index]
         by_gold = confusion.setdefault(gold_label, {})
         by_gold[pred_label] = int(by_gold.get(pred_label, 0)) + 1
 
-    mismatched_indices = [index for index in ordered_indices if gold[index] != pred[index]]
+    mismatched_indices = [
+        index for index in ordered_indices if pred[index] not in gold_sets[index]
+    ]
     missed_gold_blocks = [
         {
             "block_index": index,
-            "gold_label": gold[index],
+            "gold_label": effective_gold[index],
+            "gold_labels": sorted(gold_sets[index]),
             "pred_label": pred[index],
         }
         for index in mismatched_indices
-        if gold[index] != "OTHER"
+        if effective_gold[index] != "OTHER"
     ]
     wrong_label_blocks = [
         {
             "block_index": index,
-            "gold_label": gold[index],
+            "gold_label": effective_gold[index],
+            "gold_labels": sorted(gold_sets[index]),
             "pred_label": pred[index],
         }
         for index in mismatched_indices
@@ -474,25 +563,40 @@ def evaluate_stage_blocks(
     gold = load_gold_block_labels(
         gold_freeform_jsonl,
         conflict_output_path=gold_conflicts_path,
+        require_exhaustive=False,
     )
     pred = load_stage_block_labels(stage_predictions_json)
 
     gold_indices = set(gold)
     pred_indices = set(pred)
     missing_gold = sorted(pred_indices - gold_indices)
+    if missing_gold:
+        for block_index in missing_gold:
+            gold[block_index] = {"OTHER"}
+        diagnostics = _read_jsonl(gold_conflicts_path)
+        diagnostics.append(
+            {
+                "warning": "gold_missing_block_labels_defaulted_to_other",
+                "missing_gold_indices": missing_gold,
+                "default_label": "OTHER",
+            }
+        )
+        _write_jsonl(gold_conflicts_path, diagnostics)
+
+    gold_indices = set(gold)
     extra_gold = sorted(gold_indices - pred_indices)
-    if missing_gold or extra_gold:
-        mismatch_rows = [
+    if extra_gold:
+        diagnostics = _read_jsonl(gold_conflicts_path)
+        diagnostics.append(
             {
                 "error": "gold_pred_block_mismatch",
-                "missing_gold_indices": missing_gold,
                 "extra_gold_indices": extra_gold,
             }
-        ]
-        _write_jsonl(gold_conflicts_path, mismatch_rows)
+        )
+        _write_jsonl(gold_conflicts_path, diagnostics)
         raise ValueError(
-            "Gold/pred block sets differ. "
-            f"missing_gold={len(missing_gold)} extra_gold={len(extra_gold)}"
+            "Gold contains block labels not present in predictions. "
+            f"extra_gold={len(extra_gold)}"
         )
 
     report = compute_block_metrics(gold, pred)
@@ -510,10 +614,21 @@ def evaluate_stage_blocks(
             continue
         block_index = int(mismatch.get("block_index", -1))
         gold_label = str(mismatch.get("gold_label") or "")
+        raw_gold_labels = mismatch.get("gold_labels")
+        gold_labels: list[str] = []
+        if isinstance(raw_gold_labels, list):
+            for value in raw_gold_labels:
+                label = str(value or "").strip()
+                if not label:
+                    continue
+                gold_labels.append(label)
+        if not gold_labels and gold_label:
+            gold_labels = [gold_label]
         pred_label = str(mismatch.get("pred_label") or "")
         row = {
             "block_index": block_index,
             "gold_label": gold_label,
+            "gold_labels": sorted(set(gold_labels)),
             "pred_label": pred_label,
             "block_text_excerpt": _excerpt(block_texts.get(block_index, "")),
             "workbook_slug": workbook_slug,

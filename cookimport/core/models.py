@@ -510,12 +510,6 @@ class ConversionReport(BaseModel):
     source_file: str | None = Field(default=None, alias="sourceFile")
     importer_name: str | None = Field(default=None, alias="importerName")
     epub_backend: str | None = Field(default=None, alias="epubBackend")
-    epub_auto_selection: dict[str, Any] | None = Field(
-        default=None, alias="epubAutoSelection"
-    )
-    epub_auto_selected_score: float | None = Field(
-        default=None, alias="epubAutoSelectedScore"
-    )
     average_confidence: float | None = Field(default=None, alias="averageConfidence")
     category_confidence: dict[str, float] = Field(default_factory=dict, alias="categoryConfidence")
     

@@ -8,7 +8,7 @@ Run-settings contracts for `cookimport/config/` and all call sites that consume 
 - When a run-setting value changes split capability (for example `epub_extractor=markitdown`), update both split planners (`cookimport/cli.py:_plan_jobs`, `cookimport/labelstudio/ingest.py:_plan_parallel_convert_jobs`) and `compute_effective_workers(...)` together.
 - EPUB unstructured tuning knobs (`epub_unstructured_html_parser_version`, `epub_unstructured_skip_headers_footers`, `epub_unstructured_preprocess_mode`) are part of canonical run settings and must propagate in both stage and benchmark prediction paths; do not wire them only in one flow.
 - EPUB extractor auto mode is removed from stage/prediction flows; accepted choices are explicit only: `unstructured`, `beautifulsoup`, `markdown`, `markitdown`.
-- Stored run-settings migration must coerce older `epub_extractor=auto` payloads to `unstructured` with a warning so older snapshots stay loadable.
+- Stored run-settings migration must coerce older `epub_extractor=auto` payloads to `unstructured` and `epub_extractor=legacy` payloads to `beautifulsoup` with warnings so older snapshots stay loadable.
 - Run-config persistence still includes both `epub_extractor_requested` and `epub_extractor_effective`; in current explicit-choice mode they should match for new runs.
 - Runtime env overrides for EPUB extraction options in prediction/stage helper flows must be scoped and restored after conversion; do not leak `C3IMP_EPUB_*` values across runs/tests.
 - `stage(...)` should pass per-file effective extractor choices explicitly to workers (`stage_one_file` / `stage_epub_job`) instead of depending on persistent process-wide `C3IMP_EPUB_EXTRACTOR`.

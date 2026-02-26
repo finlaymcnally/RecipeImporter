@@ -127,7 +127,7 @@ app.add_typer(bench_app)
 
 from cookimport.tagging.cli import tag_catalog_app, tag_recipes_app  # noqa: E402
 from cookimport.tagging.orchestrator import run_stage_tagging_pass  # noqa: E402
-from cookimport.epubdebug.cli import epub_app, race_epub_extractors  # noqa: E402
+from cookimport.epubdebug.cli import epub_app  # noqa: E402
 from cookimport.paths import (
     GOLDEN_BENCHMARK_ROOT,
     GOLDEN_PULLED_FROM_LABELSTUDIO_ROOT,
@@ -149,7 +149,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_INPUT = INPUT_ROOT
 DEFAULT_OUTPUT = OUTPUT_ROOT
 DEFAULT_INTERACTIVE_OUTPUT = DEFAULT_OUTPUT
-DEFAULT_EPUB_RACE_OUTPUT_ROOT = DEFAULT_OUTPUT / "EPUBextractorRace"
 DEFAULT_GOLDEN = GOLDEN_ROOT
 DEFAULT_GOLDEN_SENT_TO_LABELSTUDIO = GOLDEN_SENT_TO_LABELSTUDIO_ROOT
 DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO = GOLDEN_PULLED_FROM_LABELSTUDIO_ROOT
@@ -1198,64 +1197,6 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 _save_settings(current_settings)
 
 
-def _interactive_epub_race(epub_files: list[Path]) -> None:
-    """Run the one-file EPUB extractor race flow from interactive mode."""
-    if not epub_files:
-        typer.secho("No EPUB files found in data/input.", fg=typer.colors.YELLOW)
-        return
-
-    selected_epub = _menu_select(
-        "Select an EPUB file for extractor race:",
-        choices=[questionary.Choice(path.name, value=path) for path in epub_files],
-        menu_help=(
-            "Runs a deterministic extractor-quality scorer and writes "
-            "epub_race_report.json."
-        ),
-    )
-    if selected_epub in {None, BACK_ACTION}:
-        return
-
-    default_out = DEFAULT_EPUB_RACE_OUTPUT_ROOT / selected_epub.stem
-    out_raw = _prompt_text(
-        "Race output folder:",
-        default=str(default_out),
-    )
-    if out_raw is None:
-        return
-    out_dir = Path(out_raw.strip() or str(default_out)).expanduser()
-
-    force = False
-    if out_dir.exists() and out_dir.is_dir() and any(out_dir.iterdir()):
-        overwrite = _prompt_confirm(
-            "Output folder is not empty. Continue with overwrite behavior?",
-            default=False,
-        )
-        if overwrite is None or not overwrite:
-            typer.secho("EPUB race cancelled.", fg=typer.colors.YELLOW)
-            return
-        force = True
-
-    candidates_raw = _prompt_text(
-        "Candidate extractors (comma-separated):",
-        default="unstructured,markdown,beautifulsoup",
-    )
-    if candidates_raw is None:
-        return
-    candidates = candidates_raw.strip() or "unstructured,markdown,beautifulsoup"
-
-    try:
-        race_epub_extractors(
-            path=selected_epub,
-            out=out_dir,
-            candidates=candidates,
-            json_output=False,
-            force=force,
-        )
-    except typer.Exit as exc:
-        if int(exc.exit_code or 0) != 0:
-            typer.secho("EPUB race failed. See error above.", fg=typer.colors.YELLOW)
-
-
 def _interactive_all_method_benchmark(
     *,
     selected_benchmark_settings: RunSettings,
@@ -1616,8 +1557,6 @@ def _interactive_mode(*, limit: int | None = None) -> None:
         output_folder = Path(str(settings.get("output_dir") or DEFAULT_INTERACTIVE_OUTPUT)).expanduser()
         # Scan for importable files first to know what context to show
         importable_files = _list_importable_files(input_folder)
-        epub_files = [path for path in importable_files if path.suffix.lower() == ".epub"]
-
         choices = []
         if importable_files:
             choices.append(
@@ -1630,13 +1569,6 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 questionary.Choice(
                     "Label Studio: create labeling tasks (uploads)",
                     value="labelstudio",
-                )
-            )
-        if epub_files:
-            choices.append(
-                questionary.Choice(
-                    "EPUB debug: race extractors on one file",
-                    value="epub_race",
                 )
             )
         choices.append(
@@ -1671,7 +1603,6 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             menu_help=(
                 "Choose a workflow. Stage produces cookbook outputs, Label Studio task "
                 "creation uploads annotation tasks, export pulls completed labels, "
-                "EPUB race runs a one-file extractor comparison, "
                 "and evaluate compares predictions against gold. "
                 "Dashboard builds a static lifetime summary."
             ),
@@ -1702,10 +1633,6 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 since_days=None,
                 scan_reports=False,
             )
-            continue
-
-        if action == "epub_race":
-            _interactive_epub_race(epub_files)
             continue
 
         if action == "settings":
@@ -3403,7 +3330,6 @@ class PredRunContext:
     run_config: dict[str, Any] | None
     run_config_hash: str | None
     run_config_summary: str | None
-    epub_auto_selected_score: float | None
 
 
 @dataclass(frozen=True)
@@ -3735,7 +3661,6 @@ def _load_pred_run_recipe_context(
             run_config=None,
             run_config_hash=None,
             run_config_summary=None,
-            epub_auto_selected_score=None,
         )
 
     try:
@@ -3750,7 +3675,6 @@ def _load_pred_run_recipe_context(
             run_config=None,
             run_config_hash=None,
             run_config_summary=None,
-            epub_auto_selected_score=None,
         )
     if not isinstance(payload, dict):
         return PredRunContext(
@@ -3762,7 +3686,6 @@ def _load_pred_run_recipe_context(
             run_config=None,
             run_config_hash=None,
             run_config_summary=None,
-            epub_auto_selected_score=None,
         )
 
     source_file = str(payload.get("source_file") or "")
@@ -3778,15 +3701,6 @@ def _load_pred_run_recipe_context(
         run_config = None
     run_config_hash = str(payload.get("run_config_hash") or "").strip() or None
     run_config_summary = str(payload.get("run_config_summary") or "").strip() or None
-    auto_score = payload.get("epub_auto_selected_score")
-    if auto_score is None and run_config is not None:
-        auto_score = run_config.get("epub_auto_selected_score")
-    try:
-        epub_auto_selected_score = (
-            float(auto_score) if auto_score is not None and str(auto_score).strip() != "" else None
-        )
-    except (TypeError, ValueError):
-        epub_auto_selected_score = None
 
     recipes: int | None
     try:
@@ -3806,7 +3720,6 @@ def _load_pred_run_recipe_context(
         run_config=run_config,
         run_config_hash=run_config_hash,
         run_config_summary=run_config_summary,
-        epub_auto_selected_score=epub_auto_selected_score,
     )
 
 
@@ -6929,14 +6842,6 @@ def _prefix_collision(path: Path, job_index: int) -> Path:
     return candidate
 
 
-def _normalize_epub_auto_selection_payload(
-    payload: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    if payload is None:
-        return None
-    return dict(payload)
-
-
 def _write_error_report(
     out: Path,
     file_path: Path,
@@ -6947,8 +6852,6 @@ def _write_error_report(
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
-    epub_auto_selection: dict[str, Any] | None = None,
-    epub_auto_selected_score: float | None = None,
 ) -> None:
     report = ConversionReport(
         errors=errors,
@@ -6959,10 +6862,6 @@ def _write_error_report(
         runConfigHash=run_config_hash,
         runConfigSummary=run_config_summary,
     )
-    if epub_auto_selection is not None:
-        report.epub_auto_selection = _normalize_epub_auto_selection_payload(epub_auto_selection)
-    if epub_auto_selected_score is not None:
-        report.epub_auto_selected_score = float(epub_auto_selected_score)
     write_report(report, out, file_path.stem)
 
 
@@ -7095,8 +6994,6 @@ def _merge_split_jobs(
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
-    epub_auto_selection: dict[str, Any] | None = None,
-    epub_auto_selected_score: float | None = None,
     status_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     workbook_slug = slugify_name(file_path.stem)
@@ -7240,26 +7137,6 @@ def _merge_split_jobs(
         runConfigHash=run_config_hash,
         runConfigSummary=run_config_summary,
     )
-    if epub_auto_selection is None:
-        for job in ordered_jobs:
-            result = job.get("result")
-            if result is None or result.report is None:
-                continue
-            if result.report.epub_auto_selection:
-                epub_auto_selection = dict(result.report.epub_auto_selection)
-                break
-    if epub_auto_selected_score is None:
-        for job in ordered_jobs:
-            result = job.get("result")
-            if result is None or result.report is None:
-                continue
-            if result.report.epub_auto_selected_score is not None:
-                epub_auto_selected_score = float(result.report.epub_auto_selected_score)
-                break
-    if epub_auto_selection is not None:
-        report.epub_auto_selection = _normalize_epub_auto_selection_payload(epub_auto_selection)
-    if epub_auto_selected_score is not None:
-        report.epub_auto_selected_score = float(epub_auto_selected_score)
     if importer_name == "epub" and epub_backends:
         report.epub_backend = sorted(epub_backends)[0]
         if len(epub_backends) > 1:
@@ -7522,8 +7399,6 @@ def _merge_epub_jobs(
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
-    epub_auto_selection: dict[str, Any] | None = None,
-    epub_auto_selected_score: float | None = None,
     status_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     return _merge_split_jobs(
@@ -7537,8 +7412,6 @@ def _merge_epub_jobs(
         run_config=run_config,
         run_config_hash=run_config_hash,
         run_config_summary=run_config_summary,
-        epub_auto_selection=epub_auto_selection,
-        epub_auto_selected_score=epub_auto_selected_score,
         status_callback=status_callback,
     )
 
@@ -7870,8 +7743,6 @@ def stage(
         for file_path in files_to_process
         if file_path.suffix.lower() == ".epub"
     }
-    epub_auto_selection_by_file: dict[Path, dict[str, Any]] = {}
-    epub_auto_selected_score_by_file: dict[Path, float] = {}
 
     all_epub = all(f.suffix.lower() == ".epub" for f in files_to_process)
     run_settings = build_run_settings(
@@ -7944,18 +7815,6 @@ def stage(
             selected_epub_extractor,
         )
         return payload
-
-    def _epub_auto_selection_for_file(file_path: Path) -> dict[str, Any] | None:
-        payload = epub_auto_selection_by_file.get(file_path)
-        if payload is None:
-            return None
-        return dict(payload)
-
-    def _epub_auto_selected_score_for_file(file_path: Path) -> float | None:
-        score = epub_auto_selected_score_by_file.get(file_path)
-        if score is None:
-            return None
-        return float(score)
 
     run_config_hash = _stable_run_config_hash(run_config)
     run_config_summary = _render_run_config_summary(run_config)
@@ -8110,8 +7969,6 @@ def stage(
         job_run_config = _run_config_for_file(job.file_path)
         job_run_config_hash = _run_config_hash_for_file(job.file_path)
         job_run_config_summary = _run_config_summary_for_file(job.file_path)
-        job_epub_auto_selection = _epub_auto_selection_for_file(job.file_path)
-        job_epub_auto_selected_score = _epub_auto_selected_score_for_file(job.file_path)
 
         if job.is_split:
             job_results_by_file[job.file_path].append(res)
@@ -8150,8 +8007,6 @@ def stage(
                         run_config=job_run_config,
                         run_config_hash=job_run_config_hash,
                         run_config_summary=job_run_config_summary,
-                        epub_auto_selection=job_epub_auto_selection,
-                        epub_auto_selected_score=job_epub_auto_selected_score,
                     )
                 else:
                     _set_worker_status(
@@ -8181,8 +8036,6 @@ def stage(
                                 job_run_config,
                                 job_run_config_hash,
                                 job_run_config_summary,
-                                job_epub_auto_selection,
-                                job_epub_auto_selected_score,
                                 status_callback=_main_merge_status,
                             )
                         else:
@@ -8227,8 +8080,6 @@ def stage(
                             run_config=job_run_config,
                             run_config_hash=job_run_config_hash,
                             run_config_summary=job_run_config_summary,
-                            epub_auto_selection=job_epub_auto_selection,
-                            epub_auto_selected_score=job_epub_auto_selected_score,
                         )
         else:
             if res["status"] == "success":
@@ -8256,10 +8107,6 @@ def stage(
                     job_run_config_hash = _run_config_hash_for_file(job.file_path)
                     job_run_config_summary = _run_config_summary_for_file(job.file_path)
                     job_epub_extractor = effective_epub_extractors.get(job.file_path)
-                    job_epub_auto_selection = _epub_auto_selection_for_file(job.file_path)
-                    job_epub_auto_selected_score = _epub_auto_selected_score_for_file(
-                        job.file_path
-                    )
                     if job.is_split:
                         if job.split_kind == "epub":
                             futures[
@@ -8279,8 +8126,6 @@ def stage(
                                     job_run_config,
                                     job_run_config_hash,
                                     job_run_config_summary,
-                                    job_epub_auto_selection,
-                                    job_epub_auto_selected_score,
                                 )
                             ] = job
                         else:
@@ -8317,8 +8162,6 @@ def stage(
                                 job_run_config,
                                 job_run_config_hash,
                                 job_run_config_summary,
-                                job_epub_auto_selection,
-                                job_epub_auto_selected_score,
                             )
                         ] = job
 
@@ -8350,10 +8193,6 @@ def stage(
                 job_run_config_hash = _run_config_hash_for_file(job.file_path)
                 job_run_config_summary = _run_config_summary_for_file(job.file_path)
                 job_epub_extractor = effective_epub_extractors.get(job.file_path)
-                job_epub_auto_selection = _epub_auto_selection_for_file(job.file_path)
-                job_epub_auto_selected_score = _epub_auto_selected_score_for_file(
-                    job.file_path
-                )
                 if job.is_split:
                     if job.split_kind == "epub":
                         res = stage_epub_job(
@@ -8371,8 +8210,6 @@ def stage(
                             job_run_config,
                             job_run_config_hash,
                             job_run_config_summary,
-                            job_epub_auto_selection,
-                            job_epub_auto_selected_score,
                         )
                     else:
                         res = stage_pdf_job(
@@ -8403,8 +8240,6 @@ def stage(
                         job_run_config,
                         job_run_config_hash,
                         job_run_config_summary,
-                        job_epub_auto_selection,
-                        job_epub_auto_selected_score,
                     )
                 progress_bar.update(overall_task, advance=1)
                 handle_job_result(job, res, live)
@@ -9254,7 +9089,6 @@ def labelstudio_eval(
         run_config=pred_context.run_config,
         run_config_hash=pred_context.run_config_hash,
         run_config_summary=pred_context.run_config_summary,
-        epub_auto_selected_score=pred_context.epub_auto_selected_score,
     )
     _refresh_dashboard_after_history_write(
         csv_path=csv_history_path,
@@ -9992,7 +9826,6 @@ def labelstudio_benchmark(
         run_config=pred_context.run_config,
         run_config_hash=pred_context.run_config_hash,
         run_config_summary=pred_context.run_config_summary,
-        epub_auto_selected_score=pred_context.epub_auto_selected_score,
         timing=benchmark_timing,
     )
     if not suppress_summary:

@@ -731,8 +731,6 @@ def _write_processed_outputs(
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
-    epub_auto_selection: dict[str, Any] | None = None,
-    epub_auto_selected_score: float | None = None,
     schemaorg_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
     draft_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
     llm_codex_farm: dict[str, Any] | None = None,
@@ -780,10 +778,6 @@ def _write_processed_outputs(
     result.report.run_config_hash = run_config_hash
     result.report.run_config_summary = run_config_summary
     result.report.llm_codex_farm = llm_codex_farm
-    if epub_auto_selection is not None:
-        result.report.epub_auto_selection = dict(epub_auto_selection)
-    if epub_auto_selected_score is not None:
-        result.report.epub_auto_selected_score = float(epub_auto_selected_score)
     result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
     enrich_report_with_stats(result.report, result, path)
 
@@ -1278,8 +1272,6 @@ def generate_pred_run_artifacts(
     selected_epub_extractor = _normalize_epub_extractor(
         str(epub_extractor or os.environ.get("C3IMP_EPUB_EXTRACTOR", "unstructured"))
     )
-    auto_selection_payload: dict[str, Any] | None = None
-    auto_selection_score: float | None = None
 
     selected_html_parser_version = _normalize_unstructured_html_parser_version(
         str(
@@ -1611,12 +1603,6 @@ def generate_pred_run_artifacts(
     archive = build_extracted_archive(result, result.raw_artifacts)
     _notify("Computing source file hash...")
     file_hash = compute_file_hash(path)
-    if auto_selection_payload is not None:
-        if result.report is None:
-            result.report = ConversionReport()
-        result.report.epub_auto_selection = dict(auto_selection_payload)
-        if auto_selection_score is not None:
-            result.report.epub_auto_selected_score = float(auto_selection_score)
     book_id = result.workbook or path.stem
     processed_run_root: Path | None = None
     processed_report_path: Path | None = None
@@ -1634,8 +1620,6 @@ def generate_pred_run_artifacts(
             run_config=run_config,
             run_config_hash=run_config_hash,
             run_config_summary=run_config_summary,
-            epub_auto_selection=auto_selection_payload,
-            epub_auto_selected_score=auto_selection_score,
             schemaorg_overrides_by_recipe_id=llm_schema_overrides,
             draft_overrides_by_recipe_id=llm_draft_overrides,
             llm_codex_farm=llm_report,
@@ -2231,8 +2215,6 @@ def generate_pred_run_artifacts(
         "run_config_hash": run_config_hash,
         "run_config_summary": run_config_summary,
         "llm_codex_farm": llm_report,
-        "epub_auto_selection": auto_selection_payload,
-        "epub_auto_selected_score": auto_selection_score,
         "processed_run_root": (
             str(processed_run_root) if processed_run_root is not None else None
         ),
@@ -2360,8 +2342,6 @@ def generate_pred_run_artifacts(
         "processed_report_path": processed_report_path,
         "processed_stage_block_predictions_path": processed_stage_block_predictions_path,
         "stage_block_predictions_path": local_stage_block_predictions_path,
-        "epub_auto_selection": auto_selection_payload,
-        "epub_auto_selected_score": auto_selection_score,
         "tasks_total": len(tasks),
         "manifest_path": manifest_path,
         "tasks": tasks,

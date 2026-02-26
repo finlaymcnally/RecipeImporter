@@ -42,7 +42,7 @@ Analytics in this repo currently means three surfaces:
 - Producer: `cookimport stats-dashboard`
 - Collector: `cookimport/analytics/dashboard_collect.py`
 - Data contract: `cookimport/analytics/dashboard_schema.py`
-- Current schema version: `9` (adds benchmark `gold_recipe_headers` enrichment for recipe-coverage chart scaling)
+- Current schema version: `10` (removes retired stage `epub_auto_selected_score` dashboard field)
 - Renderer: `cookimport/analytics/dashboard_render.py`
 - `index.html` now embeds an inline copy of the same dashboard JSON so the dashboard still works when opened via `file://` in browsers that block local `fetch()`.
 
@@ -121,7 +121,6 @@ For stage rows, key analytics columns include:
   - explicit EPUB visibility columns:
     - `epub_extractor_requested`
     - `epub_extractor_effective`
-    - `epub_auto_selected_score`
   - dashboard collector fallback: when `run_config_json` is empty, collector tries `report_path` JSON `runConfig`
   - stale-row signal: when a `report_path` reference is present but missing on disk, dashboard can emit a run-config warning
 
@@ -300,29 +299,22 @@ Collector exclusions/filters:
 6. `tests/test_stats_dashboard.py` (coverage for schema/collector/renderer/CSV compatibility)
 7. this README
 
-## 9) EPUB auto metadata propagation contract (Merged 2026-02-20_14.40.00)
+## 9) EPUB extractor metadata contract (Updated 2026-02-26)
 
-Extractor auto metadata is only reliable when all four layers are wired together:
+Extractor visibility now uses explicit extractor fields only:
 
-1. Stage orchestration (`cookimport/cli.py`)
-- Resolve `auto` once per file.
-- Persist per-file rationale payload.
-- Pass effective extractor metadata through worker/split-merge write paths.
+1. Stage/report payloads
+- Keep `runConfig` plus extractor metadata (`epub_extractor_requested`, `epub_extractor_effective`) in run config/report context.
+- Retired race compatibility fields are removed (`epubAutoSelection`, `epubAutoSelectedScore`).
 
-2. Report writers
-- `cookimport/cli_worker.py`, `cookimport/cli.py:_merge_split_jobs`, and `cookimport/labelstudio/ingest.py:_write_processed_outputs` should populate:
-  - `epubAutoSelection`
-  - `epubAutoSelectedScore`
-
-3. History CSV (`cookimport/analytics/perf_report.py`)
+2. History CSV (`cookimport/analytics/perf_report.py`)
 - Persist explicit columns:
   - `epub_extractor_requested`
   - `epub_extractor_effective`
-  - `epub_auto_selected_score`
 
-4. Dashboard schema/collector/rendering
-- Map these fields directly into stage records and UI filters/tables.
-- Do not rely on inference from nested run-config blobs.
+3. Dashboard schema/collector/rendering
+- Map requested/effective extractor fields from CSV and run config into stage records and tables.
+- Do not depend on retired compatibility fields for collector fallbacks.
 
 If one layer is skipped, extractor visibility drifts across stage report JSON, CSV history, and dashboard tables.
 

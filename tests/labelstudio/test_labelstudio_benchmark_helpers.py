@@ -1851,61 +1851,6 @@ def test_interactive_main_menu_does_not_offer_inspect(
     assert "inspect" not in captured_values
 
 
-def test_interactive_epub_race_routes_to_race_command(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    source_epub = tmp_path / "book.epub"
-    source_epub.write_text("dummy", encoding="utf-8")
-    race_out = tmp_path / "race-out"
-
-    menu_answers = iter(["epub_race", source_epub, "exit"])
-    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
-    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [source_epub])
-    monkeypatch.setattr(cli, "_load_settings", lambda: {})
-
-    text_answers = iter([str(race_out), "unstructured,markdown,beautifulsoup"])
-    text_prompt_defaults: list[str | None] = []
-
-    class _Prompt:
-        def __init__(self, answer: str):
-            self.answer = answer
-
-        def ask(self):
-            return self.answer
-
-    def _fake_text(*_args, **_kwargs):
-        text_prompt_defaults.append(_kwargs.get("default"))
-        return _Prompt(next(text_answers))
-
-    monkeypatch.setattr(
-        cli.questionary,
-        "text",
-        _fake_text,
-    )
-
-    def _unexpected_confirm(*_args, **_kwargs):
-        raise AssertionError("confirm should not be called for empty/nonexistent output folder")
-
-    monkeypatch.setattr(cli.questionary, "confirm", _unexpected_confirm)
-
-    captured: dict[str, object] = {}
-
-    def fake_race_epub_extractors(**kwargs):
-        captured.update(kwargs)
-
-    monkeypatch.setattr(cli, "race_epub_extractors", fake_race_epub_extractors)
-
-    with pytest.raises(cli.typer.Exit):
-        cli._interactive_mode()
-
-    assert captured["path"] == source_epub
-    assert captured["out"] == race_out
-    assert captured["candidates"] == "unstructured,markdown,beautifulsoup"
-    assert captured["json_output"] is False
-    assert captured["force"] is False
-    assert text_prompt_defaults[0] == str(cli.DEFAULT_EPUB_RACE_OUTPUT_ROOT / source_epub.stem)
-
-
 def test_labelstudio_benchmark_passes_processed_output_root(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

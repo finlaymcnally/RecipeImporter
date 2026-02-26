@@ -3,7 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from cookimport.core.models import ConversionReport, ConversionResult, RawArtifact, RecipeCandidate
+from cookimport.core.models import (
+    ChunkLane,
+    ConversionReport,
+    ConversionResult,
+    KnowledgeChunk,
+    RawArtifact,
+    RecipeCandidate,
+)
 from cookimport.staging.stage_block_predictions import build_stage_block_predictions
 
 
@@ -96,3 +103,23 @@ def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Pat
         and set(conflict.get("labels", [])) == {"INSTRUCTION_LINE", "RECIPE_VARIANT"}
         for conflict in conflicts
     )
+
+
+def test_build_stage_block_predictions_falls_back_to_chunk_lane_knowledge() -> None:
+    result = _build_result()
+    result.non_recipe_blocks = [
+        {"index": 8, "text": "Use clean tools for food safety.", "features": {}}
+    ]
+    result.chunks = [
+        KnowledgeChunk(
+            id="c0",
+            lane=ChunkLane.KNOWLEDGE,
+            text="Use clean tools for food safety.",
+            blockIds=[0],
+        )
+    ]
+
+    payload = build_stage_block_predictions(result, "simple")
+
+    assert payload["block_labels"]["8"] == "KNOWLEDGE"
+    assert 8 in payload["label_blocks"]["KNOWLEDGE"]

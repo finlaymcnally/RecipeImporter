@@ -99,7 +99,6 @@ Start
 `-- Step 3) In the menu, pick a workflow
     |-- Import: stage files -> outputs in `data/output/<YYYY-MM-DD_HH.MM.SS>/`
     |-- Settings: change defaults (saved in `cookimport.json`)
-    |-- EPUB debug: race extractors on one file (EPUB only)
     |-- Label Studio: create labeling tasks (optional)
     |-- Label Studio: export completed labels (optional)
     |-- Label Studio: decorate with AI spans (optional)
@@ -172,7 +171,6 @@ cookimport --help
 
 The menu shows different options depending on what is in `data/input/`:
 - **Stage files...** and **Label Studio: create labeling tasks...** only appear when at least one supported top-level file exists in `data/input/`.
-- **EPUB debug: race extractors...** only appears when at least one top-level `.epub` exists in `data/input/`.
 
 After you complete any workflow, the tool returns to the main menu. It only exits when you choose **Exit**.
 
@@ -200,12 +198,6 @@ Main Menu ("What would you like to do?")
 |   |   |-- canonical blocks -> Canonical context window (blocks): 0,1,2,...
 |   |   `-- freeform spans -> Segment size + overlap (+ optional AI prelabel)
 |   `-- Label Studio URL + API key (prompted if missing)
-|
-|-- EPUB debug: race extractors on one file
-|   |-- Select an EPUB file for extractor race
-|   |-- Race output folder (default: data/output/EPUBextractorRace/<book>)
-|   |-- Output folder not empty? -> confirm overwrite
-|   `-- Candidate extractors (comma-separated) (default: unstructured,markdown,legacy)
 |
 |-- Label Studio: export completed labels to golden artifacts
 |   |-- Label Studio URL + API key (prompted if missing)
@@ -470,13 +462,10 @@ When you start an import, choose the "Change run settings" option. This lets you
 ### C) Choose an EPUB extractor (simple guidance)
 
 If you are importing an EPUB and results look messy, this is usually the first knob to try:
-- `auto`: recommended first; it runs a deterministic comparison and picks an extractor
 - `unstructured`: semantic extraction (often good, can be slower)
-- `legacy`: older HTML parsing approach (sometimes better for specific books)
+- `beautifulsoup`: direct HTML block extraction
 - `markdown`: converts HTML to Markdown before parsing
-- `markitdown`: whole-book EPUB->markdown mode (legacy)
-
-Tip: use the "EPUB debug: race extractors" menu item (next step) to compare extractors on one file.
+- `markitdown`: whole-book EPUB->markdown mode
 
 ### D) Excel mappings (optional, but powerful)
 
@@ -498,24 +487,16 @@ data/output/mappings/your-workbook.mapping.yaml
    - Batch mode: pass it directly with `--mapping`.
    - Interactive mode: copy/rename it next to your workbook as `data/input/your-workbook.mapping.yaml` so the importer can discover it automatically.
 
-## Step 7 (Optional): Compare EPUB Extractors (Debug)
+## Step 7 (Optional): Inspect EPUB Extraction Artifacts (Debug)
 
-Interactive path:
-1. Run `C3imp`.
-2. Choose **EPUB debug: race extractors on one file**.
-3. Pick an EPUB, an output folder, and a candidate list.
-
-Direct command path:
+Use EPUB debug commands to inspect extractor output directly:
 
 ```bash
-cookimport epub race data/input/your-book.epub --out data/output/EPUBextractorRace/your-book --force
+cookimport epub blocks data/input/your-book.epub --extractor markdown --out /tmp/epub-blocks --force
+cookimport epub candidates data/input/your-book.epub --extractor markdown --out /tmp/epub-candidates --force
 ```
 
-This writes:
-
-```text
-data/output/EPUBextractorRace/your-book/epub_race_report.json
-```
+These write `blocks.jsonl`/`blocks_preview.md` and `candidates.json`/`candidates_preview.md` for manual comparison.
 
 ## Step 8 (Optional): Label Studio (Manual Labeling + Evaluation)
 

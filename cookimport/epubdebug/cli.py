@@ -22,10 +22,6 @@ from cookimport.epub_extractor_names import (
 )
 from cookimport.core.reporting import compute_file_hash
 from cookimport.parsing.block_roles import assign_block_roles
-from cookimport.parsing.epub_auto_select import (
-    selected_auto_score,
-    select_epub_extractor_auto,
-)
 from cookimport.plugins import epub as epub_plugin
 
 from .archive import (
@@ -77,28 +73,6 @@ def _normalize_epub_extractor(value: str) -> str:
             f"Expected one of: {epub_extractor_choices_for_help()}."
         )
     return normalized
-
-
-def _normalize_auto_candidates(value: str) -> tuple[str, ...]:
-    raw_parts = [part.strip().lower() for part in str(value).split(",")]
-    candidates: list[str] = []
-    seen: set[str] = set()
-    allowed = EPUB_EXTRACTOR_CANONICAL_SET
-    for part in raw_parts:
-        if not part or part in seen:
-            continue
-        normalized = normalize_epub_extractor_name(part)
-        if normalized not in allowed:
-            _fail(
-                f"Invalid candidate extractor: {part!r}. "
-                "Expected comma-separated values from: "
-                f"{epub_extractor_choices_for_help()}."
-            )
-        seen.add(normalized)
-        candidates.append(normalized)
-    if not candidates:
-        _fail("No extractor candidates were provided.")
-    return tuple(candidates)
 
 
 def _normalize_html_parser_version(value: str) -> str:
@@ -257,41 +231,6 @@ def _render_candidates_preview_md(report: EpubCandidateReport) -> str:
             lines.append(f"- {snippet}")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
-
-
-def _render_race_summary(payload: dict[str, Any], *, out_path: Path) -> str:
-    selected_backend = str(payload.get("effective_extractor") or "").strip() or "<none>"
-    selected_score = payload.get("selected_score")
-    selected_score_label = (
-        f"{float(selected_score):.3f}"
-        if selected_score is not None
-        else "n/a"
-    )
-    lines: list[str] = [
-        f"Race report: {out_path}",
-        f"Selected extractor: {selected_backend} (score={selected_score_label})",
-        "Candidates:",
-    ]
-    for candidate in payload.get("candidates", []):
-        if not isinstance(candidate, dict):
-            continue
-        backend = str(candidate.get("backend") or "<unknown>")
-        status = str(candidate.get("status") or "unknown")
-        average_score = candidate.get("average_score")
-        if average_score is not None:
-            try:
-                score_label = f"{float(average_score):.3f}"
-            except (TypeError, ValueError):
-                score_label = str(average_score)
-        else:
-            score_label = "n/a"
-        marker = "*" if backend == selected_backend else " "
-        line = f" {marker} {backend}: {status}, average_score={score_label}"
-        error = candidate.get("error")
-        if error:
-            line += f", error={error}"
-        lines.append(line)
-    return "\n".join(lines)
 
 
 def _spine_item_report(entry: SpineEntry, html_text: str) -> EpubSpineItemReport:
@@ -969,48 +908,3 @@ def validate_epub(
     ):
         raise typer.Exit(1)
 
-
-@epub_app.command("race")
-def race_epub_extractors(
-    path: Path = typer.Argument(..., help="EPUB file to race candidate extractors on."),
-    out: Path = typer.Option(..., "--out", help="Output directory for race artifacts."),
-    candidates: str = typer.Option(
-        "unstructured,markdown,beautifulsoup",
-        "--candidates",
-        help="Comma-separated candidate extractors for auto race.",
-    ),
-    json_output: bool = typer.Option(
-        False,
-        "--json",
-        help="Print race report JSON to stdout.",
-    ),
-    force: bool = typer.Option(
-        False,
-        "--force",
-        help="Allow writing into a non-empty --out directory.",
-    ),
-) -> None:
-    source = _require_epub_path(path)
-    candidate_extractors = _normalize_auto_candidates(candidates)
-    output_dir = _prepare_output_dir(out, force=force)
-
-    try:
-        resolution = select_epub_extractor_auto(
-            source,
-            candidate_extractors=candidate_extractors,
-        )
-    except Exception as exc:  # noqa: BLE001
-        _fail(f"Extractor race failed: {exc}")
-
-    payload = {
-        **dict(resolution.artifact),
-        "source_file": str(source),
-        "source_hash": compute_file_hash(source),
-        "selected_score": selected_auto_score(resolution.artifact),
-    }
-    out_path = output_dir / "epub_race_report.json"
-    _write_json(out_path, payload)
-    typer.secho(f"Wrote race report: {out_path}", fg=typer.colors.GREEN)
-    typer.echo(_render_race_summary(payload, out_path=out_path))
-    if json_output:
-        typer.echo(json.dumps(payload, indent=2, sort_keys=True))

@@ -15,6 +15,7 @@ Schema version history:
     7 – explicit EPUB extractor requested/effective/auto-score fields on stage records
     8 – practical benchmark metrics + granularity mismatch fields
     9 – benchmark golden recipe-header count (`gold_recipe_headers`) for recipe-coverage charts
+    10 – removed retired EPUB auto-score field from stage records
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-SCHEMA_VERSION = "9"
+SCHEMA_VERSION = "10"
 
 
 class RunCategory(str, Enum):
@@ -52,7 +53,6 @@ class StageRecord(BaseModel):
     run_config_warning: str | None = None
     epub_extractor_requested: str | None = None
     epub_extractor_effective: str | None = None
-    epub_auto_selected_score: float | None = None
     run_category: RunCategory = RunCategory.stage_import
 
     # timing

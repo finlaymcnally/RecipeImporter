@@ -521,6 +521,12 @@ class RunSettings(BaseModel):
                     epub_extractor_raw,
                 )
                 data["epub_extractor"] = EpubExtractor.unstructured.value
+            elif normalized_epub_extractor == "legacy":
+                logger.warning(
+                    "Migrating epub_extractor=legacy to beautifulsoup in %s.",
+                    warn_context,
+                )
+                data["epub_extractor"] = EpubExtractor.beautifulsoup.value
             elif normalized_epub_extractor == "beautifulsoup":
                 data["epub_extractor"] = EpubExtractor.beautifulsoup.value
         return cls.model_validate(data)

@@ -119,3 +119,9 @@ def test_run_settings_migrates_auto_extractor_to_unstructured() -> None:
     settings = RunSettings.from_dict({"epub_extractor": "auto"}, warn_context="test")
 
     assert settings.epub_extractor.value == "unstructured"
+
+
+def test_run_settings_migrates_legacy_extractor_to_beautifulsoup() -> None:
+    settings = RunSettings.from_dict({"epub_extractor": "legacy"}, warn_context="test")
+
+    assert settings.epub_extractor.value == "beautifulsoup"

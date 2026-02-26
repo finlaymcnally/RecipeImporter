@@ -39,7 +39,6 @@ def _make_perf_row(index: int, run_dir: Path) -> PerfRow:
         run_config_summary="workers=1 | epub_extractor=unstructured",
         epub_extractor_requested="unstructured",
         epub_extractor_effective="unstructured",
-        epub_auto_selected_score=None,
     )
 
 

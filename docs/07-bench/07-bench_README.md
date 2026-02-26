@@ -58,7 +58,7 @@ Key file:
 ## 3. Why stage evidence is scored
 
 The goal is import alignment: benchmark should reflect what Cookbook import would receive from stage outputs.
-Stage evidence projects staged decisions back into one deterministic label per block, then compares those labels directly to exhaustive freeform gold block labels.
+Stage evidence projects staged decisions back into one deterministic label per block, then compares those labels directly to exhaustive freeform gold block labels (gold may include multiple allowed labels per block).
 
 ## 4. Flow map: stage vs benchmark
 
@@ -96,7 +96,11 @@ Evaluation input A (predictions):
 
 Evaluation input B (gold):
 - `freeform_span_labels.jsonl`
-- converted to one label per block (gold must be exhaustive and conflict-free)
+- converted to one-or-more allowed labels per block
+- when a block has multiple gold labels, prediction is counted correct if it matches any allowed label
+- when a predicted block has no gold row, evaluator defaults that block to gold label `OTHER`
+- multi-label blocks are logged to `gold_conflicts.jsonl` as diagnostics (not fatal errors)
+- missing-block `OTHER` defaults are also logged to `gold_conflicts.jsonl`
 
 Metrics:
 - `overall_block_accuracy`
@@ -507,7 +511,8 @@ Merged source:
 Durable benchmark contract from the refactor:
 - Scoring surface is stage evidence (`stage_block_predictions.json`) plus knowledge exports, not pipeline-task chunks.
 - Evaluation is block classification, not span IoU.
-- Gold is expected exhaustive (exactly one label per block, including `OTHER`), with conflict/missing-label failures treated as hard data-quality errors.
+- Gold labels can be partial; missing predicted blocks are defaulted to `OTHER` with diagnostics.
+- Multi-label gold blocks are allowed; evaluator treats any allowed gold label as a match and emits diagnostics for those blocks.
 - Reports must surface:
   - `overall_block_accuracy`
   - `macro_f1_excluding_other`

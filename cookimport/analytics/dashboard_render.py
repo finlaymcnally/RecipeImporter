@@ -2362,18 +2362,18 @@ footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top
   #recent-runs td:nth-child(7),
   #recent-runs th:nth-child(8),
   #recent-runs td:nth-child(8),
+  #recent-runs th:nth-child(9),
+  #recent-runs td:nth-child(9),
   #recent-runs th:nth-child(10),
   #recent-runs td:nth-child(10),
-  #recent-runs th:nth-child(11),
-  #recent-runs td:nth-child(11),
   #file-trend-table th:nth-child(6),
   #file-trend-table td:nth-child(6),
   #file-trend-table th:nth-child(7),
   #file-trend-table td:nth-child(7),
+  #file-trend-table th:nth-child(8),
+  #file-trend-table td:nth-child(8),
   #file-trend-table th:nth-child(9),
   #file-trend-table td:nth-child(9),
-  #file-trend-table th:nth-child(10),
-  #file-trend-table td:nth-child(10),
   #benchmark-table th:nth-child(6),
   #benchmark-table td:nth-child(6),
   #benchmark-table th:nth-child(7),
@@ -2991,7 +2991,6 @@ _JS = """\
           '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
           '<td class="num">' + (r.per_recipe_seconds != null ? r.per_recipe_seconds.toFixed(3) : "-") + '</td>' +
           extractorCells(r) +
-          autoScoreCell(r) +
           runConfigCell(r) +
           '<td><a href="' + esc(r.artifact_dir || "") + '">' + esc(shortPath(r.artifact_dir)) + '</a></td>';
         return tr;
@@ -3068,7 +3067,6 @@ _JS = """\
           '<td class="num">' + (r.recipes != null ? r.recipes : "-") + '</td>' +
           '<td>' + esc(r.importer_name || "-") + '</td>' +
           extractorCells(r) +
-          autoScoreCell(r) +
           runConfigCell(r) +
           '<td><a href="' + esc(r.artifact_dir || "") + '">' + esc(shortPath(r.artifact_dir)) + '</a></td>';
         return tr;
@@ -3564,29 +3562,11 @@ _JS = """\
     const cfg = record.run_config || {};
     return cfg.epub_extractor_effective || cfg.epub_extractor || null;
   }
-  function autoScoreValue(record) {
-    const direct = record.epub_auto_selected_score;
-    if (direct != null && direct !== "") {
-      const parsed = Number(direct);
-      if (!Number.isNaN(parsed)) return parsed;
-    }
-    const cfg = record.run_config || {};
-    const cfgValue = cfg.epub_auto_selected_score;
-    if (cfgValue != null && cfgValue !== "") {
-      const parsed = Number(cfgValue);
-      if (!Number.isNaN(parsed)) return parsed;
-    }
-    return null;
-  }
   function extractorCells(record) {
     return (
       '<td>' + esc(epubExtractorRequested(record) || "-") + '</td>' +
       '<td>' + esc(epubExtractorEffective(record) || "-") + '</td>'
     );
-  }
-  function autoScoreCell(record) {
-    const score = autoScoreValue(record);
-    return '<td class="num">' + (score != null ? score.toFixed(3) : "-") + '</td>';
   }
   function runConfigSummary(record) {
     if (record.run_config_summary) {

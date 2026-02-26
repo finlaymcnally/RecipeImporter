@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
-import pytest
 from typer.testing import CliRunner
 
 from cookimport.cli import app
@@ -131,47 +129,7 @@ def test_epub_validate_missing_epubcheck_respects_strict(tmp_path: Path) -> None
     assert strict.exit_code == 1
 
 
-def test_epub_race_writes_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    source = make_test_epub(tmp_path / "sample.epub")
-
-    monkeypatch.setattr(
-        "cookimport.epubdebug.cli.select_epub_extractor_auto",
-        lambda _path, *, candidate_extractors: SimpleNamespace(
-            effective_extractor="markdown",
-            artifact={
-                "requested_extractor": "auto",
-                "effective_extractor": "markdown",
-                "candidate_extractors": list(candidate_extractors),
-                "sample_indices": [0, 1],
-                "candidates": [
-                    {"backend": "unstructured", "status": "ok", "average_score": 0.64},
-                    {"backend": "markdown", "status": "ok", "average_score": 0.81},
-                    {"backend": "beautifulsoup", "status": "ok", "average_score": 0.47},
-                ],
-                "selected_reason": "highest_average_score_then_candidate_order",
-            },
-        ),
-    )
-
-    out_dir = tmp_path / "race-out"
-    result = runner.invoke(
-        app,
-        [
-            "epub",
-            "race",
-            str(source),
-            "--out",
-            str(out_dir),
-            "--candidates",
-            "unstructured,markdown,beautifulsoup",
-        ],
-    )
+def test_epub_race_command_is_not_available() -> None:
+    result = runner.invoke(app, ["epub", "--help"])
     assert result.exit_code == 0
-
-    report_path = out_dir / "epub_race_report.json"
-    assert report_path.exists()
-    payload = json.loads(report_path.read_text(encoding="utf-8"))
-    assert payload["effective_extractor"] == "markdown"
-    assert payload["selected_score"] == pytest.approx(0.81)
-    assert payload["candidate_extractors"] == ["unstructured", "markdown", "beautifulsoup"]
-    assert "Selected extractor: markdown" in result.stdout
+    assert "race" not in result.stdout
