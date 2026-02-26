@@ -554,3 +554,20 @@ Durable parsing contract:
 
 Cross-boundary note:
 - Final cookbook3 output remains schema-stable; section structure is exposed through additive staging surfaces (`sections/...` artifacts and intermediate JSON-LD `HowToSection`).
+
+## Merged Understanding (2026-02-25 EPUB race backend removal boundary)
+
+### 2026-02-25_19.00.12 parser-side race backend retirement
+
+Merged source:
+- `docs/understandings/2026-02-25_19.00.12-epub-race-backend-removal-boundary.md`
+
+Durable parsing/runtime contract:
+- Race backend modules are retired:
+  - `cookimport/parsing/epub_auto_select.py`
+  - `cookimport/parsing/extraction_quality.py`
+- Race-only ingestion tests are retired with those modules.
+- Parsing/runtime surfaces should no longer emit race compatibility score fields consumed by reports/analytics.
+
+Anti-loop note:
+- Do not patch extraction regressions by re-adding race scorer modules; current extractor behavior is driven by explicit run settings and benchmark comparison flows.

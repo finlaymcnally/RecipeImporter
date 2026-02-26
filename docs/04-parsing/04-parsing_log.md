@@ -277,3 +277,26 @@ Shipped outcomes:
 
 Anti-loop note:
 - If repeated ingredient names collapse to one step in multi-section recipes, check index-based identity flow before retuning alias scoring heuristics.
+
+## 2026-02-25 understanding merge batch (EPUB race backend removal)
+
+### 2026-02-25_19.00.12 parser/scorer race backend purge + contract cleanup
+
+Merged source:
+- `docs/understandings/2026-02-25_19.00.12-epub-race-backend-removal-boundary.md`
+
+Problem captured:
+- Race-era parser/scorer modules and compatibility fields were still part of runtime/report assumptions.
+
+Decision/outcome preserved:
+- Removed race-specific parser modules:
+  - `cookimport/parsing/epub_auto_select.py`
+  - `cookimport/parsing/extraction_quality.py`
+- Removed race-only ingestion tests tied to those modules.
+- Removed race compatibility fields from runtime/report/analytics-facing contracts:
+  - `epubAutoSelection`
+  - `epubAutoSelectedScore`
+  - `epub_auto_selected_score`
+
+Anti-loop note:
+- Treat any references to race compatibility scoring fields as stale schema debt, not missing feature wiring.

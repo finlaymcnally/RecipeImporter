@@ -8,7 +8,7 @@ read_when:
 
 The docs list script (`docs/docs-list.ts`) prints a summary of every markdown file under `docs/`, skipping hidden entries plus `archive/` and `research/`. Run it with `npm run docs:list` or `npx tsx docs/docs-list.ts`.
 
-`docs/build-docs-summary.sh` now runs this script and writes its raw output at the very top of each generated `*-docs-summary.md` file.
+`docs/build-docs-summary.sh` now runs this script and writes its raw output at the very top of each generated `*-docs-summary.md` file, but omits `plans/` entries there and also skips embedding files under `docs/plans/`.
 
 ## Expected front matter
 

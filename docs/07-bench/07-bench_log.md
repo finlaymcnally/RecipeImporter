@@ -882,3 +882,257 @@ Task-recorded remaining gaps:
 Anti-loop notes:
 - If benchmark fails on missing stage-block files, fix artifact generation/fixtures before changing evaluator math.
 - Do not reintroduce span-IoU as primary truth for this benchmark contract; use block evidence first.
+
+## 2026-02-25 to 2026-02-26 understanding merge batch (EPUB legacy migration + canonical eval hardening)
+
+### 2026-02-25_18.54.00 interactive benchmark load path and legacy extractor alias migration
+
+Merged source:
+- `docs/understandings/2026-02-25_18.54.00-interactive-benchmark-legacy-epub-setting.md`
+
+Problem captured:
+- Interactive benchmark could fail before prompt flow when old `cookimport.json` stored `epub_extractor=legacy`.
+
+Decision/outcome preserved:
+- Normalize legacy extractor aliases in `RunSettings.from_dict(...)` because interactive defaults are built there.
+- Do not rely on later CLI flag-only normalization to protect interactive startup.
+
+### 2026-02-25_19.00.51 multi-label freeform gold support in stage-block eval
+
+Merged source:
+- `docs/understandings/2026-02-25_19.00.51-stage-block-eval-multilabel-gold.md`
+
+Problem captured:
+- `load_gold_block_labels(...)` treated multi-label block assignments as fatal conflicts.
+
+Decision/outcome preserved:
+- Allow multi-label gold per block.
+- Score predicted block correct when label is inside allowed set.
+- Keep missing predicted block rows defaulted to `OTHER` and record diagnostics in `gold_conflicts.jsonl`.
+
+Anti-loop note:
+- Do not revert to single-label-only assumptions for freeform gold exports.
+
+### 2026-02-25_19.14.33 benchmark/gold extractor parity failure mode
+
+Merged source:
+- `docs/understandings/2026-02-25_19.14.33-benchmark-gold-extractor-parity.md`
+
+Problem captured:
+- Reports could show implausible metrics (for example per-label zero precision/recall) even with matching `source_hash`.
+
+Evidence preserved from investigated run:
+- Benchmark run: `data/golden/benchmark-vs-golden/2026-02-25_19.07.15`.
+- Gold export used `epub_extractor=unstructured`; benchmark prediction used `beautifulsoup`.
+- Gold block labels ended around block ~1470 while predictions extended to block 1993.
+- All predicted `RECIPE_VARIANT` blocks landed in missing-gold indices, yielding zero precision/recall.
+
+Decision/outcome preserved:
+- Enforce extractor/blockization parity between gold-generation run and benchmark prediction run for stage-block mode.
+
+### 2026-02-25_22.19.47 severe blockization-mismatch guard
+
+Merged source:
+- `docs/understandings/2026-02-25_22.19.47-gold-blockization-mismatch-guard.md`
+
+Problem captured:
+- Matching `source_hash` can still hide invalid block-level comparisons when extractor profile differs.
+
+Decision/outcome preserved:
+- Capture/compare blockization fingerprints from gold spans and prediction archives.
+- Fail fast with `gold_prediction_blockization_mismatch` when fingerprint mismatch plus severe missing-gold drift indicates invalid comparison.
+- Keep mild mismatch as warning-level so small fixtures remain evaluable.
+
+### 2026-02-25_23.02.58 all-method runtime hotspot is canonical evaluation
+
+Merged source:
+- `docs/understandings/2026-02-25_23.02.58-all-method-canonical-eval-runtime-hotspot.md`
+
+Problem captured:
+- Slow all-method runs were initially suspected to be split conversion or scheduler under-utilization.
+
+Evidence preserved from inspected report:
+- Run: `.../2026-02-25_22.50.10/all-method-benchmark/seaandsmokecutdown/all_method_benchmark_report.json`.
+- Wall time `399.60s` for 15 configs with ~5x effective parallelism.
+- Average config runtime `133.19s`, with average `evaluation_seconds` `117.25s` (~88%).
+- Slowest configs spent ~176-180s in evaluation phase.
+
+Decision/outcome preserved:
+- Treat evaluate phase as first optimization target before split scheduling tweaks.
+- Add finer evaluate telemetry instead of relying on coarse scheduler events only.
+
+### 2026-02-25_23.11.15 timing telemetry plumbing boundary
+
+Merged source:
+- `docs/understandings/2026-02-25_23.11.15-benchmark-eval-telemetry-plumbing.md`
+
+Problem captured:
+- Rich eval telemetry was lost when benchmark report timing was normalized for CSV/history outputs.
+
+Decision/outcome preserved:
+- Preserve detailed structures in `evaluation_telemetry`.
+- Flatten required numeric values into `evaluate_*` (including resource/work checkpoints) so `_timing_with_updates(...)` keeps them.
+- Add explicit `evaluate_started`/`evaluate_finished` scheduler events for timeline clarity.
+
+### 2026-02-25_23.15.51 cProfile hotspot confirmation (`SequenceMatcher`)
+
+Merged source:
+- `docs/understandings/2026-02-25_23.15.51-canonical-eval-sequencematcher-profile.md`
+
+Problem captured:
+- Need proof of exact canonical-eval hotspot before attempting alignment rewrite.
+
+Evidence preserved:
+- Profiled config runtime `evaluate_canonical_text(...)`: `307.68s`.
+- `_align_prediction_blocks_to_canonical(...)`: `306.02s`.
+- `SequenceMatcher.get_matching_blocks` / `find_longest_match` consumed almost all alignment runtime.
+
+Decision/outcome preserved:
+- Prioritize bounded/alternative alignment strategies; scheduler-only optimization cannot remove this CPU wall.
+
+### 2026-02-25_23.38.52 canonical micro-telemetry + slow-run profile artifacts
+
+Merged source:
+- `docs/understandings/2026-02-25_23.38.52-canonical-eval-micro-telemetry-and-profile-hook.md`
+
+Problem captured:
+- Coarse `evaluate_seconds` and `alignment_seconds` were insufficient for diagnosing normalization vs matcher vs mapping cost.
+
+Decision/outcome preserved:
+- Emit alignment micro-subphases in telemetry:
+  - `alignment_normalize_prediction_seconds`
+  - `alignment_normalize_canonical_seconds`
+  - `alignment_sequence_matcher_seconds`
+  - `alignment_block_mapping_seconds`
+- Emit text-size work units into `evaluate_work_*` checkpoints.
+- Add optional slow-run profile hooks controlled by env vars (`COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS`, `COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N`).
+
+### 2026-02-25_23.39.17 fast alignment fallback guardrails + scheduler eval-tail cap
+
+Merged source:
+- `docs/understandings/2026-02-25_23.39.17-canonical-fast-align-and-eval-tail-cap.md`
+
+Problem captured:
+- Alignment speedups and scheduler tail tuning can regress accuracy/throughput differently if coupled without guardrails.
+
+Decision/outcome preserved:
+- Alignment auto mode should attempt bounded monotonic fast alignment first and fallback to legacy full-book alignment when confidence/coverage guardrails fail.
+- Persist strategy telemetry (`requested strategy`, actual strategy, fallback reason).
+- Smart scheduler tail growth is evaluate-phase-aware and capped with `all_method_max_eval_tail_pipelines`.
+
+### 2026-02-26_03.10.00 canonical-text default for all-method benchmarks
+
+Merged source:
+- `docs/understandings/2026-02-26_03.10.00-canonical-text-all-method-default.md`
+
+Problem captured:
+- Stage-block mode fails valid cross-extractor comparisons because block indices drift between extractor permutations.
+
+Decision/outcome preserved:
+- Keep `stage-blocks` for blockization-parity checks.
+- Make `canonical-text` the default for all-method sweeps so one freeform gold export can evaluate extractor permutations.
+- Interactive all-method forcing of canonical-text is intentional and should remain unless contract changes.
+
+Anti-loop notes for this batch:
+- If per-label metrics look impossible, verify extractor/blockization parity and mismatch-guard diagnostics before touching scorer formulas.
+- If all-method runs are slow, profile canonical alignment first; split-slot tuning alone is insufficient.
+- When telemetry fields disappear from CSV/history, check numeric checkpoint flattening in `_timing_with_updates(...)` before changing renderer code.
+
+## 2026-02-25 docs/tasks archival merge batch (bench)
+
+### 2026-02-25_18.54.30 benchmark legacy extractor setting migration
+
+Merged source:
+- `docs/tasks/2026-02-25_18.54.30-benchmark-legacy-epub-extractor-migration.md`
+
+Problem captured:
+- Interactive benchmark setting load crashed when persisted `cookimport.json` still held `epub_extractor=legacy`.
+
+Decision/outcome preserved:
+- Add compatibility migration in `RunSettings.from_dict(...)` from `legacy` -> `beautifulsoup`.
+- Keep accepted extractor choices unchanged for new settings/UI.
+
+Evidence preserved:
+- Before: enum `ValidationError`.
+- After: migration warning + resolved `beautifulsoup`.
+- Regression suite: `tests/llm/test_run_settings.py` with `9 passed`.
+
+Anti-loop note:
+- If settings load regresses on old configs, check migration aliases first before changing benchmark runtime flow.
+
+### 2026-02-25_19.00.51 stage-block eval multi-label gold support
+
+Merged source:
+- `docs/tasks/2026-02-25_19.00.51-multilabel-freeform-benchmark-eval.md`
+
+Problem captured:
+- Multi-label freeform gold blocks caused hard conflicts and benchmark eval crashes.
+
+Decision/outcome preserved:
+- Allow multiple gold labels per block and treat prediction as correct on any-label match.
+- Keep missing-gold default-to-`OTHER` behavior.
+- Log both multi-label and missing-gold conditions into `gold_conflicts.jsonl`.
+- Keep report schema stable; add `gold_labels` to mismatch rows for disambiguation.
+
+Evidence preserved:
+- Before: `ValueError: Gold conflicts detected...`.
+- After: end-to-end eval passes with diagnostics.
+- Verification anchor: `pytest tests/bench/test_eval_stage_blocks.py`.
+
+### 2026-02-25 fix-gold ExecPlan (completed by 22:19Z): severe mismatch fail-fast guard
+
+Merged source:
+- `docs/tasks/fix-gold.md`
+
+Problem captured:
+- Gold/prediction runs from different extractor/blockization profiles could still score and quietly generate misleading metrics due to broad default-`OTHER` backfill.
+
+Decision/outcome preserved:
+- Build blockization profiles from gold spans + prediction archive metadata.
+- Fail only on combined signal: metadata mismatch plus severe drift.
+- Keep non-severe mismatch as warning to avoid breaking small fixtures.
+- Persist diagnostics (`gold_prediction_blockization_mismatch`) in `gold_conflicts.jsonl` and profile snapshots in `eval_report.json`.
+
+Evidence preserved:
+- Regression coverage added for both fatal and warning-only mismatch paths in `tests/bench/test_eval_stage_blocks.py`.
+
+Anti-loop note:
+- Do not relax this guard by removing mismatch diagnostics; investigate extractor parity first when metrics look implausible.
+
+### 2026-02-25_23.15.54 canonical eval speedup + eval-tail scheduler control
+
+Merged source:
+- `docs/tasks/2026-02-25_23.15.54-all-method-canonical-eval-speedups.md`
+
+Problem captured:
+- All-method wall time was dominated by canonical evaluation alignment (`SequenceMatcher` hot path).
+
+Decision/outcome preserved:
+- Added canonical alignment strategies (`auto`, `fast`, `legacy`) with guarded fallback.
+- Replaced heavy overlap loops with interval-sweep projections.
+- Added evaluate-tail scheduler cap (`all_method_max_eval_tail_pipelines`) and phase-aware admission growth.
+- Kept `evaluate_canonical_text(...)` signature stable and controlled strategy via env for rollout/debug.
+
+Evidence preserved:
+- Hotspot profile from task: `evaluate_canonical_text` ~`307.68s`, alignment ~`306.02s`, nearly all in SequenceMatcher internals.
+- Task-recorded targeted regression suites were green.
+
+Known pending from task:
+- Real SeaAndSmoke before/after timing acceptance threshold evidence was still outstanding in that pass.
+
+### 2026-02-25_23.39.03 canonical eval micro-telemetry + optional cProfile artifacts
+
+Merged source:
+- `docs/tasks/2026-02-25_23.39.03-canonical-eval-telemetry-microphases.md`
+
+Problem captured:
+- Coarse timing fields could not explain which canonical-eval subphase caused slow runs.
+
+Decision/outcome preserved:
+- Emit alignment micro-subphase timers and text-size work counters.
+- Add opt-in eval profiling artifacts in `labelstudio-benchmark` via env thresholds.
+- Keep artifact writes best-effort so profiling errors do not fail benchmark completion.
+
+Evidence preserved:
+- Task verification set passed: `5 passed, 2 warnings in 3.38s`.
+- Artifacts captured when enabled: `eval_profile.pstats`, `eval_profile_top.txt`.

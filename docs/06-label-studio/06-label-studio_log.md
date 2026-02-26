@@ -1050,3 +1050,50 @@ Evidence preserved:
 
 Anti-loop note:
 - For immediate provider-effort failures, inspect interactive menu filtering/model metadata compatibility first before changing prelabel prompt text or retry strategy.
+
+## 2026-02-25 understanding merge batch (freeform-only migration)
+
+### 2026-02-25_18.33.47 freeform-only Label Studio scope migration boundary
+
+Merged source:
+- `docs/understandings/2026-02-25_18.33.47-labelstudio-freeform-only-migration.md`
+
+Problem captured:
+- Stage-block prediction generation still depended on extracted-archive helpers living in legacy scope-named module paths.
+
+Decision/outcome preserved:
+- Moved shared archive helpers to `cookimport/labelstudio/archive.py`.
+- Removed legacy scope modules while preserving scope inference only for UX/rejection messaging.
+- Kept import/export/eval runtime contracts free of scope-selection execution branches.
+
+Anti-loop note:
+- Avoid adding "legacy scope" runtime branches for compatibility; keep one freeform runtime path and explicit rejection for retired scopes.
+
+## 2026-02-25 docs/tasks archival merge batch (Label Studio)
+
+### 2026-02-25_17.45.03 remove-labelstudio-legacy-scopes
+
+Merged source:
+- `docs/tasks/2026-02-25_17.45.03-remove-labelstudio-legacy-scopes.md`
+
+Problem captured:
+- Legacy Label Studio scopes (`pipeline`, `canonical-blocks`) remained in CLI prompts/flags and import/export/eval internals after stage-block benchmark migration, causing menu/manifest/test drift and user confusion.
+
+Decision/outcome preserved:
+- Removed legacy scope options/prompts from `labelstudio-import`, `labelstudio-export`, and interactive import/export flows.
+- Removed canonical eval branch from `labelstudio-eval` and kept freeform-only path.
+- Collapsed ingest/export internals to freeform-only execution; explicit rejection for legacy-scoped manifests/projects/payloads.
+- Retired legacy-only modules/imports and moved still-shared archive helpers into `cookimport/labelstudio/archive.py`.
+- Updated test coverage and docs to freeform-only contracts.
+
+Verification evidence preserved from task:
+- Focused suite:
+  - `pytest tests/labelstudio/test_labelstudio_ingest_parallel.py tests/labelstudio/test_labelstudio_freeform.py tests/labelstudio/test_labelstudio_benchmark_helpers.py tests/labelstudio/test_labelstudio_export.py tests/staging/test_run_manifest_parity.py`
+  - Result: `125 passed, 2 warnings`.
+- Marker sweep:
+  - `pytest -m "labelstudio or bench or staging"`
+  - Result: `238 passed, 382 deselected, 7 warnings`.
+
+Anti-loop notes preserved from task:
+- Shared extracted-archive helper dependencies are the first place to check after scope cleanup regressions.
+- Preserve scope inference only for UX tags/rejection messaging; do not resurrect scope-driven execution branches.

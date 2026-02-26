@@ -33,7 +33,11 @@ Primary code paths:
 - CLI + interactive routing: `cookimport/cli.py`
 
 Benchmark scoring update (current behavior):
-- `cookimport labelstudio-benchmark` and `cookimport bench run` now evaluate stage evidence manifests (`stage_block_predictions.json`) against freeform gold at block level.
+- `cookimport labelstudio-benchmark` evaluates stage evidence manifests (`stage_block_predictions.json`) with selectable modes:
+  - `stage-blocks` (default): block-index scoring vs freeform gold.
+  - `canonical-text`: alignment scoring vs canonical gold text/line labels.
+- Interactive benchmark modes (`single_offline` and `all_method`) run `labelstudio-benchmark` in `canonical-text` mode so extractor permutations can share one freeform gold export safely.
+- `cookimport bench run` currently remains on stage-block scoring.
 - `label_studio_tasks.jsonl` is still generated for Label Studio workflows, but it is no longer the benchmark scoring surface.
 
 ### 1.2 Commands and defaults
@@ -70,7 +74,7 @@ Uploads are intentionally gated.
   - Token usage tracking is always enabled for AI labeling runs.
 - non-interactive benchmark upload does not ask a second confirmation; passing upload flags is treated as explicit intent.
 - interactive benchmark now has two offline-only menu modes, and asks mode before run-settings:
-  - single offline mode (default first choice): one `labelstudio-benchmark --no-upload` eval run (no Label Studio credentials, no upload),
+  - single offline mode (default first choice): one `labelstudio-benchmark --no-upload --eval-mode canonical-text` run (no Label Studio credentials, no upload),
   - all-method mode: offline multi-config benchmark sweep (no Label Studio upload), with scope selection:
     - `Single golden set` (manual one-pair flow),
     - `All golden sets with matching input files` (bulk matching flow).
@@ -113,6 +117,11 @@ Freeform export produces:
 - `exports/labelstudio_export.json`
 - `exports/freeform_span_labels.jsonl`
 - `exports/freeform_segment_manifest.jsonl`
+- `exports/canonical_text.txt`
+- `exports/canonical_block_map.jsonl`
+- `exports/canonical_span_labels.jsonl`
+- `exports/canonical_span_label_errors.jsonl`
+- `exports/canonical_manifest.json`
 - `exports/summary.json`
   - `summary.recipe_counts.recipe_headers` stores deduped golden recipe count based on `RECIPE_TITLE` header spans (dedupe key: source + block range).
 
@@ -470,6 +479,7 @@ Manifest includes:
 - Interactive benchmark uses the same per-run settings chooser as interactive Import (`global defaults` / `last benchmark` / `change run settings`) and writes successful selections to `<output_dir_parent>/.history/last_run_settings_benchmark.json`.
 - Interactive benchmark mode picker (`single offline` vs `all method`) appears before run-settings selection.
 - Interactive benchmark no longer has an upload mode; both interactive paths are offline and do not resolve Label Studio credentials.
+- Interactive benchmark always uses `canonical-text` eval mode in both offline paths.
 
 ## 2) Known-Bad / High-Risk / Common Confusion
 
@@ -1131,3 +1141,47 @@ Durable rules:
 
 - `tests/labelstudio/test_labelstudio_prelabel.py -k 'list_codex_models'` passed in task session.
 - `tests/labelstudio/test_labelstudio_benchmark_helpers.py -k 'interactive_labelstudio_freeform_scope_routes_to_freeform_import or interactive_labelstudio_filters_incompatible_effort_choices'` passed in task session.
+
+## 17) Merged Understanding (2026-02-25 freeform-only migration)
+
+### 17.1 2026-02-25_18.33.47 freeform-only scope behavior + shared archive helpers
+
+Merged source:
+- `docs/understandings/2026-02-25_18.33.47-labelstudio-freeform-only-migration.md`
+
+Durable Label Studio contract:
+- Keep scope detection only for UX and explicit rejection messaging.
+- Do not keep scope-specific execution branches in import/export/eval command paths.
+- Shared extracted-archive helper code used by stage-block predictions belongs in `cookimport/labelstudio/archive.py`, not legacy-named scope modules.
+
+Anti-loop note:
+- If stage-block prediction artifact generation fails after scope cleanup, check shared archive helper imports first before reintroducing legacy scope modules.
+
+## 18) Merged Task Spec (2026-02-25 docs/tasks archival batch)
+
+### 18.1 2026-02-25_17.45.03 remove-labelstudio-legacy-scopes
+
+Merged source:
+- `docs/tasks/2026-02-25_17.45.03-remove-labelstudio-legacy-scopes.md`
+
+Durable Label Studio contract:
+- Runtime import/export/eval command paths are freeform-only (`freeform-spans`).
+- Legacy scope selection surfaces (`pipeline`, `canonical-blocks`) stay removed from:
+  - `cookimport labelstudio-import`,
+  - `cookimport labelstudio-export`,
+  - `cookimport labelstudio-eval`,
+  - interactive Label Studio import/export/eval menu flows.
+- Legacy manifests/projects can still be discovered for UX but export must reject them with explicit unsupported-scope errors.
+
+Key implementation boundary from task:
+- Shared extracted-archive and display-text normalization helpers needed by stage-block prediction generation were moved to scope-neutral `cookimport/labelstudio/archive.py`.
+- Scope inference helpers may remain for picker labeling/rejection messaging, but not for execution branch selection.
+
+Task-level verification evidence (preserved):
+- `pytest tests/labelstudio/test_labelstudio_ingest_parallel.py tests/labelstudio/test_labelstudio_freeform.py tests/labelstudio/test_labelstudio_benchmark_helpers.py tests/labelstudio/test_labelstudio_export.py tests/staging/test_run_manifest_parity.py`
+  - `125 passed, 2 warnings`
+- `pytest -m "labelstudio or bench or staging"`
+  - `238 passed, 382 deselected, 7 warnings`
+
+Anti-loop note:
+- If a fix proposal reintroduces scope flags/options for compatibility, treat that as contract-breaking unless the product direction explicitly changes.

@@ -1493,6 +1493,7 @@ def test_interactive_benchmark_uses_golden_output_roots(
     assert isinstance(eval_output_dir, Path)
     assert eval_output_dir.parent == golden_root / "benchmark-vs-golden"
     assert captured["no_upload"] is True
+    assert captured["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
     assert "label_studio_url" not in captured
     assert "label_studio_api_key" not in captured
     assert captured["epub_extractor"] == "beautifulsoup"
@@ -1540,6 +1541,7 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
     assert isinstance(eval_output_dir, Path)
     assert eval_output_dir.parent == golden_root / "benchmark-vs-golden"
     assert captured["no_upload"] is True
+    assert captured["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
     assert "allow_labelstudio_write" not in captured
     assert "label_studio_url" not in captured
     assert "label_studio_api_key" not in captured
@@ -1644,6 +1646,7 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_offline_
     assert len(benchmark_calls) == 1
     assert benchmark_calls[0]["output_dir"] == golden_root / "benchmark-vs-golden"
     assert benchmark_calls[0]["no_upload"] is True
+    assert benchmark_calls[0]["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
     assert mode_prompt_count == 1
     assert not any("uploads to Label Studio" in title for title in mode_titles)
 
@@ -2195,6 +2198,294 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     assert run_manifest["run_config"]["upload"] is False
 
 
+def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (prediction_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(source_file),
+                "source_hash": "hash-123",
+                "run_config": {"workers": 1},
+                "run_config_hash": "cfg-hash",
+                "run_config_summary": "workers=1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_co_locate_prediction_run_for_benchmark",
+        lambda _pred_run, _eval_dir: prediction_run,
+    )
+    monkeypatch.setattr(
+        cli,
+        "generate_pred_run_artifacts",
+        lambda **_kwargs: {
+            "run_root": prediction_run,
+            "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
+            "processed_report_path": "",
+        },
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Canonical mode should not call stage-block evaluator.")
+        ),
+    )
+
+    captured_eval: dict[str, object] = {}
+
+    def _fake_eval_canonical_text(**kwargs):
+        captured_eval.update(kwargs)
+        return {
+            "report": {
+                "counts": {
+                    "gold_total": 1,
+                    "pred_total": 1,
+                    "gold_matched": 1,
+                    "pred_matched": 1,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_line_accuracy": 1.0,
+                "overall_block_accuracy": 1.0,
+                "macro_f1_excluding_other": 1.0,
+                "worst_label_recall": {"label": "RECIPE_TITLE", "recall": 1.0},
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0,
+                "practical_precision": 1.0,
+                "practical_recall": 1.0,
+                "practical_f1": 1.0,
+                "per_label": {},
+                "evaluation_telemetry": {
+                    "total_seconds": 1.5,
+                    "subphases": {
+                        "load_prediction_seconds": 0.12,
+                        "load_gold_seconds": 0.34,
+                        "alignment_seconds": 0.56,
+                        "alignment_sequence_matcher_seconds": 0.45,
+                    },
+                    "resources": {
+                        "process_cpu_seconds": 0.2,
+                        "peak_ru_maxrss_kib": 123.0,
+                    },
+                    "work_units": {
+                        "prediction_block_count": 10,
+                        "prediction_text_char_count": 4567,
+                    },
+                },
+            },
+            "missed_gold_blocks": [],
+            "wrong_label_blocks": [],
+            "missed_gold": [],
+            "false_positive_preds": [],
+        }
+
+    monkeypatch.setattr(cli, "evaluate_canonical_text", _fake_eval_canonical_text)
+    monkeypatch.setattr(cli, "format_canonical_eval_report_md", lambda *_: "report")
+
+    captured_csv: dict[str, object] = {}
+
+    def _capture_append(*_args, **kwargs):
+        captured_csv.update(kwargs)
+
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        _capture_append,
+    )
+
+    eval_root = tmp_path / "eval"
+    scheduler_events: list[dict[str, object]] = []
+    with cli._benchmark_scheduler_event_overrides(
+        scheduler_event_callback=lambda payload: scheduler_events.append(dict(payload))
+    ):
+        cli.labelstudio_benchmark(
+            gold_spans=gold_spans,
+            source_file=source_file,
+            output_dir=tmp_path / "golden",
+            processed_output_dir=tmp_path / "output",
+            eval_output_dir=eval_root,
+            no_upload=True,
+            eval_mode="canonical-text",
+        )
+
+    assert captured_eval["gold_export_root"] == gold_spans.parent
+    assert captured_csv["eval_scope"] == "canonical-text"
+    timing = captured_csv.get("timing")
+    assert isinstance(timing, dict)
+    checkpoints = timing.get("checkpoints")
+    assert isinstance(checkpoints, dict)
+    assert checkpoints["prediction_load_seconds"] == pytest.approx(0.12)
+    assert checkpoints["gold_load_seconds"] == pytest.approx(0.34)
+    assert checkpoints["evaluate_alignment_seconds"] == pytest.approx(0.56)
+    assert checkpoints["evaluate_alignment_sequence_matcher_seconds"] == pytest.approx(0.45)
+    assert checkpoints["evaluate_resource_process_cpu_seconds"] == pytest.approx(0.2)
+    assert checkpoints["evaluate_work_prediction_block_count"] == pytest.approx(10.0)
+    assert checkpoints["evaluate_work_prediction_text_char_count"] == pytest.approx(4567.0)
+    event_names = [str(row.get("event") or "") for row in scheduler_events]
+    assert "evaluate_started" in event_names
+    assert "evaluate_finished" in event_names
+    evaluate_finished_events = [
+        row for row in scheduler_events if str(row.get("event") or "") == "evaluate_finished"
+    ]
+    assert evaluate_finished_events
+    assert evaluate_finished_events[-1]["prediction_load_seconds"] == pytest.approx(0.12)
+    assert evaluate_finished_events[-1]["gold_load_seconds"] == pytest.approx(0.34)
+    run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
+    assert run_manifest["run_config"]["eval_mode"] == "canonical-text"
+
+
+def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (prediction_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(source_file),
+                "source_hash": "hash-123",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS", "0.001")
+    monkeypatch.setenv("COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N", "5")
+    monkeypatch.setattr(
+        cli,
+        "_co_locate_prediction_run_for_benchmark",
+        lambda _pred_run, _eval_dir: prediction_run,
+    )
+    monkeypatch.setattr(
+        cli,
+        "generate_pred_run_artifacts",
+        lambda **_kwargs: {
+            "run_root": prediction_run,
+            "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
+            "processed_report_path": "",
+        },
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Canonical mode should not call stage-block evaluator.")
+        ),
+    )
+
+    def _fake_eval_canonical_text(**_kwargs):
+        time.sleep(0.01)
+        return {
+            "report": {
+                "counts": {"gold_total": 1, "pred_total": 1},
+                "overall_line_accuracy": 1.0,
+                "overall_block_accuracy": 1.0,
+                "macro_f1_excluding_other": 1.0,
+                "worst_label_recall": {"label": "RECIPE_TITLE", "recall": 1.0},
+                "per_label": {},
+                "evaluation_telemetry": {
+                    "subphases": {
+                        "load_prediction_seconds": 0.01,
+                        "load_gold_seconds": 0.01,
+                    }
+                },
+                "artifacts": {},
+            },
+            "missed_gold_blocks": [],
+            "wrong_label_blocks": [],
+            "missed_gold": [],
+            "false_positive_preds": [],
+        }
+
+    monkeypatch.setattr(cli, "evaluate_canonical_text", _fake_eval_canonical_text)
+    monkeypatch.setattr(cli, "format_canonical_eval_report_md", lambda *_: "report")
+
+    captured_csv: dict[str, object] = {}
+
+    def _capture_append(*_args, **kwargs):
+        captured_csv.update(kwargs)
+
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        _capture_append,
+    )
+
+    eval_root = tmp_path / "eval"
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=tmp_path / "output",
+        eval_output_dir=eval_root,
+        no_upload=True,
+        eval_mode="canonical-text",
+    )
+
+    assert (eval_root / "eval_profile.pstats").exists()
+    assert (eval_root / "eval_profile_top.txt").exists()
+    assert (eval_root / "eval_profile_top.txt").read_text(encoding="utf-8").strip()
+    timing = captured_csv.get("timing")
+    assert isinstance(timing, dict)
+    checkpoints = timing.get("checkpoints")
+    assert isinstance(checkpoints, dict)
+    assert checkpoints["evaluate_profile_captured"] == pytest.approx(1.0)
+    assert checkpoints["evaluate_profile_threshold_seconds"] == pytest.approx(0.001)
+    assert checkpoints["evaluate_profile_artifact_write_seconds"] >= 0.0
+    report = json.loads((eval_root / "eval_report.json").read_text(encoding="utf-8"))
+    profiling = report["evaluation_telemetry"]["profiling"]
+    assert profiling["enabled"] is True
+    assert profiling["captured"] is True
+    assert profiling["top_n"] == pytest.approx(5.0)
+    assert profiling["threshold_seconds"] == pytest.approx(0.001)
+    run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
+    assert "eval_profile_pstats" in run_manifest["artifacts"]
+    assert "eval_profile_top" in run_manifest["artifacts"]
+
+
 def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2540,7 +2831,7 @@ def test_resolve_all_method_scheduler_limits_invalid_overrides_fall_back_to_defa
 
 
 def test_resolve_all_method_scheduler_runtime_defaults_and_smart_backlog() -> None:
-    configured, split_slots, wing_target, smart_enabled, effective = (
+    configured, split_slots, wing_target, eval_tail_cap, smart_enabled, effective = (
         cli._resolve_all_method_scheduler_runtime(
             total_variants=12,
             max_inflight_pipelines=2,
@@ -2552,12 +2843,13 @@ def test_resolve_all_method_scheduler_runtime_defaults_and_smart_backlog() -> No
     assert configured == 2
     assert split_slots == 2
     assert wing_target == 3
+    assert eval_tail_cap == 2
     assert smart_enabled is True
     assert effective == 7
 
 
 def test_resolve_all_method_scheduler_runtime_invalid_wing_respects_fixed_mode() -> None:
-    configured, split_slots, wing_target, smart_enabled, effective = (
+    configured, split_slots, wing_target, eval_tail_cap, smart_enabled, effective = (
         cli._resolve_all_method_scheduler_runtime(
             total_variants=12,
             max_inflight_pipelines=3,
@@ -2569,25 +2861,47 @@ def test_resolve_all_method_scheduler_runtime_invalid_wing_respects_fixed_mode()
     assert configured == 3
     assert split_slots == 2
     assert wing_target == 2
+    assert eval_tail_cap == 2
     assert smart_enabled is False
     assert effective == 3
 
 
 def test_resolve_all_method_scheduler_runtime_smart_tail_buffer_clamps_to_total() -> None:
-    configured, split_slots, wing_target, smart_enabled, effective = (
+    configured, split_slots, wing_target, eval_tail_cap, smart_enabled, effective = (
         cli._resolve_all_method_scheduler_runtime(
             total_variants=4,
             max_inflight_pipelines=2,
             max_concurrent_split_phases=2,
             wing_backlog_target=3,
+            max_eval_tail_pipelines=3,
             smart_scheduler=True,
         )
     )
     assert configured == 2
     assert split_slots == 2
     assert wing_target == 3
+    assert eval_tail_cap == 3
     assert smart_enabled is True
     assert effective == 4
+
+
+def test_resolve_all_method_scheduler_runtime_respects_eval_tail_cap_override() -> None:
+    configured, split_slots, wing_target, eval_tail_cap, smart_enabled, effective = (
+        cli._resolve_all_method_scheduler_runtime(
+            total_variants=12,
+            max_inflight_pipelines=2,
+            max_concurrent_split_phases=2,
+            wing_backlog_target=3,
+            max_eval_tail_pipelines=1,
+            smart_scheduler=True,
+        )
+    )
+    assert configured == 2
+    assert split_slots == 2
+    assert wing_target == 3
+    assert eval_tail_cap == 1
+    assert smart_enabled is True
+    assert effective == 6
 
 
 def test_run_all_method_benchmark_writes_ranked_summary(
@@ -2623,6 +2937,7 @@ def test_run_all_method_benchmark_writes_ranked_summary(
     def fake_labelstudio_benchmark(**kwargs):
         progress_callback = cli._BENCHMARK_PROGRESS_CALLBACK.get()
         assert callable(progress_callback)
+        assert kwargs.get("eval_mode") == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
         eval_output_dir.mkdir(parents=True, exist_ok=True)
@@ -4013,6 +4328,7 @@ def test_interactive_benchmark_all_method_mode_uses_scheduler_limits_from_settin
             cli.ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY: "4",
             cli.ALL_METHOD_MAX_INFLIGHT_SETTING_KEY: "6",
             cli.ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY: 3,
+            cli.ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY: "5",
             cli.ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY: "120",
             cli.ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY: "2",
             cli.ALL_METHOD_WING_BACKLOG_SETTING_KEY: "5",
@@ -4058,6 +4374,7 @@ def test_interactive_benchmark_all_method_mode_uses_scheduler_limits_from_settin
     assert captured["max_parallel_sources"] == 4
     assert captured["max_inflight_pipelines"] == 6
     assert captured["max_concurrent_split_phases"] == 3
+    assert captured["max_eval_tail_pipelines"] == 5
     assert captured["config_timeout_seconds"] == 120
     assert captured["retry_failed_configs"] == 2
     assert captured["wing_backlog_target"] == 5

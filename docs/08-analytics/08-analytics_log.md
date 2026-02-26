@@ -726,3 +726,22 @@ Evidence preserved:
 
 Anti-loop note for this merge batch:
 - For all-method/dashboard regressions, prefer checking renderer pathing/scaling/collapse and refresh batching contracts before editing collector schema; this batch was predominantly renderer/flow-contract work with explicit tests proving that boundary.
+
+## 2026-02-25 understanding merge batch (race metadata removal)
+
+### 2026-02-25_19.11.36 race compatibility field retirement across report/history/dashboard
+
+Merged source:
+- `docs/understandings/2026-02-25_19.11.36-epub-race-compat-fields-removed.md`
+
+Problem captured:
+- Race compatibility metadata was still present across multiple analytics surfaces after race feature retirement.
+
+Decision/outcome preserved:
+- Removed runtime-model fields `epubAutoSelection` and `epubAutoSelectedScore`.
+- Removed Label Studio manifest keys `epub_auto_selection` and `epub_auto_selected_score`.
+- Removed CSV/dashboard schema support for `epub_auto_selected_score`.
+- Collector/renderer now rely on explicit extractor-requested/effective metadata only.
+
+Anti-loop note:
+- Do not reintroduce race score fields to fix historical dashboards; migrate old readers or backfill scripts to the current extractor field set.

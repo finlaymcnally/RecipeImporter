@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import cProfile
 import datetime as dt
 import hashlib
+import io
 import json
 import logging
 import multiprocessing
 import os
+import pstats
 import queue
 import re
 import shutil
@@ -64,6 +67,10 @@ from cookimport.core.overrides_io import load_parsing_overrides
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
 from cookimport.core.slug import slugify_name
 from cookimport.core.timing import TimingStats, measure
+from cookimport.bench.eval_canonical_text import (
+    evaluate_canonical_text,
+    format_canonical_eval_report_md,
+)
 from cookimport.bench.eval_stage_blocks import (
     evaluate_stage_blocks,
     format_stage_block_eval_report_md,
@@ -173,17 +180,23 @@ ALL_METHOD_UNSTRUCTURED_SKIP_HEADERS_FOOTERS = (False, True)
 ALL_METHOD_UNSTRUCTURED_PREPROCESS_MODES = ("none", "br_split_v1", "semantic_v1")
 ALL_METHOD_MAX_INFLIGHT_DEFAULT = 4
 ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT = 4
+ALL_METHOD_MAX_EVAL_TAIL_DEFAULT = 4
 ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT = 900
 ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT = 1
 ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT = 2
 ALL_METHOD_MAX_INFLIGHT_SETTING_KEY = "all_method_max_inflight_pipelines"
 ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY = "all_method_max_split_phase_slots"
+ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY = "all_method_max_eval_tail_pipelines"
 ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY = "all_method_config_timeout_seconds"
 ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY = "all_method_retry_failed_configs"
 ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY = "all_method_max_parallel_sources"
 ALL_METHOD_WING_BACKLOG_SETTING_KEY = "all_method_wing_backlog_target"
 ALL_METHOD_SMART_SCHEDULER_SETTING_KEY = "all_method_smart_scheduler"
 ALL_METHOD_SCHEDULER_POLL_SECONDS = 0.15
+BENCHMARK_EVAL_MODE_STAGE_BLOCKS = "stage-blocks"
+BENCHMARK_EVAL_MODE_CANONICAL_TEXT = "canonical-text"
+BENCHMARK_EVAL_PROFILE_MIN_SECONDS_ENV = "COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS"
+BENCHMARK_EVAL_PROFILE_TOP_N_ENV = "COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N"
 _MENU_SHORTCUT_KEYS = (
     "1",
     "2",
@@ -599,6 +612,7 @@ def _load_settings() -> Dict[str, Any]:
         ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY: ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT,
         ALL_METHOD_MAX_INFLIGHT_SETTING_KEY: ALL_METHOD_MAX_INFLIGHT_DEFAULT,
         ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY: ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
+        ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY: ALL_METHOD_MAX_EVAL_TAIL_DEFAULT,
         ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY: ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT,
         ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY: ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT,
         ALL_METHOD_SMART_SCHEDULER_SETTING_KEY: True,
@@ -617,6 +631,9 @@ def _load_settings() -> Dict[str, Any]:
         defaults[ALL_METHOD_WING_BACKLOG_SETTING_KEY] = defaults[
             ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY
         ]
+        defaults[ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY] = defaults[
+            ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY
+        ]
         return defaults
     try:
         with open(DEFAULT_CONFIG_PATH, "r") as f:
@@ -629,10 +646,19 @@ def _load_settings() -> Dict[str, Any]:
                         key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
                         fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
                     )
+                if ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY not in loaded:
+                    merged[ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY] = _resolve_positive_int_setting(
+                        merged,
+                        key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
+                        fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
+                    )
                 return merged
             return defaults
     except Exception:
         defaults[ALL_METHOD_WING_BACKLOG_SETTING_KEY] = defaults[
+            ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY
+        ]
+        defaults[ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY] = defaults[
             ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY
         ]
         return defaults
@@ -851,6 +877,14 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 ),
                 questionary.Choice(
                     (
+                        "All-Method Eval Tail Cap: "
+                        f"{_resolve_positive_int_setting(current_settings, key=ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY, fallback=_resolve_positive_int_setting(current_settings, key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY, fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT))} "
+                        "- smart-mode extra pipelines when configs are in evaluate phase"
+                    ),
+                    value=ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY,
+                ),
+                questionary.Choice(
+                    (
                         "All-Method Config Timeout (s): "
                         f"{_resolve_non_negative_int_setting(current_settings, key=ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY, fallback=ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT)} "
                         "- 0 disables timeout for a single config run"
@@ -1011,6 +1045,26 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
             parsed = _coerce_positive_int(val)
             if parsed is not None:
                 current_settings[ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY] = parsed
+                _save_settings(current_settings)
+
+        elif choice == ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY:
+            val = _prompt_text(
+                "Enter all-method max eval-tail pipelines (smart mode):",
+                default=str(
+                    _resolve_positive_int_setting(
+                        current_settings,
+                        key=ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY,
+                        fallback=_resolve_positive_int_setting(
+                            current_settings,
+                            key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
+                            fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
+                        ),
+                    )
+                ),
+            )
+            parsed = _coerce_positive_int(val)
+            if parsed is not None:
+                current_settings[ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY] = parsed
                 _save_settings(current_settings)
 
         elif choice == ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY:
@@ -1205,6 +1259,7 @@ def _interactive_all_method_benchmark(
     max_parallel_sources: int | None = None,
     max_inflight_pipelines: int | None = None,
     max_concurrent_split_phases: int | None = None,
+    max_eval_tail_pipelines: int | None = None,
     config_timeout_seconds: int | None = None,
     retry_failed_configs: int | None = None,
     wing_backlog_target: int | None = None,
@@ -1339,6 +1394,10 @@ def _interactive_all_method_benchmark(
         ),
         fg=typer.colors.BRIGHT_BLACK,
     )
+    typer.secho(
+        "All method benchmark uses canonical-text eval mode (extractor-independent).",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
 
     include_codex_prompt = _prompt_confirm(
         "Include Codex Farm permutations?",
@@ -1384,12 +1443,14 @@ def _interactive_all_method_benchmark(
         resolved_inflight_pipelines,
         resolved_split_phase_slots,
         resolved_wing_backlog_target,
+        resolved_eval_tail_pipelines,
         resolved_smart_scheduler,
         resolved_effective_inflight_pipelines,
     ) = _resolve_all_method_scheduler_runtime(
         total_variants=total_selected_runs,
         max_inflight_pipelines=max_inflight_pipelines,
         max_concurrent_split_phases=max_concurrent_split_phases,
+        max_eval_tail_pipelines=max_eval_tail_pipelines,
         wing_backlog_target=wing_backlog_target,
         smart_scheduler=smart_scheduler,
     )
@@ -1405,9 +1466,7 @@ def _interactive_all_method_benchmark(
         else "off"
     )
     scheduler_mode = "smart" if resolved_smart_scheduler else "fixed"
-    smart_tail_buffer_display = (
-        str(resolved_split_phase_slots) if resolved_smart_scheduler else "0"
-    )
+    smart_tail_buffer_display = str(resolved_eval_tail_pipelines) if resolved_smart_scheduler else "0"
     typer.secho(
         (
             "Scheduler: "
@@ -1420,6 +1479,8 @@ def _interactive_all_method_benchmark(
             f"effective inflight={resolved_effective_inflight_pipelines}, "
             f"split slots={resolved_split_phase_slots} "
             f"(default {ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT}), "
+            f"eval tail cap={resolved_eval_tail_pipelines} "
+            "(default split slots), "
             f"config timeout={timeout_display} "
             f"(default {ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT}s), "
             f"failed retries={resolved_retry_failed_configs} "
@@ -1477,6 +1538,7 @@ def _interactive_all_method_benchmark(
                 max_parallel_sources=max_parallel_sources,
                 max_inflight_pipelines=resolved_effective_inflight_pipelines,
                 max_concurrent_split_phases=resolved_split_phase_slots,
+                max_eval_tail_pipelines=resolved_eval_tail_pipelines,
                 config_timeout_seconds=resolved_config_timeout_seconds,
                 retry_failed_configs=resolved_retry_failed_configs,
                 wing_backlog_target=resolved_wing_backlog_target,
@@ -1518,6 +1580,7 @@ def _interactive_all_method_benchmark(
                     dashboard_source_index=0,
                     max_inflight_pipelines=resolved_effective_inflight_pipelines,
                     max_concurrent_split_phases=resolved_split_phase_slots,
+                    max_eval_tail_pipelines=resolved_eval_tail_pipelines,
                     config_timeout_seconds=resolved_config_timeout_seconds,
                     retry_failed_configs=resolved_retry_failed_configs,
                     wing_backlog_target=resolved_wing_backlog_target,
@@ -2186,6 +2249,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 benchmark_kwargs = dict(
                     output_dir=_golden_benchmark_root(),
                     eval_output_dir=benchmark_eval_output,
+                    eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
                     epub_extractor=selected_benchmark_settings.epub_extractor.value,
                     epub_unstructured_html_parser_version=(
                         selected_benchmark_settings.epub_unstructured_html_parser_version.value
@@ -2232,6 +2296,9 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 all_method_max_split_slots = _coerce_positive_int(
                     settings.get(ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY)
                 )
+                all_method_max_eval_tail = _coerce_positive_int(
+                    settings.get(ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY)
+                )
                 all_method_config_timeout_seconds = _coerce_non_negative_int(
                     settings.get(ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY)
                 )
@@ -2252,6 +2319,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     max_parallel_sources=all_method_max_parallel_sources,
                     max_inflight_pipelines=all_method_max_inflight,
                     max_concurrent_split_phases=all_method_max_split_slots,
+                    max_eval_tail_pipelines=all_method_max_eval_tail,
                     config_timeout_seconds=all_method_config_timeout_seconds,
                     retry_failed_configs=all_method_retry_failed_configs,
                     wing_backlog_target=all_method_wing_backlog,
@@ -2521,6 +2589,26 @@ def _normalize_codex_farm_pipeline_id(value: str, *, option: str) -> str:
     if not normalized:
         _fail(f"{option} must be a non-empty pipeline id.")
     return normalized
+
+
+def _normalize_benchmark_eval_mode(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    if normalized in {
+        "stage-block",
+        "stage-blocks",
+        "stage",
+    }:
+        return BENCHMARK_EVAL_MODE_STAGE_BLOCKS
+    if normalized in {
+        "canonical",
+        "canonical-text",
+    }:
+        return BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+    _fail(
+        f"Invalid benchmark eval mode: {value!r}. "
+        "Expected one of: stage-blocks, canonical-text."
+    )
+    return BENCHMARK_EVAL_MODE_STAGE_BLOCKS
 
 
 def _parse_csv_labels(value: str) -> set[str]:
@@ -3081,6 +3169,27 @@ def _notify_progress_callback(
         progress_callback(message)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Progress callback raised and was ignored: %s", exc)
+
+
+def _notify_benchmark_scheduler_event(
+    event: str,
+    **payload: Any,
+) -> None:
+    callback = _BENCHMARK_SCHEDULER_EVENT_CALLBACK.get()
+    if callback is None:
+        return
+    event_name = str(event or "").strip()
+    if not event_name:
+        return
+    event_payload: dict[str, Any] = {
+        "event": event_name,
+        "timestamp": dt.datetime.now(tz=dt.timezone.utc).isoformat(timespec="milliseconds"),
+    }
+    event_payload.update(payload)
+    try:
+        callback(event_payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Ignoring benchmark scheduler event callback failure: %s", exc)
 
 
 def _run_labelstudio_import_with_status(
@@ -4164,6 +4273,84 @@ def _timing_with_updates(
     return normalized
 
 
+def _evaluation_telemetry_load_seconds(
+    evaluation_telemetry: Any,
+) -> tuple[float | None, float | None]:
+    if not isinstance(evaluation_telemetry, dict):
+        return None, None
+    subphases = evaluation_telemetry.get("subphases")
+    if not isinstance(subphases, dict):
+        return None, None
+    prediction_load = _report_optional_metric(subphases.get("load_prediction_seconds"))
+    gold_load = _report_optional_metric(subphases.get("load_gold_seconds"))
+    return prediction_load, gold_load
+
+
+def _evaluation_telemetry_checkpoints(
+    evaluation_telemetry: Any,
+) -> dict[str, float]:
+    checkpoints: dict[str, float] = {}
+    if not isinstance(evaluation_telemetry, dict):
+        return checkpoints
+
+    total_seconds = _report_optional_metric(evaluation_telemetry.get("total_seconds"))
+    if total_seconds is not None:
+        checkpoints["evaluate_total_seconds"] = max(0.0, total_seconds)
+
+    def _collect_block(block_key: str, prefix: str) -> None:
+        raw_block = evaluation_telemetry.get(block_key)
+        if not isinstance(raw_block, dict):
+            return
+        for raw_key, raw_value in raw_block.items():
+            numeric = _report_optional_metric(raw_value)
+            if numeric is None:
+                continue
+            key_suffix = re.sub(r"[^a-zA-Z0-9_]+", "_", str(raw_key).strip()).strip("_")
+            if not key_suffix:
+                continue
+            checkpoint_key = f"{prefix}_{key_suffix}".lower()
+            checkpoints[checkpoint_key] = max(0.0, numeric)
+
+    _collect_block("subphases", "evaluate")
+    _collect_block("resources", "evaluate_resource")
+    _collect_block("work_units", "evaluate_work")
+    return checkpoints
+
+
+def _benchmark_eval_profile_min_seconds() -> float | None:
+    raw_value = str(os.getenv(BENCHMARK_EVAL_PROFILE_MIN_SECONDS_ENV) or "").strip()
+    if not raw_value:
+        return None
+    try:
+        parsed = float(raw_value)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid %s=%r (expected float seconds).",
+            BENCHMARK_EVAL_PROFILE_MIN_SECONDS_ENV,
+            raw_value,
+        )
+        return None
+    if parsed <= 0.0:
+        return None
+    return parsed
+
+
+def _benchmark_eval_profile_top_n() -> int:
+    raw_value = str(os.getenv(BENCHMARK_EVAL_PROFILE_TOP_N_ENV) or "").strip()
+    if not raw_value:
+        return 60
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid %s=%r (expected positive integer).",
+            BENCHMARK_EVAL_PROFILE_TOP_N_ENV,
+            raw_value,
+        )
+        return 60
+    return max(1, parsed)
+
+
 def _report_count(value: Any) -> int:
     try:
         return max(0, int(value))
@@ -4242,9 +4429,10 @@ def _resolve_all_method_scheduler_runtime(
     total_variants: int,
     max_inflight_pipelines: int | None = None,
     max_concurrent_split_phases: int | None = None,
+    max_eval_tail_pipelines: int | None = None,
     wing_backlog_target: int | None = None,
     smart_scheduler: bool | None = None,
-) -> tuple[int, int, int, bool, int]:
+) -> tuple[int, int, int, int, bool, int]:
     inflight, split_slots = _resolve_all_method_scheduler_limits(
         total_variants=total_variants,
         max_inflight_pipelines=max_inflight_pipelines,
@@ -4255,18 +4443,28 @@ def _resolve_all_method_scheduler_runtime(
     wing_target_requested = _report_count(wing_backlog_target)
     wing_target = wing_target_requested if wing_target_requested > 0 else wing_default
     wing_target = max(1, wing_target)
+    eval_tail_default = max(1, split_slots)
+    eval_tail_requested = _report_count(max_eval_tail_pipelines)
+    eval_tail_cap = eval_tail_requested if eval_tail_requested > 0 else eval_tail_default
+    eval_tail_cap = max(1, eval_tail_cap)
     smart_enabled = (
         True if smart_scheduler is None else _coerce_bool_setting(smart_scheduler, default=True)
     )
     effective_inflight = inflight
     if smart_enabled:
         target_with_wing = min(total, split_slots + wing_target)
-        # Keep split slots fed while earlier configs are still draining post-stage work.
-        # Without this tail buffer, long post phases can consume all inflight slots and
-        # prevent preheating of new configs (heavy may dip to 0 while pending remains).
-        target_with_tail_buffer = min(total, target_with_wing + split_slots)
+        # Keep split slots fed while earlier configs are draining evaluate tails.
+        # The eval-tail cap bounds extra in-flight workers admitted in this scenario.
+        target_with_tail_buffer = min(total, target_with_wing + eval_tail_cap)
         effective_inflight = max(effective_inflight, target_with_tail_buffer)
-    return inflight, split_slots, wing_target, smart_enabled, effective_inflight
+    return (
+        inflight,
+        split_slots,
+        wing_target,
+        eval_tail_cap,
+        smart_enabled,
+        effective_inflight,
+    )
 
 
 def _all_method_config_dir_name(config_index: int, variant: AllMethodVariant) -> str:
@@ -4407,6 +4605,7 @@ def _run_all_method_config_once(
                         output_dir=scratch_output_dir,
                         processed_output_dir=processed_output_dir,
                         eval_output_dir=eval_output_dir,
+                        eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
                         overlap_threshold=overlap_threshold,
                         force_source_match=force_source_match,
                         no_upload=True,
@@ -4530,6 +4729,7 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
         f"- Created at: {report_payload.get('created_at', '')}",
         f"- Source file: {report_payload.get('source_file', '')}",
         f"- Gold spans: {report_payload.get('gold_spans_path', '')}",
+        f"- Eval mode: {report_payload.get('eval_mode', BENCHMARK_EVAL_MODE_CANONICAL_TEXT)}",
         f"- Total configurations: {report_payload.get('variant_count', 0)}",
         f"- Successful configurations: {report_payload.get('successful_variants', 0)}",
         f"- Failed configurations: {report_payload.get('failed_variants', 0)}",
@@ -4616,9 +4816,10 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
                     f"{_report_count(scheduler.get('effective_inflight_pipelines'))}"
                 ),
                 (
-                    "- Split slots / wing target / tail buffer: "
+                    "- Split slots / wing target / eval tail cap / tail buffer: "
                     f"{_report_count(scheduler.get('split_phase_slots'))}/"
                     f"{_report_count(scheduler.get('wing_backlog_target'))}/"
+                    f"{_report_count(scheduler.get('max_eval_tail_pipelines'))}/"
                     f"{_report_count(scheduler.get('smart_tail_buffer_slots'))}"
                 ),
                 (
@@ -4696,6 +4897,7 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
         "# All Method Benchmark Multi-Source Report",
         "",
         f"- Created at: {report_payload.get('created_at', '')}",
+        f"- Eval mode: {report_payload.get('eval_mode', BENCHMARK_EVAL_MODE_CANONICAL_TEXT)}",
         f"- Matched targets: {report_payload.get('matched_target_count', 0)}",
         f"- Unmatched targets: {report_payload.get('unmatched_target_count', 0)}",
         (
@@ -4763,9 +4965,10 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
                     f"(sources { _report_count(scheduler_summary.get('source_count'))})"
                 ),
                 (
-                    "- Scheduler effective inflight / split slots / tail buffer: "
+                    "- Scheduler effective inflight / split slots / eval tail cap / tail buffer: "
                     f"{_report_count(scheduler_summary.get('effective_inflight_pipelines'))}/"
                     f"{_report_count(scheduler_summary.get('split_phase_slots'))}/"
+                    f"{_report_count(scheduler_summary.get('max_eval_tail_pipelines'))}/"
                     f"{_report_count(scheduler_summary.get('smart_tail_buffer_slots'))}"
                 ),
                 (
@@ -4889,6 +5092,7 @@ def _run_all_method_benchmark_multi_source(
     max_parallel_sources: int | None = None,
     max_inflight_pipelines: int | None = None,
     max_concurrent_split_phases: int | None = None,
+    max_eval_tail_pipelines: int | None = None,
     config_timeout_seconds: int | None = None,
     retry_failed_configs: int | None = None,
     wing_backlog_target: int | None = None,
@@ -5068,6 +5272,7 @@ def _run_all_method_benchmark_multi_source(
                 dashboard_source_index=source_position if dashboard is not None else None,
                 max_inflight_pipelines=max_inflight_pipelines,
                 max_concurrent_split_phases=max_concurrent_split_phases,
+                max_eval_tail_pipelines=max_eval_tail_pipelines,
                 config_timeout_seconds=effective_config_timeout_seconds,
                 retry_failed_configs=effective_retry_failed_configs,
                 wing_backlog_target=wing_backlog_target,
@@ -5338,6 +5543,7 @@ def _run_all_method_benchmark_multi_source(
     scheduler_max_active_pipelines = 0
     scheduler_split_slots = 0
     scheduler_smart_tail_buffer = 0
+    scheduler_eval_tail_cap = 0
     scheduler_effective_inflight = 0
     scheduler_sources = 0
     scheduler_modes: set[str] = set()
@@ -5356,6 +5562,10 @@ def _run_all_method_benchmark_multi_source(
         scheduler_smart_tail_buffer = max(
             scheduler_smart_tail_buffer,
             _report_count(scheduler.get("smart_tail_buffer_slots")),
+        )
+        scheduler_eval_tail_cap = max(
+            scheduler_eval_tail_cap,
+            _report_count(scheduler.get("max_eval_tail_pipelines")),
         )
         scheduler_effective_inflight = max(
             scheduler_effective_inflight,
@@ -5390,6 +5600,7 @@ def _run_all_method_benchmark_multi_source(
 
     report_payload: dict[str, Any] = {
         "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "eval_mode": BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
         "matched_target_count": total_targets,
         "unmatched_target_count": len(unmatched_targets),
         "source_parallelism_configured": source_parallelism_configured,
@@ -5427,6 +5638,7 @@ def _run_all_method_benchmark_multi_source(
             "source_count": scheduler_sources,
             "effective_inflight_pipelines": scheduler_effective_inflight,
             "split_phase_slots": scheduler_split_slots,
+            "max_eval_tail_pipelines": scheduler_eval_tail_cap,
             "smart_tail_buffer_slots": scheduler_smart_tail_buffer,
             "config_timeout_seconds": effective_config_timeout_seconds,
             "failed_retry_limit": effective_retry_failed_configs,
@@ -5505,6 +5717,7 @@ def _run_all_method_benchmark(
     dashboard_source_index: int | None = None,
     max_inflight_pipelines: int | None = None,
     max_concurrent_split_phases: int | None = None,
+    max_eval_tail_pipelines: int | None = None,
     config_timeout_seconds: int | None = None,
     retry_failed_configs: int | None = None,
     wing_backlog_target: int | None = None,
@@ -5528,12 +5741,14 @@ def _run_all_method_benchmark(
         configured_inflight_pipelines,
         effective_split_phase_slots,
         effective_wing_backlog_target,
+        effective_eval_tail_pipelines,
         effective_smart_scheduler,
         effective_inflight_pipelines,
     ) = _resolve_all_method_scheduler_runtime(
         total_variants=total_variants,
         max_inflight_pipelines=max_inflight_pipelines,
         max_concurrent_split_phases=max_concurrent_split_phases,
+        max_eval_tail_pipelines=max_eval_tail_pipelines,
         wing_backlog_target=wing_backlog_target,
         smart_scheduler=smart_scheduler,
     )
@@ -5591,7 +5806,9 @@ def _run_all_method_benchmark(
             return "split_active"
         if event in {"split_active_finished", "post_started"}:
             return "post"
-        if event in {"post_finished", "config_finished"}:
+        if event in {"post_finished", "evaluate_started"}:
+            return "evaluate"
+        if event in {"evaluate_finished", "config_finished"}:
             return "done"
         return None
 
@@ -5628,6 +5845,7 @@ def _run_all_method_benchmark(
         split_wait = 0
         prep_active = 0
         post_active = 0
+        evaluate_active = 0
         for active_index in active_indices:
             phase = scheduler_phase_by_config.get(active_index, "prep")
             if phase == "split_active":
@@ -5636,6 +5854,8 @@ def _run_all_method_benchmark(
                 split_wait += 1
             elif phase == "post":
                 post_active += 1
+            elif phase == "evaluate":
+                evaluate_active += 1
             elif phase == "done":
                 continue
             else:
@@ -5646,6 +5866,7 @@ def _run_all_method_benchmark(
             "split_wait": split_wait,
             "prep_active": prep_active,
             "post_active": post_active,
+            "evaluate_active": evaluate_active,
             "wing_backlog": wing_backlog,
             "active": len(active_indices),
         }
@@ -5742,6 +5963,7 @@ def _run_all_method_benchmark(
             split_wait = 0
             prep_active = 0
             post_active = 0
+            evaluate_active = 0
             for phase in phases.values():
                 if phase == "split_active":
                     heavy_active += 1
@@ -5749,12 +5971,20 @@ def _run_all_method_benchmark(
                     split_wait += 1
                 elif phase == "post":
                     post_active += 1
+                elif phase == "evaluate":
+                    evaluate_active += 1
                 elif phase == "done":
                     continue
                 else:
                     prep_active += 1
             wing_backlog = split_wait + prep_active
-            active = heavy_active + split_wait + prep_active + post_active
+            active = (
+                heavy_active
+                + split_wait
+                + prep_active
+                + post_active
+                + evaluate_active
+            )
             return {
                 "heavy_active": heavy_active,
                 "wing_backlog": wing_backlog,
@@ -5853,8 +6083,9 @@ def _run_all_method_benchmark(
             "effective_inflight_pipelines": effective_inflight_pipelines,
             "split_phase_slots": effective_split_phase_slots,
             "wing_backlog_target": effective_wing_backlog_target,
+            "max_eval_tail_pipelines": effective_eval_tail_pipelines,
             "smart_tail_buffer_slots": (
-                effective_split_phase_slots if bool(effective_smart_scheduler) else 0
+                effective_eval_tail_pipelines if bool(effective_smart_scheduler) else 0
             ),
             "smart_scheduler_enabled": bool(effective_smart_scheduler),
             "heavy_slot_capacity_seconds": capacity_seconds,
@@ -6008,7 +6239,10 @@ def _run_all_method_benchmark(
         pending_items = list(items)
         futures: dict[Any, tuple[int, AllMethodVariant, float]] = {}
         worker_limit = min(effective_inflight_pipelines, len(items))
-        scheduler_target = effective_split_phase_slots + effective_wing_backlog_target
+        scheduler_base_target = min(
+            total_variants,
+            effective_split_phase_slots + effective_wing_backlog_target,
+        )
 
         try:
             executor = ProcessPoolExecutor(max_workers=worker_limit)
@@ -6154,7 +6388,17 @@ def _run_all_method_benchmark(
                 while len(futures) < worker_limit and pending_items:
                     if scheduler_smart_enabled:
                         heavy_plus_wing = counts["heavy_active"] + counts["wing_backlog"]
-                        if heavy_plus_wing >= scheduler_target:
+                        dynamic_eval_tail = min(
+                            effective_eval_tail_pipelines,
+                            counts["evaluate_active"],
+                        )
+                        smart_active_cap = min(
+                            total_variants,
+                            scheduler_base_target + dynamic_eval_tail,
+                        )
+                        if counts["active"] >= smart_active_cap:
+                            break
+                        if heavy_plus_wing >= scheduler_base_target:
                             break
                     submitted = _submit_next()
                     if not submitted:
@@ -6376,6 +6620,7 @@ def _run_all_method_benchmark(
         "created_at": dt.datetime.now().isoformat(timespec="seconds"),
         "source_file": str(source_file),
         "gold_spans_path": str(gold_spans_path),
+        "eval_mode": BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
         "variant_count": total_variants,
         "successful_variants": len(successful_rows),
         "failed_variants": len(failed_rows),
@@ -9396,6 +9641,13 @@ def labelstudio_benchmark(
             "Useful for comparing renamed/truncated source variants."
         ),
     )] = False,
+    eval_mode: Annotated[str, typer.Option(
+        "--eval-mode",
+        help=(
+            "Benchmark evaluator mode: stage-blocks (block-index parity required) "
+            "or canonical-text (extractor-independent alignment scoring)."
+        ),
+    )] = BENCHMARK_EVAL_MODE_STAGE_BLOCKS,
     pipeline: Annotated[str, typer.Option("--pipeline", help="Importer pipeline name or auto.")] = "auto",
     project_name: Annotated[str | None, typer.Option(
         "--project-name",
@@ -9540,6 +9792,7 @@ def labelstudio_benchmark(
         codex_farm_pipeline_pass3,
         option="--codex-farm-pipeline-pass3",
     )
+    selected_eval_mode = _normalize_benchmark_eval_mode(eval_mode)
     url: str | None = None
     api_key: str | None = None
     if not no_upload:
@@ -9734,18 +9987,154 @@ def labelstudio_benchmark(
     if not extracted_archive_path.exists():
         _fail(f"Prediction run is missing extracted_archive.json: {pred_run}")
 
-    prediction_load_seconds = 0.0
-    gold_load_seconds = 0.0
+    prediction_load_seconds: float | None = None
+    gold_load_seconds: float | None = None
+    eval_profile_min_seconds = _benchmark_eval_profile_min_seconds()
+    eval_profile_top_n = _benchmark_eval_profile_top_n()
+    eval_profiler: cProfile.Profile | None = None
+    if eval_profile_min_seconds is not None:
+        eval_profiler = cProfile.Profile()
     evaluation_started = time.monotonic()
-    eval_result = evaluate_stage_blocks(
-        gold_freeform_jsonl=selected_gold,
-        stage_predictions_json=stage_predictions_path,
-        extracted_blocks_json=extracted_archive_path,
-        out_dir=eval_output_dir,
+    eval_scope = selected_eval_mode
+    _notify_benchmark_scheduler_event(
+        "evaluate_started",
+        eval_mode=selected_eval_mode,
     )
+    eval_status_message = (
+        f"Evaluating predictions using {selected_eval_mode} scoring..."
+    )
+
+    def _evaluate_selected_mode() -> tuple[dict[str, Any], Callable[[dict[str, Any]], str]]:
+        if selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT:
+            gold_export_root = selected_gold.parent
+            eval_result_local = evaluate_canonical_text(
+                gold_export_root=gold_export_root,
+                stage_predictions_json=stage_predictions_path,
+                extracted_blocks_json=extracted_archive_path,
+                out_dir=eval_output_dir,
+            )
+            return eval_result_local, format_canonical_eval_report_md
+        eval_result_local = evaluate_stage_blocks(
+            gold_freeform_jsonl=selected_gold,
+            stage_predictions_json=stage_predictions_path,
+            extracted_blocks_json=extracted_archive_path,
+            out_dir=eval_output_dir,
+        )
+        return eval_result_local, format_stage_block_eval_report_md
+
+    if eval_profiler is not None:
+        eval_profiler.enable()
+    try:
+        if suppress_spinner:
+            _emit_external_progress(eval_status_message)
+            eval_result, eval_report_formatter = _evaluate_selected_mode()
+        else:
+            def _run_eval_with_status(
+                update_progress: Callable[[str], None],
+            ) -> tuple[dict[str, Any], Callable[[dict[str, Any]], str]]:
+                if external_progress_callback is None:
+                    update_progress(eval_status_message)
+                    return _evaluate_selected_mode()
+
+                def _combined_progress(message: str) -> None:
+                    update_progress(message)
+                    _emit_external_progress(message)
+
+                _combined_progress(eval_status_message)
+                return _evaluate_selected_mode()
+
+            eval_result, eval_report_formatter = _run_with_progress_status(
+                initial_status=eval_status_message,
+                progress_prefix=f"Benchmark eval ({selected_source.name})",
+                run=_run_eval_with_status,
+            )
+    finally:
+        if eval_profiler is not None:
+            eval_profiler.disable()
     evaluate_seconds = max(0.0, time.monotonic() - evaluation_started)
     evaluation_seconds = evaluate_seconds
     report = eval_result["report"]
+    eval_profile_pstats_path: Path | None = None
+    eval_profile_top_path: Path | None = None
+    eval_profile_dump_seconds = 0.0
+    eval_profile_captured = False
+    if (
+        eval_profiler is not None
+        and eval_profile_min_seconds is not None
+        and evaluate_seconds >= eval_profile_min_seconds
+    ):
+        profile_dump_started = time.monotonic()
+        try:
+            eval_profile_pstats_path = eval_output_dir / "eval_profile.pstats"
+            eval_profile_top_path = eval_output_dir / "eval_profile_top.txt"
+            eval_profiler.dump_stats(str(eval_profile_pstats_path))
+            stats_stream = io.StringIO()
+            stats = pstats.Stats(eval_profiler, stream=stats_stream)
+            stats.sort_stats(pstats.SortKey.CUMULATIVE)
+            stats.print_stats(eval_profile_top_n)
+            eval_profile_top_path.write_text(stats_stream.getvalue(), encoding="utf-8")
+            eval_profile_captured = True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Unable to write benchmark eval profile artifacts: %s", exc)
+            eval_profile_pstats_path = None
+            eval_profile_top_path = None
+            eval_profile_captured = False
+        finally:
+            eval_profile_dump_seconds = max(
+                0.0, time.monotonic() - profile_dump_started
+            )
+
+    if isinstance(report, dict):
+        evaluation_telemetry_payload = report.get("evaluation_telemetry")
+        if not isinstance(evaluation_telemetry_payload, dict):
+            evaluation_telemetry_payload = {}
+            report["evaluation_telemetry"] = evaluation_telemetry_payload
+        profiling_payload: dict[str, Any] = {
+            "enabled": eval_profile_min_seconds is not None,
+            "captured": eval_profile_captured,
+        }
+        if eval_profile_min_seconds is not None:
+            profiling_payload["threshold_seconds"] = float(eval_profile_min_seconds)
+        profiling_payload["top_n"] = float(eval_profile_top_n)
+        if eval_profile_dump_seconds > 0.0:
+            profiling_payload["artifact_write_seconds"] = float(eval_profile_dump_seconds)
+        if eval_profile_pstats_path is not None:
+            profiling_payload["profile_pstats_path"] = str(eval_profile_pstats_path)
+        if eval_profile_top_path is not None:
+            profiling_payload["profile_top_path"] = str(eval_profile_top_path)
+        evaluation_telemetry_payload["profiling"] = profiling_payload
+        artifacts_payload = report.get("artifacts")
+        if isinstance(artifacts_payload, dict):
+            if eval_profile_pstats_path is not None:
+                artifacts_payload["eval_profile_pstats"] = str(eval_profile_pstats_path)
+            if eval_profile_top_path is not None:
+                artifacts_payload["eval_profile_top"] = str(eval_profile_top_path)
+
+    evaluation_telemetry = (
+        report.get("evaluation_telemetry")
+        if isinstance(report, dict)
+        else None
+    )
+    telemetry_prediction_load, telemetry_gold_load = _evaluation_telemetry_load_seconds(
+        evaluation_telemetry
+    )
+    if telemetry_prediction_load is not None:
+        prediction_load_seconds = telemetry_prediction_load
+    if telemetry_gold_load is not None:
+        gold_load_seconds = telemetry_gold_load
+    if prediction_load_seconds is None:
+        prediction_load_seconds = 0.0
+    if gold_load_seconds is None:
+        gold_load_seconds = 0.0
+    _notify_benchmark_scheduler_event(
+        "evaluate_finished",
+        eval_mode=selected_eval_mode,
+        evaluate_seconds=evaluate_seconds,
+        prediction_load_seconds=prediction_load_seconds,
+        gold_load_seconds=gold_load_seconds,
+        eval_profile_captured=eval_profile_captured,
+        eval_profile_dump_seconds=eval_profile_dump_seconds,
+    )
 
     benchmark_recipes = pred_context.recipes
     benchmark_recipes_source: str | None = (
@@ -9786,7 +10175,19 @@ def labelstudio_benchmark(
             "prediction_load_seconds": prediction_load_seconds,
             "gold_load_seconds": gold_load_seconds,
             "evaluate_seconds": evaluate_seconds,
+            "evaluate_profile_captured": 1.0 if eval_profile_captured else 0.0,
         }
+    )
+    if eval_profile_min_seconds is not None:
+        prediction_checkpoints["evaluate_profile_threshold_seconds"] = max(
+            0.0, float(eval_profile_min_seconds)
+        )
+    if eval_profile_dump_seconds > 0.0:
+        prediction_checkpoints["evaluate_profile_artifact_write_seconds"] = max(
+            0.0, eval_profile_dump_seconds
+        )
+    prediction_checkpoints.update(
+        _evaluation_telemetry_checkpoints(evaluation_telemetry)
     )
     benchmark_timing = _timing_with_updates(
         prediction_timing,
@@ -9797,7 +10198,7 @@ def labelstudio_benchmark(
     report["timing"] = benchmark_timing
     report_json_path = eval_output_dir / "eval_report.json"
     report_md_path = eval_output_dir / "eval_report.md"
-    artifact_write_seconds = 0.0
+    artifact_write_seconds = max(0.0, eval_profile_dump_seconds)
     total_floor_with_artifacts = (
         prediction_seconds_value + max(0.0, evaluation_seconds) + artifact_write_seconds
     )
@@ -9819,7 +10220,7 @@ def labelstudio_benchmark(
         csv_history_path,
         run_timestamp=dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         run_dir=str(eval_output_dir),
-        eval_scope="stage-blocks",
+        eval_scope=eval_scope,
         source_file=str(selected_source),
         recipes=benchmark_recipes,
         processed_report_path=csv_report_path,
@@ -9846,14 +10247,14 @@ def labelstudio_benchmark(
         checkpoints={"history_csv_append_seconds": history_append_seconds},
     )
     report["timing"] = benchmark_timing
-    report_md = format_stage_block_eval_report_md(report)
+    report_md = eval_report_formatter(report)
     report_json_path.write_text(
         json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
     )
     report_md_path.write_text(report_md, encoding="utf-8")
 
     benchmark_run_config: dict[str, Any] = {
-        "eval_mode": "stage-blocks",
+        "eval_mode": selected_eval_mode,
         "overlap_threshold": overlap_threshold,
         "force_source_match": force_source_match,
         "upload": not no_upload,
@@ -9907,6 +10308,32 @@ def labelstudio_benchmark(
         "history_csv": str(history_csv_for_output(processed_output_dir)),
         "timing": benchmark_timing,
     }
+    if eval_profile_pstats_path is not None and eval_profile_pstats_path.exists():
+        benchmark_artifacts["eval_profile_pstats"] = _path_for_manifest(
+            eval_output_dir,
+            eval_profile_pstats_path,
+        )
+    if eval_profile_top_path is not None and eval_profile_top_path.exists():
+        benchmark_artifacts["eval_profile_top"] = _path_for_manifest(
+            eval_output_dir,
+            eval_profile_top_path,
+        )
+    if selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT:
+        gold_export_root = selected_gold.parent
+        benchmark_artifacts["gold_export_root"] = _path_for_manifest(
+            eval_output_dir,
+            gold_export_root,
+        )
+        for artifact_name in (
+            "canonical_text.txt",
+            "canonical_span_labels.jsonl",
+            "canonical_manifest.json",
+        ):
+            artifact_path = gold_export_root / artifact_name
+            if artifact_path.exists():
+                benchmark_artifacts[
+                    artifact_name.replace(".", "_")
+                ] = _path_for_manifest(eval_output_dir, artifact_path)
     if csv_report_path:
         benchmark_artifacts["processed_report_json"] = _path_for_manifest(
             eval_output_dir,
@@ -9928,7 +10355,8 @@ def labelstudio_benchmark(
         run_config=benchmark_run_config,
         artifacts=benchmark_artifacts,
         notes=(
-            "Benchmark evaluation against freeform gold using stage block predictions. "
+            "Benchmark evaluation against freeform gold using "
+            f"{selected_eval_mode} scoring. "
             + ("Upload disabled." if no_upload else "Prediction tasks uploaded to Label Studio.")
         ),
     )
@@ -9939,11 +10367,18 @@ def labelstudio_benchmark(
         typer.secho(f"Prediction run: {pred_run}", fg=typer.colors.CYAN)
         if processed_run_root:
             typer.secho(f"Processed output: {processed_run_root}", fg=typer.colors.CYAN)
-        typer.secho(
-            "Overall block accuracy: "
-            f"{float(report.get('overall_block_accuracy') or 0.0):.3f}",
-            fg=typer.colors.CYAN,
-        )
+        if selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT:
+            typer.secho(
+                "Overall line accuracy: "
+                f"{float(report.get('overall_line_accuracy') or 0.0):.3f}",
+                fg=typer.colors.CYAN,
+            )
+        else:
+            typer.secho(
+                "Overall block accuracy: "
+                f"{float(report.get('overall_block_accuracy') or 0.0):.3f}",
+                fg=typer.colors.CYAN,
+            )
         typer.secho(
             "Macro F1 (excluding OTHER): "
             f"{float(report.get('macro_f1_excluding_other') or 0.0):.3f}",

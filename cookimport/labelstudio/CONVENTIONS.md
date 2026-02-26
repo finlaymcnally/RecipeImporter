@@ -4,7 +4,10 @@ Durable contracts for Label Studio import/export/eval/prelabel flows in `cookimp
 
 ## Benchmark Prediction Rule
 
-- `labelstudio-benchmark` should score stage block evidence (`stage_block_predictions.json`) with `cookimport.bench.eval_stage_blocks`, not pipeline chunk span overlap.
+- `labelstudio-benchmark` supports `--eval-mode stage-blocks|canonical-text`:
+  - `stage-blocks` uses `cookimport.bench.eval_stage_blocks`.
+  - `canonical-text` uses `cookimport.bench.eval_canonical_text`.
+- Interactive benchmark modes (`single_offline` and `all_method`) should run `labelstudio-benchmark` in `canonical-text` mode so one freeform gold export can benchmark extractor/config permutations without block-index parity.
 - Prediction-run artifact generation for benchmark must still write `extracted_archive.json` and copy any processed-output stage evidence into prediction-run root as `stage_block_predictions.json`.
 - Benchmark helpers/tests that mock prediction runs must include both `extracted_archive.json` and `stage_block_predictions.json`.
 

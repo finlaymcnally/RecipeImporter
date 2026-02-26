@@ -446,3 +446,49 @@ Decision preserved:
 
 Anti-loop note:
 - If a stage normalizer crashes with type/attribute errors from `OptionInfo`, audit direct caller argument forwarding and default unwrapping before touching parsing/staging logic.
+
+## 2026-02-25 understanding merge batch (EPUB race retirement)
+
+### 2026-02-25_18.53.25 EPUB race removed from interactive and direct CLI paths
+
+Merged source:
+- `docs/understandings/2026-02-25_18.53.25-epub-race-retirement.md`
+
+Problem captured:
+- EPUB race mode stayed visible in CLI surfaces after extractor-selection strategy moved away from race behavior.
+
+Decision/outcome preserved:
+- Removed interactive menu action `epub_race` from `cookimport/cli.py`.
+- Removed `cookimport epub race` subcommand from `cookimport/epubdebug/cli.py`.
+- Kept deterministic EPUB debug surfaces (`inspect`, `dump`, `unpack`, `blocks`, `candidates`, `validate`).
+- Synced CLI docs/tests so race is explicitly retired.
+
+Anti-loop note:
+- If future work needs extractor comparison, route it through benchmark/all-method flows, not revived race command paths.
+
+## 2026-02-25 docs/tasks archival merge batch (CLI)
+
+### 2026-02-25_18.55.20 remove-epub-race-cli
+
+Merged source:
+- `docs/tasks/2026-02-25_18.55.20-remove-epub-race-cli.md`
+
+Problem captured:
+- EPUB race still appeared in both interactive and direct CLI surfaces even though the workflow was retired.
+
+Decision/outcome preserved:
+- Removed interactive main-menu race action.
+- Removed `cookimport epub race` subcommand registration.
+- Deleted race-only backend scorer modules (`epub_auto_select.py`, `extraction_quality.py`).
+- Removed race compatibility fields from report/manifest/history/dashboard contracts (`epubAutoSelection`, `epubAutoSelectedScore`, `epub_auto_selected_score`).
+- Kept deterministic EPUB debug commands (`inspect|dump|unpack|blocks|candidates|validate`).
+
+Verification evidence preserved from task:
+- `pytest tests/cli/test_c3imp_interactive_menu.py tests/cli/test_epub_debug_cli.py` -> `14 passed, 2 warnings`.
+- `pytest ... -k "epub_race or interactive_main_menu_does_not_offer_inspect"` -> `3 passed, 94 deselected, 2 warnings`.
+- `pytest tests/analytics/test_perf_report.py tests/analytics/test_stats_dashboard.py` -> `60 passed, 2 warnings`.
+- Combined analytics + CLI + Label Studio regression run -> `149 passed, 7 warnings`.
+
+Rollback path preserved from task:
+- Restore `_interactive_epub_race(...)` branch in `cookimport/cli.py`.
+- Restore `@epub_app.command("race")` in `cookimport/epubdebug/cli.py`.

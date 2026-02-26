@@ -116,6 +116,7 @@ Config keys and defaults:
 - `all_method_max_parallel_sources` (default `2`)
 - `all_method_max_inflight_pipelines` (default `4`)
 - `all_method_max_split_phase_slots` (default `4`)
+- `all_method_max_eval_tail_pipelines` (default follows split slots)
 - `all_method_config_timeout_seconds` (default `900`; `0` disables timeout)
 - `all_method_retry_failed_configs` (default `1`; `0` disables retries)
 - `all_method_wing_backlog_target` (default follows split slots)
@@ -153,7 +154,7 @@ What each setting affects:
 
 - `workers`, split workers, page/spine split size: `stage` and benchmark import parallelism/sharding.
 - `all_method_max_parallel_sources`: all-matched source-level concurrency cap (how many books run at once).
-- `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`: per-source config scheduler controls (inflight cap, split-heavy slots, prewarm runway, smart/fixed admission mode; smart mode also adds a tail buffer equal to split slots so post-stage work does not block prewarming).
+- `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_max_eval_tail_pipelines`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`: per-source config scheduler controls (inflight cap, split-heavy slots, evaluate-tail cap, prewarm runway, smart/fixed admission mode; smart mode grants extra inflight primarily when evaluate-phase work is active, bounded by eval-tail cap).
 - `all_method_config_timeout_seconds`, `all_method_retry_failed_configs`: all-method safety controls (per-config timeout and failed-config retry passes).
 - `epub_extractor`: runtime extractor choice (`unstructured`, `beautifulsoup`, `markdown`, or `markitdown`) via `C3IMP_EPUB_EXTRACTOR`.
 - `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
@@ -267,11 +268,13 @@ Interactive benchmark now has a mode submenu before execution:
    - `All method benchmark (offline, no upload)`
 2. Single offline path:
    - shows benchmark `Run settings` mode picker (`global` / `last benchmark` / `change`), using the same editor flow as Import,
-   - calls `labelstudio-benchmark` once with `--no-upload`,
+   - calls `labelstudio-benchmark` once with `--no-upload --eval-mode canonical-text`,
+   - keeps spinner/status visible for both prediction generation and evaluation phases,
    - does not resolve Label Studio credentials,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/`.
 3. All method path:
    - uses global benchmark defaults directly (no run-settings chooser),
+   - runs `labelstudio-benchmark` configs in `canonical-text` eval mode so extractor permutations can share one freeform gold export,
    - prompts for all-method scope:
      - `Single golden set`: prompts for one gold export and source file.
      - `All golden sets with matching input files`: discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename.
@@ -282,10 +285,11 @@ Interactive benchmark now has a mode submenu before execution:
     - source parallelism (configured/effective),
     - configured/effective inflight,
     - split-phase slots,
+    - eval-tail cap,
     - wing backlog target,
-    - smart tail buffer (equals split slots when smart mode is on),
+    - smart tail buffer (bounded by eval-tail cap when smart mode is on),
     - per-config timeout and failed-config retry limit,
-    sourced from `cookimport.json` keys `all_method_max_parallel_sources`, `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`, `all_method_config_timeout_seconds`, and `all_method_retry_failed_configs`,
+    sourced from `cookimport.json` keys `all_method_max_parallel_sources`, `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_max_eval_tail_pipelines`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`, `all_method_config_timeout_seconds`, and `all_method_retry_failed_configs`,
    - asks final proceed confirmation (`Proceed with N benchmark runs?` for single or `Proceed with N benchmark runs across M matched golden sets?` for all-matched, default `No`),
   - execution uses one persistent all-method spinner dashboard (book queue + overall source/config counters + current task line), including a scheduler snapshot line:
     - `scheduler heavy X/Y | wing Z | active A | pending P`,
@@ -622,8 +626,10 @@ Behavior note:
 
 - Non-interactive upload path: generates predictions, uploads to Label Studio, then evaluates.
 - Non-interactive offline path: `--no-upload` generates predictions locally and evaluates with no Label Studio credentials/API calls.
+- Eval mode is configurable via `--eval-mode stage-blocks|canonical-text` (default `stage-blocks`).
 - Re-scoring an old prediction run without regeneration is still done with `cookimport labelstudio-eval --pred-run ... --gold-spans ...`.
 - Interactive mode (`cookimport` -> Benchmark) always runs offline benchmark generation/eval (`single offline` or `all method`).
+- Interactive all-method mode always uses `canonical-text` eval mode.
 - Successful runs persist benchmark timing under `eval_report.json` `timing`, including prediction/evaluation/write/history subphase timings and checkpoints.
 - Benchmark CSV append now receives that timing payload and records benchmark runtime columns in `performance_history.csv`.
 - Single benchmark runs auto-refresh dashboard artifacts after CSV append.
@@ -638,6 +644,7 @@ Options:
 - `--eval-output-dir PATH`: destination for benchmark report artifacts.
 - `--overlap-threshold FLOAT 0..1` (default `0.5`): match threshold.
 - `--force-source-match` (default `false`): ignore source identity checks while matching.
+- `--eval-mode TEXT` (default `stage-blocks`): `stage-blocks|canonical-text`.
 - `--pipeline TEXT` (default `auto`): importer selection.
 - `--chunk-level TEXT` (default `both`): `structural|atomic|both`.
 - `--project-name TEXT`: explicit prediction project name.
@@ -967,3 +974,54 @@ Current CLI spinner worker-telemetry contract:
 Where this is used today:
 - Label Studio freeform prelabel worker loops (`task X/Y` + segment ranges).
 - Label Studio split-conversion worker loops (`job X/Y`).
+
+## Merged Understanding (2026-02-25 EPUB race retirement)
+
+### 2026-02-25_18.53.25 EPUB race retired from CLI surfaces
+
+Merged source:
+- `docs/understandings/2026-02-25_18.53.25-epub-race-retirement.md`
+
+Current CLI contract:
+- Interactive main menu no longer includes an EPUB race action.
+- Direct `cookimport epub race` command is removed.
+- EPUB debug remains deterministic-only:
+  - `inspect`
+  - `dump`
+  - `unpack`
+  - `blocks`
+  - `candidates`
+  - `validate`
+
+Anti-loop note:
+- If someone asks for race mode, treat it as retired behavior; do not reintroduce it via hidden flags or legacy aliases.
+
+## Merged Task Spec (2026-02-25 docs/tasks archival batch)
+
+### 2026-02-25_18.55.20 remove-epub-race-cli
+
+Merged source:
+- `docs/tasks/2026-02-25_18.55.20-remove-epub-race-cli.md`
+
+Durable CLI contract:
+- Interactive main menu must not include `EPUB debug: race extractors on one file`.
+- Direct `cookimport epub race` must remain unregistered.
+- Keep deterministic EPUB debug commands only: `inspect`, `dump`, `unpack`, `blocks`, `candidates`, `validate`.
+
+Cross-surface cleanup captured by task:
+- Remove race-only backend modules:
+  - `cookimport/parsing/epub_auto_select.py`
+  - `cookimport/parsing/extraction_quality.py`
+- Remove race compatibility fields from runtime/report/history/dashboard surfaces:
+  - `epubAutoSelection`
+  - `epubAutoSelectedScore`
+  - `epub_auto_selected_score`
+
+Verification evidence preserved from task:
+- Focused CLI tests: `14 passed, 2 warnings`.
+- Targeted regression run: `3 passed, 94 deselected, 2 warnings`.
+- Focused analytics + CLI regression run: `60 passed, 2 warnings`.
+- Combined analytics + CLI + Label Studio regression run: `149 passed, 7 warnings`.
+
+Rollback note from task:
+- Restore `_interactive_epub_race(...)` in `cookimport/cli.py` and `@epub_app.command("race")` in `cookimport/epubdebug/cli.py` only if product direction explicitly reverses.

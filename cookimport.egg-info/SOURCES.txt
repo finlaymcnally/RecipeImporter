@@ -22,6 +22,7 @@ cookimport/analytics/dashboard_schema.py
 cookimport/analytics/perf_report.py
 cookimport/bench/__init__.py
 cookimport/bench/cost.py
+cookimport/bench/eval_canonical_text.py
 cookimport/bench/eval_stage_blocks.py
 cookimport/bench/knobs.py
 cookimport/bench/noise.py
@@ -55,6 +56,7 @@ cookimport/epubdebug/epubcheck.py
 cookimport/epubdebug/models.py
 cookimport/labelstudio/__init__.py
 cookimport/labelstudio/archive.py
+cookimport/labelstudio/canonical_gold.py
 cookimport/labelstudio/client.py
 cookimport/labelstudio/eval_freeform.py
 cookimport/labelstudio/export.py

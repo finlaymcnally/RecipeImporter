@@ -518,3 +518,19 @@ From the readability/info-density ExecPlan merge:
 - CSV/schema contracts remained unchanged (`performance_history.csv` stays source-of-truth).
 - Main dashboard now emphasizes quick-scan hierarchy (KPI cards, clearer control grouping, outlier-aware throughput views, progressive disclosure in run tables).
 - All-method standalone pages use navigation/compression patterns (`quick-nav`, section grouping/collapse) without adding new dashboard runtime dependencies.
+
+## 15) Merged Understanding (2026-02-25 EPUB race metadata cleanup)
+
+### 15.1 2026-02-25_19.11.36 race compatibility fields removed end-to-end
+
+Merged source:
+- `docs/understandings/2026-02-25_19.11.36-epub-race-compat-fields-removed.md`
+
+Durable analytics contract:
+- Stage/report payloads no longer carry `epubAutoSelection` or `epubAutoSelectedScore`.
+- Label Studio prediction manifests no longer include `epub_auto_selection` / `epub_auto_selected_score`.
+- `performance_history.csv` and dashboard schema no longer track `epub_auto_selected_score`.
+- Extractor metadata should rely on requested/effective extractor fields only.
+
+Anti-loop note:
+- If dashboard queries expect `epub_auto_selected_score`, fix readers/tests to current extractor metadata contract instead of backfilling removed race fields.

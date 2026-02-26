@@ -32,6 +32,7 @@ Interactive file discovery and direct staging intentionally differ:
 - Interactive benchmark (`labelstudio_benchmark`) now has a mode submenu:
   - single offline mode (default first choice): one local evaluate run with `no_upload=True` (no Label Studio credential resolution, no upload),
   - all-method mode: offline permutation sweep (no Label Studio credential resolution, no upload).
+- Interactive benchmark modes (`single_offline` and `all_method`) should run `labelstudio-benchmark` in `canonical-text` eval mode so one freeform gold export can compare extractor/config permutations without block-index parity.
 - Interactive benchmark asks for mode first; only single-offline mode shows the benchmark run-settings chooser.
 - Interactive all-method benchmark must use global benchmark defaults directly, and should not overwrite `last_run_settings_benchmark` snapshots.
 - Interactive all-method benchmark must ask scope (`Single golden set` vs `All golden sets with matching input files`), print planned run counts before execution, default Codex Farm inclusion prompt to `No`, and require explicit proceed confirmation before running N configs.

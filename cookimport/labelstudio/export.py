@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from cookimport.labelstudio.client import LabelStudioClient
+from cookimport.labelstudio.canonical_gold import (
+    build_canonical_gold_bundle,
+    write_canonical_gold_bundle,
+)
 from cookimport.labelstudio.freeform_tasks import map_span_offsets_to_blocks
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
 from cookimport.runs import RunManifest, RunSource, write_run_manifest
@@ -484,6 +488,16 @@ def run_labelstudio_export(
     segment_manifest_path = export_root / "freeform_segment_manifest.jsonl"
     _write_jsonl(segment_manifest_path, segment_manifest_rows)
 
+    canonical_bundle = build_canonical_gold_bundle(
+        export_payload=[row for row in export_payload if isinstance(row, dict)],
+        span_rows=span_rows,
+    )
+    canonical_paths = write_canonical_gold_bundle(
+        export_root=export_root,
+        bundle=canonical_bundle,
+    )
+    canonical_manifest = dict(canonical_bundle.get("canonical_manifest") or {})
+
     deduped_recipe_headers, raw_recipe_headers = _count_freeform_recipe_headers(span_rows)
     counts["recipe_headers"] = deduped_recipe_headers
 
@@ -498,10 +512,26 @@ def run_labelstudio_export(
             "recipe_headers_raw": raw_recipe_headers,
             "dedupe_key": "source_hash+source_file+start_block_index+end_block_index",
         },
+        "canonical": {
+            "schema_version": canonical_manifest.get("schema_version"),
+            "block_count": canonical_manifest.get("block_count"),
+            "canonical_char_count": canonical_manifest.get("canonical_char_count"),
+            "canonical_span_count": canonical_manifest.get("canonical_span_count"),
+            "canonical_span_error_count": canonical_manifest.get(
+                "canonical_span_error_count"
+            ),
+        },
         "output": {
             "freeform_span_labels": str(spans_path),
             "freeform_segment_manifest": str(segment_manifest_path),
             "export_payload": str(export_path),
+            "canonical_text": str(canonical_paths["canonical_text_path"]),
+            "canonical_block_map": str(canonical_paths["canonical_block_map_path"]),
+            "canonical_span_labels": str(canonical_paths["canonical_span_labels_path"]),
+            "canonical_span_label_errors": str(
+                canonical_paths["canonical_span_errors_path"]
+            ),
+            "canonical_manifest": str(canonical_paths["canonical_manifest_path"]),
         },
     }
     summary_path = export_root / "summary.json"
@@ -521,6 +551,13 @@ def run_labelstudio_export(
             "export_payload_json": export_path,
             "freeform_span_labels_jsonl": spans_path,
             "freeform_segment_manifest_jsonl": segment_manifest_path,
+            "canonical_text_path": canonical_paths["canonical_text_path"],
+            "canonical_block_map_jsonl": canonical_paths["canonical_block_map_path"],
+            "canonical_span_labels_jsonl": canonical_paths["canonical_span_labels_path"],
+            "canonical_span_label_errors_jsonl": canonical_paths[
+                "canonical_span_errors_path"
+            ],
+            "canonical_manifest_json": canonical_paths["canonical_manifest_path"],
         },
         notes="Exported freeform span labels from Label Studio.",
     )

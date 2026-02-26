@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,288 @@ from cookimport.labelstudio.label_config_freeform import normalize_freeform_labe
 from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
+
+try:  # pragma: no cover - non-Unix runtimes may not expose resource.
+    import resource
+except ImportError:  # pragma: no cover
+    resource = None  # type: ignore[assignment]
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _capture_eval_resource_snapshot() -> dict[str, float]:
+    snapshot: dict[str, float] = {
+        "process_cpu_seconds": max(0.0, float(time.process_time())),
+    }
+    thread_time_fn = getattr(time, "thread_time", None)
+    if callable(thread_time_fn):
+        try:
+            snapshot["thread_cpu_seconds"] = max(0.0, float(thread_time_fn()))
+        except Exception:  # noqa: BLE001
+            pass
+    if resource is not None:
+        try:
+            usage = resource.getrusage(resource.RUSAGE_SELF)
+        except Exception:  # noqa: BLE001
+            usage = None
+        if usage is not None:
+            snapshot["ru_utime_seconds"] = max(0.0, float(usage.ru_utime))
+            snapshot["ru_stime_seconds"] = max(0.0, float(usage.ru_stime))
+            snapshot["ru_maxrss_kib"] = max(0.0, float(usage.ru_maxrss))
+            snapshot["ru_inblock"] = max(0.0, float(usage.ru_inblock))
+            snapshot["ru_oublock"] = max(0.0, float(usage.ru_oublock))
+            snapshot["ru_minflt"] = max(0.0, float(usage.ru_minflt))
+            snapshot["ru_majflt"] = max(0.0, float(usage.ru_majflt))
+    return snapshot
+
+
+def _diff_eval_resource_snapshots(
+    start: dict[str, float],
+    end: dict[str, float],
+) -> dict[str, float]:
+    delta_keys = (
+        "process_cpu_seconds",
+        "thread_cpu_seconds",
+        "ru_utime_seconds",
+        "ru_stime_seconds",
+        "ru_inblock",
+        "ru_oublock",
+        "ru_minflt",
+        "ru_majflt",
+    )
+    resources: dict[str, float] = {}
+    for key in delta_keys:
+        start_value = start.get(key)
+        end_value = end.get(key)
+        if start_value is None or end_value is None:
+            continue
+        resources[key] = max(0.0, float(end_value) - float(start_value))
+    if "ru_maxrss_kib" in end:
+        resources["peak_ru_maxrss_kib"] = max(0.0, float(end["ru_maxrss_kib"]))
+    return resources
+
+
+def _new_blockization_profile() -> dict[str, Any]:
+    return {
+        "min_block_index": None,
+        "max_block_index": None,
+        "seen_block_indices": set(),
+        "extraction_backends": set(),
+        "unstructured_html_parser_versions": set(),
+        "unstructured_preprocess_modes": set(),
+        "unstructured_skip_headers_footers": set(),
+    }
+
+
+def _update_blockization_profile_index(profile: dict[str, Any], block_index: int | None) -> None:
+    if block_index is None:
+        return
+    seen = profile["seen_block_indices"]
+    if not isinstance(seen, set):
+        return
+    seen.add(block_index)
+    min_index = profile.get("min_block_index")
+    max_index = profile.get("max_block_index")
+    if min_index is None or block_index < min_index:
+        profile["min_block_index"] = block_index
+    if max_index is None or block_index > max_index:
+        profile["max_block_index"] = block_index
+
+
+def _update_blockization_profile_feature(
+    profile: dict[str, Any],
+    *,
+    key: str,
+    value: Any,
+) -> None:
+    if value is None:
+        return
+    target = profile.get(key)
+    if not isinstance(target, set):
+        return
+    text = str(value).strip()
+    if not text:
+        return
+    target.add(text)
+
+
+def _update_blockization_profile_from_gold_payload(
+    profile: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    indices: list[int],
+) -> None:
+    for block_index in indices:
+        _update_blockization_profile_index(profile, block_index)
+
+    touched_blocks = payload.get("touched_blocks")
+    if not isinstance(touched_blocks, list):
+        return
+    for touched in touched_blocks:
+        if not isinstance(touched, dict):
+            continue
+        _update_blockization_profile_index(
+            profile,
+            _coerce_int(touched.get("block_index")),
+        )
+        location = touched.get("location")
+        if not isinstance(location, dict):
+            continue
+        features = location.get("features")
+        if not isinstance(features, dict):
+            continue
+        _update_blockization_profile_feature(
+            profile,
+            key="extraction_backends",
+            value=features.get("extraction_backend"),
+        )
+        _update_blockization_profile_feature(
+            profile,
+            key="unstructured_html_parser_versions",
+            value=features.get("unstructured_html_parser_version"),
+        )
+        _update_blockization_profile_feature(
+            profile,
+            key="unstructured_preprocess_modes",
+            value=features.get("unstructured_preprocess_mode"),
+        )
+        if "unstructured_skip_headers_footers" in features:
+            _update_blockization_profile_feature(
+                profile,
+                key="unstructured_skip_headers_footers",
+                value=features.get("unstructured_skip_headers_footers"),
+            )
+
+
+def _serialize_blockization_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "labeled_block_count": len(profile.get("seen_block_indices", set())),
+        "min_labeled_block_index": profile.get("min_block_index"),
+        "max_labeled_block_index": profile.get("max_block_index"),
+        "extraction_backends": sorted(profile.get("extraction_backends", set())),
+        "unstructured_html_parser_versions": sorted(
+            profile.get("unstructured_html_parser_versions", set())
+        ),
+        "unstructured_preprocess_modes": sorted(
+            profile.get("unstructured_preprocess_modes", set())
+        ),
+        "unstructured_skip_headers_footers": sorted(
+            profile.get("unstructured_skip_headers_footers", set())
+        ),
+    }
+
+
+def _extract_profile_set(profile: dict[str, Any], key: str) -> set[str]:
+    values = profile.get(key)
+    if not isinstance(values, list):
+        return set()
+    extracted: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            extracted.add(text)
+    return extracted
+
+
+def _collect_blockization_diagnostics(
+    *,
+    gold_profile: dict[str, Any],
+    prediction_profile: dict[str, Any],
+    missing_gold_indices: list[int],
+    pred_block_count: int,
+) -> list[dict[str, Any]]:
+    missing_count = len(missing_gold_indices)
+    missing_ratio = (
+        (missing_count / pred_block_count) if pred_block_count > 0 else 0.0
+    )
+
+    gold_max = _coerce_int(gold_profile.get("max_labeled_block_index"))
+    pred_max = _coerce_int(prediction_profile.get("max_labeled_block_index"))
+    trailing_gap = 0
+    trailing_missing_count = 0
+    if gold_max is not None and pred_max is not None and pred_max > gold_max:
+        trailing_gap = pred_max - gold_max
+        trailing_missing_count = sum(
+            1 for value in missing_gold_indices if value > gold_max
+        )
+    trailing_missing_ratio = (
+        (trailing_missing_count / missing_count) if missing_count > 0 else 0.0
+    )
+
+    gold_backends = _extract_profile_set(gold_profile, "extraction_backends")
+    pred_backends = _extract_profile_set(prediction_profile, "extraction_backends")
+    backend_mismatch = bool(
+        gold_backends and pred_backends and gold_backends.isdisjoint(pred_backends)
+    )
+
+    mismatch_fields: list[str] = []
+    for field in (
+        "unstructured_html_parser_versions",
+        "unstructured_preprocess_modes",
+        "unstructured_skip_headers_footers",
+    ):
+        gold_values = _extract_profile_set(gold_profile, field)
+        pred_values = _extract_profile_set(prediction_profile, field)
+        if gold_values and pred_values and gold_values.isdisjoint(pred_values):
+            mismatch_fields.append(field)
+
+    mismatch_signal = backend_mismatch or bool(mismatch_fields)
+    drift_signal = (
+        (missing_count >= 50 and missing_ratio >= 0.2)
+        or trailing_gap >= 100
+        or (trailing_missing_count >= 50 and trailing_missing_ratio >= 0.8)
+    )
+    if not mismatch_signal and not drift_signal:
+        return []
+
+    diagnostic: dict[str, Any] = {
+        "missing_gold_count": missing_count,
+        "pred_block_count": pred_block_count,
+        "missing_gold_ratio": round(missing_ratio, 4),
+        "trailing_gap_blocks": trailing_gap,
+        "trailing_missing_count": trailing_missing_count,
+        "trailing_missing_ratio": round(trailing_missing_ratio, 4),
+        "gold_profile": gold_profile,
+        "prediction_profile": prediction_profile,
+    }
+    if mismatch_fields:
+        diagnostic["mismatched_unstructured_fields"] = mismatch_fields
+    if mismatch_signal and drift_signal:
+        diagnostic["error"] = "gold_prediction_blockization_mismatch"
+    elif mismatch_signal:
+        diagnostic["warning"] = "gold_prediction_blockization_mismatch"
+    else:
+        diagnostic["warning"] = "gold_prediction_block_index_drift_suspected"
+    return [diagnostic]
+
+
+def _format_blockization_mismatch_message(diagnostic: dict[str, Any]) -> str:
+    gold_profile = diagnostic.get("gold_profile")
+    prediction_profile = diagnostic.get("prediction_profile")
+    gold_backends = []
+    pred_backends = []
+    if isinstance(gold_profile, dict):
+        values = gold_profile.get("extraction_backends")
+        if isinstance(values, list):
+            gold_backends = [str(value) for value in values if str(value or "").strip()]
+    if isinstance(prediction_profile, dict):
+        values = prediction_profile.get("extraction_backends")
+        if isinstance(values, list):
+            pred_backends = [str(value) for value in values if str(value or "").strip()]
+
+    return (
+        "Detected severe gold/prediction blockization mismatch. "
+        f"gold_backends={gold_backends or ['<unknown>']} "
+        f"prediction_backends={pred_backends or ['<unknown>']} "
+        f"missing_gold={int(diagnostic.get('missing_gold_count') or 0)}/"
+        f"{int(diagnostic.get('pred_block_count') or 0)}. "
+        "Re-run benchmark with the same extractor/blockization settings used to create the Label Studio gold export."
+    )
 
 
 def _extract_block_indices(payload: dict[str, Any]) -> list[int]:
@@ -98,6 +381,64 @@ def _load_extracted_block_texts(extracted_blocks_json: Path) -> dict[int, str]:
     return by_index
 
 
+def _load_extracted_block_profile(extracted_blocks_json: Path) -> dict[str, Any]:
+    if not extracted_blocks_json.exists() or not extracted_blocks_json.is_file():
+        return {}
+
+    try:
+        payload = json.loads(extracted_blocks_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    records: list[dict[str, Any]] = []
+    if isinstance(payload, list):
+        records = [item for item in payload if isinstance(item, dict)]
+    elif isinstance(payload, dict):
+        blocks = payload.get("blocks")
+        if isinstance(blocks, list):
+            records = [item for item in blocks if isinstance(item, dict)]
+
+    if not records:
+        return {}
+
+    profile = _new_blockization_profile()
+    for row in records:
+        raw_index = row.get("index")
+        if raw_index is None:
+            raw_index = row.get("block_index")
+        _update_blockization_profile_index(profile, _coerce_int(raw_index))
+
+        location = row.get("location")
+        if not isinstance(location, dict):
+            continue
+        features = location.get("features")
+        if not isinstance(features, dict):
+            continue
+        _update_blockization_profile_feature(
+            profile,
+            key="extraction_backends",
+            value=features.get("extraction_backend"),
+        )
+        _update_blockization_profile_feature(
+            profile,
+            key="unstructured_html_parser_versions",
+            value=features.get("unstructured_html_parser_version"),
+        )
+        _update_blockization_profile_feature(
+            profile,
+            key="unstructured_preprocess_modes",
+            value=features.get("unstructured_preprocess_mode"),
+        )
+        if "unstructured_skip_headers_footers" in features:
+            _update_blockization_profile_feature(
+                profile,
+                key="unstructured_skip_headers_footers",
+                value=features.get("unstructured_skip_headers_footers"),
+            )
+
+    return _serialize_blockization_profile(profile)
+
+
 def _coerce_gold_label_set(raw: Any, *, block_index: int) -> set[str]:
     if isinstance(raw, str):
         items: list[Any] = [raw]
@@ -140,9 +481,11 @@ def load_gold_block_labels(
     *,
     conflict_output_path: Path | None = None,
     require_exhaustive: bool = True,
+    profile_output: dict[str, Any] | None = None,
 ) -> dict[int, set[str]]:
     assignments: dict[int, set[str]] = {}
     assignment_spans: dict[int, list[dict[str, Any]]] = {}
+    profile = _new_blockization_profile()
 
     for line_number, line in enumerate(
         freeform_span_labels_jsonl_path.read_text(encoding="utf-8").splitlines(),
@@ -175,6 +518,11 @@ def load_gold_block_labels(
         indices = _extract_block_indices(payload)
         if not indices:
             continue
+        _update_blockization_profile_from_gold_payload(
+            profile,
+            payload,
+            indices=indices,
+        )
         for block_index in indices:
             assignments.setdefault(block_index, set()).add(normalized_label)
             assignment_spans.setdefault(block_index, []).append(
@@ -224,6 +572,10 @@ def load_gold_block_labels(
             "Gold is not exhaustive: missing labels for "
             f"{len(missing)} blocks (examples: {missing[:10]})."
         )
+
+    if profile_output is not None:
+        profile_output.clear()
+        profile_output.update(_serialize_blockization_profile(profile))
 
     return {
         block_index: set(labels)
@@ -557,19 +909,60 @@ def evaluate_stage_blocks(
     extracted_blocks_json: Path,
     out_dir: Path,
 ) -> dict[str, Any]:
+    evaluation_started = time.monotonic()
+    resource_start = _capture_eval_resource_snapshot()
+    subphase_seconds: dict[str, float] = {}
+
     out_dir.mkdir(parents=True, exist_ok=True)
     gold_conflicts_path = out_dir / "gold_conflicts.jsonl"
 
+    load_gold_started = time.monotonic()
+    gold_profile: dict[str, Any] = {}
     gold = load_gold_block_labels(
         gold_freeform_jsonl,
         conflict_output_path=gold_conflicts_path,
         require_exhaustive=False,
+        profile_output=gold_profile,
     )
-    pred = load_stage_block_labels(stage_predictions_json)
+    subphase_seconds["load_gold_seconds"] = max(0.0, time.monotonic() - load_gold_started)
 
+    load_prediction_started = time.monotonic()
+    pred = load_stage_block_labels(stage_predictions_json)
+    prediction_profile = _load_extracted_block_profile(extracted_blocks_json)
+    stage_payload = json.loads(stage_predictions_json.read_text(encoding="utf-8"))
+    block_texts = _load_extracted_block_texts(extracted_blocks_json)
+    subphase_seconds["load_prediction_seconds"] = max(
+        0.0,
+        time.monotonic() - load_prediction_started,
+    )
+
+    diagnostics_started = time.monotonic()
     gold_indices = set(gold)
     pred_indices = set(pred)
     missing_gold = sorted(pred_indices - gold_indices)
+
+    blockization_diagnostics = _collect_blockization_diagnostics(
+        gold_profile=gold_profile,
+        prediction_profile=prediction_profile,
+        missing_gold_indices=missing_gold,
+        pred_block_count=len(pred_indices),
+    )
+    if blockization_diagnostics:
+        diagnostics = _read_jsonl(gold_conflicts_path)
+        diagnostics.extend(blockization_diagnostics)
+        _write_jsonl(gold_conflicts_path, diagnostics)
+        fatal_diagnostic = next(
+            (
+                item
+                for item in blockization_diagnostics
+                if isinstance(item, dict)
+                and item.get("error") == "gold_prediction_blockization_mismatch"
+            ),
+            None,
+        )
+        if isinstance(fatal_diagnostic, dict):
+            raise ValueError(_format_blockization_mismatch_message(fatal_diagnostic))
+
     if missing_gold:
         for block_index in missing_gold:
             gold[block_index] = {"OTHER"}
@@ -598,15 +991,19 @@ def evaluate_stage_blocks(
             "Gold contains block labels not present in predictions. "
             f"extra_gold={len(extra_gold)}"
         )
+    subphase_seconds["pre_metrics_checks_seconds"] = max(
+        0.0,
+        time.monotonic() - diagnostics_started,
+    )
 
+    metrics_started = time.monotonic()
     report = compute_block_metrics(gold, pred)
+    subphase_seconds["metrics_seconds"] = max(0.0, time.monotonic() - metrics_started)
 
-    stage_payload = json.loads(stage_predictions_json.read_text(encoding="utf-8"))
     workbook_slug = str(stage_payload.get("workbook_slug") or "")
     source_file = str(stage_payload.get("source_file") or "")
 
-    block_texts = _load_extracted_block_texts(extracted_blocks_json)
-
+    mismatch_rows_started = time.monotonic()
     wrong_rows: list[dict[str, Any]] = []
     missed_rows: list[dict[str, Any]] = []
     for mismatch in report.get("wrong_label_blocks", []):
@@ -637,7 +1034,12 @@ def evaluate_stage_blocks(
         wrong_rows.append(row)
         if gold_label != "OTHER":
             missed_rows.append(dict(row))
+    subphase_seconds["mismatch_rows_seconds"] = max(
+        0.0,
+        time.monotonic() - mismatch_rows_started,
+    )
 
+    artifact_write_started = time.monotonic()
     missed_path = out_dir / "missed_gold_blocks.jsonl"
     wrong_path = out_dir / "wrong_label_blocks.jsonl"
     _write_jsonl(missed_path, missed_rows)
@@ -667,12 +1069,24 @@ def evaluate_stage_blocks(
     ]
     _write_jsonl(out_dir / "missed_gold_spans.jsonl", legacy_missed)
     _write_jsonl(out_dir / "false_positive_preds.jsonl", legacy_false_positive)
+    subphase_seconds["artifact_write_seconds"] = max(
+        0.0,
+        time.monotonic() - artifact_write_started,
+    )
 
     report["source"] = {
         "workbook_slug": workbook_slug,
         "source_file": source_file,
         "source_hash": stage_payload.get("source_hash"),
     }
+    report["blockization_profiles"] = {
+        "gold": gold_profile,
+        "prediction": prediction_profile,
+    }
+    if blockization_diagnostics:
+        report["diagnostics"] = {
+            "blockization": blockization_diagnostics,
+        }
     report["artifacts"] = {
         "eval_report_json": str(out_dir / "eval_report.json"),
         "eval_report_md": str(out_dir / "eval_report.md"),
@@ -681,6 +1095,22 @@ def evaluate_stage_blocks(
         "gold_conflicts_jsonl": (
             str(gold_conflicts_path) if gold_conflicts_path.exists() else ""
         ),
+    }
+    evaluation_total_seconds = max(0.0, time.monotonic() - evaluation_started)
+    resource_end = _capture_eval_resource_snapshot()
+    report["evaluation_telemetry"] = {
+        "total_seconds": evaluation_total_seconds,
+        "subphases": {
+            key: max(0.0, float(value))
+            for key, value in subphase_seconds.items()
+        },
+        "resources": _diff_eval_resource_snapshots(resource_start, resource_end),
+        "work_units": {
+            "gold_block_count": float(len(gold)),
+            "prediction_block_count": float(len(pred)),
+            "missing_gold_defaulted_count": float(len(missing_gold)),
+            "wrong_label_count": float(len(wrong_rows)),
+        },
     }
 
     report_json_path = out_dir / "eval_report.json"

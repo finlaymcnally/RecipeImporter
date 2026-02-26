@@ -223,3 +223,18 @@ Durable pass5 wiring contract:
 
 Anti-loop note:
 - Missing `tags/` outputs are usually wiring/gating/failure-mode issues, not deterministic tagging engine regressions.
+
+## Merged Understanding (2026-02-25 deterministic knowledge vs stage evidence)
+
+### 2026-02-25_19.20.00 deterministic chunk lanes must backfill stage KNOWLEDGE labels when pass4 is off
+
+Merged source:
+- `docs/understandings/2026-02-25_19.20.00-deterministic-knowledge-vs-stage-evidence.md`
+
+Durable LLM boundary contract:
+- Deterministic non-LLM knowledge chunking exists before pass4 and must remain a first-class source of evidence.
+- Stage block predictions should prefer pass4 snippet provenance when available.
+- When pass4 snippets are absent (`llm_knowledge_pipeline=off`), stage block predictions must fall back to deterministic `ChunkLane.KNOWLEDGE` chunk-to-block mapping.
+
+Anti-loop note:
+- `KNOWLEDGE=0` in stage evidence with pass4 disabled is a wiring regression, not expected behavior.

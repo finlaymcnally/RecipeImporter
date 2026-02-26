@@ -8,6 +8,7 @@
 #   Only .md and .txt files are included in the generated summary.
 #   Sources include docs/ and llm_pipelines/prompts/ (if that folder exists).
 #   Files ending with "_log.md" are skipped.
+#   Files under docs/plans/ are skipped.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -33,10 +34,32 @@ fi
 source_roots_display="$(printf '%s, ' "${source_roots[@]}")"
 source_roots_display="${source_roots_display%, }"
 
-mapfile -d '' files < <(find "${find_roots[@]}" -type f -print0 | sort -z)
+mapfile -d '' files < <(
+  find "${find_roots[@]}" \
+    \( -path "$docs_dir/plans" -o -path "$docs_dir/plans/*" \) -prune \
+    -o -type f -print0 | sort -z
+)
 docs_list_output="$(
   cd "$repo_root"
   npm_config_cache=/tmp/npm-cache npx tsx docs/docs-list.ts
+)"
+docs_list_output="$(
+  printf '%s\n' "$docs_list_output" |
+    awk '
+      /^plans\// {
+        skipping_plan=1
+        next
+      }
+      /^[^[:space:]]/ {
+        skipping_plan=0
+      }
+      skipping_plan && /^  Read when:/ {
+        next
+      }
+      {
+        print
+      }
+    '
 )"
 
 {

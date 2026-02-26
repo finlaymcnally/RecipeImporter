@@ -330,3 +330,20 @@ Decision/outcome preserved:
 
 Anti-loop note:
 - If `tags/` artifacts are missing, verify `llm_tags_pipeline`, pass5 pipeline ID wiring, catalog path, and failure mode before changing tag scoring logic.
+
+## 2026-02-25 understanding merge batch (deterministic knowledge fallback)
+
+### 2026-02-25_19.20.00 deterministic knowledge chunks vs stage-evidence gap
+
+Merged source:
+- `docs/understandings/2026-02-25_19.20.00-deterministic-knowledge-vs-stage-evidence.md`
+
+Problem captured:
+- Stage block predictions previously labeled `KNOWLEDGE` only from pass4 snippets, so runs with `llm_knowledge_pipeline=off` could report `KNOWLEDGE=0` despite deterministic knowledge-lane chunks.
+
+Decision/outcome preserved:
+- Keep pass4 snippet provenance as first choice when available.
+- Add deterministic fallback mapping from `ChunkLane.KNOWLEDGE` chunks to stage block labels when snippets are absent.
+
+Anti-loop note:
+- Before tuning pass4 prompts or label thresholds, verify stage-evidence builder fallback path is active for pass4-off runs.

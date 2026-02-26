@@ -17,8 +17,9 @@ If your question is "why isn’t benchmark just scoring regular import outputs?"
 
 ## 1. Short answer
 
-Benchmark now scores what stage writes.
-Predictions come from stage evidence manifests (`stage_block_predictions.json`) and are compared to freeform gold block labels from `freeform_span_labels.jsonl`.
+Benchmark scores what stage writes, with two evaluator modes:
+- `stage-blocks` (default): score stage evidence labels against freeform gold block labels.
+- `canonical-text`: align prediction extracted text to canonical gold text and score in canonical line space (extractor-independent).
 
 ## 2. Artifact families
 
@@ -75,7 +76,9 @@ Stage evidence projects staged decisions back into one deterministic label per b
 1. Select gold freeform export + source file
 2. Build prediction-run artifacts (upload or offline)
 3. Ensure processed outputs are written (benchmark prediction surface)
-4. Score `stage_block_predictions.json` vs freeform gold with block metrics
+4. Score using selected `--eval-mode`:
+   - `stage-blocks`: `stage_block_predictions.json` vs freeform gold block labels
+   - `canonical-text`: aligned prediction text vs canonical gold text/line labels
 5. Write eval artifacts + run manifest + history CSV row
 
 ### 4.3 Offline suite flow (`cookimport bench run`)
@@ -101,6 +104,7 @@ Evaluation input B (gold):
 - when a predicted block has no gold row, evaluator defaults that block to gold label `OTHER`
 - multi-label blocks are logged to `gold_conflicts.jsonl` as diagnostics (not fatal errors)
 - missing-block `OTHER` defaults are also logged to `gold_conflicts.jsonl`
+- evaluator now profiles blockization metadata (extractor backend + unstructured parser/preprocess flags when present) from both sides and fails with `gold_prediction_blockization_mismatch` when severe drift suggests gold/prediction extractor mismatch
 
 Metrics:
 - `overall_block_accuracy`
@@ -118,12 +122,46 @@ Outputs:
   - `missed_gold_spans.jsonl`
   - `false_positive_preds.jsonl`
 
+## 5.2 Canonical-text scoring surface
+
+Evaluation input A (predictions):
+- `stage_block_predictions.json` (labels per prediction `block_index`)
+- `extracted_archive.json` (prediction block text stream for alignment)
+
+Evaluation input B (gold):
+- canonical gold export artifacts in `exports/`:
+  - `canonical_text.txt`
+  - `canonical_span_labels.jsonl`
+  - `canonical_manifest.json` (and block map)
+
+How it scores:
+- align prediction text stream to canonical gold text (legacy global alignment enforced; fast path deprecated for accuracy risk)
+- project stage block labels onto canonical text lines
+- compare predicted line labels vs gold line labels
+- inspect `report.alignment` deprecation fields when validating alignment strategy behavior
+
+Outputs include `eval_report.json/md` plus canonical diagnostics:
+- `missed_gold_lines.jsonl`
+- `wrong_label_lines.jsonl`
+- `unmatched_pred_blocks.jsonl`
+- `alignment_gaps.jsonl`
+
 ### 5.1 Runtime telemetry
 
 `labelstudio-benchmark` persists timing in:
 - prediction `manifest.json` (`timing`)
 - eval `eval_report.json` (`timing`)
 - benchmark `run_manifest.json` artifacts (`timing`)
+- evaluator reports also include `evaluation_telemetry`:
+  - subphase timers (`load_gold_seconds`, `load_prediction_seconds`, alignment/projection/metrics/diagnostic phases),
+  - canonical alignment micro-subphases (`alignment_normalize_prediction_seconds`, `alignment_normalize_canonical_seconds`, `alignment_sequence_matcher_seconds`, `alignment_block_mapping_seconds`),
+  - per-eval resource snapshots/deltas (CPU, peak RSS, block I/O counters when available),
+  - work-unit counts (line/span/block counts plus text-size counters such as `prediction_text_char_count`, `prediction_normalized_char_count`, `canonical_text_char_count`)
+- benchmark timing checkpoints now mirror evaluator telemetry with `evaluate_*`, `evaluate_resource_*`, and `evaluate_work_*` keys.
+- optional eval profiling:
+  - set `COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS=<seconds>` to capture cProfile for slow evals,
+  - optional `COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N=<int>` controls top-call rows in `eval_profile_top.txt` (default `60`),
+  - when triggered, `eval_profile.pstats` and `eval_profile_top.txt` are emitted in the eval output root and referenced in `run_manifest.json`.
 
 All-method reports include timing rollups in per-source and combined summaries.
 
@@ -135,6 +173,12 @@ All-method reports include timing rollups in per-source and combined summaries.
 | `cookimport labelstudio-benchmark` | Optional (upload mode only; `--allow-labelstudio-write`) | Yes | `stage_block_predictions.json` |
 | Interactive benchmark menu flow | No (always offline) | Yes | `stage_block_predictions.json` |
 | `cookimport bench run` | No | Yes | `stage_block_predictions.json` |
+
+`labelstudio-benchmark` mode selection:
+- `--eval-mode stage-blocks` (default)
+- `--eval-mode canonical-text` (extractor-independent)
+
+Interactive benchmark menu modes (`single_offline` and `all_method`) always use `canonical-text` mode.
 
 ## 7. Common confusion points
 
@@ -159,12 +203,13 @@ Interactive benchmark from the main menu is now offline-only, with two modes:
     - `all_method_max_parallel_sources`
     - `all_method_max_inflight_pipelines`
     - `all_method_max_split_phase_slots`
+    - `all_method_max_eval_tail_pipelines`
     - `all_method_wing_backlog_target`
     - `all_method_smart_scheduler`
     - `all_method_config_timeout_seconds`
     - `all_method_retry_failed_configs`
-  - smart mode uses phase-aware admission from worker telemetry (`prep`, `split_wait`, `split_active`, `post`) written to per-config JSONL files under `.scheduler_events/`.
-  - smart mode inflight resolution includes a tail buffer equal to split slots so long post-stage phases do not stall new prewarm admissions.
+  - smart mode uses phase-aware admission from worker telemetry (`prep`, `split_wait`, `split_active`, `post`, `evaluate`) written to per-config JSONL files under `.scheduler_events/`.
+  - smart mode inflight resolution keeps split slots prewarmed (`split slots + wing backlog`) and allows extra inflight only when configs are in evaluate phase, capped by `all_method_max_eval_tail_pipelines`.
   - fixed mode preserves classic refill-on-completion behavior.
   - per-config timeout watchdog is controlled by `all_method_config_timeout_seconds` (default `900`; `0` disables):
     - timeout marks that config failed,
@@ -253,7 +298,7 @@ Merged sources:
 
 Durable menu/runtime rules:
 - Interactive benchmark is offline-only and mode-first (`single_offline` or `all_method`); no interactive upload branch remains.
-- `single_offline` uses benchmark run-settings chooser and can persist `last_run_settings_benchmark` snapshot.
+- `single_offline` uses benchmark run-settings chooser, always evaluates in `canonical-text`, and can persist `last_run_settings_benchmark` snapshot.
 - `all_method` skips run-settings chooser, uses current global benchmark defaults, and should not overwrite `last_run_settings_benchmark`.
 - Non-interactive `labelstudio-benchmark` without `--no-upload` can still upload pipeline-scope tasks; uploaded tasks can appear blank/unlabeled in Label Studio because benchmark upload defaults do not attach prelabels.
 
@@ -366,9 +411,9 @@ Merged discoveries (chronological):
 - `2026-02-24_20.56.39-smart-scheduler-post-tail-buffer`
 
 Durable rules:
-- Outer all-method scheduler decisions depend on worker phase telemetry (`prep`, `split_wait`, `split_active`, `post`), not completion-only signals.
+- Outer all-method scheduler decisions depend on worker phase telemetry (`prep`, `split_wait`, `split_active`, `post`, `evaluate`), not completion-only signals.
 - Smart admission quality depends on preserving a wing backlog while heavy slots are active.
-- Effective smart inflight includes tail headroom (buffer equal to split slots) so long post phases do not starve new prewarm admissions.
+- Effective smart inflight includes bounded eval-tail headroom (`all_method_max_eval_tail_pipelines`) so long evaluate tails do not starve new prewarm admissions.
 - `.scheduler_events/config_###.jsonl` remains the source for both live admission signals and post-run utilization rollups.
 
 ### 15.3 Stalls, timeout, and failed-only retry contract
@@ -527,3 +572,181 @@ Scope boundaries preserved:
 Known pending follow-up from task record:
 - Full removal of legacy Label Studio scopes (`pipeline`, `canonical-blocks`) was marked as a separate migration after scoring contract rollout.
 - Real golden-set acceptance run evidence was still pending at that task checkpoint.
+
+## 17) Merged Understandings Batch (2026-02-25_18.54.00 to 2026-02-26_03.10.00)
+
+### 17.1 2026-02-25_18.54.00 interactive benchmark settings migration boundary
+
+Merged source:
+- `docs/understandings/2026-02-25_18.54.00-interactive-benchmark-legacy-epub-setting.md`
+
+Durable contract:
+- Interactive benchmark defaults load through `RunSettings.from_dict(...)`.
+- Legacy persisted aliases (for example `epub_extractor=legacy`) must be normalized in run-settings migration, not only in CLI flag normalization paths.
+
+### 17.2 2026-02-25_19.00.51 stage-block eval accepts multi-label gold blocks
+
+Merged source:
+- `docs/understandings/2026-02-25_19.00.51-stage-block-eval-multilabel-gold.md`
+
+Durable contract:
+- Multi-label gold assignments per block are valid.
+- A prediction is correct when predicted label is in that block's allowed gold-label set.
+- Missing-gold predicted block rows default to `OTHER` and diagnostics are written to `gold_conflicts.jsonl`.
+
+### 17.3 2026-02-25_19.14.33 extractor/blockization parity between gold and prediction runs
+
+Merged source:
+- `docs/understandings/2026-02-25_19.14.33-benchmark-gold-extractor-parity.md`
+
+Durable contract:
+- Source-hash parity alone is insufficient for stage-block scoring validity.
+- Gold export and benchmark prediction runs must use aligned extractor/blockization settings.
+- Mismatch can create high-index missing-gold drift and misleading per-label precision/recall failures.
+
+### 17.4 2026-02-25_22.19.47 severe mismatch guardrail
+
+Merged source:
+- `docs/understandings/2026-02-25_22.19.47-gold-blockization-mismatch-guard.md`
+
+Durable contract:
+- Evaluator fingerprints blockization metadata from gold + prediction artifacts.
+- If fingerprints disagree and drift is severe, evaluation fails fast with `gold_prediction_blockization_mismatch` and diagnostics in `gold_conflicts.jsonl`.
+- Mild drift remains warning-level to preserve fixture/partial-metadata usability.
+
+### 17.5 2026-02-25_23.02.58 canonical-text eval is the all-method runtime hotspot
+
+Merged source:
+- `docs/understandings/2026-02-25_23.02.58-all-method-canonical-eval-runtime-hotspot.md`
+
+Durable diagnosis rule:
+- In slow all-method runs, `evaluation_seconds` dominates wall time; split conversion is often not the bottleneck.
+- Scheduler metrics alone are insufficient without explicit evaluate-phase telemetry.
+
+### 17.6 2026-02-25_23.11.15 telemetry plumbing boundary
+
+Merged source:
+- `docs/understandings/2026-02-25_23.11.15-benchmark-eval-telemetry-plumbing.md`
+
+Durable telemetry contract:
+- `_timing_with_updates(...)` keeps numeric top-level timing/checkpoint values only.
+- Rich evaluator details should be stored in `evaluation_telemetry` for JSON inspection.
+- Metrics needed by CSV/history/reports must also be flattened into numeric `evaluate_*` checkpoints.
+
+### 17.7 2026-02-25_23.15.51 SequenceMatcher hotspot profile
+
+Merged source:
+- `docs/understandings/2026-02-25_23.15.51-canonical-eval-sequencematcher-profile.md`
+
+Durable optimization rule:
+- Canonical eval runtime is dominated by `difflib.SequenceMatcher` alignment in `_align_prediction_blocks_to_canonical(...)`.
+- Biggest speedups come from changing alignment strategy/constraints, not scheduler-only tuning.
+
+### 17.8 2026-02-25_23.38.52 micro-telemetry + opt-in eval profiling
+
+Merged source:
+- `docs/understandings/2026-02-25_23.38.52-canonical-eval-micro-telemetry-and-profile-hook.md`
+
+Durable contract:
+- Canonical eval telemetry now includes alignment micro-subphases and text-size work-unit checkpoints.
+- Slow-run profiling is opt-in via:
+  - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS`
+  - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N`
+- Profile artifacts (`eval_profile.pstats`, `eval_profile_top.txt`) are emitted only when threshold criteria are met.
+
+### 17.9 2026-02-25_23.39.17 fast align + scheduler eval-tail cap
+
+Merged source:
+- `docs/understandings/2026-02-25_23.39.17-canonical-fast-align-and-eval-tail-cap.md`
+
+Durable contract:
+- Canonical eval should enforce legacy full-book alignment; bounded fast alignment is deprecated due to accuracy risk.
+- Alignment strategy/fallback telemetry must be explicit in artifacts.
+- Smart scheduler treats evaluate tails separately from split-phase prewarm and caps tail-driven inflight growth with `all_method_max_eval_tail_pipelines`.
+
+### 17.10 2026-02-26_03.10.00 canonical-text default for all-method sweeps
+
+Merged source:
+- `docs/understandings/2026-02-26_03.10.00-canonical-text-all-method-default.md`
+
+Durable mode-selection rule:
+- Keep `stage-blocks` mode for parity-sensitive same-blockization comparisons.
+- Use `canonical-text` mode for extractor-permutation sweeps against one freeform gold export.
+- Interactive all-method runs default to `canonical-text` to avoid invalid cross-extractor stage-block comparisons.
+
+## 18) Merged Task Specs (2026-02-25 docs/tasks archival batch)
+
+### 18.1 2026-02-25_18.54.30 legacy `epub_extractor` settings migration
+
+Merged source:
+- `docs/tasks/2026-02-25_18.54.30-benchmark-legacy-epub-extractor-migration.md`
+
+Durable settings contract:
+- `RunSettings.from_dict(...)` must accept persisted `epub_extractor=legacy` values and migrate them to `beautifulsoup`.
+- User-facing accepted extractor choices remain `unstructured|beautifulsoup|markdown|markitdown`.
+
+Task evidence preserved:
+- Before fix: `ValidationError` on `epub_extractor='legacy'`.
+- After fix: migrated to `beautifulsoup` with warning.
+- Regression suite: `tests/llm/test_run_settings.py` (`9 passed`).
+
+### 18.2 2026-02-25_19.00.51 multi-label freeform gold support in stage-block eval
+
+Merged source:
+- `docs/tasks/2026-02-25_19.00.51-multilabel-freeform-benchmark-eval.md`
+
+Durable scoring contract:
+- `load_gold_block_labels(...)` accepts multiple allowed gold labels per block.
+- A prediction is correct if it matches any allowed gold label for that block.
+- Multi-label blocks and missing-gold defaults are logged to `gold_conflicts.jsonl`.
+- Missing gold rows for predicted blocks default to `OTHER` (diagnostic + backward-compatible behavior).
+
+Task evidence preserved:
+- Before fix: eval raised `ValueError: Gold conflicts detected...` on multi-label gold.
+- After fix: eval completes and preserves multi-label/missing-gold diagnostics.
+- Verification anchor: `pytest tests/bench/test_eval_stage_blocks.py`.
+
+### 18.3 2026-02-25 (fix-gold ExecPlan completed by 22:19Z): severe blockization mismatch guard
+
+Merged source:
+- `docs/tasks/fix-gold.md`
+
+Durable guardrail contract:
+- Stage-block eval fingerprints gold and prediction blockization metadata.
+- Severe mismatch signal (`metadata mismatch` + high drift) fails fast with `gold_prediction_blockization_mismatch` before scoring.
+- Non-severe mismatch remains warning-level and keeps default-`OTHER` behavior.
+- Diagnostics are persisted to `gold_conflicts.jsonl` and summarized in `eval_report.json`.
+
+Known failed-path context worth preserving:
+- Prior behavior allowed large extractor/blockization drift to silently score with heavy default-`OTHER` backfill, producing misleading precision/recall.
+- Guardrail intentionally targets this exact failure mode while keeping small-fixture tolerance.
+
+### 18.4 2026-02-25_23.15.54 all-method canonical-text eval speedups
+
+Merged source:
+- `docs/tasks/2026-02-25_23.15.54-all-method-canonical-eval-speedups.md`
+
+Durable runtime/perf contract:
+- Canonical eval alignment enforces `legacy` for scoring correctness.
+- `auto` and `fast` requests are treated as deprecated aliases and are forced to legacy with explicit deprecation telemetry.
+- Canonical line-projection overlap loops use pointer-based interval sweeps.
+- Smart all-method scheduler has explicit evaluate-tail cap via `all_method_max_eval_tail_pipelines`.
+
+Important “known bad / pending” context preserved:
+- Task recorded implementation and regression tests as complete, but real SeaAndSmoke before/after acceptance timing thresholds were not captured in that pass.
+
+### 18.5 2026-02-25_23.39.03 canonical eval telemetry microphases + opt-in profile artifacts
+
+Merged source:
+- `docs/tasks/2026-02-25_23.39.03-canonical-eval-telemetry-microphases.md`
+
+Durable telemetry contract:
+- Canonical evaluator emits alignment micro-subphase timings and text-size work-unit counters.
+- `labelstudio-benchmark` can capture slow eval cProfile artifacts behind env vars.
+- Profiling stays opt-in and artifact writing is best-effort (must not fail benchmark run by itself).
+
+Task evidence preserved:
+- Verification command set passed (`5 passed, 2 warnings in 3.38s`).
+- Profile artifacts:
+  - `eval_profile.pstats`
+  - `eval_profile_top.txt`

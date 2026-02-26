@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+import cookimport.bench.eval_canonical_text as canonical_eval
+from cookimport.bench.eval_canonical_text import evaluate_canonical_text
 from cookimport.bench.eval_stage_blocks import (
     compute_block_metrics,
     evaluate_stage_blocks,
@@ -175,6 +177,12 @@ def test_evaluate_stage_blocks_writes_reports_and_debug_artifacts(tmp_path: Path
     assert report["macro_f1_excluding_other"] == pytest.approx(2 / 3)
     assert report["worst_label_recall"]["label"] == "INGREDIENT_LINE"
     assert report["worst_label_recall"]["recall"] == pytest.approx(0.0)
+    telemetry = report.get("evaluation_telemetry")
+    assert isinstance(telemetry, dict)
+    assert telemetry["total_seconds"] >= 0.0
+    assert telemetry["subphases"]["load_gold_seconds"] >= 0.0
+    assert telemetry["subphases"]["load_prediction_seconds"] >= 0.0
+    assert telemetry["work_units"]["prediction_block_count"] == pytest.approx(4.0)
 
     assert (out_dir / "eval_report.json").exists()
     assert (out_dir / "eval_report.md").exists()
@@ -329,3 +337,395 @@ def test_evaluate_stage_blocks_defaults_missing_gold_blocks_to_other(tmp_path: P
     assert diagnostics[0]["warning"] == "gold_missing_block_labels_defaulted_to_other"
     assert diagnostics[0]["missing_gold_indices"] == [0]
     assert diagnostics[0]["default_label"] == "OTHER"
+
+
+def test_evaluate_stage_blocks_fails_on_severe_blockization_mismatch(
+    tmp_path: Path,
+) -> None:
+    gold_path = tmp_path / "freeform_span_labels.jsonl"
+    _write_jsonl(
+        gold_path,
+        [
+            {
+                "span_id": f"s{index}",
+                "label": "OTHER",
+                "touched_block_indices": [index],
+                "touched_blocks": [
+                    {
+                        "block_index": index,
+                        "location": {
+                            "features": {
+                                "extraction_backend": "unstructured",
+                                "unstructured_html_parser_version": "v1",
+                                "unstructured_preprocess_mode": "br_split_v1",
+                                "unstructured_skip_headers_footers": False,
+                            }
+                        },
+                    }
+                ],
+            }
+            for index in range(50)
+        ],
+    )
+
+    stage_path = tmp_path / "stage_block_predictions.json"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "abc123",
+                "block_count": 200,
+                "block_labels": {str(index): "OTHER" for index in range(200)},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    extracted_archive_path = tmp_path / "extracted_archive.json"
+    extracted_archive_path.write_text(
+        json.dumps(
+            [
+                {
+                    "index": index,
+                    "text": f"block {index}",
+                    "location": {
+                        "features": {
+                            "extraction_backend": "beautifulsoup",
+                        }
+                    },
+                }
+                for index in range(200)
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "eval"
+    with pytest.raises(ValueError, match="blockization mismatch"):
+        evaluate_stage_blocks(
+            gold_freeform_jsonl=gold_path,
+            stage_predictions_json=stage_path,
+            extracted_blocks_json=extracted_archive_path,
+            out_dir=out_dir,
+        )
+
+    diagnostics = [
+        json.loads(line)
+        for line in (out_dir / "gold_conflicts.jsonl").read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert any(
+        row.get("error") == "gold_prediction_blockization_mismatch"
+        for row in diagnostics
+        if isinstance(row, dict)
+    )
+
+
+def test_evaluate_stage_blocks_warns_on_nonfatal_blockization_mismatch(
+    tmp_path: Path,
+) -> None:
+    gold_path = tmp_path / "freeform_span_labels.jsonl"
+    _write_jsonl(
+        gold_path,
+        [
+            {
+                "span_id": "s0",
+                "label": "RECIPE_TITLE",
+                "touched_block_indices": [0],
+                "touched_blocks": [
+                    {
+                        "block_index": 0,
+                        "location": {
+                            "features": {
+                                "extraction_backend": "unstructured",
+                            }
+                        },
+                    }
+                ],
+            },
+            {
+                "span_id": "s1",
+                "label": "OTHER",
+                "touched_block_indices": [1],
+                "touched_blocks": [
+                    {
+                        "block_index": 1,
+                        "location": {
+                            "features": {
+                                "extraction_backend": "unstructured",
+                            }
+                        },
+                    }
+                ],
+            },
+        ],
+    )
+
+    stage_path = tmp_path / "stage_block_predictions.json"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "abc123",
+                "block_count": 2,
+                "block_labels": {"0": "RECIPE_TITLE", "1": "OTHER"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    extracted_archive_path = tmp_path / "extracted_archive.json"
+    extracted_archive_path.write_text(
+        json.dumps(
+            [
+                {
+                    "index": 0,
+                    "text": "title",
+                    "location": {"features": {"extraction_backend": "beautifulsoup"}},
+                },
+                {
+                    "index": 1,
+                    "text": "body",
+                    "location": {"features": {"extraction_backend": "beautifulsoup"}},
+                },
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "eval"
+    result = evaluate_stage_blocks(
+        gold_freeform_jsonl=gold_path,
+        stage_predictions_json=stage_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=out_dir,
+    )
+
+    report = result["report"]
+    assert report["overall_block_accuracy"] == pytest.approx(1.0)
+    diagnostics = report.get("diagnostics") or {}
+    assert diagnostics["blockization"][0]["warning"] == "gold_prediction_blockization_mismatch"
+
+
+def test_evaluate_canonical_text_scores_lines_across_different_blockization(
+    tmp_path: Path,
+) -> None:
+    gold_export_root = tmp_path / "exports"
+    gold_export_root.mkdir(parents=True, exist_ok=True)
+    canonical_text = "Title\nSubtitle\n1 cup stock"
+    (gold_export_root / "canonical_text.txt").write_text(
+        canonical_text,
+        encoding="utf-8",
+    )
+    _write_jsonl(
+        gold_export_root / "canonical_block_map.jsonl",
+        [
+            {"block_index": 0, "start_char": 0, "end_char": 5},
+            {"block_index": 1, "start_char": 6, "end_char": 14},
+            {"block_index": 2, "start_char": 15, "end_char": 26},
+        ],
+    )
+    _write_jsonl(
+        gold_export_root / "canonical_span_labels.jsonl",
+        [
+            {"span_id": "s0", "label": "RECIPE_TITLE", "start_char": 0, "end_char": 5},
+            {"span_id": "s1", "label": "RECIPE_TITLE", "start_char": 6, "end_char": 14},
+            {
+                "span_id": "s2",
+                "label": "INGREDIENT_LINE",
+                "start_char": 15,
+                "end_char": 26,
+            },
+        ],
+    )
+    (gold_export_root / "canonical_manifest.json").write_text(
+        json.dumps({"schema_version": "canonical_gold.v1"}, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    stage_predictions_path = tmp_path / "stage_block_predictions.json"
+    stage_predictions_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "abc123",
+                "block_count": 2,
+                "block_labels": {"0": "RECIPE_TITLE", "1": "INGREDIENT_LINE"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    extracted_archive_path = tmp_path / "extracted_archive.json"
+    extracted_archive_path.write_text(
+        json.dumps(
+            [
+                {"index": 0, "text": "Title\nSubtitle"},
+                {"index": 1, "text": "1 cup stock"},
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "eval"
+    result = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=out_dir,
+    )
+
+    report = result["report"]
+    assert report["eval_mode"] == "canonical_text"
+    assert report["overall_line_accuracy"] == pytest.approx(1.0)
+    assert report["macro_f1_excluding_other"] == pytest.approx(1.0)
+    telemetry = report.get("evaluation_telemetry")
+    assert isinstance(telemetry, dict)
+    assert telemetry["total_seconds"] >= 0.0
+    assert telemetry["subphases"]["load_gold_seconds"] >= 0.0
+    assert telemetry["subphases"]["load_prediction_seconds"] >= 0.0
+    assert telemetry["subphases"]["alignment_seconds"] >= 0.0
+    assert telemetry["work_units"]["prediction_block_count"] == pytest.approx(2.0)
+    assert (out_dir / "unmatched_pred_blocks.jsonl").read_text(encoding="utf-8").strip() == ""
+
+
+def _write_minimal_canonical_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+    gold_export_root = tmp_path / "exports"
+    gold_export_root.mkdir(parents=True, exist_ok=True)
+    canonical_text = "Title\nSubtitle\n1 cup stock"
+    (gold_export_root / "canonical_text.txt").write_text(
+        canonical_text,
+        encoding="utf-8",
+    )
+    _write_jsonl(
+        gold_export_root / "canonical_block_map.jsonl",
+        [
+            {"block_index": 0, "start_char": 0, "end_char": 5},
+            {"block_index": 1, "start_char": 6, "end_char": 14},
+            {"block_index": 2, "start_char": 15, "end_char": 26},
+        ],
+    )
+    _write_jsonl(
+        gold_export_root / "canonical_span_labels.jsonl",
+        [
+            {"span_id": "s0", "label": "RECIPE_TITLE", "start_char": 0, "end_char": 5},
+            {"span_id": "s1", "label": "RECIPE_TITLE", "start_char": 6, "end_char": 14},
+            {
+                "span_id": "s2",
+                "label": "INGREDIENT_LINE",
+                "start_char": 15,
+                "end_char": 26,
+            },
+        ],
+    )
+    (gold_export_root / "canonical_manifest.json").write_text(
+        json.dumps({"schema_version": "canonical_gold.v1"}, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    stage_predictions_path = tmp_path / "stage_block_predictions.json"
+    stage_predictions_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "abc123",
+                "block_count": 2,
+                "block_labels": {"0": "RECIPE_TITLE", "1": "INGREDIENT_LINE"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    extracted_archive_path = tmp_path / "extracted_archive.json"
+    extracted_archive_path.write_text(
+        json.dumps(
+            [
+                {"index": 0, "text": "Title\nSubtitle"},
+                {"index": 1, "text": "1 cup stock"},
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    return gold_export_root, stage_predictions_path, extracted_archive_path
+
+
+def test_evaluate_canonical_text_auto_matches_legacy_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gold_export_root, stage_predictions_path, extracted_archive_path = _write_minimal_canonical_fixture(
+        tmp_path
+    )
+    monkeypatch.setenv(canonical_eval._ALIGNMENT_STRATEGY_ENV, "legacy")
+    legacy_result = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=tmp_path / "legacy",
+    )
+
+    monkeypatch.setenv(canonical_eval._ALIGNMENT_STRATEGY_ENV, "auto")
+    auto_result = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=tmp_path / "auto",
+    )
+
+    legacy_report = legacy_result["report"]
+    auto_report = auto_result["report"]
+    assert legacy_report["overall_line_accuracy"] == pytest.approx(
+        auto_report["overall_line_accuracy"]
+    )
+    assert legacy_report["macro_f1_excluding_other"] == pytest.approx(
+        auto_report["macro_f1_excluding_other"]
+    )
+    assert legacy_report["wrong_label_blocks"] == auto_report["wrong_label_blocks"]
+    assert auto_report["alignment"]["alignment_strategy"] == "legacy"
+    assert auto_report["alignment"]["alignment_requested_strategy"] == "auto"
+    assert auto_report["alignment"]["alignment_fallback_used"] is True
+    assert (
+        auto_report["alignment"]["alignment_fallback_reason"]
+        == canonical_eval._ALIGNMENT_FAST_DEPRECATION_REASON
+    )
+    assert legacy_report["alignment"]["alignment_strategy"] == "legacy"
+
+
+def test_evaluate_canonical_text_fast_request_is_deprecated_and_forced_to_legacy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gold_export_root, stage_predictions_path, extracted_archive_path = _write_minimal_canonical_fixture(
+        tmp_path
+    )
+    monkeypatch.setenv(canonical_eval._ALIGNMENT_STRATEGY_ENV, "fast")
+
+    result = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=tmp_path / "fast-deprecated",
+    )
+    alignment = result["report"]["alignment"]
+    assert alignment["alignment_strategy"] == "legacy"
+    assert alignment["alignment_requested_strategy"] == "fast"
+    assert alignment["alignment_fallback_used"] is True
+    assert alignment["alignment_fallback_reason"] == canonical_eval._ALIGNMENT_FAST_DEPRECATION_REASON
+    assert alignment["alignment_fast_path_deprecated"] is True
+    assert "deprecated due to accuracy risk" in str(
+        alignment["alignment_fast_path_deprecation_message"]
+    )
