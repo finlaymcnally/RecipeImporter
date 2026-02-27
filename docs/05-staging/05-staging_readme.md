@@ -69,14 +69,14 @@ Per workbook (slugified file stem):
 - `intermediate drafts/<workbook_slug>/r{index}.jsonld`
 - `final drafts/<workbook_slug>/r{index}.json`
 - `sections/<workbook_slug>/r{index}.sections.json`
-- `sections/<workbook_slug>/sections.md`
+- `sections/<workbook_slug>/sections.md` (default; skipped with `stage --no-write-markdown`)
 - `tips/<workbook_slug>/t{index}.json`
-- `tips/<workbook_slug>/tips.md`
+- `tips/<workbook_slug>/tips.md` (default; skipped with `stage --no-write-markdown`)
 - `tips/<workbook_slug>/topic_candidates.json` (if any)
-- `tips/<workbook_slug>/topic_candidates.md` (if any)
+- `tips/<workbook_slug>/topic_candidates.md` (if any; skipped with `stage --no-write-markdown`)
 - `chunks/<workbook_slug>/c{index}.json` (if any)
-- `chunks/<workbook_slug>/chunks.md` (if any)
-- `tables/<workbook_slug>/tables.jsonl` and `tables/<workbook_slug>/tables.md` (when `table_extraction=on`)
+- `chunks/<workbook_slug>/chunks.md` (if any; skipped with `stage --no-write-markdown`)
+- `tables/<workbook_slug>/tables.jsonl` and `tables/<workbook_slug>/tables.md` (when `table_extraction=on`; `tables.md` skipped with `stage --no-write-markdown`)
 - `knowledge/<workbook_slug>/snippets.jsonl` (if pass4 knowledge harvesting is enabled)
 - `knowledge/<workbook_slug>/knowledge.md` (if pass4 knowledge harvesting is enabled)
 - `knowledge/knowledge_index.json` (if any knowledge artifacts were written in the run)

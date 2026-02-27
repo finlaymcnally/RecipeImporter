@@ -32,6 +32,7 @@ cookimport/bench/pred_run.py
 cookimport/bench/prediction_records.py
 cookimport/bench/report.py
 cookimport/bench/runner.py
+cookimport/bench/sequence_matcher_select.py
 cookimport/bench/suite.py
 cookimport/bench/sweep.py
 cookimport/bench/trace.py

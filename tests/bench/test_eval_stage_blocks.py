@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from pathlib import Path
 
 import pytest
@@ -596,6 +598,12 @@ def test_evaluate_canonical_text_scores_lines_across_different_blockization(
     assert telemetry["subphases"]["load_gold_seconds"] >= 0.0
     assert telemetry["subphases"]["load_prediction_seconds"] >= 0.0
     assert telemetry["subphases"]["alignment_seconds"] >= 0.0
+    assert telemetry["alignment_sequence_matcher_impl"] in {
+        "stdlib",
+        "cydifflib",
+        "cdifflib",
+    }
+    assert telemetry["alignment_sequence_matcher_mode"] == "auto"
     assert telemetry["work_units"]["prediction_block_count"] == pytest.approx(2.0)
     assert (out_dir / "unmatched_pred_blocks.jsonl").read_text(encoding="utf-8").strip() == ""
 
@@ -883,3 +891,91 @@ def test_evaluate_canonical_text_alignment_cache_key_includes_block_boundaries(
     assert first_telemetry["alignment_cache_hit"] is False
     assert second_telemetry["alignment_cache_hit"] is False
     assert first_telemetry["alignment_cache_key"] != second_telemetry["alignment_cache_key"]
+
+
+def test_evaluate_canonical_text_alignment_cache_recovers_from_stale_lock(
+    tmp_path: Path,
+) -> None:
+    gold_export_root, stage_predictions_path, extracted_archive_path = _write_minimal_canonical_fixture(
+        tmp_path
+    )
+    cache_dir = tmp_path / "alignment-cache"
+
+    evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=tmp_path / "first",
+        alignment_cache_dir=cache_dir,
+    )
+
+    cache_files = sorted(cache_dir.glob("**/*.json"))
+    assert len(cache_files) == 1
+    cache_file = cache_files[0]
+    lock_path = cache_file.with_suffix(".lock")
+
+    cache_file.unlink()
+    lock_path.write_text("stale lock\n", encoding="utf-8")
+    stale_ts = time.time() - 7200.0
+    os.utime(lock_path, (stale_ts, stale_ts))
+
+    result = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=tmp_path / "second",
+        alignment_cache_dir=cache_dir,
+    )
+
+    telemetry = result["report"]["evaluation_telemetry"]
+    assert telemetry["alignment_cache_enabled"] is True
+    assert telemetry["alignment_cache_hit"] is False
+    assert telemetry["alignment_cache_validation_error"] is None
+    assert cache_file.exists()
+    assert not lock_path.exists()
+
+
+def test_evaluate_canonical_text_alignment_cache_recovers_from_corrupt_entry(
+    tmp_path: Path,
+) -> None:
+    gold_export_root, stage_predictions_path, extracted_archive_path = _write_minimal_canonical_fixture(
+        tmp_path
+    )
+    cache_dir = tmp_path / "alignment-cache"
+
+    first_result = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=tmp_path / "first",
+        alignment_cache_dir=cache_dir,
+    )
+
+    cache_files = sorted(cache_dir.glob("**/*.json"))
+    assert len(cache_files) == 1
+    cache_file = cache_files[0]
+    cache_file.write_text("{not-json", encoding="utf-8")
+
+    second_result = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=tmp_path / "second",
+        alignment_cache_dir=cache_dir,
+    )
+
+    telemetry = second_result["report"]["evaluation_telemetry"]
+    assert telemetry["alignment_cache_enabled"] is True
+    assert telemetry["alignment_cache_hit"] is False
+    assert str(telemetry["alignment_cache_validation_error"]).startswith("cache_read_error:")
+    assert cache_file.exists()
+
+    quarantined = list(cache_file.parent.glob(f"{cache_file.stem}.corrupt.decode.*.json"))
+    assert quarantined
+
+    first_report = first_result["report"]
+    second_report = second_result["report"]
+    assert first_report["overall_line_accuracy"] == pytest.approx(second_report["overall_line_accuracy"])
+    assert first_report["macro_f1_excluding_other"] == pytest.approx(
+        second_report["macro_f1_excluding_other"]
+    )

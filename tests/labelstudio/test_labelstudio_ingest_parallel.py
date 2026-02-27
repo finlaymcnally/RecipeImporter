@@ -870,6 +870,171 @@ def test_generate_pred_run_artifacts_ignores_progress_callback_errors(
     assert "fake convert complete" in progress_messages
 
 
+def test_generate_pred_run_artifacts_can_skip_tasks_jsonl(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+
+    fake_result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            ArchiveBlock(
+                index=0,
+                text="hello",
+                location={"block_index": 0},
+                source_kind="raw",
+            )
+        ],
+    )
+    monkeypatch.setattr("cookimport.labelstudio.ingest.compute_file_hash", lambda _path: "hash")
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 100,
+            "segment_chars": 90,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks, **_kwargs: tasks,
+    )
+
+    result = generate_pred_run_artifacts(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        write_label_studio_tasks=False,
+    )
+
+    run_root = Path(result["run_root"])
+    assert not (run_root / "label_studio_tasks.jsonl").exists()
+    assert result["tasks_jsonl_status"] == "skipped_by_config"
+
+    manifest = json.loads((run_root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["tasks_jsonl_status"] == "skipped_by_config"
+    assert manifest["write_label_studio_tasks"] is False
+
+    run_manifest = json.loads((run_root / "run_manifest.json").read_text(encoding="utf-8"))
+    assert run_manifest["artifacts"]["tasks_jsonl_status"] == "skipped_by_config"
+    assert "tasks_jsonl" not in run_manifest["artifacts"]
+
+
+def test_generate_pred_run_artifacts_passes_write_markdown_to_processed_outputs(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+
+    fake_result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            ArchiveBlock(
+                index=0,
+                text="hello",
+                location={"block_index": 0},
+                source_kind="raw",
+            )
+        ],
+    )
+    monkeypatch.setattr("cookimport.labelstudio.ingest.compute_file_hash", lambda _path: "hash")
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 100,
+            "segment_chars": 90,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks, **_kwargs: tasks,
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_write_processed_outputs(**kwargs):
+        captured["write_markdown"] = kwargs.get("write_markdown")
+        processed = tmp_path / "processed-run"
+        processed.mkdir(parents=True, exist_ok=True)
+        return processed
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._write_processed_outputs",
+        _fake_write_processed_outputs,
+    )
+
+    result = generate_pred_run_artifacts(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        processed_output_root=tmp_path / "processed-output",
+        write_markdown=False,
+    )
+
+    assert captured["write_markdown"] is False
+    assert result["run_config"]["write_markdown"] is False
+
+
 def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(
     monkeypatch, tmp_path: Path
 ) -> None:

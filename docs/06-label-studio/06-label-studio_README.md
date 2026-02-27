@@ -36,12 +36,15 @@ Benchmark scoring update (current behavior):
 - `cookimport labelstudio-benchmark` evaluates stage evidence manifests (`stage_block_predictions.json`) with selectable modes:
   - `stage-blocks` (default): block-index scoring vs freeform gold.
   - `canonical-text`: alignment scoring vs canonical gold text/line labels.
-  - `--execution-mode legacy|pipelined` chooses orchestration path (default `legacy`).
+  - `--execution-mode legacy|pipelined|predict-only` chooses orchestration path (default `legacy`).
   - `--predictions-out <path>` writes a run-level prediction record JSONL.
   - `--predictions-in <path>` runs evaluate-only from a saved prediction record (no prediction generation/upload).
+  - `--execution-mode predict-only` writes prediction artifacts and skips evaluation.
 - Interactive benchmark modes (`single_offline` and `all_method`) run `labelstudio-benchmark` in `canonical-text` mode so extractor permutations can share one freeform gold export safely.
 - `cookimport bench run` currently remains on stage-block scoring.
-- `label_studio_tasks.jsonl` is still generated for Label Studio workflows, but it is no longer the benchmark scoring surface.
+- `label_studio_tasks.jsonl` remains the upload/task artifact surface, but benchmark scoring does not depend on it.
+  - default behavior still writes it for offline runs;
+  - offline benchmark runs may intentionally skip it with `labelstudio-benchmark --no-upload --no-write-labelstudio-tasks`.
 
 ### 1.2 Commands and defaults
 
@@ -399,6 +402,12 @@ Output artifacts:
 4. co-locate prediction run under `<eval_output_dir>/prediction-run`,
 5. run freeform eval and write report artifacts.
 
+Additional non-interactive execution modes:
+
+- `--execution-mode legacy` (default): sequential predict then evaluate.
+- `--execution-mode pipelined`: prediction stage and canonical eval prewarm overlap via a bounded stage queue.
+- `--execution-mode predict-only`: generate prediction artifacts and optional `--predictions-out` JSONL, then skip evaluation.
+
 Important:
 
 - Upload mode imports/uploads prediction tasks (requires write consent).
@@ -430,10 +439,10 @@ Important:
   - `all_method_config_timeout_seconds`
   - `all_method_retry_failed_configs`
 - Smart scheduler mode is phase-aware:
-  - workers emit config phase telemetry (`prep`, `split_wait`, `split_active`, `post`) to `<source_root>/.scheduler_events/config_###.jsonl`,
+  - workers emit config phase telemetry (`prep`, `split_wait`, `split_active`, `post`, `evaluate`) to `<source_root>/.scheduler_events/config_###.jsonl`,
   - parent queue admission targets `heavy + wing ~= split slots + wing backlog`,
-  - effective inflight includes a smart tail buffer equal to split slots so post-stage configs do not block new prewarm admissions,
-  - spinner/dashboard task line shows live scheduler state: `scheduler heavy X/Y | wing Z | active A | pending P`.
+  - effective inflight includes eval-tail headroom (`all_method_max_eval_tail_pipelines` override or CPU-aware auto default) so evaluate tails do not block new admissions,
+  - spinner/dashboard task line shows live scheduler state: `scheduler heavy X/Y | wing Z | eval E | active A | pending P`.
 - Benchmark prediction manifests include run-config metadata (`run_config`, `run_config_hash`, `run_config_summary`) so analytics/dashboard rows can be grouped by configuration.
 - Non-interactive benchmark knobs include worker/split controls, OCR/warmup flags, knowledge-harvest codex-farm controls, and a recipe codex-farm policy knob that is currently forced to `off` (`--ocr-device`, `--ocr-batch-size`, `--warm-models`, `--epub-extractor`, `--llm-recipe-pipeline`, `--codex-farm-cmd`, `--codex-farm-root`, `--codex-farm-workspace-root`, `--codex-farm-pipeline-pass1`, `--codex-farm-pipeline-pass2`, `--codex-farm-pipeline-pass3`, `--codex-farm-context-blocks`, `--codex-farm-failure-mode`).
 - If recipe codex-farm correction is re-enabled in future, processed report payloads include `llmCodexFarm` and prediction-run artifacts include `llm_manifest.json` when produced.

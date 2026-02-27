@@ -68,7 +68,7 @@ def test_format_status_progress_message_appends_eta_to_top_line_for_multiline_pa
     message = (
         "overall source 3/7 | config 58/91\n"
         "current source: AMatterOfTasteCUTDOWN.epub (13 of 15 configs; ok 13, fail 0)\n"
-        "task: scheduler heavy 0/2 | wing 1 | active 2 | pending 0"
+        "task: scheduler heavy 0/2 | wing 1 | eval 0 | active 2 | pending 0"
     )
     assert cli._format_status_progress_message(
         message,
@@ -79,7 +79,7 @@ def test_format_status_progress_message_appends_eta_to_top_line_for_multiline_pa
     ) == (
         "overall source 3/7 | config 58/91 (eta 2m 54s, avg 5.3s/task)\n"
         "current source: AMatterOfTasteCUTDOWN.epub (13 of 15 configs; ok 13, fail 0)\n"
-        "task: scheduler heavy 0/2 | wing 1 | active 2 | pending 0"
+        "task: scheduler heavy 0/2 | wing 1 | eval 0 | active 2 | pending 0"
     )
 
 
@@ -2197,15 +2197,21 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
         processed_output_dir=tmp_path / "output",
         eval_output_dir=eval_root,
         no_upload=True,
+        write_markdown=False,
+        write_label_studio_tasks=False,
     )
 
     assert captured_generate["path"] == source_file
     assert captured_generate["run_manifest_kind"] == "bench_pred_run"
+    assert captured_generate["write_markdown"] is False
+    assert captured_generate["write_label_studio_tasks"] is False
     run_manifest_path = eval_root / "run_manifest.json"
     assert run_manifest_path.exists()
     run_manifest = json.loads(run_manifest_path.read_text(encoding="utf-8"))
     assert run_manifest["run_kind"] == "labelstudio_benchmark"
     assert run_manifest["run_config"]["upload"] is False
+    assert run_manifest["run_config"]["write_markdown"] is False
+    assert run_manifest["run_config"]["write_label_studio_tasks"] is False
 
 
 def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
@@ -2561,6 +2567,225 @@ def test_labelstudio_benchmark_legacy_and_pipelined_modes_match_report_payload(
     )
     assert legacy_manifest["run_config"]["execution_mode"] == "legacy"
     assert pipelined_manifest["run_config"]["execution_mode"] == "pipelined"
+
+
+def test_labelstudio_benchmark_predict_only_mode_skips_evaluation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (prediction_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(source_file),
+                "source_hash": "hash-123",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_co_locate_prediction_run_for_benchmark",
+        lambda _pred_run, _eval_dir: prediction_run,
+    )
+    monkeypatch.setattr(
+        cli,
+        "generate_pred_run_artifacts",
+        lambda **_kwargs: {
+            "run_root": prediction_run,
+            "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
+            "processed_report_path": "",
+            "timing": {"prediction_seconds": 1.25},
+        },
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("predict-only mode must not run stage-block evaluation.")
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_canonical_text",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("predict-only mode must not run canonical evaluation.")
+        ),
+    )
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("predict-only mode must not append benchmark CSV.")
+        ),
+    )
+
+    eval_root = tmp_path / "eval-predict-only"
+    predictions_out = tmp_path / "prediction-records.jsonl"
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=tmp_path / "output",
+        eval_output_dir=eval_root,
+        no_upload=True,
+        execution_mode="predict-only",
+        predictions_out=predictions_out,
+    )
+
+    assert not (eval_root / "eval_report.json").exists()
+    run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
+    assert run_manifest["run_config"]["execution_mode"] == "predict-only"
+    assert run_manifest["run_config"]["predict_only"] is True
+    assert "prediction_record_output_jsonl" in run_manifest["artifacts"]
+    records = list(read_prediction_records(predictions_out))
+    assert len(records) == 1
+
+
+def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prewarm(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_export_root = tmp_path / "gold" / "exports"
+    gold_export_root.mkdir(parents=True, exist_ok=True)
+    gold_spans = gold_export_root / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    canonical_text_path = gold_export_root / "canonical_text.txt"
+    canonical_spans_path = gold_export_root / "canonical_span_labels.jsonl"
+    canonical_text_path.write_text("Title", encoding="utf-8")
+    canonical_spans_path.write_text("{}\n", encoding="utf-8")
+
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (prediction_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(source_file),
+                "source_hash": "hash-123",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    prewarm_started = threading.Event()
+    producer_observed_prewarm: dict[str, bool] = {"value": False}
+
+    def _fake_generate_pred_run_artifacts(**_kwargs):
+        producer_observed_prewarm["value"] = prewarm_started.wait(timeout=1.0)
+        return {
+            "run_root": prediction_run,
+            "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
+            "processed_report_path": "",
+            "timing": {"prediction_seconds": 0.4},
+        }
+
+    monkeypatch.setattr(
+        cli,
+        "_co_locate_prediction_run_for_benchmark",
+        lambda _pred_run, _eval_dir: prediction_run,
+    )
+    monkeypatch.setattr(cli, "generate_pred_run_artifacts", _fake_generate_pred_run_artifacts)
+
+    def _fake_ensure_canonical_gold_artifacts(*, export_root: Path):
+        assert export_root == gold_export_root
+        prewarm_started.set()
+        return {
+            "canonical_text_path": canonical_text_path,
+            "canonical_span_labels_path": canonical_spans_path,
+        }
+
+    monkeypatch.setattr(
+        cli,
+        "ensure_canonical_gold_artifacts",
+        _fake_ensure_canonical_gold_artifacts,
+    )
+
+    captured_eval: dict[str, object] = {}
+
+    def _fake_evaluate_canonical_text(**kwargs):
+        captured_eval.update(kwargs)
+        return {
+            "report": {
+                "counts": {
+                    "gold_total": 0,
+                    "pred_total": 0,
+                    "gold_matched": 0,
+                    "pred_matched": 0,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_line_accuracy": 0.0,
+                "overall_block_accuracy": 0.0,
+                "macro_f1_excluding_other": 0.0,
+                "worst_label_recall": {"label": None, "recall": 0.0},
+                "precision": 0.0,
+                "recall": 0.0,
+                "f1": 0.0,
+                "practical_precision": 0.0,
+                "practical_recall": 0.0,
+                "practical_f1": 0.0,
+                "per_label": {},
+            },
+            "missed_gold_blocks": [],
+            "wrong_label_blocks": [],
+            "missed_gold": [],
+            "false_positive_preds": [],
+        }
+
+    monkeypatch.setattr(cli, "evaluate_canonical_text", _fake_evaluate_canonical_text)
+    monkeypatch.setattr(cli, "format_canonical_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        lambda *_args, **_kwargs: None,
+    )
+
+    eval_root = tmp_path / "eval-pipelined"
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=tmp_path / "output",
+        eval_output_dir=eval_root,
+        no_upload=True,
+        execution_mode="pipelined",
+        eval_mode="canonical-text",
+    )
+
+    assert producer_observed_prewarm["value"] is True
+    assert isinstance(captured_eval.get("canonical_paths"), dict)
 
 
 def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
@@ -3195,7 +3420,10 @@ def test_resolve_all_method_scheduler_limits_invalid_overrides_fall_back_to_defa
     assert split_slots == 4
 
 
-def test_resolve_all_method_scheduler_runtime_defaults_and_smart_backlog() -> None:
+def test_resolve_all_method_scheduler_runtime_defaults_and_smart_backlog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli.os, "cpu_count", lambda: 9)
     configured, split_slots, wing_target, eval_tail_cap, smart_enabled, effective = (
         cli._resolve_all_method_scheduler_runtime(
             total_variants=12,
@@ -3208,12 +3436,15 @@ def test_resolve_all_method_scheduler_runtime_defaults_and_smart_backlog() -> No
     assert configured == 2
     assert split_slots == 2
     assert wing_target == 3
-    assert eval_tail_cap == 2
+    assert eval_tail_cap == 6
     assert smart_enabled is True
-    assert effective == 7
+    assert effective == 11
 
 
-def test_resolve_all_method_scheduler_runtime_invalid_wing_respects_fixed_mode() -> None:
+def test_resolve_all_method_scheduler_runtime_invalid_wing_respects_fixed_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli.os, "cpu_count", lambda: 9)
     configured, split_slots, wing_target, eval_tail_cap, smart_enabled, effective = (
         cli._resolve_all_method_scheduler_runtime(
             total_variants=12,
@@ -3226,7 +3457,7 @@ def test_resolve_all_method_scheduler_runtime_invalid_wing_respects_fixed_mode()
     assert configured == 3
     assert split_slots == 2
     assert wing_target == 2
-    assert eval_tail_cap == 2
+    assert eval_tail_cap == 5
     assert smart_enabled is False
     assert effective == 3
 
@@ -3267,6 +3498,27 @@ def test_resolve_all_method_scheduler_runtime_respects_eval_tail_cap_override() 
     assert eval_tail_cap == 1
     assert smart_enabled is True
     assert effective == 6
+
+
+def test_resolve_all_method_scheduler_runtime_auto_eval_tail_respects_source_parallelism(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli.os, "cpu_count", lambda: 17)
+    configured, split_slots, wing_target, eval_tail_cap, smart_enabled, effective = (
+        cli._resolve_all_method_scheduler_runtime(
+            total_variants=40,
+            max_inflight_pipelines=4,
+            max_concurrent_split_phases=4,
+            smart_scheduler=True,
+            source_parallelism_effective=4,
+        )
+    )
+    assert configured == 4
+    assert split_slots == 4
+    assert wing_target == 4
+    assert eval_tail_cap == 0
+    assert smart_enabled is True
+    assert effective == 8
 
 
 def test_run_all_method_benchmark_writes_ranked_summary(
@@ -3730,6 +3982,7 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
         "split_wait": 0.02,
         "split_active": 0.22,
         "post": 0.15,
+        "evaluate": 0.22,
     }
     split_gate = threading.Semaphore(2)
 
@@ -3752,6 +4005,9 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
             callback({"event": "post_started"})
             time.sleep(phase_profile["post"])
             callback({"event": "post_finished"})
+            callback({"event": "evaluate_started"})
+            time.sleep(phase_profile["evaluate"])
+            callback({"event": "evaluate_finished"})
 
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
@@ -3833,6 +4089,7 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
         "effective_inflight_pipelines"
     ]
     assert smart_scheduler["max_active_pipelines_observed"] >= 3
+    assert smart_scheduler["max_eval_active_observed"] >= 1
 
 
 def test_run_all_method_benchmark_falls_back_to_serial_when_executor_unavailable(
@@ -4292,6 +4549,7 @@ def test_run_all_method_benchmark_multi_source_parallel_cap_and_ordering(
         try:
             source_file = kwargs["source_file"]
             root_output_dir = kwargs["root_output_dir"]
+            assert kwargs["source_parallelism_effective"] == 2
             assert isinstance(source_file, Path)
             assert isinstance(root_output_dir, Path)
             time.sleep(delays[source_file])
@@ -4401,6 +4659,7 @@ def test_run_all_method_benchmark_multi_source_batches_dashboard_refresh_when_pa
 
     def fake_run_all_method_benchmark(**kwargs):
         per_source_refresh_values.append(bool(kwargs["refresh_dashboard_after_source"]))
+        assert kwargs["source_parallelism_effective"] == 2
         root_output_dir = kwargs["root_output_dir"]
         root_output_dir.mkdir(parents=True, exist_ok=True)
         report_md_path = root_output_dir / "all_method_benchmark_report.md"

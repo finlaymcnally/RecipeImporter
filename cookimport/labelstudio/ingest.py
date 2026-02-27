@@ -735,6 +735,7 @@ def _write_processed_outputs(
     draft_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
     llm_codex_farm: dict[str, Any] | None = None,
     knowledge_snippets_path: Path | None = None,
+    write_markdown: bool = True,
 ) -> Path:
     timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
     run_root = output_root / timestamp
@@ -799,9 +800,20 @@ def _write_processed_outputs(
         workbook_name,
         result.recipes,
         output_stats=output_stats,
+        write_markdown=write_markdown,
     )
-    write_tip_outputs(result, tips_dir, output_stats=output_stats)
-    write_topic_candidate_outputs(result, tips_dir, output_stats=output_stats)
+    write_tip_outputs(
+        result,
+        tips_dir,
+        output_stats=output_stats,
+        write_markdown=write_markdown,
+    )
+    write_topic_candidate_outputs(
+        result,
+        tips_dir,
+        output_stats=output_stats,
+        write_markdown=write_markdown,
+    )
     if table_extraction_enabled:
         write_table_outputs(
             run_root,
@@ -809,10 +821,16 @@ def _write_processed_outputs(
             extracted_tables,
             source_file=path.name,
             output_stats=output_stats,
+            write_markdown=write_markdown,
         )
     if result.chunks:
         chunks_dir = run_root / "chunks" / workbook_name
-        write_chunk_outputs(result.chunks, chunks_dir, output_stats=output_stats)
+        write_chunk_outputs(
+            result.chunks,
+            chunks_dir,
+            output_stats=output_stats,
+            write_markdown=write_markdown,
+        )
     write_raw_artifacts(result, run_root, output_stats=output_stats)
     write_stage_block_predictions(
         results=result,
@@ -1212,6 +1230,8 @@ def generate_pred_run_artifacts(
     codex_farm_context_blocks: int = 30,
     codex_farm_failure_mode: str = "fail",
     processed_output_root: Path | None = None,
+    write_markdown: bool = True,
+    write_label_studio_tasks: bool = True,
     split_phase_slots: int | None = None,
     split_phase_gate_dir: Path | str | None = None,
     split_phase_status_label: str | None = None,
@@ -1342,6 +1362,8 @@ def generate_pred_run_artifacts(
     run_config = run_settings.to_run_config_dict()
     run_config["epub_extractor_requested"] = selected_epub_extractor
     run_config["epub_extractor_effective"] = selected_epub_extractor
+    run_config["write_markdown"] = bool(write_markdown)
+    run_config["write_label_studio_tasks"] = bool(write_label_studio_tasks)
     run_config_hash = hashlib.sha256(
         json.dumps(
             run_config,
@@ -1624,6 +1646,7 @@ def generate_pred_run_artifacts(
             draft_overrides_by_recipe_id=llm_draft_overrides,
             llm_codex_farm=llm_report,
             knowledge_snippets_path=knowledge_snippets_path,
+            write_markdown=write_markdown,
         )
         processed_report_path = (
             processed_run_root / f"{path.stem}.excel_import_report.json"
@@ -2131,10 +2154,13 @@ def generate_pred_run_artifacts(
         normalize_display_text(extracted_text) + "\n", encoding="utf-8"
     )
 
-    tasks_path = run_root / "label_studio_tasks.jsonl"
-    tasks_path.write_text(
-        "\n".join(json.dumps(task) for task in tasks) + "\n", encoding="utf-8"
-    )
+    tasks_path: Path | None = None
+    tasks_jsonl_status = "written" if write_label_studio_tasks else "skipped_by_config"
+    if write_label_studio_tasks:
+        tasks_path = run_root / "label_studio_tasks.jsonl"
+        tasks_path.write_text(
+            "\n".join(json.dumps(task) for task in tasks) + "\n", encoding="utf-8"
+        )
 
     coverage_path = run_root / "coverage.json"
     coverage_path.write_text(
@@ -2238,6 +2264,10 @@ def generate_pred_run_artifacts(
         "segment_overlap_requested": segment_overlap,
         "segment_overlap_effective": effective_segment_overlap,
         "target_task_count": target_task_count,
+        "write_markdown": bool(write_markdown),
+        "write_label_studio_tasks": bool(write_label_studio_tasks),
+        "tasks_jsonl_status": tasks_jsonl_status,
+        "tasks_jsonl_path": str(tasks_path) if tasks_path is not None else None,
         "timing": timing_payload,
         "task_count": len(tasks),
         "task_ids": task_ids,
@@ -2261,12 +2291,15 @@ def generate_pred_run_artifacts(
     )
 
     run_manifest_artifacts: dict[str, Any] = {
-        "tasks_jsonl": "label_studio_tasks.jsonl",
+        "tasks_jsonl_status": tasks_jsonl_status,
         "prediction_manifest_json": "manifest.json",
         "coverage_json": "coverage.json",
         "extracted_archive_json": "extracted_archive.json",
         "extracted_text": "extracted_text.txt",
     }
+    tasks_manifest_path = _path_for_manifest(run_root, tasks_path)
+    if tasks_manifest_path:
+        run_manifest_artifacts["tasks_jsonl"] = tasks_manifest_path
     if prelabel_report_path is not None:
         run_manifest_artifacts["prelabel_report_json"] = _path_for_manifest(
             run_root, prelabel_report_path
@@ -2343,6 +2376,8 @@ def generate_pred_run_artifacts(
         "processed_stage_block_predictions_path": processed_stage_block_predictions_path,
         "stage_block_predictions_path": local_stage_block_predictions_path,
         "tasks_total": len(tasks),
+        "tasks_jsonl_path": tasks_path,
+        "tasks_jsonl_status": tasks_jsonl_status,
         "manifest_path": manifest_path,
         "tasks": tasks,
         "task_ids": task_ids,

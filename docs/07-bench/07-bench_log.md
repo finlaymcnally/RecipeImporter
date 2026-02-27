@@ -1136,3 +1136,397 @@ Decision/outcome preserved:
 Evidence preserved:
 - Task verification set passed: `5 passed, 2 warnings in 3.38s`.
 - Artifacts captured when enabled: `eval_profile.pstats`, `eval_profile_top.txt`.
+
+## 2026-02-26 to 2026-02-27 docs/tasks archival merge batch (OG speed plans + audits)
+
+Merged sources in file-modified timestamp order (`YYYY-MM-DD_HH.MM.SS`, local):
+- `2026-02-26_19.31.45` `docs/tasks/speed-1.md`
+- `2026-02-26_19.37.49` `docs/tasks/speed-2.md`
+- `2026-02-26_20.13.55` `docs/tasks/speed-4.md`
+- `2026-02-26_22.04.22` `docs/tasks/2026-02-26_21.02.47-og-speed-plan-implementation-audit.md`
+- `2026-02-26_22.24.05` `docs/tasks/2026-02-26_21.34.23-og-speed3-speed5-implementation-audit.md`
+- `2026-02-26_22.24.26` `docs/tasks/speed-5.md`
+- `2026-02-26_22.24.35` `docs/tasks/speed-3.md` (contains in-doc implementation timestamps on `2026-02-27`)
+
+### speed-1 ExecPlan archival merge (`docs/tasks/speed-1.md`)
+
+Problem captured:
+- Canonical-text evaluation runtime was dominated by global alignment using stdlib `difflib.SequenceMatcher`.
+
+Intent preserved:
+- Keep scoring and alignment algorithm semantics unchanged.
+- Only swap matcher implementation behind a drop-in selector with deterministic fallback behavior.
+
+Decisions preserved:
+- Scope is implementation substitution only (no threshold/algorithm changes).
+- Prefer `cydifflib` in `auto` mode; always preserve stdlib fallback.
+- Avoid monkey-patching; use explicit benchmark-local selector wiring.
+
+Status captured in plan:
+- Rebuild completed as a code-verified ExecPlan.
+- Remaining in-plan gap was baseline/after evidence capture (telemetry + output identity proof).
+
+### speed-2 ExecPlan archival merge (`docs/tasks/speed-2.md`)
+
+Problem captured:
+- All-method canonical-text runs could underutilize CPU during evaluate-heavy tails due to admission guards tied to split/prewarm bookkeeping.
+
+Intent preserved:
+- Improve scheduler admission/runtime utilization only; keep scoring behavior unchanged.
+
+Decisions preserved:
+- Keep user-facing settings stable and introduce CPU-aware behavior in runtime resolution.
+- Include explicit evaluate-phase visibility in snapshots/rollups as part of the same change.
+
+Status captured in plan:
+- Plan scaffold rebuilt with milestone-level implementation targets.
+- Remaining in-plan gap was representative before/after evidence capture on real all-method canonical-text workloads.
+
+### speed-4 ExecPlan archival merge (`docs/tasks/speed-4.md`)
+
+Problem captured:
+- Prediction and evaluation were conceptually staged but lacked a durable prediction-stage contract for replay/evaluate-only flows.
+
+Implemented outcomes captured:
+- Added `PredictionRecord` schema + JSONL IO in `cookimport/bench/prediction_records.py`.
+- Added benchmark stage controls:
+  - `--execution-mode legacy|pipelined|predict-only`
+  - `--predictions-out`
+  - `--predictions-in`
+- Added evaluate-only replay path and queue-backed pipelined orchestration.
+- Added focused regression coverage:
+  - `tests/bench/test_prediction_records.py`
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+
+Open gap preserved:
+- Real workload timing proof for `legacy` vs `pipelined` remained pending in the plan.
+
+### 2026-02-26_21.02.47 OG implementation audit merge (`docs/tasks/2026-02-26_21.02.47-og-speed-plan-implementation-audit.md`)
+
+Audit question preserved:
+- Compare OG specs (`speed-1`, `speed-2`, `speed-4`) to runtime/test/docs evidence and mark `Complete`/`Partial`/`Missing`.
+
+Executive verdict captured at audit time:
+- `speed-1`: `Partial`
+- `speed-2`: `Partial`
+- `speed-4`: `Partial`
+
+Requirement-level closure snapshot preserved:
+- Speed-1:
+  - complete wiring/tests/docs: `S1-R2..S1-R10`
+  - missing: `S1-R1` (baseline + after evidence artifact)
+- Speed-2:
+  - complete runtime/test/docs semantics: `S2-R2..S2-R10`
+  - missing: `S2-R1` (before/after all-method evidence)
+- Speed-4:
+  - complete staged controls and replay/predict-only behavior: `S4-R1..S4-R8`
+  - partial: `S4-R9` (contract still run-level record, not per-example)
+  - missing: `S4-R10` (timing evidence for overlap benefit)
+
+Explicit open list preserved by audit:
+1. Speed-1 evidence capture.
+2. Speed-2 evidence capture.
+3. Speed-4 per-example record boundary decision (if OG requirement still stands).
+4. Speed-4 timing-evidence capture.
+
+### 2026-02-26_21.34.23 OG implementation audit merge (`docs/tasks/2026-02-26_21.34.23-og-speed3-speed5-implementation-audit.md`)
+
+Audit question preserved:
+- Compare OG specs (`speed-3`, `speed-5`) to runtime/test/docs evidence and capture unresolved acceptance gaps.
+
+Executive verdict captured at initial audit checkpoint:
+- `speed-3`: `Partial` (core architecture implemented, proof/hardening gaps open).
+- `speed-5`: `Partial` but mostly incomplete at that checkpoint.
+
+Requirement-level snapshot preserved (initial checkpoint):
+- Speed-3:
+  - complete: `S3-R1,S3-R2,S3-R3,S3-R4,S3-R6,S3-R7,S3-R8`
+  - partial: `S3-R5` (recovery branches existed but lacked direct test forcing)
+  - missing: `S3-R9,S3-R10`
+- Speed-5:
+  - complete: `S5-R2`
+  - partial: `S5-R6,S5-R11`
+  - missing: `S5-R1,S5-R3,S5-R4,S5-R5,S5-R7,S5-R8,S5-R9,S5-R10,S5-R12,S5-R13,S5-R14`
+
+Implementation update preserved in same task (`2026-02-26_22.23.35`):
+- Speed-3:
+  - added explicit stale-lock and corrupt-cache fallback tests in `tests/bench/test_eval_stage_blocks.py`.
+- Speed-5:
+  - added `write_markdown` control through staging writer, worker, merge, and stage CLI wiring.
+  - added pred-run controls `write_markdown` and `write_label_studio_tasks`.
+  - added benchmark CLI flags:
+    - `--write-markdown/--no-write-markdown`
+    - `--write-labelstudio-tasks/--no-write-labelstudio-tasks` (offline-only guardrail).
+  - added manifest semantics for intentional task skip:
+    - `tasks_jsonl_status` (`written|skipped_by_config`)
+    - `tasks_jsonl` emitted only when written.
+  - added doc/test updates across CLI, staging, label studio, and benchmark surfaces.
+
+Residual open gaps preserved after that update:
+1. Committed real-run timing evidence for speed-3 and speed-5.
+2. Prepared archive abstraction (`PreparedExtractedArchive`) still not implemented.
+3. Broader scoring-parity evidence artifacts for speed-5 still pending.
+
+Anti-loop note:
+- This audit file intentionally contains two states (initial gap-heavy checkpoint and later implementation update). Read both before assuming work is still missing.
+
+### speed-5 ExecPlan archival merge (`docs/tasks/speed-5.md`)
+
+Problem captured:
+- Stage and offline benchmark prediction flows spent time writing non-scoring artifacts (markdown/task JSONL).
+
+Implemented outcomes preserved:
+- Stage supports `--no-write-markdown`.
+- Offline benchmark supports `--no-write-markdown` and `--no-write-labelstudio-tasks`.
+- Defaults remain compatibility-safe (`write_markdown=True`, `write_label_studio_tasks=True`).
+- Intentional task-jsonl skip state is explicit in manifests (`tasks_jsonl_status`).
+
+Guardrails preserved:
+- `--no-write-labelstudio-tasks` must remain offline-only because upload mode requires tasks JSONL payloads.
+
+Remaining plan gaps preserved:
+- Representative manual A/B timing evidence.
+- Representative scoring-parity evidence artifact for speed mode.
+
+### speed-3 ExecPlan archival merge (`docs/tasks/speed-3.md`)
+
+Problem captured:
+- Canonical-text all-method runs repeated expensive global alignment for identical prediction/canonical text streams.
+
+Implemented outcomes preserved:
+- Canonical evaluator supports optional disk-backed alignment reuse via `alignment_cache_dir`.
+- Cache key/signature includes canonical normalized text, prediction normalized text, and prediction block-boundary layout.
+- Cache supports lock + stale-lock recovery + atomic write + corruption quarantine paths.
+- Telemetry includes cache-enabled/hit/key/load/write/validation fields.
+- All-method uses shared per-source cache root at `.cache/canonical_alignment`.
+
+Validation record preserved:
+- Focused runs for `tests/bench/test_eval_stage_blocks.py` and `tests/labelstudio/test_labelstudio_benchmark_helpers.py` reported green in task notes.
+- Added tests for hit reuse parity, boundary-invalidation behavior, stale-lock recovery, and corrupt-entry fallback.
+
+Remaining gap preserved:
+- Real all-method telemetry bundle proving cross-config hit-rate and wall-time reduction was still pending.
+
+### Consolidated closure order preserved across both audits
+
+1. Capture before/after benchmark evidence for speed-1 and speed-2.
+2. Capture `legacy` vs `pipelined` timing evidence for speed-4.
+3. Capture speed-3 cache hit-rate + wall-time evidence and speed-5 A/B write-time + scoring-parity evidence.
+4. Decide whether OG still requires per-example prediction records (`speed-4`) and prepared archive abstraction (`speed-5`) before reopening implementation loops.
+
+## 2026-02-26 to 2026-02-27 archival merge batch from `docs/understandings` (canonical eval + scheduler surfaces + speed4/5 contracts)
+
+Merged sources in file-created timestamp order (`YYYY-MM-DD_HH.MM.SS`):
+- `2026-02-26_17.43.52` `docs/understandings/2026-02-26_17.43.52-interactive-benchmark-canonical-text-default.md`
+- `2026-02-26_17.50.47` `docs/understandings/2026-02-26_17.50.47-interactive-benchmark-eval-spinner-visibility.md`
+- `2026-02-26_18.05.24` `docs/understandings/2026-02-26_18.05.24-canonical-fast-align-deprecated.md`
+- `2026-02-26_18.19.49` `docs/understandings/2026-02-26_18.19.49-benchmark-telemetry-source-layout.md`
+- `2026-02-26_18.32.41` `docs/understandings/2026-02-26_18.32.41-all-method-failure-counters-timeout-retries.md`
+- `2026-02-26_18.49.41` `docs/understandings/2026-02-26_18.49.41-all-method-dashboard-active-config-worker-lines.md`
+- `2026-02-26_18.51.30` `docs/understandings/2026-02-26_18.51.30-all-method-heavy-counter-vs-eval-phase.md`
+- `2026-02-26_19.30.26` `docs/understandings/2026-02-26_19.30.26-canonical-sequence-matcher-surface.md`
+- `2026-02-26_19.37.52` `docs/understandings/2026-02-26_19.37.52-all-method-smart-admission-eval-tail-constraints.md`
+- `2026-02-26_19.57.12` `docs/understandings/2026-02-26_19.57.12-canonical-alignment-cache-call-chain.md`
+- `2026-02-26_20.26.13` `docs/understandings/2026-02-26_20.26.13-speed5-stageblock-artifact-surface.md`
+- `2026-02-26_22.03.19` `docs/understandings/2026-02-26_22.03.19-speed2-eval-tail-headroom-and-speed4-pipeline-prewarm.md`
+- `2026-02-26_22.23.35` `docs/understandings/2026-02-26_22.23.35-speed5-toggle-plumbing-surfaces.md`
+- `2026-02-26_22.36.54` `docs/understandings/2026-02-26_22.36.54-all-method-cpu-utilization-cap-from-config-limits.md`
+- `2026-02-27_03.12.00` `docs/understandings/2026-02-27_03.12.00-speed4-benchmark-stage-record-contract.md`
+
+### 2026-02-26_17.43.52 interactive single-offline canonical-text default
+
+Problem captured:
+- Interactive `single_offline` path called `labelstudio_benchmark(..., no_upload=True)` without forwarding `eval_mode`, so Typer defaulted to `stage-blocks`.
+- Interactive `all_method` already forced `canonical-text`, so interactive modes diverged on scoring surface.
+
+Decision/outcome preserved:
+- Interactive benchmark modes should both pass `eval_mode=canonical-text`.
+- This keeps interactive workflows extractor-agnostic and avoids stage-block blockization mismatch failures during cross-extractor checks.
+
+Anti-loop note:
+- If interactive single-offline unexpectedly reports stage-block mismatch guards, first verify `eval_mode` propagation before changing evaluator code.
+
+### 2026-02-26_17.50.47 interactive benchmark eval-phase spinner visibility
+
+Problem captured:
+- Prediction generation had progress status wrapping; evaluation phase ran with no spinner/status wrapper.
+- Canonical eval can run for minutes, making terminal output appear frozen after prediction artifacts are written.
+
+Decision/outcome preserved:
+- Non-suppressed interactive benchmark runs should keep visible status during evaluation with explicit eval-mode wording.
+
+Anti-loop note:
+- Apparent post-prediction "hang" can be normal evaluation; verify status/render path before adding watchdog logic.
+
+### 2026-02-26_18.05.24 canonical fast alignment deprecation enforcement
+
+Problem captured:
+- Bounded fast alignment showed accuracy-risk mapping drift on real materials.
+- Auto fallback preserved correctness but added uncertainty/complexity about active strategy.
+
+Decision/outcome preserved:
+- Canonical scoring enforces legacy global alignment.
+- `COOKIMPORT_CANONICAL_ALIGNMENT_STRATEGY=auto|fast` is treated as deprecated alias behavior and forced to legacy with explicit telemetry.
+
+Anti-loop note:
+- Do not reopen fast alignment path without new evidence that preserves scoring parity under representative corpora.
+
+### 2026-02-26_18.19.49 benchmark telemetry source layout
+
+Problem captured:
+- Top-level `data/.history/performance_history.csv` had very few rows relative to known benchmark volume.
+
+Evidence preserved:
+- Feb 25-26 benchmark truth was distributed across run-local files:
+  - `data/golden/benchmark-vs-golden/**/eval_report.json`
+  - `data/golden/benchmark-vs-golden/**/all_method_benchmark_report.json`
+  - `data/output/**/all-method-benchmark/**/.history/performance_history.csv`
+
+Decision/outcome preserved:
+- Run-local eval/source reports and run-local history CSVs are primary telemetry truth for benchmark analysis.
+- Top-level history remains a convenience index only.
+
+### 2026-02-26_18.32.41 all-method fail counters vs timeout/retry semantics
+
+Problem captured:
+- Operators interpreted non-zero live `fail` counters as final source failures while source execution was still in progress.
+
+Decision/outcome preserved:
+- Queue `ok/fail` counters represent attempt outcomes during initial pass.
+- Retry passes and timeout recovery can later clear failures, but live queue counters are intentionally not rewritten.
+- Final source outcome belongs in `all_method_benchmark_report.json` retry/failure summary fields.
+
+Anti-loop note:
+- Avoid diagnosing "stuck failed run" from live queue counters alone; inspect report-level final status fields.
+
+### 2026-02-26_18.49.41 active-config dashboard worker lines
+
+Problem captured:
+- Dashboard compressed multi-active state to `current configs A-B/N`, hiding per-slot phase visibility.
+- Scheduler events already had per-config phase telemetry but that state was not surfaced in operator rows.
+
+Decision/outcome preserved:
+- Dashboard maintains per-config phase state and renders multi-active worker rows (`config NN: <phase> | <slug>`).
+
+Anti-loop note:
+- If operators cannot tell whether workers are in split/eval/post phases, fix dashboard state plumbing before tuning scheduler heuristics.
+
+### 2026-02-26_18.51.30 heavy counter vs evaluate-phase activity
+
+Problem captured:
+- `scheduler heavy X/Y` was misread as total activity, causing false stall assumptions when evaluate-phase dominated.
+
+Decision/outcome preserved:
+- `heavy` reflects only `split_active` occupancy.
+- During evaluate-only windows, `heavy 0/N` with active configs and pending `0` can be expected.
+- Per-config scheduler event files (`.scheduler_events/config_*.jsonl`) are the liveness source when status appears idle.
+
+Anti-loop note:
+- Treat `evaluate_started` + high worker CPU as normal progress, not deadlock, unless timeout thresholds are exceeded.
+
+### 2026-02-26_19.30.26 canonical SequenceMatcher implementation surface
+
+Problem captured:
+- Speed-1 work needed exact implementation boundary to avoid behavior drift.
+
+Evidence preserved:
+- `cookimport/bench/eval_canonical_text.py` imports stdlib `SequenceMatcher`.
+- `_align_prediction_blocks_legacy(...)` uses `autojunk=False`.
+- Alignment telemetry already includes `alignment_sequence_matcher_seconds`.
+
+Decision/outcome preserved:
+- Speed work may swap matcher implementation behind current call surface only; alignment/scoring semantics must remain unchanged.
+
+### 2026-02-26_19.37.52 smart admission eval-tail guard interaction
+
+Problem captured:
+- Scheduler already tracked `evaluate_active`, but additional prewarm guards could still suppress new admissions during evaluate-heavy tails.
+
+Decision/outcome preserved:
+- Throughput tuning must include both eval-tail caps and guard-target math (`heavy + wing` vs target), not eval detection alone.
+- Live snapshots should include eval-phase visibility to explain admission behavior under tail-heavy workloads.
+
+Anti-loop note:
+- "Eval-tail is ignored" is often a guard-target artifact; inspect both eval count and guard thresholds before changing phase detection.
+
+### 2026-02-26_19.57.12 canonical alignment cache call chain and safety
+
+Problem captured:
+- Needed an exact end-to-end map of how cache paths propagate and where safety checks are enforced.
+
+Decision/outcome preserved:
+- Per-source cache root is created in `_run_all_method_benchmark(...)` and threaded through:
+  - `_run_all_method_config_once(...)` -> `labelstudio_benchmark(...)` -> `evaluate_canonical_text(...)` -> `_align_prediction_blocks_to_canonical(...)`.
+- Cache reuse requires canonical hash, prediction hash, boundary hash, normalization version, and algorithm version match.
+- Validation failures become cache misses and are surfaced in telemetry; writes are atomic with lock+stale-lock handling.
+
+Anti-loop note:
+- If cache behavior looks inconsistent, inspect validation-error telemetry first before loosening key constraints.
+
+### 2026-02-26_20.26.13 speed-5 artifact-surface baseline
+
+Problem captured:
+- Needed proof of which artifacts actually affect stage-block scoring before adding write-skipping toggles.
+
+Evidence preserved:
+- Stage-block scoring does not consume `label_studio_tasks.jsonl`.
+- Scoring reads stage predictions plus extracted archive artifacts.
+- Output stats and archive construction were already single-pass/efficient in existing paths.
+
+Decision/outcome preserved:
+- Remaining speed-5 leverage is optional markdown/task side-artifact writes, not core scorer inputs.
+
+### 2026-02-26_22.03.19 speed-2 headroom + speed-4 prewarm boundary
+
+Problem captured:
+- Eval-tail utilization remained low despite eval activity tracking.
+- Proposed speed-4 overlap ideas needed practical phase boundary grounding.
+
+Decision/outcome preserved:
+- Speed-2 needed CPU-aware eval-tail caps plus dynamic guard-target behavior while eval is active.
+- Speed-4 practical overlap is prediction generation producer-threading plus canonical prewarm; evaluation still depends on run-level prediction artifacts being present.
+
+Anti-loop note:
+- Do not assume full prediction/eval overlap before run artifacts exist; replay contract is run-level, not per-example stream.
+
+### 2026-02-26_22.23.35 speed-5 toggle plumbing surfaces
+
+Problem captured:
+- Toggle behavior drift risk across stage single-file, split-merge, and benchmark no-upload pred-run generation.
+
+Decision/outcome preserved:
+- `write_markdown` must be forwarded through both stage entry paths (`stage_one_file` and split-merge merge path).
+- `write_label_studio_tasks` is meaningful only for no-upload/offline pred-run generation.
+- Manifests must explicitly encode skipped tasks JSONL (`tasks_jsonl_status=skipped_by_config`) so missing file is intentional.
+
+Anti-loop note:
+- Avoid one-path-only toggle patches; mismatched plumbing reintroduces nondeterministic artifact sets.
+
+### 2026-02-26_22.36.54 all-method CPU underutilization via config caps
+
+Problem captured:
+- Low observed CPU utilization was misdiagnosed as scheduler/worker failure in some runs.
+
+Evidence preserved:
+- Interactive all-method caps are read from `cookimport.json` keys:
+  - `all_method_max_inflight_pipelines`
+  - `all_method_max_split_phase_slots`
+  - `all_method_max_eval_tail_pipelines`
+  - `all_method_wing_backlog_target`
+- Example low-cap settings (`2/2/2`) can cap effective inflight near six, underutilizing many-core hosts.
+
+Decision/outcome preserved:
+- First diagnostic step for low CPU should be resolved scheduler limits, not worker fault assumptions.
+
+### 2026-02-27_03.12.00 speed-4 benchmark stage-record contract
+
+Problem captured:
+- Needed stable contract for evaluate-only replay and execution-mode split without scoring changes.
+
+Decision/outcome preserved:
+- `labelstudio-benchmark` already has hard prediction/eval phase boundary at run level.
+- Durable replay contract is a run-level prediction record with artifact paths + minimal metadata.
+- Per-example streaming contract is not required for immediate replay support and would enlarge semantic surface.
+
+Anti-loop note:
+- If replay feature requests reintroduce per-example contracts, require explicit rationale and compatibility plan against current run-level record design.

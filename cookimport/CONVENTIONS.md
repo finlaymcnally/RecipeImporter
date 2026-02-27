@@ -40,13 +40,14 @@ Interactive file discovery and direct staging intentionally differ:
   - `all_method_max_parallel_sources`
   - `all_method_max_inflight_pipelines`
   - `all_method_max_split_phase_slots`
+  - `all_method_max_eval_tail_pipelines`
   - `all_method_wing_backlog_target`
   - `all_method_smart_scheduler`
   - `all_method_config_timeout_seconds`
   - `all_method_retry_failed_configs`
 - Interactive all-method benchmark should print resolved scheduler mode/limits before final confirmation, including source parallelism configured/effective, configured/effective inflight, split slots, wing backlog target, smart tail buffer, timeout, and retry settings.
 - Interactive all-method benchmark should render one persistent spinner dashboard (book queue + overall source/config counters + current task) and suppress per-config `labelstudio-benchmark` completion dumps while the sweep is running.
-- Interactive all-method spinner/dashboard task output should include a scheduler snapshot line: `scheduler heavy X/Y | wing Z | active A | pending P`.
+- Interactive all-method spinner/dashboard task output should include a scheduler snapshot line: `scheduler heavy X/Y | wing Z | eval E | active A | pending P`.
 - All-method spinner `current config` should track active config slots in parallel mode; when multiple configs are active, render a range (`current configs A-B/N`) instead of a stale last-submitted slug.
 - For multi-active `current configs` states, render per-config worker detail lines (`config NN: <phase> | <slug>`) so active slot activity remains visible.
 - All-matched all-method spinner queue should support multiple simultaneously running sources (`[>]` rows), with summary line `active sources: N`.

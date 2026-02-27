@@ -98,6 +98,44 @@ def test_stage_output_structure(tmp_path):
     assert history_csv.exists()
 
 
+def test_stage_no_write_markdown_skips_markdown_sidecars(tmp_path):
+    source_file = TESTS_FIXTURES_DIR / "simple_text.txt"
+    output_dir = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "stage",
+            str(source_file),
+            "--out",
+            str(output_dir),
+            "--workers",
+            "1",
+            "--pdf-split-workers",
+            "1",
+            "--epub-split-workers",
+            "1",
+            "--no-write-markdown",
+        ],
+    )
+    assert result.exit_code == 0
+
+    timestamp_dirs = [
+        path
+        for path in output_dir.glob("*")
+        if path.is_dir() and not path.name.startswith(".")
+    ]
+    assert len(timestamp_dirs) == 1
+    timestamp_dir = timestamp_dirs[0]
+    file_slug = "simple_text"
+
+    assert (timestamp_dir / "sections" / file_slug / "r0.sections.json").exists()
+    assert not (timestamp_dir / "sections" / file_slug / "sections.md").exists()
+    assert not (timestamp_dir / "tips" / file_slug / "tips.md").exists()
+    assert not (timestamp_dir / "tips" / file_slug / "topic_candidates.md").exists()
+    assert not list(timestamp_dir.rglob("*.md"))
+
+
 def test_epub_report_includes_extractor_setting(tmp_path):
     fixtures_dir = TESTS_FIXTURES_DIR
     source_file = fixtures_dir / "sample.epub"

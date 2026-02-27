@@ -59,17 +59,18 @@ def _line_bounds_from_pred_run(pred_run_root: Path) -> tuple[int, int] | None:
                 values.extend(_walk_line_bounds(block.get("location")))
 
     tasks_path = pred_run_root / "label_studio_tasks.jsonl"
-    for line in tasks_path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        payload = json.loads(line)
-        if not isinstance(payload, dict):
-            continue
-        data = payload.get("data")
-        if not isinstance(data, dict):
-            continue
-        # Freeform tasks carry source location metadata in source_map blocks.
-        values.extend(_walk_line_bounds(data.get("source_map")))
+    if tasks_path.exists():
+        for line in tasks_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                continue
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                continue
+            # Freeform tasks carry source location metadata in source_map blocks.
+            values.extend(_walk_line_bounds(data.get("source_map")))
     if not values:
         return None
     return min(values), max(values)
@@ -164,6 +165,7 @@ def test_stage_and_pred_run_manifests_share_source_identity_and_coords(tmp_path:
         "codex_farm_knowledge_context_blocks",
         "tag_catalog_json",
         "codex_farm_failure_mode",
+        "write_markdown",
     }
     for key in parity_keys:
         assert stage_cfg[key] == pred_cfg[key]

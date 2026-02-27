@@ -39,6 +39,8 @@ def build_pred_run_for_source(
         codex_farm_context_blocks=cfg.get("codex_farm_context_blocks", 30),
         codex_farm_failure_mode=cfg.get("codex_farm_failure_mode", "fail"),
         processed_output_root=cfg.get("processed_output_root", out_dir),
+        write_markdown=cfg.get("write_markdown", True),
+        write_label_studio_tasks=cfg.get("write_label_studio_tasks", True),
         run_manifest_kind="bench_pred_run",
         progress_callback=progress_callback,
         **kwargs,

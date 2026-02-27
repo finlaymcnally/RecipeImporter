@@ -292,7 +292,7 @@ Interactive benchmark now has a mode submenu before execution:
     sourced from `cookimport.json` keys `all_method_max_parallel_sources`, `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_max_eval_tail_pipelines`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`, `all_method_config_timeout_seconds`, and `all_method_retry_failed_configs`,
    - asks final proceed confirmation (`Proceed with N benchmark runs?` for single or `Proceed with N benchmark runs across M matched golden sets?` for all-matched, default `No`),
   - execution uses one persistent all-method spinner dashboard (book queue + overall source/config counters + current task line), including a scheduler snapshot line:
-    - `scheduler heavy X/Y | wing Z | active A | pending P`,
+    - `scheduler heavy X/Y | wing Z | eval E | active A | pending P`,
     - `current config` reflects active config slots in parallel mode (`current configs A-B/N`) rather than a stale last-submitted slug,
     - when multiple configs are active, dashboard renders per-config worker lines (`config NN: <phase> | <slug>`) so active slots are visible,
     - when no config is actively running but source work remains, the line shows `<queued>`,
@@ -300,7 +300,7 @@ Interactive benchmark now has a mode submenu before execution:
     - all-matched mode can show multiple `[>]` source rows simultaneously (`active sources: N`),
   - executes configs through a bounded queue:
     - fixed mode: submit up to inflight capacity and refill on completion,
-    - smart mode: phase-aware admission keeps `heavy + wing` near `split slots + wing backlog target` and auto-raises effective inflight with an additional split-slot tail buffer so long post phases do not starve preheating,
+    - smart mode: phase-aware admission keeps `heavy + wing` near `split slots + wing backlog target` and auto-raises effective inflight with eval-tail headroom (`all_method_max_eval_tail_pipelines` override or CPU-aware auto default) so evaluate-heavy tails do not starve admissions,
     - timeout watchdog (`all_method_config_timeout_seconds`) marks timed-out configs failed and recycles worker pool so one hung config cannot block source completion,
     - failed-only retry passes (`all_method_retry_failed_configs`) rerun only failed config indices, not successful ones,
     - startup fallback to serial mode remains when process workers are unavailable,
@@ -401,6 +401,7 @@ Options:
 - `--workers, -w INTEGER>=1` (default `7`): total process pool workers.
 - `--pdf-split-workers INTEGER>=1` (default `7`): max workers for one split PDF.
 - `--epub-split-workers INTEGER>=1` (default `7`): max workers for one split EPUB.
+- `--write-markdown / --no-write-markdown` (default write): write markdown sidecar artifacts (`sections.md`, `tips.md`, `topic_candidates.md`, `chunks.md`, `tables.md`).
 - `--epub-extractor TEXT` (default `unstructured`): `unstructured|beautifulsoup|markdown|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
@@ -627,6 +628,9 @@ Behavior note:
 
 - Non-interactive upload path: generates predictions, uploads to Label Studio, then evaluates.
 - Non-interactive offline path: `--no-upload` generates predictions locally and evaluates with no Label Studio credentials/API calls.
+- Offline prediction generation can skip non-scoring side artifacts via:
+  - `--no-write-markdown` to skip markdown sidecars in processed stage outputs.
+  - `--no-write-labelstudio-tasks` to skip `label_studio_tasks.jsonl` in offline pred-runs (stage-block scoring remains unchanged because it reads stage evidence + extracted archive).
 - Eval mode is configurable via `--eval-mode stage-blocks|canonical-text` (default `stage-blocks`).
 - Re-scoring an old prediction run without regeneration is still done with `cookimport labelstudio-eval --pred-run ... --gold-spans ...`.
 - Interactive mode (`cookimport` -> Benchmark) always runs offline benchmark generation/eval (`single offline` or `all method`).
@@ -651,6 +655,8 @@ Options:
 - `--project-name TEXT`: explicit prediction project name.
 - `--allow-labelstudio-write / --no-allow-labelstudio-write` (default disabled): required gate for upload mode.
 - `--no-upload` (default `false`): force offline benchmark (no upload, no credential resolution).
+- `--write-markdown / --no-write-markdown` (default write): write markdown sidecar artifacts for processed outputs generated during benchmark prediction runs.
+- `--write-labelstudio-tasks / --no-write-labelstudio-tasks` (default write): write `label_studio_tasks.jsonl` in offline pred-runs (`--no-upload` only).
 - `--overwrite / --resume` (default `--resume`): recreate prediction project or resume.
 - `--label-studio-url TEXT`: explicit Label Studio URL.
 - `--label-studio-api-key TEXT`: explicit Label Studio API key.

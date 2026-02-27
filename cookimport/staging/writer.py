@@ -397,15 +397,18 @@ def write_section_outputs(
     candidates: list[RecipeCandidate],
     *,
     output_stats: OutputStats | None = None,
+    write_markdown: bool = True,
 ) -> None:
     """Write grouped ingredient/step section artifacts per recipe."""
     sections_dir = out_dir / "sections" / workbook_slug
     sections_dir.mkdir(parents=True, exist_ok=True)
 
-    markdown_lines = [
-        "# Recipe Sections",
-        "",
-    ]
+    markdown_lines: list[str] | None = None
+    if write_markdown:
+        markdown_lines = [
+            "# Recipe Sections",
+            "",
+        ]
 
     for index, candidate in enumerate(candidates):
         ingredient_sections = extract_ingredient_sections(candidate.ingredients)
@@ -469,37 +472,39 @@ def write_section_outputs(
             category=_OUTPUT_CATEGORY_SECTIONS,
         )
 
-        markdown_lines.append(f"## r{index}: {candidate.name}")
-        if not section_entries:
+        if markdown_lines is not None:
+            markdown_lines.append(f"## r{index}: {candidate.name}")
+            if not section_entries:
+                markdown_lines.append("")
+                markdown_lines.append("(No section groups detected.)")
+                markdown_lines.append("")
+                continue
             markdown_lines.append("")
-            markdown_lines.append("(No section groups detected.)")
-            markdown_lines.append("")
-            continue
-        markdown_lines.append("")
-        for section in section_entries:
-            markdown_lines.append(f"### {section['name']} ({section['key']})")
-            ingredients = section.get("ingredients", [])
-            steps = section.get("steps", [])
-            if ingredients:
-                markdown_lines.append("Ingredients:")
-                for ingredient in ingredients:
-                    markdown_lines.append(f"- {ingredient}")
-            else:
-                markdown_lines.append("Ingredients: (none)")
-            if steps:
-                markdown_lines.append("Steps:")
-                for step in steps:
-                    markdown_lines.append(f"- {step}")
-            else:
-                markdown_lines.append("Steps: (none)")
-            markdown_lines.append("")
+            for section in section_entries:
+                markdown_lines.append(f"### {section['name']} ({section['key']})")
+                ingredients = section.get("ingredients", [])
+                steps = section.get("steps", [])
+                if ingredients:
+                    markdown_lines.append("Ingredients:")
+                    for ingredient in ingredients:
+                        markdown_lines.append(f"- {ingredient}")
+                else:
+                    markdown_lines.append("Ingredients: (none)")
+                if steps:
+                    markdown_lines.append("Steps:")
+                    for step in steps:
+                        markdown_lines.append(f"- {step}")
+                else:
+                    markdown_lines.append("Steps: (none)")
+                markdown_lines.append("")
 
-    _write_text_payload(
-        "\n".join(markdown_lines).rstrip() + "\n",
-        sections_dir / "sections.md",
-        output_stats=output_stats,
-        category=_OUTPUT_CATEGORY_SECTIONS,
-    )
+    if markdown_lines is not None:
+        _write_text_payload(
+            "\n".join(markdown_lines).rstrip() + "\n",
+            sections_dir / "sections.md",
+            output_stats=output_stats,
+            category=_OUTPUT_CATEGORY_SECTIONS,
+        )
 
 
 def write_tip_outputs(
@@ -507,6 +512,7 @@ def write_tip_outputs(
     out_dir: Path,
     *,
     output_stats: OutputStats | None = None,
+    write_markdown: bool = True,
 ) -> None:
     """Write tip/knowledge outputs.
 
@@ -536,6 +542,9 @@ def write_tip_outputs(
             output_stats=output_stats,
             category=_OUTPUT_CATEGORY_TIPS,
         )
+
+    if not write_markdown:
+        return
 
     summary_path = out_dir / "tips.md"
     if general_tips:
@@ -572,6 +581,7 @@ def write_topic_candidate_outputs(
     out_dir: Path,
     *,
     output_stats: OutputStats | None = None,
+    write_markdown: bool = True,
 ) -> None:
     """Write topic-candidate outputs for evaluation and LLM prefiltering.
 
@@ -600,6 +610,9 @@ def write_topic_candidate_outputs(
         output_stats=output_stats,
         category=_OUTPUT_CATEGORY_TOPIC_CANDIDATES,
     )
+
+    if not write_markdown:
+        return
 
     lines = [
         "# Topic Candidates",
@@ -862,6 +875,7 @@ def write_chunk_outputs(
     out_dir: Path,
     *,
     output_stats: OutputStats | None = None,
+    write_markdown: bool = True,
 ) -> None:
     """Write knowledge chunk outputs.
 
@@ -879,6 +893,9 @@ def write_chunk_outputs(
             output_stats=output_stats,
             category=_OUTPUT_CATEGORY_CHUNKS,
         )
+
+    if not write_markdown:
+        return
 
     # Write chunks.md summary
     summary_path = out_dir / "chunks.md"
@@ -898,6 +915,7 @@ def write_table_outputs(
     *,
     source_file: str | None = None,
     output_stats: OutputStats | None = None,
+    write_markdown: bool = True,
 ) -> None:
     tables_dir = run_out_dir / "tables" / workbook_slug
     tables_dir.mkdir(parents=True, exist_ok=True)
@@ -915,6 +933,9 @@ def write_table_outputs(
         output_stats=output_stats,
         category=_OUTPUT_CATEGORY_TABLES,
     )
+
+    if not write_markdown:
+        return
 
     lines = ["# Extracted Tables", ""]
     if not tables:

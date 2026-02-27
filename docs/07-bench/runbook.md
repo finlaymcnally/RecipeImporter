@@ -69,7 +69,9 @@ Where `my_knobs.json` overrides defaults:
 ```json
 {
   "segment_blocks": 60,
-  "segment_overlap": 10
+  "segment_overlap": 10,
+  "write_markdown": false,
+  "write_label_studio_tasks": false
 }
 ```
 

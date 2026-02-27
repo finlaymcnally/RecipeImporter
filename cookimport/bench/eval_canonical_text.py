@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import time
-from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +16,10 @@ from cookimport.bench.canonical_alignment_cache import (
     sha256_text,
 )
 from cookimport.bench.eval_stage_blocks import compute_block_metrics, load_stage_block_labels
+from cookimport.bench.sequence_matcher_select import (
+    SequenceMatcher as SelectedSequenceMatcher,
+    get_sequence_matcher_selection,
+)
 from cookimport.labelstudio.canonical_gold import ensure_canonical_gold_artifacts
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
 from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
@@ -256,7 +259,7 @@ def _overlap_len(
 
 
 def _collect_matching_blocks(
-    matcher: SequenceMatcher,
+    matcher: Any,
 ) -> list[tuple[int, int, int]]:
     return [
         (int(match.a), int(match.a + match.size), int(match.b))
@@ -457,7 +460,7 @@ def _align_prediction_blocks_legacy_from_normalized(
     canonical_char_count: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, float]]:
     sequence_matcher_started = time.monotonic()
-    matcher = SequenceMatcher(
+    matcher = SelectedSequenceMatcher(
         None,
         prediction_normalized,
         canonical_normalized,
@@ -528,7 +531,7 @@ def _local_sequence_align_block(
     if not window_text:
         return None
 
-    matcher = SequenceMatcher(None, block_normalized, window_text, autojunk=False)
+    matcher = SelectedSequenceMatcher(None, block_normalized, window_text, autojunk=False)
     matching_blocks = _collect_matching_blocks(matcher)
     if not matching_blocks:
         return None
@@ -735,10 +738,17 @@ def _align_prediction_blocks_to_canonical(
     prediction_blocks: list[dict[str, Any]],
     strategy: str = "auto",
     alignment_cache_dir: Path | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, float], dict[str, Any]]:
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, Any],
+    dict[str, float],
+    dict[str, Any],
+    dict[str, Any],
+]:
     normalized_strategy = str(strategy or "auto").strip().lower()
     if normalized_strategy not in _ALIGNMENT_STRATEGIES:
         normalized_strategy = "auto"
+    matcher_selection = get_sequence_matcher_selection()
 
     normalize_prediction_started = time.monotonic()
     prediction_normalized = _normalize_for_alignment(prediction_text)
@@ -901,6 +911,11 @@ def _align_prediction_blocks_to_canonical(
         "load_seconds": max(0.0, cache_load_seconds),
         "write_seconds": max(0.0, cache_write_seconds),
         "validation_error": cache_validation_error,
+    }, {
+        "implementation": matcher_selection.implementation,
+        "version": matcher_selection.version,
+        "forced_mode": matcher_selection.forced_mode,
+        "mode": matcher_selection.forced_mode or "auto",
     }
 
 
@@ -1217,6 +1232,7 @@ def evaluate_canonical_text(
     out_dir: Path,
     strict_empty_gold_to_other: bool = True,
     alignment_cache_dir: Path | None = None,
+    canonical_paths: dict[str, Path] | None = None,
 ) -> dict[str, Any]:
     evaluation_started = time.monotonic()
     resource_start = _capture_eval_resource_snapshot()
@@ -1224,9 +1240,13 @@ def evaluate_canonical_text(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     load_gold_started = time.monotonic()
-    canonical_paths = ensure_canonical_gold_artifacts(export_root=gold_export_root)
-    canonical_text_path = canonical_paths["canonical_text_path"]
-    canonical_spans_path = canonical_paths["canonical_span_labels_path"]
+    resolved_canonical_paths = canonical_paths
+    if resolved_canonical_paths is None:
+        resolved_canonical_paths = ensure_canonical_gold_artifacts(
+            export_root=gold_export_root
+        )
+    canonical_text_path = Path(resolved_canonical_paths["canonical_text_path"])
+    canonical_spans_path = Path(resolved_canonical_paths["canonical_span_labels_path"])
 
     canonical_text = canonical_text_path.read_text(encoding="utf-8")
     canonical_lines = _build_canonical_lines(canonical_text)
@@ -1253,6 +1273,7 @@ def evaluate_canonical_text(
         alignment,
         alignment_phase_seconds,
         alignment_cache_telemetry,
+        matcher_telemetry,
     ) = _align_prediction_blocks_to_canonical(
         prediction_text=prediction_text,
         canonical_text=canonical_text,
@@ -1362,6 +1383,10 @@ def evaluate_canonical_text(
     resource_end = _capture_eval_resource_snapshot()
     report["evaluation_telemetry"] = {
         "total_seconds": evaluation_total_seconds,
+        "alignment_sequence_matcher_impl": matcher_telemetry.get("implementation"),
+        "alignment_sequence_matcher_version": matcher_telemetry.get("version"),
+        "alignment_sequence_matcher_mode": matcher_telemetry.get("mode"),
+        "alignment_sequence_matcher_forced_mode": matcher_telemetry.get("forced_mode"),
         "alignment_cache_enabled": bool(alignment_cache_telemetry.get("enabled")),
         "alignment_cache_hit": bool(alignment_cache_telemetry.get("hit")),
         "alignment_cache_key": alignment_cache_telemetry.get("key"),

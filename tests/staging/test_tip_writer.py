@@ -98,3 +98,43 @@ def test_write_topic_candidates_hashes_source_file_once(tmp_path: Path, monkeypa
         payload["id"].startswith("urn:recipeimport:topic:cachedhash01:")
         for payload in payloads
     )
+
+
+def test_write_tip_outputs_can_skip_markdown(tmp_path: Path) -> None:
+    tip = TipCandidate(
+        text="Keep heat medium.",
+        tags=TipTags(),
+        source_recipe_title="Pan Sauce",
+        provenance={"sheet": "tips"},
+    )
+    result = ConversionResult(
+        recipes=[],
+        tips=[tip],
+        topicCandidates=[],
+        report=ConversionReport(),
+        workbook="tips",
+        workbookPath=str(tmp_path / "tips.txt"),
+    )
+
+    out_dir = tmp_path / "tips"
+    write_tip_outputs(result, out_dir, write_markdown=False)
+
+    assert (out_dir / "t0.json").exists()
+    assert not (out_dir / "tips.md").exists()
+
+
+def test_write_topic_candidates_can_skip_markdown(tmp_path: Path) -> None:
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        topicCandidates=[TopicCandidate(text="Lower heat before adding garlic.")],
+        report=ConversionReport(),
+        workbook="topics",
+        workbookPath=str(tmp_path / "topics.txt"),
+    )
+
+    out_dir = tmp_path / "tips"
+    write_topic_candidate_outputs(result, out_dir, write_markdown=False)
+
+    assert (out_dir / "topic_candidates.json").exists()
+    assert not (out_dir / "topic_candidates.md").exists()

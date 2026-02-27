@@ -63,6 +63,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_run_manifest_parity.py": ("staging", "llm"),
     "test_run_settings.py": ("llm", "cli"),
     "test_section_outputs.py": ("staging", "parsing"),
+    "test_sequence_matcher_dropin_parity.py": ("bench",),
     "test_source_field.py": ("parsing",),
     "test_split_merge_status.py": ("staging", "bench"),
     "test_stats_dashboard.py": ("analytics",),

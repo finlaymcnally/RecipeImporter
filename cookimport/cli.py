@@ -87,6 +87,7 @@ from cookimport.labelstudio.ingest import (
     generate_pred_run_artifacts,
     run_labelstudio_import,
 )
+from cookimport.labelstudio.canonical_gold import ensure_canonical_gold_artifacts
 from cookimport.labelstudio.eval_freeform import (
     attach_recipe_count_diagnostics,
     evaluate_predicted_vs_freeform,
@@ -203,6 +204,7 @@ BENCHMARK_EVAL_MODE_STAGE_BLOCKS = "stage-blocks"
 BENCHMARK_EVAL_MODE_CANONICAL_TEXT = "canonical-text"
 BENCHMARK_EXECUTION_MODE_LEGACY = "legacy"
 BENCHMARK_EXECUTION_MODE_PIPELINED = "pipelined"
+BENCHMARK_EXECUTION_MODE_PREDICT_ONLY = "predict-only"
 BENCHMARK_EVAL_PROFILE_MIN_SECONDS_ENV = "COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS"
 BENCHMARK_EVAL_PROFILE_TOP_N_ENV = "COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N"
 _MENU_SHORTCUT_KEYS = (
@@ -1461,6 +1463,7 @@ def _interactive_all_method_benchmark(
         max_eval_tail_pipelines=max_eval_tail_pipelines,
         wing_backlog_target=wing_backlog_target,
         smart_scheduler=smart_scheduler,
+        source_parallelism_effective=source_parallelism_effective,
     )
     resolved_config_timeout_seconds = _resolve_all_method_config_timeout_seconds(
         config_timeout_seconds
@@ -1488,7 +1491,7 @@ def _interactive_all_method_benchmark(
             f"split slots={resolved_split_phase_slots} "
             f"(default {ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT}), "
             f"eval tail cap={resolved_eval_tail_pipelines} "
-            "(default split slots), "
+            "(default cpu-aware auto), "
             f"config timeout={timeout_display} "
             f"(default {ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT}s), "
             f"failed retries={resolved_retry_failed_configs} "
@@ -1544,7 +1547,7 @@ def _interactive_all_method_benchmark(
                 progress_callback=update_progress,
                 dashboard=dashboard,
                 max_parallel_sources=max_parallel_sources,
-                max_inflight_pipelines=resolved_effective_inflight_pipelines,
+                max_inflight_pipelines=resolved_inflight_pipelines,
                 max_concurrent_split_phases=resolved_split_phase_slots,
                 max_eval_tail_pipelines=resolved_eval_tail_pipelines,
                 config_timeout_seconds=resolved_config_timeout_seconds,
@@ -1586,13 +1589,14 @@ def _interactive_all_method_benchmark(
                     progress_callback=update_progress,
                     dashboard=dashboard,
                     dashboard_source_index=0,
-                    max_inflight_pipelines=resolved_effective_inflight_pipelines,
+                    max_inflight_pipelines=resolved_inflight_pipelines,
                     max_concurrent_split_phases=resolved_split_phase_slots,
                     max_eval_tail_pipelines=resolved_eval_tail_pipelines,
                     config_timeout_seconds=resolved_config_timeout_seconds,
                     retry_failed_configs=resolved_retry_failed_configs,
                     wing_backlog_target=resolved_wing_backlog_target,
                     smart_scheduler=resolved_smart_scheduler,
+                    source_parallelism_effective=source_parallelism_effective,
                 )
             except Exception:
                 dashboard.finish_source(0, failed=True)
@@ -2625,9 +2629,11 @@ def _normalize_benchmark_execution_mode(value: str) -> str:
         return BENCHMARK_EXECUTION_MODE_LEGACY
     if normalized in {"pipelined", "pipeline"}:
         return BENCHMARK_EXECUTION_MODE_PIPELINED
+    if normalized in {"predict-only", "predictions-only", "predict"}:
+        return BENCHMARK_EXECUTION_MODE_PREDICT_ONLY
     _fail(
         f"Invalid benchmark execution mode: {value!r}. "
-        "Expected one of: legacy, pipelined."
+        "Expected one of: legacy, pipelined, predict-only."
     )
     return BENCHMARK_EXECUTION_MODE_LEGACY
 
@@ -4722,6 +4728,7 @@ def _resolve_all_method_scheduler_runtime(
     max_eval_tail_pipelines: int | None = None,
     wing_backlog_target: int | None = None,
     smart_scheduler: bool | None = None,
+    source_parallelism_effective: int | None = None,
 ) -> tuple[int, int, int, int, bool, int]:
     inflight, split_slots = _resolve_all_method_scheduler_limits(
         total_variants=total_variants,
@@ -4733,10 +4740,20 @@ def _resolve_all_method_scheduler_runtime(
     wing_target_requested = _report_count(wing_backlog_target)
     wing_target = wing_target_requested if wing_target_requested > 0 else wing_default
     wing_target = max(1, wing_target)
-    eval_tail_default = max(1, split_slots)
+
+    source_parallelism = _report_count(source_parallelism_effective)
+    if source_parallelism <= 0:
+        source_parallelism = 1
+    cpu_total = max(1, int(os.cpu_count() or 1))
+    cpu_budget_total = max(1, cpu_total - 1)
+    cpu_budget_per_source = max(1, cpu_budget_total // source_parallelism)
+
     eval_tail_requested = _report_count(max_eval_tail_pipelines)
-    eval_tail_cap = eval_tail_requested if eval_tail_requested > 0 else eval_tail_default
-    eval_tail_cap = max(1, eval_tail_cap)
+    if eval_tail_requested > 0:
+        eval_tail_cap = max(0, min(eval_tail_requested, total))
+    else:
+        auto_eval_tail_cap = max(0, cpu_budget_per_source - inflight)
+        eval_tail_cap = max(0, min(auto_eval_tail_cap, total))
     smart_enabled = (
         True if smart_scheduler is None else _coerce_bool_setting(smart_scheduler, default=True)
     )
@@ -5139,6 +5156,11 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
                     "- Heavy idle gap while pending: "
                     f"{_report_metric(scheduler.get('idle_gap_seconds')):.2f}s"
                 ),
+                (
+                    "- Max active/eval pipelines observed: "
+                    f"{_report_count(scheduler.get('max_active_pipelines_observed'))}/"
+                    f"{_report_count(scheduler.get('max_eval_active_observed'))}"
+                ),
                 "",
             ]
         )
@@ -5277,6 +5299,11 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
                 (
                     "- Scheduler heavy idle gap while pending: "
                     f"{_report_metric(scheduler_summary.get('idle_gap_seconds')):.2f}s"
+                ),
+                (
+                    "- Scheduler max active/eval pipelines observed: "
+                    f"{_report_count(scheduler_summary.get('max_active_pipelines_observed'))}/"
+                    f"{_report_count(scheduler_summary.get('max_eval_active_observed'))}"
                 ),
                 (
                     "- Scheduler timeout / retry limit: "
@@ -5570,6 +5597,7 @@ def _run_all_method_benchmark_multi_source(
                 wing_backlog_target=wing_backlog_target,
                 smart_scheduler=smart_scheduler,
                 refresh_dashboard_after_source=refresh_dashboard_after_source,
+                source_parallelism_effective=source_parallelism_effective,
             )
             report_json_path = report_md_path.with_suffix(".json")
             report_payload = json.loads(report_json_path.read_text(encoding="utf-8"))
@@ -5833,6 +5861,7 @@ def _run_all_method_benchmark_multi_source(
     scheduler_wing_seconds_weight = 0.0
     scheduler_max_wing_backlog = 0
     scheduler_max_active_pipelines = 0
+    scheduler_max_eval_active = 0
     scheduler_split_slots = 0
     scheduler_smart_tail_buffer = 0
     scheduler_eval_tail_cap = 0
@@ -5869,6 +5898,7 @@ def _run_all_method_benchmark_multi_source(
         avg_wing = _report_metric(scheduler.get("avg_wing_backlog"))
         max_wing = _report_count(scheduler.get("max_wing_backlog"))
         max_active = _report_count(scheduler.get("max_active_pipelines_observed"))
+        max_eval_active = _report_count(scheduler.get("max_eval_active_observed"))
         scheduler_capacity_seconds += capacity_seconds
         scheduler_busy_seconds += busy_seconds
         scheduler_idle_gap_seconds += idle_gap_seconds
@@ -5878,6 +5908,10 @@ def _run_all_method_benchmark_multi_source(
         scheduler_max_active_pipelines = max(
             scheduler_max_active_pipelines,
             max_active,
+        )
+        scheduler_max_eval_active = max(
+            scheduler_max_eval_active,
+            max_eval_active,
         )
     scheduler_utilization_pct = (
         (scheduler_busy_seconds / scheduler_capacity_seconds) * 100.0
@@ -5941,6 +5975,7 @@ def _run_all_method_benchmark_multi_source(
             "max_wing_backlog": scheduler_max_wing_backlog,
             "idle_gap_seconds": scheduler_idle_gap_seconds,
             "max_active_pipelines_observed": scheduler_max_active_pipelines,
+            "max_eval_active_observed": scheduler_max_eval_active,
         },
         "sources": source_rows,
         "unmatched": [
@@ -6015,6 +6050,7 @@ def _run_all_method_benchmark(
     wing_backlog_target: int | None = None,
     smart_scheduler: bool = False,
     refresh_dashboard_after_source: bool = True,
+    source_parallelism_effective: int | None = 1,
 ) -> Path:
     source_started = time.monotonic()
     root_output_dir.mkdir(parents=True, exist_ok=True)
@@ -6044,6 +6080,7 @@ def _run_all_method_benchmark(
         max_eval_tail_pipelines=max_eval_tail_pipelines,
         wing_backlog_target=wing_backlog_target,
         smart_scheduler=smart_scheduler,
+        source_parallelism_effective=source_parallelism_effective,
     )
     effective_config_timeout_seconds = _resolve_all_method_config_timeout_seconds(
         config_timeout_seconds
@@ -6083,6 +6120,7 @@ def _run_all_method_benchmark(
     scheduler_wing_area_seconds = 0.0
     scheduler_max_wing_backlog = 0
     scheduler_max_active_pipelines = 0
+    scheduler_max_eval_active = 0
     scheduler_last_snapshot = ""
     scheduler_smart_enabled = bool(effective_smart_scheduler)
 
@@ -6172,6 +6210,7 @@ def _run_all_method_benchmark(
         nonlocal scheduler_wing_area_seconds
         nonlocal scheduler_max_wing_backlog
         nonlocal scheduler_max_active_pipelines
+        nonlocal scheduler_max_eval_active
 
         now = time.monotonic()
         delta = max(0.0, now - scheduler_last_tick)
@@ -6191,6 +6230,10 @@ def _run_all_method_benchmark(
             scheduler_max_active_pipelines,
             counts["active"],
         )
+        scheduler_max_eval_active = max(
+            scheduler_max_eval_active,
+            counts["evaluate_active"],
+        )
         scheduler_last_tick = now
         return counts
 
@@ -6198,6 +6241,7 @@ def _run_all_method_benchmark(
         return (
             f"scheduler heavy {counts['heavy_active']}/{effective_split_phase_slots} "
             f"| wing {counts['wing_backlog']} "
+            f"| eval {counts['evaluate_active']} "
             f"| active {counts['active']} | pending {max(0, pending_count)}"
         )
 
@@ -6250,6 +6294,7 @@ def _run_all_method_benchmark(
         wing_area_seconds = 0.0
         max_wing_backlog = 0
         max_active_pipelines = 0
+        max_eval_active = 0
 
         def _counts() -> dict[str, int]:
             heavy_active = 0
@@ -6280,6 +6325,7 @@ def _run_all_method_benchmark(
             )
             return {
                 "heavy_active": heavy_active,
+                "evaluate_active": evaluate_active,
                 "wing_backlog": wing_backlog,
                 "active": active,
             }
@@ -6300,6 +6346,7 @@ def _run_all_method_benchmark(
             wing_area_seconds += float(counts["wing_backlog"]) * delta
             max_wing_backlog = max(max_wing_backlog, counts["wing_backlog"])
             max_active_pipelines = max(max_active_pipelines, counts["active"])
+            max_eval_active = max(max_eval_active, counts["evaluate_active"])
             previous_time = event_time
 
             mapped_phase = _scheduler_phase_for_event(event_name)
@@ -6325,6 +6372,7 @@ def _run_all_method_benchmark(
             wing_area_seconds += float(counts["wing_backlog"]) * tail_delta
             max_wing_backlog = max(max_wing_backlog, counts["wing_backlog"])
             max_active_pipelines = max(max_active_pipelines, counts["active"])
+            max_eval_active = max(max_eval_active, counts["evaluate_active"])
 
         return {
             "heavy_slot_capacity_seconds": capacity_seconds,
@@ -6333,6 +6381,7 @@ def _run_all_method_benchmark(
             "wing_backlog_area_seconds": wing_area_seconds,
             "max_wing_backlog": max_wing_backlog,
             "max_active_pipelines_observed": max_active_pipelines,
+            "max_eval_active_observed": max_eval_active,
         }
 
     def _finalize_scheduler_metrics() -> dict[str, Any]:
@@ -6345,6 +6394,7 @@ def _run_all_method_benchmark(
         wing_area_seconds = scheduler_wing_area_seconds
         max_wing_backlog = scheduler_max_wing_backlog
         max_active = scheduler_max_active_pipelines
+        max_eval_active = scheduler_max_eval_active
         if isinstance(event_metrics, dict):
             capacity_seconds = _report_metric(
                 event_metrics.get("heavy_slot_capacity_seconds")
@@ -6359,6 +6409,10 @@ def _run_all_method_benchmark(
             max_active = max(
                 max_active,
                 _report_count(event_metrics.get("max_active_pipelines_observed")),
+            )
+            max_eval_active = max(
+                max_eval_active,
+                _report_count(event_metrics.get("max_eval_active_observed")),
             )
         utilization_pct = (
             (busy_seconds / capacity_seconds) * 100.0
@@ -6388,6 +6442,7 @@ def _run_all_method_benchmark(
             "max_wing_backlog": max_wing_backlog,
             "idle_gap_seconds": idle_gap_seconds,
             "max_active_pipelines_observed": max_active,
+            "max_eval_active_observed": max_eval_active,
         }
 
     def _shutdown_parallel_executor(
@@ -6702,9 +6757,15 @@ def _run_all_method_benchmark(
                             total_variants,
                             scheduler_base_target + dynamic_eval_tail,
                         )
+                        guard_target = scheduler_base_target
+                        if counts["evaluate_active"] > 0 and dynamic_eval_tail > 0:
+                            guard_target = min(
+                                total_variants,
+                                scheduler_base_target + dynamic_eval_tail,
+                            )
                         if counts["active"] >= smart_active_cap:
                             break
-                        if heavy_plus_wing >= scheduler_base_target:
+                        if heavy_plus_wing >= guard_target:
                             break
                     submitted = _submit_next()
                     if not submitted:
@@ -7545,6 +7606,7 @@ def _merge_split_jobs(
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
+    write_markdown: bool = True,
     status_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     workbook_slug = slugify_name(file_path.stem)
@@ -7845,13 +7907,24 @@ def _merge_split_jobs(
                 workbook_slug,
                 merged_result.recipes,
                 output_stats=output_stats,
+                write_markdown=write_markdown,
             )
         _report_phase("Writing tips...")
         with measure(merge_stats, "write_tips_seconds"):
-            write_tip_outputs(merged_result, tips_dir, output_stats=output_stats)
+            write_tip_outputs(
+                merged_result,
+                tips_dir,
+                output_stats=output_stats,
+                write_markdown=write_markdown,
+            )
         _report_phase("Writing topic candidates...")
         with measure(merge_stats, "write_topic_candidates_seconds"):
-            write_topic_candidate_outputs(merged_result, tips_dir, output_stats=output_stats)
+            write_topic_candidate_outputs(
+                merged_result,
+                tips_dir,
+                output_stats=output_stats,
+                write_markdown=write_markdown,
+            )
         if table_extraction_enabled:
             _report_phase("Writing tables...")
             with measure(merge_stats, "write_tables_seconds"):
@@ -7861,6 +7934,7 @@ def _merge_split_jobs(
                     extracted_tables,
                     source_file=file_path.name,
                     output_stats=output_stats,
+                    write_markdown=write_markdown,
                 )
 
         if should_write_chunks:
@@ -7868,7 +7942,12 @@ def _merge_split_jobs(
             if merged_result.chunks:
                 chunks_dir = out / "chunks" / workbook_slug
                 with measure(merge_stats, "write_chunks_seconds"):
-                    write_chunk_outputs(merged_result.chunks, chunks_dir, output_stats=output_stats)
+                    write_chunk_outputs(
+                        merged_result.chunks,
+                        chunks_dir,
+                        output_stats=output_stats,
+                        write_markdown=write_markdown,
+                    )
 
         _report_phase("Writing stage block predictions...")
         with measure(merge_stats, "write_stage_block_predictions_seconds"):
@@ -7923,6 +8002,7 @@ def _merge_pdf_jobs(
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
+    write_markdown: bool = True,
     status_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     return _merge_split_jobs(
@@ -7936,6 +8016,7 @@ def _merge_pdf_jobs(
         run_config=run_config,
         run_config_hash=run_config_hash,
         run_config_summary=run_config_summary,
+        write_markdown=write_markdown,
         status_callback=status_callback,
     )
 
@@ -7950,6 +8031,7 @@ def _merge_epub_jobs(
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
+    write_markdown: bool = True,
     status_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     return _merge_split_jobs(
@@ -7963,6 +8045,7 @@ def _merge_epub_jobs(
         run_config=run_config,
         run_config_hash=run_config_hash,
         run_config_summary=run_config_summary,
+        write_markdown=write_markdown,
         status_callback=status_callback,
     )
 
@@ -8030,6 +8113,11 @@ def stage(
         "--epub-split-workers",
         min=1,
         help="Max workers used to split a single EPUB into jobs.",
+    ),
+    write_markdown: bool = typer.Option(
+        True,
+        "--write-markdown/--no-write-markdown",
+        help="Write markdown sidecar artifacts (sections/tips/topic/chunks/tables).",
     ),
     epub_extractor: str = typer.Option(
         "unstructured",
@@ -8164,6 +8252,7 @@ def stage(
     workers = _unwrap_typer_option_default(workers)
     pdf_split_workers = _unwrap_typer_option_default(pdf_split_workers)
     epub_split_workers = _unwrap_typer_option_default(epub_split_workers)
+    write_markdown = _unwrap_typer_option_default(write_markdown)
     epub_extractor = _unwrap_typer_option_default(epub_extractor)
     epub_unstructured_html_parser_version = _unwrap_typer_option_default(
         epub_unstructured_html_parser_version
@@ -8339,6 +8428,7 @@ def stage(
     run_config = run_settings.to_run_config_dict()
     run_config["epub_extractor_requested"] = selected_epub_extractor
     run_config["epub_extractor_effective"] = selected_epub_extractor
+    run_config["write_markdown"] = bool(write_markdown)
 
     def _stable_run_config_hash(payload: dict[str, Any]) -> str:
         canonical = json.dumps(
@@ -8587,6 +8677,7 @@ def stage(
                                 job_run_config,
                                 job_run_config_hash,
                                 job_run_config_summary,
+                                write_markdown=write_markdown,
                                 status_callback=_main_merge_status,
                             )
                         else:
@@ -8600,6 +8691,7 @@ def stage(
                                 job_run_config,
                                 job_run_config_hash,
                                 job_run_config_summary,
+                                write_markdown=write_markdown,
                                 status_callback=_main_merge_status,
                             )
                         imported += 1
@@ -8713,6 +8805,7 @@ def stage(
                                 job_run_config,
                                 job_run_config_hash,
                                 job_run_config_summary,
+                                write_markdown,
                             )
                         ] = job
 
@@ -8791,6 +8884,7 @@ def stage(
                         job_run_config,
                         job_run_config_hash,
                         job_run_config_summary,
+                        write_markdown,
                     )
                 progress_bar.update(overall_task, advance=1)
                 handle_job_result(job, res, live)
@@ -9958,7 +10052,8 @@ def labelstudio_benchmark(
         "--execution-mode",
         help=(
             "Benchmark execution mode: legacy (sequential predict->evaluate) "
-            "or pipelined (stage-queue orchestration)."
+            "or pipelined (stage-queue orchestration with eval prewarm overlap), "
+            "or predict-only (write prediction artifacts and skip evaluation)."
         ),
     )] = BENCHMARK_EXECUTION_MODE_LEGACY,
     predictions_out: Annotated[Path | None, typer.Option(
@@ -9994,6 +10089,20 @@ def labelstudio_benchmark(
             "uploading to Label Studio."
         ),
     )] = False,
+    write_markdown: Annotated[bool, typer.Option(
+        "--write-markdown/--no-write-markdown",
+        help=(
+            "Write markdown sidecar artifacts for processed stage outputs "
+            "(sections/tips/topic/chunks/tables)."
+        ),
+    )] = True,
+    write_label_studio_tasks: Annotated[bool, typer.Option(
+        "--write-labelstudio-tasks/--no-write-labelstudio-tasks",
+        help=(
+            "Write label_studio_tasks.jsonl in offline prediction runs. "
+            "Upload mode always requires task JSONL."
+        ),
+    )] = True,
     overwrite: Annotated[bool, typer.Option("--overwrite/--resume", help="Overwrite prediction project or resume.")] = False,
     label_studio_url: Annotated[str | None, typer.Option("--label-studio-url", help="Label Studio base URL.")] = None,
     label_studio_api_key: Annotated[str | None, typer.Option("--label-studio-api-key", help="Label Studio API key.")] = None,
@@ -10133,6 +10242,11 @@ def labelstudio_benchmark(
     )
     if predictions_in_path is not None and predictions_out_path is not None:
         _fail("Cannot combine --predictions-in and --predictions-out in one run.")
+    if (
+        selected_execution_mode == BENCHMARK_EXECUTION_MODE_PREDICT_ONLY
+        and predictions_in_path is not None
+    ):
+        _fail("--execution-mode predict-only cannot be combined with --predictions-in.")
 
     prediction_record_input: PredictionRecord | None = None
     prediction_record_source: Path | None = None
@@ -10151,6 +10265,10 @@ def labelstudio_benchmark(
 
     should_generate_predictions = predictions_in_path is None
     should_upload_predictions = should_generate_predictions and not no_upload
+    should_run_evaluation = selected_execution_mode != BENCHMARK_EXECUTION_MODE_PREDICT_ONLY
+
+    if should_upload_predictions and not write_label_studio_tasks:
+        _fail("--no-write-labelstudio-tasks can only be used with --no-upload.")
 
     url: str | None = None
     api_key: str | None = None
@@ -10184,6 +10302,7 @@ def labelstudio_benchmark(
     stage_predictions_path: Path
     extracted_archive_path: Path
     prediction_phase_seconds = 0.0
+    prewarmed_canonical_paths: dict[str, Path] | None = None
 
     try:
         if should_generate_predictions:
@@ -10227,6 +10346,8 @@ def labelstudio_benchmark(
                                 codex_farm_context_blocks=codex_farm_context_blocks,
                                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                                 processed_output_root=processed_output_dir,
+                                write_markdown=write_markdown,
+                                write_label_studio_tasks=write_label_studio_tasks,
                                 split_phase_slots=split_phase_slots,
                                 split_phase_gate_dir=split_phase_gate_dir,
                                 split_phase_status_label=split_phase_status_label,
@@ -10319,11 +10440,59 @@ def labelstudio_benchmark(
                             prediction_phase_seconds=stage_prediction_seconds,
                         )
 
-                    if selected_execution_mode == BENCHMARK_EXECUTION_MODE_PIPELINED:
+                    def _prewarm_evaluation_inputs() -> dict[str, Path] | None:
+                        if selected_eval_mode != BENCHMARK_EVAL_MODE_CANONICAL_TEXT:
+                            return None
+                        canonical_paths = ensure_canonical_gold_artifacts(
+                            export_root=selected_gold.parent
+                        )
+                        return {
+                            "canonical_text_path": Path(
+                                canonical_paths["canonical_text_path"]
+                            ),
+                            "canonical_span_labels_path": Path(
+                                canonical_paths["canonical_span_labels_path"]
+                            ),
+                        }
+
+                    if (
+                        selected_execution_mode == BENCHMARK_EXECUTION_MODE_PIPELINED
+                        and should_run_evaluation
+                    ):
                         stage_queue: queue.Queue[BenchmarkPredictionBundle] = queue.Queue(
                             maxsize=1
                         )
-                        stage_queue.put(_run_prediction_stage_bundle())
+                        stage_error_queue: queue.Queue[BaseException] = queue.Queue(
+                            maxsize=1
+                        )
+
+                        def _produce_prediction_bundle() -> None:
+                            try:
+                                stage_queue.put(_run_prediction_stage_bundle())
+                            except BaseException as exc:  # noqa: BLE001
+                                stage_error_queue.put(exc)
+
+                        producer_thread = threading.Thread(
+                            target=_produce_prediction_bundle,
+                            name="benchmark-prediction-stage",
+                            daemon=True,
+                        )
+                        producer_thread.start()
+                        prewarm_error: BaseException | None = None
+                        try:
+                            prewarmed_canonical_paths = _prewarm_evaluation_inputs()
+                        except BaseException as exc:  # noqa: BLE001
+                            prewarm_error = exc
+                        producer_thread.join()
+
+                        if prewarm_error is not None:
+                            raise prewarm_error
+                        if not stage_error_queue.empty():
+                            raise stage_error_queue.get()
+                        if stage_queue.empty():
+                            raise RuntimeError(
+                                "Pipelined benchmark prediction stage produced no output."
+                            )
                         prediction_bundle = stage_queue.get()
                     else:
                         prediction_bundle = _run_prediction_stage_bundle()
@@ -10353,6 +10522,128 @@ def labelstudio_benchmark(
             raise
         _fail(str(exc))
 
+    if not should_run_evaluation:
+        prediction_timing = _normalize_timing_payload(import_result.get("timing"))
+        prediction_seconds = _report_optional_metric(
+            prediction_timing.get("prediction_seconds")
+        )
+        if prediction_seconds is None:
+            prediction_seconds = _report_optional_metric(
+                prediction_timing.get("total_seconds")
+            )
+        if prediction_seconds is None:
+            prediction_seconds = prediction_phase_seconds
+        prediction_seconds = max(0.0, float(prediction_seconds))
+        benchmark_timing = _timing_with_updates(
+            prediction_timing,
+            prediction_seconds=prediction_seconds,
+            evaluation_seconds=0.0,
+            total_seconds=max(
+                prediction_seconds,
+                max(0.0, time.monotonic() - benchmark_started),
+            ),
+        )
+        predict_only_run_config: dict[str, Any] = {
+            "eval_mode": selected_eval_mode,
+            "execution_mode": selected_execution_mode,
+            "predict_only": True,
+            "prediction_record_output": (
+                str(predictions_out_path) if predictions_out_path is not None else None
+            ),
+            "upload": should_upload_predictions,
+            "write_markdown": bool(write_markdown),
+            "write_label_studio_tasks": bool(write_label_studio_tasks),
+            "epub_extractor": selected_epub_extractor,
+            "epub_unstructured_html_parser_version": selected_html_parser_version,
+            "epub_unstructured_skip_headers_footers": selected_skip_headers_footers,
+            "epub_unstructured_preprocess_mode": selected_preprocess_mode,
+            "ocr_device": selected_ocr_device,
+            "ocr_batch_size": ocr_batch_size,
+            "workers": workers,
+            "pdf_split_workers": pdf_split_workers,
+            "epub_split_workers": epub_split_workers,
+            "pdf_pages_per_job": pdf_pages_per_job,
+            "epub_spine_items_per_job": epub_spine_items_per_job,
+            "warm_models": warm_models,
+            "llm_recipe_pipeline": selected_llm_recipe_pipeline,
+            "codex_farm_cmd": codex_farm_cmd,
+            "codex_farm_pipeline_pass1": selected_codex_farm_pipeline_pass1,
+            "codex_farm_pipeline_pass2": selected_codex_farm_pipeline_pass2,
+            "codex_farm_pipeline_pass3": selected_codex_farm_pipeline_pass3,
+            "codex_farm_context_blocks": codex_farm_context_blocks,
+            "codex_farm_failure_mode": selected_codex_farm_failure_mode,
+            "stage_block_predictions_path": str(stage_predictions_path),
+        }
+        if codex_farm_root is not None:
+            predict_only_run_config["codex_farm_root"] = str(codex_farm_root)
+        if codex_farm_workspace_root is not None:
+            predict_only_run_config["codex_farm_workspace_root"] = str(
+                codex_farm_workspace_root
+            )
+        if pred_context.run_config is not None:
+            predict_only_run_config["prediction_run_config"] = pred_context.run_config
+        if pred_context.run_config_hash:
+            predict_only_run_config["prediction_run_config_hash"] = (
+                pred_context.run_config_hash
+            )
+        if pred_context.run_config_summary:
+            predict_only_run_config["prediction_run_config_summary"] = (
+                pred_context.run_config_summary
+            )
+
+        predict_only_artifacts: dict[str, Any] = {
+            "pred_run_dir": _path_for_manifest(eval_output_dir, pred_run),
+            "gold_spans_jsonl": _path_for_manifest(eval_output_dir, selected_gold),
+            "stage_block_predictions_json": _path_for_manifest(
+                eval_output_dir,
+                stage_predictions_path,
+            ),
+            "timing": benchmark_timing,
+        }
+        if predictions_out_path is not None:
+            predict_only_artifacts["prediction_record_output_jsonl"] = _path_for_manifest(
+                eval_output_dir,
+                predictions_out_path,
+            )
+        processed_report_path = import_result.get("processed_report_path")
+        if processed_report_path:
+            predict_only_artifacts["processed_report_json"] = _path_for_manifest(
+                eval_output_dir,
+                processed_report_path,
+            )
+        processed_run_root = import_result.get("processed_run_root")
+        if processed_run_root:
+            predict_only_artifacts["processed_output_run_dir"] = _path_for_manifest(
+                eval_output_dir,
+                processed_run_root,
+            )
+
+        _write_eval_run_manifest(
+            run_root=eval_output_dir,
+            run_kind="labelstudio_benchmark",
+            source_path=str(selected_source),
+            source_hash=pred_context.source_hash,
+            importer_name=None,
+            run_config=predict_only_run_config,
+            artifacts=predict_only_artifacts,
+            notes=(
+                "Prediction stage complete; evaluation skipped "
+                "(execution_mode=predict-only)."
+            ),
+        )
+        if not suppress_summary:
+            typer.secho(
+                "Prediction stage complete; evaluation skipped (--execution-mode predict-only).",
+                fg=typer.colors.CYAN,
+            )
+            typer.secho(f"Manifest: {eval_output_dir / 'run_manifest.json'}", fg=typer.colors.CYAN)
+            if predictions_out_path is not None:
+                typer.secho(
+                    f"Prediction record: {predictions_out_path}",
+                    fg=typer.colors.BRIGHT_BLACK,
+                )
+        return
+
     prediction_load_seconds: float | None = None
     gold_load_seconds: float | None = None
     eval_profile_min_seconds = _benchmark_eval_profile_min_seconds()
@@ -10379,6 +10670,7 @@ def labelstudio_benchmark(
                 extracted_blocks_json=extracted_archive_path,
                 out_dir=eval_output_dir,
                 alignment_cache_dir=alignment_cache_dir,
+                canonical_paths=prewarmed_canonical_paths,
             )
             return eval_result_local, format_canonical_eval_report_md
         eval_result_local = evaluate_stage_blocks(
@@ -10623,6 +10915,7 @@ def labelstudio_benchmark(
     benchmark_run_config: dict[str, Any] = {
         "eval_mode": selected_eval_mode,
         "execution_mode": selected_execution_mode,
+        "predict_only": False,
         "prediction_record_input": (
             str(predictions_in_path) if predictions_in_path is not None else None
         ),
@@ -10632,6 +10925,8 @@ def labelstudio_benchmark(
         "overlap_threshold": overlap_threshold,
         "force_source_match": force_source_match,
         "upload": should_upload_predictions,
+        "write_markdown": bool(write_markdown),
+        "write_label_studio_tasks": bool(write_label_studio_tasks),
         "epub_extractor": selected_epub_extractor,
         "epub_unstructured_html_parser_version": selected_html_parser_version,
         "epub_unstructured_skip_headers_footers": selected_skip_headers_footers,

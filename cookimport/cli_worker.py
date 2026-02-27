@@ -213,6 +213,7 @@ def stage_one_file(
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
+    write_markdown: bool = True,
 ) -> dict[str, Any]:
     """Process a single file and return a summary."""
 
@@ -375,16 +376,32 @@ def stage_one_file(
                     workbook_slug,
                     result.recipes,
                     output_stats=output_stats,
+                    write_markdown=write_markdown,
                 )
             with measure(file_stats, "write_tips_seconds"):
-                write_tip_outputs(result, tips_dir, output_stats=output_stats)
+                write_tip_outputs(
+                    result,
+                    tips_dir,
+                    output_stats=output_stats,
+                    write_markdown=write_markdown,
+                )
             with measure(file_stats, "write_topic_candidates_seconds"):
-                write_topic_candidate_outputs(result, tips_dir, output_stats=output_stats)
+                write_topic_candidate_outputs(
+                    result,
+                    tips_dir,
+                    output_stats=output_stats,
+                    write_markdown=write_markdown,
+                )
 
             if result.chunks:
                 chunks_dir = out / "chunks" / workbook_slug
                 with measure(file_stats, "write_chunks_seconds"):
-                    write_chunk_outputs(result.chunks, chunks_dir, output_stats=output_stats)
+                    write_chunk_outputs(
+                        result.chunks,
+                        chunks_dir,
+                        output_stats=output_stats,
+                        write_markdown=write_markdown,
+                    )
             if run_settings.table_extraction.value == "on":
                 with measure(file_stats, "write_tables_seconds"):
                     write_table_outputs(
@@ -393,6 +410,7 @@ def stage_one_file(
                         extracted_tables,
                         source_file=file_path.name,
                         output_stats=output_stats,
+                        write_markdown=write_markdown,
                     )
 
             with measure(file_stats, "write_raw_seconds"):

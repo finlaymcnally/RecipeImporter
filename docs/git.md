@@ -4,10 +4,4 @@ read_when:
   - When updating docs list tooling or doc front matter
 ---
 
-git add . && git commit -m "Implement canonical-text evaluation for extractor-agnostic benchmarking
-
-- Default interactive and labelstudio benchmarks to canonical-text eval mode.
-- Deprecate fast-align strategy; enforce legacy fallback for accuracy.
-- Enhance all-method scheduler with eval tail concurrency limits.
-- Update conventions and purge legacy task/understanding documentation.
-- Add comprehensive tests for canonical export and evaluation flows."
+git add . && git commit -m "Enhance benchmark scheduler with smart tail capping and parallel source support. Add benchaccel extras (cydifflib/cdifflib) for faster alignment. Implement flags to skip markdown and Label Studio task generation. Improve alignment cache robustness and consolidate documentation/plans."

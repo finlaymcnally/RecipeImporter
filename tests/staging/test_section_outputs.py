@@ -64,3 +64,13 @@ def test_write_section_outputs_writes_json_and_markdown(tmp_path: Path) -> None:
     summary = section_md.read_text(encoding="utf-8")
     assert "For the meat" in summary
     assert "For the gravy" in summary
+
+
+def test_write_section_outputs_can_skip_markdown(tmp_path: Path) -> None:
+    write_section_outputs(tmp_path, "sectioned", [_candidate()], write_markdown=False)
+
+    section_json = tmp_path / "sections" / "sectioned" / "r0.sections.json"
+    section_md = tmp_path / "sections" / "sectioned" / "sections.md"
+
+    assert section_json.exists()
+    assert not section_md.exists()

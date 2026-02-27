@@ -32,6 +32,10 @@ dependencies = [
 db = [
   "psycopg[binary]>=3.1",
 ]
+benchaccel = [
+  "cydifflib",
+  "cdifflib",
+]
 dev = [
   "pytest>=7.4",
   "psycopg[binary]>=3.1",
