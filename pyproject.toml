@@ -35,6 +35,7 @@ db = [
 benchaccel = [
   "cydifflib",
   "cdifflib",
+  "fast-diff-match-patch",
 ]
 dev = [
   "pytest>=7.4",

@@ -26,6 +26,7 @@ Requires-Dist: psycopg[binary]>=3.1; extra == "db"
 Provides-Extra: benchaccel
 Requires-Dist: cydifflib; extra == "benchaccel"
 Requires-Dist: cdifflib; extra == "benchaccel"
+Requires-Dist: fast-diff-match-patch; extra == "benchaccel"
 Provides-Extra: dev
 Requires-Dist: pytest>=7.4; extra == "dev"
 Requires-Dist: psycopg[binary]>=3.1; extra == "dev"

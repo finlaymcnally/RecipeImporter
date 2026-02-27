@@ -227,12 +227,47 @@ class CanonicalAlignmentDiskCache:
                     pass
 
     def _is_lock_stale(self, lock_path: Path) -> bool:
+        owner_pid = self._read_lock_owner_pid(lock_path)
+        if owner_pid is not None and not self._is_process_alive(owner_pid):
+            return True
         try:
             stat_result = lock_path.stat()
         except OSError:
             return False
         age_seconds = max(0.0, time.time() - float(stat_result.st_mtime))
         return age_seconds >= float(self._wait_seconds)
+
+    def _read_lock_owner_pid(self, lock_path: Path) -> int | None:
+        try:
+            raw_line = lock_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        if not raw_line:
+            return None
+        for token in raw_line.split():
+            if not token.startswith("pid="):
+                continue
+            try:
+                pid = int(token.split("=", 1)[1])
+            except (TypeError, ValueError):
+                return None
+            return pid if pid > 0 else None
+        return None
+
+    def _is_process_alive(self, pid: int) -> bool:
+        if int(pid) <= 0:
+            return False
+        try:
+            os.kill(int(pid), 0)
+        except (ValueError, OverflowError):
+            return False
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return True
+        return True
 
     def _move_aside_corrupt(self, cache_path: Path, *, reason: str) -> None:
         timestamp = str(int(time.time()))

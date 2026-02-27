@@ -87,6 +87,7 @@ Per workbook (slugified file stem):
 - `raw/<importer>/<source_hash>/<location_id>.<ext>` (if any)
 - `raw/llm/<workbook_slug>/pass5_tags/in/*.json` + `out/*.json` + `pass5_tags_manifest.json` (if pass5 tags pipeline is enabled)
 - `<workbook_slug>.excel_import_report.json` at run root
+- `processing_timeseries.jsonl` at run root (stage status snapshots + CPU utilization samples)
 
 Code pointers (prefer these over line numbers, which drift often):
 

@@ -440,9 +440,11 @@ Important:
   - `all_method_retry_failed_configs`
 - Smart scheduler mode is phase-aware:
   - workers emit config phase telemetry (`prep`, `split_wait`, `split_active`, `post`, `evaluate`) to `<source_root>/.scheduler_events/config_###.jsonl`,
+  - parent scheduler also writes `<source_root>/scheduler_timeseries.jsonl` with time-series snapshots (`scheduler heavy/wing/eval/active/pending`) plus host CPU utilization samples when `/proc/stat` is available,
   - parent queue admission targets `heavy + wing ~= split slots + wing backlog`,
   - effective inflight includes eval-tail headroom (`all_method_max_eval_tail_pipelines` override or CPU-aware auto default) so evaluate tails do not block new admissions,
-  - spinner/dashboard task line shows live scheduler state: `scheduler heavy X/Y | wing Z | eval E | active A | pending P`.
+  - spinner/dashboard task line shows live scheduler state: `scheduler heavy X/Y | wing Z | eval E | active A | pending P`,
+  - scheduler polling cadence is `0.15s`; spinner snapshots emit on state-change, while `scheduler_timeseries.jsonl` also writes a heartbeat sample every `1.0s` when state is unchanged.
 - Benchmark prediction manifests include run-config metadata (`run_config`, `run_config_hash`, `run_config_summary`) so analytics/dashboard rows can be grouped by configuration.
 - Non-interactive benchmark knobs include worker/split controls, OCR/warmup flags, knowledge-harvest codex-farm controls, and a recipe codex-farm policy knob that is currently forced to `off` (`--ocr-device`, `--ocr-batch-size`, `--warm-models`, `--epub-extractor`, `--llm-recipe-pipeline`, `--codex-farm-cmd`, `--codex-farm-root`, `--codex-farm-workspace-root`, `--codex-farm-pipeline-pass1`, `--codex-farm-pipeline-pass2`, `--codex-farm-pipeline-pass3`, `--codex-farm-context-blocks`, `--codex-farm-failure-mode`).
 - If recipe codex-farm correction is re-enabled in future, processed report payloads include `llmCodexFarm` and prediction-run artifacts include `llm_manifest.json` when produced.
@@ -461,6 +463,8 @@ This reindexing is critical; without it, freeform eval can report near-zero matc
 Import run artifacts:
 
 - `<output_dir>/<timestamp>/labelstudio/<book_slug>/...` (default `output_dir`: `data/golden/sent-to-labelstudio`)
+- interactive/non-interactive import spinner telemetry:
+  - `<output_dir>/.history/processing_timeseries/<timestamp>__labelstudio_import__<source>.jsonl`
 - Export run artifacts (default):
   - `<output_dir>/<project_slug>/exports/...` (default `output_dir`: `data/golden/pulled-from-labelstudio`)
   - `--run-dir` overrides this and writes into the specified run directory.
@@ -470,6 +474,9 @@ Benchmark eval artifacts:
 
 - `<eval_output_dir>/...` (often under `data/golden/benchmark-vs-golden/<timestamp>/`)
 - prediction artifacts moved to `<eval_output_dir>/prediction-run/`
+- benchmark spinner telemetry:
+  - `<eval_output_dir>/processing_timeseries_prediction.jsonl`
+  - `<eval_output_dir>/processing_timeseries_evaluation.jsonl` (when evaluation runs)
 - run roots now include `run_manifest.json` for import/export/eval/benchmark traceability.
 
 Manifest includes:

@@ -22,7 +22,7 @@ from concurrent.futures import (
     as_completed,
     wait,
 )
-from collections import defaultdict
+from collections import defaultdict, deque
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -74,6 +74,11 @@ from cookimport.bench.eval_canonical_text import (
 from cookimport.bench.eval_stage_blocks import (
     evaluate_stage_blocks,
     format_stage_block_eval_report_md,
+)
+from cookimport.bench.sequence_matcher_select import (
+    SEQUENCE_MATCHER_ENV,
+    reset_sequence_matcher_selection_cache,
+    supported_sequence_matcher_modes,
 )
 from cookimport.bench.prediction_records import (
     PredictionRecord,
@@ -203,11 +208,23 @@ ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY = "all_method_max_parallel_sources"
 ALL_METHOD_WING_BACKLOG_SETTING_KEY = "all_method_wing_backlog_target"
 ALL_METHOD_SMART_SCHEDULER_SETTING_KEY = "all_method_smart_scheduler"
 ALL_METHOD_SCHEDULER_POLL_SECONDS = 0.15
+ALL_METHOD_SCHEDULER_TIMESERIES_HEARTBEAT_SECONDS = 1.0
+ALL_METHOD_SCHEDULER_TIMESERIES_FILENAME = "scheduler_timeseries.jsonl"
+PROCESSING_TIMESERIES_HEARTBEAT_SECONDS = 1.0
+PROCESSING_TIMESERIES_FILENAME = "processing_timeseries.jsonl"
 BENCHMARK_EVAL_MODE_STAGE_BLOCKS = "stage-blocks"
 BENCHMARK_EVAL_MODE_CANONICAL_TEXT = "canonical-text"
 BENCHMARK_EXECUTION_MODE_LEGACY = "legacy"
 BENCHMARK_EXECUTION_MODE_PIPELINED = "pipelined"
 BENCHMARK_EXECUTION_MODE_PREDICT_ONLY = "predict-only"
+BENCHMARK_SEQUENCE_MATCHER_DISPLAY_NAMES: dict[str, str] = {
+    "auto": "Auto",
+    "stdlib": "Stdlib",
+    "cydifflib": "CyDifflib",
+    "cdifflib": "CDifflib",
+    "dmp": "DMP",
+    "multilayer": "MultiLayer",
+}
 OUTPUT_STATS_CATEGORY_RAW = "rawArtifacts"
 BENCHMARK_EVAL_PROFILE_MIN_SECONDS_ENV = "COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS"
 BENCHMARK_EVAL_PROFILE_TOP_N_ENV = "COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N"
@@ -252,6 +269,9 @@ _MENU_SHORTCUT_KEYS = (
 
 _STATUS_ELAPSED_THRESHOLD_SECONDS = 10
 _STATUS_TICK_SECONDS = 1.0
+_STATUS_RATE_RECENT_WINDOW = 12
+_STATUS_ALL_METHOD_STALL_MIN_SECONDS = 1.0
+_STATUS_ALL_METHOD_STALL_MULTIPLIER = 2.0
 _STATUS_COUNTER_PATTERN = re.compile(r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)")
 _StatusReturn = TypeVar("_StatusReturn")
 _DASHBOARD_REFRESH_SENTINEL_DIRNAME = "__dashboard_refresh__"
@@ -634,6 +654,7 @@ def _load_settings() -> Dict[str, Any]:
         "epub_unstructured_html_parser_version": "v1",
         "epub_unstructured_skip_headers_footers": False,
         "epub_unstructured_preprocess_mode": "br_split_v1",
+        "benchmark_sequence_matcher": "auto",
         "ocr_device": "auto",
         "ocr_batch_size": 1,
         "pdf_pages_per_job": 50,
@@ -1549,6 +1570,7 @@ def _interactive_all_method_benchmark(
         report_md_path = _run_with_progress_status(
             initial_status=status_initial,
             progress_prefix=status_prefix,
+            telemetry_path=all_method_root / PROCESSING_TIMESERIES_FILENAME,
             run=lambda update_progress: _run_all_method_benchmark_multi_source(
                 target_variants=selected_target_variants,
                 unmatched_targets=unmatched_targets,
@@ -1573,6 +1595,10 @@ def _interactive_all_method_benchmark(
         typer.secho(
             f"All method benchmark summary report: {report_md_path}",
             fg=typer.colors.CYAN,
+        )
+        typer.secho(
+            f"All method processing telemetry: {all_method_root / PROCESSING_TIMESERIES_FILENAME}",
+            fg=typer.colors.BRIGHT_BLACK,
         )
     else:
         single_target = targets[0]
@@ -1625,9 +1651,14 @@ def _interactive_all_method_benchmark(
         report_md_path = _run_with_progress_status(
             initial_status=status_initial,
             progress_prefix=status_prefix,
+            telemetry_path=single_root / PROCESSING_TIMESERIES_FILENAME,
             run=_run_single_source,
         )
         typer.secho(f"All method benchmark report: {report_md_path}", fg=typer.colors.CYAN)
+        typer.secho(
+            f"All method processing telemetry: {single_root / PROCESSING_TIMESERIES_FILENAME}",
+            fg=typer.colors.BRIGHT_BLACK,
+        )
 
     typer.secho(
         f"All method processed outputs: {all_method_processed_root}",
@@ -2123,11 +2154,17 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             if resolved_creds is None:
                 continue
             url, api_key = resolved_creds
+            interactive_import_timeseries_path = _processing_timeseries_history_path(
+                root=_golden_sent_to_labelstudio_root(),
+                scope="labelstudio_import",
+                source_name=selected_file.name,
+            )
 
             import_started_at = time.monotonic()
             try:
                 result = _run_labelstudio_import_with_status(
                     source_name=selected_file.name,
+                    telemetry_path=interactive_import_timeseries_path,
                     run_import=lambda update_progress: run_labelstudio_import(
                         path=selected_file,
                         output_dir=_golden_sent_to_labelstudio_root(),
@@ -2174,6 +2211,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             typer.secho(
                 f"Processing time: {_format_processing_time(processing_time_seconds)}",
                 fg=typer.colors.CYAN,
+            )
+            typer.secho(
+                f"Processing telemetry: {interactive_import_timeseries_path}",
+                fg=typer.colors.BRIGHT_BLACK,
             )
             if prelabel:
                 _print_prelabel_completion_summary(
@@ -2652,6 +2693,27 @@ def _normalize_benchmark_execution_mode(value: str) -> str:
     return BENCHMARK_EXECUTION_MODE_LEGACY
 
 
+def _benchmark_sequence_matcher_modes() -> tuple[str, ...]:
+    return tuple(str(mode) for mode in supported_sequence_matcher_modes())
+
+
+def _benchmark_sequence_matcher_display_name(mode: str) -> str:
+    normalized = str(mode or "").strip().lower()
+    return BENCHMARK_SEQUENCE_MATCHER_DISPLAY_NAMES.get(normalized, normalized or "auto")
+
+
+def _normalize_benchmark_sequence_matcher_mode(value: str) -> str:
+    normalized = str(value or "auto").strip().lower()
+    supported = _benchmark_sequence_matcher_modes()
+    if normalized in supported:
+        return normalized
+    _fail(
+        f"Invalid benchmark sequence matcher mode: {value!r}. "
+        f"Expected one of: {', '.join(supported)}."
+    )
+    return "auto"
+
+
 def _parse_csv_labels(value: str) -> set[str]:
     labels = {item.strip().upper() for item in value.split(",") if item.strip()}
     if not labels:
@@ -2670,6 +2732,22 @@ def _temporary_epub_extractor(value: str) -> Iterable[None]:
             os.environ.pop("C3IMP_EPUB_EXTRACTOR", None)
         else:
             os.environ["C3IMP_EPUB_EXTRACTOR"] = previous
+
+
+@contextmanager
+def _temporary_benchmark_sequence_matcher(mode: str) -> Iterable[None]:
+    previous = os.environ.get(SEQUENCE_MATCHER_ENV)
+    normalized_mode = _normalize_benchmark_sequence_matcher_mode(mode)
+    os.environ[SEQUENCE_MATCHER_ENV] = normalized_mode
+    reset_sequence_matcher_selection_cache()
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(SEQUENCE_MATCHER_ENV, None)
+        else:
+            os.environ[SEQUENCE_MATCHER_ENV] = previous
+        reset_sequence_matcher_selection_cache()
 
 
 def _set_epub_unstructured_env(
@@ -2946,6 +3024,47 @@ def _looks_like_all_method_dashboard_snapshot(message: str) -> bool:
     return bool(trimmed and trimmed.startswith("overall source ") and "\nqueue:" in trimmed)
 
 
+def _extract_all_method_dashboard_metrics(message: str) -> dict[str, int]:
+    trimmed = str(message or "").strip()
+    if not _looks_like_all_method_dashboard_snapshot(trimmed):
+        return {}
+    for raw_line in trimmed.splitlines():
+        line = raw_line.strip().lower()
+        if not line.startswith("task:"):
+            continue
+        payload = line.split(":", 1)[1].strip()
+        metrics: dict[str, int] = {}
+        for part in payload.split("|"):
+            segment = part.strip()
+            if not segment:
+                continue
+            match = re.search(r"\b(active|pending|eval|wing)\s+(\d+)\b", segment)
+            if match is None:
+                continue
+            key = match.group(1)
+            value = max(0, int(match.group(2)))
+            metrics[key] = value
+        return metrics
+    return {}
+
+
+def _recent_rate_average_seconds_per_task(
+    samples: deque[tuple[float, int]],
+) -> float | None:
+    if not samples:
+        return None
+    total_seconds = 0.0
+    total_units = 0
+    for elapsed_seconds, completed_units in samples:
+        if elapsed_seconds <= 0 or completed_units <= 0:
+            continue
+        total_seconds += float(elapsed_seconds)
+        total_units += int(completed_units)
+    if total_seconds <= 0 or total_units <= 0:
+        return None
+    return total_seconds / float(total_units)
+
+
 def _format_status_progress_message(
     message: str,
     *,
@@ -2988,6 +3107,137 @@ def _format_processing_time(elapsed_seconds: float) -> str:
     return f"{seconds}s"
 
 
+def _read_linux_cpu_totals() -> tuple[int, int] | None:
+    try:
+        with Path("/proc/stat").open("r", encoding="utf-8") as handle:
+            first_line = handle.readline()
+    except OSError:
+        return None
+    line = str(first_line or "").strip()
+    if not line:
+        return None
+    parts = line.split()
+    if not parts or parts[0] != "cpu":
+        return None
+    values: list[int] = []
+    for token in parts[1:]:
+        try:
+            values.append(int(token))
+        except ValueError:
+            return None
+    if len(values) < 4:
+        return None
+    total = sum(values)
+    idle = values[3] + (values[4] if len(values) > 4 else 0)
+    return total, idle
+
+
+@dataclass
+class _HostCpuUtilizationSampler:
+    source: str = "proc_stat_linux"
+    sample_count: int = 0
+    _last_totals: tuple[int, int] | None = None
+
+    def sample_percent(self) -> float | None:
+        current = _read_linux_cpu_totals()
+        if current is None:
+            self.source = "unavailable"
+            self._last_totals = None
+            return None
+        previous = self._last_totals
+        self._last_totals = current
+        if previous is None:
+            return None
+        total_delta = current[0] - previous[0]
+        idle_delta = current[1] - previous[1]
+        if total_delta <= 0:
+            return None
+        busy_delta = max(0, total_delta - max(0, idle_delta))
+        self.sample_count += 1
+        return max(0.0, min(100.0, (float(busy_delta) / float(total_delta)) * 100.0))
+
+
+@dataclass
+class _ProcessingTimeseriesWriter:
+    path: Path
+    heartbeat_seconds: float = PROCESSING_TIMESERIES_HEARTBEAT_SECONDS
+    cpu_sampler: _HostCpuUtilizationSampler = field(default_factory=_HostCpuUtilizationSampler)
+    row_count: int = 0
+    _last_snapshot: str = ""
+    _last_write_monotonic: float = field(default_factory=time.monotonic)
+    _write_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def write_row(
+        self,
+        *,
+        snapshot: str,
+        payload: dict[str, Any],
+        force: bool = False,
+    ) -> None:
+        now_monotonic = time.monotonic()
+        with self._write_lock:
+            write_due = (
+                force
+                or snapshot != self._last_snapshot
+                or (
+                    now_monotonic - self._last_write_monotonic
+                    >= max(0.05, float(self.heartbeat_seconds))
+                )
+            )
+            if not write_due:
+                return
+            row = dict(payload)
+            row.setdefault(
+                "timestamp",
+                dt.datetime.now(tz=dt.timezone.utc).isoformat(timespec="milliseconds"),
+            )
+            row.setdefault("monotonic_seconds", now_monotonic)
+            row["snapshot"] = snapshot
+            row["cpu_utilization_pct"] = self.cpu_sampler.sample_percent()
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                with self.path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(row, sort_keys=True) + "\n")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Ignoring processing time-series write failure for %s: %s",
+                    self.path,
+                    exc,
+                )
+                return
+            self._last_snapshot = snapshot
+            self._last_write_monotonic = now_monotonic
+            self.row_count += 1
+
+
+def _processing_timeseries_history_path(
+    *,
+    root: Path,
+    scope: str,
+    source_name: str | None = None,
+) -> Path:
+    timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+    scope_slug = slugify_name(scope) or "processing"
+    source_slug = (
+        slugify_name(Path(source_name).stem)
+        if source_name is not None and str(source_name).strip()
+        else ""
+    )
+    base_name = f"{timestamp}__{scope_slug}"
+    if source_slug:
+        base_name = f"{base_name}__{source_slug}"
+    telemetry_dir = root / ".history" / "processing_timeseries"
+    candidate = telemetry_dir / f"{base_name}.jsonl"
+    if not candidate.exists():
+        return candidate
+    suffix = 1
+    while True:
+        candidate = telemetry_dir / f"{base_name}__{suffix}.jsonl"
+        if not candidate.exists():
+            return candidate
+        suffix += 1
+
+
 def _run_with_progress_status(
     *,
     initial_status: str,
@@ -2995,6 +3245,8 @@ def _run_with_progress_status(
     run: Callable[[Callable[[str], None]], _StatusReturn],
     elapsed_threshold_seconds: int = _STATUS_ELAPSED_THRESHOLD_SECONDS,
     tick_seconds: float = _STATUS_TICK_SECONDS,
+    telemetry_path: Path | None = None,
+    telemetry_heartbeat_seconds: float = PROCESSING_TIMESERIES_HEARTBEAT_SECONDS,
 ) -> _StatusReturn:
     latest_message = ""
     latest_message_started = time.monotonic()
@@ -3004,10 +3256,23 @@ def _run_with_progress_status(
     rate_last_progress_at: float | None = None
     rate_sampled_seconds = 0.0
     rate_sampled_units = 0
+    rate_recent_samples: deque[tuple[float, int]] = deque(
+        maxlen=_STATUS_RATE_RECENT_WINDOW
+    )
+    all_method_metrics: dict[str, int] = {}
     worker_total = 0
     worker_activity: dict[int, str] = {}
     state_lock = threading.Lock()
     stop_event = threading.Event()
+    timeseries_writer: _ProcessingTimeseriesWriter | None = None
+    if telemetry_path is not None:
+        telemetry_file = Path(telemetry_path).expanduser()
+        if telemetry_file.exists():
+            telemetry_file.unlink()
+        timeseries_writer = _ProcessingTimeseriesWriter(
+            path=telemetry_file,
+            heartbeat_seconds=max(0.05, float(telemetry_heartbeat_seconds)),
+        )
 
     def render(now: float | None = None) -> str:
         current = now if now is not None else time.monotonic()
@@ -3016,8 +3281,11 @@ def _run_with_progress_status(
             started_at = latest_message_started
             counter = latest_counter
             tracked_total = rate_total
+            last_progress_at = rate_last_progress_at
             sampled_seconds = rate_sampled_seconds
             sampled_units = rate_sampled_units
+            recent_avg = _recent_rate_average_seconds_per_task(rate_recent_samples)
+            dashboard_metrics = dict(all_method_metrics)
             workers = worker_total
             worker_statuses = {
                 worker_index: status
@@ -3032,15 +3300,38 @@ def _run_with_progress_status(
             if (
                 counter is not None
                 and tracked_total is not None
-                and sampled_units > 0
-                and sampled_seconds > 0
                 and counter[1] == tracked_total
             ):
                 counter_current, counter_total = counter
                 remaining = max(0, counter_total - counter_current)
-                avg_seconds_per_task = sampled_seconds / sampled_units
-                if remaining > 0 and avg_seconds_per_task > 0:
+                if recent_avg is not None:
+                    avg_seconds_per_task = recent_avg
+                elif sampled_units > 0 and sampled_seconds > 0:
+                    avg_seconds_per_task = sampled_seconds / sampled_units
+                if (
+                    remaining > 0
+                    and avg_seconds_per_task is not None
+                    and avg_seconds_per_task > 0
+                ):
                     eta_seconds = int(round(avg_seconds_per_task * remaining))
+                    active_hint = max(0, int(dashboard_metrics.get("active") or 0))
+                    eval_hint = max(0, int(dashboard_metrics.get("eval") or 0))
+                    if (
+                        active_hint > 0
+                        and eval_hint > 0
+                        and last_progress_at is not None
+                    ):
+                        stalled_seconds = max(0.0, current - last_progress_at)
+                        if stalled_seconds >= max(
+                            _STATUS_ALL_METHOD_STALL_MIN_SECONDS,
+                            avg_seconds_per_task * _STATUS_ALL_METHOD_STALL_MULTIPLIER,
+                        ):
+                            stalled_floor = stalled_seconds / float(active_hint)
+                            if stalled_floor > avg_seconds_per_task:
+                                eta_seconds = max(
+                                    eta_seconds,
+                                    int(round(stalled_floor * remaining)),
+                                )
             decorated = _format_status_progress_message(
                 message,
                 elapsed_seconds=elapsed,
@@ -3064,11 +3355,68 @@ def _run_with_progress_status(
             )
         return "\n".join(worker_lines)
 
+    def _emit_timeseries(
+        *,
+        event: str,
+        force: bool = False,
+        now: float | None = None,
+    ) -> None:
+        if timeseries_writer is None:
+            return
+        current = now if now is not None else time.monotonic()
+        with state_lock:
+            message = latest_message
+            started_at = latest_message_started
+            counter = latest_counter
+            workers = worker_total
+            worker_statuses = {
+                worker_index: status
+                for worker_index, status in worker_activity.items()
+            }
+        elapsed_seconds = max(0.0, current - started_at)
+        message_value = str(message or initial_status).strip() or str(initial_status).strip()
+        counter_current: int | None = None
+        counter_total: int | None = None
+        if counter is not None:
+            counter_current = max(0, int(counter[0]))
+            counter_total = max(0, int(counter[1]))
+        worker_active = sum(
+            1
+            for status in worker_statuses.values()
+            if str(status).strip().lower() not in {"", "idle", "done", "skipped"}
+        )
+        snapshot = message_value
+        if counter_current is not None and counter_total is not None:
+            snapshot = f"{snapshot} | task {counter_current}/{counter_total}"
+        if workers > 0:
+            snapshot = f"{snapshot} | workers {workers}"
+        timeseries_writer.write_row(
+            snapshot=snapshot,
+            force=force,
+            payload={
+                "event": str(event or "").strip() or "update",
+                "progress_prefix": progress_prefix,
+                "message": message_value,
+                "elapsed_seconds": elapsed_seconds,
+                "task_current": counter_current,
+                "task_total": counter_total,
+                "worker_total": max(0, int(workers)),
+                "worker_active": max(0, int(worker_active)),
+                "worker_activity": {
+                    str(key): str(value)
+                    for key, value in sorted(worker_statuses.items())
+                },
+            },
+        )
+
     with console.status(render(), spinner="dots") as status:
+        _emit_timeseries(event="started", force=True)
 
         def tick() -> None:
             while not stop_event.wait(max(0.05, tick_seconds)):
-                status.update(render())
+                now = time.monotonic()
+                status.update(render(now))
+                _emit_timeseries(event="tick", now=now)
 
         ticker = threading.Thread(
             target=tick,
@@ -3081,6 +3429,7 @@ def _run_with_progress_status(
             nonlocal latest_message, latest_message_started
             nonlocal latest_counter, rate_total, rate_last_current, rate_last_progress_at
             nonlocal rate_sampled_seconds, rate_sampled_units
+            nonlocal rate_recent_samples, all_method_metrics
             nonlocal worker_total, worker_activity
             now = time.monotonic()
             cleaned = msg.strip()
@@ -3111,6 +3460,7 @@ def _run_with_progress_status(
                     latest_message = cleaned
                     latest_message_started = now
                     latest_counter = counter
+                    all_method_metrics = _extract_all_method_dashboard_metrics(cleaned)
                     if counter is not None:
                         counter_current, counter_total = counter
                         should_reset = (
@@ -3126,6 +3476,7 @@ def _run_with_progress_status(
                             rate_last_progress_at = now
                             rate_sampled_seconds = 0.0
                             rate_sampled_units = 0
+                            rate_recent_samples.clear()
                         else:
                             delta = counter_current - rate_last_current
                             if delta > 0:
@@ -3135,15 +3486,20 @@ def _run_with_progress_status(
                                 if elapsed_since_progress > 0:
                                     rate_sampled_seconds += elapsed_since_progress
                                     rate_sampled_units += delta
+                                    rate_recent_samples.append(
+                                        (elapsed_since_progress, delta)
+                                    )
                                 rate_last_current = counter_current
                                 rate_last_progress_at = now
             status.update(render(now))
+            _emit_timeseries(event="update", now=now)
 
         try:
             return run(update_progress)
         finally:
             stop_event.set()
             ticker.join(timeout=max(0.2, tick_seconds * 2))
+            _emit_timeseries(event="finished", force=True)
 
 
 @contextmanager
@@ -3237,11 +3593,13 @@ def _run_labelstudio_import_with_status(
     *,
     source_name: str,
     run_import: Callable[[Callable[[str], None]], dict[str, Any]],
+    telemetry_path: Path | None = None,
 ) -> dict[str, Any]:
     return _run_with_progress_status(
         initial_status=f"Running Label Studio import for {source_name}...",
         progress_prefix=f"Label Studio import ({source_name})",
         run=run_import,
+        telemetry_path=telemetry_path,
     )
 
 
@@ -4267,6 +4625,7 @@ def _build_prediction_bundle_from_stage_records(
     *,
     prediction_records: list[PredictionRecord],
     replay_output_dir: Path,
+    require_contiguous: bool = True,
 ) -> BenchmarkPredictionBundle:
     if not prediction_records:
         raise ValueError("Prediction record file is empty.")
@@ -4315,17 +4674,19 @@ def _build_prediction_bundle_from_stage_records(
         raise ValueError("Prediction record file contains no stage-block records.")
 
     ordered_indices = sorted(block_rows)
-    max_block_index = ordered_indices[-1]
-    expected_indices = list(range(max_block_index + 1))
-    missing_indices = [
-        block_index for block_index in expected_indices if block_index not in block_rows
-    ]
-    if missing_indices:
-        missing_preview = ",".join(str(value) for value in missing_indices[:10])
-        raise ValueError(
-            "Prediction record block indices are not contiguous from 0. "
-            f"Missing: {missing_preview}"
-        )
+    expected_indices = list(ordered_indices)
+    if require_contiguous:
+        max_block_index = ordered_indices[-1]
+        expected_indices = list(range(max_block_index + 1))
+        missing_indices = [
+            block_index for block_index in expected_indices if block_index not in block_rows
+        ]
+        if missing_indices:
+            missing_preview = ",".join(str(value) for value in missing_indices[:10])
+            raise ValueError(
+                "Prediction record block indices are not contiguous from 0. "
+                f"Missing: {missing_preview}"
+            )
 
     source_file = str(first_meta.get("source_file") or "")
     source_hash = str(first_meta.get("source_hash") or "").strip() or "unknown"
@@ -4356,12 +4717,14 @@ def _build_prediction_bundle_from_stage_records(
         "source_file": source_file,
         "source_hash": source_hash,
         "workbook_slug": workbook_slug,
-        "block_count": len(expected_indices),
         "block_labels": stage_labels,
         "label_blocks": label_blocks,
         "conflicts": [],
         "notes": ["Reconstructed from per-example prediction records."],
     }
+    contiguous_indices = expected_indices == list(range(len(expected_indices)))
+    if contiguous_indices:
+        stage_payload["block_count"] = len(expected_indices)
     stage_predictions_path.write_text(
         json.dumps(stage_payload, indent=2, sort_keys=True),
         encoding="utf-8",
@@ -4488,75 +4851,159 @@ def run_legacy(
     return prediction_bundle, prediction_records
 
 
+@dataclass(frozen=True)
+class PipelinedPredictionResult:
+    prediction_bundle: BenchmarkPredictionBundle
+    prediction_records: list[PredictionRecord]
+    prewarmed_canonical_paths: dict[str, Path] | None
+    replay_bundle: BenchmarkPredictionBundle | None
+
+
 def run_pipelined(
     *,
     run_prediction_bundle: Callable[[], BenchmarkPredictionBundle],
     prewarm_evaluation_inputs: Callable[[], dict[str, Path] | None],
     selected_source: Path,
+    eval_output_dir: Path,
     queue_size: int = 64,
-) -> tuple[BenchmarkPredictionBundle, list[PredictionRecord], dict[str, Path] | None]:
+) -> PipelinedPredictionResult:
     record_queue: queue.Queue[PredictionRecord | object] = queue.Queue(
         maxsize=max(1, int(queue_size))
     )
-    result_queue: queue.Queue[BenchmarkPredictionBundle] = queue.Queue(maxsize=1)
+    prediction_bundle_queue: queue.Queue[BenchmarkPredictionBundle] = queue.Queue(
+        maxsize=1
+    )
+    prewarm_queue: queue.Queue[dict[str, Path] | None] = queue.Queue(maxsize=1)
+    consumer_queue: queue.Queue[
+        tuple[list[PredictionRecord], BenchmarkPredictionBundle | None]
+    ] = queue.Queue(maxsize=1)
     error_queue: queue.Queue[BaseException] = queue.Queue(maxsize=1)
+    producer_done = threading.Event()
+    stop_event = threading.Event()
     end_of_stream = object()
+
+    def _publish_error(exc: BaseException) -> None:
+        if error_queue.empty():
+            error_queue.put(exc)
+        stop_event.set()
+
+    def _queue_put(target_queue: queue.Queue[Any], payload: Any) -> bool:
+        while True:
+            if stop_event.is_set():
+                return False
+            try:
+                target_queue.put(payload, timeout=0.1)
+                return True
+            except queue.Full:
+                continue
 
     def _producer() -> None:
         try:
             prediction_bundle = run_prediction_bundle()
-            result_queue.put(prediction_bundle)
+            if not _queue_put(prediction_bundle_queue, prediction_bundle):
+                return
             for record in predict_stage(
                 bundle=prediction_bundle,
                 selected_source=selected_source,
             ):
-                record_queue.put(record)
-            record_queue.put(end_of_stream)
+                if not _queue_put(record_queue, record):
+                    return
         except BaseException as exc:  # noqa: BLE001
-            error_queue.put(exc)
-            record_queue.put(end_of_stream)
+            _publish_error(exc)
+        finally:
+            producer_done.set()
+            _queue_put(record_queue, end_of_stream)
+
+    def _prewarm() -> None:
+        try:
+            prewarmed_canonical_paths = prewarm_evaluation_inputs()
+            _queue_put(prewarm_queue, prewarmed_canonical_paths)
+        except BaseException as exc:  # noqa: BLE001
+            _publish_error(exc)
+
+    def _consumer() -> None:
+        try:
+            prediction_records: list[PredictionRecord] = []
+            reached_end_of_stream = False
+            while not reached_end_of_stream:
+                if stop_event.is_set() and producer_done.is_set() and record_queue.empty():
+                    break
+                try:
+                    next_item = record_queue.get(timeout=0.1)
+                except queue.Empty:
+                    if producer_done.is_set():
+                        break
+                    continue
+                if next_item is end_of_stream:
+                    reached_end_of_stream = True
+                    continue
+                if not isinstance(next_item, PredictionRecord):
+                    raise RuntimeError(
+                        "Benchmark prediction pipeline produced an invalid record."
+                    )
+                if _prediction_record_stage_row(next_item) is None:
+                    raise ValueError(
+                        "Pipelined benchmark received unsupported prediction record payload."
+                    )
+                prediction_records.append(next_item)
+
+            replay_bundle: BenchmarkPredictionBundle | None = None
+            if prediction_records:
+                replay_bundle = _build_prediction_bundle_from_stage_records(
+                    prediction_records=prediction_records,
+                    replay_output_dir=(
+                        eval_output_dir / ".prediction-record-replay" / "pipelined"
+                    ),
+                    require_contiguous=False,
+                )
+            _queue_put(consumer_queue, (prediction_records, replay_bundle))
+        except BaseException as exc:  # noqa: BLE001
+            _publish_error(exc)
 
     producer_thread = threading.Thread(
         target=_producer,
         name="benchmark-prediction-stage",
         daemon=True,
     )
+    prewarm_thread = threading.Thread(
+        target=_prewarm,
+        name="benchmark-eval-prewarm",
+        daemon=True,
+    )
+    consumer_thread = threading.Thread(
+        target=_consumer,
+        name="benchmark-eval-consumer",
+        daemon=True,
+    )
+
     producer_thread.start()
-    prewarmed_canonical_paths: dict[str, Path] | None = None
-    prewarm_error: BaseException | None = None
-    try:
-        prewarmed_canonical_paths = prewarm_evaluation_inputs()
-    except BaseException as exc:  # noqa: BLE001
-        prewarm_error = exc
-
-    prediction_records: list[PredictionRecord] = []
-    reached_end_of_stream = False
-    while not reached_end_of_stream:
-        try:
-            next_item = record_queue.get(timeout=0.1)
-        except queue.Empty:
-            if not producer_thread.is_alive() and not error_queue.empty():
-                break
-            continue
-        if next_item is end_of_stream:
-            reached_end_of_stream = True
-            continue
-        if isinstance(next_item, PredictionRecord):
-            prediction_records.append(next_item)
-            continue
-        raise RuntimeError("Benchmark prediction pipeline produced an invalid record.")
-
+    consumer_thread.start()
+    prewarm_thread.start()
     producer_thread.join()
-    if prewarm_error is not None:
-        raise prewarm_error
+    consumer_thread.join()
+    prewarm_thread.join()
+
     if not error_queue.empty():
         raise error_queue.get()
-    if result_queue.empty():
+    if prediction_bundle_queue.empty():
         raise RuntimeError(
             "Pipelined benchmark prediction stage produced no output."
         )
-    prediction_bundle = result_queue.get()
-    return prediction_bundle, prediction_records, prewarmed_canonical_paths
+    if prewarm_queue.empty():
+        raise RuntimeError("Pipelined benchmark prewarm stage produced no output.")
+    if consumer_queue.empty():
+        raise RuntimeError(
+            "Pipelined benchmark evaluation consumer produced no output."
+        )
+    prediction_bundle = prediction_bundle_queue.get()
+    prewarmed_canonical_paths = prewarm_queue.get()
+    prediction_records, replay_bundle = consumer_queue.get()
+    return PipelinedPredictionResult(
+        prediction_bundle=prediction_bundle,
+        prediction_records=prediction_records,
+        prewarmed_canonical_paths=prewarmed_canonical_paths,
+        replay_bundle=replay_bundle,
+    )
 
 
 def evaluate_stage(
@@ -5774,6 +6221,25 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
                 "",
             ]
         )
+        timeseries_path = str(scheduler.get("timeseries_path") or "").strip()
+        if timeseries_path:
+            lines.extend(
+                [
+                    (
+                        "- Scheduler time-series: "
+                        f"{timeseries_path} "
+                        f"({ _report_count(scheduler.get('timeseries_row_count')) } rows, "
+                        f"poll { _report_metric(scheduler.get('snapshot_poll_seconds')):.2f}s, "
+                        f"heartbeat { _report_metric(scheduler.get('timeseries_heartbeat_seconds')):.2f}s)"
+                    ),
+                    (
+                        "- CPU utilization samples/source: "
+                        f"{ _report_count(scheduler.get('cpu_utilization_samples')) }/"
+                        f"{scheduler.get('cpu_utilization_source', 'unavailable')}"
+                    ),
+                    "",
+                ]
+            )
 
     lines.extend(
         [
@@ -6769,9 +7235,12 @@ def _run_all_method_benchmark(
     split_phase_gate_dir.mkdir(parents=True, exist_ok=True)
     canonical_alignment_cache_dir = root_output_dir / ".cache" / "canonical_alignment"
     scheduler_events_dir = root_output_dir / ".scheduler_events"
+    scheduler_timeseries_path = root_output_dir / ALL_METHOD_SCHEDULER_TIMESERIES_FILENAME
     if scheduler_events_dir.exists():
         shutil.rmtree(scheduler_events_dir)
     scheduler_events_dir.mkdir(parents=True, exist_ok=True)
+    if scheduler_timeseries_path.exists():
+        scheduler_timeseries_path.unlink()
 
     total_variants = len(variants)
     scheduler_runtime = _resolve_all_method_scheduler_runtime(
@@ -6862,9 +7331,65 @@ def _run_all_method_benchmark(
     scheduler_max_eval_active = 0
     scheduler_last_snapshot = ""
     scheduler_smart_enabled = bool(effective_smart_scheduler)
+    scheduler_timeseries_last_snapshot = ""
+    scheduler_timeseries_last_write_monotonic = source_started
+    scheduler_timeseries_rows_written = 0
+    scheduler_timeseries_heartbeat_seconds = max(
+        ALL_METHOD_SCHEDULER_TIMESERIES_HEARTBEAT_SECONDS,
+        ALL_METHOD_SCHEDULER_POLL_SECONDS,
+    )
+    scheduler_cpu_source = "proc_stat_linux"
+    scheduler_cpu_samples_collected = 0
+    scheduler_cpu_totals_last: tuple[int, int] | None = None
 
     def _scheduler_event_path(config_index: int) -> Path:
         return scheduler_events_dir / f"config_{config_index:03d}.jsonl"
+
+    def _read_linux_cpu_totals() -> tuple[int, int] | None:
+        try:
+            with Path("/proc/stat").open("r", encoding="utf-8") as handle:
+                first_line = handle.readline()
+        except OSError:
+            return None
+        line = str(first_line or "").strip()
+        if not line:
+            return None
+        parts = line.split()
+        if not parts or parts[0] != "cpu":
+            return None
+        values: list[int] = []
+        for token in parts[1:]:
+            try:
+                values.append(int(token))
+            except ValueError:
+                return None
+        if len(values) < 4:
+            return None
+        total = sum(values)
+        idle = values[3] + (values[4] if len(values) > 4 else 0)
+        return total, idle
+
+    def _sample_host_cpu_utilization_pct() -> float | None:
+        nonlocal scheduler_cpu_source
+        nonlocal scheduler_cpu_samples_collected
+        nonlocal scheduler_cpu_totals_last
+
+        current = _read_linux_cpu_totals()
+        if current is None:
+            scheduler_cpu_source = "unavailable"
+            scheduler_cpu_totals_last = None
+            return None
+        previous = scheduler_cpu_totals_last
+        scheduler_cpu_totals_last = current
+        if previous is None:
+            return None
+        total_delta = current[0] - previous[0]
+        idle_delta = current[1] - previous[1]
+        if total_delta <= 0:
+            return None
+        busy_delta = max(0, total_delta - max(0, idle_delta))
+        scheduler_cpu_samples_collected += 1
+        return max(0.0, min(100.0, (float(busy_delta) / float(total_delta)) * 100.0))
 
     def _scheduler_phase_for_event(event_name: str) -> str | None:
         event = str(event_name or "").strip()
@@ -6984,11 +7509,77 @@ def _run_all_method_benchmark(
             f"| active {counts['active']} | pending {max(0, pending_count)}"
         )
 
-    def _emit_scheduler_snapshot(*, counts: dict[str, int], pending_count: int) -> None:
+    def _write_scheduler_timeseries_row(
+        *,
+        counts: dict[str, int],
+        pending_count: int,
+        force: bool = False,
+    ) -> None:
+        nonlocal scheduler_timeseries_last_snapshot
+        nonlocal scheduler_timeseries_last_write_monotonic
+        nonlocal scheduler_timeseries_rows_written
+
+        pending_safe = max(0, pending_count)
+        snapshot = _scheduler_snapshot(counts=counts, pending_count=pending_safe)
+        now_monotonic = time.monotonic()
+        write_due = (
+            force
+            or snapshot != scheduler_timeseries_last_snapshot
+            or (
+                now_monotonic - scheduler_timeseries_last_write_monotonic
+                >= scheduler_timeseries_heartbeat_seconds
+            )
+        )
+        if not write_due:
+            return
+        row = {
+            "timestamp": dt.datetime.now(tz=dt.timezone.utc).isoformat(timespec="milliseconds"),
+            "monotonic_seconds": now_monotonic,
+            "elapsed_seconds": max(0.0, now_monotonic - source_started),
+            "snapshot": snapshot,
+            "heavy_active": _report_count(counts.get("heavy_active")),
+            "heavy_capacity": _report_count(effective_split_phase_slots),
+            "split_wait": _report_count(counts.get("split_wait")),
+            "prep_active": _report_count(counts.get("prep_active")),
+            "post_active": _report_count(counts.get("post_active")),
+            "evaluate_active": _report_count(counts.get("evaluate_active")),
+            "wing_backlog": _report_count(counts.get("wing_backlog")),
+            "active": _report_count(counts.get("active")),
+            "pending": pending_safe,
+            "cpu_utilization_pct": _sample_host_cpu_utilization_pct(),
+        }
+        try:
+            with scheduler_timeseries_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(row, sort_keys=True) + "\n")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Ignoring scheduler time-series write failure for %s: %s",
+                scheduler_timeseries_path,
+                exc,
+            )
+            return
+        scheduler_timeseries_last_snapshot = snapshot
+        scheduler_timeseries_last_write_monotonic = now_monotonic
+        scheduler_timeseries_rows_written += 1
+
+    def _emit_scheduler_snapshot(
+        *,
+        counts: dict[str, int],
+        pending_count: int,
+        force_timeseries: bool = False,
+    ) -> None:
         nonlocal scheduler_last_snapshot
+        _write_scheduler_timeseries_row(
+            counts=counts,
+            pending_count=pending_count,
+            force=force_timeseries,
+        )
         if progress_callback is None:
             return
-        snapshot = _scheduler_snapshot(counts=counts, pending_count=pending_count)
+        snapshot = _scheduler_snapshot(
+            counts=counts,
+            pending_count=max(0, pending_count),
+        )
         if snapshot == scheduler_last_snapshot:
             return
         scheduler_last_snapshot = snapshot
@@ -7195,6 +7786,12 @@ def _run_all_method_benchmark(
             "idle_gap_seconds": idle_gap_seconds,
             "max_active_pipelines_observed": max_active,
             "max_eval_active_observed": max_eval_active,
+            "timeseries_path": str(scheduler_timeseries_path),
+            "timeseries_row_count": scheduler_timeseries_rows_written,
+            "timeseries_heartbeat_seconds": scheduler_timeseries_heartbeat_seconds,
+            "snapshot_poll_seconds": ALL_METHOD_SCHEDULER_POLL_SECONDS,
+            "cpu_utilization_source": scheduler_cpu_source,
+            "cpu_utilization_samples": scheduler_cpu_samples_collected,
         }
 
     def _shutdown_parallel_executor(
@@ -7688,6 +8285,11 @@ def _run_all_method_benchmark(
                     color=typer.colors.CYAN,
                 )
     _tick_scheduler_metrics(active_indices=set(), pending_count=0)
+    _emit_scheduler_snapshot(
+        counts=_compute_scheduler_counts(set()),
+        pending_count=0,
+        force_timeseries=True,
+    )
     scheduler_summary = _finalize_scheduler_metrics()
     scheduler_summary["config_timeout_seconds"] = effective_config_timeout_seconds
     scheduler_summary["failed_retry_limit"] = effective_retry_failed_configs
@@ -7898,6 +8500,11 @@ def _write_stage_run_manifest(
     tags_index = run_root / "tags" / "tags_index.json"
     if tags_index.exists():
         artifacts["tags_index"] = str(tags_index.relative_to(run_root))
+    processing_timeseries = run_root / PROCESSING_TIMESERIES_FILENAME
+    if processing_timeseries.exists():
+        artifacts["processing_timeseries_jsonl"] = str(
+            processing_timeseries.relative_to(run_root)
+        )
     history_csv = history_csv_for_output(output_root)
     if history_csv.exists():
         artifacts["history_csv"] = str(history_csv)
@@ -9122,6 +9729,8 @@ def stage(
         with console.status("[bold cyan]Warming models...[/bold cyan]", spinner="dots"):
             _warm_all_models(ocr_device=selected_ocr_device)
 
+    stage_started_monotonic = time.monotonic()
+
     # Create timestamped output folder for this run
     run_dt = dt.datetime.now()
     timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
@@ -9268,6 +9877,15 @@ def stage(
         TextColumn("{task.completed}/{task.total}"),
     )
     overall_task = progress_bar.add_task("Total Progress", total=total_jobs)
+    stage_timeseries_path = out / PROCESSING_TIMESERIES_FILENAME
+    if stage_timeseries_path.exists():
+        stage_timeseries_path.unlink()
+    stage_timeseries_writer = _ProcessingTimeseriesWriter(
+        path=stage_timeseries_path,
+        heartbeat_seconds=PROCESSING_TIMESERIES_HEARTBEAT_SECONDS,
+    )
+    stage_timeseries_stop = threading.Event()
+    stage_timeseries_thread: threading.Thread | None = None
 
     worker_render_cache: Text | None = None
     worker_render_last = 0.0
@@ -9290,6 +9908,53 @@ def stage(
             }
         worker_render_cache = None
         worker_render_last = 0.0
+        _write_stage_timeseries(event="worker_update")
+
+    def _write_stage_timeseries(*, event: str, force: bool = False) -> None:
+        task_obj = progress_bar.tasks[0] if progress_bar.tasks else None
+        completed_jobs = (
+            max(0, int(task_obj.completed))
+            if task_obj is not None
+            else 0
+        )
+        with worker_lock:
+            status_rows = {
+                str(label): {
+                    "file": str(entry.get("file") or ""),
+                    "status": str(entry.get("status") or ""),
+                }
+                for label, entry in worker_status.items()
+            }
+        active_workers = sum(
+            1
+            for entry in status_rows.values()
+            if str(entry.get("status") or "").strip().lower()
+            not in {"", "idle", "done", "skipped"}
+        )
+        pending_jobs = max(0, total_jobs - completed_jobs)
+        snapshot = (
+            f"stage task {completed_jobs}/{total_jobs} | "
+            f"imported {imported} | active_workers {active_workers} | "
+            f"pending {pending_jobs} | errors {len(errors)}"
+        )
+        stage_timeseries_writer.write_row(
+            snapshot=snapshot,
+            force=force,
+            payload={
+                "event": str(event or "").strip() or "update",
+                "mode": "stage",
+                "run_dir": str(out),
+                "elapsed_seconds": max(0.0, time.monotonic() - stage_started_monotonic),
+                "jobs_completed": completed_jobs,
+                "jobs_total": total_jobs,
+                "pending_jobs": pending_jobs,
+                "imported_files": imported,
+                "error_count": len(errors),
+                "worker_total": len(status_rows),
+                "worker_active": active_workers,
+                "worker_status": status_rows,
+            },
+        )
 
     def _format_worker_lines() -> Text:
         nonlocal worker_render_cache, worker_render_last
@@ -9362,6 +10027,20 @@ def stage(
 
         queue_thread = threading.Thread(target=process_queue, daemon=True)
         queue_thread.start()
+
+    def _stage_timeseries_tick() -> None:
+        while not stage_timeseries_stop.wait(
+            max(0.05, PROCESSING_TIMESERIES_HEARTBEAT_SECONDS)
+        ):
+            _write_stage_timeseries(event="tick")
+
+    _write_stage_timeseries(event="started", force=True)
+    stage_timeseries_thread = threading.Thread(
+        target=_stage_timeseries_tick,
+        name="stage-processing-timeseries",
+        daemon=True,
+    )
+    stage_timeseries_thread.start()
 
     typer.secho(
         f"Processing {len(files_to_process)} file(s) as {total_jobs} job(s) using {effective_workers} workers...",
@@ -9510,12 +10189,101 @@ def stage(
                 live.console.print(
                     f"[red]✘ Error {res['file']}: {res['reason']}[/red]"
                 )
+        _write_stage_timeseries(event="job_completed", force=True)
 
     dashboard = WorkerDashboard()
-    with Live(dashboard, refresh_per_second=10) as live:
-        try:
-            with ProcessPoolExecutor(max_workers=effective_workers) as executor:
-                futures: dict[Any, JobSpec] = {}
+    try:
+        with Live(dashboard, refresh_per_second=10) as live:
+            try:
+                with ProcessPoolExecutor(max_workers=effective_workers) as executor:
+                    futures: dict[Any, JobSpec] = {}
+                    for job in job_specs:
+                        job_run_config = _run_config_for_file(job.file_path)
+                        job_run_config_hash = _run_config_hash_for_file(job.file_path)
+                        job_run_config_summary = _run_config_summary_for_file(job.file_path)
+                        job_epub_extractor = effective_epub_extractors.get(job.file_path)
+                        if job.is_split:
+                            if job.split_kind == "epub":
+                                futures[
+                                    executor.submit(
+                                        stage_epub_job,
+                                        job.file_path,
+                                        out,
+                                        base_mapping,
+                                        run_dt,
+                                        job.start_spine,
+                                        job.end_spine,
+                                        job.job_index,
+                                        job.job_count,
+                                        progress_queue,
+                                        job.display_name,
+                                        job_epub_extractor,
+                                        job_run_config,
+                                        job_run_config_hash,
+                                        job_run_config_summary,
+                                    )
+                                ] = job
+                            else:
+                                futures[
+                                    executor.submit(
+                                        stage_pdf_job,
+                                        job.file_path,
+                                        out,
+                                        base_mapping,
+                                        run_dt,
+                                        job.start_page,
+                                        job.end_page,
+                                        job.job_index,
+                                        job.job_count,
+                                        progress_queue,
+                                        job.display_name,
+                                        job_run_config,
+                                        job_run_config_hash,
+                                        job_run_config_summary,
+                                    )
+                                ] = job
+                        else:
+                            futures[
+                                executor.submit(
+                                    stage_one_file,
+                                    job.file_path,
+                                    out,
+                                    base_mapping,
+                                    limit,
+                                    run_dt,
+                                    progress_queue,
+                                    job.display_name,
+                                    job_epub_extractor,
+                                    job_run_config,
+                                    job_run_config_hash,
+                                    job_run_config_summary,
+                                    write_markdown,
+                                )
+                            ] = job
+
+                    for future in as_completed(futures):
+                        job = futures[future]
+                        try:
+                            res = future.result()
+                        except Exception as exc:
+                            res = {
+                                "file": job.file_path.name,
+                                "status": "error",
+                                "reason": str(exc),
+                                "job_index": job.job_index,
+                                "job_count": job.job_count,
+                                "start_page": job.start_page,
+                                "end_page": job.end_page,
+                                "start_spine": job.start_spine,
+                                "end_spine": job.end_spine,
+                            }
+
+                        progress_bar.update(overall_task, advance=1)
+                        handle_job_result(job, res, live)
+            except PermissionError:
+                live.console.print(
+                    "[yellow]⚠ Multiprocessing unavailable; running jobs serially.[/yellow]"
+                )
                 for job in job_specs:
                     job_run_config = _run_config_for_file(job.file_path)
                     job_run_config_hash = _run_config_hash_for_file(job.file_path)
@@ -9523,148 +10291,69 @@ def stage(
                     job_epub_extractor = effective_epub_extractors.get(job.file_path)
                     if job.is_split:
                         if job.split_kind == "epub":
-                            futures[
-                                executor.submit(
-                                    stage_epub_job,
-                                    job.file_path,
-                                    out,
-                                    base_mapping,
-                                    run_dt,
-                                    job.start_spine,
-                                    job.end_spine,
-                                    job.job_index,
-                                    job.job_count,
-                                    progress_queue,
-                                    job.display_name,
-                                    job_epub_extractor,
-                                    job_run_config,
-                                    job_run_config_hash,
-                                    job_run_config_summary,
-                                )
-                            ] = job
-                        else:
-                            futures[
-                                executor.submit(
-                                    stage_pdf_job,
-                                    job.file_path,
-                                    out,
-                                    base_mapping,
-                                    run_dt,
-                                    job.start_page,
-                                    job.end_page,
-                                    job.job_index,
-                                    job.job_count,
-                                    progress_queue,
-                                    job.display_name,
-                                    job_run_config,
-                                    job_run_config_hash,
-                                    job_run_config_summary,
-                                )
-                            ] = job
-                    else:
-                        futures[
-                            executor.submit(
-                                stage_one_file,
+                            res = stage_epub_job(
                                 job.file_path,
                                 out,
                                 base_mapping,
-                                limit,
                                 run_dt,
+                                job.start_spine,
+                                job.end_spine,
+                                job.job_index,
+                                job.job_count,
                                 progress_queue,
                                 job.display_name,
                                 job_epub_extractor,
                                 job_run_config,
                                 job_run_config_hash,
                                 job_run_config_summary,
-                                write_markdown,
                             )
-                        ] = job
-
-                for future in as_completed(futures):
-                    job = futures[future]
-                    try:
-                        res = future.result()
-                    except Exception as exc:
-                        res = {
-                            "file": job.file_path.name,
-                            "status": "error",
-                            "reason": str(exc),
-                            "job_index": job.job_index,
-                            "job_count": job.job_count,
-                            "start_page": job.start_page,
-                            "end_page": job.end_page,
-                            "start_spine": job.start_spine,
-                            "end_spine": job.end_spine,
-                        }
-
-                    progress_bar.update(overall_task, advance=1)
-                    handle_job_result(job, res, live)
-        except PermissionError:
-            live.console.print(
-                "[yellow]⚠ Multiprocessing unavailable; running jobs serially.[/yellow]"
-            )
-            for job in job_specs:
-                job_run_config = _run_config_for_file(job.file_path)
-                job_run_config_hash = _run_config_hash_for_file(job.file_path)
-                job_run_config_summary = _run_config_summary_for_file(job.file_path)
-                job_epub_extractor = effective_epub_extractors.get(job.file_path)
-                if job.is_split:
-                    if job.split_kind == "epub":
-                        res = stage_epub_job(
+                        else:
+                            res = stage_pdf_job(
+                                job.file_path,
+                                out,
+                                base_mapping,
+                                run_dt,
+                                job.start_page,
+                                job.end_page,
+                                job.job_index,
+                                job.job_count,
+                                progress_queue,
+                                job.display_name,
+                                job_run_config,
+                                job_run_config_hash,
+                                job_run_config_summary,
+                            )
+                    else:
+                        res = stage_one_file(
                             job.file_path,
                             out,
                             base_mapping,
+                            limit,
                             run_dt,
-                            job.start_spine,
-                            job.end_spine,
-                            job.job_index,
-                            job.job_count,
                             progress_queue,
                             job.display_name,
                             job_epub_extractor,
                             job_run_config,
                             job_run_config_hash,
                             job_run_config_summary,
+                            write_markdown,
                         )
-                    else:
-                        res = stage_pdf_job(
-                            job.file_path,
-                            out,
-                            base_mapping,
-                            run_dt,
-                            job.start_page,
-                            job.end_page,
-                            job.job_index,
-                            job.job_count,
-                            progress_queue,
-                            job.display_name,
-                            job_run_config,
-                            job_run_config_hash,
-                            job_run_config_summary,
-                        )
-                else:
-                    res = stage_one_file(
-                        job.file_path,
-                        out,
-                        base_mapping,
-                        limit,
-                        run_dt,
-                        progress_queue,
-                        job.display_name,
-                        job_epub_extractor,
-                        job_run_config,
-                        job_run_config_hash,
-                        job_run_config_summary,
-                        write_markdown,
-                    )
-                progress_bar.update(overall_task, advance=1)
-                handle_job_result(job, res, live)
-
-    stop_event.set()
-    if queue_thread is not None:
-        queue_thread.join()
+                    progress_bar.update(overall_task, advance=1)
+                    handle_job_result(job, res, live)
+    finally:
+        stop_event.set()
+        if queue_thread is not None:
+            queue_thread.join()
+        stage_timeseries_stop.set()
+        if stage_timeseries_thread is not None:
+            stage_timeseries_thread.join(timeout=2.0)
+        _write_stage_timeseries(event="finished", force=True)
 
     typer.secho(f"\nStaged {imported} file(s).", fg=typer.colors.GREEN)
+    typer.secho(
+        f"Processing telemetry: {stage_timeseries_path}",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
     if errors:
         typer.secho("Errors encountered:", fg=typer.colors.YELLOW)
         for message in errors:
@@ -10297,10 +10986,16 @@ def labelstudio_import(
         option="--codex-farm-pipeline-pass3",
     )
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
+    import_timeseries_path = _processing_timeseries_history_path(
+        root=output_dir,
+        scope="labelstudio_import",
+        source_name=path.name,
+    )
     import_started_at = time.monotonic()
     try:
         result = _run_labelstudio_import_with_status(
             source_name=path.name,
+            telemetry_path=import_timeseries_path,
             run_import=lambda update_progress: run_labelstudio_import(
                 path=path,
                 output_dir=output_dir,
@@ -10356,6 +11051,10 @@ def labelstudio_import(
     typer.secho(
         f"Processing time: {_format_processing_time(processing_time_seconds)}",
         fg=typer.colors.CYAN,
+    )
+    typer.secho(
+        f"Processing telemetry: {import_timeseries_path}",
+        fg=typer.colors.BRIGHT_BLACK,
     )
     if prelabel:
         _print_prelabel_completion_summary(
@@ -11071,6 +11770,7 @@ def labelstudio_benchmark(
     prediction_phase_seconds = 0.0
     prewarmed_canonical_paths: dict[str, Path] | None = None
     prediction_records_output: list[PredictionRecord] = []
+    pipelined_replay_bundle: BenchmarkPredictionBundle | None = None
 
     try:
         if should_generate_predictions:
@@ -11198,6 +11898,10 @@ def labelstudio_benchmark(
                                 ),
                                 progress_prefix=f"Benchmark import ({selected_source.name})",
                                 run=_run_with_status,
+                                telemetry_path=(
+                                    eval_output_dir
+                                    / "processing_timeseries_prediction.jsonl"
+                                ),
                             )
                         stage_prediction_seconds = max(
                             0.0, time.monotonic() - prediction_phase_started
@@ -11227,15 +11931,18 @@ def labelstudio_benchmark(
                         selected_execution_mode == BENCHMARK_EXECUTION_MODE_PIPELINED
                         and should_run_evaluation
                     ):
-                        (
-                            prediction_bundle,
-                            prediction_records_output,
-                            prewarmed_canonical_paths,
-                        ) = run_pipelined(
+                        pipelined_result = run_pipelined(
                             run_prediction_bundle=_run_prediction_stage_bundle,
                             prewarm_evaluation_inputs=_prewarm_evaluation_inputs,
                             selected_source=selected_source,
+                            eval_output_dir=eval_output_dir,
                         )
+                        prediction_bundle = pipelined_result.prediction_bundle
+                        prediction_records_output = pipelined_result.prediction_records
+                        prewarmed_canonical_paths = (
+                            pipelined_result.prewarmed_canonical_paths
+                        )
+                        pipelined_replay_bundle = pipelined_result.replay_bundle
                     else:
                         prediction_bundle, prediction_records_output = run_legacy(
                             run_prediction_bundle=_run_prediction_stage_bundle,
@@ -11257,6 +11964,15 @@ def labelstudio_benchmark(
         stage_predictions_path = prediction_bundle.stage_predictions_path
         extracted_archive_path = prediction_bundle.extracted_archive_path
         prediction_phase_seconds = prediction_bundle.prediction_phase_seconds
+        evaluation_stage_predictions_path = stage_predictions_path
+        evaluation_extracted_archive_path = extracted_archive_path
+        if pipelined_replay_bundle is not None:
+            evaluation_stage_predictions_path = (
+                pipelined_replay_bundle.stage_predictions_path
+            )
+            evaluation_extracted_archive_path = (
+                pipelined_replay_bundle.extracted_archive_path
+            )
 
         if predictions_out_path is not None:
             write_prediction_records(predictions_out_path, prediction_records_output)
@@ -11343,6 +12059,13 @@ def labelstudio_benchmark(
             ),
             "timing": benchmark_timing,
         }
+        prediction_timeseries_path = (
+            eval_output_dir / "processing_timeseries_prediction.jsonl"
+        )
+        if prediction_timeseries_path.exists():
+            predict_only_artifacts["processing_timeseries_prediction_jsonl"] = (
+                _path_for_manifest(eval_output_dir, prediction_timeseries_path)
+            )
         if predictions_out_path is not None:
             predict_only_artifacts["prediction_record_output_jsonl"] = _path_for_manifest(
                 eval_output_dir,
@@ -11380,6 +12103,14 @@ def labelstudio_benchmark(
                 fg=typer.colors.CYAN,
             )
             typer.secho(f"Manifest: {eval_output_dir / 'run_manifest.json'}", fg=typer.colors.CYAN)
+            prediction_timeseries_path = (
+                eval_output_dir / "processing_timeseries_prediction.jsonl"
+            )
+            if prediction_timeseries_path.exists():
+                typer.secho(
+                    f"Processing telemetry: {prediction_timeseries_path}",
+                    fg=typer.colors.BRIGHT_BLACK,
+                )
             if predictions_out_path is not None:
                 typer.secho(
                     f"Prediction record: {predictions_out_path}",
@@ -11409,8 +12140,8 @@ def labelstudio_benchmark(
             selected_eval_mode=selected_eval_mode,
             selected_gold=selected_gold,
             eval_output_dir=eval_output_dir,
-            stage_predictions_path=stage_predictions_path,
-            extracted_archive_path=extracted_archive_path,
+            stage_predictions_path=evaluation_stage_predictions_path,
+            extracted_archive_path=evaluation_extracted_archive_path,
             alignment_cache_dir=alignment_cache_dir,
             prewarmed_canonical_paths=prewarmed_canonical_paths,
         )
@@ -11440,6 +12171,9 @@ def labelstudio_benchmark(
                 initial_status=eval_status_message,
                 progress_prefix=f"Benchmark eval ({selected_source.name})",
                 run=_run_eval_with_status,
+                telemetry_path=(
+                    eval_output_dir / "processing_timeseries_evaluation.jsonl"
+                ),
             )
     finally:
         if eval_profiler is not None:
@@ -11711,6 +12445,30 @@ def labelstudio_benchmark(
         "history_csv": str(history_csv_for_output(processed_output_dir)),
         "timing": benchmark_timing,
     }
+    prediction_timeseries_path = eval_output_dir / "processing_timeseries_prediction.jsonl"
+    evaluation_timeseries_path = eval_output_dir / "processing_timeseries_evaluation.jsonl"
+    if prediction_timeseries_path.exists():
+        benchmark_artifacts["processing_timeseries_prediction_jsonl"] = _path_for_manifest(
+            eval_output_dir,
+            prediction_timeseries_path,
+        )
+    if evaluation_timeseries_path.exists():
+        benchmark_artifacts["processing_timeseries_evaluation_jsonl"] = _path_for_manifest(
+            eval_output_dir,
+            evaluation_timeseries_path,
+        )
+    if (
+        evaluation_stage_predictions_path != stage_predictions_path
+        or evaluation_extracted_archive_path != extracted_archive_path
+    ):
+        benchmark_artifacts["evaluation_stage_block_predictions_json"] = _path_for_manifest(
+            eval_output_dir,
+            evaluation_stage_predictions_path,
+        )
+        benchmark_artifacts["evaluation_extracted_archive_json"] = _path_for_manifest(
+            eval_output_dir,
+            evaluation_extracted_archive_path,
+        )
     if predictions_in_path is not None:
         benchmark_artifacts["prediction_record_input_jsonl"] = _path_for_manifest(
             eval_output_dir,
@@ -11815,6 +12573,22 @@ def labelstudio_benchmark(
                     fg=typer.colors.YELLOW,
                 )
         typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
+        prediction_timeseries_path = (
+            eval_output_dir / "processing_timeseries_prediction.jsonl"
+        )
+        evaluation_timeseries_path = (
+            eval_output_dir / "processing_timeseries_evaluation.jsonl"
+        )
+        if prediction_timeseries_path.exists():
+            typer.secho(
+                f"Prediction telemetry: {prediction_timeseries_path}",
+                fg=typer.colors.BRIGHT_BLACK,
+            )
+        if evaluation_timeseries_path.exists():
+            typer.secho(
+                f"Evaluation telemetry: {evaluation_timeseries_path}",
+                fg=typer.colors.BRIGHT_BLACK,
+            )
         recipe_counts = report.get("recipe_counts")
         if isinstance(recipe_counts, dict):
             predicted_recipe_count = _coerce_int(recipe_counts.get("predicted_recipe_count"))
@@ -12021,11 +12795,17 @@ def bench_run(
         if effective_config is None:
             effective_config = {}
         effective_config["write_label_studio_tasks"] = bool(write_label_studio_tasks)
+    bench_run_timeseries_path = _processing_timeseries_history_path(
+        root=out_dir,
+        scope="bench_run",
+        source_name=s.name,
+    )
 
     try:
         run_root, agg_metrics = _run_with_progress_status(
             initial_status="Running bench suite...",
             progress_prefix="Bench",
+            telemetry_path=bench_run_timeseries_path,
             run=lambda update_progress: run_suite(
                 s,
                 out_dir,
@@ -12064,6 +12844,10 @@ def bench_run(
     typer.secho(f"Report: {run_root / 'report.md'}", fg=typer.colors.CYAN)
     typer.secho(f"Metrics: {run_root / 'metrics.json'}", fg=typer.colors.CYAN)
     typer.secho(f"Packet: {run_root / 'iteration_packet'}", fg=typer.colors.CYAN)
+    typer.secho(
+        f"Processing telemetry: {bench_run_timeseries_path}",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
 
 
 @bench_app.command("sweep")
@@ -12099,11 +12883,17 @@ def bench_sweep(
         for err in errors:
             typer.secho(f"  - {err}", fg=typer.colors.RED)
         raise typer.Exit(1)
+    bench_sweep_timeseries_path = _processing_timeseries_history_path(
+        root=out_dir,
+        scope="bench_sweep",
+        source_name=s.name,
+    )
 
     try:
         sweep_root = _run_with_progress_status(
             initial_status="Running parameter sweep...",
             progress_prefix="Sweep",
+            telemetry_path=bench_sweep_timeseries_path,
             run=lambda update_progress: run_sweep(
                 s,
                 out_dir,
@@ -12119,6 +12909,10 @@ def bench_sweep(
 
     typer.secho("Sweep complete.", fg=typer.colors.GREEN)
     typer.secho(f"Results: {sweep_root}", fg=typer.colors.CYAN)
+    typer.secho(
+        f"Processing telemetry: {bench_sweep_timeseries_path}",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
 
 
 @bench_app.command("knobs")

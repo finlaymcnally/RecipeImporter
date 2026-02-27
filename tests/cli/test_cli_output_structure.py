@@ -28,6 +28,16 @@ def test_stage_output_structure(tmp_path):
     ]
     assert len(timestamp_dirs) == 1
     timestamp_dir = timestamp_dirs[0]
+    processing_timeseries = timestamp_dir / "processing_timeseries.jsonl"
+    assert processing_timeseries.exists()
+    timeseries_rows = [
+        json.loads(line)
+        for line in processing_timeseries.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert timeseries_rows
+    assert timeseries_rows[-1]["event"] == "finished"
+    assert any("cpu_utilization_pct" in row for row in timeseries_rows)
     
     # Check for new structure
     # Expected: output/timestamp/final drafts/simple_text/

@@ -23,6 +23,7 @@ cookimport/analytics/perf_report.py
 cookimport/bench/__init__.py
 cookimport/bench/canonical_alignment_cache.py
 cookimport/bench/cost.py
+cookimport/bench/dmp_sequence_matcher.py
 cookimport/bench/eval_canonical_text.py
 cookimport/bench/eval_stage_blocks.py
 cookimport/bench/knobs.py
@@ -32,6 +33,7 @@ cookimport/bench/pred_run.py
 cookimport/bench/prediction_records.py
 cookimport/bench/report.py
 cookimport/bench/runner.py
+cookimport/bench/sequence_matcher_multilayer.py
 cookimport/bench/sequence_matcher_select.py
 cookimport/bench/suite.py
 cookimport/bench/sweep.py

@@ -143,6 +143,7 @@ How it scores:
 - compare predicted line labels vs gold line labels
 - inspect `report.alignment` deprecation fields when validating alignment strategy behavior
 - when `alignment_cache_dir` is provided, canonical alignment results are reused only for identical canonical text + prediction text + prediction block boundaries (all-method uses a shared per-source cache at `.cache/canonical_alignment`)
+- cache lock recovery reclaims dead-owner `*.lock` files immediately via PID liveness checks, with age-based stale fallback for malformed lock metadata.
 
 Outputs include `eval_report.json/md` plus canonical diagnostics:
 - `missed_gold_lines.jsonl`
@@ -157,6 +158,9 @@ Outputs include `eval_report.json/md` plus canonical diagnostics:
 - prediction `manifest.json` (`timing`)
 - eval `eval_report.json` (`timing`)
 - benchmark `run_manifest.json` artifacts (`timing`)
+- command-status telemetry JSONL:
+  - `processing_timeseries_prediction.jsonl`
+  - `processing_timeseries_evaluation.jsonl` (when evaluation runs)
 - evaluator reports also include `evaluation_telemetry`:
   - subphase timers (`load_gold_seconds`, `load_prediction_seconds`, alignment/projection/metrics/diagnostic phases),
   - canonical alignment micro-subphases (`alignment_normalize_prediction_seconds`, `alignment_normalize_canonical_seconds`, `alignment_sequence_matcher_seconds`, `alignment_block_mapping_seconds`),
@@ -172,9 +176,12 @@ Outputs include `eval_report.json/md` plus canonical diagnostics:
 
 SequenceMatcher acceleration notes:
 - install optional acceleration deps with `python -m pip install -e '.[benchaccel]'`.
-- force matcher implementation with `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=stdlib|cydifflib|cdifflib`; leave unset (or `auto`) for fallback selection.
+- force matcher implementation with `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=stdlib|cydifflib|cdifflib|dmp|multilayer`; leave unset (or `auto`) for fallback selection.
 
 All-method reports include timing rollups in per-source and combined summaries.
+`bench run`/`bench sweep` spinner telemetry is persisted under:
+- `<out_dir>/.history/processing_timeseries/<timestamp>__bench_run__<suite>.jsonl`
+- `<out_dir>/.history/processing_timeseries/<timestamp>__bench_sweep__<suite>.jsonl`
 
 ## 6. Command matrix
 
@@ -189,6 +196,7 @@ All-method reports include timing rollups in per-source and combined summaries.
 - `--eval-mode stage-blocks` (default)
 - `--eval-mode canonical-text` (extractor-independent)
 - `--execution-mode legacy|pipelined|predict-only` (default `legacy`)
+- `pipelined` now runs a true producer/consumer stream: prediction records are consumed during prediction, replay artifacts are built from that stream, and scoring finalizes after end-of-stream.
 - `--predictions-out <path>` writes per-block prediction-record JSONL artifacts (`schema_kind=stage-block.v1`)
 - `--predictions-in <path>` skips prediction generation/upload and runs evaluate-only from saved prediction records (per-block records or legacy single-record run pointers)
 - `--execution-mode predict-only` generates prediction artifacts and optional prediction-record output without running evaluation
@@ -443,6 +451,7 @@ Durable rules:
 - Smart admission quality depends on preserving a wing backlog while heavy slots are active.
 - Effective smart inflight is capped by `configured_inflight + eval_tail_headroom_effective`, where effective headroom is CPU-bounded and variant-bounded.
 - `.scheduler_events/config_###.jsonl` remains the source for both live admission signals and post-run utilization rollups.
+- `<source_root>/scheduler_timeseries.jsonl` is the run-local scheduler time-series surface (snapshot string + counter fields + host CPU utilization samples when available), written at state-change plus a 1.0s heartbeat.
 
 ### 15.3 Stalls, timeout, and failed-only retry contract
 
@@ -818,7 +827,7 @@ Detailed chronology, requirement-level evidence, and anti-loop history now live 
 ### 19.1 What exists now (runtime contracts)
 
 - Speed-1 (`SequenceMatcher` selector):
-  - canonical evaluator uses drop-in matcher selection with env contract `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=auto|stdlib|cydifflib|cdifflib`.
+  - canonical evaluator uses matcher selection with env contract `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=auto|stdlib|cydifflib|cdifflib|dmp|multilayer` (`auto` order unchanged).
   - telemetry captures matcher implementation/mode/version details.
   - optional accel install path documented (`.[benchaccel]`).
 - Speed-2 (all-method eval-tail admission):
@@ -897,6 +906,7 @@ Merged sources in creation order:
 
 - Live all-method `ok/fail` counters are per-attempt and are not retroactively corrected after timeout recovery or retry passes.
 - Final source truth belongs in each `all_method_benchmark_report.json` (`failed_variants`, `retry_failed_configs_requested`, `retry_passes_executed`, `retry_recovered_configs`).
+- Spinner ETA now uses recent completion-rate samples (not full-run average only), and applies an eval-tail floor when all-method snapshots show active evaluators but no new completions beyond the recent-rate window.
 - Smart admission tracks evaluate-phase activity and now enforces eval-tail growth against `configured_inflight + eval_tail_headroom_effective`; prewarm guard conditions still shape how quickly admissions refill heavy slots.
 - Throughput tuning should include:
   - eval-tail headroom behavior (`all_method_max_eval_tail_pipelines` configured/effective resolution with CPU bounds),

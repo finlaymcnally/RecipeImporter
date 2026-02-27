@@ -376,7 +376,7 @@ def test_bench_run_direct_write_flags_override_config(
     monkeypatch.setattr("cookimport.bench.suite.validate_suite", lambda _suite, _repo_root: [])
     monkeypatch.setattr(
         "cookimport.cli._run_with_progress_status",
-        lambda *, initial_status, progress_prefix, run: run(lambda _msg: None),
+        lambda *, initial_status, progress_prefix, run, **_kwargs: run(lambda _msg: None),
     )
 
     def _fake_run_suite(

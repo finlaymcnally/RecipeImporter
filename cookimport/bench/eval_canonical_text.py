@@ -916,6 +916,7 @@ def _align_prediction_blocks_to_canonical(
         "version": matcher_selection.version,
         "forced_mode": matcher_selection.forced_mode,
         "mode": matcher_selection.forced_mode or "auto",
+        "extra": dict(matcher_selection.extra_telemetry or {}),
     }
 
 
@@ -1430,6 +1431,10 @@ def evaluate_canonical_text(
             ),
         },
     }
+    extra_matcher_telemetry = matcher_telemetry.get("extra")
+    if isinstance(extra_matcher_telemetry, dict):
+        for key, value in extra_matcher_telemetry.items():
+            report["evaluation_telemetry"][str(key)] = value
 
     report_json_path = out_dir / "eval_report.json"
     report_md_path = out_dir / "eval_report.md"

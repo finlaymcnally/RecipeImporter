@@ -602,6 +602,7 @@ def test_evaluate_canonical_text_scores_lines_across_different_blockization(
         "stdlib",
         "cydifflib",
         "cdifflib",
+        "dmp",
     }
     assert telemetry["alignment_sequence_matcher_mode"] == "auto"
     assert telemetry["work_units"]["prediction_block_count"] == pytest.approx(2.0)

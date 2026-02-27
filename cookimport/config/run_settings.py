@@ -10,6 +10,7 @@ from typing import Any, Literal, Mapping, Sequence, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from cookimport.bench.sequence_matcher_select import supported_sequence_matcher_modes
 from cookimport.epub_extractor_names import (
     EPUB_EXTRACTOR_CANONICAL_SET,
     normalize_epub_extractor_name,
@@ -25,6 +26,7 @@ _SUMMARY_ORDER = (
     "epub_unstructured_skip_headers_footers",
     "epub_unstructured_preprocess_mode",
     "table_extraction",
+    "benchmark_sequence_matcher",
     "ocr_device",
     "ocr_batch_size",
     "workers",
@@ -261,6 +263,18 @@ class RunSettings(BaseModel):
             ),
         ),
     )
+    benchmark_sequence_matcher: str = Field(
+        default="auto",
+        json_schema_extra=_ui_meta(
+            group="Benchmark",
+            label="Sequence Matcher",
+            order=66,
+            description=(
+                "Canonical-text matcher mode for benchmark/eval runs "
+                "(for example auto, stdlib, cydifflib, dmp)."
+            ),
+        ),
+    )
     ocr_device: OcrDevice = Field(
         default=OcrDevice.auto,
         json_schema_extra=_ui_meta(
@@ -471,6 +485,22 @@ class RunSettings(BaseModel):
             return normalized
         return value
 
+    @field_validator("benchmark_sequence_matcher", mode="before")
+    @classmethod
+    def _normalize_benchmark_sequence_matcher(cls, value: Any) -> str:
+        normalized = str(value or "auto").strip().lower()
+        supported = supported_sequence_matcher_modes()
+        if normalized not in supported:
+            fallback_supported = ", ".join(supported)
+            logger.warning(
+                "Invalid benchmark sequence matcher mode %r. "
+                "Falling back to 'auto'. Supported: %s",
+                value,
+                fallback_supported,
+            )
+            return "auto"
+        return normalized
+
     @classmethod
     def from_dict(
         cls,
@@ -615,6 +645,9 @@ def run_settings_ui_specs() -> list[RunSettingUiSpec]:
             choices = tuple(str(member.value) for member in annotation)
             if field_name == "llm_recipe_pipeline":
                 choices = (LlmRecipePipeline.off.value,)
+        elif field_name == "benchmark_sequence_matcher":
+            value_kind = "enum"
+            choices = tuple(str(mode) for mode in supported_sequence_matcher_modes())
 
         specs.append(
             RunSettingUiSpec(
@@ -690,6 +723,7 @@ def build_run_settings(
     ocr_batch_size: int,
     warm_models: bool,
     table_extraction: str | TableExtraction = TableExtraction.off,
+    benchmark_sequence_matcher: str = "auto",
     llm_recipe_pipeline: str | LlmRecipePipeline = LlmRecipePipeline.off,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
     llm_tags_pipeline: str | LlmTagsPipeline = LlmTagsPipeline.off,
@@ -741,6 +775,9 @@ def build_run_settings(
             "ocr_batch_size": ocr_batch_size,
             "warm_models": bool(warm_models),
             "table_extraction": _normalized_value(table_extraction),
+            "benchmark_sequence_matcher": str(benchmark_sequence_matcher or "auto")
+            .strip()
+            .lower(),
             "llm_recipe_pipeline": _normalized_value(llm_recipe_pipeline),
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
             "llm_tags_pipeline": _normalized_value(llm_tags_pipeline),

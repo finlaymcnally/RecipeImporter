@@ -224,6 +224,7 @@ Developer note:
    - It prepares freeform segment tasks (`freeform-spans`) from extracted source blocks.
    - Before per-task AI labeling starts, it runs a single Codex model-access preflight call and fails fast when the selected model/account combination is invalid.
    - A status spinner shows live phase updates with `task X/Y` progress for known-size loops (including freeform prelabeling when AI prelabel is enabled), adds ETA once enough `X/Y` progress is observed, and shows per-worker activity lines under the main status when worker telemetry is available.
+   - It also writes status telemetry under `<output_dir>/.history/processing_timeseries/<timestamp>__labelstudio_import__<source>.jsonl`.
    - It writes run files under `data/golden/sent-to-labelstudio`:
    - `label_studio_tasks.jsonl`
    - `coverage.json`
@@ -381,6 +382,7 @@ cookimport labelstudio-benchmark --help
 
 Stages one file or all files under a folder (recursive for folder input). Always creates a timestamped run folder under `--out` using format `YYYY-MM-DD_HH.MM.SS`.
 Each stage run folder includes `run_manifest.json` for source/config/artifact traceability.
+Each stage run folder also includes `processing_timeseries.jsonl` (status snapshots + CPU utilization samples).
 After stage history CSV append, the CLI also auto-refreshes dashboard artifacts under `<out parent>/.history/dashboard` (best effort).
 
 Arguments:
@@ -636,6 +638,9 @@ Behavior note:
 - Interactive mode (`cookimport` -> Benchmark) always runs offline benchmark generation/eval (`single offline` or `all method`).
 - Interactive all-method mode always uses `canonical-text` eval mode.
 - Successful runs persist benchmark timing under `eval_report.json` `timing`, including prediction/evaluation/write/history subphase timings and checkpoints.
+- Benchmark spinner telemetry is also persisted per phase:
+  - `<eval_output_dir>/processing_timeseries_prediction.jsonl`
+  - `<eval_output_dir>/processing_timeseries_evaluation.jsonl` (when evaluation runs)
 - Benchmark CSV append now receives that timing payload and records benchmark runtime columns in `performance_history.csv`.
 - Single benchmark runs auto-refresh dashboard artifacts after CSV append.
 - All-method benchmark internals suppress per-config refresh and refresh once per source batch.
@@ -703,6 +708,7 @@ Runs offline benchmark suite and writes report/metrics/iteration packet.
 Status behavior:
 
 - Spinner updates include `item X/Y` counters for per-suite-item work, with item id prefixes in nested prediction/eval messages.
+- Spinner telemetry is persisted under `<out_dir>/.history/processing_timeseries/<timestamp>__bench_run__<suite>.jsonl`.
 - After benchmark CSV append, auto-refreshes dashboard artifacts for the benchmark history root.
 
 Options:
@@ -720,6 +726,7 @@ Status behavior:
 
 - Spinner updates include `config X/Y` counters.
 - Nested suite updates are forwarded as `config X/Y | item X/Y [item_id] ...` so both loop levels are visible.
+- Spinner telemetry is persisted under `<out_dir>/.history/processing_timeseries/<timestamp>__bench_sweep__<suite>.jsonl`.
 
 Options:
 

@@ -7,7 +7,15 @@ from importlib import metadata
 from typing import Any
 
 SEQUENCE_MATCHER_ENV = "COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER"
-_SUPPORTED_MODES = {"auto", "stdlib", "cydifflib", "cdifflib"}
+_SUPPORTED_MODES: tuple[str, ...] = (
+    "auto",
+    "stdlib",
+    "cydifflib",
+    "cdifflib",
+    "dmp",
+    "multilayer",
+)
+_SUPPORTED_MODE_SET = set(_SUPPORTED_MODES)
 
 
 @dataclass(frozen=True)
@@ -16,6 +24,7 @@ class SequenceMatcherSelection:
     implementation: str
     version: str | None
     forced_mode: str | None
+    extra_telemetry: dict[str, Any] | None = None
 
 
 _SELECTION_CACHE: SequenceMatcherSelection | None = None
@@ -23,13 +32,18 @@ _SELECTION_CACHE: SequenceMatcherSelection | None = None
 
 def _normalized_mode(raw_value: str | None) -> str:
     normalized = str(raw_value or "auto").strip().lower()
-    if normalized not in _SUPPORTED_MODES:
+    if normalized not in _SUPPORTED_MODE_SET:
         supported = ", ".join(sorted(_SUPPORTED_MODES))
         raise ValueError(
             f"Invalid {SEQUENCE_MATCHER_ENV} value: {raw_value!r}. "
             f"Expected one of: {supported}."
         )
     return normalized
+
+
+def supported_sequence_matcher_modes() -> tuple[str, ...]:
+    """Return all supported matcher selector modes in display order."""
+    return _SUPPORTED_MODES
 
 
 def _distribution_version(distribution_name: str) -> str | None:
@@ -49,6 +63,7 @@ def _stdlib_selection(*, forced_mode: str | None) -> SequenceMatcherSelection:
         implementation="stdlib",
         version=sys.version.split()[0],
         forced_mode=forced_mode,
+        extra_telemetry=None,
     )
 
 
@@ -62,6 +77,7 @@ def _try_cydifflib(*, forced_mode: str | None) -> SequenceMatcherSelection | Non
         implementation="cydifflib",
         version=_distribution_version("cydifflib"),
         forced_mode=forced_mode,
+        extra_telemetry=None,
     )
 
 
@@ -75,6 +91,51 @@ def _try_cdifflib(*, forced_mode: str | None) -> SequenceMatcherSelection | None
         implementation="cdifflib",
         version=_distribution_version("cdifflib"),
         forced_mode=forced_mode,
+        extra_telemetry=None,
+    )
+
+
+def _try_dmp(*, forced_mode: str | None) -> SequenceMatcherSelection | None:
+    try:
+        from cookimport.bench.dmp_sequence_matcher import (
+            DmpSequenceMatcher,
+            resolve_dmp_runtime_options,
+        )
+        from fast_diff_match_patch import diff as _dmp_diff
+    except Exception:  # noqa: BLE001
+        return None
+    _ = _dmp_diff
+    options = resolve_dmp_runtime_options()
+    return SequenceMatcherSelection(
+        matcher_class=DmpSequenceMatcher,
+        implementation="dmp",
+        version=_distribution_version("fast-diff-match-patch"),
+        forced_mode=forced_mode,
+        extra_telemetry={
+            "alignment_dmp_cleanup": options.cleanup,
+            "alignment_dmp_checklines": bool(options.checklines),
+            "alignment_dmp_timelimit": float(options.timelimit),
+        },
+    )
+
+
+def _try_multilayer(*, forced_mode: str | None) -> SequenceMatcherSelection | None:
+    try:
+        from cookimport.bench.sequence_matcher_multilayer import (
+            MultiLayerSequenceMatcher,
+            resolve_multilayer_runtime_options,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    options = resolve_multilayer_runtime_options()
+    return SequenceMatcherSelection(
+        matcher_class=MultiLayerSequenceMatcher,
+        implementation="multilayer",
+        version="spike-2026-02-27",
+        forced_mode=forced_mode,
+        extra_telemetry={
+            "alignment_multilayer_memult": float(options["memult"]),
+        },
     )
 
 
@@ -100,11 +161,30 @@ def select_sequence_matcher() -> SequenceMatcherSelection:
                 "but cdifflib is not available."
             )
         return selection
+    if mode == "dmp":
+        selection = _try_dmp(forced_mode=forced_mode)
+        if selection is None:
+            raise RuntimeError(
+                "COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=dmp requested, "
+                "but fast-diff-match-patch is not available."
+            )
+        return selection
+    if mode == "multilayer":
+        selection = _try_multilayer(forced_mode=forced_mode)
+        if selection is None:
+            raise RuntimeError(
+                "COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=multilayer requested, "
+                "but multilayer matcher is not available."
+            )
+        return selection
 
     selection = _try_cydifflib(forced_mode=None)
     if selection is not None:
         return selection
     selection = _try_cdifflib(forced_mode=None)
+    if selection is not None:
+        return selection
+    selection = _try_dmp(forced_mode=None)
     if selection is not None:
         return selection
     return _stdlib_selection(forced_mode=None)

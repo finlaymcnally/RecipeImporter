@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -95,6 +96,87 @@ def test_extract_progress_counter_uses_right_most_counter() -> None:
     )
     assert cli._extract_progress_counter(dashboard_snapshot) == (0, 91)
     assert cli._extract_progress_counter("Phase done.") is None
+
+
+def test_extract_all_method_dashboard_metrics_from_task_line() -> None:
+    message = (
+        "overall source 5/7 | config 71/91\n"
+        "current source: saltfatacidheatCUTDOWN.epub (10 of 15 configs; ok 10, fail 0)\n"
+        "queue:\n"
+        "  [>] saltfatacidheatCUTDOWN.epub - 10 of 15 (ok 10, fail 0)\n"
+        "task: scheduler heavy 0/4 | wing 0 | eval 5 | active 5 | pending 0"
+    )
+    assert cli._extract_all_method_dashboard_metrics(message) == {
+        "wing": 0,
+        "eval": 5,
+        "active": 5,
+        "pending": 0,
+    }
+
+
+def test_run_with_progress_status_uses_eval_tail_floor_for_all_method_eta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots") -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    def _snapshot(completed: int) -> str:
+        return (
+            f"overall source 1/1 | config {completed}/10\n"
+            "current source: thefoodlabCUTDOWN.epub (2 of 10 configs; ok 2, fail 0)\n"
+            "queue:\n"
+            "  [>] thefoodlabCUTDOWN.epub - 2 of 10 (ok 2, fail 0)\n"
+            "task: scheduler heavy 0/4 | wing 0 | eval 5 | active 5 | pending 0"
+        )
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress(_snapshot(1))
+        time.sleep(0.08)
+        update_progress(_snapshot(2))
+        # Simulate a long eval tail with no additional completions.
+        time.sleep(1.6)
+        update_progress(_snapshot(2))
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running benchmark...",
+        progress_prefix="Benchmark",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+    )
+
+    assert result == {"ok": True}
+    eta_seconds = [
+        int(match.group(1))
+        for message in capture.messages
+        if "overall source 1/1 | config 2/10" in message
+        for match in [re.search(r"eta (\d+)s", message)]
+        if match is not None
+    ]
+    assert eta_seconds, "Expected ETA on all-method progress line"
+    assert max(eta_seconds) >= 2
 
 
 def test_run_with_progress_status_shows_elapsed_for_long_steps(
@@ -196,6 +278,65 @@ def test_run_with_progress_status_shows_eta_for_xy_progress(
         and "s/task" in message
         for message in capture.messages
     )
+
+
+def test_run_with_progress_status_writes_processing_timeseries(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots") -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+    telemetry_path = tmp_path / "processing_timeseries.jsonl"
+
+    def _run(update_progress):
+        update_progress("Preparing task 1/2")
+        time.sleep(0.06)
+        update_progress("Preparing task 2/2")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Import",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+        telemetry_path=telemetry_path,
+        telemetry_heartbeat_seconds=0.05,
+    )
+
+    assert result == {"ok": True}
+    assert telemetry_path.exists()
+    rows = [
+        json.loads(line)
+        for line in telemetry_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert rows
+    assert rows[0]["event"] == "started"
+    assert rows[-1]["event"] == "finished"
+    assert any(row.get("task_current") == 2 for row in rows)
+    assert any("cpu_utilization_pct" in row for row in rows)
 
 
 def test_run_with_progress_status_renders_worker_activity_summary(
@@ -2914,6 +3055,262 @@ def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prew
     assert isinstance(captured_eval.get("canonical_paths"), dict)
 
 
+def test_labelstudio_benchmark_pipelined_mode_streams_records_before_producer_finishes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (prediction_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(source_file),
+                "source_hash": "hash-123",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_co_locate_prediction_run_for_benchmark",
+        lambda _pred_run, _eval_dir: prediction_run,
+    )
+    monkeypatch.setattr(
+        cli,
+        "generate_pred_run_artifacts",
+        lambda **_kwargs: {
+            "run_root": prediction_run,
+            "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
+            "processed_report_path": "",
+            "timing": {"prediction_seconds": 0.2},
+        },
+    )
+
+    consumer_saw_first_record = threading.Event()
+    producer_finished = threading.Event()
+    original_prediction_record_stage_row = cli._prediction_record_stage_row
+
+    def _wrapped_prediction_record_stage_row(record):
+        row = original_prediction_record_stage_row(record)
+        if row is not None and int(row[0]) == 0:
+            consumer_saw_first_record.set()
+        return row
+
+    monkeypatch.setattr(
+        cli,
+        "_prediction_record_stage_row",
+        _wrapped_prediction_record_stage_row,
+    )
+
+    def _streaming_predict_stage(*, bundle, selected_source):
+        predict_meta = cli._prediction_record_meta_from_bundle(
+            bundle=bundle,
+            selected_source=selected_source,
+            workbook_slug="book",
+        )
+        yield make_prediction_record(
+            example_id="labelstudio-benchmark:hash-123:block:0",
+            example_index=0,
+            prediction={
+                "schema_kind": "stage-block.v1",
+                "block_index": 0,
+                "pred_label": "RECIPE_TITLE",
+                "block_text": "Title",
+                "block_features": {"extraction_backend": "unstructured"},
+            },
+            predict_meta=predict_meta,
+        )
+        assert consumer_saw_first_record.wait(timeout=1.0)
+        yield make_prediction_record(
+            example_id="labelstudio-benchmark:hash-123:block:1",
+            example_index=1,
+            prediction={
+                "schema_kind": "stage-block.v1",
+                "block_index": 1,
+                "pred_label": "OTHER",
+                "block_text": "Body",
+                "block_features": {"extraction_backend": "unstructured"},
+            },
+            predict_meta=predict_meta,
+        )
+        producer_finished.set()
+
+    monkeypatch.setattr(cli, "predict_stage", _streaming_predict_stage)
+
+    captured_eval: dict[str, object] = {}
+
+    def _fake_evaluate_stage_blocks(**kwargs):
+        captured_eval.update(kwargs)
+        return {
+            "report": {
+                "counts": {
+                    "gold_total": 2,
+                    "pred_total": 2,
+                    "gold_matched": 2,
+                    "pred_matched": 2,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_block_accuracy": 1.0,
+                "macro_f1_excluding_other": 1.0,
+                "worst_label_recall": {"label": "RECIPE_TITLE", "recall": 1.0},
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0,
+                "practical_precision": 1.0,
+                "practical_recall": 1.0,
+                "practical_f1": 1.0,
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        }
+
+    monkeypatch.setattr(cli, "evaluate_stage_blocks", _fake_evaluate_stage_blocks)
+    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        lambda *_args, **_kwargs: None,
+    )
+
+    eval_root = tmp_path / "eval-pipelined-streaming"
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=tmp_path / "output",
+        eval_output_dir=eval_root,
+        no_upload=True,
+        execution_mode="pipelined",
+    )
+
+    assert consumer_saw_first_record.is_set()
+    assert producer_finished.is_set()
+    replay_dir = eval_root / ".prediction-record-replay" / "pipelined"
+    assert captured_eval["stage_predictions_json"] == (
+        replay_dir / "stage_block_predictions.from_records.json"
+    )
+    replay_payload = json.loads(
+        (replay_dir / "stage_block_predictions.from_records.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert replay_payload["block_labels"] == {"0": "RECIPE_TITLE", "1": "OTHER"}
+
+
+def test_labelstudio_benchmark_pipelined_mode_propagates_consumer_stream_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (prediction_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(source_file),
+                "source_hash": "hash-123",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_co_locate_prediction_run_for_benchmark",
+        lambda _pred_run, _eval_dir: prediction_run,
+    )
+    monkeypatch.setattr(
+        cli,
+        "generate_pred_run_artifacts",
+        lambda **_kwargs: {
+            "run_root": prediction_run,
+            "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
+            "processed_report_path": "",
+            "timing": {"prediction_seconds": 0.2},
+        },
+    )
+
+    def _invalid_streaming_predict_stage(*, bundle, selected_source):
+        predict_meta = cli._prediction_record_meta_from_bundle(
+            bundle=bundle,
+            selected_source=selected_source,
+            workbook_slug="book",
+        )
+        yield make_prediction_record(
+            example_id="labelstudio-benchmark:hash-123:block:0",
+            example_index=0,
+            prediction={
+                "schema_kind": "unsupported-kind.v1",
+                "block_index": 0,
+                "pred_label": "RECIPE_TITLE",
+                "block_text": "Title",
+                "block_features": {},
+            },
+            predict_meta=predict_meta,
+        )
+
+    monkeypatch.setattr(cli, "predict_stage", _invalid_streaming_predict_stage)
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Evaluation should not run when streaming consumer fails.")
+        ),
+    )
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        lambda *_args, **_kwargs: None,
+    )
+
+    with pytest.raises(cli.typer.Exit):
+        cli.labelstudio_benchmark(
+            gold_spans=gold_spans,
+            source_file=source_file,
+            output_dir=tmp_path / "golden",
+            processed_output_dir=tmp_path / "output",
+            eval_output_dir=tmp_path / "eval-pipelined-error",
+            no_upload=True,
+            execution_mode="pipelined",
+        )
+
+
 def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -4358,6 +4755,119 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
     ]
     assert smart_scheduler["max_active_pipelines_observed"] >= 3
     assert smart_scheduler["max_eval_active_observed"] >= 1
+
+
+def test_run_all_method_benchmark_writes_scheduler_timeseries(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variants = [
+        cli.AllMethodVariant(
+            slug=f"config_{index:02d}",
+            run_settings=base_settings,
+            dimensions={"index": index},
+        )
+        for index in range(1, 3)
+    ]
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    def fake_labelstudio_benchmark(**kwargs):
+        callback = cli._BENCHMARK_SCHEDULER_EVENT_CALLBACK.get()
+        if callback is not None:
+            callback({"event": "prep_started"})
+            time.sleep(0.03)
+            callback({"event": "split_wait_started"})
+            time.sleep(0.03)
+            callback({"event": "split_wait_finished"})
+            callback({"event": "split_active_started"})
+            time.sleep(0.03)
+            callback({"event": "split_active_finished"})
+            callback({"event": "post_started"})
+            time.sleep(0.03)
+            callback({"event": "post_finished"})
+            callback({"event": "evaluate_started"})
+            time.sleep(0.03)
+            callback({"event": "evaluate_finished"})
+
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        report = {
+            "precision": 0.7,
+            "recall": 0.7,
+            "f1": 0.7,
+            "practical_precision": 0.7,
+            "practical_recall": 0.7,
+            "practical_f1": 0.7,
+        }
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
+        pred_run = eval_output_dir / "prediction-run"
+        pred_run.mkdir(parents=True, exist_ok=True)
+        (pred_run / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_file": str(source_file),
+                    "run_config_hash": "hash-v",
+                    "run_config_summary": "config=v",
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+
+    report_md_path = cli._run_all_method_benchmark(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variants=variants,
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method",
+        processed_output_root=tmp_path / "processed-output",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_inflight_pipelines=2,
+        max_concurrent_split_phases=1,
+        smart_scheduler=True,
+    )
+
+    payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
+    scheduler = payload["scheduler"]
+    timeseries_path = Path(str(scheduler["timeseries_path"]))
+    assert timeseries_path.exists()
+    assert timeseries_path.name == cli.ALL_METHOD_SCHEDULER_TIMESERIES_FILENAME
+    assert scheduler["snapshot_poll_seconds"] == cli.ALL_METHOD_SCHEDULER_POLL_SECONDS
+    assert scheduler["timeseries_heartbeat_seconds"] >= cli.ALL_METHOD_SCHEDULER_POLL_SECONDS
+
+    rows = [
+        json.loads(line)
+        for line in timeseries_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert rows
+    assert scheduler["timeseries_row_count"] == len(rows)
+    assert any(int(row.get("active", 0)) == 0 and int(row.get("pending", 0)) == 0 for row in rows)
+    first = rows[0]
+    assert "snapshot" in first
+    assert "cpu_utilization_pct" in first
+    assert "heavy_active" in first
+    assert "heavy_capacity" in first
+    assert "wing_backlog" in first
+    assert "evaluate_active" in first
+    assert "active" in first
+    assert "pending" in first
+    assert "elapsed_seconds" in first
 
 
 def test_run_all_method_benchmark_falls_back_to_serial_when_executor_unavailable(

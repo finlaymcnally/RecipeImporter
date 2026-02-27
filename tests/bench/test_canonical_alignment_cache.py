@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing as mp
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -370,3 +371,36 @@ def test_canonical_alignment_disk_cache_single_compute_under_concurrency(
     cached_entry, cache_error = cache.try_load(cache_key, expected_signatures=signatures)
     assert cache_error is None
     assert cached_entry is not None
+
+
+def _pick_dead_pid() -> int:
+    for candidate in (999_999, 888_888, 777_777):
+        try:
+            os.kill(candidate, 0)
+        except ProcessLookupError:
+            return candidate
+        except PermissionError:
+            continue
+    return os.getpid() + 1_000_000
+
+
+def test_canonical_alignment_disk_cache_lock_recovers_dead_owner_without_age_wait(
+    tmp_path: Path,
+) -> None:
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_key, _signatures = _cache_test_key_and_signatures()
+    cache = CanonicalAlignmentDiskCache(cache_dir, wait_seconds=5, poll_seconds=0.01)
+
+    lock_path = cache.lock_path_for_key(cache_key)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    dead_pid = _pick_dead_pid()
+    lock_path.write_text(f"pid={dead_pid} started_at={time.time():.6f}\n", encoding="utf-8")
+
+    started = time.monotonic()
+    with cache.lock_for_key(cache_key) as acquired:
+        assert acquired is True
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0
+    assert not lock_path.exists()
