@@ -2938,6 +2938,7 @@ def test_run_all_method_benchmark_writes_ranked_summary(
     gold_spans.write_text("{}\n", encoding="utf-8")
 
     captured_processed_dirs: list[Path] = []
+    captured_alignment_cache_dirs: list[Path] = []
 
     def fake_labelstudio_benchmark(**kwargs):
         progress_callback = cli._BENCHMARK_PROGRESS_CALLBACK.get()
@@ -2949,6 +2950,9 @@ def test_run_all_method_benchmark_writes_ranked_summary(
         processed_output_dir = kwargs["processed_output_dir"]
         assert isinstance(processed_output_dir, Path)
         captured_processed_dirs.append(processed_output_dir)
+        alignment_cache_dir = kwargs["alignment_cache_dir"]
+        assert isinstance(alignment_cache_dir, Path)
+        captured_alignment_cache_dirs.append(alignment_cache_dir)
         extractor = str(kwargs.get("epub_extractor") or "")
         f1 = 0.82 if extractor == "markdown" else 0.40
         total_seconds = 8.0 if extractor == "markdown" else 5.0
@@ -3013,8 +3017,11 @@ def test_run_all_method_benchmark_writes_ranked_summary(
     assert payload["variants"][0]["run_config_hash"] == "hash-markdown"
     assert payload["variants"][0]["timing"]["total_seconds"] == pytest.approx(8.0)
     assert captured_processed_dirs
+    assert captured_alignment_cache_dirs
     for processed_dir in captured_processed_dirs:
         assert str(processed_dir).startswith(str(processed_root))
+    for cache_dir in captured_alignment_cache_dirs:
+        assert cache_dir == (tmp_path / "all-method" / ".cache" / "canonical_alignment")
 
 
 def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_order(

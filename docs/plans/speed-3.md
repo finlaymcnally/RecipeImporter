@@ -1,8 +1,15 @@
+---
+summary: "ExecPlan to avoid redundant canonical alignment work in canonical-text benchmark evaluation."
+read_when:
+  - "When implementing benchmark speed plan speed-3"
+  - "When modifying canonical-text alignment caching behavior"
+---
+
 # Avoid redundant canonical alignment in canonical-text evaluation
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-PLANS.md is checked into the repo at `PLANS.md` from the repository root, and this plan must be maintained in accordance with it. :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
+PLANS guidance is checked into the repo at `docs/PLANS.md`, and this plan must be maintained in accordance with it.
 
 
 ## Purpose / Big Picture
@@ -14,12 +21,12 @@ You can see it working by looking at `eval_report.json` `evaluation_telemetry`: 
 
 ## Progress
 
-- [x] (2026-02-27 00:13Z) Drafted ExecPlan for “avoid redundant canonical alignment” implementation.
-- [ ] Implement disk-backed alignment cache and integrate into canonical evaluator (cache miss → compute legacy SequenceMatcher alignment; cache hit → load and reuse).
-- [ ] Make cache safe under concurrency (multiple worker processes) and safe under corruption/stale locks (fallback to recompute).
-- [ ] Wire all-method execution so all configs for the same source share an alignment cache directory.
-- [ ] Add tests that prove: (1) metrics/diagnostics are unchanged, (2) cache hit path is exercised, (3) cache key invalidation works when inputs differ.
-- [ ] Run a small all-method sweep and capture before/after eval telemetry snippets demonstrating cache hits.
+- [x] (2026-02-27_00.13.00) Drafted ExecPlan for “avoid redundant canonical alignment” implementation.
+- [x] (2026-02-27_00.59.00) Implemented disk-backed alignment cache integration in canonical evaluator (cache miss computes legacy alignment; cache hit reuses cached mapping).
+- [x] (2026-02-27_00.59.00) Added lock-file + atomic-write cache safety, stale-lock recovery, and corrupt-entry quarantine fallback behavior.
+- [x] (2026-02-27_00.59.00) Wired all-method execution to share per-source cache directory at `<all_method_source_root>/.cache/canonical_alignment`.
+- [x] (2026-02-27_01.08.00) Added regression tests for cache hit reuse, metrics/diagnostics parity, and cache-key boundary invalidation behavior.
+- [ ] Run a small real all-method sweep and capture before/after telemetry snippets demonstrating cross-config cache hits.
 
 
 ## Surprises & Discoveries
@@ -32,6 +39,12 @@ You can see it working by looking at `eval_report.json` `evaluation_telemetry`: 
 
 - Observation: The evaluator’s fast/bounded alignment path is intentionally deprecated and forced to legacy for accuracy. This plan must not re-enable or approximate alignment; caching is strictly “reuse identical results.”  
   Evidence: evaluator notes about legacy enforcement and fast-path deprecation. :contentReference[oaicite:6]{index=6}
+
+- Observation: Cache-hit paths can skip `SequenceMatcher` entirely while preserving report and diagnostic outputs; the cache-hit telemetry path reports `alignment_sequence_matcher_seconds=0.0` and leaves non-timing metrics unchanged in repeated runs.
+  Evidence: `tests/bench/test_eval_stage_blocks.py::test_evaluate_canonical_text_alignment_cache_hits_without_metric_changes`.
+
+- Observation: Boundary hashing is required even when prediction text can be equivalent, because changed block segmentation must invalidate reuse.
+  Evidence: `tests/bench/test_eval_stage_blocks.py::test_evaluate_canonical_text_alignment_cache_key_includes_block_boundaries`.
 
 
 ## Decision Log
@@ -52,10 +65,35 @@ You can see it working by looking at `eval_report.json` `evaluation_telemetry`: 
   Rationale: This minimizes coupling to Python’s difflib implementation details and makes cache validation straightforward (“does this mapping match the expected signatures?”). It also lets the evaluator skip both `SequenceMatcher` and any expensive post-processing that derives the mapping.  
   Date/Author: 2026-02-27 / GPT-5.2 Pro
 
+- Decision: Keep cache activation internal by adding a hidden `labelstudio-benchmark` option (`--alignment-cache-dir`) that is only threaded from all-method orchestration.
+  Rationale: This avoids widening user-facing CLI semantics while still letting all-method configs share cache state through the existing benchmark call chain.
+  Date/Author: 2026-02-27 / Codex
+
+- Decision: Validate cached payload shape before use and treat validation failures as misses, recording `alignment_cache_validation_error` telemetry.
+  Rationale: This keeps evaluator behavior safe under corruption/partial writes without failing benchmark runs.
+  Date/Author: 2026-02-27 / Codex
+
 
 ## Outcomes & Retrospective
 
-(Empty until implementation work is completed. At the end of Milestone 2, record the observed cache hit rate on a real all-method run and the measured wall-time reduction.)
+Implemented results:
+
+- Canonical evaluator now supports optional disk-backed alignment reuse via `alignment_cache_dir`.
+- Cache entries are content-addressed using canonical normalized text hash, prediction normalized text hash, and prediction block-boundary hash, plus normalization/algo versions.
+- Cache operations are concurrency-safe via lock files, stale-lock recovery, and atomic writes.
+- Evaluation telemetry now exposes cache enabled/hit/key/load/write/validation fields.
+- All-method runs now provide a shared per-source cache root (`.cache/canonical_alignment`) so config permutations can reuse matching alignment work.
+
+Validation completed:
+
+- Focused and full module pytest runs passed for:
+  - `tests/bench/test_eval_stage_blocks.py`
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+- Added tests proving cache hit behavior with unchanged metrics/diagnostics and key invalidation when boundaries differ.
+
+Remaining gap:
+
+- A real-world all-method benchmark telemetry capture showing cross-config hit rate and wall-time reduction still needs to be collected.
 
 
 ## Context and Orientation
@@ -354,3 +392,7 @@ This plan explicitly does not change alignment strategy (legacy full-book alignm
 - Recovery: If evaluation behaves unexpectedly, delete the cache directory (for example `<all_method_source_root>/.cache/canonical_alignment/`) and rerun; the system should revert to the original behavior (compute alignment every time).
 - Concurrency safety: The lock-file protocol prevents multiple worker processes from computing the same alignment simultaneously. If a worker crashes and leaves a stale lock, the TTL-based stale lock cleanup allows progress to continue without manual intervention.
 - Cleanliness: Because the cache lives under the all-method source root, deleting the run root deletes the cache. No system-wide caches or hidden state are required for correctness.
+
+Plan change notes:
+
+- 2026-02-27_01.08.00: Updated this ExecPlan after implementation to mark completed milestones, document shipped cache behavior/tests, record decisions made during coding, and list the remaining real-run performance evidence task.

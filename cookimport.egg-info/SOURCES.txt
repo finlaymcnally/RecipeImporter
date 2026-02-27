@@ -21,6 +21,7 @@ cookimport/analytics/dashboard_render.py
 cookimport/analytics/dashboard_schema.py
 cookimport/analytics/perf_report.py
 cookimport/bench/__init__.py
+cookimport/bench/canonical_alignment_cache.py
 cookimport/bench/cost.py
 cookimport/bench/eval_canonical_text.py
 cookimport/bench/eval_stage_blocks.py

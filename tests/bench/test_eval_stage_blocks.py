@@ -729,3 +729,157 @@ def test_evaluate_canonical_text_fast_request_is_deprecated_and_forced_to_legacy
     assert "deprecated due to accuracy risk" in str(
         alignment["alignment_fast_path_deprecation_message"]
     )
+
+
+def _write_boundary_cache_fixture(
+    tmp_path: Path,
+    *,
+    fixture_name: str,
+    block_texts: list[str],
+) -> tuple[Path, Path, Path]:
+    fixture_root = tmp_path / fixture_name
+    gold_export_root = fixture_root / "exports"
+    gold_export_root.mkdir(parents=True, exist_ok=True)
+    canonical_text = "Title\n\nSubtitle\n\n1 cup stock"
+    (gold_export_root / "canonical_text.txt").write_text(canonical_text, encoding="utf-8")
+    _write_jsonl(
+        gold_export_root / "canonical_block_map.jsonl",
+        [
+            {"block_index": 0, "start_char": 0, "end_char": 5},
+            {"block_index": 1, "start_char": 7, "end_char": 15},
+            {"block_index": 2, "start_char": 17, "end_char": 28},
+        ],
+    )
+    _write_jsonl(
+        gold_export_root / "canonical_span_labels.jsonl",
+        [
+            {"span_id": "t", "label": "OTHER", "start_char": 0, "end_char": 5},
+            {"span_id": "s", "label": "OTHER", "start_char": 7, "end_char": 15},
+            {"span_id": "i", "label": "OTHER", "start_char": 17, "end_char": 28},
+        ],
+    )
+    (gold_export_root / "canonical_manifest.json").write_text(
+        json.dumps({"schema_version": "canonical_gold.v1"}, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    block_labels = {str(index): "OTHER" for index, _text in enumerate(block_texts)}
+    stage_predictions_path = fixture_root / "stage_block_predictions.json"
+    stage_predictions_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": fixture_name,
+                "source_file": f"{fixture_name}.epub",
+                "source_hash": fixture_name,
+                "block_count": len(block_texts),
+                "block_labels": block_labels,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    extracted_archive_path = fixture_root / "extracted_archive.json"
+    extracted_archive_path.write_text(
+        json.dumps(
+            [{"index": index, "text": text} for index, text in enumerate(block_texts)],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    return gold_export_root, stage_predictions_path, extracted_archive_path
+
+
+def test_evaluate_canonical_text_alignment_cache_hits_without_metric_changes(
+    tmp_path: Path,
+) -> None:
+    gold_export_root, stage_predictions_path, extracted_archive_path = _write_minimal_canonical_fixture(
+        tmp_path
+    )
+    cache_dir = tmp_path / "alignment-cache"
+    first_out = tmp_path / "first"
+    second_out = tmp_path / "second"
+
+    first_result = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=first_out,
+        alignment_cache_dir=cache_dir,
+    )
+    second_result = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=second_out,
+        alignment_cache_dir=cache_dir,
+    )
+
+    first_report = first_result["report"]
+    second_report = second_result["report"]
+    first_telemetry = first_report["evaluation_telemetry"]
+    second_telemetry = second_report["evaluation_telemetry"]
+    assert first_telemetry["alignment_cache_enabled"] is True
+    assert first_telemetry["alignment_cache_hit"] is False
+    assert second_telemetry["alignment_cache_enabled"] is True
+    assert second_telemetry["alignment_cache_hit"] is True
+    assert second_telemetry["alignment_cache_validation_error"] is None
+    assert second_telemetry["alignment_cache_load_seconds"] >= 0.0
+    assert second_telemetry["alignment_cache_write_seconds"] >= 0.0
+    assert second_telemetry["subphases"]["alignment_sequence_matcher_seconds"] == pytest.approx(0.0)
+
+    assert first_report["overall_line_accuracy"] == pytest.approx(second_report["overall_line_accuracy"])
+    assert first_report["macro_f1_excluding_other"] == pytest.approx(
+        second_report["macro_f1_excluding_other"]
+    )
+    assert first_report["wrong_label_blocks"] == second_report["wrong_label_blocks"]
+    assert first_report["missed_gold_blocks"] == second_report["missed_gold_blocks"]
+
+    for artifact_name in (
+        "missed_gold_lines.jsonl",
+        "wrong_label_lines.jsonl",
+        "unmatched_pred_blocks.jsonl",
+        "alignment_gaps.jsonl",
+    ):
+        assert (first_out / artifact_name).read_text(encoding="utf-8") == (
+            second_out / artifact_name
+        ).read_text(encoding="utf-8")
+
+
+def test_evaluate_canonical_text_alignment_cache_key_includes_block_boundaries(
+    tmp_path: Path,
+) -> None:
+    cache_dir = tmp_path / "alignment-cache"
+    two_block_fixture = _write_boundary_cache_fixture(
+        tmp_path,
+        fixture_name="two-blocks",
+        block_texts=["Title", "Subtitle\n\n1 cup stock"],
+    )
+    three_block_fixture = _write_boundary_cache_fixture(
+        tmp_path,
+        fixture_name="three-blocks",
+        block_texts=["Title", "Subtitle", "1 cup stock"],
+    )
+
+    first_result = evaluate_canonical_text(
+        gold_export_root=two_block_fixture[0],
+        stage_predictions_json=two_block_fixture[1],
+        extracted_blocks_json=two_block_fixture[2],
+        out_dir=tmp_path / "first",
+        alignment_cache_dir=cache_dir,
+    )
+    second_result = evaluate_canonical_text(
+        gold_export_root=three_block_fixture[0],
+        stage_predictions_json=three_block_fixture[1],
+        extracted_blocks_json=three_block_fixture[2],
+        out_dir=tmp_path / "second",
+        alignment_cache_dir=cache_dir,
+    )
+
+    first_telemetry = first_result["report"]["evaluation_telemetry"]
+    second_telemetry = second_result["report"]["evaluation_telemetry"]
+    assert first_telemetry["alignment_cache_enabled"] is True
+    assert second_telemetry["alignment_cache_enabled"] is True
+    assert first_telemetry["alignment_cache_hit"] is False
+    assert second_telemetry["alignment_cache_hit"] is False
+    assert first_telemetry["alignment_cache_key"] != second_telemetry["alignment_cache_key"]

@@ -4586,6 +4586,7 @@ def _run_all_method_config_once(
     max_concurrent_split_phases: int,
     split_phase_gate_dir: Path,
     scheduler_events_dir: Path,
+    alignment_cache_dir: Path | None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     config_started = time.monotonic()
@@ -4708,6 +4709,7 @@ def _run_all_method_config_once(
                         codex_farm_pipeline_pass3=variant.run_settings.codex_farm_pipeline_pass3,
                         codex_farm_context_blocks=variant.run_settings.codex_farm_context_blocks,
                         codex_farm_failure_mode=variant.run_settings.codex_farm_failure_mode.value,
+                        alignment_cache_dir=alignment_cache_dir,
                     )
     except Exception as exc:  # noqa: BLE001
         _emit_scheduler_event("config_finished", status="failed", error=str(exc))
@@ -5803,6 +5805,7 @@ def _run_all_method_benchmark(
     processed_output_root.mkdir(parents=True, exist_ok=True)
     split_phase_gate_dir = root_output_dir / ".split_phase_slots"
     split_phase_gate_dir.mkdir(parents=True, exist_ok=True)
+    canonical_alignment_cache_dir = root_output_dir / ".cache" / "canonical_alignment"
     scheduler_events_dir = root_output_dir / ".scheduler_events"
     if scheduler_events_dir.exists():
         shutil.rmtree(scheduler_events_dir)
@@ -6268,6 +6271,7 @@ def _run_all_method_benchmark(
                 max_concurrent_split_phases=effective_split_phase_slots,
                 split_phase_gate_dir=split_phase_gate_dir,
                 scheduler_events_dir=scheduler_events_dir,
+                alignment_cache_dir=canonical_alignment_cache_dir,
                 progress_callback=_variant_progress if progress_callback else None,
             )
             variant_rows.append(row)
@@ -6403,6 +6407,7 @@ def _run_all_method_benchmark(
                     max_concurrent_split_phases=effective_split_phase_slots,
                     split_phase_gate_dir=split_phase_gate_dir,
                     scheduler_events_dir=scheduler_events_dir,
+                    alignment_cache_dir=canonical_alignment_cache_dir,
                     progress_callback=None,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -9834,6 +9839,11 @@ def labelstudio_benchmark(
         "--codex-farm-failure-mode",
         help="Behavior when codex-farm setup/invocation fails: fail or fallback.",
     )] = "fail",
+    alignment_cache_dir: Annotated[Path | None, typer.Option(
+        "--alignment-cache-dir",
+        help="Internal: optional canonical alignment cache directory for benchmark runs.",
+        hidden=True,
+    )] = None,
 ) -> None:
     """Run benchmark eval against freeform gold, with optional upload step."""
     external_progress_callback = _BENCHMARK_PROGRESS_CALLBACK.get()
@@ -10095,6 +10105,7 @@ def labelstudio_benchmark(
                 stage_predictions_json=stage_predictions_path,
                 extracted_blocks_json=extracted_archive_path,
                 out_dir=eval_output_dir,
+                alignment_cache_dir=alignment_cache_dir,
             )
             return eval_result_local, format_canonical_eval_report_md
         eval_result_local = evaluate_stage_blocks(

@@ -7,6 +7,15 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+from cookimport.bench.canonical_alignment_cache import (
+    CANONICAL_ALIGNMENT_ALGO_VERSION,
+    CANONICAL_ALIGNMENT_NORMALIZATION_VERSION,
+    CanonicalAlignmentDiskCache,
+    build_cache_file_key,
+    hash_block_boundaries,
+    make_cache_entry,
+    sha256_text,
+)
 from cookimport.bench.eval_stage_blocks import compute_block_metrics, load_stage_block_labels
 from cookimport.labelstudio.canonical_gold import ensure_canonical_gold_artifacts
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
@@ -358,6 +367,59 @@ def _aligned_row(
     }
 
 
+def _alignment_cache_payload(
+    *,
+    aligned_rows: list[dict[str, Any]],
+    alignment: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "aligned_rows": [dict(row) for row in aligned_rows],
+        "alignment": dict(alignment),
+    }
+
+
+def _load_alignment_cache_payload(
+    *,
+    payload: dict[str, Any],
+    expected_block_count: int,
+) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None, str | None]:
+    if not isinstance(payload, dict):
+        return None, None, "cache_payload_not_object"
+    aligned_rows_raw = payload.get("aligned_rows")
+    alignment_raw = payload.get("alignment")
+    if not isinstance(aligned_rows_raw, list):
+        return None, None, "cache_payload_missing_aligned_rows"
+    if not isinstance(alignment_raw, dict):
+        return None, None, "cache_payload_missing_alignment"
+    if len(aligned_rows_raw) != max(0, int(expected_block_count)):
+        return None, None, "cache_payload_block_count_mismatch"
+    validated_rows: list[dict[str, Any]] = []
+    for index, row in enumerate(aligned_rows_raw):
+        if not isinstance(row, dict):
+            return None, None, f"cache_payload_row_not_object:{index}"
+        block_index = _coerce_int(row.get("block_index"))
+        prediction_start = _coerce_int(row.get("prediction_start_char"))
+        prediction_end = _coerce_int(row.get("prediction_end_char"))
+        matched_chars = _coerce_int(row.get("matched_chars"))
+        block_char_count = _coerce_int(row.get("block_char_count"))
+        if block_index is None:
+            return None, None, f"cache_payload_row_missing_block_index:{index}"
+        if prediction_start is None or prediction_end is None or prediction_end < prediction_start:
+            return None, None, f"cache_payload_row_bad_prediction_range:{index}"
+        if matched_chars is None or block_char_count is None:
+            return None, None, f"cache_payload_row_missing_counts:{index}"
+        matched = row.get("matched")
+        if not isinstance(matched, bool):
+            return None, None, f"cache_payload_row_missing_matched_flag:{index}"
+        canonical_start = _coerce_int(row.get("canonical_start_char"))
+        canonical_end = _coerce_int(row.get("canonical_end_char"))
+        if matched:
+            if canonical_start is None or canonical_end is None or canonical_end <= canonical_start:
+                return None, None, f"cache_payload_row_bad_canonical_range:{index}"
+        validated_rows.append(dict(row))
+    return validated_rows, dict(alignment_raw), None
+
+
 def _align_prediction_blocks_legacy(
     *,
     prediction_text: str,
@@ -376,6 +438,24 @@ def _align_prediction_blocks_legacy(
         0.0, time.monotonic() - normalize_canonical_started
     )
 
+    aligned_rows, alignment, alignment_phase_seconds = _align_prediction_blocks_legacy_from_normalized(
+        prediction_normalized=prediction_normalized,
+        canonical_normalized=canonical_normalized,
+        prediction_blocks=prediction_blocks,
+        canonical_char_count=len(canonical_text),
+    )
+    alignment_phase_seconds["normalize_prediction_seconds"] = normalize_prediction_seconds
+    alignment_phase_seconds["normalize_canonical_seconds"] = normalize_canonical_seconds
+    return aligned_rows, alignment, alignment_phase_seconds
+
+
+def _align_prediction_blocks_legacy_from_normalized(
+    *,
+    prediction_normalized: str,
+    canonical_normalized: str,
+    prediction_blocks: list[dict[str, Any]],
+    canonical_char_count: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, float]]:
     sequence_matcher_started = time.monotonic()
     matcher = SequenceMatcher(
         None,
@@ -423,14 +503,12 @@ def _align_prediction_blocks_legacy(
     alignment = _alignment_summary(
         aligned_rows=aligned_rows,
         prediction_blocks=prediction_blocks,
-        canonical_char_count=len(canonical_text),
+        canonical_char_count=canonical_char_count,
         matching_block_count=len(matching_blocks),
     )
     alignment["prediction_normalized_char_count"] = len(prediction_normalized)
     alignment["canonical_normalized_char_count"] = len(canonical_normalized)
     alignment_phase_seconds = {
-        "normalize_prediction_seconds": normalize_prediction_seconds,
-        "normalize_canonical_seconds": normalize_canonical_seconds,
         "sequence_matcher_seconds": sequence_matcher_seconds,
         "block_mapping_seconds": block_mapping_seconds,
     }
@@ -656,15 +734,151 @@ def _align_prediction_blocks_to_canonical(
     canonical_text: str,
     prediction_blocks: list[dict[str, Any]],
     strategy: str = "auto",
-) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, float]]:
+    alignment_cache_dir: Path | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, float], dict[str, Any]]:
     normalized_strategy = str(strategy or "auto").strip().lower()
     if normalized_strategy not in _ALIGNMENT_STRATEGIES:
         normalized_strategy = "auto"
-    aligned_rows, alignment, alignment_phase_seconds = _align_prediction_blocks_legacy(
-        prediction_text=prediction_text,
-        canonical_text=canonical_text,
-        prediction_blocks=prediction_blocks,
+
+    normalize_prediction_started = time.monotonic()
+    prediction_normalized = _normalize_for_alignment(prediction_text)
+    normalize_prediction_seconds = max(
+        0.0, time.monotonic() - normalize_prediction_started
     )
+    normalize_canonical_started = time.monotonic()
+    canonical_normalized = _normalize_for_alignment(canonical_text)
+    normalize_canonical_seconds = max(0.0, time.monotonic() - normalize_canonical_started)
+
+    aligned_rows: list[dict[str, Any]] | None = None
+    alignment: dict[str, Any] | None = None
+    legacy_phase_seconds: dict[str, float] = {
+        "sequence_matcher_seconds": 0.0,
+        "block_mapping_seconds": 0.0,
+    }
+
+    cache_enabled = alignment_cache_dir is not None
+    cache_hit = False
+    cache_load_seconds = 0.0
+    cache_write_seconds = 0.0
+    cache_validation_error: str | None = None
+    cache_key_summary: str | None = None
+    if cache_enabled:
+        block_boundaries = [
+            (
+                int(_coerce_int(block.get("start_char")) or 0),
+                int(_coerce_int(block.get("end_char")) or 0),
+            )
+            for block in prediction_blocks
+        ]
+        canonical_hash = sha256_text(canonical_normalized)
+        prediction_hash = sha256_text(prediction_normalized)
+        boundaries_hash = hash_block_boundaries(block_boundaries)
+        cache_key_summary = (
+            "v1/legacy/n1/"
+            f"canon={canonical_hash[:12]}/"
+            f"pred={prediction_hash[:12]}/"
+            f"b={boundaries_hash[:12]}"
+        )
+        cache_key = build_cache_file_key(
+            alignment_strategy="legacy",
+            canonical_normalized_sha256=canonical_hash,
+            prediction_normalized_sha256=prediction_hash,
+            prediction_block_boundaries_sha256=boundaries_hash,
+            normalization_version=CANONICAL_ALIGNMENT_NORMALIZATION_VERSION,
+            algo_version=CANONICAL_ALIGNMENT_ALGO_VERSION,
+        )
+        expected_signatures = {
+            "alignment_strategy": "legacy",
+            "normalization_version": CANONICAL_ALIGNMENT_NORMALIZATION_VERSION,
+            "repo_alignment_algo_version": CANONICAL_ALIGNMENT_ALGO_VERSION,
+            "canonical_normalized_sha256": canonical_hash,
+            "prediction_normalized_sha256": prediction_hash,
+            "prediction_block_boundaries_sha256": boundaries_hash,
+            "canonical_normalized_char_count": len(canonical_normalized),
+            "prediction_normalized_char_count": len(prediction_normalized),
+        }
+        cache = CanonicalAlignmentDiskCache(Path(alignment_cache_dir))
+
+        def _try_cache_load() -> None:
+            nonlocal aligned_rows
+            nonlocal alignment
+            nonlocal cache_hit
+            nonlocal cache_load_seconds
+            nonlocal cache_validation_error
+            load_started = time.monotonic()
+            entry, error = cache.try_load(
+                cache_key,
+                expected_signatures=expected_signatures,
+            )
+            cache_load_seconds += max(0.0, time.monotonic() - load_started)
+            if error is not None:
+                cache_validation_error = error
+            if entry is None:
+                return
+            loaded_rows, loaded_alignment, payload_error = _load_alignment_cache_payload(
+                payload=entry.payload,
+                expected_block_count=len(prediction_blocks),
+            )
+            if payload_error is not None:
+                cache_validation_error = payload_error
+                return
+            if loaded_rows is None or loaded_alignment is None:
+                cache_validation_error = "cache_payload_missing"
+                return
+            aligned_rows = loaded_rows
+            alignment = loaded_alignment
+            cache_hit = True
+
+        _try_cache_load()
+        if not cache_hit:
+            with cache.lock_for_key(cache_key) as lock_acquired:
+                if not cache_hit:
+                    _try_cache_load()
+                if cache_hit:
+                    pass
+                elif lock_acquired:
+                    aligned_rows, alignment, legacy_phase_seconds = (
+                        _align_prediction_blocks_legacy_from_normalized(
+                            prediction_normalized=prediction_normalized,
+                            canonical_normalized=canonical_normalized,
+                            prediction_blocks=prediction_blocks,
+                            canonical_char_count=len(canonical_text),
+                        )
+                    )
+                    write_started = time.monotonic()
+                    cache.write_atomic(
+                        cache_key,
+                        make_cache_entry(
+                            alignment_strategy="legacy",
+                            canonical_normalized_sha256=canonical_hash,
+                            prediction_normalized_sha256=prediction_hash,
+                            prediction_block_boundaries_sha256=boundaries_hash,
+                            canonical_normalized_char_count=len(canonical_normalized),
+                            prediction_normalized_char_count=len(prediction_normalized),
+                            payload=_alignment_cache_payload(
+                                aligned_rows=aligned_rows,
+                                alignment=alignment,
+                            ),
+                        ),
+                    )
+                    cache_write_seconds = max(0.0, time.monotonic() - write_started)
+    if aligned_rows is None or alignment is None:
+        aligned_rows, alignment, legacy_phase_seconds = _align_prediction_blocks_legacy_from_normalized(
+            prediction_normalized=prediction_normalized,
+            canonical_normalized=canonical_normalized,
+            prediction_blocks=prediction_blocks,
+            canonical_char_count=len(canonical_text),
+        )
+    alignment_phase_seconds = {
+        "normalize_prediction_seconds": normalize_prediction_seconds,
+        "normalize_canonical_seconds": normalize_canonical_seconds,
+        "sequence_matcher_seconds": max(
+            0.0, float(legacy_phase_seconds.get("sequence_matcher_seconds") or 0.0)
+        ),
+        "block_mapping_seconds": max(
+            0.0, float(legacy_phase_seconds.get("block_mapping_seconds") or 0.0)
+        ),
+    }
     deprecated_request = normalized_strategy in {"auto", "fast"}
     alignment.update(
         {
@@ -680,7 +894,14 @@ def _align_prediction_blocks_to_canonical(
             "alignment_fast_path_deprecation_message": _ALIGNMENT_FAST_DEPRECATION_MESSAGE,
         }
     )
-    return aligned_rows, alignment, alignment_phase_seconds
+    return aligned_rows, alignment, alignment_phase_seconds, {
+        "enabled": cache_enabled,
+        "hit": cache_hit,
+        "key": cache_key_summary,
+        "load_seconds": max(0.0, cache_load_seconds),
+        "write_seconds": max(0.0, cache_write_seconds),
+        "validation_error": cache_validation_error,
+    }
 
 
 def _build_canonical_lines(canonical_text: str) -> list[dict[str, Any]]:
@@ -995,6 +1216,7 @@ def evaluate_canonical_text(
     extracted_blocks_json: Path,
     out_dir: Path,
     strict_empty_gold_to_other: bool = True,
+    alignment_cache_dir: Path | None = None,
 ) -> dict[str, Any]:
     evaluation_started = time.monotonic()
     resource_start = _capture_eval_resource_snapshot()
@@ -1026,11 +1248,17 @@ def evaluate_canonical_text(
 
     align_started = time.monotonic()
     requested_alignment_strategy = _requested_alignment_strategy()
-    aligned_blocks, alignment, alignment_phase_seconds = _align_prediction_blocks_to_canonical(
+    (
+        aligned_blocks,
+        alignment,
+        alignment_phase_seconds,
+        alignment_cache_telemetry,
+    ) = _align_prediction_blocks_to_canonical(
         prediction_text=prediction_text,
         canonical_text=canonical_text,
         prediction_blocks=prediction_block_rows,
         strategy=requested_alignment_strategy,
+        alignment_cache_dir=alignment_cache_dir,
     )
     subphase_seconds["alignment_seconds"] = max(0.0, time.monotonic() - align_started)
     for key, value in alignment_phase_seconds.items():
@@ -1134,6 +1362,20 @@ def evaluate_canonical_text(
     resource_end = _capture_eval_resource_snapshot()
     report["evaluation_telemetry"] = {
         "total_seconds": evaluation_total_seconds,
+        "alignment_cache_enabled": bool(alignment_cache_telemetry.get("enabled")),
+        "alignment_cache_hit": bool(alignment_cache_telemetry.get("hit")),
+        "alignment_cache_key": alignment_cache_telemetry.get("key"),
+        "alignment_cache_load_seconds": max(
+            0.0,
+            float(alignment_cache_telemetry.get("load_seconds") or 0.0),
+        ),
+        "alignment_cache_write_seconds": max(
+            0.0,
+            float(alignment_cache_telemetry.get("write_seconds") or 0.0),
+        ),
+        "alignment_cache_validation_error": alignment_cache_telemetry.get(
+            "validation_error"
+        ),
         "subphases": {key: max(0.0, float(value)) for key, value in subphase_seconds.items()},
         "resources": _diff_eval_resource_snapshots(resource_start, resource_end),
         "work_units": {

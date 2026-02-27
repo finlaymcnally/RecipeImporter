@@ -139,6 +139,7 @@ How it scores:
 - project stage block labels onto canonical text lines
 - compare predicted line labels vs gold line labels
 - inspect `report.alignment` deprecation fields when validating alignment strategy behavior
+- when `alignment_cache_dir` is provided, canonical alignment results are reused only for identical canonical text + prediction text + prediction block boundaries (all-method uses a shared per-source cache at `.cache/canonical_alignment`)
 
 Outputs include `eval_report.json/md` plus canonical diagnostics:
 - `missed_gold_lines.jsonl`
@@ -155,6 +156,7 @@ Outputs include `eval_report.json/md` plus canonical diagnostics:
 - evaluator reports also include `evaluation_telemetry`:
   - subphase timers (`load_gold_seconds`, `load_prediction_seconds`, alignment/projection/metrics/diagnostic phases),
   - canonical alignment micro-subphases (`alignment_normalize_prediction_seconds`, `alignment_normalize_canonical_seconds`, `alignment_sequence_matcher_seconds`, `alignment_block_mapping_seconds`),
+  - canonical cache fields (`alignment_cache_enabled`, `alignment_cache_hit`, `alignment_cache_key`, `alignment_cache_load_seconds`, `alignment_cache_write_seconds`, optional `alignment_cache_validation_error`),
   - per-eval resource snapshots/deltas (CPU, peak RSS, block I/O counters when available),
   - work-unit counts (line/span/block counts plus text-size counters such as `prediction_text_char_count`, `prediction_normalized_char_count`, `canonical_text_char_count`)
 - benchmark timing checkpoints now mirror evaluator telemetry with `evaluate_*`, `evaluate_resource_*`, and `evaluate_work_*` keys.
