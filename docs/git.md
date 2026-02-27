@@ -1,3 +1,9 @@
+---
+summary: "copy/paste for most recent git commit only"
+read_when:
+  - When updating docs list tooling or doc front matter
+---
+
 git add . && git commit -m "Implement canonical-text evaluation for extractor-agnostic benchmarking
 
 - Default interactive and labelstudio benchmarks to canonical-text eval mode.

@@ -3483,6 +3483,7 @@ class _AllMethodProgressDashboard:
     current_config_total: int = 0
     current_config_slug: str = ""
     active_config_slugs_by_source: dict[int, dict[int, str]] = field(default_factory=dict)
+    active_config_phases_by_source: dict[int, dict[int, str]] = field(default_factory=dict)
     task_message: str = ""
     _lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
 
@@ -3547,6 +3548,7 @@ class _AllMethodProgressDashboard:
             row = self.rows[source_index]
             row.status = "running"
             self.active_config_slugs_by_source.setdefault(source_index, {})
+            self.active_config_phases_by_source.setdefault(source_index, {})
             self._set_focus_source_state(source_index)
 
     def finish_source(self, source_index: int, *, failed: bool = False) -> None:
@@ -3556,6 +3558,7 @@ class _AllMethodProgressDashboard:
             row = self.rows[source_index]
             row.status = "failed" if failed else "done"
             self.active_config_slugs_by_source.pop(source_index, None)
+            self.active_config_phases_by_source.pop(source_index, None)
             if self.current_source_index == source_index:
                 running_indices = self._running_source_indices()
                 if running_indices:
@@ -3584,6 +3587,11 @@ class _AllMethodProgressDashboard:
                     {},
                 )
                 active_for_source[self.current_config_index] = self.current_config_slug
+                phase_for_source = self.active_config_phases_by_source.setdefault(
+                    source_index,
+                    {},
+                )
+                phase_for_source[self.current_config_index] = "prep"
             row = self.rows[source_index]
             row.status = "running"
 
@@ -3616,12 +3624,61 @@ class _AllMethodProgressDashboard:
                 source_index,
                 {},
             )
+            phase_for_source = self.active_config_phases_by_source.setdefault(
+                source_index,
+                {},
+            )
             if config_index is not None:
-                active_for_source.pop(max(0, config_index), None)
+                safe_index = max(0, config_index)
+                active_for_source.pop(safe_index, None)
+                phase_for_source.pop(safe_index, None)
             if not active_for_source:
                 self.active_config_slugs_by_source.pop(source_index, None)
+                self.active_config_phases_by_source.pop(source_index, None)
             if self.current_source_index == source_index:
                 self._set_focus_source_state(source_index)
+
+    @staticmethod
+    def _normalize_config_phase(phase: str) -> str:
+        normalized = str(phase or "").strip().lower()
+        if normalized in {"split_wait", "split wait"}:
+            return "split_wait"
+        if normalized in {"split_active", "split active"}:
+            return "split_active"
+        if normalized in {"prep", "post", "evaluate"}:
+            return normalized
+        return "prep"
+
+    @staticmethod
+    def _format_config_phase_label(phase: str) -> str:
+        normalized = _AllMethodProgressDashboard._normalize_config_phase(phase)
+        if normalized == "split_wait":
+            return "split wait"
+        if normalized == "split_active":
+            return "split active"
+        return normalized
+
+    def set_config_phase(
+        self,
+        *,
+        source_index: int,
+        config_index: int,
+        phase: str,
+    ) -> None:
+        with self._lock:
+            if source_index < 0 or source_index >= len(self.rows):
+                return
+            safe_index = max(0, config_index)
+            if safe_index <= 0:
+                return
+            active_for_source = self.active_config_slugs_by_source.get(source_index, {})
+            if safe_index not in active_for_source:
+                return
+            phase_for_source = self.active_config_phases_by_source.setdefault(
+                source_index,
+                {},
+            )
+            phase_for_source[safe_index] = self._normalize_config_phase(phase)
 
     def set_task(self, message: str) -> None:
         with self._lock:
@@ -3676,6 +3733,10 @@ class _AllMethodProgressDashboard:
                     )
                 )
             if self.current_config_total > 0 and self.current_source_index is not None:
+                phase_items = self.active_config_phases_by_source.get(
+                    self.current_source_index,
+                    {},
+                )
                 active_items = sorted(
                     self.active_config_slugs_by_source.get(
                         self.current_source_index,
@@ -3701,6 +3762,17 @@ class _AllMethodProgressDashboard:
                                 f"{self.current_config_total} ({len(active_items)} active)"
                             )
                         )
+                        lines.append("active config workers:")
+                        for active_index, active_slug in active_items:
+                            phase = self._format_config_phase_label(
+                                phase_items.get(active_index, "prep")
+                            )
+                            slug = active_slug or "<pending>"
+                            if len(slug) > 120:
+                                slug = f"{slug[:117]}..."
+                            lines.append(
+                                f"  config {active_index:02d}: {phase} | {slug}"
+                            )
                 elif 0 <= self.current_source_index < len(self.rows):
                     current_row = self.rows[self.current_source_index]
                     if current_row.completed_configs < current_row.total_configs:
@@ -6380,6 +6452,17 @@ def _run_all_method_benchmark(
                         for config_index, _variant, _submitted in futures.values()
                     }
                 )
+                if (
+                    dashboard_tracking
+                    and dashboard is not None
+                    and dashboard_source_index is not None
+                ):
+                    for active_index in sorted(active_indices):
+                        dashboard.set_config_phase(
+                            source_index=dashboard_source_index,
+                            config_index=active_index,
+                            phase=scheduler_phase_by_config.get(active_index, "prep"),
+                        )
                 _emit_scheduler_snapshot(
                     counts=counts,
                     pending_count=len(pending_items),

@@ -274,8 +274,13 @@ def test_all_method_dashboard_current_config_tracks_active_parallel_configs() ->
         config_total=3,
         config_slug="config-two",
     )
+    dashboard.set_config_phase(source_index=0, config_index=1, phase="split_active")
+    dashboard.set_config_phase(source_index=0, config_index=2, phase="evaluate")
     render_parallel = dashboard.render()
     assert "current configs 1-2/3 (2 active)" in render_parallel
+    assert "active config workers:" in render_parallel
+    assert "  config 01: split active | config-one" in render_parallel
+    assert "  config 02: evaluate | config-two" in render_parallel
 
     dashboard.complete_config(source_index=0, success=True, config_index=1)
     render_single_active = dashboard.render()

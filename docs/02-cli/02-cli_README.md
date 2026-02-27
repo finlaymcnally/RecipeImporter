@@ -294,6 +294,7 @@ Interactive benchmark now has a mode submenu before execution:
   - execution uses one persistent all-method spinner dashboard (book queue + overall source/config counters + current task line), including a scheduler snapshot line:
     - `scheduler heavy X/Y | wing Z | active A | pending P`,
     - `current config` reflects active config slots in parallel mode (`current configs A-B/N`) rather than a stale last-submitted slug,
+    - when multiple configs are active, dashboard renders per-config worker lines (`config NN: <phase> | <slug>`) so active slots are visible,
     - when no config is actively running but source work remains, the line shows `<queued>`,
     - outer multi-source progress should rerender from shared dashboard state when an inbound nested snapshot is stale/partial so queue rows stay stable,
     - all-matched mode can show multiple `[>]` source rows simultaneously (`active sources: N`),

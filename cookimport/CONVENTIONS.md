@@ -48,6 +48,7 @@ Interactive file discovery and direct staging intentionally differ:
 - Interactive all-method benchmark should render one persistent spinner dashboard (book queue + overall source/config counters + current task) and suppress per-config `labelstudio-benchmark` completion dumps while the sweep is running.
 - Interactive all-method spinner/dashboard task output should include a scheduler snapshot line: `scheduler heavy X/Y | wing Z | active A | pending P`.
 - All-method spinner `current config` should track active config slots in parallel mode; when multiple configs are active, render a range (`current configs A-B/N`) instead of a stale last-submitted slug.
+- For multi-active `current configs` states, render per-config worker detail lines (`config NN: <phase> | <slug>`) so active slot activity remains visible.
 - All-matched all-method spinner queue should support multiple simultaneously running sources (`[>]` rows), with summary line `active sources: N`.
 - All-method dashboard snapshots (`overall source ... | config ...` + `queue:`) are already fully-rendered spinner payloads; upstream wrappers must not nest them into `task:` text. When an inbound snapshot is stale/partial, wrappers should rerender from shared dashboard state before emitting.
 - Split-slot acquire/wait/release telemetry in all-method worker configs should stay callback-driven; subprocess configs must not emit raw stdout `print(...)` slot lines while the outer spinner is active.

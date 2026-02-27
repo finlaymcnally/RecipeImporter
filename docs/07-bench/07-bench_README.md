@@ -219,6 +219,7 @@ Interactive benchmark from the main menu is now offline-only, with two modes:
   - if process workers cannot start, all-method still auto-falls back to serial.
   - split-worker-heavy conversion is slot-gated across configs, so at most four configs run split conversion concurrently while other configs can pre/post-process.
   - spinner/dashboard task output includes a scheduler state line: `scheduler heavy X/Y | wing Z | active A | pending P`.
+  - when multiple configs are active, dashboard expands active slots as worker lines (`config NN: <phase> | <slug>`).
   - all-matched queue can show more than one running source row (`[>]`) at once; dashboard summary includes `active sources: N`.
   - all-matched wrapper should rerender shared dashboard state when a nested callback emits a stale/partial dashboard snapshot, instead of forwarding a broken queue payload.
   - per-source reports include scheduler utilization metrics, and all-matched combined reports include scheduler rollups.
@@ -320,6 +321,7 @@ Durable all-method rules:
 - Parallel all-method defaults remain bounded (inflight pipelines=`4`, split-phase slots=`4`), and benchmark CSV append paths keep file locking to avoid header duplication/partial writes.
 - Split-slot wait/acquire/release telemetry should flow through progress callbacks and spinner task updates; subprocess all-method workers should not emit standalone stdout slot lines.
 - All-method dashboard `current config` should reflect active config slots in parallel mode (`current configs A-B/N`), not a stale last-submitted slug.
+- For `current configs A-B/N` states, keep a per-config worker section visible with phase labels (`prep`, `split wait`, `split active`, `post`, `evaluate`) so operators can see what each active slot is doing.
 - ETA/elapsed suffix decoration for multi-line all-method dashboard payloads belongs on the top summary line (`overall ...`), not the trailing `task:` line.
 
 ### 13.4 Processed-output and timing telemetry contract
@@ -673,6 +675,28 @@ Durable mode-selection rule:
 - Keep `stage-blocks` mode for parity-sensitive same-blockization comparisons.
 - Use `canonical-text` mode for extractor-permutation sweeps against one freeform gold export.
 - Interactive all-method runs default to `canonical-text` to avoid invalid cross-extractor stage-block comparisons.
+
+### 17.11 2026-02-26_18.19.49 benchmark telemetry source layout
+
+Merged source:
+- `docs/understandings/2026-02-26_18.19.49-benchmark-telemetry-source-layout.md`
+
+Durable telemetry collection rule:
+- For benchmark performance analysis, use run-local artifacts as primary truth:
+  - `data/golden/benchmark-vs-golden/**/eval_report.json`
+  - `data/golden/benchmark-vs-golden/**/all_method_benchmark_report.json`
+  - `data/output/**/all-method-benchmark/**/.history/performance_history.csv`
+- Treat top-level `data/.history/performance_history.csv` as a convenience index, not a complete benchmark telemetry record.
+
+### 17.12 2026-02-26_18.32.41 all-method live fail counters vs timeout/retry recovery
+
+Merged source:
+- `docs/understandings/2026-02-26_18.32.41-all-method-failure-counters-timeout-retries.md`
+
+Durable runtime interpretation rule:
+- Live all-method queue `ok/fail` counters are per-attempt during active execution.
+- Timeout (`all_method_config_timeout_seconds`) and failed-only retry passes (`all_method_retry_failed_configs`) can recover configs later, and live counters are not retroactively corrected.
+- Final truth for source status belongs in `all_method_benchmark_report.json` fields such as `failed_variants`, `retry_failed_configs_requested`, `retry_passes_executed`, and `retry_recovered_configs`.
 
 ## 18) Merged Task Specs (2026-02-25 docs/tasks archival batch)
 

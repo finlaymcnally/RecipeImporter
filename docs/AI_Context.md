@@ -53,7 +53,7 @@ From `pyproject.toml`:
 - `bench` (subcommands: `validate`, `run`, `sweep`, `knobs`)
 - `tag-catalog` (subcommand: `export`)
 - `tag-recipes` (subcommands: `debug-signals`, `suggest`, `apply`)
-- `epub` (subcommands: `inspect`, `dump`, `unpack`, `blocks`, `candidates`, `validate`, `race`)
+- `epub` (subcommands: `inspect`, `dump`, `unpack`, `blocks`, `candidates`, `validate`)
 
 ## 3. Architecture (current)
 
@@ -265,3 +265,15 @@ cookimport/
 - staging contracts: `docs/05-staging/05-staging_readme.md`
 - Label Studio and benchmark semantics: `docs/06-label-studio/06-label-studio_README.md` and `docs/07-bench/07-bench_README.md`
 - analytics/dashboard contracts: `docs/08-analytics/08-analytics_readme.md`
+
+## 13. Durable Convention File Map
+
+Durable subsystem rules are code-adjacent and should be updated there first:
+- `cookimport/CONVENTIONS.md`
+- `cookimport/config/CONVENTIONS.md`
+- `cookimport/labelstudio/CONVENTIONS.md`
+- `cookimport/staging/CONVENTIONS.md`
+- `cookimport/plugins/CONVENTIONS.md`
+- `cookimport/bench/CONVENTIONS.md`
+- `cookimport/analytics/CONVENTIONS.md`
+- `tests/CONVENTIONS.md`

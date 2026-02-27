@@ -245,6 +245,16 @@ Current architecture is still deterministic-first:
 - Interactive menu navigation (`C3imp` / `cookimport` with no subcommands) treats `Esc` as one-level "back" in select prompts and prompt inputs.
 - Typer command functions that are also called from interactive helpers must use real Python defaults (for example `typing.Annotated[..., typer.Option(...)]`) so direct helper calls do not receive `OptionInfo` placeholders.
 - Output timestamp format is standardized in current code as `YYYY-MM-DD_HH.MM.SS` across stage outputs, Label Studio run folders, and benchmark eval folders.
+- Durable subsystem conventions live with their code:
+  - `cookimport/CONVENTIONS.md`
+  - `cookimport/config/CONVENTIONS.md`
+  - `cookimport/labelstudio/CONVENTIONS.md`
+  - `cookimport/staging/CONVENTIONS.md`
+  - `cookimport/plugins/CONVENTIONS.md`
+  - `cookimport/bench/CONVENTIONS.md`
+  - `cookimport/analytics/CONVENTIONS.md`
+  - `tests/CONVENTIONS.md`
+- When adding a new durable rule, document it in the nearest code-local `CONVENTIONS.md` first; only add pointers in docs when discoverability needs to change.
 - Discovery-note convention (from retired `docs/understandings`): keep notes focused to one discovery, use timestamped filenames, and merge durable outcomes into the owning stage README to avoid split sources of truth.
 - Task-spec convention (from retired `docs/tasks`): preserve task contract details (problem statement, acceptance criteria, verification command(s), evidence, constraints/gotchas, rollback notes) in the owning stage README rather than leaving them in a separate task folder.
 - Timestamped task-doc naming pattern to preserve chronology remains: `YYYY-MM-DD_HH.MM.SS - short-title.md`.

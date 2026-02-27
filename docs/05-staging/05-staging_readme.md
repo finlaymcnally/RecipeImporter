@@ -93,6 +93,10 @@ Code pointers (prefer these over line numbers, which drift often):
 - `cookimport/cli_worker.py` (`stage_one_file`) and `cookimport/cli.py` (`_merge_split_jobs`) assemble per-run output dirs and invoke staging writers.
 - `cookimport/staging/writer.py` (`write_intermediate_outputs`, `write_draft_outputs`, `write_section_outputs`, `write_tip_outputs`, `write_topic_candidate_outputs`, `write_chunk_outputs`, `write_table_outputs`, `write_raw_artifacts`, `write_report`) implements the file layout above.
 
+Stage-block `KNOWLEDGE` label contract:
+- `stage_block_predictions.json` prefers pass4 snippet evidence when available.
+- If pass4 knowledge harvesting is off (or snippets are absent), `KNOWLEDGE` labeling falls back to deterministic chunk-lane mapping so benchmark evidence stays complete.
+
 ## Intermediate JSON-LD Section Behavior
 
 - `cookimport/staging/jsonld.py` now removes detected instruction section headers from literal step text.
