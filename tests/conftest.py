@@ -56,6 +56,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_perf_report.py": ("analytics",),
     "test_performance_features.py": ("ingestion",),
     "test_phase1_manual.py": ("core",),
+    "test_prediction_records.py": ("bench",),
     "test_progress_messages.py": ("bench",),
     "test_recipe_sections.py": ("parsing",),
     "test_recipesage_importer.py": ("ingestion",),
@@ -104,6 +105,7 @@ _SMOKE_FILES = {
     "test_llm_pipeline_pack.py",
     "test_non_recipe_spans.py",
     "test_perf_report.py",
+    "test_prediction_records.py",
     "test_source_field.py",
 }
 

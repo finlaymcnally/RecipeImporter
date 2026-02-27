@@ -1,487 +1,186 @@
-# Split “predict” and “evaluate” into two pipelined stages
+---
+summary: "ExecPlan to split labelstudio-benchmark prediction/evaluation into explicit stages with reusable prediction-record artifacts."
+read_when:
+  - "When implementing benchmark speed plan speed-4"
+  - "When changing labelstudio-benchmark execution mode, evaluate-only flows, or prediction-record contracts"
+---
+
+# Split labelstudio-benchmark into explicit prediction/evaluation stages
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-This plan must be maintained in accordance with `PLANS.md` at the repository root. If the repository does not currently contain `PLANS.md`, add it (by copying the provided `PLANS.md` into the repo) before starting implementation so future contributors have the same rules of the road.
+PLANS guidance is checked into the repo at `docs/PLANS.md`, and this plan is maintained in accordance with that file.
 
 ## Purpose / Big Picture
 
-Today, the evaluation flow likely does “predict + evaluate” in one tightly coupled loop: for each example, call the model to produce an output, then immediately compute metrics (or vice versa). The goal of this change is to split these concerns into two explicit stages, connected by a pipeline:
+`cookimport labelstudio-benchmark` already had two conceptual phases (generate predictions, then evaluate), but there was no durable stage contract that let the evaluator run independently from a saved prediction stage artifact. This made replaying evaluation and experimenting with execution orchestration harder than necessary.
 
-- A **prediction stage** that turns input examples into model outputs (predictions) and emits a durable, replayable stream of `PredictionRecord`s.
-- An **evaluation stage** that consumes `PredictionRecord`s, joins them with ground-truth labels, and computes metrics/reports.
-
-After this change, a user can:
-1) Run an evaluation in “pipelined” mode and see the same final metrics as before (no accuracy regression), while prediction and evaluation overlap in time (lower wall-clock latency when both are non-trivial).
-2) Optionally reuse saved predictions to re-run evaluation without re-calling the model, proving that predict and evaluate are truly decoupled.
-
-You can see it working by running the same evaluation twice: once in legacy mode and once in pipelined mode, and confirming:
-- The printed/serialized metrics match exactly (or match within an explicitly documented tolerance, if the existing evaluation is non-deterministic).
-- A predictions artifact file (JSONL) is produced and can be used to run “evaluate-only” with identical results.
+After this change, benchmark runs can now emit/read a JSONL `PredictionRecord` artifact, run evaluate-only from that artifact, and select a stage-orchestrated execution mode (`legacy` or `pipelined`) without changing benchmark scoring behavior.
 
 ## Progress
 
-- [x] (2026-02-27 00:10Z) Drafted ExecPlan for splitting predict/evaluate into pipelined stages.
-- [ ] Capture baseline behavior (commands + outputs) for a small, deterministic evaluation run; record the exact invocation in this plan.
-- [ ] Identify current “predict” and “evaluate/metrics” entrypoints in the repo and update this plan with concrete paths and symbol names (completed: discovery; remaining: replace placeholders everywhere).
-- [ ] Introduce `PredictionRecord` schema + JSONL read/write utilities and add round-trip tests.
-- [ ] Refactor existing code so prediction logic can run independently as a “predict stage” without changing model inputs or parameters.
-- [ ] Refactor existing code so evaluation logic can run independently as an “evaluate stage” consuming `PredictionRecord`s without changing metric definitions.
-- [ ] Implement an in-process pipeline runner with bounded buffering (backpressure) and deterministic joining by `example_id` / `example_index`.
-- [ ] Wire pipelined runner into the existing evaluation CLI/entrypoint behind a feature flag (keep legacy path intact for comparison).
-- [ ] Add an equivalence test: legacy vs pipelined produce identical metrics on a small test dataset using a deterministic stub model.
-- [ ] Add an “evaluate-only from predictions” path and test it.
-- [ ] Update docs/help text (README or CLI `--help`) to show how to run predict-only, evaluate-only, and pipelined modes.
+- [x] (2026-02-27_00.10.00) Drafted initial speed-4 ExecPlan.
+- [x] (2026-02-27_02.10.00) Replaced placeholders with repo-specific surfaces (`cookimport/cli.py::labelstudio_benchmark`, `cookimport/labelstudio/ingest.py::generate_pred_run_artifacts`, `cookimport/bench/eval_stage_blocks.py`, `cookimport/bench/eval_canonical_text.py`).
+- [x] (2026-02-27_02.25.00) Added `cookimport/bench/prediction_records.py` with versioned schema validation + JSONL read/write utilities (`schema_version=1`).
+- [x] (2026-02-27_02.40.00) Added `labelstudio-benchmark` stage controls: `--execution-mode`, `--predictions-out`, `--predictions-in`.
+- [x] (2026-02-27_02.40.00) Added evaluate-only flow (`--predictions-in`) that skips prediction generation/upload and reuses saved prediction-stage paths.
+- [x] (2026-02-27_02.40.00) Added queue-backed staged orchestration path for `--execution-mode pipelined`.
+- [x] (2026-02-27_02.55.00) Added/updated tests:
+  - `tests/bench/test_prediction_records.py`
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+  - `tests/conftest.py` marker/smoke mapping.
+- [x] (2026-02-27_03.05.00) Ran focused validation:
+  - `pytest -q tests/bench/test_prediction_records.py tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+- [ ] Capture one real benchmark before/after timing sample for `legacy` vs `pipelined` on a representative source/gold pair and store evidence snippets.
 
 ## Surprises & Discoveries
 
-(Keep this section empty until you start implementation, then write down anything that surprised you and include evidence.)
+- Observation: Runtime already had a natural two-stage boundary at the command level: prediction artifacts are fully materialized before evaluation starts.
+  Evidence: `cookimport/cli.py::labelstudio_benchmark` (pre-change flow and current staged bundle helpers).
 
-- Observation: (none yet)
-  Evidence: (n/a)
+- Observation: The first stable contract for replay is run-level (single benchmark record), not per-example streaming.
+  Evidence: Evaluators consume run artifacts (`stage_block_predictions.json` + `extracted_archive.json`) instead of online per-example model outputs.
+
+- Observation: Run metadata can include `Path` objects in some branches; prediction-record serialization needed explicit JSON-safe normalization.
+  Evidence: failing test fixed in `_benchmark_prediction_record_from_bundle` with path-safe conversion.
 
 ## Decision Log
 
-- Decision: Use a durable `PredictionRecord` stream (JSON Lines / JSONL) as the boundary between stages.
-  Rationale: A line-delimited file is easy to generate incrementally, easy to inspect, can be reused for “evaluate-only,” and works as a stable contract even if we later split stages into separate processes or machines.
-  Date/Author: 2026-02-27 / plan author
+- Decision: Implement a durable run-level `PredictionRecord` contract in `cookimport/bench/prediction_records.py` with strict required keys.
+  Rationale: Gives evaluate-only replay now, while keeping surface minimal and deterministic.
+  Date/Author: 2026-02-27 / Codex
 
-- Decision: Preserve accuracy by reusing the existing prediction and metric computation code paths; only reorganize control flow.
-  Rationale: We want a structural performance/operability improvement without semantic drift. The safest refactor is extraction and orchestration, not rewriting scoring rules.
-  Date/Author: 2026-02-27 / plan author
+- Decision: Add `--predictions-in` and `--predictions-out` to `labelstudio-benchmark` rather than introducing a separate command.
+  Rationale: Keeps UX centralized in the existing benchmark command and preserves current defaults.
+  Date/Author: 2026-02-27 / Codex
 
-- Decision: Implement pipelining with a bounded queue (backpressure) using the project’s existing concurrency style (async vs threads), chosen during Milestone 0 discovery.
-  Rationale: Matching the repo’s current style minimizes invasive rewrites and reduces the chance of subtle behavioral changes.
-  Date/Author: 2026-02-27 / plan author
+- Decision: Keep default mode as `legacy`; add `--execution-mode pipelined` as opt-in.
+  Rationale: No behavior surprise for existing workflows while enabling staged orchestration path incrementally.
+  Date/Author: 2026-02-27 / Codex
+
+- Decision: Forbid using `--predictions-in` and `--predictions-out` together in one invocation.
+  Rationale: Keeps semantics explicit and avoids ambiguous read/write precedence in this initial rollout.
+  Date/Author: 2026-02-27 / Codex
 
 ## Outcomes & Retrospective
 
-(Write entries here at the end of each milestone and at completion. Compare results to the original purpose, and note what you would do differently next time.)
+Implemented outcomes:
+
+- `labelstudio-benchmark` now supports:
+  - `--execution-mode legacy|pipelined`
+  - `--predictions-out <jsonl>` (emit prediction-stage record)
+  - `--predictions-in <jsonl>` (evaluate-only from saved prediction-stage record)
+- New prediction-record schema and IO utilities are fully covered by targeted tests.
+- Existing benchmark helper suite remains green in focused regression coverage.
+
+Remaining gap:
+
+- Real workload timing evidence for `legacy` vs `pipelined` is still pending. Current implementation validates staging behavior and replayability, but this plan should still be updated with measured before/after runtime on a representative source.
 
 ## Context and Orientation
 
-You are a newcomer to this repository. Before you change anything, you must locate and name the current “predict” and “evaluate” logic precisely so the rest of this plan can refer to concrete files and functions.
+Primary code surfaces:
 
-Definitions used in this plan:
-
-A **dataset example** is one unit of evaluation input (for example: a prompt, a record with fields, or an input/label pair). Examples must have a stable identity so predictions can be joined back to the right labels.
-
-A **prediction** is the model’s output for a dataset example. This might be a string, a JSON object, a class label, or another structured output.
-
-A **metric** is a rule that scores predictions against ground truth (for example: exact match, F1, BLEU, accuracy, pass@k). Some metrics can be updated one example at a time (“streaming metrics”). Others require seeing all examples (“batch metrics”). This plan supports both by allowing the evaluation stage to keep internal state and finalize at the end.
-
-A **pipeline** is a producer/consumer design where stage 1 (predict) produces items into a buffer while stage 2 (evaluate) consumes them concurrently. A **bounded** buffer means it has a maximum size; if the consumer falls behind, the producer blocks instead of accumulating unbounded memory. This is “backpressure.”
-
-### Repo-specific placeholders you must resolve in Milestone 0
-
-Throughout this plan, you will see placeholders like `<EVAL_ENTRYPOINT_PATH>`. In Milestone 0, you will replace them with real paths and symbol names from the repo, and then update this plan accordingly (and commit the plan edit as its own commit). Do not proceed with later milestones until the placeholders are resolved.
-
-Placeholders to resolve:
-
-- `<EVAL_ENTRYPOINT_PATH>`: the primary script/module/command that runs evaluation end-to-end.
-- `<PREDICT_CALLSITE>`: where the model is called to produce an output for one example (function name + file).
-- `<METRICS_CALLSITE>`: where metrics are computed/aggregated (function name + file).
-- `<DATASET_ITERATOR>`: the code that yields examples (function/class name + file).
-- `<CURRENT_OUTPUT_FORMAT>`: how results are reported (stdout, JSON file, CSV, etc.), and which code writes it.
+- `cookimport/cli.py`
+  - `labelstudio_benchmark(...)` command entrypoint.
+  - New helpers:
+    - `_build_prediction_bundle_from_import_result(...)`
+    - `_build_prediction_bundle_from_record(...)`
+    - `_benchmark_prediction_record_from_bundle(...)`
+- `cookimport/labelstudio/ingest.py`
+  - `generate_pred_run_artifacts(...)` prediction-stage artifact generation.
+- `cookimport/bench/eval_stage_blocks.py`
+  - stage-block evaluator.
+- `cookimport/bench/eval_canonical_text.py`
+  - canonical-text evaluator.
+- `cookimport/bench/prediction_records.py`
+  - new `PredictionRecord` schema, validation, and JSONL IO.
 
 ## Plan of Work
 
-### Milestone 0: Discovery, baseline capture, and plan concretization
+Completed implementation sequence:
 
-At the end of this milestone, you will know exactly where prediction and evaluation happen today, you will have a “baseline run” you can repeat, and this ExecPlan will be updated to replace all placeholders with real file paths and function names.
-
-Work:
-
-First, identify the language/toolchain and how tests are run.
-
-Then locate the evaluation entrypoint and the predict/evaluate logic by searching for terms like “predict”, “evaluate”, “metrics”, “score”, “accuracy”, and the CLI argument parsing.
-
-Finally, run a small evaluation (or a dedicated unit/integration test) that is deterministic enough to compare legacy vs pipelined. Save the exact command and its resulting metrics output (or output file) into this plan as the baseline.
-
-Promotion criteria (how you prove Milestone 0 is done):
-
-- This plan contains real paths and symbol names instead of placeholders.
-- You can run one command that produces a stable “baseline metrics” output.
-
-### Milestone 1: Introduce `PredictionRecord` and durable prediction artifacts
-
-At the end of this milestone, the repo will contain a small, well-tested module that defines a stable prediction record schema and can write/read a stream of predictions as JSONL.
-
-Work:
-
-Define a minimal schema that is sufficient to join predictions back to examples and reproduce evaluation without re-running prediction. Keep it narrow; do not attempt to dump the entire world into it.
-
-The record must contain:
-
-- `schema_version`: integer, starting at 1.
-- `example_id`: string unique identifier. If the dataset already has an id, use it. Otherwise derive one deterministically from `(dataset_name, split, example_index)` or a stable hash of normalized input fields.
-- `example_index`: integer index in the dataset iteration order (for deterministic ordering and debugging).
-- `prediction`: the model output in a JSON-serializable form.
-- `predict_meta`: a small dict for run metadata needed to interpret predictions (for example: model name, temperature, decoding parameters, prompt template version). Keep it focused and stable.
-
-Add writer/reader helpers:
-
-- Writer streams line-by-line and flushes periodically; it should write to a temporary file and rename on success to avoid partial corrupt final files.
-- Reader yields records; it validates `schema_version` and required fields, and errors early with a clear message if malformed.
-
-Tests:
-
-- Round-trip test: write a few records, read them back, compare equality.
-- Schema validation test: missing required key produces a clear exception mentioning the key.
-
-Promotion criteria:
-
-- `PredictionRecord` and JSONL read/write utilities exist and are tested.
-- Tests pass.
-
-### Milestone 2: Extract a pure “predict stage” without changing prediction semantics
-
-At the end of this milestone, you will be able to run prediction as its own stage, producing a stream (iterator) of `PredictionRecord`s using the same model invocation logic as before.
-
-Work:
-
-Refactor the existing code so that “calling the model” and turning the result into the old prediction format happens inside a function that can be invoked independently from evaluation. The key constraint is that you must not change any of the inputs to the model (prompt construction, decoding params, preprocessing) compared to legacy mode.
-
-Define a stage boundary function, in the repo’s dominant style:
-
-- If the project is synchronous: `predict_stage(examples_iter, predictor, predict_meta, ...) -> Iterator[PredictionRecord]`
-- If the project is asyncio-based: `async predict_stage_async(examples_iter, predictor, predict_meta, ...) -> AsyncIterator[PredictionRecord]`
-
-Where `predictor` is either the existing model wrapper or a thin adapter around it.
-
-Ensure the stage:
-- Assigns `example_id` and `example_index` deterministically.
-- Produces exactly one `PredictionRecord` per input example (unless legacy behavior intentionally skips examples; if so, record the skip reason in a controlled way and mirror legacy behavior exactly).
-
-Promotion criteria:
-
-- A developer can run a “predict-only” mode that writes a JSONL predictions file.
-- A small test verifies that `predict_stage` produces the same per-example prediction outputs as the legacy path on a tiny deterministic dataset (use a stub predictor if needed to avoid slow external calls).
-
-### Milestone 3: Extract a pure “evaluate stage” consuming `PredictionRecord`s
-
-At the end of this milestone, you will be able to compute the same evaluation metrics as legacy mode by consuming prediction records rather than calling the model.
-
-Work:
-
-Refactor evaluation so metric computation is expressed as:
-- “Initialize evaluators/metric accumulators”
-- “For each example: take the prediction for that example and update accumulators”
-- “Finalize and render a report/output”
-
-The stage must accept predictions and associate them with the correct ground truth labels. Prefer joining by `example_id`; fall back to `example_index` only if ids are truly unavailable.
-
-Define an evaluation stage boundary function:
-
-- Synchronous: `evaluate_stage(examples_iter, predictions_iter, metrics, ...) -> EvaluationReport`
-- Async: `async evaluate_stage_async(examples_iter, predictions_async_iter, metrics, ...) -> EvaluationReport`
-
-Do not change metric definitions. If the current metrics code expects to receive raw model outputs directly, adapt the prediction record to that expected format at the boundary, not by rewriting metrics.
-
-Promotion criteria:
-
-- “Evaluate-only” can run given a dataset + a predictions JSONL file and produces a report that matches the legacy report when fed the same predictions.
-- Unit test coverage exists for at least one metric end-to-end through the stage.
-
-### Milestone 4: Implement a pipelined runner (predict + evaluate concurrently) with bounded buffering
-
-At the end of this milestone, there is an orchestrator that runs prediction and evaluation concurrently in a single command/process, overlapping their work safely.
-
-Work:
-
-Implement a runner that connects stages with a bounded queue.
-
-The runner must:
-
-- Start the prediction stage producer and evaluation stage consumer concurrently.
-- Use a bounded queue to buffer `PredictionRecord`s.
-- Propagate errors reliably: if prediction fails, evaluation must stop and the run must return a non-zero exit (or raise the repo’s standard exception type) with a clear error message.
-- Ensure the run ends cleanly: producer signals end-of-stream, consumer finalizes metrics and returns the report.
-
-Implementation approach, chosen in Milestone 0:
-
-- If the repo is asyncio-native: use `asyncio.Queue(maxsize=...)`, create tasks for producer and consumer, and use cancellation semantics carefully.
-- Otherwise: use `queue.Queue(maxsize=...)` and a producer thread; consumer runs in main thread (or vice versa). Use a sentinel value to signal end-of-stream.
-
-In both cases, keep ordering deterministic for outputs that list per-example results: store `(example_index, record)` pairs and sort when writing final per-example outputs, or ensure consumer emits in order if the producer is in-order.
-
-Optional but recommended: implement a “tee” so the pipeline can write predictions to disk while also feeding evaluation. This is the most direct way to prove stages are decoupled.
-
-Promotion criteria:
-
-- A pipelined mode exists that overlaps execution (evidenced by logs showing evaluation updates while prediction continues, or by measurable wall-clock improvement on a workload where evaluation is non-trivial).
-- Metrics match the non-pipelined legacy mode on the baseline run captured in Milestone 0.
-
-### Milestone 5: Wire into the existing CLI/entrypoint behind a feature flag and prove equivalence
-
-At the end of this milestone, the default user-facing command still works, and users can enable the new architecture with a flag. A regression test proves equivalence.
-
-Work:
-
-In `<EVAL_ENTRYPOINT_PATH>`, add a configuration knob (CLI flag, config file option, or environment variable consistent with the repo) such as:
-
-- `--execution-mode=legacy|pipelined`
-- Or `--pipelined` boolean (default false until proven stable)
-
-Add options for artifacts:
-
-- `--predictions-out <path>`: write predictions JSONL.
-- `--predictions-in <path>`: skip prediction and evaluate from this file (evaluate-only).
-- If both are provided, define behavior explicitly: prefer `--predictions-in` for evaluation input, and still optionally write a normalized copy to `--predictions-out` (or error out; pick one and document it).
-
-Add an equivalence test:
-
-- Run evaluation with a deterministic stub predictor (or a fixed local model) in both modes.
-- Assert that the final metrics dict/report is identical.
-- Also assert that evaluate-only using the produced predictions file matches.
-
-Promotion criteria:
-
-- Legacy mode remains available and unchanged.
-- Pipelined mode is available and passes the equivalence test.
-- Documentation/help text describes the new mode and artifact flags.
+1. Added a strict run-level prediction-record data contract and atomic JSONL writer/reader.
+2. Refactored benchmark prediction resolution into explicit bundle helpers so both generated and record-driven runs share the same evaluation wiring.
+3. Wired new CLI options for execution mode and prediction-record read/write.
+4. Added queue-backed staged orchestration branch for `pipelined` mode.
+5. Added tests for record roundtrip/validation and benchmark command behavior.
 
 ## Concrete Steps
 
-All commands below assume you are at the repository root.
+Run from repository root with the project venv active.
 
-### Step 0: Determine toolchain and how to run tests
+Predict + evaluate (legacy) and emit a record:
 
-Run:
+    cookimport labelstudio-benchmark \
+      --no-upload \
+      --eval-mode stage-blocks \
+      --execution-mode legacy \
+      --source-file data/input/<book>.epub \
+      --gold-spans data/golden/<run>/exports/freeform_span_labels.jsonl \
+      --predictions-out /tmp/benchmark_preds.jsonl
 
-    (repo root) $ ls
-    (repo root) $ find . -maxdepth 2 -type f -name "pyproject.toml" -o -name "requirements.txt" -o -name "package.json" -o -name "Cargo.toml" -o -name "go.mod"
+Evaluate-only from prior prediction record:
 
-Then choose the test command based on what you find:
+    cookimport labelstudio-benchmark \
+      --eval-mode stage-blocks \
+      --source-file data/input/<book>.epub \
+      --gold-spans data/golden/<run>/exports/freeform_span_labels.jsonl \
+      --predictions-in /tmp/benchmark_preds.jsonl
 
-- If you see `pyproject.toml` or `requirements.txt`, assume Python and run:
+Run staged queue path:
 
-      (repo root) $ python -m pytest -q
-
-- If you see `package.json`, assume Node and run:
-
-      (repo root) $ npm test
-
-- If you see `Cargo.toml`, assume Rust and run:
-
-      (repo root) $ cargo test
-
-- If you see `go.mod`, assume Go and run:
-
-      (repo root) $ go test ./...
-
-Record the correct test command in this ExecPlan (replace this section with the repo’s actual command once confirmed).
-
-### Step 1: Locate evaluation, prediction, and metrics code
-
-Use ripgrep to find likely entrypoints:
-
-    (repo root) $ rg -n "evaluate|evaluation|metrics|scor(e|ing)|accuracy" .
-    (repo root) $ rg -n "predict|inference|generate|completion" .
-    (repo root) $ rg -n "argparse|click|typer|fire|cobra|clap|main\(" .
-
-Open the most relevant files and identify:
-
-- `<EVAL_ENTRYPOINT_PATH>` (the main evaluation entrypoint)
-- `<PREDICT_CALLSITE>` (the code that actually calls the model)
-- `<METRICS_CALLSITE>` (the code that calculates or aggregates metrics)
-- `<DATASET_ITERATOR>` (the code that iterates examples)
-
-Update this ExecPlan by replacing placeholders everywhere, then commit just the plan edit:
-
-    (repo root) $ git add <THIS_PLAN_FILE>
-    (repo root) $ git commit -m "ExecPlan: concretize paths and symbols for predict/evaluate pipeline split"
-
-### Step 2: Capture baseline output for a small deterministic run
-
-Find or create a small dataset slice (or a tiny test dataset) that runs quickly.
-
-Run the legacy evaluation command (fill in the real command once discovered):
-
-    (repo root) $ <YOUR_EVAL_COMMAND> --execution-mode=legacy --limit 20 --seed 0
-
-Record:
-
-- The exact command line.
-- The metrics output (copy/paste the final metrics dict/JSON into `Artifacts and Notes`).
-- Any output file paths produced.
-
-If the system is inherently non-deterministic (for example due to remote model sampling), force determinism as much as possible by setting decoding params (temperature 0) and seeds if supported, and document what remains non-deterministic and what tolerance you will accept.
-
-### Step 3: Implement PredictionRecord + JSONL utilities
-
-Create a new module under the evaluation package (replace with concrete path after Milestone 0). For example (Python-style):
-
-- `<EVAL_PACKAGE_PATH>/pipeline/prediction_record.py`
-- `<EVAL_PACKAGE_PATH>/pipeline/jsonl.py`
-
-Add tests under the repo’s test layout (for example `tests/test_prediction_record_roundtrip.py`).
-
-Run tests after implementation.
-
-### Step 4: Extract predict stage and add predict-only mode
-
-Refactor existing prediction logic so it can run as an iterator/async iterator producing `PredictionRecord`s.
-
-Add a CLI or function entrypoint that produces `--predictions-out`.
-
-Run:
-
-    (repo root) $ <YOUR_EVAL_COMMAND> --predict-only --predictions-out /tmp/preds.jsonl --limit 20 --seed 0
-
-Verify `/tmp/preds.jsonl` exists and contains 20 lines (one per example), and that each line parses as JSON with required keys.
-
-### Step 5: Extract evaluate stage and add evaluate-only mode
-
-Add `--predictions-in /tmp/preds.jsonl` to skip prediction and compute metrics.
-
-Run:
-
-    (repo root) $ <YOUR_EVAL_COMMAND> --evaluate-only --predictions-in /tmp/preds.jsonl --limit 20 --seed 0
-
-Verify metrics match what you would get when running legacy prediction + evaluation over the same 20 examples.
-
-### Step 6: Implement pipelined runner and wire `--execution-mode=pipelined`
-
-Run pipelined mode:
-
-    (repo root) $ <YOUR_EVAL_COMMAND> --execution-mode=pipelined --predictions-out /tmp/preds.jsonl --limit 20 --seed 0
-
-Verify:
-
-- Metrics match legacy baseline (exactly or within documented tolerance).
-- Predictions file is produced.
-- Logs indicate both stages are active (for example, evaluation updates appear before prediction completes).
-
-### Step 7: Add equivalence tests
-
-Add a deterministic stub predictor and a tiny fixed dataset for tests if the real predictor is slow or non-deterministic.
-
-Create an integration test that runs:
-- legacy mode
-- pipelined mode
-- evaluate-only-from-predictions
-
-and asserts all metrics are equal.
-
-Run the full test suite.
+    cookimport labelstudio-benchmark \
+      --no-upload \
+      --eval-mode canonical-text \
+      --execution-mode pipelined \
+      --source-file data/input/<book>.epub \
+      --gold-spans data/golden/<run>/exports/freeform_span_labels.jsonl
 
 ## Validation and Acceptance
 
-This change is accepted when all of the following are true:
+Implemented acceptance checks:
 
-1) Running the baseline command in legacy mode produces the same metrics as before the refactor (no regression).
+- `PredictionRecord` JSONL roundtrip/validation tests pass.
+- `--predictions-in` evaluate-only mode skips prediction generation/upload and still evaluates using stored artifact paths.
+- `legacy` and `pipelined` modes produce equivalent report payloads (timing removed before equality assert in test).
+- Focused regression command passed:
 
-2) Running the same baseline in pipelined mode produces identical metrics to legacy mode, and produces a valid predictions artifact when `--predictions-out` is provided.
-
-3) Running evaluate-only from the produced predictions artifact produces metrics identical to the other two modes.
-
-4) There is at least one automated test that would fail if:
-- a prediction record cannot be read back correctly,
-- a prediction is mismatched to the wrong example,
-- or pipelined mode diverges in metrics from legacy mode.
-
-5) If the repo has CI, the test suite passes in CI with pipelined code enabled (even if the default user-facing mode remains legacy for now).
+    pytest -q tests/bench/test_prediction_records.py tests/labelstudio/test_labelstudio_benchmark_helpers.py
 
 ## Idempotence and Recovery
 
-All steps in this plan should be safe to repeat.
-
-Prediction artifact writing must be designed so that a partial run does not corrupt a “final” file path. Implement this by writing to a temporary path (for example `<path>.tmp`) and renaming to `<path>` only after the producer completes successfully.
-
-If the pipelined run crashes, a developer should be able to:
-- delete the temporary predictions file and retry, or
-- keep the successful predictions file (if it exists) and re-run evaluate-only to debug evaluation without re-predicting.
-
-If you implement a “resume” behavior (optional), document it explicitly and ensure it is conservative: never silently mix predictions from different model settings. Prefer to error with a clear message if metadata differs.
+- `--predictions-out` uses atomic temp-file replacement; reruns overwrite cleanly.
+- `--predictions-in` is replay-safe as long as referenced artifact paths still exist.
+- If a prediction-record path is invalid/missing, command fails fast with a clear error and can be retried after regenerating records.
 
 ## Artifacts and Notes
 
-Replace this section’s placeholders with real baseline outputs once Milestone 0 is complete.
+Key artifacts now written by benchmark runs (when enabled):
 
-Example `PredictionRecord` JSONL line (schema_version 1):
-
-    {"schema_version":1,"example_id":"dataset/train/000000","example_index":0,"prediction":{"text":"..."},"predict_meta":{"model":"<model_name>","temperature":0,"prompt_version":"v1"}}
-
-Baseline legacy metrics (paste the real output here):
-
-    legacy_metrics = {"accuracy": 0.85, "exact_match": 0.80}
-
-Expected pipelined metrics (must match legacy):
-
-    pipelined_metrics = {"accuracy": 0.85, "exact_match": 0.80}
+- prediction record output:
+  - `prediction_record_output_jsonl` in `run_manifest.json` artifacts.
+- prediction record input (evaluate-only):
+  - `prediction_record_input_jsonl` in `run_manifest.json` artifacts.
 
 ## Interfaces and Dependencies
 
-This section defines the concrete interfaces that must exist at the end of the plan. Replace module paths with the repo’s actual package layout after Milestone 0.
+New module:
 
-### Data contract: PredictionRecord
+- `cookimport/bench/prediction_records.py`
+  - `PredictionRecord`
+  - `make_prediction_record(...)`
+  - `write_prediction_records(path, records)`
+  - `read_prediction_records(path)`
+  - `read_single_prediction_record(path)`
 
-In `<EVAL_PACKAGE_PATH>/pipeline/prediction_record.<ext>`, define a type named `PredictionRecord` with fields:
+Updated benchmark CLI interface:
 
-- `schema_version: int` (constant 1 for now)
-- `example_id: str`
-- `example_index: int`
-- `prediction: <JSON-serializable type>`
-- `predict_meta: <map/dict type>`
+- `cookimport labelstudio-benchmark`
+  - `--execution-mode legacy|pipelined`
+  - `--predictions-out <path>`
+  - `--predictions-in <path>`
 
-Define a validation function/method that:
-- checks required fields exist,
-- checks `schema_version` is supported,
-- and raises/returns a clear error on failure.
+Plan change note:
 
-### Artifact IO: JSONL reader/writer
-
-In `<EVAL_PACKAGE_PATH>/pipeline/predictions_io.<ext>`, define:
-
-- `write_prediction_records(path, records_iter) -> None` (or async equivalent)
-- `read_prediction_records(path) -> Iterator[PredictionRecord]` (or async equivalent)
-
-Writer requirements:
-- writes one JSON object per line,
-- flushes periodically for long runs,
-- writes to temp then renames on success.
-
-Reader requirements:
-- yields records in file order,
-- validates each record,
-- surfaces parse errors with line number context.
-
-### Stage APIs
-
-In `<EVAL_PACKAGE_PATH>/pipeline/stages.<ext>`, define:
-
-- `predict_stage(examples_iter, predictor, predict_meta, ...) -> Iterator[PredictionRecord]`
-- `evaluate_stage(examples_iter, predictions_iter, metrics, ...) -> EvaluationReport`
-
-Where `EvaluationReport` is whatever the existing system uses to represent final results (a dict, a dataclass, a JSON structure, etc.). Do not invent a new report format unless the repo currently lacks one; if you must, define it minimally and adapt legacy rendering to it.
-
-### Runner API
-
-In `<EVAL_PACKAGE_PATH>/pipeline/runner.<ext>`, define a runner:
-
-- `run_legacy(...) -> EvaluationReport` (thin wrapper around existing behavior)
-- `run_pipelined(..., buffer_size: int, predictions_out: Optional[path], predictions_in: Optional[path]) -> EvaluationReport`
-
-The pipelined runner must:
-- support producing predictions while evaluating,
-- support evaluate-only from `predictions_in`,
-- and guarantee that the mapping between example and prediction is correct.
-
-### Dependencies
-
-Use only the repo’s existing standard library and dependencies unless there is a strong reason to add a new one.
-
-For Python, prefer:
-- `dataclasses` (or `pydantic` if already used in the repo),
-- `json`,
-- `queue` and `threading` (sync) or `asyncio` (async),
-- `pathlib` for paths.
-
-Do not add a new serialization or pipeline framework for this change; keep the boundary simple and inspectable.
-
----
-
-Plan change notes (append-only):
-
-- 2026-02-27: Initial plan created. Assumes repo-specific discovery is needed before naming concrete paths; Milestone 0 requires replacing placeholders everywhere before proceeding.
+- 2026-02-27_03.10.00: Rebuilt speed-4 as a code-verified, front-matter-compliant ExecPlan reflecting implemented staged benchmark execution and prediction-record replay support.

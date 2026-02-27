@@ -75,6 +75,12 @@ from cookimport.bench.eval_stage_blocks import (
     evaluate_stage_blocks,
     format_stage_block_eval_report_md,
 )
+from cookimport.bench.prediction_records import (
+    PredictionRecord,
+    make_prediction_record,
+    read_single_prediction_record,
+    write_prediction_records,
+)
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.export import run_labelstudio_export
 from cookimport.labelstudio.ingest import (
@@ -195,6 +201,8 @@ ALL_METHOD_SMART_SCHEDULER_SETTING_KEY = "all_method_smart_scheduler"
 ALL_METHOD_SCHEDULER_POLL_SECONDS = 0.15
 BENCHMARK_EVAL_MODE_STAGE_BLOCKS = "stage-blocks"
 BENCHMARK_EVAL_MODE_CANONICAL_TEXT = "canonical-text"
+BENCHMARK_EXECUTION_MODE_LEGACY = "legacy"
+BENCHMARK_EXECUTION_MODE_PIPELINED = "pipelined"
 BENCHMARK_EVAL_PROFILE_MIN_SECONDS_ENV = "COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS"
 BENCHMARK_EVAL_PROFILE_TOP_N_ENV = "COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N"
 _MENU_SHORTCUT_KEYS = (
@@ -2611,6 +2619,19 @@ def _normalize_benchmark_eval_mode(value: str) -> str:
     return BENCHMARK_EVAL_MODE_STAGE_BLOCKS
 
 
+def _normalize_benchmark_execution_mode(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    if normalized in {"legacy", "sequential", "default"}:
+        return BENCHMARK_EXECUTION_MODE_LEGACY
+    if normalized in {"pipelined", "pipeline"}:
+        return BENCHMARK_EXECUTION_MODE_PIPELINED
+    _fail(
+        f"Invalid benchmark execution mode: {value!r}. "
+        "Expected one of: legacy, pipelined."
+    )
+    return BENCHMARK_EXECUTION_MODE_LEGACY
+
+
 def _parse_csv_labels(value: str) -> set[str]:
     labels = {item.strip().upper() for item in value.split(",") if item.strip()}
     if not labels:
@@ -3442,6 +3463,16 @@ class PredRunContext:
 
 
 @dataclass(frozen=True)
+class BenchmarkPredictionBundle:
+    import_result: dict[str, Any]
+    pred_run: Path
+    pred_context: PredRunContext
+    stage_predictions_path: Path
+    extracted_archive_path: Path
+    prediction_phase_seconds: float
+
+
+@dataclass(frozen=True)
 class AllMethodTarget:
     gold_spans_path: Path
     source_file: Path
@@ -3901,6 +3932,193 @@ def _load_pred_run_recipe_context(
         run_config=run_config,
         run_config_hash=run_config_hash,
         run_config_summary=run_config_summary,
+    )
+
+
+def _resolve_stage_predictions_for_benchmark(
+    *,
+    import_result: dict[str, Any],
+    pred_context: PredRunContext,
+    pred_run: Path,
+) -> Path:
+    stage_predictions_candidates: list[Path] = []
+    for value in (
+        import_result.get("stage_block_predictions_path"),
+        import_result.get("processed_stage_block_predictions_path"),
+        pred_context.stage_block_predictions_path,
+        pred_run / "stage_block_predictions.json",
+    ):
+        if not value:
+            continue
+        stage_predictions_candidates.append(Path(str(value)))
+
+    for candidate in stage_predictions_candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+
+    _fail(
+        "This prediction run is missing stage block predictions. "
+        "Re-run benchmark after updating."
+    )
+    return pred_run / "stage_block_predictions.json"
+
+
+def _build_prediction_bundle_from_import_result(
+    *,
+    import_result: dict[str, Any],
+    eval_output_dir: Path,
+    prediction_phase_seconds: float,
+) -> BenchmarkPredictionBundle:
+    pred_run = _co_locate_prediction_run_for_benchmark(
+        Path(import_result["run_root"]),
+        eval_output_dir,
+    )
+    pred_context = _load_pred_run_recipe_context(pred_run)
+    stage_predictions_path = _resolve_stage_predictions_for_benchmark(
+        import_result=import_result,
+        pred_context=pred_context,
+        pred_run=pred_run,
+    )
+
+    extracted_archive_path = pred_run / "extracted_archive.json"
+    if not extracted_archive_path.exists() or not extracted_archive_path.is_file():
+        _fail(f"Prediction run is missing extracted_archive.json: {pred_run}")
+
+    return BenchmarkPredictionBundle(
+        import_result=import_result,
+        pred_run=pred_run,
+        pred_context=pred_context,
+        stage_predictions_path=stage_predictions_path,
+        extracted_archive_path=extracted_archive_path,
+        prediction_phase_seconds=max(0.0, prediction_phase_seconds),
+    )
+
+
+def _benchmark_prediction_record_from_bundle(
+    *,
+    bundle: BenchmarkPredictionBundle,
+    selected_source: Path,
+) -> PredictionRecord:
+    def _json_safe(value: Any) -> Any:
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, dict):
+            return {str(key): _json_safe(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [_json_safe(item) for item in value]
+        return value
+
+    source_identifier = bundle.pred_context.source_hash or str(selected_source)
+    timing_payload = bundle.import_result.get("timing")
+    if not isinstance(timing_payload, dict):
+        timing_payload = {}
+
+    prediction_payload: dict[str, Any] = {
+        "pred_run_dir": str(bundle.pred_run),
+        "stage_block_predictions_path": str(bundle.stage_predictions_path),
+        "extracted_archive_path": str(bundle.extracted_archive_path),
+    }
+    predict_meta: dict[str, Any] = {
+        "source_file": str(selected_source),
+        "source_hash": bundle.pred_context.source_hash,
+        "processed_run_root": _json_safe(bundle.import_result.get("processed_run_root")),
+        "processed_report_path": _json_safe(
+            bundle.import_result.get("processed_report_path")
+        ),
+        "run_config": _json_safe(bundle.pred_context.run_config),
+        "run_config_hash": bundle.pred_context.run_config_hash,
+        "run_config_summary": bundle.pred_context.run_config_summary,
+        "recipes": bundle.pred_context.recipes,
+        "timing": _json_safe(timing_payload),
+    }
+    # Keep JSON payload compact and stable by dropping null-valued metadata keys.
+    predict_meta = {
+        key: value for key, value in predict_meta.items() if value is not None
+    }
+    return make_prediction_record(
+        example_id=f"labelstudio-benchmark:{source_identifier}",
+        example_index=0,
+        prediction=prediction_payload,
+        predict_meta=predict_meta,
+    )
+
+
+def _prediction_record_path_value(
+    *,
+    record: PredictionRecord,
+    field_name: str,
+) -> Path:
+    raw_value = record.prediction.get(field_name)
+    path_value = Path(str(raw_value or ""))
+    if not str(raw_value or "").strip():
+        _fail(f"Prediction record is missing required path field: {field_name}")
+    if not path_value.exists() or not path_value.is_file():
+        _fail(
+            f"Prediction record path for {field_name} does not exist: {path_value}"
+        )
+    return path_value
+
+
+def _build_prediction_bundle_from_record(
+    *,
+    predictions_in: Path,
+    prediction_record: PredictionRecord | None = None,
+) -> BenchmarkPredictionBundle:
+    record = prediction_record or read_single_prediction_record(predictions_in)
+    stage_predictions_path = _prediction_record_path_value(
+        record=record,
+        field_name="stage_block_predictions_path",
+    )
+    extracted_archive_path = _prediction_record_path_value(
+        record=record,
+        field_name="extracted_archive_path",
+    )
+
+    pred_run_value = str(record.prediction.get("pred_run_dir") or "").strip()
+    pred_run = Path(pred_run_value) if pred_run_value else extracted_archive_path.parent
+    if not pred_run.exists() or not pred_run.is_dir():
+        pred_run = extracted_archive_path.parent
+
+    predict_meta = record.predict_meta
+    run_config_payload = predict_meta.get("run_config")
+    run_config = run_config_payload if isinstance(run_config_payload, dict) else None
+    timing_payload = predict_meta.get("timing")
+    import_result: dict[str, Any] = {
+        "run_root": str(pred_run),
+        "stage_block_predictions_path": str(stage_predictions_path),
+        "processed_report_path": str(predict_meta.get("processed_report_path") or ""),
+        "processed_run_root": str(predict_meta.get("processed_run_root") or ""),
+        "timing": timing_payload if isinstance(timing_payload, dict) else {},
+    }
+    prediction_phase_seconds = _report_optional_metric(
+        import_result["timing"].get("prediction_seconds")
+    )
+    if prediction_phase_seconds is None:
+        prediction_phase_seconds = _report_optional_metric(
+            import_result["timing"].get("total_seconds")
+        )
+    if prediction_phase_seconds is None:
+        prediction_phase_seconds = 0.0
+
+    pred_context = PredRunContext(
+        recipes=_coerce_int(predict_meta.get("recipes")),
+        processed_report_path=str(predict_meta.get("processed_report_path") or ""),
+        stage_block_predictions_path=str(stage_predictions_path),
+        source_file=str(predict_meta.get("source_file") or ""),
+        source_hash=str(predict_meta.get("source_hash") or "").strip() or None,
+        run_config=run_config,
+        run_config_hash=str(predict_meta.get("run_config_hash") or "").strip() or None,
+        run_config_summary=str(predict_meta.get("run_config_summary") or "").strip()
+        or None,
+    )
+
+    return BenchmarkPredictionBundle(
+        import_result=import_result,
+        pred_run=pred_run,
+        pred_context=pred_context,
+        stage_predictions_path=stage_predictions_path,
+        extracted_archive_path=extracted_archive_path,
+        prediction_phase_seconds=max(0.0, prediction_phase_seconds),
     )
 
 
@@ -9736,6 +9954,27 @@ def labelstudio_benchmark(
             "or canonical-text (extractor-independent alignment scoring)."
         ),
     )] = BENCHMARK_EVAL_MODE_STAGE_BLOCKS,
+    execution_mode: Annotated[str, typer.Option(
+        "--execution-mode",
+        help=(
+            "Benchmark execution mode: legacy (sequential predict->evaluate) "
+            "or pipelined (stage-queue orchestration)."
+        ),
+    )] = BENCHMARK_EXECUTION_MODE_LEGACY,
+    predictions_out: Annotated[Path | None, typer.Option(
+        "--predictions-out",
+        help=(
+            "Optional JSONL artifact path for prediction-stage records. "
+            "Useful for rerunning evaluate-only with --predictions-in."
+        ),
+    )] = None,
+    predictions_in: Annotated[Path | None, typer.Option(
+        "--predictions-in",
+        help=(
+            "Optional JSONL prediction-stage record path. "
+            "When set, skips prediction generation and runs evaluate-only."
+        ),
+    )] = None,
     pipeline: Annotated[str, typer.Option("--pipeline", help="Importer pipeline name or auto.")] = "auto",
     project_name: Annotated[str | None, typer.Option(
         "--project-name",
@@ -9886,15 +10125,42 @@ def labelstudio_benchmark(
         option="--codex-farm-pipeline-pass3",
     )
     selected_eval_mode = _normalize_benchmark_eval_mode(eval_mode)
+    selected_execution_mode = _normalize_benchmark_execution_mode(execution_mode)
+
+    predictions_in_path = predictions_in.expanduser() if predictions_in is not None else None
+    predictions_out_path = (
+        predictions_out.expanduser() if predictions_out is not None else None
+    )
+    if predictions_in_path is not None and predictions_out_path is not None:
+        _fail("Cannot combine --predictions-in and --predictions-out in one run.")
+
+    prediction_record_input: PredictionRecord | None = None
+    prediction_record_source: Path | None = None
+    if predictions_in_path is not None:
+        try:
+            prediction_record_input = read_single_prediction_record(predictions_in_path)
+        except Exception as exc:  # noqa: BLE001
+            _fail(f"Unable to load prediction record from {predictions_in_path}: {exc}")
+        source_hint = str(
+            prediction_record_input.predict_meta.get("source_file") or ""
+        ).strip()
+        if source_hint:
+            source_candidate = Path(source_hint)
+            if source_candidate.exists() and source_candidate.is_file():
+                prediction_record_source = source_candidate
+
+    should_generate_predictions = predictions_in_path is None
+    should_upload_predictions = should_generate_predictions and not no_upload
+
     url: str | None = None
     api_key: str | None = None
-    if not no_upload:
+    if should_upload_predictions:
         _require_labelstudio_write_consent(allow_labelstudio_write)
         url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
 
     resolved_inputs = _resolve_benchmark_gold_and_source(
         gold_spans=gold_spans,
-        source_file=source_file,
+        source_file=source_file or prediction_record_source,
         output_dir=output_dir,
         allow_cancel=False,
     )
@@ -9912,26 +10178,76 @@ def labelstudio_benchmark(
             _warm_all_models(ocr_device=selected_ocr_device)
 
     benchmark_started = time.monotonic()
+    import_result: dict[str, Any]
+    pred_run: Path
+    pred_context: PredRunContext
+    stage_predictions_path: Path
+    extracted_archive_path: Path
     prediction_phase_seconds = 0.0
+
     try:
-        with _temporary_epub_extractor(selected_epub_extractor):
-            with _temporary_epub_unstructured_options(
-                html_parser_version=selected_html_parser_version,
-                skip_headers_footers=selected_skip_headers_footers,
-                preprocess_mode=selected_preprocess_mode,
-            ):
-                def _run_prediction_generation(
-                    callback: Callable[[str], None] | None,
-                ) -> dict[str, Any]:
-                    if no_upload:
-                        return generate_pred_run_artifacts(
+        if should_generate_predictions:
+            with _temporary_epub_extractor(selected_epub_extractor):
+                with _temporary_epub_unstructured_options(
+                    html_parser_version=selected_html_parser_version,
+                    skip_headers_footers=selected_skip_headers_footers,
+                    preprocess_mode=selected_preprocess_mode,
+                ):
+                    def _run_prediction_generation(
+                        callback: Callable[[str], None] | None,
+                    ) -> dict[str, Any]:
+                        if no_upload:
+                            return generate_pred_run_artifacts(
+                                path=selected_source,
+                                output_dir=output_dir,
+                                pipeline=pipeline,
+                                segment_blocks=40,
+                                segment_overlap=5,
+                                limit=None,
+                                sample=None,
+                                workers=workers,
+                                pdf_split_workers=pdf_split_workers,
+                                epub_split_workers=epub_split_workers,
+                                pdf_pages_per_job=pdf_pages_per_job,
+                                epub_spine_items_per_job=epub_spine_items_per_job,
+                                epub_extractor=selected_epub_extractor,
+                                epub_unstructured_html_parser_version=selected_html_parser_version,
+                                epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
+                                epub_unstructured_preprocess_mode=selected_preprocess_mode,
+                                ocr_device=selected_ocr_device,
+                                ocr_batch_size=ocr_batch_size,
+                                warm_models=warm_models,
+                                llm_recipe_pipeline=selected_llm_recipe_pipeline,
+                                codex_farm_cmd=codex_farm_cmd,
+                                codex_farm_root=codex_farm_root,
+                                codex_farm_workspace_root=codex_farm_workspace_root,
+                                codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
+                                codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
+                                codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
+                                codex_farm_context_blocks=codex_farm_context_blocks,
+                                codex_farm_failure_mode=selected_codex_farm_failure_mode,
+                                processed_output_root=processed_output_dir,
+                                split_phase_slots=split_phase_slots,
+                                split_phase_gate_dir=split_phase_gate_dir,
+                                split_phase_status_label=split_phase_status_label,
+                                scheduler_event_callback=scheduler_event_callback,
+                                progress_callback=callback,
+                                run_manifest_kind="bench_pred_run",
+                            )
+                        return run_labelstudio_import(
                             path=selected_source,
                             output_dir=output_dir,
                             pipeline=pipeline,
+                            project_name=project_name,
                             segment_blocks=40,
                             segment_overlap=5,
+                            overwrite=overwrite,
+                            resume=not overwrite,
+                            label_studio_url=url or "",
+                            label_studio_api_key=api_key or "",
                             limit=None,
                             sample=None,
+                            progress_callback=callback,
                             workers=workers,
                             pdf_split_workers=pdf_split_workers,
                             epub_split_workers=epub_split_workers,
@@ -9958,127 +10274,84 @@ def labelstudio_benchmark(
                             split_phase_gate_dir=split_phase_gate_dir,
                             split_phase_status_label=split_phase_status_label,
                             scheduler_event_callback=scheduler_event_callback,
-                            progress_callback=callback,
-                            run_manifest_kind="bench_pred_run",
+                            auto_project_name_on_scope_mismatch=True,
+                            allow_labelstudio_write=True,
                         )
-                    return run_labelstudio_import(
-                        path=selected_source,
-                        output_dir=output_dir,
-                        pipeline=pipeline,
-                        project_name=project_name,
-                        segment_blocks=40,
-                        segment_overlap=5,
-                        overwrite=overwrite,
-                        resume=not overwrite,
-                        label_studio_url=url or "",
-                        label_studio_api_key=api_key or "",
-                        limit=None,
-                        sample=None,
-                        progress_callback=callback,
-                        workers=workers,
-                        pdf_split_workers=pdf_split_workers,
-                        epub_split_workers=epub_split_workers,
-                        pdf_pages_per_job=pdf_pages_per_job,
-                        epub_spine_items_per_job=epub_spine_items_per_job,
-                        epub_extractor=selected_epub_extractor,
-                        epub_unstructured_html_parser_version=selected_html_parser_version,
-                        epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
-                        epub_unstructured_preprocess_mode=selected_preprocess_mode,
-                        ocr_device=selected_ocr_device,
-                        ocr_batch_size=ocr_batch_size,
-                        warm_models=warm_models,
-                        llm_recipe_pipeline=selected_llm_recipe_pipeline,
-                        codex_farm_cmd=codex_farm_cmd,
-                        codex_farm_root=codex_farm_root,
-                        codex_farm_workspace_root=codex_farm_workspace_root,
-                        codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
-                        codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
-                        codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
-                        codex_farm_context_blocks=codex_farm_context_blocks,
-                        codex_farm_failure_mode=selected_codex_farm_failure_mode,
-                        processed_output_root=processed_output_dir,
-                        split_phase_slots=split_phase_slots,
-                        split_phase_gate_dir=split_phase_gate_dir,
-                        split_phase_status_label=split_phase_status_label,
-                        scheduler_event_callback=scheduler_event_callback,
-                        auto_project_name_on_scope_mismatch=True,
-                        allow_labelstudio_write=True,
-                    )
 
-                if suppress_spinner:
-                    _emit_external_progress(
-                        f"Generating prediction tasks for {selected_source.name}..."
-                    )
-                    callback = (
-                        _emit_external_progress
-                        if external_progress_callback is not None
-                        else None
-                    )
-                    prediction_phase_started = time.monotonic()
-                    import_result = _run_prediction_generation(callback)
-                    prediction_phase_seconds = max(
-                        0.0, time.monotonic() - prediction_phase_started
-                    )
-                else:
-                    def _run_with_status(
-                        update_progress: Callable[[str], None],
-                    ) -> dict[str, Any]:
-                        if external_progress_callback is None:
-                            return _run_prediction_generation(update_progress)
+                    def _run_prediction_stage_bundle() -> BenchmarkPredictionBundle:
+                        prediction_phase_started = time.monotonic()
+                        if suppress_spinner:
+                            _emit_external_progress(
+                                f"Generating prediction tasks for {selected_source.name}..."
+                            )
+                            callback = (
+                                _emit_external_progress
+                                if external_progress_callback is not None
+                                else None
+                            )
+                            stage_import_result = _run_prediction_generation(callback)
+                        else:
+                            def _run_with_status(
+                                update_progress: Callable[[str], None],
+                            ) -> dict[str, Any]:
+                                if external_progress_callback is None:
+                                    return _run_prediction_generation(update_progress)
 
-                        def _combined_progress(message: str) -> None:
-                            update_progress(message)
-                            _emit_external_progress(message)
+                                def _combined_progress(message: str) -> None:
+                                    update_progress(message)
+                                    _emit_external_progress(message)
 
-                        return _run_prediction_generation(_combined_progress)
+                                return _run_prediction_generation(_combined_progress)
 
-                    prediction_phase_started = time.monotonic()
-                    import_result = _run_with_progress_status(
-                        initial_status=(
-                            f"Generating prediction tasks for {selected_source.name}..."
-                        ),
-                        progress_prefix=f"Benchmark import ({selected_source.name})",
-                        run=_run_with_status,
-                    )
-                    prediction_phase_seconds = max(
-                        0.0, time.monotonic() - prediction_phase_started
-                    )
+                            stage_import_result = _run_with_progress_status(
+                                initial_status=(
+                                    f"Generating prediction tasks for {selected_source.name}..."
+                                ),
+                                progress_prefix=f"Benchmark import ({selected_source.name})",
+                                run=_run_with_status,
+                            )
+                        stage_prediction_seconds = max(
+                            0.0, time.monotonic() - prediction_phase_started
+                        )
+                        return _build_prediction_bundle_from_import_result(
+                            import_result=stage_import_result,
+                            eval_output_dir=eval_output_dir,
+                            prediction_phase_seconds=stage_prediction_seconds,
+                        )
+
+                    if selected_execution_mode == BENCHMARK_EXECUTION_MODE_PIPELINED:
+                        stage_queue: queue.Queue[BenchmarkPredictionBundle] = queue.Queue(
+                            maxsize=1
+                        )
+                        stage_queue.put(_run_prediction_stage_bundle())
+                        prediction_bundle = stage_queue.get()
+                    else:
+                        prediction_bundle = _run_prediction_stage_bundle()
+        else:
+            if predictions_in_path is None:
+                _fail("Prediction record input is required.")
+            prediction_bundle = _build_prediction_bundle_from_record(
+                predictions_in=predictions_in_path,
+                prediction_record=prediction_record_input,
+            )
+
+        import_result = prediction_bundle.import_result
+        pred_run = prediction_bundle.pred_run
+        pred_context = prediction_bundle.pred_context
+        stage_predictions_path = prediction_bundle.stage_predictions_path
+        extracted_archive_path = prediction_bundle.extracted_archive_path
+        prediction_phase_seconds = prediction_bundle.prediction_phase_seconds
+
+        if predictions_out_path is not None:
+            record = _benchmark_prediction_record_from_bundle(
+                bundle=prediction_bundle,
+                selected_source=selected_source,
+            )
+            write_prediction_records(predictions_out_path, [record])
     except Exception as exc:  # noqa: BLE001
         if suppress_summary:
             raise
         _fail(str(exc))
-
-    pred_run = _co_locate_prediction_run_for_benchmark(
-        Path(import_result["run_root"]),
-        eval_output_dir,
-    )
-    pred_context = _load_pred_run_recipe_context(pred_run)
-
-    stage_predictions_candidates: list[Path] = []
-    for value in (
-        import_result.get("stage_block_predictions_path"),
-        import_result.get("processed_stage_block_predictions_path"),
-        pred_context.stage_block_predictions_path,
-        pred_run / "stage_block_predictions.json",
-    ):
-        if not value:
-            continue
-        stage_predictions_candidates.append(Path(str(value)))
-
-    stage_predictions_path: Path | None = None
-    for candidate in stage_predictions_candidates:
-        if candidate.exists() and candidate.is_file():
-            stage_predictions_path = candidate
-            break
-    if stage_predictions_path is None:
-        _fail(
-            "This prediction run is missing stage block predictions. "
-            "Re-run benchmark after updating."
-        )
-
-    extracted_archive_path = pred_run / "extracted_archive.json"
-    if not extracted_archive_path.exists():
-        _fail(f"Prediction run is missing extracted_archive.json: {pred_run}")
 
     prediction_load_seconds: float | None = None
     gold_load_seconds: float | None = None
@@ -10349,9 +10622,16 @@ def labelstudio_benchmark(
 
     benchmark_run_config: dict[str, Any] = {
         "eval_mode": selected_eval_mode,
+        "execution_mode": selected_execution_mode,
+        "prediction_record_input": (
+            str(predictions_in_path) if predictions_in_path is not None else None
+        ),
+        "prediction_record_output": (
+            str(predictions_out_path) if predictions_out_path is not None else None
+        ),
         "overlap_threshold": overlap_threshold,
         "force_source_match": force_source_match,
-        "upload": not no_upload,
+        "upload": should_upload_predictions,
         "epub_extractor": selected_epub_extractor,
         "epub_unstructured_html_parser_version": selected_html_parser_version,
         "epub_unstructured_skip_headers_footers": selected_skip_headers_footers,
@@ -10402,6 +10682,16 @@ def labelstudio_benchmark(
         "history_csv": str(history_csv_for_output(processed_output_dir)),
         "timing": benchmark_timing,
     }
+    if predictions_in_path is not None:
+        benchmark_artifacts["prediction_record_input_jsonl"] = _path_for_manifest(
+            eval_output_dir,
+            predictions_in_path,
+        )
+    if predictions_out_path is not None:
+        benchmark_artifacts["prediction_record_output_jsonl"] = _path_for_manifest(
+            eval_output_dir,
+            predictions_out_path,
+        )
     if eval_profile_pstats_path is not None and eval_profile_pstats_path.exists():
         benchmark_artifacts["eval_profile_pstats"] = _path_for_manifest(
             eval_output_dir,
@@ -10451,7 +10741,15 @@ def labelstudio_benchmark(
         notes=(
             "Benchmark evaluation against freeform gold using "
             f"{selected_eval_mode} scoring. "
-            + ("Upload disabled." if no_upload else "Prediction tasks uploaded to Label Studio.")
+            + (
+                "Evaluate-only mode from prediction record."
+                if predictions_in_path is not None
+                else (
+                    "Upload disabled."
+                    if no_upload
+                    else "Prediction tasks uploaded to Label Studio."
+                )
+            )
         ),
     )
 

@@ -36,6 +36,9 @@ Benchmark scoring update (current behavior):
 - `cookimport labelstudio-benchmark` evaluates stage evidence manifests (`stage_block_predictions.json`) with selectable modes:
   - `stage-blocks` (default): block-index scoring vs freeform gold.
   - `canonical-text`: alignment scoring vs canonical gold text/line labels.
+  - `--execution-mode legacy|pipelined` chooses orchestration path (default `legacy`).
+  - `--predictions-out <path>` writes a run-level prediction record JSONL.
+  - `--predictions-in <path>` runs evaluate-only from a saved prediction record (no prediction generation/upload).
 - Interactive benchmark modes (`single_offline` and `all_method`) run `labelstudio-benchmark` in `canonical-text` mode so extractor permutations can share one freeform gold export safely.
 - `cookimport bench run` currently remains on stage-block scoring.
 - `label_studio_tasks.jsonl` is still generated for Label Studio workflows, but it is no longer the benchmark scoring surface.

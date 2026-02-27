@@ -11,6 +11,11 @@ from pathlib import Path
 import pytest
 
 import cookimport.cli as cli
+from cookimport.bench.prediction_records import (
+    make_prediction_record,
+    read_prediction_records,
+    write_prediction_records,
+)
 from cookimport.core.progress_messages import (
     format_worker_activity,
     format_worker_activity_reset,
@@ -2201,6 +2206,361 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     run_manifest = json.loads(run_manifest_path.read_text(encoding="utf-8"))
     assert run_manifest["run_kind"] == "labelstudio_benchmark"
     assert run_manifest["run_config"]["upload"] is False
+
+
+def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (prediction_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(source_file),
+                "source_hash": "hash-123",
+                "run_config": {"workers": 1},
+                "run_config_hash": "cfg-hash",
+                "run_config_summary": "workers=1",
+                "recipe_count": 7,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_co_locate_prediction_run_for_benchmark",
+        lambda _pred_run, _eval_dir: prediction_run,
+    )
+    monkeypatch.setattr(
+        cli,
+        "generate_pred_run_artifacts",
+        lambda **_kwargs: {
+            "run_root": prediction_run,
+            "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
+            "processed_report_path": "",
+            "timing": {"prediction_seconds": 1.5},
+        },
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 0,
+                    "pred_total": 0,
+                    "gold_matched": 0,
+                    "pred_matched": 0,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_block_accuracy": 0.0,
+                "macro_f1_excluding_other": 0.0,
+                "worst_label_recall": {"label": None, "recall": 0.0},
+                "precision": 0.0,
+                "recall": 0.0,
+                "f1": 0.0,
+                "practical_precision": 0.0,
+                "practical_recall": 0.0,
+                "practical_f1": 0.0,
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        lambda *_args, **_kwargs: None,
+    )
+
+    predictions_out = tmp_path / "prediction-records.jsonl"
+    eval_root = tmp_path / "eval"
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=tmp_path / "output",
+        eval_output_dir=eval_root,
+        no_upload=True,
+        predictions_out=predictions_out,
+    )
+
+    records = list(read_prediction_records(predictions_out))
+    assert len(records) == 1
+    record = records[0]
+    assert record.prediction["stage_block_predictions_path"] == str(
+        prediction_run / "stage_block_predictions.json"
+    )
+    assert record.prediction["extracted_archive_path"] == str(
+        prediction_run / "extracted_archive.json"
+    )
+    assert record.predict_meta["source_file"] == str(source_file)
+    run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
+    assert "prediction_record_output_jsonl" in run_manifest["artifacts"]
+
+
+def test_labelstudio_benchmark_predictions_in_runs_evaluate_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    stage_predictions_path = prediction_run / "stage_block_predictions.json"
+    extracted_archive_path = prediction_run / "extracted_archive.json"
+    stage_predictions_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    extracted_archive_path.write_text("[]\n", encoding="utf-8")
+
+    predictions_in = tmp_path / "prediction-records.jsonl"
+    write_prediction_records(
+        predictions_in,
+        [
+            make_prediction_record(
+                example_id="example-0",
+                example_index=0,
+                prediction={
+                    "pred_run_dir": str(prediction_run),
+                    "stage_block_predictions_path": str(stage_predictions_path),
+                    "extracted_archive_path": str(extracted_archive_path),
+                },
+                predict_meta={
+                    "source_file": str(source_file),
+                    "source_hash": "hash-123",
+                    "run_config": {"workers": 1},
+                    "run_config_hash": "cfg-hash",
+                    "run_config_summary": "workers=1",
+                    "timing": {"prediction_seconds": 4.2},
+                },
+            )
+        ],
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_resolve_labelstudio_settings",
+        lambda *_: (_ for _ in ()).throw(
+            AssertionError("Evaluate-only mode must not resolve Label Studio credentials.")
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "generate_pred_run_artifacts",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Evaluate-only mode must not regenerate prediction artifacts.")
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "run_labelstudio_import",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Evaluate-only mode must not upload prediction artifacts.")
+        ),
+    )
+
+    captured_eval: dict[str, object] = {}
+
+    def _fake_evaluate_stage_blocks(**kwargs):
+        captured_eval.update(kwargs)
+        return {
+            "report": {
+                "counts": {
+                    "gold_total": 0,
+                    "pred_total": 0,
+                    "gold_matched": 0,
+                    "pred_matched": 0,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_block_accuracy": 0.0,
+                "macro_f1_excluding_other": 0.0,
+                "worst_label_recall": {"label": None, "recall": 0.0},
+                "precision": 0.0,
+                "recall": 0.0,
+                "f1": 0.0,
+                "practical_precision": 0.0,
+                "practical_recall": 0.0,
+                "practical_f1": 0.0,
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        }
+
+    monkeypatch.setattr(cli, "evaluate_stage_blocks", _fake_evaluate_stage_blocks)
+    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        lambda *_args, **_kwargs: None,
+    )
+
+    eval_root = tmp_path / "eval"
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=tmp_path / "output",
+        eval_output_dir=eval_root,
+        predictions_in=predictions_in,
+    )
+
+    assert captured_eval["stage_predictions_json"] == stage_predictions_path
+    assert captured_eval["extracted_blocks_json"] == extracted_archive_path
+    run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
+    assert run_manifest["run_config"]["upload"] is False
+    assert "prediction_record_input_jsonl" in run_manifest["artifacts"]
+
+
+def test_labelstudio_benchmark_legacy_and_pipelined_modes_match_report_payload(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (prediction_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(source_file),
+                "source_hash": "hash-123",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_co_locate_prediction_run_for_benchmark",
+        lambda _pred_run, _eval_dir: prediction_run,
+    )
+    monkeypatch.setattr(
+        cli,
+        "generate_pred_run_artifacts",
+        lambda **_kwargs: {
+            "run_root": prediction_run,
+            "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
+            "processed_report_path": "",
+            "timing": {"prediction_seconds": 2.0},
+        },
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 1,
+                    "pred_total": 1,
+                    "gold_matched": 1,
+                    "pred_matched": 1,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_block_accuracy": 1.0,
+                "macro_f1_excluding_other": 1.0,
+                "worst_label_recall": {"label": "RECIPE_TITLE", "recall": 1.0},
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0,
+                "practical_precision": 1.0,
+                "practical_recall": 1.0,
+                "practical_f1": 1.0,
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        lambda *_args, **_kwargs: None,
+    )
+
+    legacy_eval_root = tmp_path / "eval-legacy"
+    pipelined_eval_root = tmp_path / "eval-pipelined"
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=tmp_path / "output",
+        eval_output_dir=legacy_eval_root,
+        no_upload=True,
+        execution_mode="legacy",
+    )
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=tmp_path / "output",
+        eval_output_dir=pipelined_eval_root,
+        no_upload=True,
+        execution_mode="pipelined",
+    )
+
+    legacy_report = json.loads(
+        (legacy_eval_root / "eval_report.json").read_text(encoding="utf-8")
+    )
+    pipelined_report = json.loads(
+        (pipelined_eval_root / "eval_report.json").read_text(encoding="utf-8")
+    )
+    legacy_report.pop("timing", None)
+    pipelined_report.pop("timing", None)
+    assert legacy_report == pipelined_report
+
+    legacy_manifest = json.loads(
+        (legacy_eval_root / "run_manifest.json").read_text(encoding="utf-8")
+    )
+    pipelined_manifest = json.loads(
+        (pipelined_eval_root / "run_manifest.json").read_text(encoding="utf-8")
+    )
+    assert legacy_manifest["run_config"]["execution_mode"] == "legacy"
+    assert pipelined_manifest["run_config"]["execution_mode"] == "pipelined"
 
 
 def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(

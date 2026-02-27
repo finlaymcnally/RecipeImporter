@@ -29,6 +29,7 @@ cookimport/bench/knobs.py
 cookimport/bench/noise.py
 cookimport/bench/packet.py
 cookimport/bench/pred_run.py
+cookimport/bench/prediction_records.py
 cookimport/bench/report.py
 cookimport/bench/runner.py
 cookimport/bench/suite.py

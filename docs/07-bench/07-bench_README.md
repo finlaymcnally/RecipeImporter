@@ -179,6 +179,9 @@ All-method reports include timing rollups in per-source and combined summaries.
 `labelstudio-benchmark` mode selection:
 - `--eval-mode stage-blocks` (default)
 - `--eval-mode canonical-text` (extractor-independent)
+- `--execution-mode legacy|pipelined` (default `legacy`)
+- `--predictions-out <path>` writes a run-level prediction-record JSONL artifact
+- `--predictions-in <path>` skips prediction generation/upload and runs evaluate-only from the saved prediction record
 
 Interactive benchmark menu modes (`single_offline` and `all_method`) always use `canonical-text` mode.
 
