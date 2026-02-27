@@ -2,7 +2,7 @@ Label Studio helpers for freeform span workflows.
 Durable import/export/prelabel rules live in `cookimport/labelstudio/CONVENTIONS.md`.
 
 - `ingest.py` builds extracted archives, freeform span tasks, prediction-run artifacts, and handles upload/resume.
-- `archive.py` contains shared archive/normalization helpers used by freeform ingest and stage-block prediction flows.
+- `archive.py` contains shared archive/normalization helpers used by freeform ingest and stage-block prediction flows, including `prepare_extracted_archive(...)` for one-pass archive preparation and serialization reuse.
 - `freeform_tasks.py` builds segment-based freeform tasks (`segment_id`, `source_map`, focus/context metadata).
 - `label_config_freeform.py` defines the freeform labeling UI and label normalization rules.
 - `prelabel.py` runs optional Codex-CLI prelabeling for freeform tasks.

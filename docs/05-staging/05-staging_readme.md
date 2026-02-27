@@ -186,6 +186,7 @@ When PDFs/EPUBs are split into jobs, merge flow:
 4. Updates tip references (`source_recipe_id`, provenance IDs) via remap.
 5. Writes merged outputs through standard writer functions.
 6. Moves raw artifacts from temporary `.job_parts/<workbook_slug>/job_{i}/raw/...` into final `raw/...` path.
+7. Writes report JSON after raw merge so `outputStats` includes moved raw artifacts (plus merged `raw/.../full_text.json`) without a post-write directory scan.
 
 Main-process merge status callback contract:
 

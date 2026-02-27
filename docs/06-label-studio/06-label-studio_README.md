@@ -44,7 +44,7 @@ Benchmark scoring update (current behavior):
 - `cookimport bench run` currently remains on stage-block scoring.
 - `label_studio_tasks.jsonl` remains the upload/task artifact surface, but benchmark scoring does not depend on it.
   - default behavior still writes it for offline runs;
-  - offline benchmark runs may intentionally skip it with `labelstudio-benchmark --no-upload --no-write-labelstudio-tasks`.
+  - offline benchmark runs may intentionally skip it with `labelstudio-benchmark --no-upload --no-write-labelstudio-tasks` or `bench run --no-write-labelstudio-tasks`.
 
 ### 1.2 Commands and defaults
 

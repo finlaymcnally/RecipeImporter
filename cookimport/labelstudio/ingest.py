@@ -40,7 +40,13 @@ from cookimport.parsing.chunks import (
 )
 from cookimport.parsing.tables import ExtractedTable, extract_and_annotate_tables
 from cookimport.plugins import registry
-from cookimport.labelstudio.archive import build_extracted_archive, normalize_display_text
+from cookimport.labelstudio.archive import (
+    build_extracted_archive,
+    normalize_display_text,
+    prepare_extracted_archive,
+    prepared_archive_payload,
+    prepared_archive_text,
+)
 from cookimport.labelstudio.freeform_tasks import (
     build_freeform_span_tasks,
     compute_freeform_task_coverage,
@@ -1621,10 +1627,17 @@ def generate_pred_run_artifacts(
         result.report = ConversionReport()
     result.report.llm_codex_farm = llm_report
 
-    _notify("Building extracted archive...")
-    archive = build_extracted_archive(result, result.raw_artifacts)
     _notify("Computing source file hash...")
     file_hash = compute_file_hash(path)
+    _notify("Building extracted archive...")
+    prepared_archive = prepare_extracted_archive(
+        result=result,
+        raw_artifacts=result.raw_artifacts,
+        source_file=path.name,
+        source_hash=file_hash,
+        archive_builder=build_extracted_archive,
+    )
+    archive = list(prepared_archive.blocks)
     book_id = result.workbook or path.stem
     processed_run_root: Path | None = None
     processed_report_path: Path | None = None
@@ -2136,22 +2149,13 @@ def generate_pred_run_artifacts(
     _notify("Writing prediction run artifacts...")
     artifact_write_started = time.monotonic()
     archive_path = run_root / "extracted_archive.json"
-    archive_payload = [
-        {
-            "index": block.index,
-            "text": block.text,
-            "location": block.location,
-            "source_kind": block.source_kind,
-        }
-        for block in archive
-    ]
+    archive_payload = prepared_archive_payload(prepared_archive)
     archive_path.write_text(
         json.dumps(archive_payload, indent=2, sort_keys=True), encoding="utf-8"
     )
 
-    extracted_text = "\n\n".join(block.text for block in archive if block.text)
     (run_root / "extracted_text.txt").write_text(
-        normalize_display_text(extracted_text) + "\n", encoding="utf-8"
+        prepared_archive_text(prepared_archive) + "\n", encoding="utf-8"
     )
 
     tasks_path: Path | None = None

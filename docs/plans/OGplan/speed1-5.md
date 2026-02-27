@@ -12,21 +12,21 @@ You will be able to see it working by running a representative stage-block bench
 
 ## Progress
 
-- [ ] Baseline: capture before-change timings and output digests for one representative stage run and one stage-block benchmark run.
-- [ ] Implement incremental output stats tracking to avoid post-write directory scans (stage + processed-output writer paths).
-- [ ] Add a markdown-output toggle to staging writers and thread it through stage and processed-output benchmark paths (defaults preserve current behavior for `cookimport stage`).
-- [ ] Deduplicate “normalized block stream / extracted archive” computation inside prediction-run generation so it is built once and reused for all artifact writers that need it.
-- [ ] Make Label Studio task JSONL generation optional in offline stage-block contexts (speed/disk win; no scoring impact).
-- [ ] Add/adjust tests to prove no behavioral drift (stage structure, stage evidence, bench helpers).
-- [ ] Update docs for any new flags or changed defaults (staging + bench/labelstudio runbooks).
-- [ ] Validate: run focused pytest slices + one end-to-end stage-block run; confirm metrics unchanged and timing improved.
+- [ ] (2026-02-27) Baseline/perf artifact capture for one representative stage run + one stage-block benchmark run (before/after timing + digest evidence) is still pending.
+- [x] (2026-02-27) Split-merge output stats now include merged `raw/.../full_text.json` and moved raw artifacts before report emission.
+- [x] (2026-02-27) Markdown write toggles remain wired through stage + processed-output paths with default stage behavior unchanged.
+- [x] (2026-02-27) Added prepared archive abstraction (`PreparedExtractedArchive`, `prepare_extracted_archive`) and reused it for archive/text serialization.
+- [x] (2026-02-27) Label Studio task JSONL optionality is implemented and retained with offline guardrails.
+- [x] (2026-02-27) Added targeted coverage for split-merge outputStats parity, prepared-archive payload parity, markdown-toggle no-drift stage predictions, and bench-run direct flag overrides.
+- [x] (2026-02-27) Updated staging/bench/labelstudio docs for new behavior and knobs.
+- [ ] (2026-02-27) Manual end-to-end stage-block timing proof run is still pending in-repo evidence capture.
 
 ## Surprises & Discoveries
 
-(Keep this section current while implementing.)
-
-- Observation: (placeholder)
-  Evidence: (placeholder)
+- Observation: split-merge wrote the final report before `_merge_raw_artifacts(...)`, so `outputStats` could miss files moved from `.job_parts/**/raw`.
+  Evidence: `_merge_split_jobs(...)` sequencing and new parity test in `tests/staging/test_split_merge_status.py`.
+- Observation: `bench run` already supported write toggles through config plumbing (`cookimport/bench/pred_run.py`), so the lowest-risk CLI upgrade was optional direct overrides that preserve config/default behavior when omitted.
+  Evidence: `build_pred_run_for_source(...)` config keys + new `bench_run(...)` override test in `tests/bench/test_bench.py`.
 
 ## Decision Log
 
@@ -40,9 +40,19 @@ You will be able to see it working by running a representative stage-block bench
   Rationale: These artifacts are not part of scoring surface in stage-block mode; skipping them is accuracy-neutral and reduces write cost.
   Date/Author: 2026-02-27 / plan author
 
+- Decision: split-merge must finalize raw-artifact moves before writing report JSON so `outputStats` reflects the real merged output tree without fallback directory scans.
+  Rationale: report-time stats need to include all produced artifacts, including post-write merge moves.
+  Date/Author: 2026-02-27 / implementation closeout
+
+- Decision: `bench run` direct write toggles are optional overrides (`None` default) layered on top of config-file values.
+  Rationale: exposes first-class CLI knobs while preserving existing config-driven behavior for users who do not pass the new flags.
+  Date/Author: 2026-02-27 / implementation closeout
+
 ## Outcomes & Retrospective
 
-(Write entries here at the end of each milestone and at completion: what improved, what didn’t, what to do next.)
+- Outcome (2026-02-27): D-01/D-02/D-03/D-04/D-06 implementation gaps from the speed1-5 audit were closed in code/tests/docs. Prediction-run archive prep now has an explicit prepared object; split-merge outputStats now match a fresh directory walk in tests; bench run now has direct write-toggle flags.
+- Outcome (2026-02-27): speed and no-drift proof depth improved with deterministic tests for prepared-archive payload parity and markdown-toggle stage-prediction parity.
+- Remaining (2026-02-27): D-05-style baseline/performance evidence capture against a representative real dataset is still a manual artifact/documentation task.
 
 ## Context and Orientation
 
@@ -496,4 +506,5 @@ Include short evidence snippets here as implementation proceeds, for example:
 
 ---
 
-Plan change note (required when revising this ExecPlan): append a short note here describing what changed and why. For example: “2026-02-28: narrowed milestone 5 to only skip tasks JSONL, not extracted archive, because bench iteration packets require block text context.”
+Plan change note (required when revising this ExecPlan):
+- 2026-02-27: Updated living sections for closeout progress; recorded split-merge outputStats sequencing fix, prepared-archive abstraction completion, bench-run direct write-toggle flags, and current remaining manual timing-evidence gap.

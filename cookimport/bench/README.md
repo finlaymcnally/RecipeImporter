@@ -14,4 +14,5 @@ Current scoring contract:
 - `bench run` writes per-item eval artifacts under `per_item/<item_id>/eval_freeform/` including:
   - `eval_report.json`, `eval_report.md`
   - `missed_gold_blocks.jsonl`, `wrong_label_blocks.jsonl`
+- `bench run` accepts direct artifact-write overrides (`--write-markdown/--no-write-markdown`, `--write-labelstudio-tasks/--no-write-labelstudio-tasks`) that take precedence over config-file defaults for that run.
 - canonical-text eval outputs include `aligned_prediction_blocks.jsonl` so alignment mappings can be compared directly across matcher implementations.

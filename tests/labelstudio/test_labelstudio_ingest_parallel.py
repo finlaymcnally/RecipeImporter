@@ -14,6 +14,11 @@ from cookimport.core.models import (
     RawArtifact,
     RecipeCandidate,
 )
+from cookimport.labelstudio.archive import (
+    build_extracted_archive,
+    prepare_extracted_archive,
+    prepared_archive_payload,
+)
 from cookimport.labelstudio.ingest import (
     _acquire_split_phase_slot,
     _normalize_llm_recipe_pipeline,
@@ -1033,6 +1038,159 @@ def test_generate_pred_run_artifacts_passes_write_markdown_to_processed_outputs(
 
     assert captured["write_markdown"] is False
     assert result["run_config"]["write_markdown"] is False
+
+
+def test_prepare_extracted_archive_matches_legacy_payload(tmp_path: Path) -> None:
+    source = tmp_path / "book.pdf"
+    source.write_text("source", encoding="utf-8")
+    raw_artifacts = [
+        RawArtifact(
+            importer="pdf",
+            source_hash="hash-123",
+            location_id="full_text",
+            extension="json",
+            content={
+                "blocks": [
+                    {"index": 0, "text": "First block", "page": 1},
+                    {"index": 1, "text": "Second block", "page": 1},
+                ]
+            },
+            metadata={"artifact_type": "extracted_blocks"},
+        )
+    ]
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=raw_artifacts,
+        report=ConversionReport(),
+        workbook=source.stem,
+        workbook_path=str(source),
+    )
+
+    legacy_archive = build_extracted_archive(result, raw_artifacts)
+    prepared_archive = prepare_extracted_archive(
+        result=result,
+        raw_artifacts=raw_artifacts,
+        source_file=source.name,
+        source_hash="hash-123",
+        archive_builder=build_extracted_archive,
+    )
+    legacy_payload = [
+        {
+            "index": block.index,
+            "text": block.text,
+            "location": block.location,
+            "source_kind": block.source_kind,
+        }
+        for block in legacy_archive
+    ]
+
+    assert prepared_archive_payload(prepared_archive) == legacy_payload
+    assert list(prepared_archive.blocks) == legacy_archive
+    assert prepared_archive.block_count == len(legacy_archive)
+
+
+def test_generate_pred_run_artifacts_markdown_toggle_keeps_stage_predictions_identical(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+
+    fake_result = ConversionResult(
+        recipes=[
+            RecipeCandidate(
+                name="Recipe",
+                provenance={"location": {"start_block": 0}},
+            )
+        ],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[
+            RawArtifact(
+                importer="epub",
+                source_hash="hash",
+                location_id="full_text",
+                extension="json",
+                content={"blocks": [{"index": 0, "text": "Recipe"}]},
+                metadata={"artifact_type": "extracted_blocks"},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr("cookimport.labelstudio.ingest.compute_file_hash", lambda _path: "hash")
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 100,
+            "segment_chars": 90,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks, **_kwargs: tasks,
+    )
+
+    with_markdown = generate_pred_run_artifacts(
+        path=source,
+        output_dir=tmp_path / "golden-a",
+        pipeline="fake",
+        processed_output_root=tmp_path / "processed-a",
+        write_markdown=True,
+        write_label_studio_tasks=False,
+    )
+    without_markdown = generate_pred_run_artifacts(
+        path=source,
+        output_dir=tmp_path / "golden-b",
+        pipeline="fake",
+        processed_output_root=tmp_path / "processed-b",
+        write_markdown=False,
+        write_label_studio_tasks=False,
+    )
+
+    assert with_markdown["stage_block_predictions_path"] is not None
+    assert without_markdown["stage_block_predictions_path"] is not None
+    with_stage_path = Path(with_markdown["stage_block_predictions_path"])
+    without_stage_path = Path(without_markdown["stage_block_predictions_path"])
+    with_stage_payload = json.loads(with_stage_path.read_text(encoding="utf-8"))
+    without_stage_payload = json.loads(without_stage_path.read_text(encoding="utf-8"))
+    assert with_stage_payload == without_stage_payload
+
+    with_archive_payload = json.loads(
+        (Path(with_markdown["run_root"]) / "extracted_archive.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    without_archive_payload = json.loads(
+        (Path(without_markdown["run_root"]) / "extracted_archive.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert with_archive_payload == without_archive_payload
 
 
 def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(

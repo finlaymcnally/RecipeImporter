@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from typing import Any, Callable
 
 from cookimport.core.models import ConversionResult, RawArtifact, RecipeCandidate
 from cookimport.labelstudio.models import ArchiveBlock
@@ -90,6 +92,19 @@ def _build_recipe_text(recipe: RecipeCandidate) -> str:
     return normalize_display_text("\n".join(_recipe_section_lines(recipe)))
 
 
+@dataclass(frozen=True)
+class PreparedExtractedArchive:
+    blocks: tuple[ArchiveBlock, ...]
+    archive_payload: tuple[dict[str, Any], ...]
+    extracted_text: str
+    source_file: str | None = None
+    source_hash: str | None = None
+
+    @property
+    def block_count(self) -> int:
+        return len(self.blocks)
+
+
 def build_extracted_archive(
     result: ConversionResult,
     raw_artifacts: list[RawArtifact],
@@ -177,3 +192,52 @@ def build_extracted_archive(
 
     archive.sort(key=lambda block: block.index)
     return archive
+
+
+def prepare_extracted_archive(
+    *,
+    result: ConversionResult,
+    raw_artifacts: list[RawArtifact],
+    source_file: str | None = None,
+    source_hash: str | None = None,
+    archive_builder: Callable[
+        [ConversionResult, list[RawArtifact]],
+        list[ArchiveBlock],
+    ]
+    | None = None,
+) -> PreparedExtractedArchive:
+    builder = archive_builder or build_extracted_archive
+    blocks = list(builder(result, raw_artifacts))
+    payload = tuple(
+        {
+            "index": block.index,
+            "text": block.text,
+            "location": dict(block.location),
+            "source_kind": block.source_kind,
+        }
+        for block in blocks
+    )
+    extracted_text = normalize_display_text(
+        "\n\n".join(block.text for block in blocks if block.text)
+    )
+    return PreparedExtractedArchive(
+        blocks=tuple(blocks),
+        archive_payload=payload,
+        extracted_text=extracted_text,
+        source_file=source_file,
+        source_hash=source_hash,
+    )
+
+
+def prepared_archive_payload(prepared: PreparedExtractedArchive) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
+    for item in prepared.archive_payload:
+        copied = dict(item)
+        location = item.get("location")
+        copied["location"] = dict(location) if isinstance(location, dict) else {}
+        payload.append(copied)
+    return payload
+
+
+def prepared_archive_text(prepared: PreparedExtractedArchive) -> str:
+    return prepared.extracted_text

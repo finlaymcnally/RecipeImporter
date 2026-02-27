@@ -75,6 +75,17 @@ Where `my_knobs.json` overrides defaults:
 }
 ```
 
+### With direct write-toggle overrides
+
+```bash
+cookimport bench run \
+  --suite data/golden/bench/suites/my_suite.json \
+  --no-write-markdown \
+  --no-write-labelstudio-tasks
+```
+
+These CLI flags override config/defaults for the current run only.
+
 ## 3. Interpret the Results
 
 - **`report.md`** — Start here. It now shows both:

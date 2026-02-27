@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import cookimport.cli as cli
 from cookimport.bench.suite import BenchItem, BenchSuite, load_suite, validate_suite
 from cookimport.bench.report import aggregate_metrics, format_suite_report_md
 from cookimport.bench.trace import TraceCollector
@@ -346,6 +347,82 @@ def test_build_pred_run_for_source_passes_epub_extractor(monkeypatch: pytest.Mon
     )
 
     assert captured["epub_extractor"] == "markdown"
+
+
+def test_bench_run_direct_write_flags_override_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    suite_file = tmp_path / "suite.json"
+    suite_file.write_text("{}", encoding="utf-8")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "write_markdown": True,
+                "write_label_studio_tasks": True,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    fake_suite = BenchSuite(name="demo", items=[])
+    captured_config: dict[str, object] = {}
+    run_root = tmp_path / "run-root"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr("cookimport.bench.suite.load_suite", lambda _path: fake_suite)
+    monkeypatch.setattr("cookimport.bench.suite.validate_suite", lambda _suite, _repo_root: [])
+    monkeypatch.setattr(
+        "cookimport.cli._run_with_progress_status",
+        lambda *, initial_status, progress_prefix, run: run(lambda _msg: None),
+    )
+
+    def _fake_run_suite(
+        _suite,
+        _out_dir,
+        *,
+        repo_root,
+        config,
+        baseline_run_dir,
+        progress_callback,
+    ):
+        _ = (repo_root, baseline_run_dir, progress_callback)
+        captured_config.update(config or {})
+        return run_root, {"recall": 0.0, "precision": 0.0}
+
+    monkeypatch.setattr("cookimport.bench.runner.run_suite", _fake_run_suite)
+    monkeypatch.setattr(
+        "cookimport.bench.packet.build_iteration_packet",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr("cookimport.cli._sum_bench_recipe_count", lambda _run_root: 0)
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.history_path",
+        lambda _output_root: tmp_path / "history.csv",
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._refresh_dashboard_after_history_write",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
+
+    cli.bench_run(
+        suite=suite_file,
+        out_dir=tmp_path / "runs",
+        baseline=None,
+        config_path=config_path,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+    )
+
+    assert captured_config["write_markdown"] is False
+    assert captured_config["write_label_studio_tasks"] is False
 
 
 # ---------------------------------------------------------------------------

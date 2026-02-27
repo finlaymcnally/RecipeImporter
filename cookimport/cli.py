@@ -208,6 +208,7 @@ BENCHMARK_EVAL_MODE_CANONICAL_TEXT = "canonical-text"
 BENCHMARK_EXECUTION_MODE_LEGACY = "legacy"
 BENCHMARK_EXECUTION_MODE_PIPELINED = "pipelined"
 BENCHMARK_EXECUTION_MODE_PREDICT_ONLY = "predict-only"
+OUTPUT_STATS_CATEGORY_RAW = "rawArtifacts"
 BENCHMARK_EVAL_PROFILE_MIN_SECONDS_ENV = "COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS"
 BENCHMARK_EVAL_PROFILE_TOP_N_ENV = "COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N"
 _MENU_SHORTCUT_KEYS = (
@@ -8172,7 +8173,13 @@ def _plan_jobs(
     return jobs
 
 
-def _merge_raw_artifacts(out: Path, workbook_slug: str, job_results: list[dict[str, Any]]) -> None:
+def _merge_raw_artifacts(
+    out: Path,
+    workbook_slug: str,
+    job_results: list[dict[str, Any]],
+    *,
+    output_stats: OutputStats | None = None,
+) -> None:
     job_parts_root = out / ".job_parts" / workbook_slug
     if not job_parts_root.exists():
         return
@@ -8191,6 +8198,8 @@ def _merge_raw_artifacts(out: Path, workbook_slug: str, job_results: list[dict[s
             if target.exists():
                 target = _prefix_collision(target, job_index)
             shutil.move(str(raw_path), str(target))
+            if output_stats is not None:
+                output_stats.record_path(OUTPUT_STATS_CATEGORY_RAW, target)
 
     shutil.rmtree(job_parts_root, ignore_errors=True)
     job_parts_parent = out / ".job_parts"
@@ -8369,6 +8378,7 @@ def _merge_split_jobs(
     workbook_slug = slugify_name(file_path.stem)
     merge_stats = TimingStats()
     merge_start = time.monotonic()
+    output_stats = OutputStats(out)
 
     def _report_status(message: str) -> None:
         if status_callback is None:
@@ -8432,8 +8442,8 @@ def _merge_split_jobs(
         phase_labels.append("Writing chunks...")
     phase_labels.extend(
         [
-            "Writing report...",
             "Merging raw artifacts...",
+            "Writing report...",
             "Merge done",
         ]
     )
@@ -8492,6 +8502,7 @@ def _merge_split_jobs(
             ),
             encoding="utf-8",
         )
+        output_stats.record_path(OUTPUT_STATS_CATEGORY_RAW, merged_full_text_path)
     sorted_recipes, _ = reassign_recipe_ids(
         merged_recipes,
         merged_tip_candidates,
@@ -8634,7 +8645,6 @@ def _merge_split_jobs(
     report.run_timestamp = run_dt.isoformat(timespec="seconds")
     enrich_report_with_stats(report, merged_result, file_path)
 
-    output_stats = OutputStats(out)
     _report_phase("Writing merged outputs...")
     with measure(merge_stats, "writing"):
         intermediate_dir = out / "intermediate drafts" / workbook_slug
@@ -8730,14 +8740,18 @@ def _merge_split_jobs(
         merge_stats.parsing_seconds + merge_stats.writing_seconds + merge_overhead
     )
 
+    _report_phase("Merging raw artifacts...")
+    _merge_raw_artifacts(
+        out,
+        workbook_slug,
+        job_results,
+        output_stats=output_stats,
+    )
     if output_stats.file_counts:
         report.output_stats = output_stats.to_report()
     report.timing = merge_stats.to_dict()
     _report_phase("Writing report...")
     write_report(report, out, file_path.stem)
-
-    _report_phase("Merging raw artifacts...")
-    _merge_raw_artifacts(out, workbook_slug, job_results)
     _report_phase("Merge done")
 
     return {
@@ -11958,6 +11972,22 @@ def bench_run(
     config_path: Path | None = typer.Option(
         None, "--config", help="Knob config JSON file."
     ),
+    write_markdown: bool | None = typer.Option(
+        None,
+        "--write-markdown/--no-write-markdown",
+        help=(
+            "Override config for markdown sidecar writes in bench prediction runs. "
+            "When omitted, keep config/default behavior."
+        ),
+    ),
+    write_label_studio_tasks: bool | None = typer.Option(
+        None,
+        "--write-labelstudio-tasks/--no-write-labelstudio-tasks",
+        help=(
+            "Override config for label_studio_tasks.jsonl writes in bench prediction runs. "
+            "When omitted, keep config/default behavior."
+        ),
+    ),
 ) -> None:
     """Run the offline benchmark suite: generate predictions, evaluate, report."""
     from cookimport.bench.packet import build_iteration_packet
@@ -11976,9 +12006,21 @@ def bench_run(
             typer.secho(f"  - {err}", fg=typer.colors.RED)
         raise typer.Exit(1)
 
-    config: dict | None = None
+    config: dict[str, Any] | None = None
     if config_path and config_path.exists():
-        config = json.loads(config_path.read_text(encoding="utf-8"))
+        loaded_config = json.loads(config_path.read_text(encoding="utf-8"))
+        if isinstance(loaded_config, dict):
+            config = dict(loaded_config)
+
+    effective_config: dict[str, Any] | None = dict(config) if config is not None else None
+    if write_markdown is not None:
+        if effective_config is None:
+            effective_config = {}
+        effective_config["write_markdown"] = bool(write_markdown)
+    if write_label_studio_tasks is not None:
+        if effective_config is None:
+            effective_config = {}
+        effective_config["write_label_studio_tasks"] = bool(write_label_studio_tasks)
 
     try:
         run_root, agg_metrics = _run_with_progress_status(
@@ -11988,7 +12030,7 @@ def bench_run(
                 s,
                 out_dir,
                 repo_root=REPO_ROOT,
-                config=config,
+                config=effective_config,
                 baseline_run_dir=baseline,
                 progress_callback=update_progress,
             ),
@@ -12010,7 +12052,7 @@ def bench_run(
         eval_scope="bench-suite",
         source_file=s.name,
         recipes=bench_recipe_total,
-        run_config=config,
+        run_config=effective_config,
     )
     _refresh_dashboard_after_history_write(
         csv_path=csv_history_path,

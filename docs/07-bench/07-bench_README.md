@@ -90,6 +90,9 @@ Stage evidence projects staged decisions back into one deterministic label per b
 5. Write `report.md`, `metrics.json`, `iteration_packet/*`
 
 `cookimport bench sweep` wraps this loop with outer `config X/Y` status updates.
+`cookimport bench run` also supports direct write-toggle overrides for prediction artifacts:
+- `--write-markdown/--no-write-markdown`
+- `--write-labelstudio-tasks/--no-write-labelstudio-tasks`
 
 ## 5. Exact scoring surface (stage-block)
 
@@ -191,6 +194,10 @@ All-method reports include timing rollups in per-source and combined summaries.
 - `--execution-mode predict-only` generates prediction artifacts and optional prediction-record output without running evaluation
 - `--no-write-markdown` skips markdown sidecars in processed stage outputs
 - `--no-write-labelstudio-tasks` skips `label_studio_tasks.jsonl` for offline (`--no-upload`) prediction runs
+
+`bench run` prediction-artifact toggle overrides:
+- `--write-markdown/--no-write-markdown`
+- `--write-labelstudio-tasks/--no-write-labelstudio-tasks`
 
 Interactive benchmark menu modes (`single_offline` and `all_method`) always use `canonical-text` mode.
 
