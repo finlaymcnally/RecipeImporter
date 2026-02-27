@@ -32,6 +32,16 @@ def _matching_blocks_as_tuples(matcher: object) -> list[tuple[int, int, int]]:
     ]
 
 
+def _accelerated_selection_or_skip(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "auto")
+    selection = select_sequence_matcher()
+    if selection.implementation == "stdlib":
+        pytest.skip("Accelerated matcher unavailable in this environment.")
+    return selection
+
+
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     path.write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
@@ -102,6 +112,51 @@ def _write_minimal_canonical_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     return gold_export_root, stage_predictions_path, extracted_archive_path
 
 
+def _largeish_edit_example() -> tuple[str, str]:
+    left_parts: list[str] = []
+    right_parts: list[str] = []
+    for index in range(520):
+        token = f"token{index % 17}"
+        left_parts.append(token)
+        if index % 37 == 0:
+            right_parts.append(f"{token}_edit")
+        else:
+            right_parts.append(token)
+    return " ".join(left_parts), " ".join(right_parts)
+
+
+def _many_small_edits_example() -> tuple[str, str]:
+    left_chars: list[str] = []
+    for index in range(2200):
+        left_chars.append(chr(ord("a") + (index % 26)))
+        if index % 19 == 0:
+            left_chars.append(" ")
+    right_chars = list(left_chars)
+    for index in range(11, len(right_chars), 97):
+        current = right_chars[index]
+        if current.isalpha():
+            right_chars[index] = current.upper()
+        elif current == " ":
+            right_chars[index] = "-"
+        else:
+            right_chars[index] = "#"
+    return "".join(left_chars), "".join(right_chars)
+
+
+_TRICKY_TEXT_PAIRS: list[tuple[str, str]] = [
+    (
+        " ".join(["salt", "pepper", "garlic"] * 180),
+        " ".join(["salt", "pepper", "garlic_x"] * 180),
+    ),
+    _many_small_edits_example(),
+    (
+        "step 1:\tmix flour\n\nstep 2:   add sugar\r\n\r\nstep 3:\t\tstir",
+        "step 1: mix flour\nstep 2: add sugar\nstep 3: stir",
+    ),
+    _largeish_edit_example(),
+]
+
+
 def test_sequence_matcher_selector_forced_stdlib(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "stdlib")
     selection = get_sequence_matcher_selection()
@@ -137,35 +192,29 @@ def test_sequence_matcher_selector_forced_missing_mode_errors(
         select_sequence_matcher()
 
 
-def test_sequence_matcher_matching_blocks_match_stdlib_when_accelerated_available(
+@pytest.mark.parametrize(("prediction_text", "canonical_text"), _TRICKY_TEXT_PAIRS)
+def test_sequence_matcher_opcodes_and_matching_blocks_match_stdlib_when_accelerated_available(
     monkeypatch: pytest.MonkeyPatch,
+    prediction_text: str,
+    canonical_text: str,
 ) -> None:
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "auto")
-    selection = select_sequence_matcher()
-    if selection.implementation == "stdlib":
-        pytest.skip("Accelerated matcher unavailable in this environment.")
-
-    examples = [
-        ("Title\n\nSubtitle\n\n1 cup stock", "Title\nSubtitle\n1 cup stock"),
-        ("A quick-brown fox", "A quick brown fox"),
-        ("mix flour\nand sugar", "mix flour and sugar"),
-    ]
-    for prediction_text, canonical_text in examples:
-        stdlib_matcher = StdlibSequenceMatcher(
-            None,
-            prediction_text,
-            canonical_text,
-            autojunk=False,
-        )
-        accelerated_matcher = selection.matcher_class(
-            None,
-            prediction_text,
-            canonical_text,
-            autojunk=False,
-        )
-        assert _matching_blocks_as_tuples(accelerated_matcher) == _matching_blocks_as_tuples(
-            stdlib_matcher
-        )
+    selection = _accelerated_selection_or_skip(monkeypatch)
+    stdlib_matcher = StdlibSequenceMatcher(
+        None,
+        prediction_text,
+        canonical_text,
+        autojunk=False,
+    )
+    accelerated_matcher = selection.matcher_class(
+        None,
+        prediction_text,
+        canonical_text,
+        autojunk=False,
+    )
+    assert accelerated_matcher.get_opcodes() == stdlib_matcher.get_opcodes()
+    assert _matching_blocks_as_tuples(accelerated_matcher) == _matching_blocks_as_tuples(
+        stdlib_matcher
+    )
 
 
 def test_canonical_eval_stdlib_and_auto_modes_have_equal_scoring_outputs(
@@ -205,6 +254,15 @@ def test_canonical_eval_stdlib_and_auto_modes_have_equal_scoring_outputs(
     )
     assert stdlib_report["wrong_label_blocks"] == auto_report["wrong_label_blocks"]
     assert stdlib_report["missed_gold_blocks"] == auto_report["missed_gold_blocks"]
+    assert stdlib_report["alignment"] == auto_report["alignment"]
+
+    stdlib_aligned_bytes = Path(
+        stdlib_report["artifacts"]["aligned_prediction_blocks_jsonl"]
+    ).read_bytes()
+    auto_aligned_bytes = Path(
+        auto_report["artifacts"]["aligned_prediction_blocks_jsonl"]
+    ).read_bytes()
+    assert stdlib_aligned_bytes == auto_aligned_bytes
 
     stdlib_telemetry = stdlib_report["evaluation_telemetry"]
     auto_telemetry = auto_report["evaluation_telemetry"]

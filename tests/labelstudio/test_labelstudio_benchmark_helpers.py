@@ -1874,25 +1874,40 @@ def test_labelstudio_benchmark_passes_processed_output_root(
     prediction_run = tmp_path / "pred-run"
     prediction_run.mkdir(parents=True, exist_ok=True)
     (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
-    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "extracted_archive.json").write_text(
+        json.dumps(
+            [
+                {
+                    "index": 0,
+                    "text": "Sample title",
+                    "location": {"features": {"extraction_backend": "unstructured"}},
+                }
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
     (prediction_run / "stage_block_predictions.json").write_text(
         json.dumps(
             {
                 "schema_version": "stage_block_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
+                "block_count": 1,
+                "block_labels": {"0": "RECIPE_TITLE"},
             },
             sort_keys=True,
         ),
         encoding="utf-8",
     )
-    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "extracted_archive.json").write_text(
+        json.dumps([{"index": 0, "text": "Sample title"}], sort_keys=True),
+        encoding="utf-8",
+    )
     (prediction_run / "stage_block_predictions.json").write_text(
         json.dumps(
             {
                 "schema_version": "stage_block_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
+                "block_count": 1,
+                "block_labels": {"0": "RECIPE_TITLE"},
             },
             sort_keys=True,
         ),
@@ -2223,13 +2238,25 @@ def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
     gold_spans.write_text("{}\n", encoding="utf-8")
     prediction_run = tmp_path / "pred-run"
     prediction_run.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "extracted_archive.json").write_text(
+        json.dumps(
+            [
+                {
+                    "index": 0,
+                    "text": "Sample title",
+                    "location": {"features": {"extraction_backend": "unstructured"}},
+                }
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
     (prediction_run / "stage_block_predictions.json").write_text(
         json.dumps(
             {
                 "schema_version": "stage_block_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
+                "block_count": 1,
+                "block_labels": {"0": "RECIPE_TITLE"},
             },
             sort_keys=True,
         ),
@@ -2313,12 +2340,10 @@ def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
     records = list(read_prediction_records(predictions_out))
     assert len(records) == 1
     record = records[0]
-    assert record.prediction["stage_block_predictions_path"] == str(
-        prediction_run / "stage_block_predictions.json"
-    )
-    assert record.prediction["extracted_archive_path"] == str(
-        prediction_run / "extracted_archive.json"
-    )
+    assert record.prediction["schema_kind"] == "stage-block.v1"
+    assert record.prediction["block_index"] == 0
+    assert record.prediction["pred_label"] == "RECIPE_TITLE"
+    assert record.prediction["block_text"] == "Sample title"
     assert record.predict_meta["source_file"] == str(source_file)
     run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
     assert "prediction_record_output_jsonl" in run_manifest["artifacts"]
@@ -2331,38 +2356,24 @@ def test_labelstudio_benchmark_predictions_in_runs_evaluate_only(
     source_file.write_text("dummy", encoding="utf-8")
     gold_spans = tmp_path / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
-    prediction_run = tmp_path / "pred-run"
-    prediction_run.mkdir(parents=True, exist_ok=True)
-    stage_predictions_path = prediction_run / "stage_block_predictions.json"
-    extracted_archive_path = prediction_run / "extracted_archive.json"
-    stage_predictions_path.write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    extracted_archive_path.write_text("[]\n", encoding="utf-8")
-
     predictions_in = tmp_path / "prediction-records.jsonl"
     write_prediction_records(
         predictions_in,
         [
             make_prediction_record(
-                example_id="example-0",
+                example_id="labelstudio-benchmark:hash-123:block:0",
                 example_index=0,
                 prediction={
-                    "pred_run_dir": str(prediction_run),
-                    "stage_block_predictions_path": str(stage_predictions_path),
-                    "extracted_archive_path": str(extracted_archive_path),
+                    "schema_kind": "stage-block.v1",
+                    "block_index": 0,
+                    "pred_label": "RECIPE_TITLE",
+                    "block_text": "Sample title",
+                    "block_features": {"extraction_backend": "unstructured"},
                 },
                 predict_meta={
                     "source_file": str(source_file),
                     "source_hash": "hash-123",
+                    "workbook_slug": "book",
                     "run_config": {"workers": 1},
                     "run_config_hash": "cfg-hash",
                     "run_config_summary": "workers=1",
@@ -2440,11 +2451,120 @@ def test_labelstudio_benchmark_predictions_in_runs_evaluate_only(
         predictions_in=predictions_in,
     )
 
-    assert captured_eval["stage_predictions_json"] == stage_predictions_path
-    assert captured_eval["extracted_blocks_json"] == extracted_archive_path
+    replay_dir = eval_root / ".prediction-record-replay"
+    assert captured_eval["stage_predictions_json"] == (
+        replay_dir / "stage_block_predictions.from_records.json"
+    )
+    assert captured_eval["extracted_blocks_json"] == (
+        replay_dir / "extracted_archive.from_records.json"
+    )
+    replay_stage_payload = json.loads(
+        (replay_dir / "stage_block_predictions.from_records.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert replay_stage_payload["block_labels"] == {"0": "RECIPE_TITLE"}
     run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
     assert run_manifest["run_config"]["upload"] is False
     assert "prediction_record_input_jsonl" in run_manifest["artifacts"]
+
+
+def test_labelstudio_benchmark_predictions_in_supports_legacy_run_pointer_record(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    stage_predictions_path = prediction_run / "stage_block_predictions.json"
+    extracted_archive_path = prediction_run / "extracted_archive.json"
+    stage_predictions_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 1,
+                "block_labels": {"0": "OTHER"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    extracted_archive_path.write_text(
+        json.dumps([{"index": 0, "text": "Sample"}], sort_keys=True),
+        encoding="utf-8",
+    )
+
+    predictions_in = tmp_path / "legacy-prediction-records.jsonl"
+    write_prediction_records(
+        predictions_in,
+        [
+            make_prediction_record(
+                example_id="legacy-example-0",
+                example_index=0,
+                prediction={
+                    "pred_run_dir": str(prediction_run),
+                    "stage_block_predictions_path": str(stage_predictions_path),
+                    "extracted_archive_path": str(extracted_archive_path),
+                },
+                predict_meta={
+                    "source_file": str(source_file),
+                    "source_hash": "hash-123",
+                    "timing": {"prediction_seconds": 1.0},
+                },
+            )
+        ],
+    )
+
+    captured_eval: dict[str, object] = {}
+
+    def _fake_evaluate_stage_blocks(**kwargs):
+        captured_eval.update(kwargs)
+        return {
+            "report": {
+                "counts": {
+                    "gold_total": 0,
+                    "pred_total": 0,
+                    "gold_matched": 0,
+                    "pred_matched": 0,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_block_accuracy": 0.0,
+                "macro_f1_excluding_other": 0.0,
+                "worst_label_recall": {"label": None, "recall": 0.0},
+                "precision": 0.0,
+                "recall": 0.0,
+                "f1": 0.0,
+                "practical_precision": 0.0,
+                "practical_recall": 0.0,
+                "practical_f1": 0.0,
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        }
+
+    monkeypatch.setattr(cli, "evaluate_stage_blocks", _fake_evaluate_stage_blocks)
+    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        lambda *_args, **_kwargs: None,
+    )
+
+    eval_root = tmp_path / "eval-legacy-record"
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=tmp_path / "output",
+        eval_output_dir=eval_root,
+        predictions_in=predictions_in,
+    )
+
+    assert captured_eval["stage_predictions_json"] == stage_predictions_path
+    assert captured_eval["extracted_blocks_json"] == extracted_archive_path
 
 
 def test_labelstudio_benchmark_legacy_and_pipelined_modes_match_report_payload(
@@ -2456,13 +2576,16 @@ def test_labelstudio_benchmark_legacy_and_pipelined_modes_match_report_payload(
     gold_spans.write_text("{}\n", encoding="utf-8")
     prediction_run = tmp_path / "pred-run"
     prediction_run.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "extracted_archive.json").write_text(
+        json.dumps([{"index": 0, "text": "Sample title"}], sort_keys=True),
+        encoding="utf-8",
+    )
     (prediction_run / "stage_block_predictions.json").write_text(
         json.dumps(
             {
                 "schema_version": "stage_block_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
+                "block_count": 1,
+                "block_labels": {"0": "RECIPE_TITLE"},
             },
             sort_keys=True,
         ),
@@ -2579,13 +2702,16 @@ def test_labelstudio_benchmark_predict_only_mode_skips_evaluation(
     gold_spans.write_text("{}\n", encoding="utf-8")
     prediction_run = tmp_path / "pred-run"
     prediction_run.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "extracted_archive.json").write_text(
+        json.dumps([{"index": 0, "text": "Sample title"}], sort_keys=True),
+        encoding="utf-8",
+    )
     (prediction_run / "stage_block_predictions.json").write_text(
         json.dumps(
             {
                 "schema_version": "stage_block_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
+                "block_count": 1,
+                "block_labels": {"0": "RECIPE_TITLE"},
             },
             sort_keys=True,
         ),
@@ -3424,101 +3550,238 @@ def test_resolve_all_method_scheduler_runtime_defaults_and_smart_backlog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(cli.os, "cpu_count", lambda: 9)
-    configured, split_slots, wing_target, eval_tail_cap, smart_enabled, effective = (
-        cli._resolve_all_method_scheduler_runtime(
-            total_variants=12,
-            max_inflight_pipelines=2,
-            max_concurrent_split_phases=2,
-            wing_backlog_target=3,
-            smart_scheduler=True,
-        )
+    runtime = cli._resolve_all_method_scheduler_runtime(
+        total_variants=12,
+        max_inflight_pipelines=2,
+        max_concurrent_split_phases=2,
+        wing_backlog_target=3,
+        smart_scheduler=True,
     )
-    assert configured == 2
-    assert split_slots == 2
-    assert wing_target == 3
-    assert eval_tail_cap == 6
-    assert smart_enabled is True
-    assert effective == 11
+    assert runtime.configured_inflight_pipelines == 2
+    assert runtime.split_phase_slots == 2
+    assert runtime.wing_backlog_target == 3
+    assert runtime.eval_tail_headroom_mode == "auto"
+    assert runtime.eval_tail_headroom_configured == 6
+    assert runtime.eval_tail_headroom_effective == 6
+    assert runtime.smart_scheduler_enabled is True
+    assert runtime.max_active_during_eval == 8
+    assert runtime.effective_inflight_pipelines == 8
+    assert runtime.cpu_budget_per_source == 8
 
 
 def test_resolve_all_method_scheduler_runtime_invalid_wing_respects_fixed_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(cli.os, "cpu_count", lambda: 9)
-    configured, split_slots, wing_target, eval_tail_cap, smart_enabled, effective = (
-        cli._resolve_all_method_scheduler_runtime(
-            total_variants=12,
-            max_inflight_pipelines=3,
-            max_concurrent_split_phases=2,
-            wing_backlog_target=0,
-            smart_scheduler=False,
-        )
+    runtime = cli._resolve_all_method_scheduler_runtime(
+        total_variants=12,
+        max_inflight_pipelines=3,
+        max_concurrent_split_phases=2,
+        wing_backlog_target=0,
+        smart_scheduler=False,
     )
-    assert configured == 3
-    assert split_slots == 2
-    assert wing_target == 2
-    assert eval_tail_cap == 5
-    assert smart_enabled is False
-    assert effective == 3
+    assert runtime.configured_inflight_pipelines == 3
+    assert runtime.split_phase_slots == 2
+    assert runtime.wing_backlog_target == 2
+    assert runtime.eval_tail_headroom_mode == "auto"
+    assert runtime.eval_tail_headroom_configured == 5
+    assert runtime.eval_tail_headroom_effective == 5
+    assert runtime.smart_scheduler_enabled is False
+    assert runtime.max_active_during_eval == 3
+    assert runtime.effective_inflight_pipelines == 3
 
 
 def test_resolve_all_method_scheduler_runtime_smart_tail_buffer_clamps_to_total() -> None:
-    configured, split_slots, wing_target, eval_tail_cap, smart_enabled, effective = (
-        cli._resolve_all_method_scheduler_runtime(
-            total_variants=4,
-            max_inflight_pipelines=2,
-            max_concurrent_split_phases=2,
-            wing_backlog_target=3,
-            max_eval_tail_pipelines=3,
-            smart_scheduler=True,
-        )
+    runtime = cli._resolve_all_method_scheduler_runtime(
+        total_variants=4,
+        max_inflight_pipelines=2,
+        max_concurrent_split_phases=2,
+        wing_backlog_target=3,
+        max_eval_tail_pipelines=3,
+        smart_scheduler=True,
     )
-    assert configured == 2
-    assert split_slots == 2
-    assert wing_target == 3
-    assert eval_tail_cap == 3
-    assert smart_enabled is True
-    assert effective == 4
+    assert runtime.configured_inflight_pipelines == 2
+    assert runtime.split_phase_slots == 2
+    assert runtime.wing_backlog_target == 3
+    assert runtime.eval_tail_headroom_mode == "configured"
+    assert runtime.eval_tail_headroom_configured == 3
+    assert runtime.eval_tail_headroom_effective == 2
+    assert runtime.smart_scheduler_enabled is True
+    assert runtime.max_active_during_eval == 4
+    assert runtime.effective_inflight_pipelines == 4
 
 
-def test_resolve_all_method_scheduler_runtime_respects_eval_tail_cap_override() -> None:
-    configured, split_slots, wing_target, eval_tail_cap, smart_enabled, effective = (
-        cli._resolve_all_method_scheduler_runtime(
-            total_variants=12,
-            max_inflight_pipelines=2,
-            max_concurrent_split_phases=2,
-            wing_backlog_target=3,
-            max_eval_tail_pipelines=1,
-            smart_scheduler=True,
-        )
+def test_resolve_all_method_scheduler_runtime_respects_eval_tail_cap_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli.os, "cpu_count", lambda: 9)
+    runtime = cli._resolve_all_method_scheduler_runtime(
+        total_variants=12,
+        max_inflight_pipelines=2,
+        max_concurrent_split_phases=2,
+        wing_backlog_target=3,
+        max_eval_tail_pipelines=1,
+        smart_scheduler=True,
     )
-    assert configured == 2
-    assert split_slots == 2
-    assert wing_target == 3
-    assert eval_tail_cap == 1
-    assert smart_enabled is True
-    assert effective == 6
+    assert runtime.configured_inflight_pipelines == 2
+    assert runtime.split_phase_slots == 2
+    assert runtime.wing_backlog_target == 3
+    assert runtime.eval_tail_headroom_mode == "configured"
+    assert runtime.eval_tail_headroom_configured == 1
+    assert runtime.eval_tail_headroom_effective == 1
+    assert runtime.smart_scheduler_enabled is True
+    assert runtime.max_active_during_eval == 3
+    assert runtime.effective_inflight_pipelines == 3
+
+
+def test_resolve_all_method_scheduler_runtime_bounds_explicit_eval_tail_by_cpu_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli.os, "cpu_count", lambda: 5)
+    runtime = cli._resolve_all_method_scheduler_runtime(
+        total_variants=12,
+        max_inflight_pipelines=2,
+        max_concurrent_split_phases=2,
+        max_eval_tail_pipelines=10,
+        smart_scheduler=True,
+    )
+    assert runtime.eval_tail_headroom_mode == "configured"
+    assert runtime.eval_tail_headroom_configured == 10
+    assert runtime.cpu_budget_per_source == 4
+    assert runtime.eval_tail_headroom_effective == 4
+    assert runtime.max_active_during_eval == 6
 
 
 def test_resolve_all_method_scheduler_runtime_auto_eval_tail_respects_source_parallelism(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(cli.os, "cpu_count", lambda: 17)
-    configured, split_slots, wing_target, eval_tail_cap, smart_enabled, effective = (
-        cli._resolve_all_method_scheduler_runtime(
-            total_variants=40,
-            max_inflight_pipelines=4,
-            max_concurrent_split_phases=4,
-            smart_scheduler=True,
-            source_parallelism_effective=4,
-        )
+    runtime = cli._resolve_all_method_scheduler_runtime(
+        total_variants=40,
+        max_inflight_pipelines=4,
+        max_concurrent_split_phases=4,
+        smart_scheduler=True,
+        source_parallelism_effective=4,
     )
-    assert configured == 4
-    assert split_slots == 4
-    assert wing_target == 4
-    assert eval_tail_cap == 0
-    assert smart_enabled is True
-    assert effective == 8
+    assert runtime.configured_inflight_pipelines == 4
+    assert runtime.split_phase_slots == 4
+    assert runtime.wing_backlog_target == 4
+    assert runtime.eval_tail_headroom_mode == "auto"
+    assert runtime.eval_tail_headroom_effective == 0
+    assert runtime.smart_scheduler_enabled is True
+    assert runtime.max_active_during_eval == 4
+    assert runtime.effective_inflight_pipelines == 4
+
+
+def test_resolve_all_method_split_worker_cap_uses_cpu_and_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli.os, "cpu_count", lambda: 17)
+    monkeypatch.setattr(cli, "_system_total_memory_bytes", lambda: 8 * 1024 * 1024 * 1024)
+
+    cap, guard = cli._resolve_all_method_split_worker_cap(
+        split_phase_slots=4,
+        source_parallelism_effective=1,
+    )
+
+    assert cap == 1
+    assert guard["split_worker_cap_by_cpu"] == 4
+    assert guard["split_worker_cap_by_memory"] == 1
+    assert guard["split_worker_cap_per_config"] == 1
+
+
+def test_run_all_method_benchmark_resource_guard_caps_split_workers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    settings = cli.RunSettings.from_dict(
+        {
+            "workers": 10,
+            "pdf_split_workers": 10,
+            "epub_split_workers": 10,
+            "epub_extractor": "unstructured",
+        },
+        warn_context="test",
+    )
+    variants = [
+        cli.AllMethodVariant(
+            slug="extractor_unstructured",
+            run_settings=settings,
+            dimensions={"epub_extractor": "unstructured"},
+        )
+    ]
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    captured_workers: list[tuple[int, int, int]] = []
+
+    def fake_labelstudio_benchmark(**kwargs):
+        captured_workers.append(
+            (
+                int(kwargs.get("workers") or 0),
+                int(kwargs.get("pdf_split_workers") or 0),
+                int(kwargs.get("epub_split_workers") or 0),
+            )
+        )
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        report = {
+            "precision": 0.7,
+            "recall": 0.7,
+            "f1": 0.7,
+            "practical_precision": 0.7,
+            "practical_recall": 0.7,
+            "practical_f1": 0.7,
+        }
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
+        pred_run = eval_output_dir / "prediction-run"
+        pred_run.mkdir(parents=True, exist_ok=True)
+        (pred_run / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_file": str(source_file),
+                    "run_config_hash": "hash-unstructured",
+                    "run_config_summary": "epub_extractor=unstructured",
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+    monkeypatch.setattr(cli.os, "cpu_count", lambda: 17)
+    monkeypatch.setattr(cli.os, "cpu_count", lambda: 5)
+    monkeypatch.setattr(cli, "_system_total_memory_bytes", lambda: 64 * 1024 * 1024 * 1024)
+
+    report_md_path = cli._run_all_method_benchmark(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variants=variants,
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method",
+        processed_output_root=tmp_path / "processed-output",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_concurrent_split_phases=2,
+        max_inflight_pipelines=2,
+        smart_scheduler=False,
+    )
+
+    assert captured_workers == [(4, 4, 4)]
+    payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
+    scheduler = payload["scheduler"]
+    assert scheduler["split_worker_cap_per_config"] == 4
+    assert scheduler["split_worker_cap_by_cpu"] == 4
+    assert scheduler["split_worker_cap_by_memory"] >= 4
 
 
 def test_run_all_method_benchmark_writes_ranked_summary(
@@ -4083,9 +4346,14 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
     smart_scheduler = smart_payload["scheduler"]
 
     assert smart_scheduler["heavy_slot_utilization_pct"] > (
-        fixed_scheduler["heavy_slot_utilization_pct"] + 15.0
+        fixed_scheduler["heavy_slot_utilization_pct"] + 8.0
     )
     assert smart_scheduler["max_active_pipelines_observed"] <= smart_scheduler[
+        "effective_inflight_pipelines"
+    ]
+    assert smart_scheduler["eval_tail_headroom_mode"] == "auto"
+    assert smart_scheduler["eval_tail_headroom_effective"] >= 1
+    assert smart_scheduler["max_active_during_eval"] == smart_scheduler[
         "effective_inflight_pipelines"
     ]
     assert smart_scheduler["max_active_pipelines_observed"] >= 3

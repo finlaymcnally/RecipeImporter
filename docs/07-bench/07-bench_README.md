@@ -144,6 +144,7 @@ How it scores:
 Outputs include `eval_report.json/md` plus canonical diagnostics:
 - `missed_gold_lines.jsonl`
 - `wrong_label_lines.jsonl`
+- `aligned_prediction_blocks.jsonl`
 - `unmatched_pred_blocks.jsonl`
 - `alignment_gaps.jsonl`
 
@@ -185,8 +186,8 @@ All-method reports include timing rollups in per-source and combined summaries.
 - `--eval-mode stage-blocks` (default)
 - `--eval-mode canonical-text` (extractor-independent)
 - `--execution-mode legacy|pipelined|predict-only` (default `legacy`)
-- `--predictions-out <path>` writes a run-level prediction-record JSONL artifact
-- `--predictions-in <path>` skips prediction generation/upload and runs evaluate-only from the saved prediction record
+- `--predictions-out <path>` writes per-block prediction-record JSONL artifacts (`schema_kind=stage-block.v1`)
+- `--predictions-in <path>` skips prediction generation/upload and runs evaluate-only from saved prediction records (per-block records or legacy single-record run pointers)
 - `--execution-mode predict-only` generates prediction artifacts and optional prediction-record output without running evaluation
 - `--no-write-markdown` skips markdown sidecars in processed stage outputs
 - `--no-write-labelstudio-tasks` skips `label_studio_tasks.jsonl` for offline (`--no-upload`) prediction runs
@@ -222,7 +223,11 @@ Interactive benchmark from the main menu is now offline-only, with two modes:
     - `all_method_config_timeout_seconds`
     - `all_method_retry_failed_configs`
   - smart mode uses phase-aware admission from worker telemetry (`prep`, `split_wait`, `split_active`, `post`, `evaluate`) written to per-config JSONL files under `.scheduler_events/`.
-  - smart mode inflight resolution keeps split slots prewarmed (`split slots + wing backlog`) and allows extra inflight only when configs are in evaluate phase; the eval-tail cap is `all_method_max_eval_tail_pipelines` when explicitly set, otherwise CPU-aware auto headroom (`cpu_budget_per_source - configured_inflight`, clamped at `>=0`).
+  - smart mode computes eval-tail headroom as configured/effective values:
+    - configured headroom is explicit `all_method_max_eval_tail_pipelines` when provided, otherwise auto (`cpu_budget_per_source - configured_inflight`, clamped at `>=0`),
+    - effective headroom is bounded by per-source CPU budget and remaining variants.
+  - smart eval-tail admission cap is `max_active_during_eval = configured_inflight + eval_tail_headroom_effective`.
+  - scheduler reports now expose `eval_tail_headroom_mode`, `eval_tail_headroom_configured`, `eval_tail_headroom_effective`, and `max_active_during_eval` (legacy `max_eval_tail_pipelines` and `smart_tail_buffer_slots` remain as compatibility aliases).
   - fixed mode preserves classic refill-on-completion behavior.
   - per-config timeout watchdog is controlled by `all_method_config_timeout_seconds` (default `900`; `0` disables):
     - timeout marks that config failed,
@@ -231,6 +236,7 @@ Interactive benchmark from the main menu is now offline-only, with two modes:
     - retry passes rerun only failed config indices, not already successful configs.
   - if process workers cannot start, all-method still auto-falls back to serial.
   - split-worker-heavy conversion is slot-gated across configs, so at most four configs run split conversion concurrently while other configs can pre/post-process.
+  - all-method applies a runtime resource guard that caps split workers per active config from CPU+memory budgets; scheduler summaries report `split_worker_cap_per_config` plus cpu/memory cap components.
   - spinner/dashboard task output includes a scheduler state line: `scheduler heavy X/Y | wing Z | eval E | active A | pending P`.
   - when multiple configs are active, dashboard expands active slots as worker lines (`config NN: <phase> | <slug>`).
   - all-matched queue can show more than one running source row (`[>]`) at once; dashboard summary includes `active sources: N`.
@@ -428,7 +434,7 @@ Merged discoveries (chronological):
 Durable rules:
 - Outer all-method scheduler decisions depend on worker phase telemetry (`prep`, `split_wait`, `split_active`, `post`, `evaluate`), not completion-only signals.
 - Smart admission quality depends on preserving a wing backlog while heavy slots are active.
-- Effective smart inflight includes bounded eval-tail headroom (`all_method_max_eval_tail_pipelines` override, otherwise CPU-aware auto headroom) so long evaluate tails do not starve new prewarm admissions.
+- Effective smart inflight is capped by `configured_inflight + eval_tail_headroom_effective`, where effective headroom is CPU-bounded and variant-bounded.
 - `.scheduler_events/config_###.jsonl` remains the source for both live admission signals and post-run utilization rollups.
 
 ### 15.3 Stalls, timeout, and failed-only retry contract
@@ -677,7 +683,7 @@ Merged source:
 Durable contract:
 - Canonical eval should enforce legacy full-book alignment; bounded fast alignment is deprecated due to accuracy risk.
 - Alignment strategy/fallback telemetry must be explicit in artifacts.
-- Smart scheduler treats evaluate tails separately from split-phase prewarm and caps tail-driven inflight growth with `all_method_max_eval_tail_pipelines`.
+- Smart scheduler treats evaluate tails separately from split-phase prewarm and caps tail-driven inflight growth with `configured_inflight + eval_tail_headroom_effective`.
 
 ### 17.10 2026-02-26_03.10.00 canonical-text default for all-method sweeps
 
@@ -767,7 +773,7 @@ Durable runtime/perf contract:
 - Canonical eval alignment enforces `legacy` for scoring correctness.
 - `auto` and `fast` requests are treated as deprecated aliases and are forced to legacy with explicit deprecation telemetry.
 - Canonical line-projection overlap loops use pointer-based interval sweeps.
-- Smart all-method scheduler has explicit evaluate-tail cap via `all_method_max_eval_tail_pipelines`.
+- Smart all-method scheduler has explicit evaluate-tail headroom with configured/effective reporting and max-active eval cap semantics (`configured_inflight + effective_headroom`).
 
 Important “known bad / pending” context preserved:
 - Task recorded implementation and regression tests as complete, but real SeaAndSmoke before/after acceptance timing thresholds were not captured in that pass.
@@ -816,9 +822,11 @@ Detailed chronology, requirement-level evidence, and anti-loop history now live 
   - optional disk-backed content-addressed cache in canonical evaluator.
   - all-method runs share per-source cache at `.cache/canonical_alignment`.
   - cache key safety includes canonical text, prediction text, and block-boundary signatures.
+  - closure evidence now includes a real miss->hit two-config all-method run plus dedicated cache concurrency tests (`docs/tasks/2026-02-27_11.29.26-speed1-3-remaining-closeout.md`).
 - Speed-4 (stage split and replay):
   - benchmark supports `--execution-mode legacy|pipelined|predict-only`.
-  - run-level prediction-record artifact supports `--predictions-out` and evaluate-only `--predictions-in`.
+  - per-block prediction-record artifacts support `--predictions-out` and evaluate-only `--predictions-in`.
+  - evaluate-only remains backward-compatible with legacy single-record run-pointer artifacts.
   - legacy mode remains default for compatibility.
 - Speed-5 (non-scoring artifact toggles):
   - stage supports `--no-write-markdown`.
@@ -830,18 +838,16 @@ Detailed chronology, requirement-level evidence, and anti-loop history now live 
 1. Evidence capture remains the main unresolved acceptance category:
    - speed-1 before/after timing + output-identity artifact.
    - speed-2 before/after all-method eval-tail utilization artifact.
-   - speed-3 cache hit-rate + wall-time artifact.
    - speed-4 `legacy` vs `pipelined` timing artifact.
    - speed-5 A/B write-time + scoring-parity artifact.
 2. Two OG-spec interpretation items may still require explicit decision:
-   - speed-4 per-example prediction-record boundary vs current run-level record contract.
    - speed-5 prepared-archive abstraction (`PreparedExtractedArchive`) vs current in-function archive reuse.
 
 ### 19.3 Anti-loop guardrails from merged tasks/audits
 
 - Do not re-open canonical fast-align shortcuts for scoring; canonical-text scoring remains accuracy-first legacy alignment.
 - Treat `--no-write-labelstudio-tasks` as offline-only; upload flows require tasks JSONL payloads.
-- When reviewing speed-3/speed-5 status, account for the audit update at `2026-02-26_22.23.35`; initial audit checklist entries before that timestamp are intentionally stale.
+- Speed-3 is now closed with dedicated tests + real miss->hit telemetry evidence; avoid reopening cache design unless normalization/alignment contracts change.
 - Benchmark speed discussions should include both runtime implementation state and evidence state; several speed items are functionally implemented but still evidence-incomplete.
 
 ## 20) Merged Understandings Batch (2026-02-26 to 2026-02-27 cleanup)
@@ -884,9 +890,9 @@ Merged sources in creation order:
 
 - Live all-method `ok/fail` counters are per-attempt and are not retroactively corrected after timeout recovery or retry passes.
 - Final source truth belongs in each `all_method_benchmark_report.json` (`failed_variants`, `retry_failed_configs_requested`, `retry_passes_executed`, `retry_recovered_configs`).
-- Smart admission already tracks evaluate-phase activity, but prewarm guard conditions (`heavy + wing >= target`) can still cap admissions in eval-heavy tails.
+- Smart admission tracks evaluate-phase activity and now enforces eval-tail growth against `configured_inflight + eval_tail_headroom_effective`; prewarm guard conditions still shape how quickly admissions refill heavy slots.
 - Throughput tuning should include:
-  - eval-tail cap behavior (`all_method_max_eval_tail_pipelines` or CPU-aware defaults),
+  - eval-tail headroom behavior (`all_method_max_eval_tail_pipelines` configured/effective resolution with CPU bounds),
   - prewarm guard targets while evaluation is active,
   - explicit scheduler caps from `cookimport.json` (`inflight`, `split_slots`, `eval_tail`, `wing_backlog`) that can otherwise underutilize multi-core hosts.
 
@@ -899,4 +905,4 @@ Merged sources in creation order:
   - run-local `.history/performance_history.csv` under all-method roots.
 - Stage-block scoring depends on `stage_block_predictions.json` and `extracted_archive.json`, not `label_studio_tasks.jsonl`.
 - Speed-5 toggle plumbing must stay consistent across stage single-file and split-merge paths, plus offline pred-run generation, with manifest status marking intentional task-jsonl skips.
-- Speed-4 execution overlap should rely on run-level prediction records and prediction/eval phase split; current practical replay boundary is run-level artifacts, not per-example streaming.
+- Speed-4 execution/replay now uses per-block prediction-record streams as the default contract; evaluate-only keeps compatibility with legacy run-pointer records.

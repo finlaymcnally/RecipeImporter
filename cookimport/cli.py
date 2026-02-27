@@ -28,7 +28,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from itertools import product
 from pathlib import Path
-from typing import Iterable, Dict, Any, Annotated, Callable, TypeVar, cast
+from typing import Iterable, Iterator, Dict, Any, Annotated, Callable, TypeVar, cast
 
 import questionary
 import typer
@@ -78,7 +78,7 @@ from cookimport.bench.eval_stage_blocks import (
 from cookimport.bench.prediction_records import (
     PredictionRecord,
     make_prediction_record,
-    read_single_prediction_record,
+    read_prediction_records,
     write_prediction_records,
 )
 from cookimport.labelstudio.client import LabelStudioClient
@@ -191,6 +191,9 @@ ALL_METHOD_MAX_EVAL_TAIL_DEFAULT = 4
 ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT = 900
 ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT = 1
 ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT = 2
+ALL_METHOD_RESOURCE_GUARD_RESERVE_RATIO = 0.35
+ALL_METHOD_RESOURCE_GUARD_MIN_RESERVE_BYTES = 2 * 1024 * 1024 * 1024
+ALL_METHOD_RESOURCE_GUARD_ESTIMATED_SPLIT_WORKER_BYTES = 768 * 1024 * 1024
 ALL_METHOD_MAX_INFLIGHT_SETTING_KEY = "all_method_max_inflight_pipelines"
 ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY = "all_method_max_split_phase_slots"
 ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY = "all_method_max_eval_tail_pipelines"
@@ -1449,14 +1452,7 @@ def _interactive_all_method_benchmark(
         total_sources=total_sources_selected,
         requested=max_parallel_sources,
     )
-    (
-        resolved_inflight_pipelines,
-        resolved_split_phase_slots,
-        resolved_wing_backlog_target,
-        resolved_eval_tail_pipelines,
-        resolved_smart_scheduler,
-        resolved_effective_inflight_pipelines,
-    ) = _resolve_all_method_scheduler_runtime(
+    scheduler_runtime = _resolve_all_method_scheduler_runtime(
         total_variants=total_selected_runs,
         max_inflight_pipelines=max_inflight_pipelines,
         max_concurrent_split_phases=max_concurrent_split_phases,
@@ -1465,6 +1461,22 @@ def _interactive_all_method_benchmark(
         smart_scheduler=smart_scheduler,
         source_parallelism_effective=source_parallelism_effective,
     )
+    resolved_inflight_pipelines = scheduler_runtime.configured_inflight_pipelines
+    resolved_split_phase_slots = scheduler_runtime.split_phase_slots
+    resolved_wing_backlog_target = scheduler_runtime.wing_backlog_target
+    resolved_eval_tail_headroom_configured = (
+        scheduler_runtime.eval_tail_headroom_configured
+    )
+    resolved_eval_tail_headroom_effective = (
+        scheduler_runtime.eval_tail_headroom_effective
+    )
+    resolved_eval_tail_mode = scheduler_runtime.eval_tail_headroom_mode
+    resolved_smart_scheduler = scheduler_runtime.smart_scheduler_enabled
+    resolved_max_active_during_eval = scheduler_runtime.max_active_during_eval
+    resolved_effective_inflight_pipelines = (
+        scheduler_runtime.effective_inflight_pipelines
+    )
+    resolved_cpu_budget_per_source = scheduler_runtime.cpu_budget_per_source
     resolved_config_timeout_seconds = _resolve_all_method_config_timeout_seconds(
         config_timeout_seconds
     )
@@ -1477,7 +1489,6 @@ def _interactive_all_method_benchmark(
         else "off"
     )
     scheduler_mode = "smart" if resolved_smart_scheduler else "fixed"
-    smart_tail_buffer_display = str(resolved_eval_tail_pipelines) if resolved_smart_scheduler else "0"
     typer.secho(
         (
             "Scheduler: "
@@ -1490,15 +1501,17 @@ def _interactive_all_method_benchmark(
             f"effective inflight={resolved_effective_inflight_pipelines}, "
             f"split slots={resolved_split_phase_slots} "
             f"(default {ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT}), "
-            f"eval tail cap={resolved_eval_tail_pipelines} "
-            "(default cpu-aware auto), "
+            f"eval headroom ({resolved_eval_tail_mode}) configured/effective="
+            f"{resolved_eval_tail_headroom_configured}/"
+            f"{resolved_eval_tail_headroom_effective}, "
+            f"max active during eval={resolved_max_active_during_eval}, "
+            f"cpu budget/source={resolved_cpu_budget_per_source}, "
             f"config timeout={timeout_display} "
             f"(default {ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT}s), "
             f"failed retries={resolved_retry_failed_configs} "
             f"(default {ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT}), "
             f"wing backlog={resolved_wing_backlog_target} "
-            "(default split slots), "
-            f"smart tail buffer={smart_tail_buffer_display}"
+            "(default split slots)"
         ),
         fg=typer.colors.BRIGHT_BLACK,
     )
@@ -1549,7 +1562,7 @@ def _interactive_all_method_benchmark(
                 max_parallel_sources=max_parallel_sources,
                 max_inflight_pipelines=resolved_inflight_pipelines,
                 max_concurrent_split_phases=resolved_split_phase_slots,
-                max_eval_tail_pipelines=resolved_eval_tail_pipelines,
+                max_eval_tail_pipelines=max_eval_tail_pipelines,
                 config_timeout_seconds=resolved_config_timeout_seconds,
                 retry_failed_configs=resolved_retry_failed_configs,
                 wing_backlog_target=resolved_wing_backlog_target,
@@ -1591,7 +1604,7 @@ def _interactive_all_method_benchmark(
                     dashboard_source_index=0,
                     max_inflight_pipelines=resolved_inflight_pipelines,
                     max_concurrent_split_phases=resolved_split_phase_slots,
-                    max_eval_tail_pipelines=resolved_eval_tail_pipelines,
+                    max_eval_tail_pipelines=max_eval_tail_pipelines,
                     config_timeout_seconds=resolved_config_timeout_seconds,
                     retry_failed_configs=resolved_retry_failed_configs,
                     wing_backlog_target=resolved_wing_backlog_target,
@@ -4000,30 +4013,28 @@ def _build_prediction_bundle_from_import_result(
     )
 
 
-def _benchmark_prediction_record_from_bundle(
+_BENCHMARK_PREDICTION_RECORD_STAGE_KIND = "stage-block.v1"
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+def _prediction_record_meta_from_bundle(
     *,
     bundle: BenchmarkPredictionBundle,
     selected_source: Path,
-) -> PredictionRecord:
-    def _json_safe(value: Any) -> Any:
-        if isinstance(value, Path):
-            return str(value)
-        if isinstance(value, dict):
-            return {str(key): _json_safe(item) for key, item in value.items()}
-        if isinstance(value, (list, tuple)):
-            return [_json_safe(item) for item in value]
-        return value
-
-    source_identifier = bundle.pred_context.source_hash or str(selected_source)
+    workbook_slug: str | None,
+) -> dict[str, Any]:
     timing_payload = bundle.import_result.get("timing")
     if not isinstance(timing_payload, dict):
         timing_payload = {}
-
-    prediction_payload: dict[str, Any] = {
-        "pred_run_dir": str(bundle.pred_run),
-        "stage_block_predictions_path": str(bundle.stage_predictions_path),
-        "extracted_archive_path": str(bundle.extracted_archive_path),
-    }
     predict_meta: dict[str, Any] = {
         "source_file": str(selected_source),
         "source_hash": bundle.pred_context.source_hash,
@@ -4036,17 +4047,107 @@ def _benchmark_prediction_record_from_bundle(
         "run_config_summary": bundle.pred_context.run_config_summary,
         "recipes": bundle.pred_context.recipes,
         "timing": _json_safe(timing_payload),
+        "pred_run_dir": str(bundle.pred_run),
+        "workbook_slug": str(workbook_slug or "").strip() or None,
     }
     # Keep JSON payload compact and stable by dropping null-valued metadata keys.
-    predict_meta = {
+    return {
         key: value for key, value in predict_meta.items() if value is not None
     }
-    return make_prediction_record(
-        example_id=f"labelstudio-benchmark:{source_identifier}",
-        example_index=0,
-        prediction=prediction_payload,
-        predict_meta=predict_meta,
+
+
+def _load_stage_block_prediction_payload(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"Unable to read stage block predictions from {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"Stage block predictions payload at {path} is not a JSON object.")
+    return payload
+
+
+def _load_extracted_archive_blocks(path: Path) -> dict[int, dict[str, Any]]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"Unable to read extracted archive from {path}: {exc}") from exc
+
+    records: list[dict[str, Any]]
+    if isinstance(payload, list):
+        records = [row for row in payload if isinstance(row, dict)]
+    elif isinstance(payload, dict):
+        blocks_payload = payload.get("blocks")
+        if isinstance(blocks_payload, list):
+            records = [row for row in blocks_payload if isinstance(row, dict)]
+        else:
+            records = []
+    else:
+        records = []
+
+    indexed: dict[int, dict[str, Any]] = {}
+    for fallback_index, row in enumerate(records):
+        raw_index = row.get("index")
+        block_index = _coerce_int(raw_index)
+        if block_index is None:
+            block_index = _coerce_int(row.get("block_index"))
+        if block_index is None:
+            block_index = fallback_index
+        location = row.get("location")
+        if not isinstance(location, dict):
+            location = {}
+        features = location.get("features")
+        if not isinstance(features, dict):
+            features = {}
+        indexed[int(block_index)] = {
+            "text": str(row.get("text") or ""),
+            "features": dict(features),
+        }
+    return indexed
+
+
+def predict_stage(
+    *,
+    bundle: BenchmarkPredictionBundle,
+    selected_source: Path,
+) -> Iterator[PredictionRecord]:
+    stage_payload = _load_stage_block_prediction_payload(bundle.stage_predictions_path)
+    raw_block_labels = stage_payload.get("block_labels")
+    if not isinstance(raw_block_labels, dict):
+        raise ValueError(
+            "Stage block predictions payload is missing block_labels map."
+        )
+    block_labels: dict[int, str] = {}
+    for raw_index, raw_label in raw_block_labels.items():
+        block_index = _coerce_int(raw_index)
+        if block_index is None or block_index < 0:
+            continue
+        normalized_label = str(raw_label or "").strip() or "OTHER"
+        block_labels[block_index] = normalized_label
+
+    extracted_blocks = _load_extracted_archive_blocks(bundle.extracted_archive_path)
+    all_indices = sorted(set(block_labels) | set(extracted_blocks))
+    source_identifier = bundle.pred_context.source_hash or str(selected_source)
+    workbook_slug = str(stage_payload.get("workbook_slug") or "").strip()
+    predict_meta = _prediction_record_meta_from_bundle(
+        bundle=bundle,
+        selected_source=selected_source,
+        workbook_slug=workbook_slug,
     )
+    for block_index in all_indices:
+        block_payload = extracted_blocks.get(block_index, {})
+        prediction_payload: dict[str, Any] = {
+            "schema_kind": _BENCHMARK_PREDICTION_RECORD_STAGE_KIND,
+            "block_index": int(block_index),
+            "pred_label": block_labels.get(block_index, "OTHER"),
+            "block_text": str(block_payload.get("text") or ""),
+            "block_features": dict(block_payload.get("features") or {}),
+        }
+        yield make_prediction_record(
+            example_id=f"labelstudio-benchmark:{source_identifier}:block:{block_index}",
+            example_index=int(block_index),
+            prediction=prediction_payload,
+            predict_meta=predict_meta,
+        )
 
 
 def _prediction_record_path_value(
@@ -4065,12 +4166,45 @@ def _prediction_record_path_value(
     return path_value
 
 
-def _build_prediction_bundle_from_record(
+def _prediction_record_is_legacy_pointer(record: PredictionRecord) -> bool:
+    required_fields = (
+        "stage_block_predictions_path",
+        "extracted_archive_path",
+    )
+    for field_name in required_fields:
+        if not str(record.prediction.get(field_name) or "").strip():
+            return False
+    return True
+
+
+def _prediction_record_stage_row(
+    record: PredictionRecord,
+) -> tuple[int, str, str, dict[str, Any]] | None:
+    schema_kind = str(record.prediction.get("schema_kind") or "").strip()
+    if schema_kind and schema_kind != _BENCHMARK_PREDICTION_RECORD_STAGE_KIND:
+        return None
+    if "block_index" not in record.prediction:
+        return None
+
+    block_index = _coerce_int(record.prediction.get("block_index"))
+    if block_index is None or block_index < 0:
+        raise ValueError(
+            f"Prediction record {record.example_id} has invalid block_index."
+        )
+    pred_label = str(record.prediction.get("pred_label") or "").strip() or "OTHER"
+    block_text = str(record.prediction.get("block_text") or "")
+    block_features_payload = record.prediction.get("block_features")
+    if not isinstance(block_features_payload, dict):
+        block_features_payload = {}
+    return block_index, pred_label, block_text, dict(block_features_payload)
+
+
+def _build_prediction_bundle_from_legacy_record(
     *,
-    predictions_in: Path,
-    prediction_record: PredictionRecord | None = None,
+    record: PredictionRecord,
+    predictions_in: Path | None = None,
 ) -> BenchmarkPredictionBundle:
-    record = prediction_record or read_single_prediction_record(predictions_in)
+    _ = predictions_in
     stage_predictions_path = _prediction_record_path_value(
         record=record,
         field_name="stage_block_predictions_path",
@@ -4126,6 +4260,332 @@ def _build_prediction_bundle_from_record(
         extracted_archive_path=extracted_archive_path,
         prediction_phase_seconds=max(0.0, prediction_phase_seconds),
     )
+
+
+def _build_prediction_bundle_from_stage_records(
+    *,
+    prediction_records: list[PredictionRecord],
+    replay_output_dir: Path,
+) -> BenchmarkPredictionBundle:
+    if not prediction_records:
+        raise ValueError("Prediction record file is empty.")
+
+    seen_example_ids: set[str] = set()
+    seen_example_indices: set[int] = set()
+    block_rows: dict[int, dict[str, Any]] = {}
+    first_meta: dict[str, Any] = {}
+    for record in prediction_records:
+        if record.example_id in seen_example_ids:
+            raise ValueError(
+                f"Prediction record file contains duplicate example_id: {record.example_id}"
+            )
+        if record.example_index in seen_example_indices:
+            raise ValueError(
+                "Prediction record file contains duplicate example_index: "
+                f"{record.example_index}"
+            )
+        seen_example_ids.add(record.example_id)
+        seen_example_indices.add(record.example_index)
+        stage_row = _prediction_record_stage_row(record)
+        if stage_row is None:
+            raise ValueError(
+                "Prediction record file contains unsupported record payload. "
+                "Expected per-block stage records."
+            )
+        block_index, pred_label, block_text, block_features = stage_row
+        if int(record.example_index) != int(block_index):
+            raise ValueError(
+                "Prediction record example_index does not match block_index for "
+                f"{record.example_id}."
+            )
+        if block_index in block_rows:
+            raise ValueError(
+                f"Prediction record file contains duplicate block_index: {block_index}"
+            )
+        block_rows[block_index] = {
+            "pred_label": pred_label,
+            "block_text": block_text,
+            "block_features": block_features,
+        }
+        if not first_meta:
+            first_meta = dict(record.predict_meta)
+
+    if not block_rows:
+        raise ValueError("Prediction record file contains no stage-block records.")
+
+    ordered_indices = sorted(block_rows)
+    max_block_index = ordered_indices[-1]
+    expected_indices = list(range(max_block_index + 1))
+    missing_indices = [
+        block_index for block_index in expected_indices if block_index not in block_rows
+    ]
+    if missing_indices:
+        missing_preview = ",".join(str(value) for value in missing_indices[:10])
+        raise ValueError(
+            "Prediction record block indices are not contiguous from 0. "
+            f"Missing: {missing_preview}"
+        )
+
+    source_file = str(first_meta.get("source_file") or "")
+    source_hash = str(first_meta.get("source_hash") or "").strip() or "unknown"
+    workbook_slug = str(first_meta.get("workbook_slug") or "").strip()
+    label_blocks: dict[str, list[int]] = {}
+    stage_labels: dict[str, str] = {}
+    extracted_rows: list[dict[str, Any]] = []
+    for block_index in expected_indices:
+        row = block_rows[block_index]
+        pred_label = str(row.get("pred_label") or "OTHER").strip() or "OTHER"
+        stage_labels[str(block_index)] = pred_label
+        label_blocks.setdefault(pred_label, []).append(block_index)
+        extracted_rows.append(
+            {
+                "index": block_index,
+                "text": str(row.get("block_text") or ""),
+                "location": {
+                    "features": dict(row.get("block_features") or {}),
+                },
+            }
+        )
+
+    replay_output_dir.mkdir(parents=True, exist_ok=True)
+    stage_predictions_path = replay_output_dir / "stage_block_predictions.from_records.json"
+    extracted_archive_path = replay_output_dir / "extracted_archive.from_records.json"
+    stage_payload: dict[str, Any] = {
+        "schema_version": "stage_block_predictions.v1",
+        "source_file": source_file,
+        "source_hash": source_hash,
+        "workbook_slug": workbook_slug,
+        "block_count": len(expected_indices),
+        "block_labels": stage_labels,
+        "label_blocks": label_blocks,
+        "conflicts": [],
+        "notes": ["Reconstructed from per-example prediction records."],
+    }
+    stage_predictions_path.write_text(
+        json.dumps(stage_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    extracted_archive_path.write_text(
+        json.dumps(extracted_rows, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    pred_run_value = str(first_meta.get("pred_run_dir") or "").strip()
+    pred_run = Path(pred_run_value) if pred_run_value else replay_output_dir
+    if not pred_run.exists() or not pred_run.is_dir():
+        pred_run = replay_output_dir
+    run_config_payload = first_meta.get("run_config")
+    run_config = run_config_payload if isinstance(run_config_payload, dict) else None
+    timing_payload = first_meta.get("timing")
+    if not isinstance(timing_payload, dict):
+        timing_payload = {}
+    import_result: dict[str, Any] = {
+        "run_root": str(pred_run),
+        "stage_block_predictions_path": str(stage_predictions_path),
+        "processed_report_path": str(first_meta.get("processed_report_path") or ""),
+        "processed_run_root": str(first_meta.get("processed_run_root") or ""),
+        "timing": timing_payload,
+    }
+    prediction_phase_seconds = _report_optional_metric(
+        import_result["timing"].get("prediction_seconds")
+    )
+    if prediction_phase_seconds is None:
+        prediction_phase_seconds = _report_optional_metric(
+            import_result["timing"].get("total_seconds")
+        )
+    if prediction_phase_seconds is None:
+        prediction_phase_seconds = 0.0
+
+    pred_context = PredRunContext(
+        recipes=_coerce_int(first_meta.get("recipes")),
+        processed_report_path=str(first_meta.get("processed_report_path") or ""),
+        stage_block_predictions_path=str(stage_predictions_path),
+        source_file=source_file,
+        source_hash=source_hash if source_hash != "unknown" else None,
+        run_config=run_config,
+        run_config_hash=str(first_meta.get("run_config_hash") or "").strip() or None,
+        run_config_summary=str(first_meta.get("run_config_summary") or "").strip() or None,
+    )
+    return BenchmarkPredictionBundle(
+        import_result=import_result,
+        pred_run=pred_run,
+        pred_context=pred_context,
+        stage_predictions_path=stage_predictions_path,
+        extracted_archive_path=extracted_archive_path,
+        prediction_phase_seconds=max(0.0, prediction_phase_seconds),
+    )
+
+
+def _build_prediction_bundle_from_records(
+    *,
+    predictions_in: Path,
+    prediction_records: list[PredictionRecord],
+    replay_output_dir: Path,
+) -> BenchmarkPredictionBundle:
+    if not prediction_records:
+        raise ValueError(f"Prediction record file is empty: {predictions_in}")
+
+    legacy_record_candidates = [
+        record
+        for record in prediction_records
+        if _prediction_record_is_legacy_pointer(record)
+    ]
+    stage_record_candidates: list[PredictionRecord] = []
+    for record in prediction_records:
+        stage_row = _prediction_record_stage_row(record)
+        if stage_row is not None:
+            stage_record_candidates.append(record)
+
+    if legacy_record_candidates and stage_record_candidates:
+        raise ValueError(
+            "Prediction record file mixes legacy run-pointer and per-block records."
+        )
+    if legacy_record_candidates:
+        if len(prediction_records) != 1:
+            raise ValueError(
+                "Legacy prediction record input must contain exactly one record."
+            )
+        return _build_prediction_bundle_from_legacy_record(
+            record=legacy_record_candidates[0],
+            predictions_in=predictions_in,
+        )
+    if len(stage_record_candidates) != len(prediction_records):
+        raise ValueError(
+            "Prediction record file contains unsupported record payload(s)."
+        )
+    return _build_prediction_bundle_from_stage_records(
+        prediction_records=stage_record_candidates,
+        replay_output_dir=replay_output_dir,
+    )
+
+
+def _prediction_record_source_file_hint(
+    records: list[PredictionRecord],
+) -> Path | None:
+    for record in records:
+        source_hint = str(record.predict_meta.get("source_file") or "").strip()
+        if not source_hint:
+            continue
+        source_candidate = Path(source_hint)
+        if source_candidate.exists() and source_candidate.is_file():
+            return source_candidate
+    return None
+
+
+def run_legacy(
+    *,
+    run_prediction_bundle: Callable[[], BenchmarkPredictionBundle],
+    selected_source: Path,
+) -> tuple[BenchmarkPredictionBundle, list[PredictionRecord]]:
+    prediction_bundle = run_prediction_bundle()
+    prediction_records = list(
+        predict_stage(
+            bundle=prediction_bundle,
+            selected_source=selected_source,
+        )
+    )
+    return prediction_bundle, prediction_records
+
+
+def run_pipelined(
+    *,
+    run_prediction_bundle: Callable[[], BenchmarkPredictionBundle],
+    prewarm_evaluation_inputs: Callable[[], dict[str, Path] | None],
+    selected_source: Path,
+    queue_size: int = 64,
+) -> tuple[BenchmarkPredictionBundle, list[PredictionRecord], dict[str, Path] | None]:
+    record_queue: queue.Queue[PredictionRecord | object] = queue.Queue(
+        maxsize=max(1, int(queue_size))
+    )
+    result_queue: queue.Queue[BenchmarkPredictionBundle] = queue.Queue(maxsize=1)
+    error_queue: queue.Queue[BaseException] = queue.Queue(maxsize=1)
+    end_of_stream = object()
+
+    def _producer() -> None:
+        try:
+            prediction_bundle = run_prediction_bundle()
+            result_queue.put(prediction_bundle)
+            for record in predict_stage(
+                bundle=prediction_bundle,
+                selected_source=selected_source,
+            ):
+                record_queue.put(record)
+            record_queue.put(end_of_stream)
+        except BaseException as exc:  # noqa: BLE001
+            error_queue.put(exc)
+            record_queue.put(end_of_stream)
+
+    producer_thread = threading.Thread(
+        target=_producer,
+        name="benchmark-prediction-stage",
+        daemon=True,
+    )
+    producer_thread.start()
+    prewarmed_canonical_paths: dict[str, Path] | None = None
+    prewarm_error: BaseException | None = None
+    try:
+        prewarmed_canonical_paths = prewarm_evaluation_inputs()
+    except BaseException as exc:  # noqa: BLE001
+        prewarm_error = exc
+
+    prediction_records: list[PredictionRecord] = []
+    reached_end_of_stream = False
+    while not reached_end_of_stream:
+        try:
+            next_item = record_queue.get(timeout=0.1)
+        except queue.Empty:
+            if not producer_thread.is_alive() and not error_queue.empty():
+                break
+            continue
+        if next_item is end_of_stream:
+            reached_end_of_stream = True
+            continue
+        if isinstance(next_item, PredictionRecord):
+            prediction_records.append(next_item)
+            continue
+        raise RuntimeError("Benchmark prediction pipeline produced an invalid record.")
+
+    producer_thread.join()
+    if prewarm_error is not None:
+        raise prewarm_error
+    if not error_queue.empty():
+        raise error_queue.get()
+    if result_queue.empty():
+        raise RuntimeError(
+            "Pipelined benchmark prediction stage produced no output."
+        )
+    prediction_bundle = result_queue.get()
+    return prediction_bundle, prediction_records, prewarmed_canonical_paths
+
+
+def evaluate_stage(
+    *,
+    selected_eval_mode: str,
+    selected_gold: Path,
+    eval_output_dir: Path,
+    stage_predictions_path: Path,
+    extracted_archive_path: Path,
+    alignment_cache_dir: Path | None,
+    prewarmed_canonical_paths: dict[str, Path] | None,
+) -> tuple[dict[str, Any], Callable[[dict[str, Any]], str]]:
+    if selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT:
+        gold_export_root = selected_gold.parent
+        eval_result_local = evaluate_canonical_text(
+            gold_export_root=gold_export_root,
+            stage_predictions_json=stage_predictions_path,
+            extracted_blocks_json=extracted_archive_path,
+            out_dir=eval_output_dir,
+            alignment_cache_dir=alignment_cache_dir,
+            canonical_paths=prewarmed_canonical_paths,
+        )
+        return eval_result_local, format_canonical_eval_report_md
+    eval_result_local = evaluate_stage_blocks(
+        gold_freeform_jsonl=selected_gold,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=eval_output_dir,
+    )
+    return eval_result_local, format_stage_block_eval_report_md
 
 
 def _sum_bench_recipe_count(run_root: Path) -> int | None:
@@ -4654,6 +5114,87 @@ def _report_count(value: Any) -> int:
         return 0
 
 
+def _system_total_memory_bytes() -> int | None:
+    try:
+        page_size = int(os.sysconf("SC_PAGE_SIZE"))
+        page_count = int(os.sysconf("SC_PHYS_PAGES"))
+    except (AttributeError, OSError, ValueError):
+        page_size = 0
+        page_count = 0
+    total = page_size * page_count
+    if total > 0:
+        return total
+
+    meminfo_path = Path("/proc/meminfo")
+    if meminfo_path.exists():
+        try:
+            for line in meminfo_path.read_text(encoding="utf-8").splitlines():
+                if not line.startswith("MemTotal:"):
+                    continue
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                kib = int(parts[1])
+                if kib > 0:
+                    return kib * 1024
+        except (OSError, ValueError):
+            return None
+    return None
+
+
+def _resolve_all_method_split_worker_cap(
+    *,
+    split_phase_slots: int,
+    source_parallelism_effective: int | None = None,
+) -> tuple[int, dict[str, Any]]:
+    slots = max(1, _report_count(split_phase_slots))
+    source_parallelism = _report_count(source_parallelism_effective)
+    if source_parallelism <= 0:
+        source_parallelism = 1
+
+    cpu_total = max(1, int(os.cpu_count() or 1))
+    cpu_budget_total = max(1, cpu_total - 1)
+    cpu_budget_per_source = max(1, cpu_budget_total // source_parallelism)
+    split_worker_cap_by_cpu = max(1, cpu_budget_per_source // slots)
+
+    memory_total_bytes = _system_total_memory_bytes()
+    split_worker_cap_by_memory: int | None = None
+    memory_budget_per_source_bytes: int | None = None
+    if memory_total_bytes is not None and memory_total_bytes > 0:
+        reserve_bytes = max(
+            ALL_METHOD_RESOURCE_GUARD_MIN_RESERVE_BYTES,
+            int(memory_total_bytes * ALL_METHOD_RESOURCE_GUARD_RESERVE_RATIO),
+        )
+        usable_bytes = max(
+            ALL_METHOD_RESOURCE_GUARD_ESTIMATED_SPLIT_WORKER_BYTES,
+            memory_total_bytes - reserve_bytes,
+        )
+        memory_budget_per_source_bytes = max(
+            ALL_METHOD_RESOURCE_GUARD_ESTIMATED_SPLIT_WORKER_BYTES,
+            usable_bytes // source_parallelism,
+        )
+        workers_by_memory_per_source = max(
+            1,
+            memory_budget_per_source_bytes
+            // ALL_METHOD_RESOURCE_GUARD_ESTIMATED_SPLIT_WORKER_BYTES,
+        )
+        split_worker_cap_by_memory = max(1, workers_by_memory_per_source // slots)
+
+    split_worker_cap = split_worker_cap_by_cpu
+    if split_worker_cap_by_memory is not None:
+        split_worker_cap = min(split_worker_cap, split_worker_cap_by_memory)
+
+    return split_worker_cap, {
+        "cpu_total": cpu_total,
+        "cpu_budget_per_source": cpu_budget_per_source,
+        "memory_total_bytes": memory_total_bytes,
+        "memory_budget_per_source_bytes": memory_budget_per_source_bytes,
+        "split_worker_cap_by_cpu": split_worker_cap_by_cpu,
+        "split_worker_cap_by_memory": split_worker_cap_by_memory,
+        "split_worker_cap_per_config": split_worker_cap,
+    }
+
+
 def _resolve_all_method_source_parallelism(
     *,
     total_sources: int,
@@ -4698,6 +5239,22 @@ def _resolve_all_method_scheduler_limits(
     return inflight, split_slots
 
 
+@dataclass(frozen=True)
+class _AllMethodSchedulerRuntime:
+    configured_inflight_pipelines: int
+    split_phase_slots: int
+    wing_backlog_target: int
+    eval_tail_headroom_configured: int
+    eval_tail_headroom_effective: int
+    eval_tail_headroom_mode: str
+    smart_scheduler_enabled: bool
+    max_active_during_eval: int
+    effective_inflight_pipelines: int
+    source_parallelism_effective: int
+    cpu_budget_per_source: int
+    cpu_budget_total: int
+
+
 def _resolve_all_method_config_timeout_seconds(
     config_timeout_seconds: int | None,
 ) -> int | None:
@@ -4729,7 +5286,7 @@ def _resolve_all_method_scheduler_runtime(
     wing_backlog_target: int | None = None,
     smart_scheduler: bool | None = None,
     source_parallelism_effective: int | None = None,
-) -> tuple[int, int, int, int, bool, int]:
+) -> _AllMethodSchedulerRuntime:
     inflight, split_slots = _resolve_all_method_scheduler_limits(
         total_variants=total_variants,
         max_inflight_pipelines=max_inflight_pipelines,
@@ -4749,28 +5306,42 @@ def _resolve_all_method_scheduler_runtime(
     cpu_budget_per_source = max(1, cpu_budget_total // source_parallelism)
 
     eval_tail_requested = _report_count(max_eval_tail_pipelines)
+    eval_tail_mode = "configured" if eval_tail_requested > 0 else "auto"
     if eval_tail_requested > 0:
-        eval_tail_cap = max(0, min(eval_tail_requested, total))
+        eval_tail_configured = max(0, eval_tail_requested)
     else:
-        auto_eval_tail_cap = max(0, cpu_budget_per_source - inflight)
-        eval_tail_cap = max(0, min(auto_eval_tail_cap, total))
+        eval_tail_configured = max(0, cpu_budget_per_source - inflight)
+
+    # Eval-tail headroom is bounded to per-source CPU budget and available variants.
+    eval_tail_effective = max(
+        0,
+        min(
+            eval_tail_configured,
+            cpu_budget_per_source,
+            max(0, total - inflight),
+        ),
+    )
     smart_enabled = (
         True if smart_scheduler is None else _coerce_bool_setting(smart_scheduler, default=True)
     )
-    effective_inflight = inflight
+
+    max_active_during_eval = inflight
     if smart_enabled:
-        target_with_wing = min(total, split_slots + wing_target)
-        # Keep split slots fed while earlier configs are draining evaluate tails.
-        # The eval-tail cap bounds extra in-flight workers admitted in this scenario.
-        target_with_tail_buffer = min(total, target_with_wing + eval_tail_cap)
-        effective_inflight = max(effective_inflight, target_with_tail_buffer)
-    return (
-        inflight,
-        split_slots,
-        wing_target,
-        eval_tail_cap,
-        smart_enabled,
-        effective_inflight,
+        max_active_during_eval = min(total, inflight + eval_tail_effective)
+
+    return _AllMethodSchedulerRuntime(
+        configured_inflight_pipelines=inflight,
+        split_phase_slots=split_slots,
+        wing_backlog_target=wing_target,
+        eval_tail_headroom_configured=eval_tail_configured,
+        eval_tail_headroom_effective=eval_tail_effective,
+        eval_tail_headroom_mode=eval_tail_mode,
+        smart_scheduler_enabled=smart_enabled,
+        max_active_during_eval=max_active_during_eval,
+        effective_inflight_pipelines=max_active_during_eval if smart_enabled else inflight,
+        source_parallelism_effective=source_parallelism,
+        cpu_budget_per_source=cpu_budget_per_source,
+        cpu_budget_total=cpu_budget_total,
     )
 
 
@@ -4822,6 +5393,7 @@ def _run_all_method_config_once(
     split_phase_gate_dir: Path,
     scheduler_events_dir: Path,
     alignment_cache_dir: Path | None,
+    split_worker_cap_per_config: int | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     config_started = time.monotonic()
@@ -4893,6 +5465,28 @@ def _run_all_method_config_once(
     benchmark_progress_callback = progress_callback or _discard_progress
     _emit_scheduler_event("config_started")
 
+    requested_workers = max(1, _report_count(variant.run_settings.workers))
+    requested_pdf_split_workers = max(1, _report_count(variant.run_settings.pdf_split_workers))
+    requested_epub_split_workers = max(1, _report_count(variant.run_settings.epub_split_workers))
+    effective_split_worker_cap = (
+        max(1, _report_count(split_worker_cap_per_config))
+        if split_worker_cap_per_config is not None
+        else None
+    )
+    effective_workers = requested_workers
+    effective_pdf_split_workers = requested_pdf_split_workers
+    effective_epub_split_workers = requested_epub_split_workers
+    if effective_split_worker_cap is not None:
+        effective_workers = min(effective_workers, effective_split_worker_cap)
+        effective_pdf_split_workers = min(
+            effective_pdf_split_workers,
+            effective_split_worker_cap,
+        )
+        effective_epub_split_workers = min(
+            effective_epub_split_workers,
+            effective_split_worker_cap,
+        )
+
     try:
         with _benchmark_split_phase_overrides(
             split_phase_slots=split_slots,
@@ -4917,9 +5511,9 @@ def _run_all_method_config_once(
                         overlap_threshold=overlap_threshold,
                         force_source_match=force_source_match,
                         no_upload=True,
-                        workers=variant.run_settings.workers,
-                        pdf_split_workers=variant.run_settings.pdf_split_workers,
-                        epub_split_workers=variant.run_settings.epub_split_workers,
+                        workers=effective_workers,
+                        pdf_split_workers=effective_pdf_split_workers,
+                        epub_split_workers=effective_epub_split_workers,
                         pdf_pages_per_job=variant.run_settings.pdf_pages_per_job,
                         epub_spine_items_per_job=variant.run_settings.epub_spine_items_per_job,
                         ocr_device=variant.run_settings.ocr_device.value,
@@ -5125,11 +5719,26 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
                     f"{_report_count(scheduler.get('effective_inflight_pipelines'))}"
                 ),
                 (
-                    "- Split slots / wing target / eval tail cap / tail buffer: "
+                    "- Split slots / wing target: "
                     f"{_report_count(scheduler.get('split_phase_slots'))}/"
-                    f"{_report_count(scheduler.get('wing_backlog_target'))}/"
-                    f"{_report_count(scheduler.get('max_eval_tail_pipelines'))}/"
-                    f"{_report_count(scheduler.get('smart_tail_buffer_slots'))}"
+                    f"{_report_count(scheduler.get('wing_backlog_target'))}"
+                ),
+                (
+                    "- Eval-tail headroom mode configured/effective: "
+                    f"{scheduler.get('eval_tail_headroom_mode', 'auto')} "
+                    f"{_report_count(scheduler.get('eval_tail_headroom_configured'))}/"
+                    f"{_report_count(scheduler.get('eval_tail_headroom_effective'))}"
+                ),
+                (
+                    "- Max active during eval / effective inflight: "
+                    f"{_report_count(scheduler.get('max_active_during_eval'))}/"
+                    f"{_report_count(scheduler.get('effective_inflight_pipelines'))}"
+                ),
+                (
+                    "- Split worker cap per active config (cpu/memory): "
+                    f"{_report_count(scheduler.get('split_worker_cap_per_config'))}/"
+                    f"{_report_count(scheduler.get('split_worker_cap_by_cpu'))}/"
+                    f"{_report_count(scheduler.get('split_worker_cap_by_memory'))}"
                 ),
                 (
                     "- Config timeout / retry limit: "
@@ -5279,11 +5888,26 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
                     f"(sources { _report_count(scheduler_summary.get('source_count'))})"
                 ),
                 (
-                    "- Scheduler effective inflight / split slots / eval tail cap / tail buffer: "
+                    "- Scheduler effective inflight / split slots / wing target: "
                     f"{_report_count(scheduler_summary.get('effective_inflight_pipelines'))}/"
                     f"{_report_count(scheduler_summary.get('split_phase_slots'))}/"
-                    f"{_report_count(scheduler_summary.get('max_eval_tail_pipelines'))}/"
-                    f"{_report_count(scheduler_summary.get('smart_tail_buffer_slots'))}"
+                    f"{_report_count(scheduler_summary.get('wing_backlog_target'))}"
+                ),
+                (
+                    "- Scheduler eval-tail headroom mode configured/effective: "
+                    f"{scheduler_summary.get('eval_tail_headroom_mode', 'auto')} "
+                    f"{_report_count(scheduler_summary.get('eval_tail_headroom_configured'))}/"
+                    f"{_report_count(scheduler_summary.get('eval_tail_headroom_effective'))}"
+                ),
+                (
+                    "- Scheduler max active during eval: "
+                    f"{_report_count(scheduler_summary.get('max_active_during_eval'))}"
+                ),
+                (
+                    "- Scheduler split worker cap per active config (cpu/memory): "
+                    f"{_report_count(scheduler_summary.get('split_worker_cap_per_config'))}/"
+                    f"{_report_count(scheduler_summary.get('split_worker_cap_by_cpu'))}/"
+                    f"{_report_count(scheduler_summary.get('split_worker_cap_by_memory'))}"
                 ),
                 (
                     "- Scheduler heavy utilization: "
@@ -5862,12 +6486,22 @@ def _run_all_method_benchmark_multi_source(
     scheduler_max_wing_backlog = 0
     scheduler_max_active_pipelines = 0
     scheduler_max_eval_active = 0
+    scheduler_wing_backlog_target = 0
     scheduler_split_slots = 0
+    scheduler_split_worker_cap = 0
+    scheduler_split_worker_cap_by_cpu = 0
+    scheduler_split_worker_cap_by_memory = 0
     scheduler_smart_tail_buffer = 0
-    scheduler_eval_tail_cap = 0
+    scheduler_eval_tail_headroom_configured = 0
+    scheduler_eval_tail_headroom_effective = 0
+    scheduler_max_active_during_eval = 0
+    scheduler_source_parallelism_effective = 0
+    scheduler_cpu_budget_per_source = 0
+    scheduler_cpu_budget_total = 0
     scheduler_effective_inflight = 0
     scheduler_sources = 0
     scheduler_modes: set[str] = set()
+    scheduler_eval_tail_modes: set[str] = set()
     for row in source_rows:
         if str(row.get("status", "")).lower() != "ok":
             continue
@@ -5880,13 +6514,67 @@ def _run_all_method_benchmark_multi_source(
             scheduler_split_slots,
             _report_count(scheduler.get("split_phase_slots")),
         )
+        scheduler_wing_backlog_target = max(
+            scheduler_wing_backlog_target,
+            _report_count(scheduler.get("wing_backlog_target")),
+        )
+        scheduler_split_worker_cap = max(
+            scheduler_split_worker_cap,
+            _report_count(scheduler.get("split_worker_cap_per_config")),
+        )
+        scheduler_split_worker_cap_by_cpu = max(
+            scheduler_split_worker_cap_by_cpu,
+            _report_count(scheduler.get("split_worker_cap_by_cpu")),
+        )
+        scheduler_split_worker_cap_by_memory = max(
+            scheduler_split_worker_cap_by_memory,
+            _report_count(scheduler.get("split_worker_cap_by_memory")),
+        )
         scheduler_smart_tail_buffer = max(
             scheduler_smart_tail_buffer,
             _report_count(scheduler.get("smart_tail_buffer_slots")),
         )
-        scheduler_eval_tail_cap = max(
-            scheduler_eval_tail_cap,
-            _report_count(scheduler.get("max_eval_tail_pipelines")),
+        scheduler_eval_tail_modes.add(
+            str(scheduler.get("eval_tail_headroom_mode") or "auto")
+        )
+        scheduler_eval_tail_headroom_configured = max(
+            scheduler_eval_tail_headroom_configured,
+            _report_count(
+                scheduler.get(
+                    "eval_tail_headroom_configured",
+                    scheduler.get("max_eval_tail_pipelines"),
+                )
+            ),
+        )
+        scheduler_eval_tail_headroom_effective = max(
+            scheduler_eval_tail_headroom_effective,
+            _report_count(
+                scheduler.get(
+                    "eval_tail_headroom_effective",
+                    scheduler.get("max_eval_tail_pipelines"),
+                )
+            ),
+        )
+        scheduler_max_active_during_eval = max(
+            scheduler_max_active_during_eval,
+            _report_count(
+                scheduler.get(
+                    "max_active_during_eval",
+                    scheduler.get("effective_inflight_pipelines"),
+                )
+            ),
+        )
+        scheduler_source_parallelism_effective = max(
+            scheduler_source_parallelism_effective,
+            _report_count(scheduler.get("source_parallelism_effective")),
+        )
+        scheduler_cpu_budget_per_source = max(
+            scheduler_cpu_budget_per_source,
+            _report_count(scheduler.get("cpu_budget_per_source")),
+        )
+        scheduler_cpu_budget_total = max(
+            scheduler_cpu_budget_total,
+            _report_count(scheduler.get("cpu_budget_total")),
         )
         scheduler_effective_inflight = max(
             scheduler_effective_inflight,
@@ -5964,7 +6652,26 @@ def _run_all_method_benchmark_multi_source(
             "source_count": scheduler_sources,
             "effective_inflight_pipelines": scheduler_effective_inflight,
             "split_phase_slots": scheduler_split_slots,
-            "max_eval_tail_pipelines": scheduler_eval_tail_cap,
+            "wing_backlog_target": scheduler_wing_backlog_target,
+            "split_worker_cap_per_config": scheduler_split_worker_cap,
+            "split_worker_cap_by_cpu": scheduler_split_worker_cap_by_cpu,
+            "split_worker_cap_by_memory": scheduler_split_worker_cap_by_memory,
+            "eval_tail_headroom_mode": (
+                "mixed"
+                if len(scheduler_eval_tail_modes) > 1
+                else (
+                    next(iter(scheduler_eval_tail_modes))
+                    if scheduler_eval_tail_modes
+                    else "auto"
+                )
+            ),
+            "eval_tail_headroom_configured": scheduler_eval_tail_headroom_configured,
+            "eval_tail_headroom_effective": scheduler_eval_tail_headroom_effective,
+            "max_active_during_eval": scheduler_max_active_during_eval,
+            "source_parallelism_effective": scheduler_source_parallelism_effective,
+            "cpu_budget_per_source": scheduler_cpu_budget_per_source,
+            "cpu_budget_total": scheduler_cpu_budget_total,
+            "max_eval_tail_pipelines": scheduler_eval_tail_headroom_effective,
             "smart_tail_buffer_slots": scheduler_smart_tail_buffer,
             "config_timeout_seconds": effective_config_timeout_seconds,
             "failed_retry_limit": effective_retry_failed_configs,
@@ -6066,14 +6773,7 @@ def _run_all_method_benchmark(
     scheduler_events_dir.mkdir(parents=True, exist_ok=True)
 
     total_variants = len(variants)
-    (
-        configured_inflight_pipelines,
-        effective_split_phase_slots,
-        effective_wing_backlog_target,
-        effective_eval_tail_pipelines,
-        effective_smart_scheduler,
-        effective_inflight_pipelines,
-    ) = _resolve_all_method_scheduler_runtime(
+    scheduler_runtime = _resolve_all_method_scheduler_runtime(
         total_variants=total_variants,
         max_inflight_pipelines=max_inflight_pipelines,
         max_concurrent_split_phases=max_concurrent_split_phases,
@@ -6081,6 +6781,33 @@ def _run_all_method_benchmark(
         wing_backlog_target=wing_backlog_target,
         smart_scheduler=smart_scheduler,
         source_parallelism_effective=source_parallelism_effective,
+    )
+    configured_inflight_pipelines = scheduler_runtime.configured_inflight_pipelines
+    effective_split_phase_slots = scheduler_runtime.split_phase_slots
+    effective_wing_backlog_target = scheduler_runtime.wing_backlog_target
+    configured_eval_tail_headroom = scheduler_runtime.eval_tail_headroom_configured
+    effective_eval_tail_headroom = scheduler_runtime.eval_tail_headroom_effective
+    eval_tail_headroom_mode = scheduler_runtime.eval_tail_headroom_mode
+    effective_smart_scheduler = scheduler_runtime.smart_scheduler_enabled
+    max_active_during_eval = scheduler_runtime.max_active_during_eval
+    effective_inflight_pipelines = scheduler_runtime.effective_inflight_pipelines
+    scheduler_source_parallelism = scheduler_runtime.source_parallelism_effective
+    scheduler_cpu_budget_per_source = scheduler_runtime.cpu_budget_per_source
+    scheduler_cpu_budget_total = scheduler_runtime.cpu_budget_total
+    split_worker_cap_per_config, split_worker_guard = _resolve_all_method_split_worker_cap(
+        split_phase_slots=effective_split_phase_slots,
+        source_parallelism_effective=source_parallelism_effective,
+    )
+    max_requested_split_workers = max(
+        [
+            max(
+                max(1, _report_count(variant.run_settings.workers)),
+                max(1, _report_count(variant.run_settings.pdf_split_workers)),
+                max(1, _report_count(variant.run_settings.epub_split_workers)),
+            )
+            for variant in variants
+        ],
+        default=1,
     )
     effective_config_timeout_seconds = _resolve_all_method_config_timeout_seconds(
         config_timeout_seconds
@@ -6108,6 +6835,17 @@ def _run_all_method_benchmark(
             _notify_progress_callback(progress_callback, cleaned)
             return
         typer.secho(cleaned, fg=color)
+
+    if split_worker_cap_per_config < max_requested_split_workers:
+        _emit_status(
+            (
+                "Resource guard capped split workers per active config to "
+                f"{split_worker_cap_per_config} "
+                f"(requested peak {max_requested_split_workers}; "
+                f"split slots {effective_split_phase_slots})."
+            ),
+            color=typer.colors.YELLOW,
+        )
 
     variant_rows: list[dict[str, Any]] = []
     indexed_variants = list(enumerate(variants, start=1))
@@ -6429,10 +7167,23 @@ def _run_all_method_benchmark(
             "configured_inflight_pipelines": configured_inflight_pipelines,
             "effective_inflight_pipelines": effective_inflight_pipelines,
             "split_phase_slots": effective_split_phase_slots,
+            "split_worker_cap_per_config": split_worker_cap_per_config,
+            "split_worker_cap_by_cpu": split_worker_guard.get("split_worker_cap_by_cpu"),
+            "split_worker_cap_by_memory": split_worker_guard.get(
+                "split_worker_cap_by_memory"
+            ),
             "wing_backlog_target": effective_wing_backlog_target,
-            "max_eval_tail_pipelines": effective_eval_tail_pipelines,
+            "eval_tail_headroom_mode": eval_tail_headroom_mode,
+            "eval_tail_headroom_configured": configured_eval_tail_headroom,
+            "eval_tail_headroom_effective": effective_eval_tail_headroom,
+            "max_active_during_eval": max_active_during_eval,
+            "source_parallelism_effective": scheduler_source_parallelism,
+            "cpu_budget_per_source": scheduler_cpu_budget_per_source,
+            "cpu_budget_total": scheduler_cpu_budget_total,
+            # Legacy aliases retained for downstream compatibility.
+            "max_eval_tail_pipelines": effective_eval_tail_headroom,
             "smart_tail_buffer_slots": (
-                effective_eval_tail_pipelines if bool(effective_smart_scheduler) else 0
+                effective_eval_tail_headroom if bool(effective_smart_scheduler) else 0
             ),
             "smart_scheduler_enabled": bool(effective_smart_scheduler),
             "heavy_slot_capacity_seconds": capacity_seconds,
@@ -6545,6 +7296,7 @@ def _run_all_method_benchmark(
                 split_phase_gate_dir=split_phase_gate_dir,
                 scheduler_events_dir=scheduler_events_dir,
                 alignment_cache_dir=canonical_alignment_cache_dir,
+                split_worker_cap_per_config=split_worker_cap_per_config,
                 progress_callback=_variant_progress if progress_callback else None,
             )
             variant_rows.append(row)
@@ -6681,6 +7433,7 @@ def _run_all_method_benchmark(
                     split_phase_gate_dir=split_phase_gate_dir,
                     scheduler_events_dir=scheduler_events_dir,
                     alignment_cache_dir=canonical_alignment_cache_dir,
+                    split_worker_cap_per_config=split_worker_cap_per_config,
                     progress_callback=None,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -6749,23 +7502,27 @@ def _run_all_method_benchmark(
                 while len(futures) < worker_limit and pending_items:
                     if scheduler_smart_enabled:
                         heavy_plus_wing = counts["heavy_active"] + counts["wing_backlog"]
-                        dynamic_eval_tail = min(
-                            effective_eval_tail_pipelines,
-                            counts["evaluate_active"],
+                        eval_tail_admission_open = (
+                            counts["evaluate_active"] > 0 and len(pending_items) > 0
                         )
-                        smart_active_cap = min(
-                            total_variants,
-                            scheduler_base_target + dynamic_eval_tail,
+                        smart_active_cap = (
+                            max_active_during_eval
+                            if eval_tail_admission_open
+                            else configured_inflight_pipelines
                         )
+                        smart_active_cap = max(1, min(total_variants, smart_active_cap))
                         guard_target = scheduler_base_target
-                        if counts["evaluate_active"] > 0 and dynamic_eval_tail > 0:
+                        if eval_tail_admission_open:
                             guard_target = min(
-                                total_variants,
-                                scheduler_base_target + dynamic_eval_tail,
+                                scheduler_base_target,
+                                max_active_during_eval,
                             )
                         if counts["active"] >= smart_active_cap:
                             break
-                        if heavy_plus_wing >= guard_target:
+                        if (
+                            heavy_plus_wing >= guard_target
+                            and counts["active"] >= configured_inflight_pipelines
+                        ):
                             break
                     submitted = _submit_next()
                     if not submitted:
@@ -10052,7 +10809,7 @@ def labelstudio_benchmark(
         "--execution-mode",
         help=(
             "Benchmark execution mode: legacy (sequential predict->evaluate) "
-            "or pipelined (stage-queue orchestration with eval prewarm overlap), "
+            "or pipelined (bounded record producer/consumer with eval prewarm overlap), "
             "or predict-only (write prediction artifacts and skip evaluation)."
         ),
     )] = BENCHMARK_EXECUTION_MODE_LEGACY,
@@ -10248,20 +11005,16 @@ def labelstudio_benchmark(
     ):
         _fail("--execution-mode predict-only cannot be combined with --predictions-in.")
 
-    prediction_record_input: PredictionRecord | None = None
+    prediction_record_input: list[PredictionRecord] = []
     prediction_record_source: Path | None = None
     if predictions_in_path is not None:
         try:
-            prediction_record_input = read_single_prediction_record(predictions_in_path)
+            prediction_record_input = list(read_prediction_records(predictions_in_path))
         except Exception as exc:  # noqa: BLE001
             _fail(f"Unable to load prediction record from {predictions_in_path}: {exc}")
-        source_hint = str(
-            prediction_record_input.predict_meta.get("source_file") or ""
-        ).strip()
-        if source_hint:
-            source_candidate = Path(source_hint)
-            if source_candidate.exists() and source_candidate.is_file():
-                prediction_record_source = source_candidate
+        prediction_record_source = _prediction_record_source_file_hint(
+            prediction_record_input
+        )
 
     should_generate_predictions = predictions_in_path is None
     should_upload_predictions = should_generate_predictions and not no_upload
@@ -10303,6 +11056,7 @@ def labelstudio_benchmark(
     extracted_archive_path: Path
     prediction_phase_seconds = 0.0
     prewarmed_canonical_paths: dict[str, Path] | None = None
+    prediction_records_output: list[PredictionRecord] = []
 
     try:
         if should_generate_predictions:
@@ -10459,50 +11213,29 @@ def labelstudio_benchmark(
                         selected_execution_mode == BENCHMARK_EXECUTION_MODE_PIPELINED
                         and should_run_evaluation
                     ):
-                        stage_queue: queue.Queue[BenchmarkPredictionBundle] = queue.Queue(
-                            maxsize=1
+                        (
+                            prediction_bundle,
+                            prediction_records_output,
+                            prewarmed_canonical_paths,
+                        ) = run_pipelined(
+                            run_prediction_bundle=_run_prediction_stage_bundle,
+                            prewarm_evaluation_inputs=_prewarm_evaluation_inputs,
+                            selected_source=selected_source,
                         )
-                        stage_error_queue: queue.Queue[BaseException] = queue.Queue(
-                            maxsize=1
-                        )
-
-                        def _produce_prediction_bundle() -> None:
-                            try:
-                                stage_queue.put(_run_prediction_stage_bundle())
-                            except BaseException as exc:  # noqa: BLE001
-                                stage_error_queue.put(exc)
-
-                        producer_thread = threading.Thread(
-                            target=_produce_prediction_bundle,
-                            name="benchmark-prediction-stage",
-                            daemon=True,
-                        )
-                        producer_thread.start()
-                        prewarm_error: BaseException | None = None
-                        try:
-                            prewarmed_canonical_paths = _prewarm_evaluation_inputs()
-                        except BaseException as exc:  # noqa: BLE001
-                            prewarm_error = exc
-                        producer_thread.join()
-
-                        if prewarm_error is not None:
-                            raise prewarm_error
-                        if not stage_error_queue.empty():
-                            raise stage_error_queue.get()
-                        if stage_queue.empty():
-                            raise RuntimeError(
-                                "Pipelined benchmark prediction stage produced no output."
-                            )
-                        prediction_bundle = stage_queue.get()
                     else:
-                        prediction_bundle = _run_prediction_stage_bundle()
+                        prediction_bundle, prediction_records_output = run_legacy(
+                            run_prediction_bundle=_run_prediction_stage_bundle,
+                            selected_source=selected_source,
+                        )
         else:
             if predictions_in_path is None:
                 _fail("Prediction record input is required.")
-            prediction_bundle = _build_prediction_bundle_from_record(
+            prediction_bundle = _build_prediction_bundle_from_records(
                 predictions_in=predictions_in_path,
-                prediction_record=prediction_record_input,
+                prediction_records=prediction_record_input,
+                replay_output_dir=eval_output_dir / ".prediction-record-replay",
             )
+            prediction_records_output = list(prediction_record_input)
 
         import_result = prediction_bundle.import_result
         pred_run = prediction_bundle.pred_run
@@ -10512,11 +11245,7 @@ def labelstudio_benchmark(
         prediction_phase_seconds = prediction_bundle.prediction_phase_seconds
 
         if predictions_out_path is not None:
-            record = _benchmark_prediction_record_from_bundle(
-                bundle=prediction_bundle,
-                selected_source=selected_source,
-            )
-            write_prediction_records(predictions_out_path, [record])
+            write_prediction_records(predictions_out_path, prediction_records_output)
     except Exception as exc:  # noqa: BLE001
         if suppress_summary:
             raise
@@ -10662,24 +11391,15 @@ def labelstudio_benchmark(
     )
 
     def _evaluate_selected_mode() -> tuple[dict[str, Any], Callable[[dict[str, Any]], str]]:
-        if selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT:
-            gold_export_root = selected_gold.parent
-            eval_result_local = evaluate_canonical_text(
-                gold_export_root=gold_export_root,
-                stage_predictions_json=stage_predictions_path,
-                extracted_blocks_json=extracted_archive_path,
-                out_dir=eval_output_dir,
-                alignment_cache_dir=alignment_cache_dir,
-                canonical_paths=prewarmed_canonical_paths,
-            )
-            return eval_result_local, format_canonical_eval_report_md
-        eval_result_local = evaluate_stage_blocks(
-            gold_freeform_jsonl=selected_gold,
-            stage_predictions_json=stage_predictions_path,
-            extracted_blocks_json=extracted_archive_path,
-            out_dir=eval_output_dir,
+        return evaluate_stage(
+            selected_eval_mode=selected_eval_mode,
+            selected_gold=selected_gold,
+            eval_output_dir=eval_output_dir,
+            stage_predictions_path=stage_predictions_path,
+            extracted_archive_path=extracted_archive_path,
+            alignment_cache_dir=alignment_cache_dir,
+            prewarmed_canonical_paths=prewarmed_canonical_paths,
         )
-        return eval_result_local, format_stage_block_eval_report_md
 
     if eval_profiler is not None:
         eval_profiler.enable()

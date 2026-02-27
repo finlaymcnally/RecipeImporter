@@ -1351,10 +1351,12 @@ def evaluate_canonical_text(
     artifact_write_started = time.monotonic()
     missed_lines_path = out_dir / "missed_gold_lines.jsonl"
     wrong_lines_path = out_dir / "wrong_label_lines.jsonl"
+    aligned_blocks_path = out_dir / "aligned_prediction_blocks.jsonl"
     unmatched_blocks_path = out_dir / "unmatched_pred_blocks.jsonl"
     alignment_gaps_path = out_dir / "alignment_gaps.jsonl"
     _write_jsonl(missed_lines_path, missed_rows)
     _write_jsonl(wrong_lines_path, wrong_rows)
+    _write_jsonl(aligned_blocks_path, aligned_blocks)
     _write_jsonl(unmatched_blocks_path, unmatched_blocks)
     _write_jsonl(alignment_gaps_path, alignment_gaps)
 
@@ -1368,6 +1370,7 @@ def evaluate_canonical_text(
         "eval_report_md": str(out_dir / "eval_report.md"),
         "missed_gold_lines_jsonl": str(missed_lines_path),
         "wrong_label_lines_jsonl": str(wrong_lines_path),
+        "aligned_prediction_blocks_jsonl": str(aligned_blocks_path),
         "unmatched_pred_blocks_jsonl": str(unmatched_blocks_path),
         "alignment_gaps_jsonl": str(alignment_gaps_path),
         "missed_gold_blocks_jsonl": str(out_dir / "missed_gold_blocks.jsonl"),

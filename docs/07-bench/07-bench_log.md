@@ -1201,6 +1201,29 @@ Implemented outcomes captured:
 Open gap preserved:
 - Real workload timing proof for `legacy` vs `pipelined` remained pending in the plan.
 
+### 2026-02-27 speed1-4 per-block record + stage-runner closure pass
+
+Problem addressed:
+- The speed1-4 audit showed remaining contract gaps: run-level prediction records, no explicit stage runner APIs, and no deterministic per-example replay join checks.
+
+Implementation update:
+- Added explicit stage/runner API surface in `cookimport/cli.py`:
+  - `predict_stage(...)`
+  - `evaluate_stage(...)`
+  - `run_legacy(...)`
+  - `run_pipelined(...)`
+- `--predictions-out` now writes per-block prediction records (`schema_kind=stage-block.v1`) with deterministic `example_id`/`example_index`.
+- `--predictions-in` now supports per-block replay and reconstructs evaluation artifacts from record payloads; legacy single-record run-pointer inputs remain supported for backward compatibility.
+- Pipelined mode now runs a bounded producer/consumer record queue with clean EOS/error propagation.
+- Added/updated benchmark helper coverage in `tests/labelstudio/test_labelstudio_benchmark_helpers.py`:
+  - per-block `--predictions-out` payload shape,
+  - evaluate-only from per-block records,
+  - legacy record compatibility path,
+  - legacy vs pipelined parity and pipelined overlap behavior checks.
+
+Remaining open item:
+- Representative real-workload timing artifact (`legacy` vs `pipelined`) is still pending; test-level overlap/parity evidence is now in place.
+
 ### 2026-02-26_21.02.47 OG implementation audit merge (`docs/tasks/2026-02-26_21.02.47-og-speed-plan-implementation-audit.md`)
 
 Audit question preserved:
@@ -1530,3 +1553,28 @@ Decision/outcome preserved:
 
 Anti-loop note:
 - If replay feature requests reintroduce per-example contracts, require explicit rationale and compatibility plan against current run-level record design.
+
+### 2026-02-27_11.27.23 OG speed1-3 closure evidence and proof-depth completion
+
+Problem captured:
+- Speed1-3 runtime code existed, but closure audit still flagged three remaining proof/documentation gaps:
+  - missing dedicated `tests/bench/test_canonical_alignment_cache.py` file named by plan,
+  - missing same-key concurrent writer proof depth,
+  - missing real miss->hit all-method evidence bundle with wall-time signal.
+
+Decision/outcome preserved:
+- Added dedicated cache test module `tests/bench/test_canonical_alignment_cache.py` and marker mapping in `tests/conftest.py`.
+- Added cache-layer multi-process same-key contention test asserting single compute + cache reuse by the competing worker.
+- Captured real two-config all-method evidence using identical run settings over `DinnerFor2CUTDOWN.epub`:
+  - config 1 miss: `alignment_cache_hit=false`, `alignment_sequence_matcher_seconds=12.626098081003875`, `duration_seconds=23.607534372014925`
+  - config 2 hit: `alignment_cache_hit=true`, `alignment_sequence_matcher_seconds=0.0`, `duration_seconds=10.013305764994584`
+  - metrics parity held (`overall_line_accuracy` and `macro_f1_excluding_other` unchanged).
+- Updated `docs/plans/OGplan/speed1-3.md` Progress + Outcomes/Retrospective with closure evidence and timestamps.
+
+Evidence artifact:
+- `/tmp/2026-02-27_11.27.23-speed1-3-evidence-all-method/speed1_3_cache_summary.json`
+- closure task: `docs/tasks/2026-02-27_11.29.26-speed1-3-remaining-closeout.md`
+- updated audit: `docs/understandings/2026-02-27_10.51.28-og-speed1-3-implementation-audit.md`
+
+Anti-loop note:
+- If later all-method runs show no cache benefit, inspect `evaluation_telemetry.alignment_cache_key` equality first; cache is intentionally strict on canonical text hash + prediction text hash + boundary hash.
