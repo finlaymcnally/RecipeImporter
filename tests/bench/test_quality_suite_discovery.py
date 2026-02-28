@@ -183,6 +183,104 @@ def test_discover_quality_suite_prefers_curated_cutdown_targets_when_available(
     assert suite.selection["preferred_target_ids_missing"] == []
 
 
+def test_discover_quality_suite_curated_selection_fills_remaining_slots_when_capped(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    input_root = tmp_path / "input"
+    input_root.mkdir(parents=True, exist_ok=True)
+    for source_name in (
+        "saltfatacidheat.epub",
+        "thefoodlab.epub",
+        "seaandsmoke.epub",
+        "fallback_a.epub",
+        "fallback_b.epub",
+        "fallback_c.epub",
+    ):
+        (input_root / source_name).write_text("epub", encoding="utf-8")
+
+    gold_root = tmp_path / "gold"
+    _write_target(
+        gold_root,
+        target_name="saltfatacidheatcutdown",
+        source_file="saltfatacidheat.epub",
+        labels=["INGREDIENT_LINE", "INSTRUCTION_LINE"],
+        canonical_chars=400,
+    )
+    _write_target(
+        gold_root,
+        target_name="thefoodlabcutdown",
+        source_file="thefoodlab.epub",
+        labels=["INGREDIENT_LINE"],
+        canonical_chars=300,
+    )
+    _write_target(
+        gold_root,
+        target_name="seaandsmokecutdown",
+        source_file="seaandsmoke.epub",
+        labels=["INSTRUCTION_LINE"],
+        canonical_chars=200,
+    )
+    _write_target(
+        gold_root,
+        target_name="fallback_a",
+        source_file="fallback_a.epub",
+        labels=["OTHER", "OTHER", "OTHER"],
+        canonical_chars=800,
+    )
+    _write_target(
+        gold_root,
+        target_name="fallback_b",
+        source_file="fallback_b.epub",
+        labels=["OTHER", "RECIPE_TITLE"],
+        canonical_chars=700,
+    )
+    _write_target(
+        gold_root,
+        target_name="fallback_c",
+        source_file="fallback_c.epub",
+        labels=["OTHER"],
+        canonical_chars=600,
+    )
+
+    monkeypatch.setattr(
+        "cookimport.bench.speed_suite._list_importable_files",
+        lambda _input_root: [
+            input_root / "saltfatacidheat.epub",
+            input_root / "thefoodlab.epub",
+            input_root / "seaandsmoke.epub",
+            input_root / "fallback_a.epub",
+            input_root / "fallback_b.epub",
+            input_root / "fallback_c.epub",
+        ],
+    )
+
+    suite_a = discover_quality_suite(
+        gold_root=gold_root,
+        input_root=input_root,
+        max_targets=5,
+        seed=42,
+    )
+    suite_b = discover_quality_suite(
+        gold_root=gold_root,
+        input_root=input_root,
+        max_targets=5,
+        seed=42,
+    )
+
+    assert suite_a.selected_target_ids == suite_b.selected_target_ids
+    assert suite_a.selected_target_ids[:3] == [
+        "saltfatacidheatcutdown",
+        "thefoodlabcutdown",
+        "seaandsmokecutdown",
+    ]
+    assert len(suite_a.selected_target_ids) == 5
+    assert set(suite_a.selected_target_ids[3:]).issubset(
+        {"fallback_a", "fallback_b", "fallback_c"}
+    )
+    assert len(suite_a.selection["representative_fill_target_ids"]) == 2
+
+
 def test_discover_quality_suite_falls_back_to_raw_input_filenames_when_importable_scan_is_empty(
     monkeypatch,
     tmp_path: Path,

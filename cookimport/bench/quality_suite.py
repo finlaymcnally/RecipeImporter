@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
+import random
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -86,6 +87,7 @@ def discover_quality_suite(
     selected_target_ids, selection_metadata = _select_quality_target_ids(
         quality_targets,
         max_targets=max_targets,
+        seed=seed,
         preferred_target_ids=preferred_target_ids,
     )
     strata_counts = _build_strata_counts(quality_targets)
@@ -255,6 +257,7 @@ def _select_representative_target_ids(
     targets: list[QualityTarget],
     *,
     max_targets: int | None,
+    seed: int,
 ) -> list[str]:
     if not targets:
         return []
@@ -263,15 +266,19 @@ def _select_representative_target_ids(
     if max_targets is None or max_targets >= len(sorted_target_ids):
         return sorted_target_ids
 
+    rng = random.Random(int(seed))
     strata: dict[tuple[str, str], list[str]] = defaultdict(list)
     for target in targets:
         key = (target.size_bucket, target.label_bucket)
         strata[key].append(target.target_id)
     for key in strata:
-        strata[key] = sorted(strata[key])
+        target_ids = sorted(strata[key])
+        rng.shuffle(target_ids)
+        strata[key] = target_ids
 
     selected: list[str] = []
     ordered_keys = sorted(strata)
+    rng.shuffle(ordered_keys)
     while len(selected) < max_targets:
         progressed = False
         for key in ordered_keys:
@@ -291,6 +298,7 @@ def _select_quality_target_ids(
     targets: list[QualityTarget],
     *,
     max_targets: int | None,
+    seed: int,
     preferred_target_ids: list[str] | tuple[str, ...] | None,
 ) -> tuple[list[str], dict[str, Any]]:
     normalized_preferred_ids = _normalize_target_ids(preferred_target_ids)
@@ -308,18 +316,37 @@ def _select_quality_target_ids(
         ]
         if selected_preferred:
             selected_target_ids = selected_preferred
+            representative_fill_target_ids: list[str] = []
             if max_targets is not None:
                 selected_target_ids = selected_target_ids[: max_targets]
+                remaining_capacity = max(0, max_targets - len(selected_target_ids))
+            else:
+                remaining_capacity = 0
+            if remaining_capacity > 0:
+                excluded_ids = set(selected_target_ids)
+                remaining_targets = [
+                    target
+                    for target in targets
+                    if target.target_id not in excluded_ids
+                ]
+                representative_fill_target_ids = _select_representative_target_ids(
+                    remaining_targets,
+                    max_targets=remaining_capacity,
+                    seed=seed,
+                )
+                selected_target_ids.extend(representative_fill_target_ids)
             return selected_target_ids, {
                 "selection_mode": _QUALITY_SELECTION_MODE_CURATED,
                 "preferred_target_ids_requested": normalized_preferred_ids,
                 "preferred_target_ids_selected": selected_preferred,
                 "preferred_target_ids_missing": missing_preferred,
+                "representative_fill_target_ids": representative_fill_target_ids,
             }
 
     return _select_representative_target_ids(
         targets,
         max_targets=max_targets,
+        seed=seed,
     ), {
         "selection_mode": _QUALITY_SELECTION_MODE_REPRESENTATIVE,
         "preferred_target_ids_requested": normalized_preferred_ids,

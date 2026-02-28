@@ -1549,3 +1549,94 @@ Findings preserved:
 
 Anti-loop note:
 - If experiment throughput is unstable, inspect resolved auto metadata and host load behavior before forcing fixed caps.
+
+## 2026-02-28 migrated understanding ledger (10:31-11:12 tournament certainty, codex confirmations, and sweep behavior)
+
+### 2026-02-28_10.31.55 quality top-tier tournament baseline and gates
+
+Source: `docs/understandings/2026-02-28_10.31.55-quality-top-tier-tournament-baseline-and-gates.md`
+
+Problem captured:
+- Top-tier promotion debates kept mixing high-certainty cross-source evidence with weak single-source probes.
+
+Findings preserved:
+- Cross-source run `2026-02-28_00.54.37` is the strongest baseline signal for promotion decisions and favored unstructured + parser v1 + semantic preprocess + skip headers/footers.
+- Single-source runs (`2026-02-28_03.39.35`, `2026-02-28_09.57.37`) are valid directional probes but weaker for default promotion.
+- Tournament certainty gates are codified in `data/golden/bench/quality/thresholds/2026-02-28_10.31.55_qualitysuite-top-tier-gates.json`.
+
+Anti-loop note:
+- Do not promote defaults from a single-source win alone when cross-source evidence disagrees or is missing.
+
+### 2026-02-28_10.35.58 qualitysuite codex-farm confirmation contract
+
+Source: `docs/understandings/2026-02-28_10.35.58-qualitysuite-codex-farm-confirmation-contract.md`
+
+Problem captured:
+- `--include-codex-farm` could be enabled without explicit operator confirmation in quality-run workflows.
+
+Findings preserved:
+- CLI now requires `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION` whenever `--include-codex-farm` is used.
+- Runner contract now enforces `codex_farm_confirmed=True` for direct `run_quality_suite(...)` calls requesting Codex variants.
+
+Anti-loop note:
+- If Codex variants are rejected in quality-run, inspect confirmation-token wiring before treating it as variant-generation regression.
+
+### 2026-02-28_10.41.47 speedsuite codex-farm confirmation contract
+
+Source: `docs/understandings/2026-02-28_10.41.47-speedsuite-codex-farm-confirmation-contract.md`
+
+Problem captured:
+- SpeedSuite had the same missing explicit-confirmation gap for Codex variant enablement.
+
+Findings preserved:
+- CLI now requires `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION` with `--include-codex-farm`.
+- Direct `run_speed_suite(...)` callers must pass `codex_farm_confirmed=True` when requesting Codex variants.
+
+Anti-loop note:
+- Keep confirmation enforcement in both CLI and runner layers; removing one layer reopens bypass paths.
+
+### 2026-02-28_10.44.48 quality-run sweep cardinality and stale-suite validation
+
+Source: `docs/understandings/2026-02-28_10.44.48-quality-run-sweep-cardinality-and-stale-suite-validation.md`
+
+Problem captured:
+- Quality runs failed unexpectedly when suite files contained stale non-selected targets, and sweep expansion cost was underestimated.
+
+Findings preserved:
+- `bench quality-run` validates all suite `targets[]` rows; missing gold paths in non-selected rows still fail early.
+- Fresh curated discovery produced valid selected targets (`saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`) and eliminated stale-row failures.
+- Running race mode with deterministic sweeps showed large probe-round cardinality (observed: `286` configs in round 1).
+- Interrupted large runs can emit `cannot schedule new futures after interpreter shutdown`; this is interruption fallout, not a benchmark-quality signal.
+
+Anti-loop note:
+- When validation fails, fix stale suite rows first; do not debug scheduler/perf paths until suite integrity is clean.
+
+### 2026-02-28_10.56.43 deterministic sweep per-knob status
+
+Source: `docs/understandings/2026-02-28_10.56.43-deterministic-sweep-per-knob-status.md`
+
+Problem captured:
+- Teams were close to treating deterministic sweeps as default winners without clear per-knob uplift evidence.
+
+Findings preserved:
+- Completed sweep evidence in run `2026-02-28_03.39.35` showed tie-heavy top rows across baseline and multiple sweep tags.
+- Present sweeps in that run: section detector, multi-recipe splitter, missing-unit policy, segmentation policy, yield mode, temperature-unit backend.
+- Missing sweeps in that run: `p6_time_backend` and `p6_temperature_backend` alternates (dependency-gated), plus `instruction_step_segmenter=pysbd_v1`.
+
+Anti-loop note:
+- Keep deterministic defaults as baseline until multi-source/multi-seed results show consistent uplift for specific knobs.
+
+### 2026-02-28_11.12.24 qualitysuite seed variation and tournament cache/dedupe
+
+Source: `docs/understandings/2026-02-28_11.12.24-qualitysuite-seed-variation-and-tournament-cache-dedupe.md`
+
+Problem captured:
+- Multi-seed tournaments were sometimes paying full fold cost for duplicate suites, reducing evidence value per unit runtime.
+
+Findings preserved:
+- Discovery now keeps curated IDs first and fills remaining slots with seed-driven representative selection, allowing seeds to produce different suites.
+- Tournament fold runs now share canonical/eval cache root (`COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`) to reuse expensive evaluation work across folds.
+- Tournament computes suite signatures, skips duplicate-suite folds, and removes skipped duplicates from certainty-gate denominators.
+
+Anti-loop note:
+- If extra seeds appear to add no signal, inspect fold suite signatures and duplicate-fold skips before widening search space.

@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
+import hashlib
 import json
+import os
 import shlex
 import statistics
 import subprocess
@@ -23,6 +26,7 @@ DEFAULT_THRESHOLDS_FILE = (
     "data/golden/bench/quality/thresholds/"
     "2026-02-28_10.31.55_qualitysuite-top-tier-gates.json"
 )
+_ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV = "COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT"
 
 
 def _timestamp() -> str:
@@ -44,12 +48,22 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
-def _run_command(cmd: list[str], *, dry_run: bool) -> None:
+def _run_command(
+    cmd: list[str],
+    *,
+    dry_run: bool,
+    env: dict[str, str] | None = None,
+) -> None:
     rendered = " ".join(shlex.quote(str(part)) for part in cmd)
     print(f"$ {rendered}")
     if dry_run:
         return
-    subprocess.run(cmd, check=True)
+    effective_env = None
+    if env:
+        merged_env = dict(os.environ)
+        merged_env.update(env)
+        effective_env = merged_env
+    subprocess.run(cmd, check=True, env=effective_env)
 
 
 def _latest_timestamp_dir(path: Path) -> Path:
@@ -128,6 +142,236 @@ def _render_metric(value: float | None) -> str:
     if value is None:
         return "n/a"
     return f"{value:+.4f}"
+
+
+def _suite_signature(payload: dict[str, Any]) -> str:
+    selection = payload.get("selection")
+    if not isinstance(selection, dict):
+        selection = {}
+    selected_ids_raw = payload.get("selected_target_ids")
+    selected_ids = (
+        sorted(str(item) for item in selected_ids_raw)
+        if isinstance(selected_ids_raw, list)
+        else []
+    )
+    signature_payload = {
+        "selected_target_ids": selected_ids,
+        "selection_mode": str(selection.get("selection_mode") or "").strip(),
+        "target_count_selected": len(selected_ids),
+    }
+    canonical = json.dumps(
+        signature_payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _build_filtered_experiments_payload(
+    *,
+    source_payload: dict[str, Any],
+    source_experiments_file: Path,
+    selected_experiment_ids: set[str],
+) -> dict[str, Any]:
+    filtered = copy.deepcopy(source_payload)
+    schema_version = int(filtered.get("schema_version", 1))
+
+    base_settings_file_raw = str(filtered.get("base_run_settings_file") or "").strip()
+    if base_settings_file_raw:
+        base_settings_candidate = Path(base_settings_file_raw)
+        if not base_settings_candidate.is_absolute():
+            base_settings_candidate = (
+                source_experiments_file.parent / base_settings_candidate
+            ).resolve()
+        filtered["base_run_settings_file"] = str(base_settings_candidate)
+
+    if schema_version == 1:
+        rows = filtered.get("experiments")
+        if isinstance(rows, list):
+            filtered["experiments"] = [
+                row
+                for row in rows
+                if isinstance(row, dict)
+                and str(row.get("id") or "").strip() in selected_experiment_ids
+            ]
+        return filtered
+
+    if schema_version != 2:
+        return filtered
+
+    baseline_id = str(filtered.get("baseline_id") or "baseline").strip()
+    include_baseline = bool(filtered.get("include_baseline", True))
+    filtered["include_baseline"] = (
+        include_baseline
+        and baseline_id in selected_experiment_ids
+    )
+
+    experiment_rows = filtered.get("experiments")
+    if isinstance(experiment_rows, list):
+        filtered["experiments"] = [
+            row
+            for row in experiment_rows
+            if isinstance(row, dict)
+            and str(row.get("id") or "").strip() in selected_experiment_ids
+        ]
+
+    all_on_id = str(filtered.get("all_on_id") or "all_on").strip()
+    include_all_on = bool(filtered.get("include_all_on", False))
+    filtered["include_all_on"] = (
+        include_all_on and all_on_id in selected_experiment_ids
+    )
+
+    lever_rows = filtered.get("levers")
+    if isinstance(lever_rows, list):
+        if bool(filtered.get("include_all_on", False)):
+            filtered["levers"] = [
+                row for row in lever_rows if isinstance(row, dict)
+            ]
+        else:
+            filtered["levers"] = [
+                row
+                for row in lever_rows
+                if isinstance(row, dict)
+                and str(row.get("id") or "").strip() in selected_experiment_ids
+            ]
+    return filtered
+
+
+def _candidate_comparison_rows(
+    *,
+    fold_rows: list[dict[str, Any]],
+    candidate_id: str,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for fold in fold_rows:
+        comparisons = fold.get("comparisons")
+        if not isinstance(comparisons, dict):
+            continue
+        row = comparisons.get(candidate_id)
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def _optimistic_mean_upper_bound(
+    *,
+    observed_values: list[float],
+    remaining_folds: int,
+) -> float | None:
+    count = len(observed_values) + max(0, int(remaining_folds))
+    if count <= 0:
+        return None
+    return (float(sum(observed_values)) + float(max(0, int(remaining_folds)))) / float(
+        count
+    )
+
+
+def _candidate_pruning_decision(
+    *,
+    candidate_id: str,
+    fold_rows: list[dict[str, Any]],
+    gates: dict[str, Any],
+    total_unique_folds: int,
+) -> dict[str, Any]:
+    comparison_rows = _candidate_comparison_rows(
+        fold_rows=fold_rows,
+        candidate_id=candidate_id,
+    )
+    evaluated_folds = len(fold_rows)
+    remaining_folds = max(0, int(total_unique_folds) - evaluated_folds)
+    completed_rows = [row for row in comparison_rows if bool(row.get("completed"))]
+    completed_count = len(completed_rows)
+    non_regression_count = sum(
+        1 for row in comparison_rows if bool(row.get("non_regression"))
+    )
+    uplift_count = sum(1 for row in comparison_rows if bool(row.get("uplift")))
+
+    strict_deltas = [
+        float(row["strict_f1_delta"])
+        for row in completed_rows
+        if row.get("strict_f1_delta") is not None
+    ]
+    practical_deltas = [
+        float(row["practical_f1_delta"])
+        for row in completed_rows
+        if row.get("practical_f1_delta") is not None
+    ]
+    source_deltas = [
+        float(row["source_success_rate_delta"])
+        for row in completed_rows
+        if row.get("source_success_rate_delta") is not None
+    ]
+
+    min_completed_folds = int(gates.get("min_completed_folds", total_unique_folds))
+    min_non_reg_ratio = float(gates.get("min_non_regression_fold_ratio", 1.0))
+    min_uplift_ratio = float(gates.get("min_uplift_fold_ratio", 1.0))
+    min_mean_strict = float(gates.get("min_mean_strict_f1_delta", 0.0))
+    min_mean_practical = float(gates.get("min_mean_practical_f1_delta", 0.0))
+    min_mean_source = float(gates.get("min_mean_source_success_rate_delta", 0.0))
+
+    max_completed = completed_count + remaining_folds
+    max_non_reg_ratio = _safe_ratio(
+        non_regression_count + remaining_folds,
+        max(1, int(total_unique_folds)),
+    )
+    max_uplift_ratio = _safe_ratio(
+        uplift_count + remaining_folds,
+        max(1, int(total_unique_folds)),
+    )
+    max_mean_strict = _optimistic_mean_upper_bound(
+        observed_values=strict_deltas,
+        remaining_folds=remaining_folds,
+    )
+    max_mean_practical = _optimistic_mean_upper_bound(
+        observed_values=practical_deltas,
+        remaining_folds=remaining_folds,
+    )
+    max_mean_source = _optimistic_mean_upper_bound(
+        observed_values=source_deltas,
+        remaining_folds=remaining_folds,
+    )
+
+    reasons: list[str] = []
+    if max_completed < min_completed_folds:
+        reasons.append(
+            f"max_completed={max_completed} < min_completed_folds={min_completed_folds}"
+        )
+    if max_non_reg_ratio < min_non_reg_ratio:
+        reasons.append(
+            "max_non_regression_ratio="
+            f"{max_non_reg_ratio:.3f} < {min_non_reg_ratio:.3f}"
+        )
+    if max_uplift_ratio < min_uplift_ratio:
+        reasons.append(
+            f"max_uplift_ratio={max_uplift_ratio:.3f} < {min_uplift_ratio:.3f}"
+        )
+
+    if max_mean_strict is None or max_mean_strict < min_mean_strict:
+        rendered = "n/a" if max_mean_strict is None else f"{max_mean_strict:.4f}"
+        reasons.append(f"max_mean_strict_delta={rendered} < {min_mean_strict:.4f}")
+    if max_mean_practical is None or max_mean_practical < min_mean_practical:
+        rendered = "n/a" if max_mean_practical is None else f"{max_mean_practical:.4f}"
+        reasons.append(f"max_mean_practical_delta={rendered} < {min_mean_practical:.4f}")
+    if max_mean_source is None or max_mean_source < min_mean_source:
+        rendered = "n/a" if max_mean_source is None else f"{max_mean_source:.4f}"
+        reasons.append(f"max_mean_source_delta={rendered} < {min_mean_source:.4f}")
+
+    return {
+        "candidate_id": candidate_id,
+        "impossible": bool(reasons),
+        "reasons": reasons,
+        "evaluated_folds": evaluated_folds,
+        "remaining_folds": remaining_folds,
+        "optimistic_bounds": {
+            "max_completed_folds": max_completed,
+            "max_non_regression_ratio": max_non_reg_ratio,
+            "max_uplift_ratio": max_uplift_ratio,
+            "max_mean_strict_f1_delta": max_mean_strict,
+            "max_mean_practical_f1_delta": max_mean_practical,
+            "max_mean_source_success_rate_delta": max_mean_source,
+        },
+    }
 
 
 def _compare_candidate(
@@ -371,6 +615,21 @@ def _render_report(payload: dict[str, Any]) -> str:
     lines.append(
         f"- Candidate experiments: {', '.join(payload.get('candidate_experiment_ids') or [])}"
     )
+    lines.append(f"- Configured folds: {payload.get('configured_folds')}")
+    lines.append(f"- Effective folds (gated): {payload.get('total_folds')}")
+    lines.append(
+        f"- Duplicate-suite folds skipped: {payload.get('duplicate_suite_folds_skipped')}"
+    )
+    lines.append(
+        "- Shared alignment cache root: "
+        f"{payload.get('shared_alignment_cache_root')}"
+    )
+    lines.append(f"- Planned unique folds: {payload.get('planned_unique_folds')}")
+    lines.append(f"- Quality runs executed: {payload.get('quality_runs_executed')}")
+    lines.append(
+        "- Gate-impossibility pruning enabled: "
+        f"{payload.get('gate_impossibility_pruning_enabled')}"
+    )
     lines.append(f"- Dry run: {payload.get('dry_run')}")
     lines.append("")
     lines.append("## Gate Thresholds")
@@ -418,6 +677,25 @@ def _render_report(payload: dict[str, Any]) -> str:
         lines.append("- None")
     else:
         lines.append(f"- {', '.join(top_tier)}")
+    lines.append("")
+
+    pruned_candidates = payload.get("pruned_candidates") or {}
+    lines.append("## Pruned Candidates")
+    lines.append("")
+    if not isinstance(pruned_candidates, dict) or not pruned_candidates:
+        lines.append("- None")
+    else:
+        for candidate_id in sorted(pruned_candidates):
+            row = pruned_candidates[candidate_id]
+            fold_index = row.get("pruned_after_fold_index")
+            reasons = row.get("reasons")
+            if isinstance(reasons, list) and reasons:
+                rendered_reasons = "; ".join(str(reason) for reason in reasons)
+            else:
+                rendered_reasons = "n/a"
+            lines.append(
+                f"- {candidate_id}: fold={fold_index}, reasons={rendered_reasons}"
+            )
     lines.append("")
     return "\n".join(lines)
 
@@ -529,6 +807,20 @@ def main() -> int:
     output_root = Path(args.output_root)
     tournament_root = output_root / timestamp
     tournament_root.mkdir(parents=True, exist_ok=True)
+    configured_alignment_cache_root = str(
+        quality_run_config.get("canonical_alignment_cache_root") or ""
+    ).strip()
+    if configured_alignment_cache_root:
+        shared_alignment_cache_root = str(
+            Path(configured_alignment_cache_root).expanduser()
+        )
+    else:
+        shared_alignment_cache_root = str(
+            (output_root.parent / ".cache" / "canonical_alignment").resolve()
+        )
+    quality_run_env = {
+        _ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV: shared_alignment_cache_root
+    }
 
     resolved_payload = {
         "generated_at": timestamp,
@@ -543,13 +835,23 @@ def main() -> int:
             "prefer_curated": prefer_curated,
         },
         "quality_run": quality_run_config,
+        "configured_fold_count": len(seeds),
+        "shared_alignment_cache_root": shared_alignment_cache_root,
+        "shared_alignment_cache_env_var": _ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV,
+        "duplicate_suite_fold_dedup": True,
+        "gate_impossibility_pruning": True,
         "gates": gates,
         "dry_run": bool(args.dry_run),
     }
     _write_json(tournament_root / "tournament_resolved.json", resolved_payload)
 
     fold_rows: list[dict[str, Any]] = []
+    evaluated_fold_rows: list[dict[str, Any]] = []
+    executable_folds: list[dict[str, Any]] = []
+    seen_suite_signatures: dict[str, int] = {}
+    duplicate_suite_folds_skipped = 0
 
+    # Phase 1: discover suites and dedupe folds before executing any quality runs.
     for index, seed in enumerate(seeds, start=1):
         fold_slug = f"fold_{index:02d}_seed_{seed}"
         fold_root = tournament_root / fold_slug
@@ -577,8 +879,81 @@ def main() -> int:
             discover_cmd.append("--prefer-curated")
         else:
             discover_cmd.append("--no-prefer-curated")
-
         _run_command(discover_cmd, dry_run=args.dry_run)
+
+        suite_signature = None
+        duplicate_suite_of_fold_index = None
+        if not args.dry_run:
+            suite_payload = _load_json_object(suite_path)
+            suite_signature = _suite_signature(suite_payload)
+            duplicate_suite_of_fold_index = seen_suite_signatures.get(suite_signature)
+            if duplicate_suite_of_fold_index is None:
+                seen_suite_signatures[suite_signature] = index
+
+        fold_payload: dict[str, Any] = {
+            "fold_index": index,
+            "seed": seed,
+            "suite_path": str(suite_path),
+            "suite_signature": suite_signature,
+            "duplicate_suite_of_fold_index": duplicate_suite_of_fold_index,
+            "duplicate_suite_skipped": False,
+            "run_out_dir": str(run_out_dir),
+            "leaderboard_root": str(leaderboard_root),
+            "run_dir": None,
+            "executed_quality_run": False,
+            "included_in_gates": False,
+            "baseline": {},
+            "experiments": {},
+            "comparisons": {},
+        }
+
+        if duplicate_suite_of_fold_index is not None:
+            fold_payload["duplicate_suite_skipped"] = True
+            fold_payload["note"] = (
+                "Skipped quality-run; suite signature duplicates fold "
+                f"{duplicate_suite_of_fold_index}."
+            )
+            duplicate_suite_folds_skipped += 1
+            _write_json(fold_root / "fold_result.json", fold_payload)
+            fold_rows.append(fold_payload)
+            continue
+
+        fold_rows.append(fold_payload)
+        executable_folds.append(fold_payload)
+
+    total_unique_folds_planned = len(executable_folds)
+    active_candidate_ids = list(candidate_experiment_ids)
+    pruned_candidates: dict[str, dict[str, Any]] = {}
+    quality_runs_executed = 0
+    early_stop_triggered = False
+
+    # Phase 2: run quality experiments only for unique folds, pruning impossible candidates.
+    for fold_payload in executable_folds:
+        fold_index = int(fold_payload.get("fold_index", 0))
+        fold_root = tournament_root / f"fold_{fold_index:02d}_seed_{fold_payload.get('seed')}"
+        run_out_dir = Path(str(fold_payload.get("run_out_dir")))
+        leaderboard_root = Path(str(fold_payload.get("leaderboard_root")))
+        suite_path = Path(str(fold_payload.get("suite_path")))
+
+        if not args.dry_run and not active_candidate_ids:
+            early_stop_triggered = True
+            fold_payload["note"] = (
+                "Skipped quality-run; all candidates are already gate-impossible."
+            )
+            _write_json(fold_root / "fold_result.json", fold_payload)
+            continue
+
+        selected_experiment_ids = set(active_candidate_ids)
+        selected_experiment_ids.add(baseline_experiment_id)
+        filtered_experiments_payload = _build_filtered_experiments_payload(
+            source_payload=experiments_payload,
+            source_experiments_file=experiments_file,
+            selected_experiment_ids=selected_experiment_ids,
+        )
+        effective_experiments_file = fold_root / "experiments_effective.json"
+        _write_json(effective_experiments_file, filtered_experiments_payload)
+        fold_payload["effective_experiments_file"] = str(effective_experiments_file)
+        fold_payload["active_candidate_ids_before_fold"] = sorted(active_candidate_ids)
 
         quality_run_cmd = [
             args.cookimport_cmd,
@@ -587,7 +962,7 @@ def main() -> int:
             "--suite",
             str(suite_path),
             "--experiments-file",
-            str(experiments_file),
+            str(effective_experiments_file),
             "--out-dir",
             str(run_out_dir),
             "--search-strategy",
@@ -611,24 +986,18 @@ def main() -> int:
                 ]
             )
 
-        _run_command(quality_run_cmd, dry_run=args.dry_run)
-
-        fold_payload: dict[str, Any] = {
-            "fold_index": index,
-            "seed": seed,
-            "suite_path": str(suite_path),
-            "run_out_dir": str(run_out_dir),
-            "run_dir": None,
-            "baseline": {},
-            "experiments": {},
-            "comparisons": {},
-        }
+        _run_command(
+            quality_run_cmd,
+            dry_run=args.dry_run,
+            env=quality_run_env,
+        )
+        fold_payload["executed_quality_run"] = True
 
         if args.dry_run:
-            fold_rows.append(fold_payload)
             _write_json(fold_root / "fold_result.json", fold_payload)
             continue
 
+        quality_runs_executed += 1
         run_dir = _latest_timestamp_dir(run_out_dir)
         fold_payload["run_dir"] = str(run_dir)
         summary = _load_json_object(run_dir / "summary.json")
@@ -644,8 +1013,8 @@ def main() -> int:
             "source_success_rate": baseline_row.get("source_success_rate"),
         }
 
-        all_ids = [baseline_experiment_id, *candidate_experiment_ids]
-        for experiment_id in all_ids:
+        selected_ids_in_order = [baseline_experiment_id, *sorted(active_candidate_ids)]
+        for experiment_id in selected_ids_in_order:
             row = _find_summary_row(summary, experiment_id)
             leaderboard_dir = leaderboard_root / experiment_id
             leaderboard_payload = None
@@ -677,14 +1046,80 @@ def main() -> int:
                 gates=gates,
             )
 
-        _write_json(fold_root / "fold_result.json", fold_payload)
-        fold_rows.append(fold_payload)
+        # Fill non-executed candidates for fold visibility and stable downstream aggregation.
+        for experiment_id in candidate_experiment_ids:
+            if experiment_id in fold_payload["comparisons"]:
+                continue
+            placeholder = _compare_candidate(
+                candidate_id=experiment_id,
+                candidate_row=None,
+                baseline_row=baseline_row,
+                gates=gates,
+            )
+            if experiment_id in pruned_candidates:
+                placeholder["candidate_status"] = "pruned"
+                placeholder["pruned"] = True
+                placeholder["prune_reasons"] = list(
+                    pruned_candidates[experiment_id].get("reasons") or []
+                )
+                fold_payload["experiments"][experiment_id] = {
+                    "status": "pruned",
+                    "leaderboard": None,
+                    "leaderboard_error": None,
+                }
+            else:
+                placeholder["candidate_status"] = "not_run"
+                placeholder["not_run"] = True
+                fold_payload["experiments"][experiment_id] = {
+                    "status": "not_run",
+                    "leaderboard": None,
+                    "leaderboard_error": None,
+                }
+            fold_payload["comparisons"][experiment_id] = placeholder
 
+        fold_payload["included_in_gates"] = True
+        evaluated_fold_rows.append(fold_payload)
+
+        remaining_unique_folds = max(0, total_unique_folds_planned - len(evaluated_fold_rows))
+        pruned_after_fold: dict[str, dict[str, Any]] = {}
+        for candidate_id in list(active_candidate_ids):
+            decision = _candidate_pruning_decision(
+                candidate_id=candidate_id,
+                fold_rows=evaluated_fold_rows,
+                gates=gates,
+                total_unique_folds=total_unique_folds_planned,
+            )
+            if not bool(decision.get("impossible")):
+                continue
+            reason_rows = decision.get("reasons") or []
+            pruned_payload = {
+                "pruned_after_fold_index": fold_index,
+                "remaining_unique_folds_at_prune": remaining_unique_folds,
+                "reasons": [str(item) for item in reason_rows],
+                "optimistic_bounds": decision.get("optimistic_bounds") or {},
+            }
+            pruned_candidates[candidate_id] = pruned_payload
+            pruned_after_fold[candidate_id] = pruned_payload
+            active_candidate_ids.remove(candidate_id)
+
+        if pruned_after_fold:
+            fold_payload["pruned_candidates_after_fold"] = pruned_after_fold
+            for candidate_id, row in sorted(pruned_after_fold.items()):
+                reasons_rendered = "; ".join(str(item) for item in row.get("reasons") or [])
+                print(
+                    f"Pruned candidate {candidate_id} after fold {fold_index}: "
+                    f"{reasons_rendered}"
+                )
+
+        fold_payload["active_candidate_ids_after_fold"] = sorted(active_candidate_ids)
+        _write_json(fold_root / "fold_result.json", fold_payload)
+
+    effective_fold_count = len(evaluated_fold_rows)
     aggregated_candidates = _aggregate_candidates(
-        fold_rows=fold_rows,
+        fold_rows=evaluated_fold_rows,
         candidate_ids=candidate_experiment_ids,
         gates=gates,
-        total_folds=len(seeds),
+        total_folds=effective_fold_count,
     )
 
     def _sort_value(value: Any) -> float:
@@ -714,7 +1149,16 @@ def main() -> int:
         "thresholds_file": str(thresholds_file),
         "baseline_experiment_id": baseline_experiment_id,
         "candidate_experiment_ids": candidate_experiment_ids,
-        "total_folds": len(seeds),
+        "configured_folds": len(seeds),
+        "planned_unique_folds": total_unique_folds_planned,
+        "total_folds": effective_fold_count,
+        "duplicate_suite_folds_skipped": duplicate_suite_folds_skipped,
+        "shared_alignment_cache_root": shared_alignment_cache_root,
+        "quality_runs_executed": quality_runs_executed,
+        "gate_impossibility_pruning_enabled": True,
+        "pruned_candidates": pruned_candidates,
+        "active_candidates_final": sorted(active_candidate_ids),
+        "early_stop_triggered": bool(early_stop_triggered),
         "dry_run": bool(args.dry_run),
         "gates": gates,
         "candidates": aggregated_candidates,

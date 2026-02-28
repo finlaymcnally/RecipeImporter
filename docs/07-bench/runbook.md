@@ -127,7 +127,7 @@ Use `--allow-settings-mismatch` only when intentional.
 
 ### 4.1 Discover deterministic quality targets
 
-By default, discovery prioritizes `saltfatacidheatcutdown`, `thefoodlabcutdown`, and `seaandsmokecutdown` when matched; otherwise it uses representative stratified selection.
+By default, discovery prioritizes `saltfatacidheatcutdown`, `thefoodlabcutdown`, and `seaandsmokecutdown` when matched; with `--max-targets`, remaining slots are filled by representative stratified selection using the configured `--seed`.
 
 ```bash
 cookimport bench quality-discover \
@@ -166,7 +166,7 @@ cookimport bench quality-run \
   --qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION
 ```
 
-Experiment-level parallelism is CPU-aware by default (auto cap + adaptive worker target based on host load). To pin a fixed cap:
+Experiment-level parallelism is CPU-aware by default (auto cap + adaptive worker target based on host load). Auto cap ceiling defaults to `16` and can be overridden with `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`. To pin a fixed cap:
 
 ```bash
 cookimport bench quality-run \
@@ -180,9 +180,9 @@ Quick tuning guide for `--max-parallel-experiments`:
 | Experiment count | Suggested setting |
 | --- | --- |
 | 1-2 | omit flag (auto) or `2` |
-| 3-5 | omit flag (auto) or `3` |
-| 6-10 | omit flag (auto) or `4` |
-| 11+ | omit flag (auto) or `4-6` (watch thermals/background load) |
+| 3-6 | omit flag (auto) or `3-4` |
+| 7-12 | omit flag (auto) or `5-8` |
+| 13+ | omit flag (auto) or `8-16` (watch thermals/background load) |
 
 `quality-run` now defaults to `--search-strategy race`, which does staged pruning:
 
@@ -250,6 +250,11 @@ Outputs are written under `data/golden/bench/quality/tournaments/<timestamp>/`:
 - `tournament_resolved.json`: resolved config/seeds/candidates used for the run
 - `folds.json`: per-fold quality metrics and leaderboard winner snapshots
 - `summary.json`, `report.md`: aggregate PASS/FAIL verdicts and promoted top-tier candidates
+
+Notes:
+- Tournament runs now share canonical/eval cache across folds by default (`COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT` is set to `data/golden/bench/quality/.cache/canonical_alignment` unless overridden in thresholds `quality_run.canonical_alignment_cache_root`).
+- If two seeds resolve to the same selected target set, duplicate folds are skipped and excluded from gate denominators.
+- Between evaluated folds, gate-impossible candidates are pruned using optimistic best-case remaining-fold bounds, and later folds only run the surviving candidate subset plus baseline.
 
 ## 5. Artifact map
 

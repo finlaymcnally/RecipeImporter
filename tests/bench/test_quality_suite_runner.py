@@ -561,6 +561,236 @@ def test_run_quality_suite_auto_parallelism_uses_cpu_aware_defaults(
     assert resolved["max_parallel_experiments_adaptive"] is True
 
 
+def test_run_quality_suite_auto_parallelism_uses_default_auto_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    suite = _build_suite(tmp_path)
+    experiments_file = tmp_path / "experiments_auto_cap.json"
+    _write_json(
+        experiments_file,
+        {
+            "schema_version": 1,
+            "experiments": [
+                {"id": f"exp_{index:02d}", "run_settings_patch": {}}
+                for index in range(20)
+            ],
+        },
+    )
+    base_run_settings_file = tmp_path / "base_run_settings.json"
+    _write_json(base_run_settings_file, {"workers": 2})
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner.os.cpu_count",
+        lambda: 64,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner.os.getloadavg",
+        lambda: (0.05, 0.05, 0.05),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_codex_choice",
+        lambda _include_codex: (False, None),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_markdown_extractors_choice",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._build_all_method_target_variants",
+        lambda **_kwargs: [],
+    )
+
+    def _fake_run_all_method_multi_source(**kwargs):
+        root_output_dir = Path(kwargs["root_output_dir"])
+        experiment_id = root_output_dir.name
+        source_report = (
+            root_output_dir
+            / "sources"
+            / experiment_id
+            / "all_method_benchmark_report.json"
+        )
+        _write_json(
+            source_report,
+            {
+                "winner_by_f1": {
+                    "precision": 0.60,
+                    "recall": 0.60,
+                    "f1": 0.60,
+                    "practical_precision": 0.70,
+                    "practical_recall": 0.70,
+                    "practical_f1": 0.70,
+                }
+            },
+        )
+        report_md_path = root_output_dir / "all_method_benchmark_multi_source_report.md"
+        report_json_path = report_md_path.with_suffix(".json")
+        _write_json(
+            report_json_path,
+            {
+                "matched_target_count": 1,
+                "total_config_runs_planned": 1,
+                "total_config_runs_completed": 1,
+                "total_config_runs_successful": 1,
+                "evaluation_signatures_unique": 1,
+                "evaluation_runs_executed": 1,
+                "evaluation_results_reused_in_run": 0,
+                "evaluation_results_reused_cross_run": 0,
+                "sources": [
+                    {
+                        "source_group_key": experiment_id,
+                        "status": "ok",
+                        "source_shard_total": 1,
+                        "report_json_path": str(
+                            source_report.relative_to(root_output_dir)
+                        ),
+                        "winner_metrics": {"precision": 0.6, "recall": 0.6, "f1": 0.6},
+                    }
+                ],
+            },
+        )
+        report_md_path.write_text("report", encoding="utf-8")
+        return report_md_path
+
+    monkeypatch.setattr(
+        "cookimport.cli._run_all_method_benchmark_multi_source",
+        _fake_run_all_method_multi_source,
+    )
+
+    run_root = run_quality_suite(
+        suite,
+        tmp_path / "runs",
+        experiments_file=experiments_file,
+        base_run_settings_file=base_run_settings_file,
+        search_strategy="exhaustive",
+        max_parallel_experiments=None,
+        progress_callback=None,
+    )
+
+    resolved = json.loads(
+        (run_root / "experiments_resolved.json").read_text(encoding="utf-8")
+    )
+    assert resolved["max_parallel_experiments_mode"] == "auto"
+    assert resolved["max_parallel_experiments_effective"] == 16
+    assert resolved["max_parallel_experiments_auto_ceiling"] == 16
+    assert resolved["max_parallel_experiments_auto_ceiling_source"] == "default"
+
+
+def test_run_quality_suite_auto_parallelism_honors_ceiling_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    suite = _build_suite(tmp_path)
+    experiments_file = tmp_path / "experiments_auto_cap_env.json"
+    _write_json(
+        experiments_file,
+        {
+            "schema_version": 1,
+            "experiments": [
+                {"id": f"exp_{index:02d}", "run_settings_patch": {}}
+                for index in range(20)
+            ],
+        },
+    )
+    base_run_settings_file = tmp_path / "base_run_settings.json"
+    _write_json(base_run_settings_file, {"workers": 2})
+
+    monkeypatch.setenv("COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS", "24")
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner.os.cpu_count",
+        lambda: 64,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner.os.getloadavg",
+        lambda: (0.05, 0.05, 0.05),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_codex_choice",
+        lambda _include_codex: (False, None),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_markdown_extractors_choice",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._build_all_method_target_variants",
+        lambda **_kwargs: [],
+    )
+
+    def _fake_run_all_method_multi_source(**kwargs):
+        root_output_dir = Path(kwargs["root_output_dir"])
+        report_md_path = root_output_dir / "all_method_benchmark_multi_source_report.md"
+        report_json_path = report_md_path.with_suffix(".json")
+        source_report = (
+            root_output_dir
+            / "sources"
+            / root_output_dir.name
+            / "all_method_benchmark_report.json"
+        )
+        _write_json(
+            source_report,
+            {
+                "winner_by_f1": {
+                    "precision": 0.60,
+                    "recall": 0.60,
+                    "f1": 0.60,
+                    "practical_precision": 0.70,
+                    "practical_recall": 0.70,
+                    "practical_f1": 0.70,
+                }
+            },
+        )
+        _write_json(
+            report_json_path,
+            {
+                "matched_target_count": 1,
+                "total_config_runs_planned": 1,
+                "total_config_runs_completed": 1,
+                "total_config_runs_successful": 1,
+                "evaluation_signatures_unique": 1,
+                "evaluation_runs_executed": 1,
+                "evaluation_results_reused_in_run": 0,
+                "evaluation_results_reused_cross_run": 0,
+                "sources": [
+                    {
+                        "source_group_key": root_output_dir.name,
+                        "status": "ok",
+                        "source_shard_total": 1,
+                        "report_json_path": str(
+                            source_report.relative_to(root_output_dir)
+                        ),
+                        "winner_metrics": {"precision": 0.6, "recall": 0.6, "f1": 0.6},
+                    }
+                ],
+            },
+        )
+        report_md_path.write_text("report", encoding="utf-8")
+        return report_md_path
+
+    monkeypatch.setattr(
+        "cookimport.cli._run_all_method_benchmark_multi_source",
+        _fake_run_all_method_multi_source,
+    )
+
+    run_root = run_quality_suite(
+        suite,
+        tmp_path / "runs",
+        experiments_file=experiments_file,
+        base_run_settings_file=base_run_settings_file,
+        search_strategy="exhaustive",
+        max_parallel_experiments=None,
+        progress_callback=None,
+    )
+
+    resolved = json.loads(
+        (run_root / "experiments_resolved.json").read_text(encoding="utf-8")
+    )
+    assert resolved["max_parallel_experiments_mode"] == "auto"
+    assert resolved["max_parallel_experiments_effective"] == 20
+    assert resolved["max_parallel_experiments_auto_ceiling"] == 24
+    assert resolved["max_parallel_experiments_auto_ceiling_source"] == "env"
+
+
 def test_quality_cache_root_honors_env_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -898,7 +898,7 @@ Options:
 
 ### `cookimport bench quality-run`
 
-Runs all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`). Experiment-level execution is CPU-aware by default (auto cap + adaptive worker target based on host load); override with `--max-parallel-experiments` to force a fixed cap. In restricted runtimes where process workers are unavailable, quality-run stays on all-method `global` scope and uses thread-backed config workers (falls back to single-config execution only if thread executor setup also fails).
+Runs all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`). Experiment-level execution is CPU-aware by default (auto cap + adaptive worker target based on host load; default auto ceiling `16`, override with `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); override with `--max-parallel-experiments` to force a fixed cap. In restricted runtimes where process workers are unavailable, quality-run stays on all-method `global` scope and uses thread-backed config workers (falls back to single-config execution only if thread executor setup also fails).
 
 Status behavior:
 
@@ -923,9 +923,9 @@ Quick tuning guide for `--max-parallel-experiments`:
 | Experiment count | Suggested setting |
 | --- | --- |
 | 1-2 | omit flag (auto) or `2` |
-| 3-5 | omit flag (auto) or `3` |
-| 6-10 | omit flag (auto) or `4` |
-| 11+ | omit flag (auto) or `4-6` (watch thermals/background load) |
+| 3-6 | omit flag (auto) or `3-4` |
+| 7-12 | omit flag (auto) or `5-8` |
+| 13+ | omit flag (auto) or `8-16` (watch thermals/background load) |
 
 ### `cookimport bench quality-compare`
 
@@ -1042,6 +1042,7 @@ CLI-relevant environment variables:
 - `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS`: unlocks `markdown`/`markitdown` EPUB extractors across stage/prediction/debug command paths when set truthy (`1|true|yes|on`).
 - `COOKIMPORT_ALLOW_CODEX_FARM`: legacy no-op compatibility env var (recipe codex-farm options are no longer gated by this variable).
 - `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS`: include optional markdown-based extractors in all-method permutations when set to `1`.
+- `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`: optional auto-mode ceiling for `bench quality-run` experiment concurrency (default `16`; ignored when `--max-parallel-experiments` is set).
 - `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER`: canonical-text matcher selection (`dmp` only; non-`dmp` values are invalid).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS`: optional profiler threshold for benchmark evaluation stage (`>=0`; enables profile artifact capture when eval runtime meets threshold).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N`: optional `pstats` top-N row count for benchmark evaluation profiling output (default `40`).

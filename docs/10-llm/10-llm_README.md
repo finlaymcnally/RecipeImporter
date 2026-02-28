@@ -363,3 +363,24 @@ The items below were merged from `docs/understandings` in source timestamp order
 - Do not inject schema enforcement separately in each orchestrator; keep it centralized at subprocess runner command assembly.
 - Do not treat missing telemetry CSV as conversion failure; current contract is warn-and-continue with bounded payload slices.
 - When behavior differs between UI choices and runtime, verify live CLI discovery and persisted run artifacts before changing prompts or enums.
+
+## 2026-02-28 merged understandings (10:28-10:35 telemetry report v2 + autotune boundary)
+
+The items below were merged from `docs/understandings` in source timestamp order.
+
+### 2026-02-28_10.28.23 codex-farm telemetry-report v2 alignment
+- Source: `docs/understandings/2026-02-28_10.28.23-codex-farm-telemetry-report-v2-alignment.md`
+- `process --json.telemetry_report` (schema v2) is preserved as first-class `telemetry_report` on pass metadata.
+- Existing `telemetry` CSV slices remain intentionally retained as compact row-level fallback/context.
+- Keep both surfaces:
+  - `telemetry_report` for caller contract (`insights`, `tuning_playbook`),
+  - `telemetry` for row-level diagnostics and backward compatibility.
+
+### 2026-02-28_10.35.22 codex-farm autotune consumption boundary
+- Source: `docs/understandings/2026-02-28_10.35.22-codex-farm-run-autotune-consumption-boundary.md`
+- Runner performs best-effort `run autotune --run-id <id> --json` after successful `process` calls and stores result as `autotune_report`.
+- `autotune_report` is non-fatal metadata (null when unavailable) and does not trigger automatic runtime mutation.
+- Keep metadata layers distinct:
+  - `telemetry_report`: structured caller telemetry contract.
+  - `autotune_report`: concrete suggested overrides/diffs.
+  - `telemetry`: compact activity slices.

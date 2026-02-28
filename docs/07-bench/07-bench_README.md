@@ -32,7 +32,7 @@ Current scoring surfaces:
 - `bench quality-run` requires explicit positive confirmation when Codex Farm is requested: `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
 - `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; representative fallback). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
-- `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope and falls back to thread-backed config workers.
+- `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling `16`, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope and falls back to thread-backed config workers.
 - `bench quality-leaderboard`: aggregate one quality-run experiment into a global cross-source config leaderboard and Pareto frontier.
 - `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-coverage regression gates.
 - `bench eval-stage --gold-spans ... --stage-run ...`: evaluate a stage run directly from `.bench/*/stage_block_predictions.json`.
@@ -778,7 +778,7 @@ The items below were merged from `docs/understandings` in source timestamp order
 
 ### 2026-02-28_10.20.58 quality-run auto parallelism and load admission
 - Source: `docs/understandings/2026-02-28_10.20.58-quality-run-auto-parallelism-and-load-admission.md`
-- When `--max-parallel-experiments` is omitted, quality-run uses auto mode with effective cap `min(total_experiments, cpu_count, 8)`.
+- When `--max-parallel-experiments` is omitted, quality-run uses auto mode with effective cap `min(total_experiments, cpu_count, auto_ceiling)` where `auto_ceiling` defaults to `16` and is tunable via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`.
 - `experiments_resolved.json` persists requested/effective mode metadata (`max_parallel_experiments_requested`, `*_mode`, `*_effective`, `*_cpu_count`, `*_adaptive`).
 - Auto mode uses load-aware admission: gradual ramp up under lighter pressure and immediate clamp under hotter load.
 
@@ -786,3 +786,66 @@ The items below were merged from `docs/understandings` in source timestamp order
 - If throughput differs between global and legacy scheduler scopes, verify split-slot capping and admission logic are mirrored in both paths before tuning new knobs.
 - If reuse counters are zero on the 13-config EPUB profile, treat that as expected dataset shape unless input-key telemetry says otherwise.
 - If quality compare verdict fails while metrics improved, inspect run-settings hash parity before treating results as a regression.
+
+## 2026-02-28 merged understandings (10:31-11:12 certainty gates, codex confirmations, and sweep evidence)
+
+The items below were merged from `docs/understandings` in source timestamp order.
+
+### 2026-02-28_10.31.55 quality top-tier tournament baseline and gates
+- Source: `docs/understandings/2026-02-28_10.31.55-quality-top-tier-tournament-baseline-and-gates.md`
+- Cross-source run `data/golden/bench/quality/runs/2026-02-28_00.54.37` remains the strongest baseline signal for top-tier promotion and favored:
+  - `epub_extractor=unstructured`
+  - `epub_unstructured_html_parser_version=v1`
+  - `epub_unstructured_preprocess_mode=semantic_v1`
+  - `epub_unstructured_skip_headers_footers=true`
+- Single-source runs (`2026-02-28_03.39.35`, `2026-02-28_09.57.37`) are useful probes but weaker certainty evidence for default promotion.
+- Certainty gate thresholds are fixed in `data/golden/bench/quality/thresholds/2026-02-28_10.31.55_qualitysuite-top-tier-gates.json`.
+
+### 2026-02-28_10.35.58 qualitysuite codex-farm confirmation contract
+- Source: `docs/understandings/2026-02-28_10.35.58-qualitysuite-codex-farm-confirmation-contract.md`
+- `bench quality-run --include-codex-farm` requires explicit token confirmation:
+  - `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`
+- Programmatic callers must pass `codex_farm_confirmed=True` to `run_quality_suite(...)` when Codex permutations are requested.
+
+### 2026-02-28_10.41.47 speedsuite codex-farm confirmation contract
+- Source: `docs/understandings/2026-02-28_10.41.47-speedsuite-codex-farm-confirmation-contract.md`
+- `bench speed-run --include-codex-farm` requires explicit token confirmation:
+  - `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`
+- Programmatic callers must pass `codex_farm_confirmed=True` to `run_speed_suite(...)` when Codex permutations are requested.
+
+### 2026-02-28_10.44.48 quality-run sweep cardinality and stale-suite validation
+- Source: `docs/understandings/2026-02-28_10.44.48-quality-run-sweep-cardinality-and-stale-suite-validation.md`
+- `bench quality-run` validates every `targets[]` row in suite JSON, not only `selected_target_ids`; stale non-selected rows still fail the run.
+- Regenerated curated suite runs confirmed selected set:
+  - `saltfatacidheatcutdown`
+  - `thefoodlabcutdown`
+  - `seaandsmokecutdown`
+- Enabling deterministic sweeps in race mode can multiply probe-round cardinality quickly (observed round-1 probe: `286` configs).
+- If large runs are interrupted, `cannot schedule new futures after interpreter shutdown` can appear as interruption fallout and should not be treated as quality signal.
+
+### 2026-02-28_10.56.43 deterministic sweep per-knob status
+- Source: `docs/understandings/2026-02-28_10.56.43-deterministic-sweep-per-knob-status.md`
+- Current completed sweep evidence from `data/golden/bench/quality/runs/2026-02-28_03.39.35` showed tied top rows across base and multiple sweep tags (no clear per-knob winner).
+- Observed sweeps in that run:
+  - `section_detector_backend`
+  - `multi_recipe_splitter`
+  - `ingredient_missing_unit_policy`
+  - `instruction_step_segmentation_policy`
+  - `p6_yield_mode`
+  - `p6_temperature_unit_backend`
+- Not observed in that run (dependency-gated or absent):
+  - `p6_time_backend` alternates
+  - `p6_temperature_backend` alternates
+  - `instruction_step_segmenter=pysbd_v1`
+- Current default remains: keep deterministic baseline settings until multi-source and multi-seed uplift is repeatable.
+
+### 2026-02-28_11.12.24 qualitysuite seed variation and tournament cache/dedupe
+- Source: `docs/understandings/2026-02-28_11.12.24-qualitysuite-seed-variation-and-tournament-cache-dedupe.md`
+- Discovery now uses seed-driven representative fill after curated IDs, so multi-seed folds can produce distinct suites instead of duplicates.
+- Tournament execution now sets a shared fold cache root (`COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`) for fold runs to reuse eval/cache artifacts across seeds.
+- Tournament dedupes repeated suite signatures and excludes duplicate folds from execution and gate denominators.
+
+### Anti-loop checks from this batch
+- If Codex permutations are unexpectedly blocked, verify both CLI token confirmation and runner-level `codex_farm_confirmed` plumbing before changing variant builders.
+- If sweep evidence looks contradictory, separate single-source probes from cross-source certainty runs before changing defaults.
+- If multi-seed tournaments show no new evidence, inspect fold suite signatures first; duplicate-suite folds are intentionally skipped from denominators.

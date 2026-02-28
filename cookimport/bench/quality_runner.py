@@ -27,6 +27,10 @@ _SUPPORTED_EXPERIMENT_SCHEMA_VERSION = 2
 _SUPPORTED_EXPERIMENT_SCHEMA_VERSIONS = {1, 2}
 _SUPPORTED_SEARCH_STRATEGIES = {"exhaustive", "race"}
 _ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV = "COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT"
+_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_ENV = (
+    "COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS"
+)
+_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_DEFAULT = 16
 _ALL_METHOD_RUNTIME_ALLOWED_KEYS = {
     "max_parallel_sources",
     "max_inflight_pipelines",
@@ -243,13 +247,27 @@ def _resolve_experiment_parallelism_cap(
     *,
     requested: int | None,
     total_experiments: int,
-) -> tuple[int, str, int]:
+) -> tuple[int, str, int, int, str]:
     cpu_count = _coerce_int(os.cpu_count(), minimum=1)
+    auto_ceiling, auto_ceiling_source = _resolve_auto_parallel_experiment_ceiling()
     if requested is None:
-        auto_cap = max(1, min(total_experiments, cpu_count, 8))
-        return auto_cap, "auto", cpu_count
+        auto_cap = max(1, min(total_experiments, cpu_count, auto_ceiling))
+        return auto_cap, "auto", cpu_count, auto_ceiling, auto_ceiling_source
     fixed_cap = max(1, min(int(requested), total_experiments))
-    return fixed_cap, "fixed", cpu_count
+    return fixed_cap, "fixed", cpu_count, auto_ceiling, auto_ceiling_source
+
+
+def _resolve_auto_parallel_experiment_ceiling() -> tuple[int, str]:
+    env_raw = str(
+        os.getenv(_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_ENV, "") or ""
+    ).strip()
+    if not env_raw:
+        return _QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_DEFAULT, "default"
+    try:
+        env_value = int(env_raw)
+    except (TypeError, ValueError):
+        return _QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_DEFAULT, "default"
+    return max(1, env_value), "env"
 
 
 def _desired_experiment_parallel_workers(
@@ -338,11 +356,15 @@ def run_quality_suite(
         all_method_runtime_base=all_method_runtime_base,
     )
     total_experiments = len(resolved_experiments)
-    max_parallel_experiments_effective, max_parallel_experiments_mode, cpu_count = (
-        _resolve_experiment_parallelism_cap(
-            requested=max_parallel_experiments,
-            total_experiments=total_experiments,
-        )
+    (
+        max_parallel_experiments_effective,
+        max_parallel_experiments_mode,
+        cpu_count,
+        auto_parallel_experiment_ceiling,
+        auto_parallel_experiment_ceiling_source,
+    ) = _resolve_experiment_parallelism_cap(
+        requested=max_parallel_experiments,
+        total_experiments=total_experiments,
     )
 
     progress_lock = threading.Lock()
@@ -403,6 +425,9 @@ def run_quality_suite(
         "max_parallel_experiments_effective": max_parallel_experiments_effective,
         "max_parallel_experiments_cpu_count": cpu_count,
         "max_parallel_experiments_adaptive": max_parallel_experiments_mode == "auto",
+        "max_parallel_experiments_auto_ceiling": auto_parallel_experiment_ceiling,
+        "max_parallel_experiments_auto_ceiling_source": auto_parallel_experiment_ceiling_source,
+        "max_parallel_experiments_auto_ceiling_env": _QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_ENV,
         "experiments": [
             {
                 "id": item.id,
@@ -499,11 +524,14 @@ def run_quality_suite(
             future_to_index: dict[Any, int] = {}
             pending_entries = list(enumerate(resolved_experiments, start=1))
             next_pending_index = 0
-            dynamic_worker_target = (
-                1
-                if max_parallel_experiments_mode == "auto"
-                else max_parallel_experiments_effective
-            )
+            if max_parallel_experiments_mode == "auto":
+                initial_load_ratio = _safe_system_load_ratio_per_cpu()
+                dynamic_worker_target = _desired_experiment_parallel_workers(
+                    workers_cap=max_parallel_experiments_effective,
+                    load_ratio_per_cpu=initial_load_ratio,
+                )
+            else:
+                dynamic_worker_target = max_parallel_experiments_effective
             last_announced_worker_target: int | None = None
             completed = 0
 
@@ -514,10 +542,14 @@ def run_quality_suite(
                         workers_cap=max_parallel_experiments_effective,
                         load_ratio_per_cpu=load_ratio,
                     )
+                    ramp_step = max(
+                        1,
+                        int(math.ceil(max_parallel_experiments_effective * 0.25)),
+                    )
                     if desired_target > dynamic_worker_target:
                         dynamic_worker_target = min(
                             desired_target,
-                            dynamic_worker_target + 1,
+                            dynamic_worker_target + ramp_step,
                         )
                     else:
                         dynamic_worker_target = desired_target
