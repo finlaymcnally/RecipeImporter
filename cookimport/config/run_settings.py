@@ -264,14 +264,14 @@ class RunSettings(BaseModel):
         ),
     )
     benchmark_sequence_matcher: str = Field(
-        default="auto",
+        default="fallback",
         json_schema_extra=_ui_meta(
             group="Benchmark",
             label="Sequence Matcher",
             order=66,
             description=(
                 "Canonical-text matcher mode for benchmark/eval runs "
-                "(for example auto, stdlib, cydifflib, dmp)."
+                "(for example fallback, stdlib, cydifflib, dmp)."
             ),
         ),
     )
@@ -488,17 +488,19 @@ class RunSettings(BaseModel):
     @field_validator("benchmark_sequence_matcher", mode="before")
     @classmethod
     def _normalize_benchmark_sequence_matcher(cls, value: Any) -> str:
-        normalized = str(value or "auto").strip().lower()
+        normalized = str(value or "fallback").strip().lower()
+        if normalized == "auto":
+            normalized = "fallback"
         supported = supported_sequence_matcher_modes()
         if normalized not in supported:
             fallback_supported = ", ".join(supported)
             logger.warning(
                 "Invalid benchmark sequence matcher mode %r. "
-                "Falling back to 'auto'. Supported: %s",
+                "Falling back to 'fallback'. Supported: %s",
                 value,
                 fallback_supported,
             )
-            return "auto"
+            return "fallback"
         return normalized
 
     @classmethod
@@ -723,7 +725,7 @@ def build_run_settings(
     ocr_batch_size: int,
     warm_models: bool,
     table_extraction: str | TableExtraction = TableExtraction.off,
-    benchmark_sequence_matcher: str = "auto",
+    benchmark_sequence_matcher: str = "fallback",
     llm_recipe_pipeline: str | LlmRecipePipeline = LlmRecipePipeline.off,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
     llm_tags_pipeline: str | LlmTagsPipeline = LlmTagsPipeline.off,
@@ -775,7 +777,7 @@ def build_run_settings(
             "ocr_batch_size": ocr_batch_size,
             "warm_models": bool(warm_models),
             "table_extraction": _normalized_value(table_extraction),
-            "benchmark_sequence_matcher": str(benchmark_sequence_matcher or "auto")
+            "benchmark_sequence_matcher": str(benchmark_sequence_matcher or "fallback")
             .strip()
             .lower(),
             "llm_recipe_pipeline": _normalized_value(llm_recipe_pipeline),

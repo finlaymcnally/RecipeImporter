@@ -915,7 +915,8 @@ def _align_prediction_blocks_to_canonical(
         "implementation": matcher_selection.implementation,
         "version": matcher_selection.version,
         "forced_mode": matcher_selection.forced_mode,
-        "mode": matcher_selection.forced_mode or "auto",
+        "requested_mode": matcher_selection.forced_mode or "fallback",
+        "mode": matcher_selection.forced_mode or matcher_selection.implementation,
         "extra": dict(matcher_selection.extra_telemetry or {}),
     }
 
@@ -1390,6 +1391,9 @@ def evaluate_canonical_text(
         "alignment_sequence_matcher_impl": matcher_telemetry.get("implementation"),
         "alignment_sequence_matcher_version": matcher_telemetry.get("version"),
         "alignment_sequence_matcher_mode": matcher_telemetry.get("mode"),
+        "alignment_sequence_matcher_requested_mode": matcher_telemetry.get(
+            "requested_mode"
+        ),
         "alignment_sequence_matcher_forced_mode": matcher_telemetry.get("forced_mode"),
         "alignment_cache_enabled": bool(alignment_cache_telemetry.get("enabled")),
         "alignment_cache_hit": bool(alignment_cache_telemetry.get("hit")),

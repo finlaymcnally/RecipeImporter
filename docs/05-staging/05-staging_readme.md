@@ -189,6 +189,18 @@ When PDFs/EPUBs are split into jobs, merge flow:
 6. Moves raw artifacts from temporary `.job_parts/<workbook_slug>/job_{i}/raw/...` into final `raw/...` path.
 7. Writes report JSON after raw merge so `outputStats` includes moved raw artifacts (plus merged `raw/.../full_text.json`) without a post-write directory scan.
 
+### Split-merge outputStats invariants (merged 2026-02-27)
+
+When touching split merge, keep this ordering and accounting contract:
+
+- record merged `raw/.../full_text.json` in output stats when written,
+- record each moved raw destination during `_merge_raw_artifacts(...)`,
+- write report after raw merge completes.
+
+Guardrail test:
+- `tests/staging/test_split_merge_status.py::test_merge_split_jobs_output_stats_match_fresh_directory_walk`
+  compares report `outputStats` against a fresh categorized directory walk.
+
 Main-process merge status callback contract:
 
 - Status text is phase-counted as `merge phase X/Y: <label>`.

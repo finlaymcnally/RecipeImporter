@@ -3373,6 +3373,7 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
 
     def _fake_eval_canonical_text(**kwargs):
         captured_eval.update(kwargs)
+        captured_eval["sequence_matcher_env"] = os.environ.get(cli.SEQUENCE_MATCHER_ENV)
         return {
             "report": {
                 "counts": {
@@ -3444,9 +3445,11 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
             eval_output_dir=eval_root,
             no_upload=True,
             eval_mode="canonical-text",
+            sequence_matcher="stdlib",
         )
 
     assert captured_eval["gold_export_root"] == gold_spans.parent
+    assert captured_eval["sequence_matcher_env"] == "stdlib"
     assert captured_csv["eval_scope"] == "canonical-text"
     timing = captured_csv.get("timing")
     assert isinstance(timing, dict)
@@ -3470,6 +3473,7 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
     assert evaluate_finished_events[-1]["gold_load_seconds"] == pytest.approx(0.34)
     run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
     assert run_manifest["run_config"]["eval_mode"] == "canonical-text"
+    assert run_manifest["run_config"]["sequence_matcher"] == "stdlib"
 
 
 def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
@@ -3880,10 +3884,25 @@ def test_build_all_method_variants_epub_expected_count() -> None:
         source_file=Path("book.epub"),
         include_codex_farm=False,
     )
+    assert len(variants) == 13
+    assert len({variant.run_settings.stable_hash() for variant in variants}) == 13
+    assert any("extractor_unstructured" in variant.slug for variant in variants)
+    assert not any("extractor_markdown" in variant.slug for variant in variants)
+    assert not any("extractor_markitdown" in variant.slug for variant in variants)
+
+
+def test_build_all_method_variants_epub_includes_markdown_when_enabled() -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variants = cli._build_all_method_variants(
+        base_settings=base_settings,
+        source_file=Path("book.epub"),
+        include_codex_farm=False,
+        include_markdown_extractors=True,
+    )
     assert len(variants) == 15
     assert len({variant.run_settings.stable_hash() for variant in variants}) == 15
-    assert any("extractor_unstructured" in variant.slug for variant in variants)
     assert any("extractor_markdown" in variant.slug for variant in variants)
+    assert any("extractor_markitdown" in variant.slug for variant in variants)
 
 
 def test_build_all_method_variants_non_epub_single_variant() -> None:
@@ -3920,17 +3939,208 @@ def test_resolve_all_method_scheduler_limits_defaults_raise_split_slots_to_four(
     assert split_slots == 4
 
 
-def test_resolve_all_method_source_parallelism_defaults_to_two() -> None:
+def test_resolve_all_method_source_parallelism_defaults_scale_with_cpu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli.os, "cpu_count", lambda: 17)
     resolved = cli._resolve_all_method_source_parallelism(total_sources=7)
-    assert resolved == 2
+    assert resolved == 4
 
 
-def test_resolve_all_method_source_parallelism_invalid_override_falls_back_to_default() -> None:
+def test_resolve_all_method_source_parallelism_invalid_override_falls_back_to_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli.os, "cpu_count", lambda: 8)
     resolved = cli._resolve_all_method_source_parallelism(
         total_sources=5,
         requested=0,
     )
     assert resolved == 2
+
+
+def test_resolve_all_method_source_parallelism_requested_cap_respects_cpu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli.os, "cpu_count", lambda: 6)
+    resolved = cli._resolve_all_method_source_parallelism(
+        total_sources=10,
+        requested=12,
+    )
+    assert resolved == 6
+
+
+def test_resolve_all_method_canonical_alignment_cache_root_uses_shared_benchmark_root(
+    tmp_path: Path,
+) -> None:
+    benchmark_root = tmp_path / "golden" / "benchmark-vs-golden"
+    run_root = benchmark_root / "2026-02-27_17.54.41" / "all-method-benchmark"
+    source_root = run_root / "seaandsmokecutdown"
+    expected = benchmark_root / ".cache" / "canonical_alignment"
+
+    assert cli._resolve_all_method_canonical_alignment_cache_root(
+        root_output_dir=run_root
+    ) == expected
+    assert cli._resolve_all_method_canonical_alignment_cache_root(
+        root_output_dir=source_root
+    ) == expected
+
+
+def test_resolve_all_method_canonical_alignment_cache_root_honors_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    override_root = tmp_path / "cache-override"
+    monkeypatch.setenv(
+        cli.ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV,
+        str(override_root),
+    )
+
+    resolved = cli._resolve_all_method_canonical_alignment_cache_root(
+        root_output_dir=tmp_path / "run" / "all-method-benchmark"
+    )
+
+    assert resolved == override_root
+
+
+def test_plan_all_method_source_jobs_tail_pair_interleaves_heavy_and_light(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variant = cli.AllMethodVariant(
+        slug="extractor_unstructured",
+        run_settings=base_settings,
+        dimensions={"epub_extractor": "unstructured"},
+    )
+    source_names = ["alpha", "beta", "gamma", "delta"]
+    targets: list[tuple[cli.AllMethodTarget, list[cli.AllMethodVariant]]] = []
+    for name in source_names:
+        source_file = tmp_path / f"{name}.epub"
+        source_file.write_text("x", encoding="utf-8")
+        gold_spans = tmp_path / name / "exports" / "freeform_span_labels.jsonl"
+        gold_spans.parent.mkdir(parents=True, exist_ok=True)
+        gold_spans.write_text("{}\n", encoding="utf-8")
+        targets.append(
+            (
+                cli.AllMethodTarget(
+                    gold_spans_path=gold_spans,
+                    source_file=source_file,
+                    source_file_name=source_file.name,
+                    gold_display=name,
+                ),
+                [variant],
+            )
+        )
+
+    estimates = {
+        "alpha.epub": 400.0,
+        "beta.epub": 300.0,
+        "gamma.epub": 200.0,
+        "delta.epub": 100.0,
+    }
+
+    def fake_estimate(*, target, variants, prior_report_root=None):
+        _ = variants
+        _ = prior_report_root
+        return cli._AllMethodSourceEstimate(
+            estimated_seconds=estimates[target.source_file_name],
+            estimate_basis="test",
+            canonical_text_chars=0,
+            variant_count=1,
+        )
+
+    monkeypatch.setattr(cli, "_estimate_all_method_source_cost", fake_estimate)
+
+    discovery_plans = cli._plan_all_method_source_jobs(
+        target_variants=targets,
+        scheduling_strategy="discovery",
+        shard_threshold_seconds=99999.0,
+        shard_max_parts=1,
+        shard_min_variants=2,
+    )
+    assert [plan.source_file.name for plan in discovery_plans] == [
+        "alpha.epub",
+        "beta.epub",
+        "gamma.epub",
+        "delta.epub",
+    ]
+
+    tail_pair_plans = cli._plan_all_method_source_jobs(
+        target_variants=targets,
+        scheduling_strategy="tail_pair",
+        shard_threshold_seconds=99999.0,
+        shard_max_parts=1,
+        shard_min_variants=2,
+    )
+    assert [plan.source_file.name for plan in tail_pair_plans] == [
+        "alpha.epub",
+        "delta.epub",
+        "beta.epub",
+        "gamma.epub",
+    ]
+
+
+def test_plan_all_method_source_jobs_shards_heavy_sources(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variants = [
+        cli.AllMethodVariant(
+            slug=f"extractor_{index:02d}",
+            run_settings=base_settings,
+            dimensions={"variant": index},
+        )
+        for index in range(6)
+    ]
+    source_file = tmp_path / "heavy.epub"
+    source_file.write_text("x", encoding="utf-8")
+    gold_spans = tmp_path / "heavy" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    target_variants = [
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold_spans,
+                source_file=source_file,
+                source_file_name=source_file.name,
+                gold_display="heavy",
+            ),
+            variants,
+        )
+    ]
+
+    monkeypatch.setattr(
+        cli,
+        "_estimate_all_method_source_cost",
+        lambda **_kwargs: cli._AllMethodSourceEstimate(
+            estimated_seconds=3000.0,
+            estimate_basis="test",
+            canonical_text_chars=0,
+            variant_count=6,
+        ),
+    )
+
+    shard_plans = cli._plan_all_method_source_jobs(
+        target_variants=target_variants,
+        scheduling_strategy="discovery",
+        shard_threshold_seconds=1000.0,
+        shard_max_parts=3,
+        shard_min_variants=2,
+    )
+    assert len(shard_plans) == 3
+    assert [len(plan.variants) for plan in shard_plans] == [2, 2, 2]
+    assert all(plan.shard_total == 3 for plan in shard_plans)
+
+    unsharded_plans = cli._plan_all_method_source_jobs(
+        target_variants=target_variants,
+        scheduling_strategy="discovery",
+        shard_threshold_seconds=5000.0,
+        shard_max_parts=3,
+        shard_min_variants=2,
+    )
+    assert len(unsharded_plans) == 1
+    assert len(unsharded_plans[0].variants) == 6
 
 
 def test_resolve_all_method_scheduler_limits_invalid_overrides_fall_back_to_defaults() -> None:
@@ -5383,6 +5593,9 @@ def test_run_all_method_benchmark_multi_source_parallel_cap_and_ordering(
     payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
     assert payload["source_parallelism_configured"] == 2
     assert payload["source_parallelism_effective"] == 2
+    assert payload["source_schedule_strategy"] == cli.ALL_METHOD_SOURCE_SCHEDULING_TAIL_PAIR
+    assert payload["source_job_count_planned"] == 3
+    assert len(payload["source_schedule_plan"]) == 3
     assert max_active_sources <= 2
     assert max_active_sources >= 2
     assert [row["source_file_name"] for row in payload["sources"]] == [
@@ -5390,6 +5603,121 @@ def test_run_all_method_benchmark_multi_source_parallel_cap_and_ordering(
         source_b.name,
         source_c.name,
     ]
+    assert all(row["source_shard_total"] == 1 for row in payload["sources"])
+
+
+def test_run_all_method_benchmark_multi_source_shards_source_and_reuses_cache_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variants = [
+        cli.AllMethodVariant(
+            slug=f"extractor_{index:02d}",
+            run_settings=base_settings,
+            dimensions={"variant": index},
+        )
+        for index in range(6)
+    ]
+    source = tmp_path / "heavy-source.epub"
+    source.write_text("x", encoding="utf-8")
+    gold = tmp_path / "gold-heavy" / "exports" / "freeform_span_labels.jsonl"
+    gold.parent.mkdir(parents=True, exist_ok=True)
+    gold.write_text("{}\n", encoding="utf-8")
+    target_variants = [
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold,
+                source_file=source,
+                source_file_name=source.name,
+                gold_display="gold-heavy",
+            ),
+            variants,
+        )
+    ]
+
+    monkeypatch.setattr(
+        cli,
+        "_estimate_all_method_source_cost",
+        lambda **_kwargs: cli._AllMethodSourceEstimate(
+            estimated_seconds=3600.0,
+            estimate_basis="test",
+            canonical_text_chars=0,
+            variant_count=6,
+        ),
+    )
+
+    cache_overrides: list[Path] = []
+
+    def fake_run_all_method_benchmark(**kwargs):
+        cache_override = kwargs["canonical_alignment_cache_dir_override"]
+        assert isinstance(cache_override, Path)
+        cache_overrides.append(cache_override)
+        shard_variants = kwargs["variants"]
+        root_output_dir = kwargs["root_output_dir"]
+        root_output_dir.mkdir(parents=True, exist_ok=True)
+        report_md_path = root_output_dir / "all_method_benchmark_report.md"
+        report_md_path.write_text("ok", encoding="utf-8")
+        variant_count = len(shard_variants)
+        f1 = 0.5 + (variant_count * 0.05)
+        report_payload = {
+            "successful_variants": variant_count,
+            "failed_variants": 0,
+            "winner_by_f1": {"precision": f1, "recall": f1, "f1": f1},
+            "timing_summary": {
+                "source_wall_seconds": float(variant_count),
+                "config_total_seconds": float(variant_count),
+                "slowest_config_dir": "config_001",
+                "slowest_config_seconds": float(variant_count),
+            },
+            "scheduler": {
+                "mode": "smart",
+                "split_phase_slots": 2,
+                "smart_tail_buffer_slots": 2,
+                "effective_inflight_pipelines": 4,
+                "heavy_slot_capacity_seconds": 1.0,
+                "heavy_slot_busy_seconds": 1.0,
+                "idle_gap_seconds": 0.0,
+                "avg_wing_backlog": 1.0,
+                "max_wing_backlog": 2,
+                "max_active_pipelines_observed": 4,
+            },
+        }
+        report_md_path.with_suffix(".json").write_text(
+            json.dumps(report_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        return report_md_path
+
+    monkeypatch.setattr(cli, "_run_all_method_benchmark", fake_run_all_method_benchmark)
+
+    report_md_path = cli._run_all_method_benchmark_multi_source(
+        target_variants=target_variants,
+        unmatched_targets=[],
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method-root",
+        processed_output_root=tmp_path / "processed-root",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        source_scheduling="discovery",
+        source_shard_threshold_seconds=1000.0,
+        source_shard_max_parts=3,
+        source_shard_min_variants=2,
+    )
+
+    assert len(cache_overrides) == 3
+    assert len({path.as_posix() for path in cache_overrides}) == 1
+    payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
+    assert payload["source_job_count_planned"] == 3
+    assert payload["source_schedule_strategy"] == "discovery"
+    assert len(payload["sources"]) == 1
+    source_row = payload["sources"][0]
+    assert source_row["status"] == "ok"
+    assert source_row["source_shard_total"] == 3
+    assert source_row["variant_count_planned"] == 6
+    assert source_row["variant_count_successful"] == 6
+    assert len(source_row["source_shards"]) == 3
 
 
 def test_run_all_method_benchmark_multi_source_batches_dashboard_refresh_when_parallel(

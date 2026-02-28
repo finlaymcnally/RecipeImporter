@@ -6,11 +6,14 @@ import json
 from pathlib import Path
 
 import pytest
+import typer
 
 import cookimport.cli as cli
 from cookimport.bench.suite import BenchItem, BenchSuite, load_suite, validate_suite
 from cookimport.bench.report import aggregate_metrics, format_suite_report_md
 from cookimport.bench.trace import TraceCollector
+from cookimport.bench.speed_runner import SpeedScenario
+from cookimport.bench.speed_suite import SpeedSuite as BenchSpeedSuite, SpeedTarget
 from cookimport.bench.knobs import (
     Tunable,
     effective_knobs,
@@ -423,6 +426,170 @@ def test_bench_run_direct_write_flags_override_config(
 
     assert captured_config["write_markdown"] is False
     assert captured_config["write_label_studio_tasks"] is False
+
+
+def test_bench_speed_discover_writes_suite(tmp_path: Path) -> None:
+    input_root = tmp_path / "input"
+    input_root.mkdir(parents=True, exist_ok=True)
+    (input_root / "alpha.epub").write_text("epub", encoding="utf-8")
+
+    gold_root = tmp_path / "gold"
+    exports = gold_root / "alpha" / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    (exports / "freeform_span_labels.jsonl").write_text(
+        '{"source_file":"alpha.epub"}\n',
+        encoding="utf-8",
+    )
+
+    suite_out = tmp_path / "suite.json"
+    cli.bench_speed_discover(
+        gold_root=gold_root,
+        input_root=input_root,
+        out=suite_out,
+    )
+
+    payload = json.loads(suite_out.read_text(encoding="utf-8"))
+    assert payload["targets"]
+    assert payload["targets"][0]["target_id"] == "alpha"
+
+
+def test_bench_speed_run_wires_runner(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "alpha.epub"
+    source_file.write_text("epub", encoding="utf-8")
+    gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text('{"source_file":"alpha.epub"}\n', encoding="utf-8")
+
+    loaded_suite = BenchSpeedSuite(
+        name="speed_suite",
+        generated_at="2026-02-28_12.00.00",
+        gold_root=str((tmp_path / "gold").resolve()),
+        input_root=str(tmp_path.resolve()),
+        targets=[
+            SpeedTarget(
+                target_id="alpha",
+                source_file=str(source_file.resolve()),
+                gold_spans_path=str(gold_spans.resolve()),
+            )
+        ],
+        unmatched=[],
+    )
+    suite_path = tmp_path / "suite.json"
+    suite_path.write_text("{}", encoding="utf-8")
+    run_root = tmp_path / "runs" / "2026-02-28_12.00.00"
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "report.md").write_text("", encoding="utf-8")
+    (run_root / "summary.json").write_text("{}", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "cookimport.bench.speed_suite.load_speed_suite",
+        lambda _suite_path: loaded_suite,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.speed_suite.validate_speed_suite",
+        lambda _suite, repo_root: [],
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.speed_runner.parse_speed_scenarios",
+        lambda _raw: [SpeedScenario.STAGE_IMPORT],
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._run_with_progress_status",
+        lambda *, run, **_kwargs: run(lambda _message: None),
+    )
+
+    def _fake_run_speed_suite(
+        suite,
+        out_dir,
+        *,
+        scenarios,
+        warmups,
+        repeats,
+        max_targets,
+        sequence_matcher,
+        progress_callback,
+    ):
+        _ = progress_callback
+        captured["suite"] = suite
+        captured["out_dir"] = out_dir
+        captured["scenarios"] = scenarios
+        captured["warmups"] = warmups
+        captured["repeats"] = repeats
+        captured["max_targets"] = max_targets
+        captured["sequence_matcher"] = sequence_matcher
+        return run_root
+
+    monkeypatch.setattr(
+        "cookimport.bench.speed_runner.run_speed_suite",
+        _fake_run_speed_suite,
+    )
+    monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
+
+    cli.bench_speed_run(
+        suite=suite_path,
+        out_dir=tmp_path / "runs",
+        scenarios="stage_import",
+        warmups=1,
+        repeats=2,
+        max_targets=1,
+        sequence_matcher="fallback",
+    )
+
+    assert captured["suite"] == loaded_suite
+    assert captured["scenarios"] == [SpeedScenario.STAGE_IMPORT]
+    assert captured["warmups"] == 1
+    assert captured["repeats"] == 2
+    assert captured["max_targets"] == 1
+    assert captured["sequence_matcher"] == cli._normalize_benchmark_sequence_matcher_mode(
+        "fallback"
+    )
+
+
+def test_bench_speed_compare_fail_on_regression_exits(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    baseline.mkdir(parents=True, exist_ok=True)
+    candidate.mkdir(parents=True, exist_ok=True)
+    out_dir = tmp_path / "comparisons"
+
+    monkeypatch.setattr(
+        "cookimport.bench.speed_compare.compare_speed_runs",
+        lambda **_kwargs: {
+            "thresholds": {
+                "regression_pct": 5.0,
+                "absolute_seconds_floor": 0.5,
+            },
+            "rows": [],
+            "missing_in_baseline": [],
+            "missing_in_candidate": [],
+            "overall": {"verdict": "FAIL"},
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.speed_compare.format_speed_compare_report",
+        lambda _payload: "report",
+    )
+    monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(typer.Exit) as excinfo:
+        cli.bench_speed_compare(
+            baseline=baseline,
+            candidate=candidate,
+            out_dir=out_dir,
+            regression_pct=5.0,
+            absolute_seconds_floor=0.5,
+            fail_on_regression=True,
+        )
+
+    assert excinfo.value.exit_code == 1
 
 
 # ---------------------------------------------------------------------------

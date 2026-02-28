@@ -27,6 +27,9 @@ REMEMBER AGENTS.md SPACE IS VERY PRECIOUS and anything that can be written elsew
 # ExecPlans
 When writing complex features or significant refactors, use an ExecPlan (as described in docs/PLANS.md) from design to implementation. Save exec plans to /docs/plans/. - do a filename with a timestamp + descriptive short title, be consistent with other files in folder. REMEMBER TO UPDATE THE EXECPLAN YOU ARE WORKING OUT OF. BY THE TIME IT IS FULLY IMPLEMENTED, THE EXECPLAN SHOULD JUST BE A DOCUMENT THAT EXPLAINS HOW IT WORKS AND KEY CHOICES/DESIGN.
 
+# Speed Regression
+When touching runtime performance, use `cookimport bench speed-discover`, `cookimport bench speed-run`, and `cookimport bench speed-compare` for baseline-vs-candidate checks (default gold source: `data/golden/pulled-from-labelstudio`).
+
 # input file folder: 
 /recipeimport/data/input
 

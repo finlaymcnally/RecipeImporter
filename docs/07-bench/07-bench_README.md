@@ -94,6 +94,17 @@ Stage evidence projects staged decisions back into one deterministic label per b
 - `--write-markdown/--no-write-markdown`
 - `--write-labelstudio-tasks/--no-write-labelstudio-tasks`
 
+### 4.4 Speed regression flow (`cookimport bench speed-*`)
+
+1. `bench speed-discover` scans a gold root (default `data/golden/pulled-from-labelstudio`) for `exports/freeform_span_labels.jsonl`.
+2. Discovery resolves each gold export to `data/input/<source_file>` using shared source-hint fallbacks (manifest/run_manifest/jsonl hints), and writes matched + unmatched rows.
+3. `bench speed-run` executes repeat timing samples per target/scenario and writes:
+   - `suite_resolved.json`
+   - `samples.jsonl`
+   - `summary.json`
+   - `report.md`
+4. `bench speed-compare` aligns baseline/candidate summary rows by `target_id + scenario`, computes median deltas, and applies regression gates (`regression_pct` + `absolute_seconds_floor`).
+
 ## 5. Exact scoring surface (stage-block)
 
 Evaluation input A (predictions):
@@ -142,7 +153,7 @@ How it scores:
 - project stage block labels onto canonical text lines
 - compare predicted line labels vs gold line labels
 - inspect `report.alignment` deprecation fields when validating alignment strategy behavior
-- when `alignment_cache_dir` is provided, canonical alignment results are reused only for identical canonical text + prediction text + prediction block boundaries (all-method uses a shared per-source cache at `.cache/canonical_alignment`)
+- when `alignment_cache_dir` is provided, canonical alignment results are reused only for identical canonical text + prediction text + prediction block boundaries (all-method uses a shared cross-run cache root at `data/golden/benchmark-vs-golden/.cache/canonical_alignment/<source_group_key>` by default; override with `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`)
 - cache lock recovery reclaims dead-owner `*.lock` files immediately via PID liveness checks, with age-based stale fallback for malformed lock metadata.
 
 Outputs include `eval_report.json/md` plus canonical diagnostics:
@@ -164,7 +175,7 @@ Outputs include `eval_report.json/md` plus canonical diagnostics:
 - evaluator reports also include `evaluation_telemetry`:
   - subphase timers (`load_gold_seconds`, `load_prediction_seconds`, alignment/projection/metrics/diagnostic phases),
   - canonical alignment micro-subphases (`alignment_normalize_prediction_seconds`, `alignment_normalize_canonical_seconds`, `alignment_sequence_matcher_seconds`, `alignment_block_mapping_seconds`),
-  - canonical matcher implementation metadata (`alignment_sequence_matcher_impl`, `alignment_sequence_matcher_version`, `alignment_sequence_matcher_mode`, `alignment_sequence_matcher_forced_mode`),
+  - canonical matcher implementation metadata (`alignment_sequence_matcher_impl`, `alignment_sequence_matcher_version`, `alignment_sequence_matcher_mode` [effective mode], `alignment_sequence_matcher_requested_mode`, `alignment_sequence_matcher_forced_mode`),
   - canonical cache fields (`alignment_cache_enabled`, `alignment_cache_hit`, `alignment_cache_key`, `alignment_cache_load_seconds`, `alignment_cache_write_seconds`, optional `alignment_cache_validation_error`),
   - per-eval resource snapshots/deltas (CPU, peak RSS, block I/O counters when available),
   - work-unit counts (line/span/block counts plus text-size counters such as `prediction_text_char_count`, `prediction_normalized_char_count`, `canonical_text_char_count`)
@@ -176,7 +187,9 @@ Outputs include `eval_report.json/md` plus canonical diagnostics:
 
 SequenceMatcher acceleration notes:
 - install optional acceleration deps with `python -m pip install -e '.[benchaccel]'`.
-- force matcher implementation with `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=stdlib|cydifflib|cdifflib|dmp|multilayer`; leave unset (or `auto`) for fallback selection.
+- force matcher implementation with `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=stdlib|cydifflib|cdifflib|dmp|multilayer`; leave unset (or `fallback`) for fallback-chain selection.
+- CLI overrides are available on benchmark commands: `labelstudio-benchmark --sequence-matcher ...`, `bench run --sequence-matcher ...`, and `bench sweep --sequence-matcher ...`.
+- Interactive benchmark settings include `benchmark_sequence_matcher` (same mode set, default `fallback`).
 
 All-method reports include timing rollups in per-source and combined summaries.
 `bench run`/`bench sweep` spinner telemetry is persisted under:
@@ -191,10 +204,14 @@ All-method reports include timing rollups in per-source and combined summaries.
 | `cookimport labelstudio-benchmark` | Optional (upload mode only; `--allow-labelstudio-write`) | Yes | `stage_block_predictions.json` |
 | Interactive benchmark menu flow | No (always offline) | Yes | `stage_block_predictions.json` |
 | `cookimport bench run` | No | Yes | `stage_block_predictions.json` |
+| `cookimport bench speed-discover` | No | No | N/A (target discovery only) |
+| `cookimport bench speed-run` | No | No quality scoring; timing-only | `stage` + `labelstudio-benchmark --no-upload --eval-mode canonical-text` |
+| `cookimport bench speed-compare` | No | No | `summary.json` from two prior speed runs |
 
 `labelstudio-benchmark` mode selection:
 - `--eval-mode stage-blocks` (default)
 - `--eval-mode canonical-text` (extractor-independent)
+- `--sequence-matcher fallback|stdlib|cydifflib|cdifflib|dmp|multilayer|...` (default `fallback`; order `cydifflib -> cdifflib -> dmp -> multilayer -> stdlib`)
 - `--execution-mode legacy|pipelined|predict-only` (default `legacy`)
 - `pipelined` now runs a true producer/consumer stream: prediction records are consumed during prediction, replay artifacts are built from that stream, and scoring finalizes after end-of-stream.
 - `--predictions-out <path>` writes per-block prediction-record JSONL artifacts (`schema_kind=stage-block.v1`)
@@ -206,6 +223,12 @@ All-method reports include timing rollups in per-source and combined summaries.
 `bench run` prediction-artifact toggle overrides:
 - `--write-markdown/--no-write-markdown`
 - `--write-labelstudio-tasks/--no-write-labelstudio-tasks`
+- `--sequence-matcher fallback|stdlib|cydifflib|cdifflib|dmp|multilayer|...` (default `fallback`; order `cydifflib -> cdifflib -> dmp -> multilayer -> stdlib`)
+
+`bench speed` commands:
+- `speed-discover --gold-root ... --input-root ... --out ...`
+- `speed-run --suite ... --scenarios stage_import,benchmark_canonical_legacy --warmups N --repeats N --max-targets N`
+- `speed-compare --baseline ... --candidate ... --regression-pct ... --absolute-seconds-floor ... --fail-on-regression`
 
 Interactive benchmark menu modes (`single_offline` and `all_method`) always use `canonical-text` mode.
 
@@ -226,10 +249,19 @@ If you want no Label Studio side effects, use:
 Interactive benchmark from the main menu is now offline-only, with two modes:
 - single offline mode (one local eval run, no upload),
 - all-method mode (offline multi-config sweep, no upload).
-  - all-matched source concurrency default is bounded to `2` (`all_method_max_parallel_sources`), so multiple books can run concurrently.
+  - all-matched source concurrency default is CPU-aware and bounded by `all_method_max_parallel_sources` (cap default `4`), so multiple books can run concurrently on larger hosts.
+  - all-matched source dispatch strategy defaults to `tail_pair` (`all_method_source_scheduling`) to interleave heavy/light source jobs.
+  - heavy-source variant sharding is controlled by:
+    - `all_method_source_shard_threshold_seconds`
+    - `all_method_source_shard_max_parts`
+    - `all_method_source_shard_min_variants`
   - all-method scheduler defaults are bounded: inflight pipelines=`4`, split-phase slots=`4`.
   - scheduler controls are interactive `cookimport.json` keys:
     - `all_method_max_parallel_sources`
+    - `all_method_source_scheduling`
+    - `all_method_source_shard_threshold_seconds`
+    - `all_method_source_shard_max_parts`
+    - `all_method_source_shard_min_variants`
     - `all_method_max_inflight_pipelines`
     - `all_method_max_split_phase_slots`
     - `all_method_max_eval_tail_pipelines`
@@ -264,6 +296,7 @@ Interactive benchmark from the main menu is now offline-only, with two modes:
     2. first non-empty `freeform_span_labels.jsonl` row `source_file`,
     3. first non-empty `freeform_segment_manifest.jsonl` row `source_file`.
   - all-matched runs write the usual per-source `all_method_benchmark_report.{json,md}` files plus one combined root summary: `all_method_benchmark_multi_source_report.{json,md}`.
+  - combined all-matched summary now includes source schedule metadata (`source_schedule_strategy`, `source_schedule_plan`) and shard rollups (`source_shard_total`, per-shard rows).
   - when source parallelism is greater than `1`, dashboard refresh is batched once at multi-source completion (not once per source).
 
 ### 8.3 "Why did split conversion fail with pickling?"
@@ -353,6 +386,7 @@ Durable all-method rules:
 - Matching is by exact filename against top-level importable files in `data/input`; unresolved gold exports should be surfaced explicitly.
 - Outer all-method progress remains one persistent dashboard spinner; per-config nested benchmark spinner + summary output should stay suppressed via benchmark progress overrides.
 - Parallel all-method defaults remain bounded (inflight pipelines=`4`, split-phase slots=`4`), and benchmark CSV append paths keep file locking to avoid header duplication/partial writes.
+- All-method EPUB sweeps exclude `markdown`/`markitdown` extractor variants by default; set `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS=1` to include those variants for an explicit opt-in run.
 - Split-slot wait/acquire/release telemetry should flow through progress callbacks and spinner task updates; subprocess all-method workers should not emit standalone stdout slot lines.
 - All-method dashboard `current config` should reflect active config slots in parallel mode (`current configs A-B/N`), not a stale last-submitted slug.
 - For `current configs A-B/N` states, keep a per-config worker section visible with phase labels (`prep`, `split wait`, `split active`, `post`, `evaluate`) so operators can see what each active slot is doing.
@@ -827,8 +861,8 @@ Detailed chronology, requirement-level evidence, and anti-loop history now live 
 ### 19.1 What exists now (runtime contracts)
 
 - Speed-1 (`SequenceMatcher` selector):
-  - canonical evaluator uses matcher selection with env contract `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=auto|stdlib|cydifflib|cdifflib|dmp|multilayer` (`auto` order unchanged).
-  - telemetry captures matcher implementation/mode/version details.
+  - canonical evaluator uses matcher selection with env contract `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=fallback|stdlib|cydifflib|cdifflib|dmp|multilayer` (legacy `auto` alias maps to `fallback`).
+  - telemetry captures matcher implementation/version plus effective mode and requested mode details.
   - optional accel install path documented (`.[benchaccel]`).
 - Speed-2 (all-method eval-tail admission):
   - scheduler tracks evaluate-phase activity and renders `eval E` in snapshot/dashboard text.
@@ -836,7 +870,7 @@ Detailed chronology, requirement-level evidence, and anti-loop history now live 
   - report payloads include eval-phase utilization signals.
 - Speed-3 (canonical alignment cache):
   - optional disk-backed content-addressed cache in canonical evaluator.
-  - all-method runs share per-source cache at `.cache/canonical_alignment`.
+  - all-method runs share per-source cache under a cross-run root (`data/golden/benchmark-vs-golden/.cache/canonical_alignment/<source_group_key>` by default).
   - cache key safety includes canonical text, prediction text, and block-boundary signatures.
   - closure evidence now includes a real miss->hit two-config all-method run plus dedicated cache concurrency tests (`docs/tasks/2026-02-27_11.29.26-speed1-3-remaining-closeout.md`).
 - Speed-4 (stage split and replay):
@@ -897,7 +931,7 @@ Merged sources in creation order:
 - Canonical-text scoring currently enforces legacy global `SequenceMatcher` alignment; `auto` and `fast` requests are deprecated aliases forced to legacy with deprecation telemetry.
 - Canonical speed work should preserve scoring behavior and swap matcher implementation only behind the current `_align_prediction_blocks_to_canonical(...)` / `_align_prediction_blocks_legacy(...)` surface.
 - Canonical alignment cache wiring is benchmark-level and shared per source in all-method:
-  - `_run_all_method_benchmark(...)` creates `.cache/canonical_alignment`.
+  - `_run_all_method_benchmark_multi_source(...)` resolves a shared cache root (default `data/golden/benchmark-vs-golden/.cache/canonical_alignment`, override via `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`) and passes per-source subpaths.
   - `_run_all_method_config_once(...)` passes cache path to `labelstudio_benchmark(...)`.
   - `labelstudio_benchmark(...)` forwards cache path only for canonical eval.
   - `evaluate_canonical_text(...)` and aligner enforce hash/version/shape validation and treat invalid cache payloads as safe misses.
@@ -923,3 +957,194 @@ Merged sources in creation order:
 - Stage-block scoring depends on `stage_block_predictions.json` and `extracted_archive.json`, not `label_studio_tasks.jsonl`.
 - Speed-5 toggle plumbing must stay consistent across stage single-file and split-merge paths, plus offline pred-run generation, with manifest status marking intentional task-jsonl skips.
 - Speed-4 execution/replay now uses per-block prediction-record streams as the default contract; evaluate-only keeps compatibility with legacy run-pointer records.
+
+## 21) Merged Understandings Batch (2026-02-26_22.53 to 2026-02-27_19.09)
+
+Merged source set includes:
+- `docs/understandings/2026-02-26_22.53.30-all-method-eval-lock-bottleneck.md`
+- `docs/understandings/2026-02-27_10.15.12-all-method-wsl-crash-nested-process-pools.md`
+- `docs/understandings/2026-02-27_10.18.26-speed-plan-implementation-audit.md`
+- `docs/understandings/2026-02-27_10.30.29-canonical-alignment-byte-parity-surface.md`
+- `docs/understandings/2026-02-27_10.51.28-og-speed1-3-implementation-audit.md`
+- `docs/understandings/2026-02-27_10.51.52-speed1-4-implementation-gap-audit.md`
+- `docs/understandings/2026-02-27_10.52.17-speed1-5-implementation-audit.md`
+- `docs/understandings/2026-02-27_10.52.18-speed1-2-spec-audit.md`
+- `docs/understandings/2026-02-27_11.19.52-speed1-2-scheduler-contract-alignment.md`
+- `docs/understandings/2026-02-27_11.45.52-speed1-4-per-block-replay-runner-discovery.md`
+- `docs/understandings/2026-02-27_12.17.58-og-speed1-1-through-1-5-implementation-status.md`
+- `docs/understandings/2026-02-27_13.09.44-speed1-4-true-streaming-replay-consumer.md`
+- `docs/understandings/2026-02-27_18.05.11-all-method-scheduler-snapshot-cadence.md`
+- `docs/understandings/2026-02-27_18.12.47-speed2-4-plan-vs-current-sequence-matcher-state.md`
+- `docs/understandings/2026-02-27_18.13.18-og-speed2-3-plan-context-drift.md`
+- `docs/understandings/2026-02-27_18.14.00-speed2-2-plan-current-context-audit.md`
+- `docs/understandings/2026-02-27_18.14.04-all-method-thefoodlab-stale-eta.md`
+- `docs/understandings/2026-02-27_18.24.56-all-method-eta-recent-rate-tail-floor.md`
+- `docs/understandings/2026-02-27_18.43.01-speed2-3-dmp-selector-integration.md`
+- `docs/understandings/2026-02-27_18.45.01-canonical-cache-dead-pid-lock-recovery.md`
+- `docs/understandings/2026-02-27_18.49.32-all-method-final-source-eval-tail-cpu-cap.md`
+- `docs/understandings/2026-02-27_18.51.09-speed-suite-design-context-discovery.md`
+- `docs/understandings/2026-02-27_18.57.58-all-method-source-scheduler-fifo-tail-risk.md`
+- `docs/understandings/2026-02-27_19.09.42-speed-suite-shared-target-matching.md`
+- `docs/understandings/2026-02-27_19.14.01-all-method-shard-aggregation-cache-sharing.md`
+- `docs/understandings/2026-02-27_19.15.22-bench-cli-typer-optioninfo-defaults.md`
+
+Cross-folder destinations from the same cleanup batch:
+- split-merge output-stats ordering note moved to staging docs: `docs/05-staging/`.
+- shared-vs-stage telemetry plumbing note moved to analytics docs: `docs/08-analytics/`.
+
+### 21.1 All-method tail behavior and liveness triage
+
+- `config 0/N` with many evaluate workers can be normal when first canonical cache keys are still computing and no `evaluate_finished` events have fired yet.
+- `scheduler heavy 0/N` does not imply idle; heavy tracks split-active occupancy, not evaluate/post phases.
+- ETA can look stale late in runs because completion-rate sampling has sparse `config_finished` events during long canonical aligns; use CPU + scheduler events + lock state to judge liveness.
+- Late single-source tails are naturally CPU-capped by remaining configs and number of unique canonical cache keys; 50-60% host CPU can still be healthy.
+- Treat as true stall only when scheduler/event files stop changing for a prolonged window and lock owners are dead/unrecoverable.
+
+### 21.2 Scheduler/runtime cap contracts that matter in production
+
+- Nested pool oversubscription is a real crash mode on constrained WSL hosts: `all_method split slots * per-config split workers` can explode process count.
+- Runtime now needs explicit split-worker capping visibility (`split_worker_cap_per_config`, CPU and memory-derived caps) in scheduler summaries.
+- Poll cadence is loop-driven (`0.15s`) while visible spinner updates are state-change gated; apparent "stuck text" can still represent active polling.
+- Speed1-2 closure required separating configured vs effective eval-tail headroom and exposing `max_active_during_eval`; legacy cap fields should be compatibility aliases, not semantic source-of-truth.
+- Bench command helpers invoked directly from Python/tests must unwrap Typer `OptionInfo` defaults before sequence-matcher normalization (`bench run`, `bench sweep`, `bench speed-run`), or default matcher modes can fail validation.
+
+### 21.3 SequenceMatcher parity, mode selection, and plan drift
+
+- For byte-parity checks, compare `aligned_prediction_blocks.jsonl`; `eval_report.json` intentionally differs by telemetry fields.
+- Keep telemetry split between requested mode and effective mode so fallback-chain selection is auditable.
+- Current architecture is selector-first (`COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=fallback|stdlib|cydifflib|cdifflib|dmp|multilayer`, legacy `auto` alias supported) plus cache reuse; OG speed2-2/2-3/2-4 plans are context docs, not direct execution specs.
+- `dmp` can be integrated as selector mode and can be very fast on mismatch-heavy synthetic cases, but it is not a strict stdlib-opcode parity backend.
+
+### 21.4 Speed-plan closure snapshot (what is closed vs pending)
+
+- Speed1-3 is closed to original intent (runtime + dedicated tests + same-key concurrency proof + real miss->hit evidence).
+- Speed1-2, speed1-4, and speed1-5 have substantial runtime/test closure, but evidence/spec-closure obligations were still the common remaining gap in these audits.
+- Speed1-4 durable contract in this repo is per-block prediction records with legacy run-pointer compatibility; evaluator internals remain path-based.
+- Pipelined speed1-4 overlap is at record production/consumption and replay assembly boundaries; final scoring still runs against finalized artifact paths.
+
+### 21.5 Speed-suite and source-level scheduling contracts
+
+- Speed regression work should treat run-local artifacts (`run_manifest`, `eval_report`, processing/scheduler timeseries) as source-of-truth, not only top-level history CSV.
+- Speed-suite discovery and all-method source resolution should share one matcher contract to avoid drift.
+- Shared target matching order is:
+  1. `manifest.json` `source_file`
+  2. `run_manifest.json` `source.path`
+  3. first `source_file` in `freeform_span_labels.jsonl`
+  4. first `source_file` in `freeform_segment_manifest.jsonl`
+- Keep `_resolve_all_method_targets(...)` aligned with the CLI-local contract (`_list_importable_files(DEFAULT_INPUT)` + `_load_source_hint_from_gold_export(...)`) unless tests and interactive flows are migrated together.
+- When source sharding is enabled, shard siblings for one logical source should share one canonical cache root by `source_group_key`; shard results should aggregate back to one top-level source row (with additive shard metadata) in `all_method_benchmark_multi_source_report.json`.
+- Multi-source all-method dispatch is FIFO by discovery order; runtime skew can strand large books in the tail unless source scheduling policy changes.
+
+## 22) Merged Task Specs (2026-02-25 to 2026-02-27 docs/tasks archival batch)
+
+This section consolidates the remaining benchmark-focused task specs that were still living in `docs/tasks/`.
+Detailed chronology and verification evidence live in `docs/07-bench/07-bench_log.md` under the matching archival merge section.
+
+### 22.1 Archived source tasks merged here
+
+- `docs/tasks/fix-goldOG.md`
+- `docs/tasks/2026-02-27_10.29.44-sequence-matcher-speed-plan-closeout.md`
+- `docs/tasks/2026-02-27_11.19.51-speed1-2-remaining-implementation.md`
+- `docs/tasks/2026-02-27_11.29.26-speed1-3-remaining-closeout.md`
+- `docs/tasks/2026-02-27_11.45.18-speed1-4-remaining-implementation.md`
+- `docs/tasks/2026-02-27_12.00.02-speed1-5-remaining-implementation.md`
+- `docs/tasks/2026-02-27_12.23.26-speed1-4-true-streaming-pipeline.md`
+- `docs/tasks/2026-02-27_18.04.57-all-method-scheduler-timeseries-cpu.md`
+- `docs/tasks/2026-02-27_18.35.38-multilayer-sequence-matcher-spike.md`
+- `docs/tasks/2026-02-27_18.43.40-canonical-cache-dead-pid-lock-recovery.md`
+- `docs/tasks/2026-02-27_18.55.29-all-method-tail-throughput-plan.md`
+- `docs/tasks/2026-02-27_18.58.13-multilayer-spike-status-summary.md`
+
+Cross-folder note from the same batch:
+- `docs/tasks/2026-02-27_18.18.54-processing-timeseries-all-processing-flows.md` was merged into analytics docs (`docs/08-analytics`).
+
+### 22.2 Canonical-text benchmark boundary (from `fix-goldOG`)
+
+Durable current-state contract:
+- Canonical benchmark mode exists to decouple scoring from extractor blockization drift.
+- Gold export emits canonical artifacts (`canonical_text.txt`, `canonical_block_map.jsonl`, `canonical_span_labels.jsonl`, `canonical_manifest.json`).
+- Canonical evaluator aligns prediction extracted text to canonical gold text and scores in canonical line space.
+- Stage-block mode remains available and parity-sensitive; canonical-text mode is the extractor-comparison path.
+
+Anti-loop guardrail:
+- Do not treat stage-block parity failures as canonical-text bugs; they are expected when extractor/blockization drifts.
+
+### 22.3 Speed1 closure state after this merge
+
+Speed1-1 (`SequenceMatcher` selector proof depth):
+- Byte-identical parity checks are anchored on `aligned_prediction_blocks.jsonl`, not `eval_report.json`.
+- Selector parity proof includes opcode + matching-block equivalence and canonical end-to-end aligned-artifact identity.
+
+Speed1-2 (all-method smart scheduler contract):
+- Scheduler runtime/report surface now separates configured vs effective eval-tail semantics:
+  - `eval_tail_headroom_mode`
+  - `eval_tail_headroom_configured`
+  - `eval_tail_headroom_effective`
+  - `max_active_during_eval`
+- Explicit `all_method_max_eval_tail_pipelines` overrides are bounded by CPU/per-source budget; legacy cap fields remain compatibility aliases.
+
+Speed1-3 (canonical alignment cache closure):
+- Dedicated cache tests exist (`tests/bench/test_canonical_alignment_cache.py`) including same-key contention proof.
+- Real two-config miss->hit evidence exists and showed unchanged metrics with large matcher-time/wall-time drop on hit.
+
+Speed1-4 (runner/replay contract + true overlap):
+- Benchmark runner contracts are explicit (`predict_stage`, `evaluate_stage`, `run_legacy`, `run_pipelined`).
+- `--predictions-out` contract is per-block/per-example (`schema_kind=stage-block.v1`).
+- `--predictions-in` evaluate-only accepts both new per-block records and legacy run-pointer records.
+- `pipelined` mode now performs true producer/consumer overlap at replay-consumption boundary while preserving path-based evaluator internals.
+
+Speed1-5 (artifact-write and split-merge closure):
+- Prepared archive reuse and split-merge output-stats parity were closed with targeted coverage.
+- `bench run` now exposes direct output-write toggles:
+  - `--write-markdown/--no-write-markdown`
+  - `--write-labelstudio-tasks/--no-write-labelstudio-tasks`
+- No-drift checks include deterministic prediction equality under markdown write toggles.
+
+### 22.4 Scheduler telemetry and long-tail behavior
+
+Durable benchmark telemetry additions:
+- All-method source roots persist `scheduler_timeseries.jsonl` with snapshot counters and host CPU utilization samples.
+- Scheduler timeseries emits on snapshot changes plus heartbeat cadence.
+
+Long-tail interpretation rules reinforced:
+- Low late-run CPU can be structurally normal when final source + cache-key fanout limits parallel evaluate work.
+- If canonical eval appears stalled, inspect cache lock owner PID liveness before raising scheduler concurrency.
+
+### 22.5 MultiLayer spike and matcher-selection status
+
+Current matcher status from merged spike docs:
+- `multilayer` is integrated as explicit opt-in selector mode.
+- `auto`/`fallback` default behavior was intentionally left unchanged for production stability.
+- Requested-vs-effective matcher telemetry is explicit:
+  - `alignment_sequence_matcher_requested_mode`
+  - `alignment_sequence_matcher_mode`
+- Focused parity checks passed; synthetic timings showed `multilayer` faster than stdlib but slower than `cydifflib` in sampled runs.
+
+Open evidence gap:
+- Full real-input all-method A/B evidence (`fallback/auto` vs `multilayer`) remains the decision-grade adoption input.
+
+### 22.6 Source-level tail-throughput scheduler upgrades
+
+Merged implementation contract for all-matched source orchestration:
+- Source planning helpers estimate source cost and produce schedulable source jobs.
+- Heavy sources can be sharded at variant level (not content-level splitting).
+- Dispatch strategy supports `discovery` (legacy) and `tail_pair` (heavy/light interleave).
+- Source shard siblings can share canonical cache roots by source-group key to avoid recomputing identical alignments.
+- Multi-source combined reports preserve one top-level source row while adding shard metadata fields.
+
+Operational knobs (settings):
+- `all_method_source_scheduling`
+- `all_method_source_shard_threshold_seconds`
+- `all_method_source_shard_max_parts`
+- `all_method_source_shard_min_variants`
+
+Known pending item from task closeout:
+- Manual interactive all-matched validation run was still marked pending after code/test/docs changes landed.
+
+### 22.7 Anti-loop checklist from this merge batch
+
+- Use `aligned_prediction_blocks.jsonl` (not `eval_report.json`) for byte-identity matcher parity assertions.
+- Do not collapse configured/effective eval-tail semantics into one legacy field.
+- Treat dead-PID lock reclamation as first response for canonical cache stalls; age-only lock expiry is insufficient.
+- Keep `multilayer` as explicit opt-in until full A/B evidence exists.
+- For tail-throughput work, include source scheduling/sharding policy, not only per-source pipeline tuning.

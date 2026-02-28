@@ -745,3 +745,48 @@ Decision/outcome preserved:
 
 Anti-loop note:
 - Do not reintroduce race score fields to fix historical dashboards; migrate old readers or backfill scripts to the current extractor field set.
+
+## 2026-02-27 understanding merge batch (analytics telemetry plumbing)
+
+### 2026-02-27_18.19.11 processing telemetry plumbing surfaces
+
+Merged source:
+- `docs/understandings/2026-02-27_18.19.11-processing-telemetry-plumbing-surfaces.md`
+
+Problem captured:
+- Attempts to add unified processing telemetry can miss stage flows because stage does not run through the shared spinner wrapper.
+
+Decision/outcome preserved:
+- Treat telemetry plumbing as two explicit surfaces:
+  - shared wrapper path: `_run_with_progress_status(...)` (Label Studio wrappers + benchmark wrappers + bench run/sweep),
+  - stage-local path: rich progress/job-loop emission in `stage(...)`.
+
+Anti-loop note:
+- If telemetry appears in bench/import but not stage (or vice versa), verify which surface was modified before changing collector/dashboard logic.
+
+## 2026-02-27 docs/tasks archival merge batch (processing telemetry)
+
+### 2026-02-27_18.18.54 processing timeseries across stage/import/bench wrappers
+
+Merged source:
+- `docs/tasks/2026-02-27_18.18.54-processing-timeseries-all-processing-flows.md`
+
+Problem captured:
+- Scheduler telemetry existed for all-method source scheduling, but most processing wrappers had no persisted run-local status timeline with host CPU samples.
+
+Decision/outcome preserved:
+- Added shared processing-timeseries writer and CPU sampling helper for spinner-wrapper flows in `cookimport/cli.py`.
+- Added stage telemetry artifact emission (`processing_timeseries.jsonl`) and manifest discoverability wiring.
+- Wired wrapper telemetry persistence through `_run_with_progress_status(... telemetry_path=...)` for benchmark/import/bench wrappers.
+- Kept spinner text/status contract unchanged; telemetry writes are additive.
+
+Evidence preserved from task:
+- Targeted benchmark helper slice passed:
+  - `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k 'run_with_progress_status_writes_processing_timeseries or writes_scheduler_timeseries or smart_scheduler_improves_heavy_slot_utilization'`
+- Stage output-structure coverage passed:
+  - `pytest tests/cli/test_cli_output_structure.py -k stage_output_structure`
+- Task notes include new assertion/test anchor:
+  - `test_run_with_progress_status_writes_processing_timeseries`
+
+Anti-loop note:
+- “Processing telemetry everywhere” still requires touching both shared wrapper plumbing and stage-local progress loop surfaces.

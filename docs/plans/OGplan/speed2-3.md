@@ -21,7 +21,9 @@ We will NOT re-enable the previously-deprecated “fast bounded alignment strate
 - [x] (2026-02-27) Added `dmp` matcher mode to the existing `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER` selector using `fast-diff-match-patch` via a SequenceMatcher-compatible adapter (`cookimport/bench/dmp_sequence_matcher.py`).
 - [x] (2026-02-27) Added dmp runtime telemetry (`alignment_dmp_cleanup`, `alignment_dmp_checklines`, `alignment_dmp_timelimit`) and surfaced it in canonical eval reports when `dmp` is active.
 - [x] (2026-02-27) Added regression coverage for dmp selector behavior, matching-block validity checks, and canonical eval stdlib-vs-dmp parity on a deterministic fixture.
-- [x] (2026-02-27) Extended `scripts/bench_sequence_matcher_impl.py` to benchmark explicit mode sets (`stdlib`, `auto`, `dmp`) and report speedup + opcode/matching-block parity vs stdlib.
+- [x] (2026-02-27) Extended `scripts/bench_sequence_matcher_impl.py` to benchmark explicit mode sets (`stdlib`, `fallback`, `dmp`) and report speedup + opcode/matching-block parity vs stdlib.
+- [x] (2026-02-27) Added benchmark matcher selection controls to CLI + interactive flows (`labelstudio-benchmark`, `bench run`, `bench sweep`, and interactive benchmark settings).
+- [x] (2026-02-27) Updated canonical eval matcher telemetry to report effective mode (`alignment_sequence_matcher_mode`) separately from requested mode (`alignment_sequence_matcher_requested_mode`), eliminating ambiguous selector-only reporting.
 - [ ] Implement an alignment-backend abstraction layer via `COOKIMPORT_CANONICAL_ALIGNMENT_BACKEND` (deferred because current runtime is already selector-based).
 - [ ] Add an Edlib backend if feasible for this repo’s normalized text (alphabet length <= 256), behind an explicit opt-in knob.
 - [ ] Decide (based on test + benchmark results) whether any non-difflib backend is safe to make the default; otherwise keep opt-in only.
@@ -58,11 +60,15 @@ We will NOT re-enable the previously-deprecated “fast bounded alignment strate
   Date/Author: 2026-02-27 / ChatGPT
 
 - Decision: Integrate dmp through the existing `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER` selector rather than introducing a second backend env contract.
-  Rationale: Current canonical runtime, tests, and telemetry are already centered on selector implementations (`auto|stdlib|cydifflib|cdifflib`), so adding `dmp` there avoids architecture fork and keeps observability/reporting consistent.
+  Rationale: Current canonical runtime, tests, and telemetry are already centered on selector implementations (`fallback|stdlib|cydifflib|cdifflib`), so adding `dmp` there avoids architecture fork and keeps observability/reporting consistent.
   Date/Author: 2026-02-27 / ChatGPT
 
-- Decision: Keep dmp opt-in (`COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=dmp`) and leave `auto` preference order as `cydifflib -> cdifflib -> dmp -> stdlib`.
-  Rationale: dmp is very fast but not opcode/matching-block drop-in compatible with stdlib; keeping it behind explicit opt-in (or tertiary auto fallback) preserves current parity expectations.
+- Decision: Keep dmp opt-in (`COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=dmp`) and keep fallback order as `cydifflib -> cdifflib -> dmp -> stdlib`.
+  Rationale: dmp is very fast but not opcode/matching-block drop-in compatible with stdlib; keeping it behind explicit opt-in (or tertiary fallback-chain behavior) preserves current parity expectations.
+  Date/Author: 2026-02-27 / ChatGPT
+
+- Decision: Expose matcher choice directly in benchmark command options and interactive benchmark settings while preserving `fallback` as the default selector mode.
+  Rationale: explicit `stdlib|dmp|cydifflib|...` selection is needed for reproducible perf checks, but default behavior should stay CyDifflib-first fallback-chain behavior for safety across environments.
   Date/Author: 2026-02-27 / ChatGPT
 
 ## Outcomes & Retrospective

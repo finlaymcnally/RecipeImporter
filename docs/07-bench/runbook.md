@@ -114,6 +114,41 @@ cookimport bench knobs
 
 Shows all tunable parameters with their defaults, bounds, and descriptions.
 
+## 6. Run Speed Regression Checks
+
+Discover a deterministic speed suite from pulled Label Studio gold exports:
+
+```bash
+cookimport bench speed-discover \
+  --gold-root data/golden/pulled-from-labelstudio \
+  --input-root data/input \
+  --out data/golden/bench/speed/suites/pulled_from_labelstudio.json
+```
+
+Run timing-only scenarios (stage import + canonical benchmark legacy):
+
+```bash
+cookimport bench speed-run \
+  --suite data/golden/bench/speed/suites/pulled_from_labelstudio.json \
+  --scenarios stage_import,benchmark_canonical_legacy \
+  --warmups 1 \
+  --repeats 2 \
+  --max-targets 1
+```
+
+Compare baseline vs candidate and fail on regression:
+
+```bash
+cookimport bench speed-compare \
+  --baseline data/golden/bench/speed/runs/<baseline_timestamp> \
+  --candidate data/golden/bench/speed/runs/<candidate_timestamp> \
+  --fail-on-regression
+```
+
+Artifacts are written under `data/golden/bench/speed/`:
+- `runs/<timestamp>/summary.json` and `report.md`
+- `comparisons/<timestamp>/comparison.json` and `comparison.md`
+
 ## Suite Manifest Format
 
 Suites are JSON files (commonly under `data/golden/bench/suites/`):

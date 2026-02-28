@@ -170,3 +170,26 @@ Preserved rules:
 
 Anti-loop note:
 - "Looks valid locally" is not enough for staging alignment; enforce these normalizations in `draft_v1.py` before output writes to avoid downstream contract parser failures.
+
+## 2026-02-27 understanding merge batch (staging)
+
+### 2026-02-27_12.00.28 split-merge outputStats ordering and moved-file accounting
+
+Merged source:
+- `docs/understandings/2026-02-27_12.00.28-speed1-5-split-merge-outputstats-ordering.md`
+
+Problem captured:
+- In `_merge_split_jobs(...)`, writing report before `_merge_raw_artifacts(...)` can undercount moved raw files in `report.outputStats`.
+
+Decision/outcome preserved:
+- Keep report emission after raw-merge completion.
+- Explicitly record:
+  - merged `raw/.../full_text.json`,
+  - every moved raw destination produced by `_merge_raw_artifacts(...)`.
+- Preserve split-merge parity assertion against real filesystem ground truth.
+
+Verification anchor preserved:
+- `tests/staging/test_split_merge_status.py::test_merge_split_jobs_output_stats_match_fresh_directory_walk`
+
+Anti-loop note:
+- Avoid reordering report-before-raw-merge for convenience; it reintroduces silent stats drift that looks like analytics/dashboard bugs later.

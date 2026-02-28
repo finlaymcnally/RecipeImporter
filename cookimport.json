@@ -8,7 +8,7 @@
   "all_method_max_eval_tail_pipelines": 4,
   "all_method_wing_backlog_target": 4,
   "all_method_config_timeout_seconds": 1800,
-  "all_method_retry_failed_configs": 1,
+  "all_method_retry_failed_configs": 0,
   "all_method_smart_scheduler": true,
   "epub_extractor": "legacy",
   "ocr_device": "auto",

@@ -604,7 +604,16 @@ def test_evaluate_canonical_text_scores_lines_across_different_blockization(
         "cdifflib",
         "dmp",
     }
-    assert telemetry["alignment_sequence_matcher_mode"] == "auto"
+    assert telemetry["alignment_sequence_matcher_mode"] in {
+        "stdlib",
+        "cydifflib",
+        "cdifflib",
+        "dmp",
+    }
+    assert telemetry["alignment_sequence_matcher_mode"] == telemetry[
+        "alignment_sequence_matcher_impl"
+    ]
+    assert telemetry["alignment_sequence_matcher_requested_mode"] == "fallback"
     assert telemetry["work_units"]["prediction_block_count"] == pytest.approx(2.0)
     assert (out_dir / "unmatched_pred_blocks.jsonl").read_text(encoding="utf-8").strip() == ""
 

@@ -35,7 +35,7 @@ def _matching_blocks_as_tuples(matcher: object) -> list[tuple[int, int, int]]:
 def _accelerated_selection_or_skip(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "auto")
+    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "fallback")
     selection = select_sequence_matcher()
     if selection.implementation == "stdlib":
         pytest.skip("Accelerated matcher unavailable in this environment.")
@@ -172,6 +172,21 @@ def test_sequence_matcher_selector_forced_multilayer(
     selection = get_sequence_matcher_selection()
     assert selection.implementation == "multilayer"
     assert selection.forced_mode == "multilayer"
+
+
+def test_sequence_matcher_selector_legacy_auto_alias_uses_fallback_chain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "auto")
+    selection = get_sequence_matcher_selection()
+    assert selection.forced_mode is None
+    assert selection.implementation in {
+        "stdlib",
+        "cydifflib",
+        "cdifflib",
+        "dmp",
+        "multilayer",
+    }
 
 
 def test_sequence_matcher_selector_invalid_mode_errors(
@@ -322,7 +337,7 @@ def test_sequence_matcher_selector_forced_dmp_reports_runtime_options_when_avail
     assert selection.extra_telemetry.get("alignment_dmp_timelimit") == pytest.approx(0.0)
 
 
-def test_canonical_eval_stdlib_and_auto_modes_have_equal_scoring_outputs(
+def test_canonical_eval_stdlib_and_fallback_modes_have_equal_scoring_outputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -340,50 +355,55 @@ def test_canonical_eval_stdlib_and_auto_modes_have_equal_scoring_outputs(
         out_dir=tmp_path / "stdlib",
     )
 
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "auto")
+    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "fallback")
     reset_sequence_matcher_selection_cache()
-    auto_result = evaluate_canonical_text(
+    fallback_result = evaluate_canonical_text(
         gold_export_root=gold_export_root,
         stage_predictions_json=stage_predictions_path,
         extracted_blocks_json=extracted_archive_path,
-        out_dir=tmp_path / "auto",
+        out_dir=tmp_path / "fallback",
     )
 
     stdlib_report = stdlib_result["report"]
-    auto_report = auto_result["report"]
+    fallback_report = fallback_result["report"]
     assert stdlib_report["overall_line_accuracy"] == pytest.approx(
-        auto_report["overall_line_accuracy"]
+        fallback_report["overall_line_accuracy"]
     )
     assert stdlib_report["macro_f1_excluding_other"] == pytest.approx(
-        auto_report["macro_f1_excluding_other"]
+        fallback_report["macro_f1_excluding_other"]
     )
-    assert stdlib_report["wrong_label_blocks"] == auto_report["wrong_label_blocks"]
-    assert stdlib_report["missed_gold_blocks"] == auto_report["missed_gold_blocks"]
-    assert stdlib_report["alignment"] == auto_report["alignment"]
+    assert stdlib_report["wrong_label_blocks"] == fallback_report["wrong_label_blocks"]
+    assert stdlib_report["missed_gold_blocks"] == fallback_report["missed_gold_blocks"]
+    assert stdlib_report["alignment"] == fallback_report["alignment"]
 
     stdlib_aligned_bytes = Path(
         stdlib_report["artifacts"]["aligned_prediction_blocks_jsonl"]
     ).read_bytes()
-    auto_aligned_bytes = Path(
-        auto_report["artifacts"]["aligned_prediction_blocks_jsonl"]
+    fallback_aligned_bytes = Path(
+        fallback_report["artifacts"]["aligned_prediction_blocks_jsonl"]
     ).read_bytes()
-    assert stdlib_aligned_bytes == auto_aligned_bytes
+    assert stdlib_aligned_bytes == fallback_aligned_bytes
 
     stdlib_telemetry = stdlib_report["evaluation_telemetry"]
-    auto_telemetry = auto_report["evaluation_telemetry"]
+    fallback_telemetry = fallback_report["evaluation_telemetry"]
     assert stdlib_telemetry["alignment_sequence_matcher_impl"] == "stdlib"
     assert stdlib_telemetry["alignment_sequence_matcher_mode"] == "stdlib"
-    assert auto_telemetry["alignment_sequence_matcher_impl"] in {
+    assert stdlib_telemetry["alignment_sequence_matcher_requested_mode"] == "stdlib"
+    assert fallback_telemetry["alignment_sequence_matcher_impl"] in {
         "stdlib",
         "cydifflib",
         "cdifflib",
         "dmp",
+        "multilayer",
     }
-    assert auto_telemetry["alignment_sequence_matcher_mode"] == "auto"
-    if auto_telemetry["alignment_sequence_matcher_impl"] == "dmp":
-        assert auto_telemetry["alignment_dmp_cleanup"] == "No"
-        assert auto_telemetry["alignment_dmp_checklines"] in {True, False}
-        assert auto_telemetry["alignment_dmp_timelimit"] >= 0.0
+    assert fallback_telemetry["alignment_sequence_matcher_mode"] == fallback_telemetry[
+        "alignment_sequence_matcher_impl"
+    ]
+    assert fallback_telemetry["alignment_sequence_matcher_requested_mode"] == "fallback"
+    if fallback_telemetry["alignment_sequence_matcher_impl"] == "dmp":
+        assert fallback_telemetry["alignment_dmp_cleanup"] == "No"
+        assert fallback_telemetry["alignment_dmp_checklines"] in {True, False}
+        assert fallback_telemetry["alignment_dmp_timelimit"] >= 0.0
 
 
 def test_canonical_eval_stdlib_and_dmp_modes_have_equal_scoring_outputs_when_available(
@@ -435,6 +455,7 @@ def test_canonical_eval_stdlib_and_dmp_modes_have_equal_scoring_outputs_when_ava
     assert stdlib_telemetry["alignment_sequence_matcher_impl"] == "stdlib"
     assert dmp_telemetry["alignment_sequence_matcher_impl"] == "dmp"
     assert dmp_telemetry["alignment_sequence_matcher_mode"] == "dmp"
+    assert dmp_telemetry["alignment_sequence_matcher_requested_mode"] == "dmp"
     assert dmp_telemetry["alignment_dmp_cleanup"] == "No"
     assert dmp_telemetry["alignment_dmp_timelimit"] == pytest.approx(0.0)
 
@@ -492,3 +513,4 @@ def test_canonical_eval_stdlib_and_multilayer_modes_have_equal_scoring_outputs(
     assert stdlib_telemetry["alignment_sequence_matcher_mode"] == "stdlib"
     assert multilayer_telemetry["alignment_sequence_matcher_impl"] == "multilayer"
     assert multilayer_telemetry["alignment_sequence_matcher_mode"] == "multilayer"
+    assert multilayer_telemetry["alignment_sequence_matcher_requested_mode"] == "multilayer"

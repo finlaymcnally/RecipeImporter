@@ -1578,3 +1578,528 @@ Evidence artifact:
 
 Anti-loop note:
 - If later all-method runs show no cache benefit, inspect `evaluation_telemetry.alignment_cache_key` equality first; cache is intentionally strict on canonical text hash + prediction text hash + boundary hash.
+
+## 2026-02-26_22.53 to 2026-02-27_19.09 archival merge batch from `docs/understandings`
+
+Merged in source creation order (`YYYY-MM-DD_HH.MM.SS`):
+- `docs/understandings/2026-02-26_22.53.30-all-method-eval-lock-bottleneck.md`
+- `docs/understandings/2026-02-27_10.15.12-all-method-wsl-crash-nested-process-pools.md`
+- `docs/understandings/2026-02-27_10.18.26-speed-plan-implementation-audit.md`
+- `docs/understandings/2026-02-27_10.30.29-canonical-alignment-byte-parity-surface.md`
+- `docs/understandings/2026-02-27_10.51.28-og-speed1-3-implementation-audit.md`
+- `docs/understandings/2026-02-27_10.51.52-speed1-4-implementation-gap-audit.md`
+- `docs/understandings/2026-02-27_10.52.17-speed1-5-implementation-audit.md`
+- `docs/understandings/2026-02-27_10.52.18-speed1-2-spec-audit.md`
+- `docs/understandings/2026-02-27_11.19.52-speed1-2-scheduler-contract-alignment.md`
+- `docs/understandings/2026-02-27_11.45.52-speed1-4-per-block-replay-runner-discovery.md`
+- `docs/understandings/2026-02-27_12.17.58-og-speed1-1-through-1-5-implementation-status.md`
+- `docs/understandings/2026-02-27_13.09.44-speed1-4-true-streaming-replay-consumer.md`
+- `docs/understandings/2026-02-27_18.05.11-all-method-scheduler-snapshot-cadence.md`
+- `docs/understandings/2026-02-27_18.12.47-speed2-4-plan-vs-current-sequence-matcher-state.md`
+- `docs/understandings/2026-02-27_18.13.18-og-speed2-3-plan-context-drift.md`
+- `docs/understandings/2026-02-27_18.14.00-speed2-2-plan-current-context-audit.md`
+- `docs/understandings/2026-02-27_18.14.04-all-method-thefoodlab-stale-eta.md`
+- `docs/understandings/2026-02-27_18.24.56-all-method-eta-recent-rate-tail-floor.md`
+- `docs/understandings/2026-02-27_18.43.01-speed2-3-dmp-selector-integration.md`
+- `docs/understandings/2026-02-27_18.45.01-canonical-cache-dead-pid-lock-recovery.md`
+- `docs/understandings/2026-02-27_18.49.32-all-method-final-source-eval-tail-cpu-cap.md`
+- `docs/understandings/2026-02-27_18.51.09-speed-suite-design-context-discovery.md`
+- `docs/understandings/2026-02-27_18.57.58-all-method-source-scheduler-fifo-tail-risk.md`
+- `docs/understandings/2026-02-27_19.02.30-benchmark-sequence-matcher-selection-surfaces.md`
+- `docs/understandings/2026-02-27_19.09.42-speed-suite-shared-target-matching.md`
+- `docs/understandings/2026-02-27_19.14.01-all-method-shard-aggregation-cache-sharing.md`
+- `docs/understandings/2026-02-27_19.15.22-bench-cli-typer-optioninfo-defaults.md`
+
+Cross-folder placements from the same cleanup:
+- `docs/understandings/2026-02-27_12.00.28-speed1-5-split-merge-outputstats-ordering.md` merged into staging docs (`docs/05-staging/`).
+- `docs/understandings/2026-02-27_18.19.11-processing-telemetry-plumbing-surfaces.md` merged into analytics docs (`docs/08-analytics/`).
+
+### 2026-02-26_22.53.30 all-method eval-lock bottleneck (canonical miss-path)
+
+Problem captured:
+- In run `data/golden/benchmark-vs-golden/2026-02-26_22.30.40/all-method-benchmark/thefoodlabcutdown`, many configs reached `evaluate_started` while completion stayed `config 0/15`.
+- Cache directory showed only lock files for first keys; process list showed a small number of CPU-saturated workers with others waiting.
+
+Decision/outcome preserved:
+- Interpret this state as canonical alignment bottleneck on first unique keys, not split/prediction starvation.
+- Scheduler/inflight/split-slot tuning helps pre-eval throughput; canonical miss-path wall time is governed by unique key count and per-key matcher cost.
+
+### 2026-02-27_10.15.12 WSL crash pattern: nested split-pool oversubscription
+
+Problem captured:
+- In run `data/golden/benchmark-vs-golden/2026-02-26_23.01.04`, configs started and entered split scheduling but never reached post/evaluate; no report artifacts landed.
+- Settings implied roughly `split_slots * split_workers = 4 * 10 = 40` split workers, before parent/config overhead.
+
+Decision/outcome preserved:
+- Crash signature is consistent with nested pool oversubscription under host pressure.
+- Runtime guard added in `cookimport/cli.py` to cap per-config split workers from CPU/memory budgets.
+- Scheduler summaries should expose split worker caps (`split_worker_cap_per_config`, CPU cap, memory cap) for post-run diagnosis.
+
+Anti-loop note:
+- Do not diagnose early hard exits as evaluator bugs first when split worker multiplicative caps are high.
+
+### 2026-02-27_10.18.26 speed plan implementation audit (selector plan)
+
+Preserved audit conclusion:
+- Core selector implementation landed (`sequence_matcher_select.py`, evaluator wiring, benchaccel extra, parity tests).
+- Plan-closure proof gaps remained in that audit snapshot:
+  - stale checklist/progress artifacts in plan file,
+  - incomplete tricky-case/opcode coverage vs plan wording,
+  - missing byte-identical end-to-end artifact proof target.
+
+### 2026-02-27_10.30.29 canonical byte-parity surface choice
+
+Durable rule preserved:
+- `eval_report.json` is not a byte-parity artifact because telemetry and timing fields differ by implementation.
+- Use `aligned_prediction_blocks.jsonl` for byte-identical parity checks across matcher implementations; use `eval_report.json` for runtime interpretation only.
+
+### 2026-02-27_10.51.28 speed1-3 closure audit update
+
+Status preserved:
+- This file confirmed speed1-3 closure to OG intent (runtime + tests + plan upkeep + miss->hit real evidence).
+- Detailed closure evidence is already captured in the earlier `2026-02-27_11.27.23` log entry and linked closeout task.
+
+### 2026-02-27_10.51.52 speed1-4 implementation-gap audit
+
+Preserved verdict:
+- Speed1-4 was partially implemented at audit time.
+- Closed: record schema/flags, evaluate-only path, predict-only path, parity tests.
+- Missing or partial: true predict/evaluate overlap, per-example stream contract, stage-runner API shape from OG plan, real overlap timing evidence bundle.
+
+Anti-loop note:
+- Distinguish "phase overlap" (prediction + prewarm) from true producer/consumer scoring overlap before claiming speed1-4 closure.
+
+### 2026-02-27_10.52.17 speed1-5 implementation audit update
+
+Preserved verdict:
+- Substantially closed for runtime/test/doc gaps after follow-up implementation.
+- Remaining open item was manual baseline/perf evidence capture in plan artifacts.
+
+Preserved closed items from this audit:
+- prepared archive abstraction + reuse wiring,
+- split-merge outputStats parity handling,
+- explicit split-merge parity test,
+- direct `bench run` write-toggle flags,
+- no-drift stage-prediction equality checks under markdown toggle,
+- ExecPlan lifecycle section updates.
+
+### 2026-02-27_10.52.18 speed1-2 spec audit (OG semantics vs implementation)
+
+Preserved audit conclusion:
+- Functional implementation existed, but strict OG spec alignment gaps remained in that audit:
+  - explicit override CPU-budget clamping semantics,
+  - configured-vs-effective eval-tail contract shape visibility,
+  - admission cap formula mismatch (`base_inflight + headroom` vs implemented dynamic cap),
+  - incomplete plan evidence closure and invariant-focused tests.
+
+### 2026-02-27_11.19.52 speed1-2 contract-alignment discovery
+
+Durable contract rule preserved:
+- One legacy field (`max_eval_tail_pipelines`) should not represent user intent, runtime effective headroom, and admission ceiling simultaneously.
+- Runtime contract should expose explicit fields:
+  - `eval_tail_headroom_mode`
+  - `eval_tail_headroom_configured`
+  - `eval_tail_headroom_effective`
+  - `max_active_during_eval`
+  - optional CPU-budget context
+- Keep legacy fields as compatibility aliases only.
+
+### 2026-02-27_11.45.52 speed1-4 per-block replay runner discovery
+
+Preserved implementation boundary:
+- Keep stable path-based evaluators; replay should reconstruct evaluator input artifacts from prediction records rather than reimplement scoring internals.
+- Durable replay contract: per-block `PredictionRecord` (`schema_kind=stage-block.v1`) with deterministic `example_id`/`example_index`.
+- Evaluate-only compatibility must include both new per-block records and historical single-record run-pointer artifacts.
+
+### 2026-02-27_12.17.58 OG speed1-1 through speed1-5 implementation-status snapshot
+
+Preserved status map:
+- Speed1-3 closed with real evidence.
+- Speed1-2, speed1-4, speed1-5 had core runtime/test work landed, but acceptance-evidence capture remained the recurring pending category.
+- Speed1-4 pipelined path overlapped prediction with prewarm/record handling, but not full prediction/evaluation overlap at that snapshot.
+- Speed1-1 runtime/tests were effectively closed, while OG plan bookkeeping still lagged in checklist/living-section maintenance.
+
+### 2026-02-27_13.09.44 speed1-4 streaming replay consumer
+
+Preserved design decision:
+- True overlap can be introduced at replay boundary: producer emits per-block records, consumer ingests stream in real time, then finalizes replay artifacts for unchanged evaluators.
+- This preserves metric semantics while improving overlap opportunities.
+
+Constraint preserved:
+- Zero-block prediction runs are valid; replay assembly must allow empty streams and fallback cleanly instead of failing hard.
+
+### 2026-02-27_18.05.11 scheduler snapshot cadence
+
+Durable runtime interpretation rule:
+- All-method scheduler loop polls at `0.15s`.
+- Spinner text only updates on snapshot string changes, so visible status can appear static during long phases while polling continues.
+- Persisted heartbeat/timeseries data is needed for tuning when state text is unchanged.
+
+### 2026-02-27_18.12.47 speed2-4 plan drift vs selector architecture
+
+Preserved finding:
+- Current runtime uses selector architecture and matcher telemetry; planned MultiLayer module/API shape from OG speed2-4 was not the active path.
+- In sampled run telemetry (`2026-02-27_17.54.41`), parsed eval reports showed `alignment_sequence_matcher_impl=cydifflib`, mode `auto`, with substantial cache-hit volume.
+
+Practical implication:
+- Use OG speed2-4 as historical intent context; rewrite against current selector architecture before execution.
+
+### 2026-02-27_18.13.18 speed2-3 plan context drift
+
+Preserved finding:
+- OG backend-family plan (`dmp`/`edlib` via separate env contract) is mostly superseded by current selector+cache model.
+- Canonical speedups in current code come primarily from matcher implementation choice and cache hit rate.
+
+### 2026-02-27_18.14.00 speed2-2 plan current-context audit
+
+Preserved finding:
+- OG speed2-2 assumptions are stale where they assume stdlib-only matcher path.
+- Current work should focus on miss-path cost inside selector+cache architecture; cache-hit cases already drive matcher time to zero.
+
+### 2026-02-27_18.14.04 stale ETA on large canonical sets
+
+Problem captured:
+- In run `2026-02-27_17.54.41`, ETA looked frozen while large canonical texts (`~527k` and `~398k` chars) were still evaluating and workers were CPU-active.
+- Recent finished configs showed evaluate durations around `447s`.
+
+Decision/outcome preserved:
+- Flat ETA for many minutes can be normal on large canonical eval tails.
+- Better stall threshold for this shape is on the order of `>30 minutes` with low CPU + no event/file movement, not a few minutes.
+
+### 2026-02-27_18.24.56 ETA recent-rate + stall-floor rule
+
+Durable ETA rule:
+- Full-run average completion rate underestimates tail time after fast early configs.
+- Better model:
+  - recent completion-rate samples as primary ETA,
+  - if eval is active and completion stalls, apply floor `stalled_seconds / active`.
+
+### 2026-02-27_18.43.01 speed2-3 dmp selector integration
+
+Preserved implementation decision:
+- Integrate `dmp` as another selector mode (not separate backend contract) to minimize architecture risk.
+- `dmp` can be much faster on mismatch-heavy synthetic inputs, but matching-block/opcode shapes differ from stdlib and should not be treated as strict drop-in parity.
+
+Evidence preserved:
+- Bench script snapshots captured very large synthetic speedups for `dmp` vs stdlib; canonical minimal fixture scoring remained equal in the cited targeted regression subset.
+
+### 2026-02-27_18.45.01 canonical cache dead-PID lock recovery
+
+Problem captured:
+- In run `2026-02-27_17.54.41`, multiple canonical cache lock files were owned by dead PIDs while configs remained stuck at `evaluate_started`.
+- Existing stale-lock check used lock age only (`wait_seconds`), delaying recovery up to long timeouts.
+
+Decision/outcome preserved:
+- Dead-owner lock reclamation must use PID liveness first, with age-based stale fallback for malformed lock metadata.
+
+Anti-loop note:
+- If evaluate appears stalled with active workers, inspect lock-owner PID liveness before expanding scheduler concurrency.
+
+### 2026-02-27_18.49.32 final-source eval-tail CPU cap
+
+Preserved interpretation:
+- Late-run CPU is naturally bounded by remaining configs for the final source and count of unique active cache keys.
+- With shared-key waiting, non-saturated host CPU can be expected even without deadlock.
+
+### 2026-02-27_18.51.09 speed-suite design context
+
+Preserved design rules:
+- `bench run` is quality-first; separate speed-gating workflow is needed for deterministic baseline-vs-candidate checks.
+- Run-local artifacts are reliable timing truth (`run_manifest`, `eval_report`, processing/scheduler timeseries); top-level history CSV can lag or be incomplete.
+- Matching must use robust source hints beyond manifest-only fields because pulled gold exports can have sparse manifests.
+
+### 2026-02-27_18.57.58 source scheduler FIFO tail risk
+
+Problem captured:
+- Multi-source all-method dispatch was FIFO by discovery order (`mtime` discovery + `pop(0)` pending queue), not cost-aware.
+- Observed run skew showed small sources finishing quickly while very large sources dominated final tail.
+
+Decision/outcome preserved:
+- Tail-utilization work should include source-level scheduling policy, not only per-source pipeline tuning.
+
+### 2026-02-27_19.02.30 matcher selection surfaces
+
+Preserved contract:
+- Interactive single-run and all-method flows have separate run-setting entry points; matcher selection propagation must be wired in both.
+- Prefer explicit fallback mode naming (`fallback`) for chain behavior; keep legacy `auto` accepted as alias for compatibility but not as primary surfaced choice.
+- Override behavior is safest via scoped env context with selector-cache reset before/after.
+- Telemetry should split requested vs effective matcher mode for clarity.
+
+### 2026-02-27_19.09.42 speed-suite shared target matching
+
+Preserved decision:
+- Shared matching moved into `cookimport/bench/speed_suite.py` (`match_gold_exports_to_inputs(...)`) and is reused by all-method target resolution.
+- Source hint resolution order:
+  1. `manifest.json` `source_file`
+  2. `run_manifest.json` `source.path`
+  3. first `source_file` in `freeform_span_labels.jsonl`
+  4. first `source_file` in `freeform_segment_manifest.jsonl`
+
+Anti-loop note:
+- Avoid duplicating matching logic in CLI-only private helpers; this drift already happened once and forced re-convergence.
+
+### 2026-02-27_19.14.01 all-method shard aggregation + cache sharing
+
+Problem captured:
+- Source sharding can create multiple jobs for one logical source/gold pair; if each shard uses its own default canonical cache root, siblings recompute identical alignments.
+
+Decision/outcome preserved:
+- Multi-source orchestration should pass a shared canonical cache root per `source_group_key` into `_run_all_method_benchmark(...)` while still keeping shard output directories separate.
+- Multi-source final report contract should aggregate shard rows back into one top-level source row for reader compatibility, with additive shard metadata fields (`source_shards`, `source_shard_total`, schedule-plan metadata).
+
+### 2026-02-27_19.15.22 bench CLI OptionInfo defaults + target-resolution contract
+
+Problem captured:
+- Direct Python calls into `bench_run`, `bench_sweep`, and `bench_speed_run` can receive Typer `OptionInfo` objects instead of plain defaults.
+- Matcher normalization can reject defaults unless values are unwrapped first.
+- Replacing `_resolve_all_method_targets(...)` with alternate discovery helpers changed expected CLI-local behavior and broke helper tests.
+
+Decision/outcome preserved:
+- Unwrap Typer defaults at the start of bench command helpers before matcher normalization.
+- Preserve existing `_resolve_all_method_targets(...)` contract using:
+  - `cli._list_importable_files(DEFAULT_INPUT)`
+  - `cli._load_source_hint_from_gold_export(...)`
+  unless tests and interactive flows are migrated as one contract change.
+
+Anti-loop note:
+- Treat direct-call defaults and target-resolution wiring as compatibility contracts, not incidental implementation detail.
+
+## 2026-02-25 to 2026-02-27 docs/tasks archival merge batch (speed closeout + matcher spike + tail-throughput)
+
+### 2026-02-25_22.46.26 canonical-text extractor-independence ExecPlan (`docs/tasks/fix-goldOG.md`)
+
+Problem captured:
+- Stage-block evaluation tied quality scoring to extractor block indices; extractor mismatch produced missing-gold->`OTHER` artifacts and misleading per-label collapse.
+
+Decision/outcome preserved:
+- Add canonical benchmark path anchored on canonical gold text artifacts from export.
+- Canonical eval aligns prediction extracted text to canonical text and scores in canonical line space.
+- Keep stage-block evaluator unchanged as parity-sensitive import-alignment surface.
+- Interactive all-method defaults/forces canonical-text path for extractor-comparison workflows.
+
+Milestone state preserved from task:
+- Canonical artifacts + canonical evaluator implementation marked complete.
+- `labelstudio-benchmark --eval-mode` wiring marked complete.
+- Task recorded remaining bench-suite wiring/docs follow-up as pending at that time.
+
+Anti-loop note:
+- Do not use stage-block mismatch outcomes to judge canonical-text scoring validity.
+
+### 2026-02-27_10.29.44 sequence matcher speed-plan closeout (`docs/tasks/2026-02-27_10.29.44-sequence-matcher-speed-plan-closeout.md`)
+
+Problem captured:
+- Speed1 selector work had implementation but missing closure evidence depth (opcode parity, byte-identical end-to-end artifacts, plan evidence updates).
+
+Decision/outcome preserved:
+- Keep scoring algorithm unchanged.
+- Add deterministic byte-identity artifact surface (`aligned_prediction_blocks.jsonl`) and parity-focused tests.
+- Keep rollback knob: `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=stdlib`.
+
+Evidence preserved from task:
+- `pytest tests/bench/test_sequence_matcher_dropin_parity.py tests/bench/test_eval_stage_blocks.py -q` passed.
+- Benchmark script sample showed parity true and large auto-vs-stdlib speedup:
+  - `stdlib best_seconds=6.078813`
+  - `auto impl=cydifflib best_seconds=0.738722`
+  - `opcode_parity=True`
+- A/B canonical snippet reported:
+  - `score_equal=True`
+  - `alignment_equal=True`
+  - `aligned_bytes_equal=True`
+
+### 2026-02-27_11.19.51 speed1-2 scheduler contract closeout (`docs/tasks/2026-02-27_11.19.51-speed1-2-remaining-implementation.md`)
+
+Problem captured:
+- OG speed1-2 audit flagged gaps in override safety, configured/effective headroom visibility, and smart-admission cap semantics.
+
+Decision/outcome preserved:
+- `_resolve_all_method_scheduler_runtime(...)` now exposes configured/effective headroom fields and explicit admission ceiling.
+- Explicit eval-tail overrides are CPU/per-source bounded, not raw variant-count-only.
+- Runtime semantics anchored on:
+  - `max_active_during_eval = configured_inflight + eval_tail_headroom_effective`
+- Legacy keys kept as compatibility aliases only.
+
+Evidence preserved from task:
+- `pytest -q tests/labelstudio/test_labelstudio_benchmark_helpers.py` passed after threshold re-balance.
+- `pytest -q tests/labelstudio/test_labelstudio_ingest_parallel.py` passed.
+- `pytest -q tests/bench` passed.
+
+### 2026-02-27_11.29.26 speed1-3 closure evidence completion (`docs/tasks/2026-02-27_11.29.26-speed1-3-remaining-closeout.md`)
+
+Problem captured:
+- Remaining closure gaps: dedicated cache test module, same-key concurrency proof depth, real miss->hit runtime evidence, and living-plan completion.
+
+Decision/outcome preserved:
+- Added dedicated cache test module (`tests/bench/test_canonical_alignment_cache.py`) + marker wiring.
+- Added same-key multi-process contention proof and miss->hit evidence expectations.
+- Updated plan/docs to closed state with evidence references.
+
+Evidence preserved from task:
+- Fail-before recorded: missing `tests/bench/test_canonical_alignment_cache.py`.
+- Pass-after recorded:
+  - `pytest -q tests/bench/test_canonical_alignment_cache.py` exit `0`
+  - `pytest -q tests/bench/test_eval_stage_blocks.py -k alignment_cache` exit `0`
+  - `pytest -q tests/labelstudio/test_labelstudio_benchmark_helpers.py -k ranked_summary` exit `0`
+- Real evidence bundle path:
+  - `/tmp/2026-02-27_11.27.23-speed1-3-evidence-all-method/speed1_3_cache_summary.json`
+- Reported miss->hit effect:
+  - miss: matcher `12.626s`, duration `23.608s`
+  - hit: matcher `0.0s`, duration `10.013s`
+  - quality metrics unchanged.
+
+### 2026-02-27_11.45.18 speed1-4 runner/replay contract closeout (`docs/tasks/2026-02-27_11.45.18-speed1-4-remaining-implementation.md`)
+
+Problem captured:
+- Audit gaps: no explicit stage-runner API contract, run-level prediction record shape, replay strictness tied to path pointers, and incomplete pipelined producer/consumer behavior.
+
+Decision/outcome preserved:
+- Explicit functions/wiring expected in benchmark runtime:
+  - `predict_stage(...)`
+  - `evaluate_stage(...)`
+  - `run_legacy(...)`
+  - `run_pipelined(...)`
+- `--predictions-out` contract set to per-block records (`schema_kind=stage-block.v1`) with deterministic `example_id`/`example_index`.
+- `--predictions-in` evaluate-only accepts both:
+  - per-block replay records,
+  - legacy single-record run-pointer payloads.
+
+Evidence preserved from task:
+- Transition fail-before captured from tests still asserting single-run-level records.
+- Pass-after recorded:
+  - `python -m py_compile cookimport/cli.py tests/labelstudio/test_labelstudio_benchmark_helpers.py` exit `0`
+  - `pytest -q tests/bench/test_prediction_records.py` exit `0`
+  - `pytest -q tests/labelstudio/test_labelstudio_benchmark_helpers.py` exit `0`
+
+### 2026-02-27_12.00.02 speed1-5 closure pass (`docs/tasks/2026-02-27_12.00.02-speed1-5-remaining-implementation.md`)
+
+Problem captured:
+- Remaining implementable gaps: prepared-archive abstraction, split-merge `outputStats` ordering/undercount risk, missing stats parity coverage, direct bench-run write toggles, shallow no-drift proof.
+
+Decision/outcome preserved:
+- Added `PreparedExtractedArchive` + `prepare_extracted_archive(...)` abstraction and reuse.
+- Kept split-merge report emission after raw merge; moved raw artifacts recorded in `outputStats`.
+- Added direct `bench run` write toggles that override config only when passed:
+  - `--write-markdown/--no-write-markdown`
+  - `--write-labelstudio-tasks/--no-write-labelstudio-tasks`
+- Added no-drift checks ensuring stage predictions remain identical across markdown-toggle modes.
+
+Evidence preserved from task:
+- `tests/staging/test_split_merge_status.py` targeted run passed.
+- `tests/labelstudio/test_labelstudio_ingest_parallel.py` targeted speed1-5 slice passed.
+- `tests/bench/test_bench.py` targeted bench-run override slice passed.
+- `bench run --help` output included both direct write-toggle pairs.
+
+Cross-folder note:
+- Detailed split-merge ordering details were merged into staging docs (`docs/05-staging`).
+
+### 2026-02-27_12.23.26 speed1-4 true streaming overlap ExecPlan closeout (`docs/tasks/2026-02-27_12.23.26-speed1-4-true-streaming-pipeline.md`)
+
+Problem captured:
+- Pipelined mode previously overlapped prediction with prewarm but not true predict->evaluate consumption overlap.
+
+Decision/outcome preserved:
+- Implement producer/consumer streaming in `run_pipelined(...)` with bounded queue, EOS signaling, and shared error propagation.
+- Keep evaluator internals path-based; introduce streaming adapters/replay assembly instead of scoring rewrite.
+- Keep CLI surface unchanged (`legacy|pipelined|predict-only`), redefine `pipelined` behavior to true overlap.
+- Preserve replay compatibility:
+  - strict per-block + legacy pointer input in evaluate-only,
+  - tolerant stream-finalized reconstruction for live pipelined replay.
+
+Evidence preserved from task:
+- Overlap ordering, parity, and failure-propagation targeted tests recorded as passing.
+- Plan progress marked fully complete with docs/understanding updates.
+
+### 2026-02-27_18.04.57 all-method scheduler timeseries + CPU sampling (`docs/tasks/2026-02-27_18.04.57-all-method-scheduler-timeseries-cpu.md`)
+
+Problem captured:
+- Scheduler state only visible in spinner/rollup text; no persisted run-local scheduler+CPU timeline.
+
+Decision/outcome preserved:
+- Write `<source_root>/scheduler_timeseries.jsonl` with scheduler counters and elapsed timestamps.
+- Add host CPU utilization sampling via lightweight `/proc/stat` parsing, no new dependencies.
+- Emit rows on snapshot change plus 1.0s heartbeat.
+
+Evidence preserved from task:
+- Added `test_run_all_method_benchmark_writes_scheduler_timeseries`.
+- Targeted scheduler tests passed (`2 passed`).
+
+Cross-folder note:
+- Processing-timeseries generalization from the same period is merged in analytics docs (`docs/08-analytics`).
+
+### 2026-02-27_18.35.38 multilayer selector spike ExecPlan (`docs/tasks/2026-02-27_18.35.38-multilayer-sequence-matcher-spike.md`)
+
+Problem captured:
+- Need explicit A/B evidence on whether MultiLayer matcher can improve canonical tail cases vs current selector baseline.
+
+Decision/outcome preserved:
+- Ship `multilayer` as explicit opt-in selector mode (no default-order change).
+- Keep `auto`/`fallback` behavior unchanged for production baseline stability.
+- Add parity tests and script support for `stdlib|auto|multilayer` timing comparison.
+
+Evidence preserved from task:
+- `tests/bench/test_sequence_matcher_dropin_parity.py` passed.
+- Synthetic timing samples showed:
+  - `multilayer` faster than stdlib,
+  - `multilayer` slower than fallback/`cydifflib` on sampled synthetic inputs.
+
+Open item preserved:
+- Real-input all-method A/B evidence remains required before adoption decision.
+
+### 2026-02-27_18.43.40 dead-PID lock recovery for canonical cache (`docs/tasks/2026-02-27_18.43.40-canonical-cache-dead-pid-lock-recovery.md`)
+
+Problem captured:
+- Age-only stale-lock logic delayed recovery when lock owner PID was already dead, causing long waits/tails.
+
+Decision/outcome preserved:
+- Primary stale test now uses lock-owner PID liveness.
+- Existing age-based stale fallback remains for malformed/non-PID lock metadata.
+
+Evidence preserved from task:
+- Fail-before showed dead-owner path waiting ~5s (`assert < 1.0` failure).
+- Pass-after:
+  - `pytest tests/bench/test_canonical_alignment_cache.py -k dead_owner -q` exit `0`
+  - full cache tests exit `0`
+  - stale-lock eval tests exit `0`
+
+### 2026-02-27_18.55.29 all-method tail-throughput source scheduling/sharding plan (`docs/tasks/2026-02-27_18.55.29-all-method-tail-throughput-plan.md`)
+
+Problem captured:
+- Multi-source all-method dispatch was discovery/FIFO ordered; large runtime skew stranded heavy sources in final tails with low endgame utilization.
+
+Decision/outcome preserved:
+- Added source planning helpers:
+  - `_estimate_all_method_source_cost`
+  - `_split_all_method_source_variants`
+  - `_plan_all_method_source_jobs`
+- Added heavy-source variant sharding and shard metadata.
+- Added source scheduling strategy (`discovery` vs `tail_pair`) with interactive/settings wiring.
+- Raised practical source parallel defaults with CPU-aware effective cap handling.
+- Added shared canonical cache override by `source_group_key` to avoid shard sibling recompute.
+- Combined report preserves one top-level source row while surfacing additive shard metadata.
+
+Evidence/status preserved from task:
+- Focused planner/sharding/order/cap tests recorded as passing.
+- Task explicitly marked manual interactive all-matched validation as pending.
+
+### 2026-02-27_18.58.13 multilayer spike status handoff (`docs/tasks/2026-02-27_18.58.13-multilayer-spike-status-summary.md`)
+
+Problem captured:
+- Needed full status/handoff on what multilayer spike work actually landed, what evidence exists, and what was interrupted.
+
+Decision/outcome preserved:
+- Keep multilayer as opt-in mode; do not change default fallback-chain behavior.
+- Document requested-vs-effective matcher telemetry split and CLI setting/override wiring.
+- Preserve current interactive/bench command matcher override behavior and Typer default-unwrapping compatibility.
+
+Evidence preserved from task:
+- Parity suite and benchmark helper/bench slices listed as passing.
+- Synthetic timing samples repeated with similar pattern:
+  - stdlib much slower,
+  - auto (`cydifflib`) fastest,
+  - multilayer between stdlib and auto,
+  - parity flags true.
+
+Interrupted work preserved:
+- Long real-input SaltFatAcidHeat comparison was started then cancelled before final artifact capture.
+
+Recommendation state preserved:
+- Keep `multilayer` opt-in until full benchmark-scale A/B evidence is collected.

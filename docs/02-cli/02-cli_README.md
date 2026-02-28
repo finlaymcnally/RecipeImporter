@@ -113,7 +113,11 @@ Config keys and defaults:
 - `workers` (default `7`)
 - `pdf_split_workers` (default `7`)
 - `epub_split_workers` (default `7`)
-- `all_method_max_parallel_sources` (default `2`)
+- `all_method_max_parallel_sources` (default is CPU-aware, up to `4`)
+- `all_method_source_scheduling` (default `tail_pair`)
+- `all_method_source_shard_threshold_seconds` (default `1200`)
+- `all_method_source_shard_max_parts` (default `3`)
+- `all_method_source_shard_min_variants` (default `6`)
 - `all_method_max_inflight_pipelines` (default `4`)
 - `all_method_max_split_phase_slots` (default `4`)
 - `all_method_max_eval_tail_pipelines` (default follows split slots)
@@ -121,6 +125,7 @@ Config keys and defaults:
 - `all_method_retry_failed_configs` (default `1`; `0` disables retries)
 - `all_method_wing_backlog_target` (default follows split slots)
 - `all_method_smart_scheduler` (default `true`)
+- `benchmark_sequence_matcher` (default `fallback`; matcher fallback-chain selection for canonical-text eval)
 - `epub_extractor` (default `unstructured`)
 - `epub_unstructured_html_parser_version` (default `v1`)
 - `epub_unstructured_skip_headers_footers` (default `false`)
@@ -154,8 +159,12 @@ What each setting affects:
 
 - `workers`, split workers, page/spine split size: `stage` and benchmark import parallelism/sharding.
 - `all_method_max_parallel_sources`: all-matched source-level concurrency cap (how many books run at once).
+- `all_method_source_scheduling`: source job order strategy (`discovery` legacy FIFO or `tail_pair` heavy/light interleave).
+- `all_method_source_shard_threshold_seconds`, `all_method_source_shard_max_parts`, `all_method_source_shard_min_variants`: heavy-source sharding controls for all-matched runs (split one source’s variant set into multiple schedulable jobs).
 - `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_max_eval_tail_pipelines`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`: per-source config scheduler controls (inflight cap, split-heavy slots, evaluate-tail cap, prewarm runway, smart/fixed admission mode; smart mode grants extra inflight primarily when evaluate-phase work is active, bounded by eval-tail cap).
 - `all_method_config_timeout_seconds`, `all_method_retry_failed_configs`: all-method safety controls (per-config timeout and failed-config retry passes).
+- all-method canonical alignment cache root is resolved per run and shared across timestamps (default under `data/golden/benchmark-vs-golden/.cache/canonical_alignment`; override via `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`).
+- `benchmark_sequence_matcher`: canonical-text alignment matcher mode for benchmark/eval flows (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`, and future added modes); `fallback` order is `cydifflib -> cdifflib -> dmp -> multilayer -> stdlib`.
 - `epub_extractor`: runtime extractor choice (`unstructured`, `beautifulsoup`, `markdown`, or `markitdown`) via `C3IMP_EPUB_EXTRACTOR`.
 - `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
 - `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
@@ -290,8 +299,9 @@ Interactive benchmark now has a mode submenu before execution:
     - wing backlog target,
     - smart tail buffer (bounded by eval-tail cap when smart mode is on),
     - per-config timeout and failed-config retry limit,
-    sourced from `cookimport.json` keys `all_method_max_parallel_sources`, `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_max_eval_tail_pipelines`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`, `all_method_config_timeout_seconds`, and `all_method_retry_failed_configs`,
-   - asks final proceed confirmation (`Proceed with N benchmark runs?` for single or `Proceed with N benchmark runs across M matched golden sets?` for all-matched, default `No`),
+    sourced from `cookimport.json` keys `all_method_max_parallel_sources`, `all_method_source_scheduling`, `all_method_source_shard_threshold_seconds`, `all_method_source_shard_max_parts`, `all_method_source_shard_min_variants`, `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_max_eval_tail_pipelines`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`, `all_method_config_timeout_seconds`, and `all_method_retry_failed_configs`,
+  - asks final proceed confirmation (`Proceed with N benchmark runs?` for single or `Proceed with N benchmark runs across M matched golden sets?` for all-matched, default `No`),
+  - prints the resolved all-method canonical alignment cache root before execution (shared across timestamped runs; env override: `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`),
   - execution uses one persistent all-method spinner dashboard (book queue + overall source/config counters + current task line), including a scheduler snapshot line:
     - `scheduler heavy X/Y | wing Z | eval E | active A | pending P`,
     - `current config` reflects active config slots in parallel mode (`current configs A-B/N`) rather than a stale last-submitted slug,
@@ -315,6 +325,7 @@ Interactive benchmark now has a mode submenu before execution:
      - `all_method_benchmark_multi_source_report.md`
      - combined report now includes run-level `timing_summary` (run/source/config totals + slowest source/config),
      - combined report includes source-parallel metadata (`source_parallelism_configured`, `source_parallelism_effective`),
+     - combined report includes source scheduling/sharding metadata (`source_schedule_strategy`, `source_schedule_plan`, shard settings, per-source shard summaries),
      - dashboard refresh is batched once at multi-source completion when source parallelism is enabled (per-source refresh remains for serial source mode),
    - writes per-config processed cookbook outputs under:
      - `<interactive output_dir>/<benchmark_timestamp>/all-method-benchmark/<source_slug>/config_*/<prediction_timestamp>/...`
@@ -655,6 +666,7 @@ Options:
 - `--overlap-threshold FLOAT 0..1` (default `0.5`): match threshold.
 - `--force-source-match` (default `false`): ignore source identity checks while matching.
 - `--eval-mode TEXT` (default `stage-blocks`): `stage-blocks|canonical-text`.
+- `--sequence-matcher TEXT` (default `fallback`): canonical-text matcher mode (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`, plus future added modes).
 - `--pipeline TEXT` (default `auto`): importer selection.
 - `--chunk-level TEXT` (default `both`): `structural|atomic|both`.
 - `--project-name TEXT`: explicit prediction project name.
@@ -717,6 +729,7 @@ Options:
 - `--out-dir PATH` (default `data/golden/bench/runs`): run output root.
 - `--baseline PATH`: prior run directory for deltas.
 - `--config PATH`: knob config JSON file.
+- `--sequence-matcher TEXT` (default `fallback`): canonical-text matcher mode (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`, plus future added modes).
 
 ### `cookimport bench sweep`
 
@@ -735,6 +748,7 @@ Options:
 - `--budget INTEGER>=1` (default `25`): max configurations to evaluate.
 - `--seed INTEGER` (default `42`): RNG seed.
 - `--objective TEXT` (default `coverage`): objective name (`coverage` or `precision`).
+- `--sequence-matcher TEXT` (default `fallback`): canonical-text matcher mode (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`, plus future added modes).
 
 ### `cookimport bench knobs`
 
@@ -813,6 +827,7 @@ CLI-relevant environment variables:
 - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`: bool toggle for Unstructured `skip_headers_and_footers` on EPUB HTML.
 - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`: EPUB HTML preprocess mode before Unstructured (`none`, `br_split_v1`, `semantic_v1`).
 - `C3IMP_STANDALONE_ANALYSIS_WORKERS`: worker count for EPUB/PDF standalone knowledge-block analysis (`>=1`, default `4`).
+- `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER`: canonical-text matcher selection (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`, plus future added modes). Legacy `auto` is accepted as alias to `fallback`.
 - `LABEL_STUDIO_URL`: default Label Studio URL when `--label-studio-url` is omitted.
 - `LABEL_STUDIO_API_KEY`: default Label Studio API key when `--label-studio-api-key` is omitted.
 - `COOKIMPORT_DATABASE_URL`: DB URL fallback for `tag-catalog export`, `tag-recipes debug-signals`, and `tag-recipes apply`.
@@ -826,6 +841,7 @@ Precedence notes:
 - For Label Studio creds: CLI flags win over environment variables.
 - For interactive Label Studio import/export creds: environment variables win over saved `cookimport.json` credentials.
 - For EPUB extractor/options: explicit stage/benchmark flags or interactive per-run Run Settings selection write `C3IMP_EPUB_EXTRACTOR` plus `C3IMP_EPUB_UNSTRUCTURED_*` vars for that run.
+- For benchmark sequence matcher: `--sequence-matcher` (or interactive `benchmark_sequence_matcher`) wins for that run and temporarily sets `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER` around evaluation.
 - For tag DB URL: `--db-url` wins; env var is fallback.
 
 

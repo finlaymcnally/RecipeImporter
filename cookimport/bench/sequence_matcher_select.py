@@ -8,7 +8,7 @@ from typing import Any
 
 SEQUENCE_MATCHER_ENV = "COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER"
 _SUPPORTED_MODES: tuple[str, ...] = (
-    "auto",
+    "fallback",
     "stdlib",
     "cydifflib",
     "cdifflib",
@@ -16,6 +16,9 @@ _SUPPORTED_MODES: tuple[str, ...] = (
     "multilayer",
 )
 _SUPPORTED_MODE_SET = set(_SUPPORTED_MODES)
+_LEGACY_MODE_ALIASES: dict[str, str] = {
+    "auto": "fallback",
+}
 
 
 @dataclass(frozen=True)
@@ -31,12 +34,17 @@ _SELECTION_CACHE: SequenceMatcherSelection | None = None
 
 
 def _normalized_mode(raw_value: str | None) -> str:
-    normalized = str(raw_value or "auto").strip().lower()
+    normalized = str(raw_value or "fallback").strip().lower()
+    normalized = _LEGACY_MODE_ALIASES.get(normalized, normalized)
     if normalized not in _SUPPORTED_MODE_SET:
         supported = ", ".join(sorted(_SUPPORTED_MODES))
+        aliases = ", ".join(
+            sorted(f"{legacy}->{current}" for legacy, current in _LEGACY_MODE_ALIASES.items())
+        )
         raise ValueError(
             f"Invalid {SEQUENCE_MATCHER_ENV} value: {raw_value!r}. "
-            f"Expected one of: {supported}."
+            f"Expected one of: {supported}. "
+            f"Legacy aliases: {aliases}."
         )
     return normalized
 
@@ -141,7 +149,7 @@ def _try_multilayer(*, forced_mode: str | None) -> SequenceMatcherSelection | No
 
 def select_sequence_matcher() -> SequenceMatcherSelection:
     mode = _normalized_mode(os.getenv(SEQUENCE_MATCHER_ENV))
-    forced_mode = mode if mode != "auto" else None
+    forced_mode = mode if mode != "fallback" else None
 
     if mode == "stdlib":
         return _stdlib_selection(forced_mode=forced_mode)
@@ -185,6 +193,9 @@ def select_sequence_matcher() -> SequenceMatcherSelection:
     if selection is not None:
         return selection
     selection = _try_dmp(forced_mode=None)
+    if selection is not None:
+        return selection
+    selection = _try_multilayer(forced_mode=None)
     if selection is not None:
         return selection
     return _stdlib_selection(forced_mode=None)

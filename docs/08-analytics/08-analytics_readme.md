@@ -534,3 +534,58 @@ Durable analytics contract:
 
 Anti-loop note:
 - If dashboard queries expect `epub_auto_selected_score`, fix readers/tests to current extractor metadata contract instead of backfilling removed race fields.
+
+## 16) Merged Understanding (2026-02-27 processing telemetry plumbing)
+
+### 16.1 2026-02-27_18.19.11 shared spinner vs stage-local telemetry surfaces
+
+Merged source:
+- `docs/understandings/2026-02-27_18.19.11-processing-telemetry-plumbing-surfaces.md`
+
+Durable telemetry boundary:
+- `_run_with_progress_status(...)` is the shared status/telemetry surface for:
+  - Label Studio import wrappers,
+  - benchmark prediction/evaluation wrappers,
+  - `bench run`,
+  - `bench sweep`.
+- `stage(...)` uses its own Rich live dashboard/job-loop path and does not go through `_run_with_progress_status(...)`.
+
+Practical implication:
+- "Telemetry for all processing flows" changes must touch both:
+  1. shared spinner plumbing for benchmark/import wrappers, and
+  2. stage-local progress/status wiring.
+
+Anti-loop note:
+- Do not assume `_run_with_progress_status(...)` changes alone will affect stage `processing_timeseries.jsonl`; stage has a separate rendering/emission path.
+
+## 17) Merged Task Spec (2026-02-27 processing telemetry expansion)
+
+### 17.1 2026-02-27_18.18.54 processing timeseries across processing flows
+
+Merged source:
+- `docs/tasks/2026-02-27_18.18.54-processing-timeseries-all-processing-flows.md`
+
+Problem captured:
+- `scheduler_timeseries.jsonl` existed for all-method scheduling, but there was no shared persisted status+CPU timeline across stage, Label Studio wrappers, and bench wrapper flows.
+
+Durable contract after merge:
+- Stage runs persist run-local `processing_timeseries.jsonl`.
+- Shared spinner wrappers can persist status telemetry + CPU samples for:
+  - Label Studio import wrapper flows,
+  - Label Studio benchmark prediction/evaluation wrappers,
+  - `bench run`,
+  - `bench sweep`,
+  - interactive all-method wrapper status.
+- Run manifests include discoverability fields for telemetry artifacts where applicable.
+
+Implementation boundary preserved:
+- Shared telemetry writer and CPU sampling plumbing are additive and dependency-free (Linux `/proc/stat` sampling, no new package dependency).
+- Existing spinner text contracts are preserved; telemetry persistence is additive, not a UI contract rewrite.
+
+Verification evidence preserved from task:
+- Added `_ProcessingTimeseriesWriter` + shared CPU helper in `cookimport/cli.py`.
+- Added `test_run_with_progress_status_writes_processing_timeseries`.
+- `tests/cli/test_cli_output_structure.py -k stage_output_structure` updated to assert stage processing telemetry artifact.
+
+Anti-loop note:
+- Telemetry plumbing still has two surfaces: shared wrapper path and stage-local path. Do not expect wrapper-only edits to update stage telemetry behavior automatically.

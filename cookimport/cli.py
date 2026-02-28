@@ -175,17 +175,26 @@ DEFAULT_GOLDEN_BENCHMARK = GOLDEN_BENCHMARK_ROOT
 DEFAULT_HISTORY = HISTORY_ROOT
 DEFAULT_BENCH_SUITES = DEFAULT_GOLDEN / "bench" / "suites"
 DEFAULT_BENCH_RUNS = DEFAULT_GOLDEN / "bench" / "runs"
+DEFAULT_BENCH_SPEED_ROOT = DEFAULT_GOLDEN / "bench" / "speed"
+DEFAULT_BENCH_SPEED_SUITES = DEFAULT_BENCH_SPEED_ROOT / "suites"
+DEFAULT_BENCH_SPEED_RUNS = DEFAULT_BENCH_SPEED_ROOT / "runs"
+DEFAULT_BENCH_SPEED_COMPARISONS = DEFAULT_BENCH_SPEED_ROOT / "comparisons"
 DEFAULT_CONFIG_PATH = REPO_ROOT / "cookimport.json"
 BACK_ACTION = "__back__"
 DEFAULT_PRELABEL_TIMEOUT_SECONDS = 300
 KNOWN_LABELSTUDIO_TASK_SCOPES = {"pipeline", "canonical-blocks", "freeform-spans"}
 SUPPORTED_LABELSTUDIO_TASK_SCOPES = {"freeform-spans"}
 ALL_METHOD_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
-ALL_METHOD_EPUB_EXTRACTORS = (
+ALL_METHOD_EPUB_EXTRACTORS_DEFAULT = (
     "unstructured",
     "beautifulsoup",
+)
+ALL_METHOD_EPUB_EXTRACTORS_MARKDOWN_OPTIONAL = (
     "markdown",
     "markitdown",
+)
+ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV = (
+    "COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS"
 )
 ALL_METHOD_UNSTRUCTURED_HTML_PARSER_VERSIONS = ("v1", "v2")
 ALL_METHOD_UNSTRUCTURED_SKIP_HEADERS_FOOTERS = (False, True)
@@ -195,7 +204,13 @@ ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT = 4
 ALL_METHOD_MAX_EVAL_TAIL_DEFAULT = 4
 ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT = 900
 ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT = 1
-ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT = 2
+ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT = 4
+ALL_METHOD_SOURCE_SCHEDULING_DISCOVERY = "discovery"
+ALL_METHOD_SOURCE_SCHEDULING_TAIL_PAIR = "tail_pair"
+ALL_METHOD_SOURCE_SCHEDULING_DEFAULT = ALL_METHOD_SOURCE_SCHEDULING_TAIL_PAIR
+ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_DEFAULT = 1200.0
+ALL_METHOD_SOURCE_SHARD_MAX_PARTS_DEFAULT = 3
+ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_DEFAULT = 6
 ALL_METHOD_RESOURCE_GUARD_RESERVE_RATIO = 0.35
 ALL_METHOD_RESOURCE_GUARD_MIN_RESERVE_BYTES = 2 * 1024 * 1024 * 1024
 ALL_METHOD_RESOURCE_GUARD_ESTIMATED_SPLIT_WORKER_BYTES = 768 * 1024 * 1024
@@ -205,8 +220,15 @@ ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY = "all_method_max_eval_tail_pipelines"
 ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY = "all_method_config_timeout_seconds"
 ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY = "all_method_retry_failed_configs"
 ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY = "all_method_max_parallel_sources"
+ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY = "all_method_source_scheduling"
+ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_SETTING_KEY = (
+    "all_method_source_shard_threshold_seconds"
+)
+ALL_METHOD_SOURCE_SHARD_MAX_PARTS_SETTING_KEY = "all_method_source_shard_max_parts"
+ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_SETTING_KEY = "all_method_source_shard_min_variants"
 ALL_METHOD_WING_BACKLOG_SETTING_KEY = "all_method_wing_backlog_target"
 ALL_METHOD_SMART_SCHEDULER_SETTING_KEY = "all_method_smart_scheduler"
+ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV = "COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT"
 ALL_METHOD_SCHEDULER_POLL_SECONDS = 0.15
 ALL_METHOD_SCHEDULER_TIMESERIES_HEARTBEAT_SECONDS = 1.0
 ALL_METHOD_SCHEDULER_TIMESERIES_FILENAME = "scheduler_timeseries.jsonl"
@@ -218,7 +240,7 @@ BENCHMARK_EXECUTION_MODE_LEGACY = "legacy"
 BENCHMARK_EXECUTION_MODE_PIPELINED = "pipelined"
 BENCHMARK_EXECUTION_MODE_PREDICT_ONLY = "predict-only"
 BENCHMARK_SEQUENCE_MATCHER_DISPLAY_NAMES: dict[str, str] = {
-    "auto": "Auto",
+    "fallback": "Fallback",
     "stdlib": "Stdlib",
     "cydifflib": "CyDifflib",
     "cdifflib": "CDifflib",
@@ -318,6 +340,23 @@ def _golden_pulled_from_labelstudio_root() -> Path:
 
 def _golden_benchmark_root() -> Path:
     return DEFAULT_GOLDEN / "benchmark-vs-golden"
+
+
+def _resolve_all_method_canonical_alignment_cache_root(
+    *,
+    root_output_dir: Path,
+) -> Path:
+    env_override = str(
+        os.getenv(ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV, "") or ""
+    ).strip()
+    if env_override:
+        return Path(env_override).expanduser()
+    resolved_root = root_output_dir.expanduser()
+    if resolved_root.name == "all-method-benchmark":
+        return resolved_root.parent.parent / ".cache" / "canonical_alignment"
+    if resolved_root.parent.name == "all-method-benchmark":
+        return resolved_root.parent.parent.parent / ".cache" / "canonical_alignment"
+    return resolved_root.parent / ".cache" / "canonical_alignment"
 
 
 def _infer_output_root_from_history_csv(csv_path: Path) -> Path | None:
@@ -639,22 +678,33 @@ def _prompt_freeform_segment_settings(
 
 def _load_settings() -> Dict[str, Any]:
     """Load user settings from config file."""
+    source_parallel_default = _all_method_default_parallel_sources_from_cpu()
     defaults = {
         "workers": 7,
         "pdf_split_workers": 7,
         "epub_split_workers": 7,
-        ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY: ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT,
+        ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY: source_parallel_default,
         ALL_METHOD_MAX_INFLIGHT_SETTING_KEY: ALL_METHOD_MAX_INFLIGHT_DEFAULT,
         ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY: ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
         ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY: ALL_METHOD_MAX_EVAL_TAIL_DEFAULT,
         ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY: ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT,
         ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY: ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT,
+        ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY: ALL_METHOD_SOURCE_SCHEDULING_DEFAULT,
+        ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_SETTING_KEY: (
+            ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_DEFAULT
+        ),
+        ALL_METHOD_SOURCE_SHARD_MAX_PARTS_SETTING_KEY: (
+            ALL_METHOD_SOURCE_SHARD_MAX_PARTS_DEFAULT
+        ),
+        ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_SETTING_KEY: (
+            ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_DEFAULT
+        ),
         ALL_METHOD_SMART_SCHEDULER_SETTING_KEY: True,
         "epub_extractor": "unstructured",
         "epub_unstructured_html_parser_version": "v1",
         "epub_unstructured_skip_headers_footers": False,
         "epub_unstructured_preprocess_mode": "br_split_v1",
-        "benchmark_sequence_matcher": "auto",
+        "benchmark_sequence_matcher": "fallback",
         "ocr_device": "auto",
         "ocr_batch_size": 1,
         "pdf_pages_per_job": 50,
@@ -726,6 +776,16 @@ def _coerce_non_negative_int(value: Any) -> int | None:
     return parsed
 
 
+def _coerce_positive_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
+
+
 def _coerce_bool_setting(value: Any, *, default: bool) -> bool:
     if isinstance(value, bool):
         return value
@@ -761,6 +821,28 @@ def _resolve_non_negative_int_setting(
     if parsed is None:
         return fallback
     return parsed
+
+
+def _resolve_positive_float_setting(
+    settings: Dict[str, Any],
+    *,
+    key: str,
+    fallback: float,
+) -> float:
+    parsed = _coerce_positive_float(settings.get(key))
+    if parsed is None:
+        return fallback
+    return parsed
+
+
+def _normalize_all_method_source_scheduling(value: Any) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {
+        ALL_METHOD_SOURCE_SCHEDULING_DISCOVERY,
+        ALL_METHOD_SOURCE_SCHEDULING_TAIL_PAIR,
+    }:
+        return normalized
+    return ALL_METHOD_SOURCE_SCHEDULING_DEFAULT
 
 
 def _resolve_interactive_labelstudio_settings(
@@ -863,6 +945,13 @@ def _list_importable_files(folder: Path) -> list[Path]:
     return sorted(files)
 
 
+def _all_method_default_parallel_sources_from_cpu() -> int:
+    cpu_total = max(1, int(os.cpu_count() or 1))
+    baseline = 2 if cpu_total >= 4 else 1
+    cpu_scaled = max(baseline, cpu_total // 4)
+    return max(1, min(ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT, cpu_scaled))
+
+
 def _settings_menu(current_settings: Dict[str, Any]) -> None:
     """Run the settings configuration menu."""
     while True:
@@ -889,10 +978,42 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 questionary.Choice(
                     (
                         "All-Method Parallel Sources: "
-                        f"{_resolve_positive_int_setting(current_settings, key=ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY, fallback=ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT)} "
+                        f"{_resolve_positive_int_setting(current_settings, key=ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY, fallback=_all_method_default_parallel_sources_from_cpu())} "
                         "- max matched sources run in parallel"
                     ),
                     value=ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY,
+                ),
+                questionary.Choice(
+                    (
+                        "All-Method Source Scheduling: "
+                        f"{_normalize_all_method_source_scheduling(current_settings.get(ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY))} "
+                        "- discovery (legacy) or tail_pair (heavy/light interleave)"
+                    ),
+                    value=ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY,
+                ),
+                questionary.Choice(
+                    (
+                        "All-Method Source Shard Threshold (s): "
+                        f"{_resolve_positive_float_setting(current_settings, key=ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_SETTING_KEY, fallback=ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_DEFAULT):.1f} "
+                        "- shard only when source estimate reaches this runtime"
+                    ),
+                    value=ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_SETTING_KEY,
+                ),
+                questionary.Choice(
+                    (
+                        "All-Method Source Shard Max Parts: "
+                        f"{_resolve_positive_int_setting(current_settings, key=ALL_METHOD_SOURCE_SHARD_MAX_PARTS_SETTING_KEY, fallback=ALL_METHOD_SOURCE_SHARD_MAX_PARTS_DEFAULT)} "
+                        "- max workload shards per source"
+                    ),
+                    value=ALL_METHOD_SOURCE_SHARD_MAX_PARTS_SETTING_KEY,
+                ),
+                questionary.Choice(
+                    (
+                        "All-Method Source Shard Min Variants: "
+                        f"{_resolve_positive_int_setting(current_settings, key=ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_SETTING_KEY, fallback=ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_DEFAULT)} "
+                        "- minimum variants required before sharding"
+                    ),
+                    value=ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_SETTING_KEY,
                 ),
                 questionary.Choice(
                     (
@@ -976,6 +1097,14 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     value="epub_unstructured_preprocess_mode",
                 ),
                 questionary.Choice(
+                    (
+                        "Benchmark Sequence Matcher: "
+                        f"{_benchmark_sequence_matcher_display_name(str(current_settings.get('benchmark_sequence_matcher', 'fallback')))} "
+                        f"- {', '.join(_benchmark_sequence_matcher_display_name(mode) for mode in _benchmark_sequence_matcher_modes())}"
+                    ),
+                    value="benchmark_sequence_matcher",
+                ),
+                questionary.Choice(
                     f"OCR Device: {current_settings.get('ocr_device', 'auto')} - auto/cpu/cuda/mps",
                     value="ocr_device",
                 ),
@@ -1041,13 +1170,85 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     _resolve_positive_int_setting(
                         current_settings,
                         key=ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY,
-                        fallback=ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT,
+                        fallback=_all_method_default_parallel_sources_from_cpu(),
                     )
                 ),
             )
             parsed = _coerce_positive_int(val)
             if parsed is not None:
                 current_settings[ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY] = parsed
+                _save_settings(current_settings)
+
+        elif choice == ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY:
+            current_strategy = _normalize_all_method_source_scheduling(
+                current_settings.get(ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY)
+            )
+            val = _menu_select(
+                "Select all-method source scheduling strategy:",
+                choices=[
+                    questionary.Choice(
+                        "tail_pair - interleave heavy/light planned jobs",
+                        value=ALL_METHOD_SOURCE_SCHEDULING_TAIL_PAIR,
+                    ),
+                    questionary.Choice(
+                        "discovery - legacy discovery/FIFO order",
+                        value=ALL_METHOD_SOURCE_SCHEDULING_DISCOVERY,
+                    ),
+                ],
+                default=current_strategy,
+                menu_help=(
+                    "tail_pair starts heavy jobs earlier and alternates with lighter jobs "
+                    "to reduce one-source endgame tails."
+                ),
+            )
+            if val and val != BACK_ACTION:
+                current_settings[ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY] = (
+                    _normalize_all_method_source_scheduling(val)
+                )
+                _save_settings(current_settings)
+
+        elif choice == ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_SETTING_KEY:
+            val = _prompt_text(
+                "Enter source-sharding threshold in estimated seconds:",
+                default=(
+                    f"{_resolve_positive_float_setting(current_settings, key=ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_SETTING_KEY, fallback=ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_DEFAULT):.1f}"
+                ),
+            )
+            parsed = _coerce_positive_float(val)
+            if parsed is not None:
+                current_settings[ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_SETTING_KEY] = parsed
+                _save_settings(current_settings)
+
+        elif choice == ALL_METHOD_SOURCE_SHARD_MAX_PARTS_SETTING_KEY:
+            val = _prompt_text(
+                "Enter maximum shard parts per source:",
+                default=str(
+                    _resolve_positive_int_setting(
+                        current_settings,
+                        key=ALL_METHOD_SOURCE_SHARD_MAX_PARTS_SETTING_KEY,
+                        fallback=ALL_METHOD_SOURCE_SHARD_MAX_PARTS_DEFAULT,
+                    )
+                ),
+            )
+            parsed = _coerce_positive_int(val)
+            if parsed is not None:
+                current_settings[ALL_METHOD_SOURCE_SHARD_MAX_PARTS_SETTING_KEY] = parsed
+                _save_settings(current_settings)
+
+        elif choice == ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_SETTING_KEY:
+            val = _prompt_text(
+                "Enter minimum variants required to allow source sharding:",
+                default=str(
+                    _resolve_positive_int_setting(
+                        current_settings,
+                        key=ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_SETTING_KEY,
+                        fallback=ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_DEFAULT,
+                    )
+                ),
+            )
+            parsed = _coerce_positive_int(val)
+            if parsed is not None:
+                current_settings[ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_SETTING_KEY] = parsed
                 _save_settings(current_settings)
 
         elif choice == ALL_METHOD_MAX_INFLIGHT_SETTING_KEY:
@@ -1229,6 +1430,34 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 current_settings["epub_unstructured_preprocess_mode"] = val
                 _save_settings(current_settings)
 
+        elif choice == "benchmark_sequence_matcher":
+            supported_modes = _benchmark_sequence_matcher_modes()
+            current_mode = _normalize_benchmark_sequence_matcher_mode(
+                str(current_settings.get("benchmark_sequence_matcher", "fallback"))
+            )
+            mode_choices = [
+                questionary.Choice(
+                    f"{_benchmark_sequence_matcher_display_name(mode)} ({mode})",
+                    value=mode,
+                )
+                for mode in supported_modes
+            ]
+            val = _menu_select(
+                "Select benchmark sequence matcher mode:",
+                choices=mode_choices,
+                default=current_mode,
+                menu_help=(
+                    "This controls canonical-text matcher selection for benchmark/eval runs. "
+                    "Fallback tries CyDifflib -> CDifflib -> DMP -> MultiLayer -> Stdlib. "
+                    "Pick an explicit mode to force one implementation."
+                ),
+            )
+            if val and val != BACK_ACTION:
+                current_settings["benchmark_sequence_matcher"] = (
+                    _normalize_benchmark_sequence_matcher_mode(str(val))
+                )
+                _save_settings(current_settings)
+
         elif choice == "ocr_device":
             val = _menu_select(
                 "Select OCR Device:",
@@ -1297,6 +1526,10 @@ def _interactive_all_method_benchmark(
     max_eval_tail_pipelines: int | None = None,
     config_timeout_seconds: int | None = None,
     retry_failed_configs: int | None = None,
+    source_scheduling: str | None = None,
+    source_shard_threshold_seconds: float | None = None,
+    source_shard_max_parts: int | None = None,
+    source_shard_min_variants: int | None = None,
     wing_backlog_target: int | None = None,
     smart_scheduler: bool | None = None,
 ) -> None:
@@ -1362,15 +1595,34 @@ def _interactive_all_method_benchmark(
         ]
         unmatched_targets = []
 
+    include_markdown_extractors = _resolve_all_method_markdown_extractors_choice()
     base_target_variants = _build_all_method_target_variants(
         targets=targets,
         base_settings=selected_benchmark_settings,
         include_codex_farm=False,
+        include_markdown_extractors=include_markdown_extractors,
     )
     total_base_runs = sum(len(variants) for _target, variants in base_target_variants)
     if total_base_runs <= 0:
         typer.secho("No benchmark variants were generated for this selection.", fg=typer.colors.YELLOW)
         return
+
+    if include_markdown_extractors:
+        typer.secho(
+            (
+                "All method includes markdown + markitdown extractor variants "
+                f"(enabled via {ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV}=1)."
+            ),
+            fg=typer.colors.YELLOW,
+        )
+    else:
+        typer.secho(
+            (
+                "All method excludes markdown + markitdown extractor variants by default. "
+                f"Set {ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV}=1 to include them."
+            ),
+            fg=typer.colors.BRIGHT_BLACK,
+        )
 
     if scope_all_matched:
         typer.secho(
@@ -1452,6 +1704,7 @@ def _interactive_all_method_benchmark(
         targets=targets,
         base_settings=selected_benchmark_settings,
         include_codex_farm=include_codex_effective,
+        include_markdown_extractors=include_markdown_extractors,
     )
     total_selected_runs = sum(
         len(variants) for _target, variants in selected_target_variants
@@ -1461,7 +1714,7 @@ def _interactive_all_method_benchmark(
         return
     total_sources_selected = max(1, len(selected_target_variants))
     source_parallelism_default = min(
-        ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT,
+        _all_method_default_parallel_sources_from_cpu(),
         total_sources_selected,
     )
     requested_source_parallelism = _report_count(max_parallel_sources)
@@ -1505,6 +1758,21 @@ def _interactive_all_method_benchmark(
     resolved_retry_failed_configs = _resolve_all_method_retry_failed_configs(
         retry_failed_configs
     )
+    resolved_source_scheduling = _normalize_all_method_source_scheduling(
+        source_scheduling
+    )
+    resolved_source_shard_threshold_seconds = (
+        _coerce_positive_float(source_shard_threshold_seconds)
+        or ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_DEFAULT
+    )
+    resolved_source_shard_max_parts = (
+        _coerce_positive_int(source_shard_max_parts)
+        or ALL_METHOD_SOURCE_SHARD_MAX_PARTS_DEFAULT
+    )
+    resolved_source_shard_min_variants = (
+        _coerce_positive_int(source_shard_min_variants)
+        or ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_DEFAULT
+    )
     timeout_display = (
         f"{resolved_config_timeout_seconds}s"
         if resolved_config_timeout_seconds is not None
@@ -1516,7 +1784,12 @@ def _interactive_all_method_benchmark(
             "Scheduler: "
             f"source parallel={source_parallelism_effective} "
             f"(configured {source_parallelism_configured}, "
-            f"default {ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT}), "
+            f"default {_all_method_default_parallel_sources_from_cpu()}), "
+            f"source scheduling={resolved_source_scheduling}, "
+            "source sharding threshold/max_parts/min_variants="
+            f"{resolved_source_shard_threshold_seconds:.1f}/"
+            f"{resolved_source_shard_max_parts}/"
+            f"{resolved_source_shard_min_variants}, "
             f"mode={scheduler_mode}, "
             f"configured inflight={resolved_inflight_pipelines} "
             f"(default {ALL_METHOD_MAX_INFLIGHT_DEFAULT}), "
@@ -1559,6 +1832,16 @@ def _interactive_all_method_benchmark(
         / benchmark_eval_output.name
         / "all-method-benchmark"
     )
+    all_method_canonical_cache_root = _resolve_all_method_canonical_alignment_cache_root(
+        root_output_dir=all_method_root
+    )
+    typer.secho(
+        (
+            "All method canonical alignment cache root: "
+            f"{all_method_canonical_cache_root}"
+        ),
+        fg=typer.colors.BRIGHT_BLACK,
+    )
 
     status_initial = "Running all method benchmark..."
     status_prefix = "All method benchmark"
@@ -1588,8 +1871,13 @@ def _interactive_all_method_benchmark(
                 max_eval_tail_pipelines=max_eval_tail_pipelines,
                 config_timeout_seconds=resolved_config_timeout_seconds,
                 retry_failed_configs=resolved_retry_failed_configs,
+                source_scheduling=resolved_source_scheduling,
+                source_shard_threshold_seconds=resolved_source_shard_threshold_seconds,
+                source_shard_max_parts=resolved_source_shard_max_parts,
+                source_shard_min_variants=resolved_source_shard_min_variants,
                 wing_backlog_target=resolved_wing_backlog_target,
                 smart_scheduler=resolved_smart_scheduler,
+                canonical_alignment_cache_root=all_method_canonical_cache_root,
             ),
         )
         typer.secho(
@@ -1637,6 +1925,10 @@ def _interactive_all_method_benchmark(
                     wing_backlog_target=resolved_wing_backlog_target,
                     smart_scheduler=resolved_smart_scheduler,
                     source_parallelism_effective=source_parallelism_effective,
+                    canonical_alignment_cache_dir_override=(
+                        all_method_canonical_cache_root
+                        / slugify_name(single_target.source_file.stem)
+                    ),
                 )
             except Exception:
                 dashboard.finish_source(0, failed=True)
@@ -2274,7 +2566,9 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 menu_help=(
                     "Single offline mode runs one local prediction + eval against freeform gold "
                     "without Label Studio upload. All method benchmark runs many offline "
-                    "permutations with one summary report."
+                    "permutations with one summary report. By default, all method excludes "
+                    "markdown/markitdown extractors; set "
+                    f"{ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV}=1 to include them."
                 ),
                 choices=[
                     questionary.Choice(
@@ -2317,6 +2611,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     output_dir=_golden_benchmark_root(),
                     eval_output_dir=benchmark_eval_output,
                     eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+                    sequence_matcher=selected_benchmark_settings.benchmark_sequence_matcher,
                     epub_extractor=selected_benchmark_settings.epub_extractor.value,
                     epub_unstructured_html_parser_version=(
                         selected_benchmark_settings.epub_unstructured_html_parser_version.value
@@ -2372,6 +2667,18 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 all_method_retry_failed_configs = _coerce_non_negative_int(
                     settings.get(ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY)
                 )
+                all_method_source_scheduling = _normalize_all_method_source_scheduling(
+                    settings.get(ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY)
+                )
+                all_method_source_shard_threshold_seconds = _coerce_positive_float(
+                    settings.get(ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_SETTING_KEY)
+                )
+                all_method_source_shard_max_parts = _coerce_positive_int(
+                    settings.get(ALL_METHOD_SOURCE_SHARD_MAX_PARTS_SETTING_KEY)
+                )
+                all_method_source_shard_min_variants = _coerce_positive_int(
+                    settings.get(ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_SETTING_KEY)
+                )
                 all_method_wing_backlog = _coerce_positive_int(
                     settings.get(ALL_METHOD_WING_BACKLOG_SETTING_KEY)
                 )
@@ -2389,6 +2696,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     max_eval_tail_pipelines=all_method_max_eval_tail,
                     config_timeout_seconds=all_method_config_timeout_seconds,
                     retry_failed_configs=all_method_retry_failed_configs,
+                    source_scheduling=all_method_source_scheduling,
+                    source_shard_threshold_seconds=all_method_source_shard_threshold_seconds,
+                    source_shard_max_parts=all_method_source_shard_max_parts,
+                    source_shard_min_variants=all_method_source_shard_min_variants,
                     wing_backlog_target=all_method_wing_backlog,
                     smart_scheduler=all_method_smart_scheduler,
                 )
@@ -2699,11 +3010,15 @@ def _benchmark_sequence_matcher_modes() -> tuple[str, ...]:
 
 def _benchmark_sequence_matcher_display_name(mode: str) -> str:
     normalized = str(mode or "").strip().lower()
-    return BENCHMARK_SEQUENCE_MATCHER_DISPLAY_NAMES.get(normalized, normalized or "auto")
+    if normalized == "auto":
+        normalized = "fallback"
+    return BENCHMARK_SEQUENCE_MATCHER_DISPLAY_NAMES.get(normalized, normalized or "fallback")
 
 
 def _normalize_benchmark_sequence_matcher_mode(value: str) -> str:
-    normalized = str(value or "auto").strip().lower()
+    normalized = str(value or "fallback").strip().lower()
+    if normalized == "auto":
+        normalized = "fallback"
     supported = _benchmark_sequence_matcher_modes()
     if normalized in supported:
         return normalized
@@ -2711,7 +3026,7 @@ def _normalize_benchmark_sequence_matcher_mode(value: str) -> str:
         f"Invalid benchmark sequence matcher mode: {value!r}. "
         f"Expected one of: {', '.join(supported)}."
     )
-    return "auto"
+    return "fallback"
 
 
 def _parse_csv_labels(value: str) -> set[str]:
@@ -3871,6 +4186,267 @@ class AllMethodVariant:
     slug: str
     run_settings: RunSettings
     dimensions: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _AllMethodSourceEstimate:
+    estimated_seconds: float
+    estimate_basis: str
+    canonical_text_chars: int
+    variant_count: int
+
+
+@dataclass(frozen=True)
+class _AllMethodSourceJobPlan:
+    source_position: int
+    source_group_key: str
+    source_display_name: str
+    source_slug: str
+    source_file: Path
+    gold_spans_path: Path
+    variants: list[AllMethodVariant]
+    shard_index: int
+    shard_total: int
+    estimated_seconds: float
+    estimate_basis: str
+
+
+def _canonical_text_chars_for_all_method_target(target: AllMethodTarget) -> int:
+    canonical_text_path = target.gold_spans_path.parent / "canonical_text.txt"
+    if not canonical_text_path.exists() or not canonical_text_path.is_file():
+        return 0
+    try:
+        return max(0, int(canonical_text_path.stat().st_size))
+    except OSError:
+        return 0
+
+
+def _load_prior_all_method_source_runtime_seconds(
+    *,
+    prior_report_root: Path | None,
+    target: AllMethodTarget,
+) -> tuple[float | None, int | None]:
+    if prior_report_root is None:
+        return None, None
+    report_path = prior_report_root / "all_method_benchmark_multi_source_report.json"
+    if not report_path.exists() or not report_path.is_file():
+        return None, None
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None, None
+    if not isinstance(payload, dict):
+        return None, None
+    source_rows = payload.get("sources")
+    if not isinstance(source_rows, list):
+        return None, None
+    source_path = str(target.source_file)
+    source_name = target.source_file_name
+    for row in source_rows:
+        if not isinstance(row, dict):
+            continue
+        row_source_path = str(row.get("source_file") or "").strip()
+        row_source_name = str(row.get("source_file_name") or "").strip()
+        if row_source_path != source_path and row_source_name != source_name:
+            continue
+        timing_summary = row.get("timing_summary")
+        if not isinstance(timing_summary, dict):
+            continue
+        source_seconds = _report_optional_metric(
+            timing_summary.get("source_wall_seconds")
+        )
+        if source_seconds is None or source_seconds <= 0:
+            continue
+        prior_variants = _report_count(row.get("variant_count_completed"))
+        return source_seconds, (prior_variants if prior_variants > 0 else None)
+    return None, None
+
+
+def _estimate_all_method_source_cost(
+    *,
+    target: AllMethodTarget,
+    variants: list[AllMethodVariant],
+    prior_report_root: Path | None = None,
+) -> _AllMethodSourceEstimate:
+    variant_count = max(0, len(variants))
+    canonical_text_chars = _canonical_text_chars_for_all_method_target(target)
+    heuristic_seconds = max(
+        1.0,
+        (float(max(1, variant_count)) * 25.0) + (float(canonical_text_chars) / 1200.0),
+    )
+    prior_seconds, prior_variant_count = _load_prior_all_method_source_runtime_seconds(
+        prior_report_root=prior_report_root,
+        target=target,
+    )
+    if prior_seconds is not None:
+        scale = 1.0
+        if prior_variant_count is not None and prior_variant_count > 0 and variant_count > 0:
+            scale = max(0.25, float(variant_count) / float(prior_variant_count))
+        estimated = max(1.0, float(prior_seconds) * scale)
+        basis = "prior_source_wall_seconds"
+        if canonical_text_chars > 0:
+            basis += "+canonical_text_chars"
+        return _AllMethodSourceEstimate(
+            estimated_seconds=estimated,
+            estimate_basis=basis,
+            canonical_text_chars=canonical_text_chars,
+            variant_count=variant_count,
+        )
+
+    basis = "heuristic_variants"
+    if canonical_text_chars > 0:
+        basis += "+canonical_text_chars"
+    return _AllMethodSourceEstimate(
+        estimated_seconds=heuristic_seconds,
+        estimate_basis=basis,
+        canonical_text_chars=canonical_text_chars,
+        variant_count=variant_count,
+    )
+
+
+def _split_all_method_source_variants(
+    *,
+    target: AllMethodTarget,
+    variants: list[AllMethodVariant],
+    estimate: _AllMethodSourceEstimate,
+    shard_threshold_seconds: float,
+    shard_max_parts: int,
+    shard_min_variants: int,
+) -> list[list[AllMethodVariant]]:
+    _ = target
+    if not variants:
+        return [[]]
+    total_variants = len(variants)
+    threshold = max(1.0, float(shard_threshold_seconds))
+    max_parts = max(1, _report_count(shard_max_parts))
+    min_variants = max(1, _report_count(shard_min_variants))
+    if max_parts <= 1:
+        return [list(variants)]
+    if total_variants < min_variants:
+        return [list(variants)]
+    if estimate.estimated_seconds < threshold:
+        return [list(variants)]
+
+    max_parts_by_variants = total_variants // min_variants
+    if max_parts_by_variants < 2:
+        return [list(variants)]
+    shard_total = min(max_parts, max_parts_by_variants)
+    if shard_total < 2:
+        return [list(variants)]
+
+    shards: list[list[AllMethodVariant]] = []
+    base_size = total_variants // shard_total
+    remainder = total_variants % shard_total
+    cursor = 0
+    for shard_index in range(shard_total):
+        shard_size = base_size + (1 if shard_index < remainder else 0)
+        next_cursor = cursor + shard_size
+        shards.append(list(variants[cursor:next_cursor]))
+        cursor = next_cursor
+    if len(shards) <= 1:
+        return [list(variants)]
+    return shards
+
+
+def _tail_pair_all_method_source_jobs(
+    plans: list[_AllMethodSourceJobPlan],
+) -> list[_AllMethodSourceJobPlan]:
+    if len(plans) <= 2:
+        return list(plans)
+    ranked = sorted(
+        plans,
+        key=lambda plan: (
+            -plan.estimated_seconds,
+            plan.source_position,
+            plan.shard_index,
+            plan.source_slug,
+        ),
+    )
+    left = 0
+    right = len(ranked) - 1
+    paired: list[_AllMethodSourceJobPlan] = []
+    while left <= right:
+        paired.append(ranked[left])
+        left += 1
+        if left <= right:
+            paired.append(ranked[right])
+            right -= 1
+    return paired
+
+
+def _plan_all_method_source_jobs(
+    *,
+    target_variants: list[tuple[AllMethodTarget, list[AllMethodVariant]]],
+    scheduling_strategy: str,
+    shard_threshold_seconds: float,
+    shard_max_parts: int,
+    shard_min_variants: int,
+) -> list[_AllMethodSourceJobPlan]:
+    resolved_strategy = _normalize_all_method_source_scheduling(scheduling_strategy)
+    resolved_shard_threshold_seconds = max(1.0, float(shard_threshold_seconds))
+    resolved_shard_max_parts = max(1, _report_count(shard_max_parts))
+    resolved_shard_min_variants = max(1, _report_count(shard_min_variants))
+
+    slug_counts: dict[str, int] = {}
+    plans: list[_AllMethodSourceJobPlan] = []
+    for source_position, (target, variants) in enumerate(target_variants):
+        estimate = _estimate_all_method_source_cost(
+            target=target,
+            variants=variants,
+        )
+        source_slug_base = slugify_name(target.source_file.stem)
+        source_slug_count = slug_counts.get(source_slug_base, 0) + 1
+        slug_counts[source_slug_base] = source_slug_count
+        source_group_slug = (
+            source_slug_base
+            if source_slug_count == 1
+            else f"{source_slug_base}__{source_slug_count:02d}"
+        )
+        shard_variants = _split_all_method_source_variants(
+            target=target,
+            variants=variants,
+            estimate=estimate,
+            shard_threshold_seconds=resolved_shard_threshold_seconds,
+            shard_max_parts=resolved_shard_max_parts,
+            shard_min_variants=resolved_shard_min_variants,
+        )
+        shard_total = max(1, len(shard_variants))
+        for shard_index, shard in enumerate(shard_variants):
+            shard_slug = (
+                source_group_slug
+                if shard_total == 1
+                else (
+                    f"{source_group_slug}__part_{shard_index + 1:02d}_of_{shard_total:02d}"
+                )
+            )
+            shard_weight = (
+                float(len(shard)) / float(len(variants))
+                if variants
+                else (1.0 / float(shard_total))
+            )
+            shard_estimated_seconds = max(
+                1.0,
+                float(estimate.estimated_seconds) * max(0.05, shard_weight),
+            )
+            plans.append(
+                _AllMethodSourceJobPlan(
+                    source_position=source_position,
+                    source_group_key=source_group_slug,
+                    source_display_name=target.source_file_name,
+                    source_slug=shard_slug,
+                    source_file=target.source_file,
+                    gold_spans_path=target.gold_spans_path,
+                    variants=list(shard),
+                    shard_index=shard_index,
+                    shard_total=shard_total,
+                    estimated_seconds=shard_estimated_seconds,
+                    estimate_basis=estimate.estimate_basis,
+                )
+            )
+
+    if resolved_strategy == ALL_METHOD_SOURCE_SCHEDULING_TAIL_PAIR:
+        return _tail_pair_all_method_source_jobs(plans)
+    return list(plans)
 
 
 @dataclass
@@ -5271,6 +5847,7 @@ def _build_all_method_variants(
     base_settings: RunSettings,
     source_file: Path,
     include_codex_farm: bool,
+    include_markdown_extractors: bool = False,
 ) -> list[AllMethodVariant]:
     _ = include_codex_farm  # Reserved for future policy unlock.
     base_payload = base_settings.to_run_config_dict()
@@ -5293,8 +5870,15 @@ def _build_all_method_variants(
         )
         return variants
 
+    extractors = ALL_METHOD_EPUB_EXTRACTORS_DEFAULT
+    if include_markdown_extractors:
+        extractors = (
+            *ALL_METHOD_EPUB_EXTRACTORS_DEFAULT,
+            *ALL_METHOD_EPUB_EXTRACTORS_MARKDOWN_OPTIONAL,
+        )
+
     dedupe_hashes: set[str] = set()
-    for extractor in ALL_METHOD_EPUB_EXTRACTORS:
+    for extractor in extractors:
         if extractor == "unstructured":
             for parser_version, skip_headers_footers, preprocess_mode in product(
                 ALL_METHOD_UNSTRUCTURED_HTML_PARSER_VERSIONS,
@@ -5365,6 +5949,7 @@ def _build_all_method_target_variants(
     targets: list[AllMethodTarget],
     base_settings: RunSettings,
     include_codex_farm: bool,
+    include_markdown_extractors: bool = False,
 ) -> list[tuple[AllMethodTarget, list[AllMethodVariant]]]:
     return [
         (
@@ -5373,6 +5958,7 @@ def _build_all_method_target_variants(
                 base_settings=base_settings,
                 source_file=target.source_file,
                 include_codex_farm=include_codex_farm,
+                include_markdown_extractors=include_markdown_extractors,
             ),
         )
         for target in targets
@@ -5393,6 +5979,12 @@ def _resolve_all_method_codex_choice(include_codex_farm: bool) -> tuple[bool, st
         False,
         "Codex Farm was requested, but recipe codex-farm parsing remains policy-locked OFF. "
         "Continuing without Codex Farm permutations.",
+    )
+
+
+def _resolve_all_method_markdown_extractors_choice() -> bool:
+    return (
+        os.getenv(ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV, "").strip() == "1"
     )
 
 
@@ -5649,11 +6241,15 @@ def _resolve_all_method_source_parallelism(
     requested: int | None = None,
 ) -> int:
     total = max(1, _report_count(total_sources))
-    default_parallel_sources = min(ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT, total)
+    default_parallel_sources = min(
+        _all_method_default_parallel_sources_from_cpu(),
+        total,
+    )
     requested_parallel_sources = _report_count(requested)
     if requested_parallel_sources <= 0:
         return default_parallel_sources
-    return max(1, min(requested_parallel_sources, total))
+    cpu_cap = max(1, _report_count(os.cpu_count()))
+    return max(1, min(requested_parallel_sources, total, cpu_cap))
 
 
 def _resolve_all_method_scheduler_limits(
@@ -5956,6 +6552,7 @@ def _run_all_method_config_once(
                         processed_output_dir=processed_output_dir,
                         eval_output_dir=eval_output_dir,
                         eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+                        sequence_matcher=variant.run_settings.benchmark_sequence_matcher,
                         overlap_threshold=overlap_threshold,
                         force_source_match=force_source_match,
                         no_upload=True,
@@ -6295,6 +6892,20 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
             f"{_report_count(report_payload.get('source_parallelism_configured'))}/"
             f"{_report_count(report_payload.get('source_parallelism_effective'))}"
         ),
+        (
+            "- Source scheduling strategy: "
+            f"{report_payload.get('source_schedule_strategy', ALL_METHOD_SOURCE_SCHEDULING_DISCOVERY)}"
+        ),
+        (
+            "- Planned source jobs: "
+            f"{_report_count(report_payload.get('source_job_count_planned'))}"
+        ),
+        (
+            "- Source sharding threshold/max-parts/min-variants: "
+            f"{_report_metric(report_payload.get('source_shard_threshold_seconds')):.1f}/"
+            f"{_report_count(report_payload.get('source_shard_max_parts'))}/"
+            f"{_report_count(report_payload.get('source_shard_min_variants'))}"
+        ),
         f"- Planned config runs: {report_payload.get('total_config_runs_planned', 0)}",
         f"- Completed config runs: {report_payload.get('total_config_runs_completed', 0)}",
         f"- Successful config runs: {report_payload.get('total_config_runs_successful', 0)}",
@@ -6304,6 +6915,9 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
             f"{_report_count(report_payload.get('retry_failed_configs_requested'))}"
         ),
     ]
+    cache_root = str(report_payload.get("canonical_alignment_cache_root") or "").strip()
+    if cache_root:
+        lines.append(f"- Canonical alignment cache root: {cache_root}")
 
     timing_summary = report_payload.get("timing_summary")
     if isinstance(timing_summary, dict):
@@ -6457,6 +7071,9 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
                     source_timing_suffix += (
                         f", slowest={slowest_config} ({slowest_seconds:.2f}s)"
                     )
+            shard_total = max(1, _report_count(row.get("source_shard_total")))
+            if shard_total > 1:
+                source_timing_suffix += f", shards={shard_total}"
             lines.append(
                 (
                     f"- {source_file}: ok "
@@ -6505,8 +7122,13 @@ def _run_all_method_benchmark_multi_source(
     max_eval_tail_pipelines: int | None = None,
     config_timeout_seconds: int | None = None,
     retry_failed_configs: int | None = None,
+    source_scheduling: str | None = None,
+    source_shard_threshold_seconds: float | None = None,
+    source_shard_max_parts: int | None = None,
+    source_shard_min_variants: int | None = None,
     wing_backlog_target: int | None = None,
     smart_scheduler: bool = False,
+    canonical_alignment_cache_root: Path | None = None,
 ) -> Path:
     run_started = time.monotonic()
     root_output_dir.mkdir(parents=True, exist_ok=True)
@@ -6517,12 +7139,42 @@ def _run_all_method_benchmark_multi_source(
     effective_retry_failed_configs = _resolve_all_method_retry_failed_configs(
         retry_failed_configs
     )
+    resolved_source_scheduling = _normalize_all_method_source_scheduling(
+        source_scheduling
+    )
+    resolved_source_shard_threshold_seconds = (
+        _coerce_positive_float(source_shard_threshold_seconds)
+        or ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_DEFAULT
+    )
+    resolved_source_shard_max_parts = (
+        _coerce_positive_int(source_shard_max_parts)
+        or ALL_METHOD_SOURCE_SHARD_MAX_PARTS_DEFAULT
+    )
+    resolved_source_shard_min_variants = (
+        _coerce_positive_int(source_shard_min_variants)
+        or ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_DEFAULT
+    )
+    resolved_canonical_cache_root = (
+        canonical_alignment_cache_root.expanduser()
+        if canonical_alignment_cache_root is not None
+        else _resolve_all_method_canonical_alignment_cache_root(
+            root_output_dir=root_output_dir
+        )
+    )
 
     total_targets = len(target_variants)
     total_planned_config_runs = sum(len(variants) for _target, variants in target_variants)
+    source_job_plans = _plan_all_method_source_jobs(
+        target_variants=target_variants,
+        scheduling_strategy=resolved_source_scheduling,
+        shard_threshold_seconds=resolved_source_shard_threshold_seconds,
+        shard_max_parts=resolved_source_shard_max_parts,
+        shard_min_variants=resolved_source_shard_min_variants,
+    )
+    total_source_jobs = len(source_job_plans)
     source_parallelism_default = min(
-        ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT,
-        max(1, total_targets),
+        _all_method_default_parallel_sources_from_cpu(),
+        max(1, total_source_jobs),
     )
     requested_source_parallelism = _report_count(max_parallel_sources)
     source_parallelism_configured = (
@@ -6531,36 +7183,47 @@ def _run_all_method_benchmark_multi_source(
         else source_parallelism_default
     )
     source_parallelism_effective = _resolve_all_method_source_parallelism(
-        total_sources=max(1, total_targets),
+        total_sources=max(1, total_source_jobs),
         requested=max_parallel_sources,
     )
     refresh_dashboard_after_source = source_parallelism_effective <= 1
 
-    slug_counts: dict[str, int] = {}
-    source_jobs: list[dict[str, Any]] = []
-    for source_position, (target, variants) in enumerate(target_variants):
-        source_slug_base = slugify_name(target.source_file.stem)
-        source_slug_count = slug_counts.get(source_slug_base, 0) + 1
-        slug_counts[source_slug_base] = source_slug_count
-        source_slug = (
-            source_slug_base
-            if source_slug_count == 1
-            else f"{source_slug_base}__{source_slug_count:02d}"
+    source_target_by_position: dict[int, AllMethodTarget] = {
+        source_position: target
+        for source_position, (target, _variants) in enumerate(target_variants)
+    }
+    source_variant_count_by_position: dict[int, int] = {
+        source_position: len(variants)
+        for source_position, (_target, variants) in enumerate(target_variants)
+    }
+    source_shard_total_by_position: dict[int, int] = defaultdict(int)
+    for plan in source_job_plans:
+        source_shard_total_by_position[plan.source_position] = max(
+            source_shard_total_by_position[plan.source_position],
+            max(1, _report_count(plan.shard_total)),
         )
+
+    source_jobs: list[dict[str, Any]] = []
+    for job_position, plan in enumerate(source_job_plans):
         source_jobs.append(
             {
-                "source_position": source_position,
-                "source_index": source_position + 1,
-                "target": target,
-                "variants": variants,
-                "source_slug": source_slug,
-                "source_root": root_output_dir / source_slug,
-                "source_processed_root": processed_output_root / source_slug,
+                "job_position": job_position,
+                "job_index": job_position + 1,
+                "plan": plan,
+                "target": source_target_by_position[plan.source_position],
+                "source_root": root_output_dir / plan.source_slug,
+                "source_processed_root": processed_output_root / plan.source_slug,
+                "canonical_alignment_cache_dir": (
+                    resolved_canonical_cache_root / plan.source_group_key
+                ),
             }
         )
 
-    source_rows: list[dict[str, Any] | None] = [None] * len(source_jobs)
+    source_rows: list[dict[str, Any] | None] = [None] * max(0, len(source_jobs))
     status_lock = threading.RLock()
+    active_source_jobs: dict[int, int] = defaultdict(int)
+    finished_source_jobs: dict[int, int] = defaultdict(int)
+    source_failed_seen: dict[int, bool] = defaultdict(bool)
 
     def _emit_status(
         message: str,
@@ -6580,23 +7243,61 @@ def _run_all_method_benchmark_multi_source(
                 return
             typer.secho(cleaned, fg=color)
 
+    def _mark_source_job_started(source_position: int) -> None:
+        if dashboard is None:
+            return
+        with status_lock:
+            previous_active = active_source_jobs[source_position]
+            active_source_jobs[source_position] = previous_active + 1
+            if previous_active <= 0:
+                dashboard.start_source(source_position)
+
+    def _mark_source_job_finished(source_position: int, *, failed: bool) -> None:
+        if dashboard is None:
+            return
+        with status_lock:
+            active_source_jobs[source_position] = max(
+                0,
+                active_source_jobs[source_position] - 1,
+            )
+            finished_source_jobs[source_position] += 1
+            if failed:
+                source_failed_seen[source_position] = True
+            expected_total = max(
+                1,
+                _report_count(source_shard_total_by_position.get(source_position)),
+            )
+            if (
+                active_source_jobs[source_position] == 0
+                and finished_source_jobs[source_position] >= expected_total
+            ):
+                dashboard.finish_source(
+                    source_position,
+                    failed=bool(source_failed_seen[source_position]),
+                )
+
     def _failed_source_row(
         *,
+        plan: _AllMethodSourceJobPlan,
         target: AllMethodTarget,
-        source_slug: str,
-        variants: list[AllMethodVariant],
         error: str,
     ) -> dict[str, Any]:
         return {
+            "source_position": plan.source_position,
+            "source_group_key": plan.source_group_key,
+            "source_shard_index": plan.shard_index + 1,
+            "source_shard_total": max(1, _report_count(plan.shard_total)),
+            "source_estimated_seconds": plan.estimated_seconds,
+            "source_estimate_basis": plan.estimate_basis,
             "status": "failed",
             "source_file": str(target.source_file),
             "source_file_name": target.source_file_name,
             "gold_spans_path": str(target.gold_spans_path),
             "gold_display": target.gold_display,
-            "source_slug": source_slug,
+            "source_slug": plan.source_slug,
             "report_path": "",
             "report_json_path": "",
-            "variant_count_planned": len(variants),
+            "variant_count_planned": len(plan.variants),
             "variant_count_completed": 0,
             "variant_count_successful": 0,
             "winner_metrics": {},
@@ -6606,41 +7307,43 @@ def _run_all_method_benchmark_multi_source(
         }
 
     def _run_source_job(job: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-        source_position = int(job["source_position"])
-        source_index = int(job["source_index"])
+        job_position = int(job["job_position"])
+        source_index = int(job["job_index"])
+        plan = cast(_AllMethodSourceJobPlan, job["plan"])
+        source_position = plan.source_position
         target = cast(AllMethodTarget, job["target"])
-        variants = cast(list[AllMethodVariant], job["variants"])
-        source_slug = str(job["source_slug"])
+        variants = list(plan.variants)
         source_root = cast(Path, job["source_root"])
         source_processed_root = cast(Path, job["source_processed_root"])
+        canonical_alignment_cache_dir = cast(
+            Path,
+            job["canonical_alignment_cache_dir"],
+        )
 
         progress_label = format_task_counter(
             "Running",
             source_index,
-            max(1, total_targets),
+            max(1, total_source_jobs),
             noun="source",
         )
-        if dashboard is not None:
-            dashboard.start_source(source_position)
-        _emit_status(f"{progress_label}: {target.source_file_name}")
+        _mark_source_job_started(source_position)
+        _emit_status(f"{progress_label}: {plan.source_display_name}")
 
         if not variants:
-            if dashboard is not None:
-                dashboard.finish_source(source_position, failed=True)
+            _mark_source_job_finished(source_position, failed=True)
             _emit_status(
                 (
                     "Failed "
-                    f"{format_task_counter('', source_index, max(1, total_targets), noun='source')}: "
+                    f"{format_task_counter('', source_index, max(1, total_source_jobs), noun='source')}: "
                     "No benchmark variants generated for this source."
                 ),
                 color=typer.colors.RED,
             )
             return (
-                source_position,
+                job_position,
                 _failed_source_row(
+                    plan=plan,
                     target=target,
-                    source_slug=source_slug,
-                    variants=variants,
                     error="No benchmark variants generated for this source.",
                 ),
             )
@@ -6668,8 +7371,8 @@ def _run_all_method_benchmark_multi_source(
 
         try:
             report_md_path = _run_all_method_benchmark(
-                gold_spans_path=target.gold_spans_path,
-                source_file=target.source_file,
+                gold_spans_path=plan.gold_spans_path,
+                source_file=plan.source_file,
                 variants=variants,
                 include_codex_farm_requested=include_codex_farm_requested,
                 include_codex_farm_effective=include_codex_farm_effective,
@@ -6689,6 +7392,7 @@ def _run_all_method_benchmark_multi_source(
                 smart_scheduler=smart_scheduler,
                 refresh_dashboard_after_source=refresh_dashboard_after_source,
                 source_parallelism_effective=source_parallelism_effective,
+                canonical_alignment_cache_dir_override=canonical_alignment_cache_dir,
             )
             report_json_path = report_md_path.with_suffix(".json")
             report_payload = json.loads(report_json_path.read_text(encoding="utf-8"))
@@ -6723,17 +7427,23 @@ def _run_all_method_benchmark_multi_source(
             )
 
             row = {
+                "source_position": source_position,
+                "source_group_key": plan.source_group_key,
+                "source_shard_index": plan.shard_index + 1,
+                "source_shard_total": max(1, _report_count(plan.shard_total)),
+                "source_estimated_seconds": plan.estimated_seconds,
+                "source_estimate_basis": plan.estimate_basis,
                 "status": "ok",
-                "source_file": str(target.source_file),
-                "source_file_name": target.source_file_name,
-                "gold_spans_path": str(target.gold_spans_path),
+                "source_file": str(plan.source_file),
+                "source_file_name": plan.source_display_name,
+                "gold_spans_path": str(plan.gold_spans_path),
                 "gold_display": target.gold_display,
-                "source_slug": source_slug,
+                "source_slug": plan.source_slug,
                 "report_path": _path_for_manifest(root_output_dir, report_md_path) or "",
                 "report_json_path": (
                     _path_for_manifest(root_output_dir, report_json_path) or ""
                 ),
-                "variant_count_planned": len(variants),
+                "variant_count_planned": len(plan.variants),
                 "variant_count_completed": successful_variants + failed_variants,
                 "variant_count_successful": successful_variants,
                 "winner_metrics": winner_metrics,
@@ -6741,33 +7451,30 @@ def _run_all_method_benchmark_multi_source(
                 "scheduler": normalized_source_scheduler,
                 "error": "",
             }
-            if dashboard is not None:
-                dashboard.finish_source(source_position, failed=False)
+            _mark_source_job_finished(source_position, failed=False)
             _emit_status(
                 (
                     "Completed "
-                    f"{format_task_counter('', source_index, max(1, total_targets), noun='source')}: "
-                    f"{target.source_file_name}"
+                    f"{format_task_counter('', source_index, max(1, total_source_jobs), noun='source')}: "
+                    f"{plan.source_display_name}"
                 ),
                 color=typer.colors.CYAN,
             )
-            return source_position, row
+            return job_position, row
         except Exception as exc:  # noqa: BLE001
-            if dashboard is not None:
-                dashboard.finish_source(source_position, failed=True)
+            _mark_source_job_finished(source_position, failed=True)
             _emit_status(
                 (
                     "Failed "
-                    f"{format_task_counter('', source_index, max(1, total_targets), noun='source')}: {exc}"
+                    f"{format_task_counter('', source_index, max(1, total_source_jobs), noun='source')}: {exc}"
                 ),
                 color=typer.colors.RED,
             )
             return (
-                source_position,
+                job_position,
                 _failed_source_row(
+                    plan=plan,
                     target=target,
-                    source_slug=source_slug,
-                    variants=variants,
                     error=str(exc),
                 ),
             )
@@ -6775,8 +7482,8 @@ def _run_all_method_benchmark_multi_source(
     if source_jobs:
         if source_parallelism_effective <= 1:
             for job in source_jobs:
-                source_position, row = _run_source_job(job)
-                source_rows[source_position] = row
+                job_position, row = _run_source_job(job)
+                source_rows[job_position] = row
         else:
             try:
                 source_executor = ThreadPoolExecutor(max_workers=source_parallelism_effective)
@@ -6790,8 +7497,8 @@ def _run_all_method_benchmark_multi_source(
                 )
                 source_parallelism_effective = 1
                 for job in source_jobs:
-                    source_position, row = _run_source_job(job)
-                    source_rows[source_position] = row
+                    job_position, row = _run_source_job(job)
+                    source_rows[job_position] = row
             else:
                 pending_jobs = list(source_jobs)
                 futures: dict[Any, dict[str, Any]] = {}
@@ -6802,26 +7509,25 @@ def _run_all_method_benchmark_multi_source(
                             try:
                                 future = source_executor.submit(_run_source_job, next_job)
                             except Exception as exc:  # noqa: BLE001
-                                source_position = int(next_job["source_position"])
+                                job_position = int(next_job["job_position"])
+                                plan = cast(_AllMethodSourceJobPlan, next_job["plan"])
+                                source_position = plan.source_position
                                 target = cast(AllMethodTarget, next_job["target"])
-                                variants = cast(list[AllMethodVariant], next_job["variants"])
-                                source_slug = str(next_job["source_slug"])
+                                _mark_source_job_started(source_position)
+                                _mark_source_job_finished(source_position, failed=True)
                                 _emit_status(
                                     (
                                         "Failed "
-                                        f"{format_task_counter('', source_position + 1, max(1, total_targets), noun='source')}: "
+                                        f"{format_task_counter('', job_position + 1, max(1, total_source_jobs), noun='source')}: "
                                         f"Failed to submit source worker: {exc}"
                                     ),
                                     color=typer.colors.RED,
                                 )
-                                source_rows[source_position] = _failed_source_row(
+                                source_rows[job_position] = _failed_source_row(
+                                    plan=plan,
                                     target=target,
-                                    source_slug=source_slug,
-                                    variants=variants,
                                     error=f"Failed to submit source worker: {exc}",
                                 )
-                                if dashboard is not None:
-                                    dashboard.finish_source(source_position, failed=True)
                                 continue
                             futures[future] = next_job
 
@@ -6835,47 +7541,438 @@ def _run_all_method_benchmark_multi_source(
                         for done_future in done:
                             submitted_job = futures.pop(done_future)
                             try:
-                                source_position, row = done_future.result()
+                                job_position, row = done_future.result()
                             except Exception as exc:  # noqa: BLE001
-                                source_position = int(submitted_job["source_position"])
+                                job_position = int(submitted_job["job_position"])
+                                plan = cast(_AllMethodSourceJobPlan, submitted_job["plan"])
+                                source_position = plan.source_position
                                 target = cast(AllMethodTarget, submitted_job["target"])
-                                variants = cast(list[AllMethodVariant], submitted_job["variants"])
-                                source_slug = str(submitted_job["source_slug"])
+                                _mark_source_job_started(source_position)
+                                _mark_source_job_finished(source_position, failed=True)
                                 _emit_status(
                                     (
                                         "Failed "
-                                        f"{format_task_counter('', source_position + 1, max(1, total_targets), noun='source')}: "
+                                        f"{format_task_counter('', job_position + 1, max(1, total_source_jobs), noun='source')}: "
                                         f"Source worker failed: {exc}"
                                     ),
                                     color=typer.colors.RED,
                                 )
                                 row = _failed_source_row(
+                                    plan=plan,
                                     target=target,
-                                    source_slug=source_slug,
-                                    variants=variants,
                                     error=f"Source worker failed: {exc}",
                                 )
-                                if dashboard is not None:
-                                    dashboard.finish_source(source_position, failed=True)
-                            source_rows[source_position] = row
+                            source_rows[job_position] = row
 
-    ordered_source_rows: list[dict[str, Any]] = []
-    for source_position, row in enumerate(source_rows):
+    ordered_source_job_rows: list[dict[str, Any]] = []
+    for job_position, row in enumerate(source_rows):
         if isinstance(row, dict):
-            ordered_source_rows.append(row)
+            ordered_source_job_rows.append(row)
             continue
-        fallback_job = source_jobs[source_position]
+        fallback_job = source_jobs[job_position]
+        fallback_plan = cast(_AllMethodSourceJobPlan, fallback_job["plan"])
         fallback_target = cast(AllMethodTarget, fallback_job["target"])
-        fallback_variants = cast(list[AllMethodVariant], fallback_job["variants"])
-        ordered_source_rows.append(
+        ordered_source_job_rows.append(
             _failed_source_row(
+                plan=fallback_plan,
                 target=fallback_target,
-                source_slug=str(fallback_job["source_slug"]),
-                variants=fallback_variants,
                 error="Source run did not produce a result.",
             )
         )
-    source_rows = ordered_source_rows
+    source_job_rows = ordered_source_job_rows
+
+    grouped_job_rows: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in source_job_rows:
+        grouped_job_rows[_report_count(row.get("source_position"))].append(row)
+
+    def _aggregate_source_scheduler(job_rows: list[dict[str, Any]]) -> dict[str, Any]:
+        scheduler_capacity_seconds = 0.0
+        scheduler_busy_seconds = 0.0
+        scheduler_idle_gap_seconds = 0.0
+        scheduler_wing_area_seconds = 0.0
+        scheduler_wing_seconds_weight = 0.0
+        scheduler_max_wing_backlog = 0
+        scheduler_max_active_pipelines = 0
+        scheduler_max_eval_active = 0
+        scheduler_wing_backlog_target = 0
+        scheduler_split_slots = 0
+        scheduler_split_worker_cap = 0
+        scheduler_split_worker_cap_by_cpu = 0
+        scheduler_split_worker_cap_by_memory = 0
+        scheduler_smart_tail_buffer = 0
+        scheduler_eval_tail_headroom_configured = 0
+        scheduler_eval_tail_headroom_effective = 0
+        scheduler_max_active_during_eval = 0
+        scheduler_source_parallelism_effective = 0
+        scheduler_cpu_budget_per_source = 0
+        scheduler_cpu_budget_total = 0
+        scheduler_effective_inflight = 0
+        scheduler_modes: set[str] = set()
+        scheduler_eval_tail_modes: set[str] = set()
+        scheduler_sources = 0
+
+        for row in job_rows:
+            if str(row.get("status", "")).lower() != "ok":
+                continue
+            scheduler = row.get("scheduler")
+            if not isinstance(scheduler, dict):
+                continue
+            scheduler_sources += 1
+            scheduler_modes.add(str(scheduler.get("mode") or "fixed"))
+            scheduler_split_slots = max(
+                scheduler_split_slots,
+                _report_count(scheduler.get("split_phase_slots")),
+            )
+            scheduler_wing_backlog_target = max(
+                scheduler_wing_backlog_target,
+                _report_count(scheduler.get("wing_backlog_target")),
+            )
+            scheduler_split_worker_cap = max(
+                scheduler_split_worker_cap,
+                _report_count(scheduler.get("split_worker_cap_per_config")),
+            )
+            scheduler_split_worker_cap_by_cpu = max(
+                scheduler_split_worker_cap_by_cpu,
+                _report_count(scheduler.get("split_worker_cap_by_cpu")),
+            )
+            scheduler_split_worker_cap_by_memory = max(
+                scheduler_split_worker_cap_by_memory,
+                _report_count(scheduler.get("split_worker_cap_by_memory")),
+            )
+            scheduler_smart_tail_buffer = max(
+                scheduler_smart_tail_buffer,
+                _report_count(scheduler.get("smart_tail_buffer_slots")),
+            )
+            scheduler_eval_tail_modes.add(
+                str(scheduler.get("eval_tail_headroom_mode") or "auto")
+            )
+            scheduler_eval_tail_headroom_configured = max(
+                scheduler_eval_tail_headroom_configured,
+                _report_count(
+                    scheduler.get(
+                        "eval_tail_headroom_configured",
+                        scheduler.get("max_eval_tail_pipelines"),
+                    )
+                ),
+            )
+            scheduler_eval_tail_headroom_effective = max(
+                scheduler_eval_tail_headroom_effective,
+                _report_count(
+                    scheduler.get(
+                        "eval_tail_headroom_effective",
+                        scheduler.get("max_eval_tail_pipelines"),
+                    )
+                ),
+            )
+            scheduler_max_active_during_eval = max(
+                scheduler_max_active_during_eval,
+                _report_count(
+                    scheduler.get(
+                        "max_active_during_eval",
+                        scheduler.get("effective_inflight_pipelines"),
+                    )
+                ),
+            )
+            scheduler_source_parallelism_effective = max(
+                scheduler_source_parallelism_effective,
+                _report_count(scheduler.get("source_parallelism_effective")),
+            )
+            scheduler_cpu_budget_per_source = max(
+                scheduler_cpu_budget_per_source,
+                _report_count(scheduler.get("cpu_budget_per_source")),
+            )
+            scheduler_cpu_budget_total = max(
+                scheduler_cpu_budget_total,
+                _report_count(scheduler.get("cpu_budget_total")),
+            )
+            scheduler_effective_inflight = max(
+                scheduler_effective_inflight,
+                _report_count(scheduler.get("effective_inflight_pipelines")),
+            )
+            capacity_seconds = _report_metric(scheduler.get("heavy_slot_capacity_seconds"))
+            busy_seconds = _report_metric(scheduler.get("heavy_slot_busy_seconds"))
+            idle_gap_seconds = _report_metric(scheduler.get("idle_gap_seconds"))
+            avg_wing = _report_metric(scheduler.get("avg_wing_backlog"))
+            max_wing = _report_count(scheduler.get("max_wing_backlog"))
+            max_active = _report_count(scheduler.get("max_active_pipelines_observed"))
+            max_eval_active = _report_count(scheduler.get("max_eval_active_observed"))
+            scheduler_capacity_seconds += capacity_seconds
+            scheduler_busy_seconds += busy_seconds
+            scheduler_idle_gap_seconds += idle_gap_seconds
+            scheduler_wing_area_seconds += avg_wing * capacity_seconds
+            scheduler_wing_seconds_weight += capacity_seconds
+            scheduler_max_wing_backlog = max(scheduler_max_wing_backlog, max_wing)
+            scheduler_max_active_pipelines = max(scheduler_max_active_pipelines, max_active)
+            scheduler_max_eval_active = max(scheduler_max_eval_active, max_eval_active)
+
+        scheduler_utilization_pct = (
+            (scheduler_busy_seconds / scheduler_capacity_seconds) * 100.0
+            if scheduler_capacity_seconds > 0
+            else 0.0
+        )
+        scheduler_avg_wing_backlog = (
+            scheduler_wing_area_seconds / scheduler_wing_seconds_weight
+            if scheduler_wing_seconds_weight > 0
+            else 0.0
+        )
+        if scheduler_sources <= 0:
+            return {}
+        return {
+            "mode": (
+                "mixed"
+                if len(scheduler_modes) > 1
+                else (next(iter(scheduler_modes)) if scheduler_modes else "fixed")
+            ),
+            "source_count": scheduler_sources,
+            "effective_inflight_pipelines": scheduler_effective_inflight,
+            "split_phase_slots": scheduler_split_slots,
+            "wing_backlog_target": scheduler_wing_backlog_target,
+            "split_worker_cap_per_config": scheduler_split_worker_cap,
+            "split_worker_cap_by_cpu": scheduler_split_worker_cap_by_cpu,
+            "split_worker_cap_by_memory": scheduler_split_worker_cap_by_memory,
+            "eval_tail_headroom_mode": (
+                "mixed"
+                if len(scheduler_eval_tail_modes) > 1
+                else (
+                    next(iter(scheduler_eval_tail_modes))
+                    if scheduler_eval_tail_modes
+                    else "auto"
+                )
+            ),
+            "eval_tail_headroom_configured": scheduler_eval_tail_headroom_configured,
+            "eval_tail_headroom_effective": scheduler_eval_tail_headroom_effective,
+            "max_active_during_eval": scheduler_max_active_during_eval,
+            "source_parallelism_effective": scheduler_source_parallelism_effective,
+            "cpu_budget_per_source": scheduler_cpu_budget_per_source,
+            "cpu_budget_total": scheduler_cpu_budget_total,
+            "max_eval_tail_pipelines": scheduler_eval_tail_headroom_effective,
+            "smart_tail_buffer_slots": scheduler_smart_tail_buffer,
+            "config_timeout_seconds": effective_config_timeout_seconds,
+            "failed_retry_limit": effective_retry_failed_configs,
+            "heavy_slot_capacity_seconds": scheduler_capacity_seconds,
+            "heavy_slot_busy_seconds": scheduler_busy_seconds,
+            "heavy_slot_utilization_pct": scheduler_utilization_pct,
+            "avg_wing_backlog": scheduler_avg_wing_backlog,
+            "max_wing_backlog": scheduler_max_wing_backlog,
+            "idle_gap_seconds": scheduler_idle_gap_seconds,
+            "max_active_pipelines_observed": scheduler_max_active_pipelines,
+            "max_eval_active_observed": scheduler_max_eval_active,
+        }
+
+    def _aggregate_source_rows(
+        *,
+        source_position: int,
+        job_rows: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        target = source_target_by_position[source_position]
+        ordered_rows = sorted(
+            job_rows,
+            key=lambda row: (
+                _report_count(row.get("source_shard_index")),
+                str(row.get("source_slug") or ""),
+            ),
+        )
+        if not ordered_rows:
+            fallback_plan = _AllMethodSourceJobPlan(
+                source_position=source_position,
+                source_group_key=slugify_name(target.source_file.stem),
+                source_display_name=target.source_file_name,
+                source_slug=slugify_name(target.source_file.stem),
+                source_file=target.source_file,
+                gold_spans_path=target.gold_spans_path,
+                variants=[],
+                shard_index=0,
+                shard_total=1,
+                estimated_seconds=1.0,
+                estimate_basis="missing_plan",
+            )
+            return _failed_source_row(
+                plan=fallback_plan,
+                target=target,
+                error="Source plan did not produce any jobs.",
+            )
+
+        source_group_key = str(ordered_rows[0].get("source_group_key") or "").strip()
+        if not source_group_key:
+            source_group_key = slugify_name(target.source_file.stem)
+        source_shard_total = max(1, len(ordered_rows))
+        status = "ok"
+        errors: list[str] = []
+        variant_count_planned = 0
+        variant_count_completed = 0
+        variant_count_successful = 0
+        source_estimated_seconds = 0.0
+        estimate_basis_tokens: set[str] = set()
+        best_winner_metrics: dict[str, float] = {}
+        best_winner_f1: float | None = None
+        source_wall_total = 0.0
+        config_total_seconds = 0.0
+        source_wall_seen = False
+        config_seconds_seen = False
+        slowest_config_dir: str | None = None
+        slowest_config_seconds: float | None = None
+        source_shards_payload: list[dict[str, Any]] = []
+        report_paths: list[str] = []
+        report_json_paths: list[str] = []
+
+        for row in ordered_rows:
+            row_status = str(row.get("status", "")).strip().lower()
+            if row_status != "ok":
+                status = "failed"
+                error_text = str(row.get("error") or "").strip()
+                if error_text:
+                    errors.append(error_text)
+            variant_count_planned += _report_count(row.get("variant_count_planned"))
+            variant_count_completed += _report_count(row.get("variant_count_completed"))
+            variant_count_successful += _report_count(row.get("variant_count_successful"))
+            source_estimated_seconds += _report_metric(row.get("source_estimated_seconds"))
+            estimate_basis = str(row.get("source_estimate_basis") or "").strip()
+            if estimate_basis:
+                estimate_basis_tokens.add(estimate_basis)
+            report_path = str(row.get("report_path") or "").strip()
+            if report_path:
+                report_paths.append(report_path)
+            report_json_path = str(row.get("report_json_path") or "").strip()
+            if report_json_path:
+                report_json_paths.append(report_json_path)
+
+            winner_metrics = row.get("winner_metrics")
+            winner_f1 = _report_metric(
+                winner_metrics.get("f1") if isinstance(winner_metrics, dict) else None
+            )
+            if best_winner_f1 is None or winner_f1 > best_winner_f1:
+                best_winner_f1 = winner_f1
+                best_winner_metrics = {
+                    "precision": _report_metric(
+                        winner_metrics.get("precision")
+                        if isinstance(winner_metrics, dict)
+                        else None
+                    ),
+                    "recall": _report_metric(
+                        winner_metrics.get("recall")
+                        if isinstance(winner_metrics, dict)
+                        else None
+                    ),
+                    "f1": winner_f1,
+                }
+
+            timing_summary = row.get("timing_summary")
+            if isinstance(timing_summary, dict):
+                source_seconds = _report_optional_metric(
+                    timing_summary.get("source_wall_seconds")
+                )
+                if source_seconds is not None:
+                    source_wall_total += source_seconds
+                    source_wall_seen = True
+                config_seconds = _report_optional_metric(
+                    timing_summary.get("config_total_seconds")
+                )
+                if config_seconds is not None:
+                    config_total_seconds += config_seconds
+                    config_seconds_seen = True
+                candidate_slowest_seconds = _report_optional_metric(
+                    timing_summary.get("slowest_config_seconds")
+                )
+                candidate_slowest_dir = str(
+                    timing_summary.get("slowest_config_dir") or ""
+                ).strip()
+                if (
+                    candidate_slowest_seconds is not None
+                    and candidate_slowest_dir
+                    and (
+                        slowest_config_seconds is None
+                        or candidate_slowest_seconds > slowest_config_seconds
+                    )
+                ):
+                    slowest_config_seconds = candidate_slowest_seconds
+                    slowest_config_dir = candidate_slowest_dir
+                    if _report_count(row.get("source_shard_total")) > 1:
+                        slowest_config_dir = (
+                            f"shard_{_report_count(row.get('source_shard_index')):02d}/"
+                            f"{candidate_slowest_dir}"
+                        )
+
+            source_shards_payload.append(
+                {
+                    "status": row_status,
+                    "source_slug": row.get("source_slug", ""),
+                    "source_shard_index": _report_count(row.get("source_shard_index")),
+                    "source_shard_total": _report_count(row.get("source_shard_total")),
+                    "source_estimated_seconds": _report_metric(
+                        row.get("source_estimated_seconds")
+                    ),
+                    "source_estimate_basis": row.get("source_estimate_basis", ""),
+                    "variant_count_planned": _report_count(row.get("variant_count_planned")),
+                    "variant_count_completed": _report_count(
+                        row.get("variant_count_completed")
+                    ),
+                    "variant_count_successful": _report_count(
+                        row.get("variant_count_successful")
+                    ),
+                    "report_path": report_path,
+                    "report_json_path": report_json_path,
+                    "error": str(row.get("error") or ""),
+                    "timing_summary": (
+                        dict(timing_summary)
+                        if isinstance(timing_summary, dict)
+                        else {}
+                    ),
+                }
+            )
+
+        aggregate_timing_summary: dict[str, Any] = {}
+        if source_wall_seen:
+            aggregate_timing_summary["source_wall_seconds"] = source_wall_total
+        if config_seconds_seen:
+            aggregate_timing_summary["config_total_seconds"] = config_total_seconds
+        if slowest_config_dir and slowest_config_seconds is not None:
+            aggregate_timing_summary["slowest_config_dir"] = slowest_config_dir
+            aggregate_timing_summary["slowest_config_seconds"] = slowest_config_seconds
+
+        aggregate_scheduler = _aggregate_source_scheduler(ordered_rows)
+        error_text = " | ".join(error for error in errors if error)
+        if status != "ok" and not error_text:
+            error_text = "One or more source shards failed."
+
+        return {
+            "status": status,
+            "source_position": source_position,
+            "source_group_key": source_group_key,
+            "source_shard_index": 1,
+            "source_shard_total": source_shard_total,
+            "source_estimated_seconds": source_estimated_seconds,
+            "source_estimate_basis": (
+                "+".join(sorted(estimate_basis_tokens))
+                if estimate_basis_tokens
+                else "unknown"
+            ),
+            "source_file": str(target.source_file),
+            "source_file_name": target.source_file_name,
+            "gold_spans_path": str(target.gold_spans_path),
+            "gold_display": target.gold_display,
+            "source_slug": source_group_key,
+            "report_path": report_paths[0] if report_paths else "",
+            "report_json_path": report_json_paths[0] if report_json_paths else "",
+            "report_paths": report_paths,
+            "report_json_paths": report_json_paths,
+            "variant_count_planned": variant_count_planned,
+            "variant_count_completed": variant_count_completed,
+            "variant_count_successful": variant_count_successful,
+            "winner_metrics": best_winner_metrics,
+            "timing_summary": aggregate_timing_summary,
+            "scheduler": aggregate_scheduler,
+            "source_shards": source_shards_payload,
+            "error": error_text,
+        }
+
+    source_rows = []
+    for source_position in range(total_targets):
+        source_rows.append(
+            _aggregate_source_rows(
+                source_position=source_position,
+                job_rows=grouped_job_rows.get(source_position, []),
+            )
+        )
 
     successful_source_count = sum(
         1 for row in source_rows if str(row.get("status", "")).lower() == "ok"
@@ -7084,6 +8181,27 @@ def _run_all_method_benchmark_multi_source(
         "eval_mode": BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
         "matched_target_count": total_targets,
         "unmatched_target_count": len(unmatched_targets),
+        "source_schedule_strategy": resolved_source_scheduling,
+        "source_shard_threshold_seconds": resolved_source_shard_threshold_seconds,
+        "source_shard_max_parts": resolved_source_shard_max_parts,
+        "source_shard_min_variants": resolved_source_shard_min_variants,
+        "source_job_count_planned": total_source_jobs,
+        "source_schedule_plan": [
+            {
+                "dispatch_index": dispatch_index + 1,
+                "source_position": plan.source_position + 1,
+                "source_group_key": plan.source_group_key,
+                "source_file": str(plan.source_file),
+                "source_file_name": plan.source_display_name,
+                "source_slug": plan.source_slug,
+                "source_shard_index": plan.shard_index + 1,
+                "source_shard_total": max(1, _report_count(plan.shard_total)),
+                "variant_count": len(plan.variants),
+                "estimated_seconds": plan.estimated_seconds,
+                "estimate_basis": plan.estimate_basis,
+            }
+            for dispatch_index, plan in enumerate(source_job_plans)
+        ],
         "source_parallelism_configured": source_parallelism_configured,
         "source_parallelism_effective": source_parallelism_effective,
         "total_config_runs_planned": total_planned_config_runs,
@@ -7095,6 +8213,7 @@ def _run_all_method_benchmark_multi_source(
         "retry_failed_configs_requested": effective_retry_failed_configs,
         "include_codex_farm_requested": include_codex_farm_requested,
         "include_codex_farm_effective": include_codex_farm_effective,
+        "canonical_alignment_cache_root": str(resolved_canonical_cache_root),
         "timing_summary": {
             "run_wall_seconds": run_wall_seconds,
             "source_total_seconds": source_total_seconds,
@@ -7225,6 +8344,7 @@ def _run_all_method_benchmark(
     smart_scheduler: bool = False,
     refresh_dashboard_after_source: bool = True,
     source_parallelism_effective: int | None = 1,
+    canonical_alignment_cache_dir_override: Path | None = None,
 ) -> Path:
     source_started = time.monotonic()
     root_output_dir.mkdir(parents=True, exist_ok=True)
@@ -7233,7 +8353,11 @@ def _run_all_method_benchmark(
     processed_output_root.mkdir(parents=True, exist_ok=True)
     split_phase_gate_dir = root_output_dir / ".split_phase_slots"
     split_phase_gate_dir.mkdir(parents=True, exist_ok=True)
-    canonical_alignment_cache_dir = root_output_dir / ".cache" / "canonical_alignment"
+    canonical_alignment_cache_dir = (
+        canonical_alignment_cache_dir_override
+        if canonical_alignment_cache_dir_override is not None
+        else (root_output_dir / ".cache" / "canonical_alignment")
+    )
     scheduler_events_dir = root_output_dir / ".scheduler_events"
     scheduler_timeseries_path = root_output_dir / ALL_METHOD_SCHEDULER_TIMESERIES_FILENAME
     if scheduler_events_dir.exists():
@@ -11518,6 +12642,13 @@ def labelstudio_benchmark(
             "or canonical-text (extractor-independent alignment scoring)."
         ),
     )] = BENCHMARK_EVAL_MODE_STAGE_BLOCKS,
+    sequence_matcher: Annotated[str, typer.Option(
+        "--sequence-matcher",
+        help=(
+            "Canonical-text SequenceMatcher mode: fallback, stdlib, "
+            "cydifflib, cdifflib, dmp, or other supported modes."
+        ),
+    )] = "fallback",
     execution_mode: Annotated[str, typer.Option(
         "--execution-mode",
         help=(
@@ -11704,6 +12835,9 @@ def labelstudio_benchmark(
         option="--codex-farm-pipeline-pass3",
     )
     selected_eval_mode = _normalize_benchmark_eval_mode(eval_mode)
+    selected_sequence_matcher = _normalize_benchmark_sequence_matcher_mode(
+        sequence_matcher
+    )
     selected_execution_mode = _normalize_benchmark_execution_mode(execution_mode)
 
     predictions_in_path = predictions_in.expanduser() if predictions_in is not None else None
@@ -12004,6 +13138,7 @@ def labelstudio_benchmark(
         )
         predict_only_run_config: dict[str, Any] = {
             "eval_mode": selected_eval_mode,
+            "sequence_matcher": selected_sequence_matcher,
             "execution_mode": selected_execution_mode,
             "predict_only": True,
             "prediction_record_output": (
@@ -12136,15 +13271,16 @@ def labelstudio_benchmark(
     )
 
     def _evaluate_selected_mode() -> tuple[dict[str, Any], Callable[[dict[str, Any]], str]]:
-        return evaluate_stage(
-            selected_eval_mode=selected_eval_mode,
-            selected_gold=selected_gold,
-            eval_output_dir=eval_output_dir,
-            stage_predictions_path=evaluation_stage_predictions_path,
-            extracted_archive_path=evaluation_extracted_archive_path,
-            alignment_cache_dir=alignment_cache_dir,
-            prewarmed_canonical_paths=prewarmed_canonical_paths,
-        )
+        with _temporary_benchmark_sequence_matcher(selected_sequence_matcher):
+            return evaluate_stage(
+                selected_eval_mode=selected_eval_mode,
+                selected_gold=selected_gold,
+                eval_output_dir=eval_output_dir,
+                stage_predictions_path=evaluation_stage_predictions_path,
+                extracted_archive_path=evaluation_extracted_archive_path,
+                alignment_cache_dir=alignment_cache_dir,
+                prewarmed_canonical_paths=prewarmed_canonical_paths,
+            )
 
     if eval_profiler is not None:
         eval_profiler.enable()
@@ -12382,6 +13518,7 @@ def labelstudio_benchmark(
 
     benchmark_run_config: dict[str, Any] = {
         "eval_mode": selected_eval_mode,
+        "sequence_matcher": selected_sequence_matcher,
         "execution_mode": selected_execution_mode,
         "predict_only": False,
         "prediction_record_input": (
@@ -12626,6 +13763,249 @@ def bench_validate(
     )
 
 
+@bench_app.command("speed-discover")
+def bench_speed_discover(
+    gold_root: Path = typer.Option(
+        DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO,
+        "--gold-root",
+        help="Root folder containing pulled gold export folders.",
+    ),
+    input_root: Path = typer.Option(
+        DEFAULT_INPUT,
+        "--input-root",
+        help="Root folder containing source files used for import runs.",
+    ),
+    out: Path = typer.Option(
+        DEFAULT_BENCH_SPEED_SUITES / "pulled_from_labelstudio.json",
+        "--out",
+        help="Output path for the generated speed suite manifest.",
+    ),
+) -> None:
+    """Discover speed-suite targets from pulled gold exports."""
+    from cookimport.bench.speed_suite import discover_speed_targets, write_speed_suite
+
+    suite = discover_speed_targets(gold_root=gold_root, input_root=input_root)
+    write_speed_suite(out, suite)
+
+    typer.secho("Speed suite discovery complete.", fg=typer.colors.GREEN)
+    typer.secho(f"Suite: {out}", fg=typer.colors.CYAN)
+    typer.secho(f"Targets matched: {len(suite.targets)}", fg=typer.colors.CYAN)
+    typer.secho(f"Targets unmatched: {len(suite.unmatched)}", fg=typer.colors.CYAN)
+    if suite.unmatched:
+        preview_rows = suite.unmatched[:5]
+        typer.secho("Unmatched preview:", fg=typer.colors.YELLOW)
+        for row in preview_rows:
+            gold_display = str(row.get("gold_display") or row.get("gold_spans_path") or "")
+            reason = str(row.get("reason") or "unmatched")
+            typer.secho(f"  - {gold_display}: {reason}", fg=typer.colors.YELLOW)
+
+
+@bench_app.command("speed-run")
+def bench_speed_run(
+    suite: Path = typer.Option(
+        ...,
+        "--suite",
+        help="Path to a speed suite JSON generated by bench speed-discover.",
+    ),
+    out_dir: Path = typer.Option(
+        DEFAULT_BENCH_SPEED_RUNS,
+        "--out-dir",
+        help="Output directory for timestamped speed suite runs.",
+    ),
+    scenarios: str = typer.Option(
+        "stage_import,benchmark_canonical_legacy",
+        "--scenarios",
+        help=(
+            "Comma-separated scenario list. "
+            "Allowed: stage_import, benchmark_canonical_legacy, "
+            "benchmark_canonical_pipelined."
+        ),
+    ),
+    warmups: int = typer.Option(
+        1,
+        "--warmups",
+        min=0,
+        help="Warmup samples per target+scenario (excluded from medians).",
+    ),
+    repeats: int = typer.Option(
+        2,
+        "--repeats",
+        min=1,
+        help="Measured samples per target+scenario (used for medians).",
+    ),
+    max_targets: int | None = typer.Option(
+        None,
+        "--max-targets",
+        min=1,
+        help="Optional cap on number of targets from the suite.",
+    ),
+    sequence_matcher: str = typer.Option(
+        "fallback",
+        "--sequence-matcher",
+        help=(
+            "Canonical-text SequenceMatcher mode for benchmark scenarios "
+            "(fallback, stdlib, cydifflib, cdifflib, dmp, ...)."
+        ),
+    ),
+) -> None:
+    """Run deterministic speed scenarios for a speed suite."""
+    from cookimport.bench.speed_runner import (
+        parse_speed_scenarios,
+        run_speed_suite,
+    )
+    from cookimport.bench.speed_suite import (
+        load_speed_suite,
+        validate_speed_suite,
+    )
+
+    suite = _unwrap_typer_option_default(suite)
+    out_dir = _unwrap_typer_option_default(out_dir)
+    scenarios = _unwrap_typer_option_default(scenarios)
+    warmups = _unwrap_typer_option_default(warmups)
+    repeats = _unwrap_typer_option_default(repeats)
+    max_targets = _unwrap_typer_option_default(max_targets)
+    sequence_matcher = _unwrap_typer_option_default(sequence_matcher)
+
+    try:
+        loaded_suite = load_speed_suite(suite)
+    except Exception as exc:  # noqa: BLE001
+        _fail(f"Failed to load speed suite: {exc}")
+
+    validation_errors = validate_speed_suite(loaded_suite, repo_root=REPO_ROOT)
+    if validation_errors:
+        typer.secho("Speed suite validation errors:", fg=typer.colors.RED)
+        for error in validation_errors:
+            typer.secho(f"  - {error}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    try:
+        selected_scenarios = parse_speed_scenarios(scenarios)
+    except ValueError as exc:
+        _fail(str(exc))
+    selected_sequence_matcher = _normalize_benchmark_sequence_matcher_mode(
+        sequence_matcher
+    )
+
+    speed_run_timeseries_path = _processing_timeseries_history_path(
+        root=out_dir,
+        scope="bench_speed_run",
+        source_name=loaded_suite.name,
+    )
+    try:
+        speed_run_root = _run_with_progress_status(
+            initial_status="Running bench speed suite...",
+            progress_prefix="Bench speed",
+            telemetry_path=speed_run_timeseries_path,
+            run=lambda update_progress: run_speed_suite(
+                loaded_suite,
+                out_dir,
+                scenarios=selected_scenarios,
+                warmups=warmups,
+                repeats=repeats,
+                max_targets=max_targets,
+                sequence_matcher=selected_sequence_matcher,
+                progress_callback=update_progress,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        _fail(str(exc))
+        return
+
+    typer.secho("Speed suite run complete.", fg=typer.colors.GREEN)
+    typer.secho(f"Run: {speed_run_root}", fg=typer.colors.CYAN)
+    typer.secho(f"Report: {speed_run_root / 'report.md'}", fg=typer.colors.CYAN)
+    typer.secho(f"Summary: {speed_run_root / 'summary.json'}", fg=typer.colors.CYAN)
+    typer.secho(
+        f"Processing telemetry: {speed_run_timeseries_path}",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+
+
+@bench_app.command("speed-compare")
+def bench_speed_compare(
+    baseline: Path = typer.Option(
+        ...,
+        "--baseline",
+        help="Baseline speed run directory (contains summary.json).",
+    ),
+    candidate: Path = typer.Option(
+        ...,
+        "--candidate",
+        help="Candidate speed run directory (contains summary.json).",
+    ),
+    out_dir: Path = typer.Option(
+        DEFAULT_BENCH_SPEED_COMPARISONS,
+        "--out-dir",
+        help="Output directory for timestamped comparison reports.",
+    ),
+    regression_pct: float = typer.Option(
+        5.0,
+        "--regression-pct",
+        min=0.0,
+        help="Percent threshold required (with absolute floor) to mark regression.",
+    ),
+    absolute_seconds_floor: float = typer.Option(
+        0.5,
+        "--absolute-seconds-floor",
+        min=0.0,
+        help="Absolute seconds increase required to mark regression.",
+    ),
+    fail_on_regression: bool = typer.Option(
+        False,
+        "--fail-on-regression/--no-fail-on-regression",
+        help="Return non-zero exit when comparison verdict is FAIL.",
+    ),
+) -> None:
+    """Compare baseline and candidate speed runs and gate regressions."""
+    from cookimport.bench.speed_compare import (
+        SpeedThresholds,
+        compare_speed_runs,
+        format_speed_compare_report,
+    )
+
+    if not baseline.exists() or not baseline.is_dir():
+        _fail(f"Baseline run directory not found: {baseline}")
+    if not candidate.exists() or not candidate.is_dir():
+        _fail(f"Candidate run directory not found: {candidate}")
+
+    thresholds = SpeedThresholds(
+        regression_pct=regression_pct,
+        absolute_seconds_floor=absolute_seconds_floor,
+    )
+    try:
+        comparison = compare_speed_runs(
+            baseline_run_dir=baseline,
+            candidate_run_dir=candidate,
+            thresholds=thresholds,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _fail(str(exc))
+        return
+
+    comparison_root = out_dir / dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+    comparison_root.mkdir(parents=True, exist_ok=True)
+    comparison_json_path = comparison_root / "comparison.json"
+    comparison_md_path = comparison_root / "comparison.md"
+    comparison_json_path.write_text(
+        json.dumps(comparison, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    comparison_md_path.write_text(
+        format_speed_compare_report(comparison),
+        encoding="utf-8",
+    )
+
+    verdict = str((comparison.get("overall") or {}).get("verdict") or "UNKNOWN").upper()
+    color = typer.colors.GREEN if verdict == "PASS" else typer.colors.RED
+    typer.secho("Comparison complete.", fg=typer.colors.GREEN)
+    typer.secho(f"Overall verdict: {verdict}", fg=color)
+    typer.secho(f"Report: {comparison_md_path}", fg=typer.colors.CYAN)
+    typer.secho(f"JSON: {comparison_json_path}", fg=typer.colors.CYAN)
+
+    if fail_on_regression and verdict == "FAIL":
+        raise typer.Exit(1)
+
+
 @bench_app.command("eval-stage")
 def bench_eval_stage(
     gold_spans: Path = typer.Option(
@@ -12746,6 +14126,14 @@ def bench_run(
     config_path: Path | None = typer.Option(
         None, "--config", help="Knob config JSON file."
     ),
+    sequence_matcher: str = typer.Option(
+        "fallback",
+        "--sequence-matcher",
+        help=(
+            "Canonical-text SequenceMatcher mode used during this bench run "
+            "(fallback, stdlib, cydifflib, cdifflib, dmp, ...)."
+        ),
+    ),
     write_markdown: bool | None = typer.Option(
         None,
         "--write-markdown/--no-write-markdown",
@@ -12768,6 +14156,14 @@ def bench_run(
     from cookimport.bench.runner import run_suite
     from cookimport.bench.suite import load_suite, validate_suite
 
+    suite = _unwrap_typer_option_default(suite)
+    out_dir = _unwrap_typer_option_default(out_dir)
+    baseline = _unwrap_typer_option_default(baseline)
+    config_path = _unwrap_typer_option_default(config_path)
+    sequence_matcher = _unwrap_typer_option_default(sequence_matcher)
+    write_markdown = _unwrap_typer_option_default(write_markdown)
+    write_label_studio_tasks = _unwrap_typer_option_default(write_label_studio_tasks)
+
     try:
         s = load_suite(suite)
     except Exception as exc:  # noqa: BLE001
@@ -12786,14 +14182,16 @@ def bench_run(
         if isinstance(loaded_config, dict):
             config = dict(loaded_config)
 
+    selected_sequence_matcher = _normalize_benchmark_sequence_matcher_mode(
+        sequence_matcher
+    )
     effective_config: dict[str, Any] | None = dict(config) if config is not None else None
+    if effective_config is None:
+        effective_config = {}
+    effective_config["benchmark_sequence_matcher"] = selected_sequence_matcher
     if write_markdown is not None:
-        if effective_config is None:
-            effective_config = {}
         effective_config["write_markdown"] = bool(write_markdown)
     if write_label_studio_tasks is not None:
-        if effective_config is None:
-            effective_config = {}
         effective_config["write_label_studio_tasks"] = bool(write_label_studio_tasks)
     bench_run_timeseries_path = _processing_timeseries_history_path(
         root=out_dir,
@@ -12802,19 +14200,20 @@ def bench_run(
     )
 
     try:
-        run_root, agg_metrics = _run_with_progress_status(
-            initial_status="Running bench suite...",
-            progress_prefix="Bench",
-            telemetry_path=bench_run_timeseries_path,
-            run=lambda update_progress: run_suite(
-                s,
-                out_dir,
-                repo_root=REPO_ROOT,
-                config=effective_config,
-                baseline_run_dir=baseline,
-                progress_callback=update_progress,
-            ),
-        )
+        with _temporary_benchmark_sequence_matcher(selected_sequence_matcher):
+            run_root, agg_metrics = _run_with_progress_status(
+                initial_status="Running bench suite...",
+                progress_prefix="Bench",
+                telemetry_path=bench_run_timeseries_path,
+                run=lambda update_progress: run_suite(
+                    s,
+                    out_dir,
+                    repo_root=REPO_ROOT,
+                    config=effective_config,
+                    baseline_run_dir=baseline,
+                    progress_callback=update_progress,
+                ),
+            )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
 
@@ -12867,10 +14266,25 @@ def bench_sweep(
     objective: str = typer.Option(
         "coverage", "--objective", help="Optimization objective (coverage or precision)."
     ),
+    sequence_matcher: str = typer.Option(
+        "fallback",
+        "--sequence-matcher",
+        help=(
+            "Canonical-text SequenceMatcher mode used during this sweep "
+            "(fallback, stdlib, cydifflib, cdifflib, dmp, ...)."
+        ),
+    ),
 ) -> None:
     """Run a parameter sweep over the bench suite."""
     from cookimport.bench.suite import load_suite, validate_suite
     from cookimport.bench.sweep import run_sweep
+
+    suite = _unwrap_typer_option_default(suite)
+    out_dir = _unwrap_typer_option_default(out_dir)
+    budget = _unwrap_typer_option_default(budget)
+    seed = _unwrap_typer_option_default(seed)
+    objective = _unwrap_typer_option_default(objective)
+    sequence_matcher = _unwrap_typer_option_default(sequence_matcher)
 
     try:
         s = load_suite(suite)
@@ -12888,22 +14302,26 @@ def bench_sweep(
         scope="bench_sweep",
         source_name=s.name,
     )
+    selected_sequence_matcher = _normalize_benchmark_sequence_matcher_mode(
+        sequence_matcher
+    )
 
     try:
-        sweep_root = _run_with_progress_status(
-            initial_status="Running parameter sweep...",
-            progress_prefix="Sweep",
-            telemetry_path=bench_sweep_timeseries_path,
-            run=lambda update_progress: run_sweep(
-                s,
-                out_dir,
-                repo_root=REPO_ROOT,
-                budget=budget,
-                seed=seed,
-                objective=objective,
-                progress_callback=update_progress,
-            ),
-        )
+        with _temporary_benchmark_sequence_matcher(selected_sequence_matcher):
+            sweep_root = _run_with_progress_status(
+                initial_status="Running parameter sweep...",
+                progress_prefix="Sweep",
+                telemetry_path=bench_sweep_timeseries_path,
+                run=lambda update_progress: run_sweep(
+                    s,
+                    out_dir,
+                    repo_root=REPO_ROOT,
+                    budget=budget,
+                    seed=seed,
+                    objective=objective,
+                    progress_callback=update_progress,
+                ),
+            )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
 
