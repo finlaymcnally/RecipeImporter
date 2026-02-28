@@ -8,13 +8,18 @@ from cookimport.parsing.ingredients import (
     normalize_ingredient_parser_options,
     parse_ingredient_line,
 )
-from cookimport.parsing.instruction_parser import parse_instruction
+from cookimport.parsing.instruction_parser import (
+    max_oven_temp_f_from_temperature_items,
+    normalize_instruction_parse_options,
+    parse_instruction,
+)
 from cookimport.parsing.sections import extract_instruction_sections, normalize_section_key
 from cookimport.parsing.step_segmentation import (
     DEFAULT_INSTRUCTION_STEP_SEGMENTATION_POLICY,
     DEFAULT_INSTRUCTION_STEP_SEGMENTER,
     segment_instruction_steps,
 )
+from cookimport.parsing.yield_extraction import derive_yield_fields
 from cookimport.parsing.tips import extract_recipe_specific_notes
 from cookimport.parsing.step_ingredients import assign_ingredient_lines_to_steps
 
@@ -181,6 +186,16 @@ def _resolve_instruction_step_segmentation_options(
     return (policy, segmenter)
 
 
+def _resolve_p6_emit_metadata_debug(options: Mapping[str, Any] | None) -> bool:
+    if not isinstance(options, Mapping):
+        return False
+    value = options.get("p6_emit_metadata_debug", False)
+    if isinstance(value, bool):
+        return value
+    normalized = str(value).strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+
 def _derive_ingredient_section_keys(ingredient_lines: list[dict[str, Any]]) -> list[str]:
     """Derive per-line section keys from parsed ingredient lines."""
     section_keys: list[str] = []
@@ -261,15 +276,15 @@ def recipe_candidate_to_draft_v1(
         notes_parts.extend(recipe_notes)
     notes_val = "\n".join(notes_parts) if notes_parts else None
 
+    yield_fields = derive_yield_fields(candidate, payload=instruction_step_options)
+    yield_debug = yield_fields.pop("_p6_yield_debug", None)
+
     recipe_meta: dict[str, Any] = {
         "title": recipe_title,
         "description": candidate.description,
         "notes": notes_val,
-        "yield_units": 1,  # Default
-        "yield_phrase": candidate.recipe_yield,
-        "yield_unit_name": None,
-        "yield_detail": None,
         "confidence": candidate.confidence,
+        **yield_fields,
     }
 
     # 2. Prepare Steps & Ingredients
@@ -321,13 +336,17 @@ def recipe_candidate_to_draft_v1(
         debug=True,
     )
 
+    instruction_parse_options = normalize_instruction_parse_options(instruction_step_options)
+    emit_p6_metadata_debug = _resolve_p6_emit_metadata_debug(instruction_step_options)
+    p6_step_debug: list[dict[str, Any]] = []
     total_step_time_seconds = 0
+    max_oven_temp_f: int | None = None
     for idx, text in enumerate(instruction_texts):
         step_ingredients_raw = step_ingredient_lines[idx] if idx < len(step_ingredient_lines) else []
         step_ingredients = _sanitize_staging_lines(step_ingredients_raw)
 
         # Extract time/temperature metadata from instruction text
-        instr_meta = parse_instruction(text)
+        instr_meta = parse_instruction(text, options=instruction_parse_options)
         step_entry: dict[str, Any] = {
             "instruction": text,
             "ingredient_lines": step_ingredients,
@@ -338,6 +357,41 @@ def recipe_candidate_to_draft_v1(
         if instr_meta.temperature is not None:
             step_entry["temperature"] = instr_meta.temperature
             step_entry["temperature_unit"] = instr_meta.temperature_unit
+        if instr_meta.temperature_items:
+            step_entry["temperature_items"] = [
+                {
+                    "value": item.value,
+                    "unit": item.unit,
+                    "value_f": item.value_f,
+                    "original_text": item.original_text,
+                    "is_oven_like": item.is_oven_like,
+                }
+                for item in instr_meta.temperature_items
+            ]
+
+        step_max = max_oven_temp_f_from_temperature_items(instr_meta.temperature_items)
+        if step_max is not None:
+            if max_oven_temp_f is None:
+                max_oven_temp_f = step_max
+            else:
+                max_oven_temp_f = max(max_oven_temp_f, step_max)
+
+        if emit_p6_metadata_debug:
+            p6_step_debug.append(
+                {
+                    "step_index": idx,
+                    "instruction": text,
+                    "time_seconds": instr_meta.total_time_seconds,
+                    "time_items": [
+                        {
+                            "seconds": item.seconds,
+                            "original_text": item.original_text,
+                        }
+                        for item in instr_meta.time_items
+                    ],
+                    "temperature_items": step_entry.get("temperature_items", []),
+                }
+            )
 
         steps_data.append(step_entry)
 
@@ -366,10 +420,24 @@ def recipe_candidate_to_draft_v1(
     # Compute cook_time from step times if not already present
     if total_step_time_seconds > 0 and not candidate.cook_time:
         recipe_meta["cook_time_seconds"] = total_step_time_seconds
+    if max_oven_temp_f is not None:
+        recipe_meta["max_oven_temp_f"] = max_oven_temp_f
 
-    return {
+    payload: dict[str, Any] = {
         "schema_v": 1,
         "source": _normalize_nonempty_text(candidate.source),
         "recipe": recipe_meta,
         "steps": steps_data,
     }
+    if emit_p6_metadata_debug:
+        payload["_p6_debug"] = {
+            "time_backend": instruction_parse_options.time_backend,
+            "time_total_strategy": instruction_parse_options.time_total_strategy,
+            "temperature_backend": instruction_parse_options.temperature_backend,
+            "temperature_unit_backend": instruction_parse_options.temperature_unit_backend,
+            "ovenlike_mode": instruction_parse_options.ovenlike_mode,
+            "yield_debug": yield_debug,
+            "max_oven_temp_f": max_oven_temp_f,
+            "steps": p6_step_debug,
+        }
+    return payload

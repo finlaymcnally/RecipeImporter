@@ -487,3 +487,79 @@ Priority-6 parser/yield behavior should be wired through `RunSettings` and carri
 - Interactive and speed/benchmark adapters already use `cookimport/config/run_settings_adapters.py` as the central mapping layer from `RunSettings` to CLI call kwargs.
 - Current baseline parser/staging contracts remain legacy defaults (`parse_instruction` sum-all + first-temperature; draft yield placeholders), so Priority 6 can be added as new `p6_*` settings without changing default behavior.
 
+## 2026-02-27 tasks consolidation ledger (migrated from `docs/tasks`)
+
+The following task files were merged into this section and then removed from `docs/tasks`:
+- `priority-4.md` (mtime `2026-02-27 22:44:14`)
+- `priority-5.md` (mtime `2026-02-27 23:21:48`)
+- `priority-6.md` (mtime `2026-02-27 23:40:38`)
+
+### 2026-02-27_22.44.14: Priority 4 ingredient parser hardening and medium-default removal
+
+Problems captured:
+- Hidden missing-unit default (`medium`) created semantic drift.
+- Parser rollout needed to preserve deterministic baseline while enabling stricter policy modes.
+- One-word section headers (for example `Garnish`) regressed when parser-name output was empty.
+
+Durable decisions:
+- Keep `ingredient-parser-nlp` baseline and layer selectable options on top.
+- Make missing-unit behavior explicit and selectable: `null`, `each`, `legacy_medium`.
+- Flip default to `ingredient_missing_unit_policy=null` only after wiring/tests/docs alignment.
+- Keep optional backends/normalizers soft-failable when optional deps are absent.
+
+Outcome preserved:
+- Priority 4 implementation is complete with explicit unit policy defaults and reproducible legacy mode.
+- Packaging hoist (`regex_v1`) keeps container-unit semantics and records package details in notes.
+- Run-config parser options are threaded through stage + benchmark prediction-generation surfaces.
+
+Anti-loop notes:
+- If section headers disappear after parser changes, inspect `_is_section_header_heuristic(...)` before retuning full parse logic.
+- If stage and benchmark parse outputs differ, verify writer callsites receive `ingredient_parser_options=run_config`.
+
+### 2026-02-27_23.21.48: Priority 5 fallback instruction step segmentation
+
+Problems captured:
+- Raw importer instruction blobs produced cross-artifact step-boundary drift.
+- Initial auto fallback thresholds were too conservative and missed medium-length multi-sentence lines.
+- Tiny-fragment merge logic initially attached numbered step markers (`2.`, `3.`) to prior sentences.
+
+Durable decisions:
+- Implement as staging safety net (not importer-specific extraction rewrite).
+- Keep deterministic policy surface: `off|auto|always`; required backend `heuristic_v1`, optional backend `pysbd_v1`.
+- Apply one instruction-shaping flow to draft-v1, intermediate JSON-LD, and section outputs.
+- Keep run-settings/adapter wiring canonical to avoid stage-vs-benchmark drift.
+
+Outcome preserved:
+- Priority 5 is completed and wired across run settings, CLI, pred-run, and bench knob surfaces.
+- JSON-LD compatibility is preserved in no-segmentation paths while segmented runs emit segmented step strings.
+
+Anti-loop notes:
+- Diagnose fallback-trigger thresholds and numbered-fragment handling before changing sentence regex primitives.
+- If only one output surface drifts (draft vs JSON-LD vs sections), investigate shared writer-level shaping path first.
+
+### 2026-02-27_23.40.38: Priority 6 time/temperature/yield upgrade lane
+
+Problems captured:
+- Active/archived Priority 6 plans were stale and referenced missing source docs.
+- Run-manifest payloads initially dropped `p6_*` selector evidence.
+- CLI started passing `p6_*` into ingest calls before ingest signatures accepted those kwargs.
+- Oven-like negative hints initially suppressed valid bake/preheat temperatures.
+
+Durable decisions:
+- Rebuild plan from current code and keep it synchronized as a living contract.
+- Land deterministic regex-first upgrades before optional dependency backends.
+- Centralize yield extraction/parsing in parsing/staging instead of importer-local primary extraction.
+- Preserve compatibility temperature fields while adding richer `temperature_items`.
+- Keep Priority 6 debug payloads as opt-in sidecar artifacts, not embedded in final draft JSON.
+
+Outcome preserved:
+- Priority 6 is implemented with legacy-safe defaults and full selector wiring across stage/benchmark/prediction-generation.
+- Parser exposes richer time/temperature metadata; staging now emits `max_oven_temp_f` when derivable and centralized yield fields.
+- Optional dependency extras were formalized (`priority6`, plus requested alias coverage) with actionable fail-fast guidance when missing.
+
+Open gap captured:
+- Validation in this task was focused on Priority 6 surfaces; full suite execution was not part of this pass.
+
+Anti-loop notes:
+- If P6 knobs appear set but benchmark/stage manifests lack them, inspect CLI->ingest run-config threading first.
+- If oven-like max temperature unexpectedly drops to null, inspect local negative-hint scope before changing global temperature extraction.

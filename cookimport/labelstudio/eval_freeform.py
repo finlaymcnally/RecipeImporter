@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import json
 import math
 from pathlib import Path
 from typing import Any
 
+from cookimport.labelstudio.howto_section import (
+    HOWTO_SECTION_LABEL,
+    INSTRUCTION_LINE_LABEL,
+    resolve_howto_label_for_range,
+    resolve_howto_label_sets_by_index,
+)
 from cookimport.labelstudio.label_config_freeform import (
     normalize_freeform_label as _normalize_config_freeform_label,
 )
@@ -679,6 +685,42 @@ def _gold_dedupe_key(span: LabeledRange) -> tuple[str, str, int, int]:
     )
 
 
+def _resolve_howto_section_ranges(
+    spans: list[LabeledRange],
+    *,
+    default_label: str = INSTRUCTION_LINE_LABEL,
+) -> list[LabeledRange]:
+    grouped: dict[tuple[str, str], list[LabeledRange]] = {}
+    for span in spans:
+        key = (str(span.source_hash or ""), span.source_file)
+        grouped.setdefault(key, []).append(span)
+
+    resolved_ranges: list[LabeledRange] = []
+    for group_spans in grouped.values():
+        labels_by_index: dict[int, set[str]] = {}
+        for span in group_spans:
+            for index in range(span.start_block_index, span.end_block_index + 1):
+                labels_by_index.setdefault(index, set()).add(span.label)
+        resolved_labels_by_index = resolve_howto_label_sets_by_index(
+            labels_by_index,
+            default_label=default_label,
+        )
+
+        for span in group_spans:
+            if span.label != HOWTO_SECTION_LABEL:
+                resolved_ranges.append(span)
+                continue
+            resolved_label = resolve_howto_label_for_range(
+                start_index=span.start_block_index,
+                end_index=span.end_block_index,
+                label_sets_by_index=resolved_labels_by_index,
+                default_label=default_label,
+            )
+            resolved_ranges.append(replace(span, label=resolved_label))
+
+    return resolved_ranges
+
+
 def _dedupe_gold_ranges(gold: list[LabeledRange]) -> tuple[list[LabeledRange], dict[str, Any]]:
     grouped: dict[tuple[str, str, int, int], list[LabeledRange]] = {}
     for span in gold:
@@ -1035,9 +1077,12 @@ def evaluate_predicted_vs_freeform(
     overlap_threshold: float = 0.5,
     force_source_match: bool = False,
 ) -> dict[str, Any]:
-    gold_deduped, gold_dedupe = _dedupe_gold_ranges(gold)
+    predicted_resolved = _resolve_howto_section_ranges(predicted)
+    gold_resolved = _resolve_howto_section_ranges(gold)
+
+    gold_deduped, gold_dedupe = _dedupe_gold_ranges(gold_resolved)
     strict = _evaluate_ranges(
-        predicted,
+        predicted_resolved,
         gold_deduped,
         overlap_threshold=overlap_threshold,
         force_source_match=force_source_match,
@@ -1048,11 +1093,11 @@ def evaluate_predicted_vs_freeform(
     strict["report"]["f1"] = strict_f1
 
     practical = _evaluate_practical_ranges(
-        predicted,
+        predicted_resolved,
         gold_deduped,
         force_source_match=force_source_match,
     )
-    deduped_pred = _dedupe_predicted_ranges(predicted)
+    deduped_pred = _dedupe_predicted_ranges(predicted_resolved)
     supported_gold = [span for span in gold_deduped if span.label in _APP_SUPPORTED_LABELS]
     supported_pred = [span for span in deduped_pred if span.label in _APP_SUPPORTED_LABELS]
     supported_practical = _evaluate_practical_ranges(
@@ -1062,7 +1107,7 @@ def evaluate_predicted_vs_freeform(
     )
     span_width_stats = {
         "gold": _span_width_stats(gold_deduped),
-        "pred": _span_width_stats(predicted),
+        "pred": _span_width_stats(predicted_resolved),
     }
     granularity_mismatch = _detect_granularity_mismatch(
         strict_f1=strict_f1,
@@ -1071,7 +1116,7 @@ def evaluate_predicted_vs_freeform(
     )
 
     app_aligned = _build_app_aligned_report(
-        predicted,
+        predicted_resolved,
         gold_deduped,
         overlap_threshold=overlap_threshold,
         force_source_match=force_source_match,
@@ -1108,7 +1153,7 @@ def evaluate_predicted_vs_freeform(
     )
     strict["report"]["gold_dedupe"] = gold_dedupe
     strict["report"]["classification_only"] = _build_classification_only_report(
-        predicted,
+        predicted_resolved,
         gold_deduped,
         force_source_match=force_source_match,
     )

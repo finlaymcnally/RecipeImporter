@@ -75,6 +75,7 @@ cookimport/labelstudio/client.py
 cookimport/labelstudio/eval_freeform.py
 cookimport/labelstudio/export.py
 cookimport/labelstudio/freeform_tasks.py
+cookimport/labelstudio/howto_section.py
 cookimport/labelstudio/ingest.py
 cookimport/labelstudio/label_config_freeform.py
 cookimport/labelstudio/models.py
@@ -127,6 +128,7 @@ cookimport/parsing/text_section_extract.py
 cookimport/parsing/tip_taxonomy.py
 cookimport/parsing/tips.py
 cookimport/parsing/unstructured_adapter.py
+cookimport/parsing/yield_extraction.py
 cookimport/plugins/__init__.py
 cookimport/plugins/base.py
 cookimport/plugins/epub.py

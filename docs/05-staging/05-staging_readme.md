@@ -86,6 +86,7 @@ Per workbook (slugified file stem):
 - `knowledge/<workbook_slug>/knowledge.md` (if pass4 knowledge harvesting is enabled)
 - `knowledge/knowledge_index.json` (if any knowledge artifacts were written in the run)
 - `.bench/<workbook_slug>/stage_block_predictions.json` (deterministic block-level benchmark evidence)
+- `.bench/<workbook_slug>/p6_metadata_debug.jsonl` (optional Priority 6 parser/yield diagnostics; only when `p6_emit_metadata_debug=true`)
 - `tags/<workbook_slug>/r{index}.tags.json` (if pass5 tags pipeline is enabled)
 - `tags/<workbook_slug>/tagging_report.json` (if pass5 tags pipeline is enabled)
 - `tags/tags_index.json` (if any pass5 tag artifacts were written in the run)
@@ -184,6 +185,7 @@ Current enforced behavior:
 - For unresolved non-linked ingredients, `ingredient_id` must be non-empty string; fallback uses `raw_ingredient_text`, then `raw_text`, then sentinel `__missing_ingredient__`.
 - Ingredient parsing now consumes run-config parser knobs (`ingredient_*` settings), so missing-unit policy/backend/packaging options selected for stage/prediction imports directly affect final draft ingredient lines.
 - Instruction fallback segmentation now consumes run-config knobs (`instruction_step_segmentation_policy`, `instruction_step_segmenter`) before section extraction and variant splitting.
+- Priority 6 parser/yield options now consume run-config `p6_*` knobs (time strategy/backend, temperature extraction/unit conversion, oven-like mode, yield mode).
 
 Code pointer:
 
@@ -197,6 +199,10 @@ Code pointer:
 - If no instructions remain, fallback step is injected: `See original recipe for details.`
 - Unassigned ingredients create prep step at beginning: `Gather and prepare ingredients.`
 - Step time metadata from instruction parser is rolled up to `cook_time_seconds` when recipe cook time is missing.
+- Step temperatures now preserve `temperature_items` arrays when available (legacy `temperature`/`temperature_unit` fields remain for compatibility).
+- Recipe-level `max_oven_temp_f` is emitted from oven-like step temperature metadata when available.
+- Yield fields (`yield_units`, `yield_phrase`, `yield_unit_name`, `yield_detail`) now come from centralized deterministic yield extraction (`legacy_v1` passthrough or `scored_v1`).
+- When `p6_emit_metadata_debug=true`, draft conversion emits `_p6_debug` internally and writer strips it from final `r{index}.json` while writing `.bench/<workbook_slug>/p6_metadata_debug.jsonl`.
 - Blank recipe titles are normalized to `Untitled Recipe`.
 - Blank `source` values are normalized to `null` to satisfy staging schema min-length rules.
 
@@ -349,4 +355,3 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 ### 2026-02-27_23.17.42 priority5 shared instruction shaping path
 - Source: `docs/understandings/2026-02-27_23.17.42-priority5-shared-instruction-shaping-path.md`
 - Summary: Priority-5 implementation note: stage draft/jsonld/sections must all consume one shared effective instruction-shaping path, wired from RunSettings through stage + pred-run flows.
-

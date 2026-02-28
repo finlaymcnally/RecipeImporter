@@ -36,6 +36,7 @@ Core modules:
 - `cookimport/parsing/__init__.py` (public parsing utility exports)
 - `cookimport/parsing/ingredients.py`
 - `cookimport/parsing/instruction_parser.py`
+- `cookimport/parsing/yield_extraction.py`
 - `cookimport/parsing/step_segmentation.py`
 - `cookimport/parsing/step_ingredients.py`
 - `cookimport/parsing/section_detector.py`
@@ -87,6 +88,7 @@ Major call sites:
    - optional deterministic fallback step segmentation runs first (`instruction_step_segmentation_policy=off|auto|always`, backend `heuristic_v1|pysbd_v1`)
    - ingredient lines parsed with `parse_ingredient_line`
    - steps parsed with `parse_instruction`
+   - yield phrase selection/parsing runs through `derive_yield_fields(...)` (`p6_yield_mode`)
    - ingredient lines linked to steps with `assign_ingredient_lines_to_steps`
 3. Unassigned ingredients get inserted into a prep step (`"Gather and prepare ingredients."`) at step 0.
 4. Writer emits draft outputs.
@@ -153,28 +155,45 @@ Major call sites:
 ### Extracted fields per step
 
 - `time_items`: list of detected durations
-- `total_time_seconds`: sum of all detected times in that step
-- `temperature`, `temperature_unit`, `temperature_text`: first matched temperature expression
+- `total_time_seconds`: strategy-selected rollup for that step (`sum_all_v1`, `max_v1`, `selective_sum_v1`)
+- `temperature_items`: all matched temperatures with normalized unit/value and `is_oven_like` flag
+- `temperature`, `temperature_unit`, `temperature_text`: compatibility fields that mirror the first matched temperature expression
 
 ### Time behavior
 
+- Backends:
+  - `regex_v1` (default)
+  - `quantulum3_v1` (optional dependency)
+  - `hybrid_regex_quantulum3_v1` (regex fallback first)
 - Handles seconds/minutes/hours/days and abbreviations (`mins`, `hrs`, `secs`).
 - Ranges use midpoint (`20 to 30 minutes` => 25 minutes).
-- Multiple durations in one step are summed.
+- Strategy notes:
+  - `sum_all_v1` keeps legacy behavior.
+  - `max_v1` keeps only longest duration in a step.
+  - `selective_sum_v1` skips obvious frequency spans (`every 5 minutes`) and collapses `or` alternatives.
 
 ### Temperature behavior
 
+- Backends:
+  - `regex_v1` (default)
+  - `quantulum3_v1` (optional dependency)
+  - `hybrid_regex_quantulum3_v1` (regex fallback first)
+- Unit conversion backends:
+  - `builtin_v1` (default)
+  - `pint_v1` (optional dependency; validation guard)
 - Handles `400F`, `350°F`, `375 degrees F`, `220 degrees celsius`.
-- Returns first temperature match only.
+- Returns all matches in `temperature_items`; compatibility fields keep first match for legacy callers.
+- Oven-like classification is deterministic (`p6_ovenlike_mode=keywords_v1|off`) and is used by staging to derive recipe-level `max_oven_temp_f`.
 
 ### Known limitations
 
-- Summing all durations can overcount if text includes optional/resting overlaps.
-- Only first temperature is captured even if step has multiple.
+- Regex-first extraction can miss niche phrasing where optional parser backends may perform better.
+- Yield unit-name singularization in scored mode is heuristic and intentionally lightweight.
 
 ### Tests to read
 
 - `tests/parsing/test_instruction_parser.py`
+- `tests/parsing/test_yield_extraction.py`
 
 ## Step-Ingredient Linking (`cookimport/parsing/step_ingredients.py`)
 
@@ -661,3 +680,19 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 - Source: `docs/understandings/2026-02-27_23.22.41-priority6-runtime-wiring-map.md`
 - Summary: Priority 6 wiring map: run settings flow into stage/pred-run via run_config, then draft_v1 consumes parser/yield options from that shared payload.
 
+## 2026-02-27 tasks consolidation (migrated from `docs/tasks`)
+
+Merged task files (creation order in `docs/tasks`):
+- `priority-4.md`
+- `priority-5.md`
+- `priority-6.md`
+
+Current parsing contracts added/confirmed by those task files:
+- Priority 4 ingredient parsing hardening is implemented with explicit missing-unit policy controls. Default behavior is now `ingredient_missing_unit_policy=null` (no implicit `medium`), with explicit compatibility mode `legacy_medium`.
+- Priority 5 fallback instruction segmentation is implemented and wired end-to-end with `instruction_step_segmentation_policy=off|auto|always` plus backend `instruction_step_segmenter=heuristic_v1|pysbd_v1`. Draft-v1, intermediate JSON-LD, and section artifacts use the same effective instruction shaping.
+- Priority 6 time/temperature/yield upgrades are implemented with additive parser metadata and run-config selectors (`p6_*`), including richer `temperature_items`, strategy-based time rollups, centralized yield parsing, and staged `max_oven_temp_f` derivation.
+
+Known anti-loop reminders from the merged task docs:
+- For Priority 5 regressions, check auto-threshold behavior and numbered-step fragment handling before changing sentence split regexes.
+- For Priority 6 reproducibility, verify `p6_*` selectors are present in benchmark/stage run-config surfaces and threaded through Label Studio ingest signatures.
+- For Priority 4 section-header regressions (`Garnish`-style one-word headers), inspect header heuristics before blaming parser backend output.

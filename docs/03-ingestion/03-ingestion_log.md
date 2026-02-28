@@ -443,3 +443,96 @@ Coverage thresholds for shared multi-recipe splitting should use ingredient/inst
 
 If rules_v1 misses obvious boundaries, inspect `multi_recipe_split_trace` first and verify whether coverage failed because header signals were excluded.
 
+## 2026-02-27 tasks consolidation ledger (migrated from `docs/tasks`)
+
+The following task files were merged into this section and then removed from `docs/tasks`:
+- `priority-1.md` (mtime `2026-02-27 22:05:02`)
+- `priority-2.md` (mtime `2026-02-27 22:42:18`)
+- `priority-7.md` (mtime `2026-02-27 22:57:03`)
+- `priority-3.md` (mtime `2026-02-27 23:22:43`)
+
+### 2026-02-27_22.05.02: Priority 1 deterministic recipe-likeness gating
+
+Problems captured:
+- Active and archived Priority 1 plan files were identical and stale.
+- Test fixtures depended on missing `docs/template/examples/*` paths.
+- Importer fallback `warnings=[...]` values broke strict `WorkbookInspection(extra="forbid")`.
+- Default mismatch existed between scorer min-ingredient-lines and CLI/run-settings defaults.
+
+Durable decisions:
+- Keep one deterministic core scoring lane in `cookimport/core/scoring.py` with additive reporting (`RecipeCandidate.recipeLikeness`, `ConversionReport.recipeLikeness`).
+- Preserve project policy: recipe codex-farm parsing stays off.
+- Align default `recipe_score_min_ingredient_lines=1` across scorer, run settings, stage, and benchmark/pred-run paths.
+- Replace path-coupled importer tests with local temp fixtures.
+
+Outcome preserved:
+- Priority 1 core lane is implemented across importer families with deterministic gate actions and debug/report artifacts.
+- Optional permutation lane was explicitly left open and not implemented in this pass.
+
+Anti-loop notes:
+- If recipe gating appears inconsistent between stage and benchmark paths, verify defaults in run settings and CLI adapters before retuning thresholds.
+- Treat missing fixture paths as test-smell; keep ingestion tests self-contained.
+
+### 2026-02-27_22.42.18: Priority 2 shared section detection rollout
+
+Problems captured:
+- Section grouping downstream was shared, but upstream importer extraction stayed fragmented.
+- No section-detector run-setting/backend surface existed initially.
+- Shared EPUB/PDF extraction could collapse `For the X` headers via wrapped-line merge.
+- Label Studio ingest test doubles broke after `run_settings` kwargs were threaded through importer convert calls.
+
+Durable decisions:
+- Implement additive backend `section_detector_backend=legacy|shared_v1` with `legacy` default.
+- Keep deterministic, LLM-free behavior and preserve existing `sections.py` output contracts.
+- Preserve component headers as standalone lines in shared EPUB/PDF paths.
+- Keep all-method variant growth explicit (dimension surfaces in reports when non-default, no automatic matrix explosion).
+
+Outcome preserved:
+- Text/Excel/EPUB/PDF now support shared section backend wiring and report reproducible backend choice.
+- Stage/benchmark prediction-generation flows persist section backend in run-config/report surfaces.
+
+Anti-loop notes:
+- When section behavior differs between runs, compare per-source import reports (`runConfig.section_detector_backend`) rather than only top-level run manifests.
+- If `For the X` regressions reappear, inspect wrapped-line merge behavior before touching section classifier heuristics.
+
+### 2026-02-27_22.57.03: Priority 7 schema-first web ingestion
+
+Problems captured:
+- No dedicated local webschema importer existed for `.html/.htm/.jsonld/.json`.
+- Old plan assumptions relied on nonexistent `--pipeline` forcing and stale docs.
+- `.json` extension overlap with RecipeSage required guarded detection.
+
+Durable decisions:
+- Implement a dedicated deterministic `webschema` importer (not ad-hoc extensions to existing importers).
+- Keep behavior local-file and LLM-free.
+- Use run settings as canonical webschema knob surface.
+- Guard `.json` detection so RecipeSage exports retain precedence.
+- Keep all-method expansion bounded to `web_schema_policy` variants for webschema-capable sources.
+
+Outcome preserved:
+- `webschema` importer is implemented with schema-first lane plus deterministic fallback text extraction lane.
+- Report/raw artifacts include webschema extraction evidence (`schema_extracted`, optional `schema_accepted`, optional `fallback_text`).
+
+Anti-loop notes:
+- There is still no stage `--pipeline` importer selector; selection remains score-based in registry.
+- If webschema comparisons explode runtime, check for accidental non-policy variant expansion first.
+
+### 2026-02-27_23.22.43: Priority 3 shared multi-recipe splitter rollout
+
+Problems captured:
+- Importer-local splitter heuristics diverged across text/EPUB/PDF and were difficult to benchmark consistently.
+- Early `rules_v1` threshold logic rejected short valid recipe units because coverage used content-like lines only.
+
+Durable decisions:
+- Add backend selector `multi_recipe_splitter=legacy|off|rules_v1` with `legacy` default and `off` for strict isolation.
+- Reuse shared section detector output for splitter guardrails (`For the X` semantics) rather than creating a second independent heuristic stack.
+- Keep all-method splitter dimension explicit/opt-in.
+- Use signal-line coverage (content + header signals) for threshold gating in `rules_v1`.
+
+Outcome preserved:
+- Shared splitter module is in place and wired across stage/benchmark prediction-generation surfaces.
+- Trace output (`multi_recipe_split_trace`) is first-line evidence for accepted/rejected boundaries.
+
+Anti-loop notes:
+- If obvious boundaries are rejected, read trace reasons before tuning thresholds globally.
+- Keep segmentation-eval ambitions coordinated with benchmark Priority 8 work; do not duplicate evaluator surfaces in ingestion paths.

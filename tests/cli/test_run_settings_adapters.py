@@ -25,6 +25,13 @@ def test_build_stage_call_kwargs_propagates_webschema_fields() -> None:
         web_schema_min_confidence=0.82,
         web_schema_min_ingredients=3,
         web_schema_min_instruction_steps=2,
+        p6_time_backend="hybrid_regex_quantulum3_v1",
+        p6_time_total_strategy="selective_sum_v1",
+        p6_temperature_backend="quantulum3_v1",
+        p6_temperature_unit_backend="pint_v1",
+        p6_ovenlike_mode="off",
+        p6_yield_mode="scored_v1",
+        p6_emit_metadata_debug=True,
     )
 
     kwargs = build_stage_call_kwargs_from_run_settings(
@@ -50,6 +57,13 @@ def test_build_stage_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["web_schema_min_confidence"] == 0.82
     assert kwargs["web_schema_min_ingredients"] == 3
     assert kwargs["web_schema_min_instruction_steps"] == 2
+    assert kwargs["p6_time_backend"] == "hybrid_regex_quantulum3_v1"
+    assert kwargs["p6_time_total_strategy"] == "selective_sum_v1"
+    assert kwargs["p6_temperature_backend"] == "quantulum3_v1"
+    assert kwargs["p6_temperature_unit_backend"] == "pint_v1"
+    assert kwargs["p6_ovenlike_mode"] == "off"
+    assert kwargs["p6_yield_mode"] == "scored_v1"
+    assert kwargs["p6_emit_metadata_debug"] is True
 
 
 def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
@@ -68,6 +82,13 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         web_schema_min_confidence=0.5,
         web_schema_min_ingredients=1,
         web_schema_min_instruction_steps=1,
+        p6_time_backend="quantulum3_v1",
+        p6_time_total_strategy="max_v1",
+        p6_temperature_backend="hybrid_regex_quantulum3_v1",
+        p6_temperature_unit_backend="builtin_v1",
+        p6_ovenlike_mode="keywords_v1",
+        p6_yield_mode="legacy_v1",
+        p6_emit_metadata_debug=False,
     )
 
     kwargs = build_benchmark_call_kwargs_from_run_settings(
@@ -95,3 +116,10 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["web_schema_min_confidence"] == 0.5
     assert kwargs["web_schema_min_ingredients"] == 1
     assert kwargs["web_schema_min_instruction_steps"] == 1
+    assert kwargs["p6_time_backend"] == "quantulum3_v1"
+    assert kwargs["p6_time_total_strategy"] == "max_v1"
+    assert kwargs["p6_temperature_backend"] == "hybrid_regex_quantulum3_v1"
+    assert kwargs["p6_temperature_unit_backend"] == "builtin_v1"
+    assert kwargs["p6_ovenlike_mode"] == "keywords_v1"
+    assert kwargs["p6_yield_mode"] == "legacy_v1"
+    assert kwargs["p6_emit_metadata_debug"] is False

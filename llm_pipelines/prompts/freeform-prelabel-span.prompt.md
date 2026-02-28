@@ -67,6 +67,12 @@ INSTRUCTION_LINE
 - Preparation/action text: "Preheat...", "Whisk...", "Bake...", "Stir...", "Serve...".
 - Numbered step text is usually INSTRUCTION_LINE.
 
+HOWTO_SECTION
+- Subsection header text inside a recipe, for example:
+  "TO SERVE", "FOR THE SAUCE", "BUTTER-GLAZED TURNIP LEAVES".
+- Use this for heading text that introduces grouped ingredients or grouped steps.
+- Do not use this for chapter-level non-recipe headers.
+
 YIELD_LINE
 - Yield/servings text: "Serves 4", "Makes 24 cookies", "Yield: 2 loaves".
 - If a single candidate span includes both yield and time signals, apply TIME_LINE tie-break.

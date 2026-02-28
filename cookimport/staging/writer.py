@@ -362,6 +362,20 @@ def write_draft_outputs(
 
     Output path: {out_dir}/r{index}.json
     """
+    emit_p6_metadata_debug = False
+    if isinstance(instruction_step_options, Mapping):
+        value = instruction_step_options.get("p6_emit_metadata_debug", False)
+        if isinstance(value, bool):
+            emit_p6_metadata_debug = value
+        else:
+            emit_p6_metadata_debug = str(value).strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+
+    p6_debug_rows: list[dict[str, Any]] = []
     for index, candidate in enumerate(results.recipes):
         _ensure_source(results, candidate)
         provenance = _ensure_provenance(candidate)
@@ -384,6 +398,19 @@ def write_draft_outputs(
                 ingredient_parser_options=ingredient_parser_options,
                 instruction_step_options=instruction_step_options,
             )
+
+        p6_debug_payload = None
+        if isinstance(draft, dict):
+            p6_debug_payload = draft.pop("_p6_debug", None)
+        if emit_p6_metadata_debug and isinstance(p6_debug_payload, dict):
+            p6_debug_rows.append(
+                {
+                    "recipe_id": recipe_id,
+                    "file_index": index,
+                    "p6": p6_debug_payload,
+                }
+            )
+
         out_path = out_dir / f"r{index}.json"
         _write_json_payload(
             draft,
@@ -391,6 +418,22 @@ def write_draft_outputs(
             output_stats=output_stats,
             category=_OUTPUT_CATEGORY_FINAL,
         )
+
+    if emit_p6_metadata_debug and p6_debug_rows:
+        run_root = out_dir.parent.parent
+        workbook_slug = out_dir.name
+        debug_path = run_root / ".bench" / workbook_slug / "p6_metadata_debug.jsonl"
+        debug_path.parent.mkdir(parents=True, exist_ok=True)
+        debug_path.write_text(
+            "\n".join(
+                json.dumps(row, sort_keys=True, ensure_ascii=True)
+                for row in p6_debug_rows
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        if output_stats:
+            output_stats.record_path(_OUTPUT_CATEGORY_BENCH, debug_path)
 
 
 def _coerce_instruction_text(value: Any) -> str:

@@ -50,6 +50,13 @@ _SUMMARY_ORDER = (
     "ingredient_parser_backend",
     "ingredient_unit_canonicalizer",
     "ingredient_missing_unit_policy",
+    "p6_time_backend",
+    "p6_time_total_strategy",
+    "p6_temperature_backend",
+    "p6_temperature_unit_backend",
+    "p6_ovenlike_mode",
+    "p6_yield_mode",
+    "p6_emit_metadata_debug",
     "benchmark_sequence_matcher",
     "recipe_scorer_backend",
     "recipe_score_gold_min",
@@ -203,6 +210,39 @@ class IngredientMissingUnitPolicy(str, Enum):
     legacy_medium = "legacy_medium"
     null = "null"
     each = "each"
+
+
+class P6TimeBackend(str, Enum):
+    regex_v1 = "regex_v1"
+    quantulum3_v1 = "quantulum3_v1"
+    hybrid_regex_quantulum3_v1 = "hybrid_regex_quantulum3_v1"
+
+
+class P6TimeTotalStrategy(str, Enum):
+    sum_all_v1 = "sum_all_v1"
+    max_v1 = "max_v1"
+    selective_sum_v1 = "selective_sum_v1"
+
+
+class P6TemperatureBackend(str, Enum):
+    regex_v1 = "regex_v1"
+    quantulum3_v1 = "quantulum3_v1"
+    hybrid_regex_quantulum3_v1 = "hybrid_regex_quantulum3_v1"
+
+
+class P6TemperatureUnitBackend(str, Enum):
+    builtin_v1 = "builtin_v1"
+    pint_v1 = "pint_v1"
+
+
+class P6OvenlikeMode(str, Enum):
+    keywords_v1 = "keywords_v1"
+    off = "off"
+
+
+class P6YieldMode(str, Enum):
+    legacy_v1 = "legacy_v1"
+    scored_v1 = "scored_v1"
 
 
 class LlmRecipePipeline(str, Enum):
@@ -625,6 +665,78 @@ class RunSettings(BaseModel):
                 "Policy when quantity exists but unit is missing: "
                 "legacy_medium, null, or each."
             ),
+        ),
+    )
+    p6_time_backend: P6TimeBackend = Field(
+        default=P6TimeBackend.regex_v1,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="P6 Time Backend",
+            order=73,
+            description=(
+                "Priority 6 instruction-time extractor backend "
+                "(regex_v1, quantulum3_v1, hybrid_regex_quantulum3_v1)."
+            ),
+        ),
+    )
+    p6_time_total_strategy: P6TimeTotalStrategy = Field(
+        default=P6TimeTotalStrategy.sum_all_v1,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="P6 Time Strategy",
+            order=74,
+            description=(
+                "Priority 6 step time rollup strategy "
+                "(sum_all_v1, max_v1, selective_sum_v1)."
+            ),
+        ),
+    )
+    p6_temperature_backend: P6TemperatureBackend = Field(
+        default=P6TemperatureBackend.regex_v1,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="P6 Temperature Backend",
+            order=75,
+            description=(
+                "Priority 6 temperature extractor backend "
+                "(regex_v1, quantulum3_v1, hybrid_regex_quantulum3_v1)."
+            ),
+        ),
+    )
+    p6_temperature_unit_backend: P6TemperatureUnitBackend = Field(
+        default=P6TemperatureUnitBackend.builtin_v1,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="P6 Temperature Unit Backend",
+            order=76,
+            description="Priority 6 temperature unit conversion backend (builtin_v1 or pint_v1).",
+        ),
+    )
+    p6_ovenlike_mode: P6OvenlikeMode = Field(
+        default=P6OvenlikeMode.keywords_v1,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="P6 Ovenlike Mode",
+            order=77,
+            description="Priority 6 oven-like temperature classifier mode (keywords_v1 or off).",
+        ),
+    )
+    p6_yield_mode: P6YieldMode = Field(
+        default=P6YieldMode.legacy_v1,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="P6 Yield Mode",
+            order=78,
+            description="Priority 6 yield parser mode (legacy_v1 passthrough or scored_v1).",
+        ),
+    )
+    p6_emit_metadata_debug: bool = Field(
+        default=False,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="P6 Emit Metadata Debug",
+            order=79,
+            description="Write optional Priority 6 debug metadata sidecar artifacts.",
         ),
     )
     benchmark_sequence_matcher: str = Field(
@@ -1210,6 +1322,19 @@ def build_run_settings(
     ingredient_missing_unit_policy: (
         str | IngredientMissingUnitPolicy
     ) = IngredientMissingUnitPolicy.null,
+    p6_time_backend: str | P6TimeBackend = P6TimeBackend.regex_v1,
+    p6_time_total_strategy: (
+        str | P6TimeTotalStrategy
+    ) = P6TimeTotalStrategy.sum_all_v1,
+    p6_temperature_backend: (
+        str | P6TemperatureBackend
+    ) = P6TemperatureBackend.regex_v1,
+    p6_temperature_unit_backend: (
+        str | P6TemperatureUnitBackend
+    ) = P6TemperatureUnitBackend.builtin_v1,
+    p6_ovenlike_mode: str | P6OvenlikeMode = P6OvenlikeMode.keywords_v1,
+    p6_yield_mode: str | P6YieldMode = P6YieldMode.legacy_v1,
+    p6_emit_metadata_debug: bool = False,
     benchmark_sequence_matcher: str = "dmp",
     recipe_scorer_backend: str = "heuristic_v1",
     recipe_score_gold_min: float = 0.75,
@@ -1305,6 +1430,15 @@ def build_run_settings(
             "ingredient_missing_unit_policy": _normalized_value(
                 ingredient_missing_unit_policy
             ),
+            "p6_time_backend": _normalized_value(p6_time_backend),
+            "p6_time_total_strategy": _normalized_value(p6_time_total_strategy),
+            "p6_temperature_backend": _normalized_value(p6_temperature_backend),
+            "p6_temperature_unit_backend": _normalized_value(
+                p6_temperature_unit_backend
+            ),
+            "p6_ovenlike_mode": _normalized_value(p6_ovenlike_mode),
+            "p6_yield_mode": _normalized_value(p6_yield_mode),
+            "p6_emit_metadata_debug": bool(p6_emit_metadata_debug),
             "benchmark_sequence_matcher": str(benchmark_sequence_matcher or "dmp")
             .strip()
             .lower(),

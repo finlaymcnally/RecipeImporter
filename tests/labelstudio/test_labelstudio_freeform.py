@@ -1,6 +1,7 @@
 import json
 
 from cookimport.labelstudio.eval_freeform import (
+    LabeledRange,
     attach_recipe_count_diagnostics,
     evaluate_predicted_vs_freeform,
     format_freeform_eval_report_md,
@@ -181,6 +182,7 @@ def test_freeform_label_config_uses_expected_label_order_and_names() -> None:
         "RECIPE_TITLE",
         "INGREDIENT_LINE",
         "INSTRUCTION_LINE",
+        "HOWTO_SECTION",
         "YIELD_LINE",
         "TIME_LINE",
         "RECIPE_NOTES",
@@ -194,6 +196,7 @@ def test_freeform_label_config_uses_expected_label_order_and_names() -> None:
     assert '<Label value="KNOWLEDGE"/>' in config
     assert '<Label value="YIELD_LINE"/>' in config
     assert '<Label value="TIME_LINE"/>' in config
+    assert '<Label value="HOWTO_SECTION"/>' in config
     assert '<Label value="OTHER"/>' in config
     assert '<Label value="NARRATIVE"/>' not in config
     assert '<Label value="TIP"/>' not in config
@@ -205,6 +208,78 @@ def test_freeform_label_config_uses_expected_label_order_and_names() -> None:
         "Focus: $focus_block_range | Context before: $context_before_block_range | "
         "Context after: $context_after_block_range"
     ) in config
+
+
+def test_eval_freeform_maps_howto_section_to_neighboring_structural_label(tmp_path) -> None:
+    gold_path = tmp_path / "gold.jsonl"
+    gold_rows = [
+        {
+            "span_id": "g1",
+            "source_hash": "h1",
+            "source_file": "book.epub",
+            "label": "INGREDIENT_LINE",
+            "touched_block_indices": [1],
+        },
+        {
+            "span_id": "g2",
+            "source_hash": "h1",
+            "source_file": "book.epub",
+            "label": "HowToSection",
+            "touched_block_indices": [2],
+        },
+        {
+            "span_id": "g3",
+            "source_hash": "h1",
+            "source_file": "book.epub",
+            "label": "INGREDIENT_LINE",
+            "touched_block_indices": [3],
+        },
+        {
+            "span_id": "g4",
+            "source_hash": "h1",
+            "source_file": "book.epub",
+            "label": "INSTRUCTION_LINE",
+            "touched_block_indices": [5],
+        },
+        {
+            "span_id": "g5",
+            "source_hash": "h1",
+            "source_file": "book.epub",
+            "label": "HOWTO_SECTION",
+            "touched_block_indices": [6],
+        },
+        {
+            "span_id": "g6",
+            "source_hash": "h1",
+            "source_file": "book.epub",
+            "label": "INSTRUCTION_LINE",
+            "touched_block_indices": [7],
+        },
+    ]
+    gold_path.write_text(
+        "\n".join(json.dumps(row) for row in gold_rows) + "\n",
+        encoding="utf-8",
+    )
+    gold = load_gold_freeform_ranges(gold_path)
+
+    predicted = [
+        LabeledRange("p1", "h1", "book.epub", "INGREDIENT_LINE", 1, 1),
+        LabeledRange("p2", "h1", "book.epub", "INGREDIENT_LINE", 2, 2),
+        LabeledRange("p3", "h1", "book.epub", "INGREDIENT_LINE", 3, 3),
+        LabeledRange("p4", "h1", "book.epub", "INSTRUCTION_LINE", 5, 5),
+        LabeledRange("p5", "h1", "book.epub", "INSTRUCTION_LINE", 6, 6),
+        LabeledRange("p6", "h1", "book.epub", "INSTRUCTION_LINE", 7, 7),
+    ]
+
+    result = evaluate_predicted_vs_freeform(predicted, gold, overlap_threshold=0.5)
+    report = result["report"]
+
+    assert report["counts"]["gold_total"] == 6
+    assert report["counts"]["gold_matched"] == 6
+    assert report["counts"]["pred_false_positive"] == 0
+    assert report["per_label"]["INGREDIENT_LINE"]["gold_total"] == 3
+    assert report["per_label"]["INSTRUCTION_LINE"]["gold_total"] == 3
+    assert "HOWTO_SECTION" not in report["per_label"]
 
 
 def test_export_freeform_spans_jsonl(tmp_path, monkeypatch) -> None:

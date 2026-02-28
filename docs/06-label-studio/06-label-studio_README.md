@@ -112,6 +112,9 @@ Resume/idempotence is based on these IDs, not Label Studio internal task IDs.
 
 Both modes keep deterministic normalization and offset integrity.
 
+Freeform label set includes `HOWTO_SECTION` for in-recipe subsection headers (for example `TO SERVE` / `FOR THE SAUCE`).
+Eval/benchmark scoring resolves `HOWTO_SECTION` into `INGREDIENT_LINE` or `INSTRUCTION_LINE` using nearby context.
+
 ### 4.2 Upload behavior
 
 `--prelabel-upload-as` supports:
@@ -303,3 +306,6 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 - Source: `docs/understandings/2026-02-27_20.15.35-labelstudio-overlap-multilabel-behavior.md`
 - Summary: Overlapping Label Studio spans are preserved in export; stage/canonical eval treat overlapping coverage as multi-label gold sets.
 
+### 2026-02-28_00.16.13 howtosection label scoring paths
+- Source: `docs/understandings/2026-02-28_00.16.13-howto-section-label-scoring-paths.md`
+- Summary: `HOWTO_SECTION` is UI-visible/exported, then resolved at scoring time to ingredient vs instruction via nearby structural context.

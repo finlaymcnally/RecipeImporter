@@ -7,6 +7,7 @@ from cookimport.parsing.instruction_parser import (
     TimeItem,
     celsius_to_fahrenheit,
     fahrenheit_to_celsius,
+    max_oven_temp_f_from_temperature_items,
     parse_instruction,
     parse_instructions,
 )
@@ -195,6 +196,66 @@ class TestParseInstructions:
         # Step 3: time only
         _, meta = results[2]
         assert meta.total_time_seconds == 1800
+
+
+class TestPriority6InstructionOptions:
+    """Test Priority 6 parser options and richer metadata extraction."""
+
+    def test_time_strategy_max_uses_longest_duration(self):
+        text = "Cook for 10 minutes, then rest for 30 minutes."
+        meta = parse_instruction(
+            text,
+            options={"p6_time_total_strategy": "max_v1"},
+        )
+        assert meta.total_time_seconds == 1800
+
+    def test_time_strategy_selective_sum_skips_frequency_spans(self):
+        text = "Stir every 5 minutes and simmer for 30 minutes."
+        baseline = parse_instruction(
+            text,
+            options={"p6_time_total_strategy": "sum_all_v1"},
+        )
+        selective = parse_instruction(
+            text,
+            options={"p6_time_total_strategy": "selective_sum_v1"},
+        )
+        assert baseline.total_time_seconds == 2100
+        assert selective.total_time_seconds == 1800
+
+    def test_time_strategy_selective_sum_collapses_or_alternatives(self):
+        text = "Bake for 20 minutes or 30 minutes until done."
+        baseline = parse_instruction(
+            text,
+            options={"p6_time_total_strategy": "sum_all_v1"},
+        )
+        selective = parse_instruction(
+            text,
+            options={"p6_time_total_strategy": "selective_sum_v1"},
+        )
+        assert baseline.total_time_seconds == 3000
+        assert selective.total_time_seconds == 1800
+
+    def test_temperature_items_capture_all_matches(self):
+        text = (
+            "Preheat oven to 425F, reduce to 350F, and cook until internal "
+            "temperature reaches 165F."
+        )
+        meta = parse_instruction(text)
+        assert len(meta.temperature_items) == 3
+        assert meta.temperature == 425.0
+        assert meta.temperature_unit == "fahrenheit"
+        assert meta.temperature_text == "425F"
+        assert meta.temperature_items[0].is_oven_like is True
+        assert meta.temperature_items[1].is_oven_like is True
+        assert meta.temperature_items[2].is_oven_like is False
+
+    def test_max_oven_temp_helper_ignores_non_oven_context(self):
+        text = (
+            "Preheat oven to 400F and roast for 20 minutes until internal "
+            "temperature reaches 165F."
+        )
+        meta = parse_instruction(text)
+        assert max_oven_temp_f_from_temperature_items(meta.temperature_items) == 400
 
 
 class TestTemperatureConversions:

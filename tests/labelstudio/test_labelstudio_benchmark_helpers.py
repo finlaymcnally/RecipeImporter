@@ -4769,6 +4769,8 @@ def test_run_all_method_benchmark_dedupes_eval_by_signature(
     assert shared_rep["evaluation_result_source"] == "executed"
     assert shared_dup["evaluation_result_source"] == "reused_in_run"
     assert shared_rep["eval_signature"] == shared_dup["eval_signature"]
+    assert shared_rep["evaluation_representative_config_dir"] == shared_rep["config_dir"]
+    assert shared_dup["evaluation_representative_config_dir"] == shared_rep["config_dir"]
     assert shared_rep["f1"] == pytest.approx(shared_dup["f1"])
 
 
@@ -4856,6 +4858,15 @@ def test_run_all_method_benchmark_reuses_signature_cache_across_runs(
     assert eval_call_count == 1
     assert second_payload["evaluation_runs_executed"] == 0
     assert second_payload["evaluation_results_reused_cross_run"] == 1
+    second_rows = [
+        row
+        for row in second_payload["variants"]
+        if str(row.get("status") or "").strip().lower() == "ok"
+    ]
+    assert len(second_rows) == 1
+    second_row = second_rows[0]
+    assert second_row["evaluation_result_source"] == "reused_cross_run"
+    assert second_row["evaluation_representative_config_dir"] == second_row["config_dir"]
     cache_root = tmp_path / "shared-cache" / "eval_signature_results" / "book_source"
     assert cache_root.exists()
     assert list(cache_root.glob("*.json"))

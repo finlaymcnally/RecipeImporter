@@ -45,6 +45,25 @@ def test_load_gold_block_labels_allows_multilabel_blocks(tmp_path: Path) -> None
     assert set(payload["labels"]) == {"INGREDIENT_LINE", "RECIPE_TITLE"}
 
 
+def test_load_gold_block_labels_maps_howto_section_by_neighboring_labels(tmp_path: Path) -> None:
+    gold_path = tmp_path / "freeform_span_labels.jsonl"
+    _write_jsonl(
+        gold_path,
+        [
+            {"span_id": "a", "label": "INGREDIENT_LINE", "touched_block_indices": [0]},
+            {"span_id": "b", "label": "HOWTO_SECTION", "touched_block_indices": [1]},
+            {"span_id": "c", "label": "INGREDIENT_LINE", "touched_block_indices": [2]},
+            {"span_id": "d", "label": "INSTRUCTION_LINE", "touched_block_indices": [3]},
+            {"span_id": "e", "label": "HOWTO_SECTION", "touched_block_indices": [4]},
+            {"span_id": "f", "label": "INSTRUCTION_LINE", "touched_block_indices": [5]},
+        ],
+    )
+
+    gold = load_gold_block_labels(gold_path)
+    assert gold[1] == {"INGREDIENT_LINE"}
+    assert gold[4] == {"INSTRUCTION_LINE"}
+
+
 def test_load_gold_block_labels_requires_exhaustive_blocks(tmp_path: Path) -> None:
     gold_path = tmp_path / "freeform_span_labels.jsonl"
     conflict_path = tmp_path / "gold_conflicts.jsonl"
@@ -64,6 +83,50 @@ def test_load_gold_block_labels_requires_exhaustive_blocks(tmp_path: Path) -> No
     payload = json.loads(lines[0])
     assert payload["error"] == "gold_missing_block_labels"
     assert payload["missing_block_indices"] == [0]
+
+
+def test_build_gold_line_labels_maps_howto_section_by_neighboring_labels() -> None:
+    lines = canonical_eval._build_canonical_lines("a\nb\nc\nd\ne")
+    gold_spans = [
+        {
+            "span_id": "s0",
+            "label": "INGREDIENT_LINE",
+            "start_char": lines[0]["start_char"],
+            "end_char": lines[0]["end_char"],
+        },
+        {
+            "span_id": "s1",
+            "label": "HOWTO_SECTION",
+            "start_char": lines[1]["start_char"],
+            "end_char": lines[1]["end_char"],
+        },
+        {
+            "span_id": "s2",
+            "label": "INGREDIENT_LINE",
+            "start_char": lines[2]["start_char"],
+            "end_char": lines[2]["end_char"],
+        },
+        {
+            "span_id": "s3",
+            "label": "INSTRUCTION_LINE",
+            "start_char": lines[3]["start_char"],
+            "end_char": lines[3]["end_char"],
+        },
+        {
+            "span_id": "s4",
+            "label": "HOWTO_SECTION",
+            "start_char": lines[4]["start_char"],
+            "end_char": lines[4]["end_char"],
+        },
+    ]
+
+    labels = canonical_eval._build_gold_line_labels(
+        lines=lines,
+        gold_spans=gold_spans,
+        strict_empty_to_other=False,
+    )
+    assert labels[1] == {"INGREDIENT_LINE"}
+    assert labels[4] == {"INSTRUCTION_LINE"}
 
 
 def test_compute_block_metrics_reports_macro_and_worst_label() -> None:

@@ -633,3 +633,136 @@ Implication:
 - Benchmark run settings, CLI overrides, and canonical-eval telemetry now consistently report `dmp` as requested/effective mode.
 - Older configs/tests/docs that reference `fallback` or other matcher modes must be treated as historical and migrated.
 
+## 2026-02-27 tasks consolidation ledger (migrated from `docs/tasks`)
+
+The following task files were merged into this section and then removed from `docs/tasks`:
+- `2026-02-27_18.51.16-speed-regression-benchmark-suite-from-pulled-goldens.md`
+- `2026-02-27_19.45.53-all-method-eval-signature-dedupe.md`
+- `2026-02-27_20.08.17-speed-suite-runtime-parity-single-path.md`
+- `2026-02-27_20.43.12-quality-suite-representative-all-method-agent-loop.md`
+- `2026-02-27_20.43.54-stage-block-recipe-notes-from-description.md`
+- `2026-02-27_20.58.16-all-method-global-mega-run-scheduler.md`
+- `priority-8.md`
+
+### 2026-02-27_18.51.16: deterministic speed regression suite
+
+Problems captured:
+- Existing `bench run` focused on quality metrics, not baseline-vs-candidate runtime verdicts.
+- Timing evidence existed but was fragmented across stage and benchmark artifacts.
+- Target matching logic was duplicated and at risk of drift.
+
+Durable decisions:
+- Default discovery source is `data/golden/pulled-from-labelstudio`.
+- Speed verdicts use repeat samples with median + percent and absolute-second gates.
+- Keep speed artifacts self-contained (`suite_resolved`, `samples`, `summary`, `report`, compare outputs) and LLM parsing off.
+- Share matching contract with all-method target resolution.
+
+Outcome preserved:
+- `speed-discover`, `speed-run`, `speed-compare` are implemented and documented as deterministic baseline/candidate runtime workflow.
+
+### 2026-02-27_19.45.53: all-method canonical eval-signature dedupe
+
+Problems captured:
+- Prediction and evaluation were tightly coupled per-config, repeating expensive canonical evaluation work.
+- Canonical alignment cache alone did not remove per-config orchestration overhead.
+
+Durable decisions:
+- Run predict-only per config, compute deterministic evaluation signatures, evaluate once per signature, and reuse.
+- Keep reuse keyed by prediction+gold+evaluator inputs, not config slug.
+- Materialize cached report payloads back to per-config artifact paths for downstream compatibility.
+
+Outcome preserved:
+- Per-source/multi-source counters now expose `evaluation_signatures_unique`, `evaluation_runs_executed`, and reuse counts.
+- Per-config provenance fields now include `eval_signature`, `evaluation_result_source`, and representative config path.
+
+Anti-loop note:
+- If dedupe unexpectedly misses, inspect signature payload differences (including `block_features`) before touching scheduler/evaluator internals.
+
+### 2026-02-27_20.08.17: speed-suite runtime parity single-path refactor
+
+Problems captured:
+- SpeedSuite executed production entrypoints but still duplicated run-settings-to-kwargs mapping.
+- Speed compare lacked persistent settings identity and could produce misleading comparisons.
+
+Durable decisions:
+- Keep SpeedSuite orchestrator-only; centralize arg construction in shared run-settings adapters.
+- Persist effective run settings and hash in speed artifacts.
+- Fail compare by default on settings mismatch; provide explicit escape hatch.
+
+Implementation caveat preserved:
+- Adapter output must avoid introducing new default-only kwargs that break direct-call tests/caller assumptions.
+
+Outcome preserved:
+- Interactive import/benchmark flows and speed scenarios now share one adapter mapping layer.
+- `speed-compare` now reports settings parity and mismatch verdict metadata.
+
+### 2026-02-27_20.43.12: quality-suite representative experiment loop
+
+Problems captured:
+- No deterministic quality-iteration harness existed parallel to speed-suite workflows.
+- Practical metrics were not available as a single top-level aggregate.
+- `RunSettings.from_dict(...)` ignores unknown keys, so typoed experiment patches could silently no-op.
+
+Durable decisions:
+- Deterministic representative target selection with algorithm metadata in artifacts.
+- Sequential experiment execution with resilient continue-on-failure summary behavior.
+- Strict patch-key validation before normalization.
+- Compare gates on strict/practical/source-coverage deltas and run-settings parity.
+
+Outcome preserved:
+- `quality-discover`, `quality-run`, and `quality-compare` are implemented with actionable PASS/FAIL reasoning.
+
+Anti-loop note:
+- For sharded sources, aggregate quality by source-group winner evidence, not naive per-row averaging.
+
+### 2026-02-27_20.43.54: stage-block RECIPE_NOTES sourcing from description
+
+Problem captured:
+- Stage-block note labeling only read comment fields, causing `RECIPE_NOTES` prediction zeros when notes existed in recipe description.
+
+Durable decision:
+- Merge deterministic description-derived recipe notes (via existing parser utility) with comment-based note sources for stage-block note labeling.
+
+Outcome preserved:
+- Regression test now covers description-only note path.
+- Deterministic behavior maintained with no LLM path changes.
+
+Anti-loop note:
+- If `RECIPE_NOTES` drops to zero again, inspect note sourcing before changing benchmark scoring logic.
+
+### 2026-02-27_20.58.16: global mega-run scheduler for all-method bulk runs
+
+Problems captured:
+- Multi-source runs interleaved at source-job level but still used independent per-source config queues and per-source dedupe scope.
+- Legacy payload path initially broke with `total_failed_config_runs` reference before assignment.
+- Legacy-oriented tests implicitly depended on old dispatch and started running real code after default changed.
+
+Durable decisions:
+- Default scheduler scope switched to `global`, with rollback path `legacy`.
+- Flatten planned source jobs into one global config queue while retaining source planning/sharding heuristics.
+- Keep scoring semantics unchanged; add only scheduler metadata/counters.
+- Keep tests explicit about legacy-vs-global dispatch expectations.
+
+Outcome preserved:
+- Global queue counters added to combined report payload.
+- Speed/quality runners explicitly request global scheduler scope.
+
+Open gap captured:
+- No manual interactive wall-clock smoke run was recorded in this pass.
+
+### 2026-02-27_22.48.32: Priority 8 additive segmentation diagnostics
+
+Problems captured:
+- Stage-block evaluator was classification-only and lacked segmentation-boundary diagnostics.
+- Existing tests did not lock segmentation payload shape.
+
+Durable decisions:
+- Extend existing evaluator/CLI surfaces instead of creating separate command trees.
+- Keep segmentation outputs additive under `report.segmentation`.
+- Keep optional metrics (`segeval`) explicit and dependency-gated.
+- Always emit boundary mismatch JSONLs (possibly empty) for stable tooling contracts.
+
+Outcome preserved:
+- `evaluate_stage_blocks` now emits boundary metrics + taxonomy and optional `segeval`.
+- `bench eval-stage` exposes segmentation flags (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`).
+- Optional dependency path is explicit via `segmentation_eval` extra and clear install guidance.

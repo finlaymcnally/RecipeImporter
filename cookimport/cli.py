@@ -3189,6 +3189,72 @@ def _normalize_ingredient_missing_unit_policy(value: str) -> str:
     return "null"
 
 
+def _normalize_p6_time_backend(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"regex_v1", "quantulum3_v1", "hybrid_regex_quantulum3_v1"}:
+        return normalized
+    _fail(
+        f"Invalid Priority 6 time backend: {value!r}. "
+        "Expected one of: regex_v1, quantulum3_v1, hybrid_regex_quantulum3_v1."
+    )
+    return "regex_v1"
+
+
+def _normalize_p6_time_total_strategy(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"sum_all_v1", "max_v1", "selective_sum_v1"}:
+        return normalized
+    _fail(
+        f"Invalid Priority 6 time total strategy: {value!r}. "
+        "Expected one of: sum_all_v1, max_v1, selective_sum_v1."
+    )
+    return "sum_all_v1"
+
+
+def _normalize_p6_temperature_backend(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"regex_v1", "quantulum3_v1", "hybrid_regex_quantulum3_v1"}:
+        return normalized
+    _fail(
+        f"Invalid Priority 6 temperature backend: {value!r}. "
+        "Expected one of: regex_v1, quantulum3_v1, hybrid_regex_quantulum3_v1."
+    )
+    return "regex_v1"
+
+
+def _normalize_p6_temperature_unit_backend(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"builtin_v1", "pint_v1"}:
+        return normalized
+    _fail(
+        f"Invalid Priority 6 temperature unit backend: {value!r}. "
+        "Expected one of: builtin_v1, pint_v1."
+    )
+    return "builtin_v1"
+
+
+def _normalize_p6_ovenlike_mode(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"keywords_v1", "off"}:
+        return normalized
+    _fail(
+        f"Invalid Priority 6 ovenlike mode: {value!r}. "
+        "Expected one of: keywords_v1, off."
+    )
+    return "keywords_v1"
+
+
+def _normalize_p6_yield_mode(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"legacy_v1", "scored_v1"}:
+        return normalized
+    _fail(
+        f"Invalid Priority 6 yield mode: {value!r}. "
+        "Expected one of: legacy_v1, scored_v1."
+    )
+    return "legacy_v1"
+
+
 def _normalize_llm_recipe_pipeline(value: str) -> str:
     normalized = value.strip().lower()
     if normalized != "off":
@@ -14020,6 +14086,47 @@ def stage(
         "--ingredient-missing-unit-policy",
         help="Policy when quantity has no unit: legacy_medium, null, or each.",
     ),
+    p6_time_backend: str = typer.Option(
+        "regex_v1",
+        "--p6-time-backend",
+        help=(
+            "Priority 6 time extraction backend: regex_v1, quantulum3_v1, "
+            "or hybrid_regex_quantulum3_v1."
+        ),
+    ),
+    p6_time_total_strategy: str = typer.Option(
+        "sum_all_v1",
+        "--p6-time-total-strategy",
+        help="Priority 6 step-time rollup strategy: sum_all_v1, max_v1, or selective_sum_v1.",
+    ),
+    p6_temperature_backend: str = typer.Option(
+        "regex_v1",
+        "--p6-temperature-backend",
+        help=(
+            "Priority 6 temperature extraction backend: regex_v1, quantulum3_v1, "
+            "or hybrid_regex_quantulum3_v1."
+        ),
+    ),
+    p6_temperature_unit_backend: str = typer.Option(
+        "builtin_v1",
+        "--p6-temperature-unit-backend",
+        help="Priority 6 temperature-unit conversion backend: builtin_v1 or pint_v1.",
+    ),
+    p6_ovenlike_mode: str = typer.Option(
+        "keywords_v1",
+        "--p6-ovenlike-mode",
+        help="Priority 6 oven-like temperature classifier mode: keywords_v1 or off.",
+    ),
+    p6_yield_mode: str = typer.Option(
+        "legacy_v1",
+        "--p6-yield-mode",
+        help="Priority 6 yield parser mode: legacy_v1 or scored_v1.",
+    ),
+    p6_emit_metadata_debug: bool = typer.Option(
+        False,
+        "--p6-emit-metadata-debug/--no-p6-emit-metadata-debug",
+        help="Write optional Priority 6 metadata debug sidecar artifacts.",
+    ),
     recipe_scorer_backend: str = typer.Option(
         "heuristic_v1",
         "--recipe-scorer-backend",
@@ -14219,6 +14326,15 @@ def stage(
     ingredient_missing_unit_policy = _unwrap_typer_option_default(
         ingredient_missing_unit_policy
     )
+    p6_time_backend = _unwrap_typer_option_default(p6_time_backend)
+    p6_time_total_strategy = _unwrap_typer_option_default(p6_time_total_strategy)
+    p6_temperature_backend = _unwrap_typer_option_default(p6_temperature_backend)
+    p6_temperature_unit_backend = _unwrap_typer_option_default(
+        p6_temperature_unit_backend
+    )
+    p6_ovenlike_mode = _unwrap_typer_option_default(p6_ovenlike_mode)
+    p6_yield_mode = _unwrap_typer_option_default(p6_yield_mode)
+    p6_emit_metadata_debug = _unwrap_typer_option_default(p6_emit_metadata_debug)
     recipe_scorer_backend = _unwrap_typer_option_default(recipe_scorer_backend)
     recipe_score_gold_min = _unwrap_typer_option_default(recipe_score_gold_min)
     recipe_score_silver_min = _unwrap_typer_option_default(recipe_score_silver_min)
@@ -14322,6 +14438,19 @@ def stage(
     selected_ingredient_missing_unit_policy = _normalize_ingredient_missing_unit_policy(
         ingredient_missing_unit_policy
     )
+    selected_p6_time_backend = _normalize_p6_time_backend(p6_time_backend)
+    selected_p6_time_total_strategy = _normalize_p6_time_total_strategy(
+        p6_time_total_strategy
+    )
+    selected_p6_temperature_backend = _normalize_p6_temperature_backend(
+        p6_temperature_backend
+    )
+    selected_p6_temperature_unit_backend = _normalize_p6_temperature_unit_backend(
+        p6_temperature_unit_backend
+    )
+    selected_p6_ovenlike_mode = _normalize_p6_ovenlike_mode(p6_ovenlike_mode)
+    selected_p6_yield_mode = _normalize_p6_yield_mode(p6_yield_mode)
+    selected_p6_emit_metadata_debug = bool(p6_emit_metadata_debug)
     selected_recipe_scorer_backend = (
         str(recipe_scorer_backend or "heuristic_v1").strip() or "heuristic_v1"
     )
@@ -14466,6 +14595,13 @@ def stage(
         ingredient_parser_backend=selected_ingredient_parser_backend,
         ingredient_unit_canonicalizer=selected_ingredient_unit_canonicalizer,
         ingredient_missing_unit_policy=selected_ingredient_missing_unit_policy,
+        p6_time_backend=selected_p6_time_backend,
+        p6_time_total_strategy=selected_p6_time_total_strategy,
+        p6_temperature_backend=selected_p6_temperature_backend,
+        p6_temperature_unit_backend=selected_p6_temperature_unit_backend,
+        p6_ovenlike_mode=selected_p6_ovenlike_mode,
+        p6_yield_mode=selected_p6_yield_mode,
+        p6_emit_metadata_debug=selected_p6_emit_metadata_debug,
         recipe_scorer_backend=selected_recipe_scorer_backend,
         recipe_score_gold_min=selected_recipe_score_gold_min,
         recipe_score_silver_min=selected_recipe_score_silver_min,
@@ -16413,6 +16549,40 @@ def labelstudio_benchmark(
         "--ingredient-missing-unit-policy",
         help="Policy when quantity has no unit: legacy_medium, null, or each.",
     )] = "null",
+    p6_time_backend: Annotated[str, typer.Option(
+        "--p6-time-backend",
+        help=(
+            "Priority 6 time extraction backend: regex_v1, quantulum3_v1, "
+            "or hybrid_regex_quantulum3_v1."
+        ),
+    )] = "regex_v1",
+    p6_time_total_strategy: Annotated[str, typer.Option(
+        "--p6-time-total-strategy",
+        help="Priority 6 step-time rollup strategy: sum_all_v1, max_v1, or selective_sum_v1.",
+    )] = "sum_all_v1",
+    p6_temperature_backend: Annotated[str, typer.Option(
+        "--p6-temperature-backend",
+        help=(
+            "Priority 6 temperature extraction backend: regex_v1, quantulum3_v1, "
+            "or hybrid_regex_quantulum3_v1."
+        ),
+    )] = "regex_v1",
+    p6_temperature_unit_backend: Annotated[str, typer.Option(
+        "--p6-temperature-unit-backend",
+        help="Priority 6 temperature-unit conversion backend: builtin_v1 or pint_v1.",
+    )] = "builtin_v1",
+    p6_ovenlike_mode: Annotated[str, typer.Option(
+        "--p6-ovenlike-mode",
+        help="Priority 6 oven-like temperature classifier mode: keywords_v1 or off.",
+    )] = "keywords_v1",
+    p6_yield_mode: Annotated[str, typer.Option(
+        "--p6-yield-mode",
+        help="Priority 6 yield parser mode: legacy_v1 or scored_v1.",
+    )] = "legacy_v1",
+    p6_emit_metadata_debug: Annotated[bool, typer.Option(
+        "--p6-emit-metadata-debug/--no-p6-emit-metadata-debug",
+        help="Write optional Priority 6 metadata debug sidecar artifacts.",
+    )] = False,
     recipe_scorer_backend: Annotated[str, typer.Option(
         "--recipe-scorer-backend",
         help="Recipe-likeness scorer backend (default: heuristic_v1).",
@@ -16579,6 +16749,19 @@ def labelstudio_benchmark(
     selected_ingredient_missing_unit_policy = _normalize_ingredient_missing_unit_policy(
         ingredient_missing_unit_policy
     )
+    selected_p6_time_backend = _normalize_p6_time_backend(p6_time_backend)
+    selected_p6_time_total_strategy = _normalize_p6_time_total_strategy(
+        p6_time_total_strategy
+    )
+    selected_p6_temperature_backend = _normalize_p6_temperature_backend(
+        p6_temperature_backend
+    )
+    selected_p6_temperature_unit_backend = _normalize_p6_temperature_unit_backend(
+        p6_temperature_unit_backend
+    )
+    selected_p6_ovenlike_mode = _normalize_p6_ovenlike_mode(p6_ovenlike_mode)
+    selected_p6_yield_mode = _normalize_p6_yield_mode(p6_yield_mode)
+    selected_p6_emit_metadata_debug = bool(p6_emit_metadata_debug)
     selected_recipe_scorer_backend = (
         str(recipe_scorer_backend or "heuristic_v1").strip() or "heuristic_v1"
     )
@@ -16744,6 +16927,13 @@ def labelstudio_benchmark(
                                 ingredient_parser_backend=selected_ingredient_parser_backend,
                                 ingredient_unit_canonicalizer=selected_ingredient_unit_canonicalizer,
                                 ingredient_missing_unit_policy=selected_ingredient_missing_unit_policy,
+                                p6_time_backend=selected_p6_time_backend,
+                                p6_time_total_strategy=selected_p6_time_total_strategy,
+                                p6_temperature_backend=selected_p6_temperature_backend,
+                                p6_temperature_unit_backend=selected_p6_temperature_unit_backend,
+                                p6_ovenlike_mode=selected_p6_ovenlike_mode,
+                                p6_yield_mode=selected_p6_yield_mode,
+                                p6_emit_metadata_debug=selected_p6_emit_metadata_debug,
                                 recipe_scorer_backend=selected_recipe_scorer_backend,
                                 recipe_score_gold_min=selected_recipe_score_gold_min,
                                 recipe_score_silver_min=selected_recipe_score_silver_min,
@@ -16824,6 +17014,13 @@ def labelstudio_benchmark(
                             ingredient_parser_backend=selected_ingredient_parser_backend,
                             ingredient_unit_canonicalizer=selected_ingredient_unit_canonicalizer,
                             ingredient_missing_unit_policy=selected_ingredient_missing_unit_policy,
+                            p6_time_backend=selected_p6_time_backend,
+                            p6_time_total_strategy=selected_p6_time_total_strategy,
+                            p6_temperature_backend=selected_p6_temperature_backend,
+                            p6_temperature_unit_backend=selected_p6_temperature_unit_backend,
+                            p6_ovenlike_mode=selected_p6_ovenlike_mode,
+                            p6_yield_mode=selected_p6_yield_mode,
+                            p6_emit_metadata_debug=selected_p6_emit_metadata_debug,
                             recipe_scorer_backend=selected_recipe_scorer_backend,
                             recipe_score_gold_min=selected_recipe_score_gold_min,
                             recipe_score_silver_min=selected_recipe_score_silver_min,
@@ -17023,6 +17220,13 @@ def labelstudio_benchmark(
             "ingredient_parser_backend": selected_ingredient_parser_backend,
             "ingredient_unit_canonicalizer": selected_ingredient_unit_canonicalizer,
             "ingredient_missing_unit_policy": selected_ingredient_missing_unit_policy,
+            "p6_time_backend": selected_p6_time_backend,
+            "p6_time_total_strategy": selected_p6_time_total_strategy,
+            "p6_temperature_backend": selected_p6_temperature_backend,
+            "p6_temperature_unit_backend": selected_p6_temperature_unit_backend,
+            "p6_ovenlike_mode": selected_p6_ovenlike_mode,
+            "p6_yield_mode": selected_p6_yield_mode,
+            "p6_emit_metadata_debug": selected_p6_emit_metadata_debug,
             "recipe_scorer_backend": selected_recipe_scorer_backend,
             "recipe_score_gold_min": selected_recipe_score_gold_min,
             "recipe_score_silver_min": selected_recipe_score_silver_min,
@@ -17437,6 +17641,13 @@ def labelstudio_benchmark(
         "ingredient_parser_backend": selected_ingredient_parser_backend,
         "ingredient_unit_canonicalizer": selected_ingredient_unit_canonicalizer,
         "ingredient_missing_unit_policy": selected_ingredient_missing_unit_policy,
+        "p6_time_backend": selected_p6_time_backend,
+        "p6_time_total_strategy": selected_p6_time_total_strategy,
+        "p6_temperature_backend": selected_p6_temperature_backend,
+        "p6_temperature_unit_backend": selected_p6_temperature_unit_backend,
+        "p6_ovenlike_mode": selected_p6_ovenlike_mode,
+        "p6_yield_mode": selected_p6_yield_mode,
+        "p6_emit_metadata_debug": selected_p6_emit_metadata_debug,
         "recipe_scorer_backend": selected_recipe_scorer_backend,
         "recipe_score_gold_min": selected_recipe_score_gold_min,
         "recipe_score_silver_min": selected_recipe_score_silver_min,

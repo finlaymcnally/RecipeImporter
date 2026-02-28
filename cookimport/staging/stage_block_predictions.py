@@ -13,6 +13,7 @@ FREEFORM_LABELS: tuple[str, ...] = (
     "RECIPE_TITLE",
     "INGREDIENT_LINE",
     "INSTRUCTION_LINE",
+    "HOWTO_SECTION",
     "YIELD_LINE",
     "TIME_LINE",
     "RECIPE_NOTES",
@@ -29,6 +30,7 @@ _LABEL_RESOLUTION_PRIORITY: tuple[str, ...] = (
     "INGREDIENT_LINE",
     "RECIPE_NOTES",
     "INSTRUCTION_LINE",
+    "HOWTO_SECTION",
     "KNOWLEDGE",
 )
 
@@ -36,6 +38,7 @@ _RECIPE_LOCAL_LABELS: set[str] = {
     "RECIPE_TITLE",
     "INGREDIENT_LINE",
     "INSTRUCTION_LINE",
+    "HOWTO_SECTION",
     "YIELD_LINE",
     "TIME_LINE",
     "RECIPE_NOTES",

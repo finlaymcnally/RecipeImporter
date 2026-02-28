@@ -21,6 +21,7 @@ from cookimport.bench.sequence_matcher_select import (
     get_sequence_matcher_selection,
 )
 from cookimport.labelstudio.canonical_gold import ensure_canonical_gold_artifacts
+from cookimport.labelstudio.howto_section import resolve_howto_label_sets_by_index
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
 from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
 
@@ -1012,7 +1013,7 @@ def _build_gold_line_labels(
         if labels:
             gold_line_labels[line_index] = labels
 
-    return gold_line_labels
+    return resolve_howto_label_sets_by_index(gold_line_labels)
 
 
 def _build_pred_line_labels(

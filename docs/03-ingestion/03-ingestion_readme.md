@@ -634,3 +634,21 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 - Source: `docs/understandings/2026-02-27_23.20.08-priority3-rules-v1-coverage-signal-thresholds.md`
 - Summary: Priority-3 splitter discovery: rules_v1 coverage thresholds must count section-header signals, not only content-like lines, to avoid rejecting valid short recipe splits.
 
+## 2026-02-27 tasks consolidation (migrated from `docs/tasks`)
+
+Merged task files (creation order in `docs/tasks`):
+- `priority-1.md`
+- `priority-2.md`
+- `priority-7.md`
+- `priority-3.md`
+
+Current ingestion contracts added/confirmed by those task files:
+- Priority 1 (recipe-likeness gating) is implemented as additive scoring metadata plus deterministic gate actions across importer families. Rejected candidates must still preserve useful non-recipe/tip/topic/chunk content, and report/debug artifacts (`recipeLikeness` summary + `recipe_scoring_debug.jsonl`) are now part of expected diagnostics.
+- Priority 2 (shared section detection) is implemented with `section_detector_backend=legacy|shared_v1` and `legacy` default. Shared behavior must preserve `For the X` component headers as standalone section markers.
+- Priority 3 (shared multi-recipe splitting) is implemented with `multi_recipe_splitter=legacy|off|rules_v1` and optional trace output. `rules_v1` coverage thresholds must use signal lines (including section-header signals), not content-only counts.
+- Priority 7 (webschema importer) is implemented as a dedicated deterministic schema-first importer for local `.html/.htm/.jsonld/.json` sources with conservative `.json` guardrails so RecipeSage exports are not stolen.
+
+Known anti-loop reminders from the merged task docs:
+- There is no stage-time `--pipeline` importer selector; importer choice remains score-based.
+- Backend evidence for section/splitter behavior is primarily in per-source import reports (`runConfig`), not top-level stage `run_manifest.json`.
+- For webschema all-method runs, permutation growth is intentionally bounded to `web_schema_policy` only; do not expand full cross-product variants by default.

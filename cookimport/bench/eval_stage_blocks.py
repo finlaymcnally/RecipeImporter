@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from cookimport.bench.segmentation_metrics import compute_segmentation_boundaries
+from cookimport.labelstudio.howto_section import resolve_howto_label_sets_by_index
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
 from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
 
@@ -786,6 +787,8 @@ def load_gold_block_labels(
         raise ValueError(
             f"Gold file contains no usable block labels: {freeform_span_labels_jsonl_path}"
         )
+
+    assignments = resolve_howto_label_sets_by_index(assignments)
 
     conflicts: list[dict[str, Any]] = []
     for block_index, labels in sorted(assignments.items()):

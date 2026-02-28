@@ -153,6 +153,13 @@ Config keys and defaults:
 - `ingredient_parser_backend` (default `ingredient_parser_nlp`)
 - `ingredient_unit_canonicalizer` (default `legacy`)
 - `ingredient_missing_unit_policy` (default `null`)
+- `p6_time_backend` (default `regex_v1`)
+- `p6_time_total_strategy` (default `sum_all_v1`)
+- `p6_temperature_backend` (default `regex_v1`)
+- `p6_temperature_unit_backend` (default `builtin_v1`)
+- `p6_ovenlike_mode` (default `keywords_v1`)
+- `p6_yield_mode` (default `legacy_v1`)
+- `p6_emit_metadata_debug` (default `false`)
 - `recipe_scorer_backend` (default `heuristic_v1`)
 - `recipe_score_gold_min` (default `0.75`)
 - `recipe_score_silver_min` (default `0.55`)
@@ -204,6 +211,7 @@ What each setting affects:
 - `instruction_step_segmentation_policy`, `instruction_step_segmenter`: deterministic fallback instruction-step segmentation controls shared by stage and benchmark prediction generation (`off|auto|always`, `heuristic_v1|pysbd_v1`).
 - `web_schema_extractor`, `web_schema_normalizer`, `web_html_text_extractor`, `web_schema_policy`, `web_schema_min_*`: deterministic local HTML/JSON schema ingestion controls for `webschema` importer (schema backend, normalization mode, fallback text extractor, schema-vs-fallback policy, and confidence/min-line thresholds).
 - `ingredient_text_fix_backend`, `ingredient_pre_normalize_mode`, `ingredient_packaging_mode`, `ingredient_parser_backend`, `ingredient_unit_canonicalizer`, `ingredient_missing_unit_policy`: ingredient parser normalization/backend/unit-policy controls used by stage and benchmark prediction-generation imports.
+- `p6_time_backend`, `p6_time_total_strategy`, `p6_temperature_backend`, `p6_temperature_unit_backend`, `p6_ovenlike_mode`, `p6_yield_mode`, `p6_emit_metadata_debug`: Priority 6 deterministic instruction/yield controls for stage and benchmark prediction generation (time extraction backend and rollup strategy, temperature extraction/unit conversion backend, oven-like classifier mode, yield parser mode, and optional p6 debug sidecar emission).
 - `recipe_scorer_backend`, `recipe_score_*`: deterministic recipe-likeness scoring and tier gating thresholds/minimum line hints used by all importer families.
 - `ocr_device`, `ocr_batch_size`: OCR path for PDFs.
 - `output_dir`: interactive `stage` target output root.
@@ -1250,4 +1258,3 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 ### 2026-02-27_20.38.15 load settings sequence matcher coercion
 - Source: `docs/understandings/2026-02-27_20.38.15-load-settings-sequence-matcher-coercion.md`
 - Summary: "Legacy cookimport.json matcher values are now rejected at load time; benchmark sequence matcher must be dmp."
-

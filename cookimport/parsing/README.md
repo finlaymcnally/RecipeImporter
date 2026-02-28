@@ -6,6 +6,8 @@
 - Enable spaCy features with `COOKIMPORT_SPACY=1` or `enableSpacy` in overrides (if spaCy + model are installed).
 - Ingredient parsing normalizes whitespace and repairs split fractions (e.g., `3 / 4` or line-broken `3\n/4`) before parsing.
 - Instruction fallback segmentation now lives in `step_segmentation.py` (`instruction_step_segmentation_policy=off|auto|always`, `instruction_step_segmenter=heuristic_v1|pysbd_v1`) and is deterministic by default (`heuristic_v1`).
+- Instruction metadata parsing now supports Priority 6 deterministic options via `InstructionParseOptions` (time backend/strategy, temperature backend/unit backend, oven-like classifier mode); parser output includes `temperature_items` plus legacy compatibility fields.
+- `yield_extraction.py` centralizes deterministic yield selection/parsing with `p6_yield_mode=legacy_v1|scored_v1` and returns normalized draft fields (`yield_units`, `yield_phrase`, `yield_unit_name`, `yield_detail`).
 - Shared section detection now lives in `section_detector.py`; `sections.py` keeps the legacy public API but delegates detection internals to that shared backend. `section_detector_backend` defaults to `legacy` and can be switched to `shared_v1` in stage/benchmark run settings.
 - Shared multi-recipe candidate splitting now lives in `multi_recipe_splitter.py`; Text/EPUB/PDF can use `multi_recipe_splitter=rules_v1` (or keep `legacy`/`off`) with optional `multi_recipe_split_trace` diagnostics.
 - EPUB `markitdown` extractor path uses `markitdown_adapter.py` (`EPUB -> markdown`) plus `markdown_blocks.py` (deterministic markdown line parsing into `Block`s with `md_line_start/md_line_end` provenance).

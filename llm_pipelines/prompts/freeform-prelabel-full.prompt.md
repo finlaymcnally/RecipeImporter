@@ -58,6 +58,12 @@ INSTRUCTION_LINE
 - Numbered steps ("1.", "Step 2") are instructions.
 - Also includes short imperative fragments ("Let rest 10 minutes.").
 
+HOWTO_SECTION
+- A recipe subsection header inside a recipe, for example:
+  "TO SERVE", "FOR THE SAUCE", "BUTTER-GLAZED TURNIP LEAVES".
+- Use this when the highlighted text is a section heading rather than an ingredient or action sentence.
+- Do not use this for chapter-level headers outside a recipe.
+
 YIELD_LINE
 - Statements about servings or yield / amount produced:
   "Serves 4", "Makes 24 cookies", "Yield: 2 loaves", "Feeds a crowd", "About 1 quart".

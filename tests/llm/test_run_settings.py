@@ -43,6 +43,13 @@ def test_run_settings_hash_and_summary_are_stable() -> None:
     assert settings.to_run_config_dict()["ingredient_parser_backend"] == "ingredient_parser_nlp"
     assert settings.to_run_config_dict()["ingredient_unit_canonicalizer"] == "legacy"
     assert settings.to_run_config_dict()["ingredient_missing_unit_policy"] == "null"
+    assert settings.to_run_config_dict()["p6_time_backend"] == "regex_v1"
+    assert settings.to_run_config_dict()["p6_time_total_strategy"] == "sum_all_v1"
+    assert settings.to_run_config_dict()["p6_temperature_backend"] == "regex_v1"
+    assert settings.to_run_config_dict()["p6_temperature_unit_backend"] == "builtin_v1"
+    assert settings.to_run_config_dict()["p6_ovenlike_mode"] == "keywords_v1"
+    assert settings.to_run_config_dict()["p6_yield_mode"] == "legacy_v1"
+    assert settings.to_run_config_dict()["p6_emit_metadata_debug"] is False
     assert settings.to_run_config_dict()["llm_recipe_pipeline"] == "off"
     assert settings.to_run_config_dict()["llm_knowledge_pipeline"] == "off"
     assert settings.to_run_config_dict()["llm_tags_pipeline"] == "off"
@@ -116,6 +123,22 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
         "schema_only",
         "heuristic_only",
     )
+    p6_time_backend_spec = next(spec for spec in specs if spec.name == "p6_time_backend")
+    assert p6_time_backend_spec.choices == (
+        "regex_v1",
+        "quantulum3_v1",
+        "hybrid_regex_quantulum3_v1",
+    )
+    p6_time_strategy_spec = next(
+        spec for spec in specs if spec.name == "p6_time_total_strategy"
+    )
+    assert p6_time_strategy_spec.choices == (
+        "sum_all_v1",
+        "max_v1",
+        "selective_sum_v1",
+    )
+    p6_yield_mode_spec = next(spec for spec in specs if spec.name == "p6_yield_mode")
+    assert p6_yield_mode_spec.choices == ("legacy_v1", "scored_v1")
 
 
 def test_last_run_store_round_trip_and_corrupt_recovery(tmp_path) -> None:

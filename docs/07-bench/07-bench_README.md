@@ -417,3 +417,27 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 - Source: `docs/understandings/2026-02-28_03.05.00-sequence-matcher-locked-to-dmp.md`
 - Summary: Canonical benchmark alignment now accepts only DMP matcher mode; fallback/stdlib/cydifflib/cdifflib/multilayer modes are archived and rejected.
 
+## 2026-02-27 tasks consolidation (migrated from `docs/tasks`)
+
+Merged task files (creation order in `docs/tasks`):
+- `2026-02-27_18.51.16-speed-regression-benchmark-suite-from-pulled-goldens.md`
+- `2026-02-27_19.45.53-all-method-eval-signature-dedupe.md`
+- `2026-02-27_20.08.17-speed-suite-runtime-parity-single-path.md`
+- `2026-02-27_20.43.12-quality-suite-representative-all-method-agent-loop.md`
+- `2026-02-27_20.43.54-stage-block-recipe-notes-from-description.md`
+- `2026-02-27_20.58.16-all-method-global-mega-run-scheduler.md`
+- `priority-8.md`
+
+Current bench contracts added/confirmed by those task files:
+- Speed regression workflow is deterministic and first-class under `bench speed-discover`, `bench speed-run`, `bench speed-compare` with pulled Label Studio golds as default discovery source.
+- All-method canonical evaluation uses deterministic eval signatures so prediction runs remain per-config while evaluation runs collapse to one-per-signature with in-run and cross-run reuse provenance.
+- SpeedSuite is orchestrator-only and now relies on shared run-settings adapters; `run_settings_hash` is persisted and `speed-compare` fails by default on settings mismatch unless explicitly overridden.
+- QualitySuite is implemented as deterministic representative discovery + sequential experiment runner + baseline/candidate comparator with strict/practical/source-coverage gates and strict patch-key validation.
+- Stage-block prediction note labeling now includes description-derived recipe notes (in addition to schema comments), closing the zero-prediction `RECIPE_NOTES` gap for description-only recipes.
+- Global mega-run scheduler is implemented for all-method multi-source runs (`scheduler_scope=global` default), with rollback path `scheduler_scope=legacy`.
+- Priority 8 segmentation diagnostics are additive on existing stage-block contracts (`report.segmentation`, boundary mismatch JSONLs, optional `segeval` metrics).
+
+Known anti-loop reminders from the merged task docs:
+- Old speed runs without `run_settings_hash` will intentionally trip compare mismatch checks unless `--allow-settings-mismatch` is set.
+- Global scheduler changes are orchestration-only; scoring semantics are intentionally unchanged.
+- If RECIPE_NOTES regress to zero predictions, verify note sourcing includes description-derived notes before touching evaluator math.
