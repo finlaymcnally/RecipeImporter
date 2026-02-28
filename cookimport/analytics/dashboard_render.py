@@ -2882,6 +2882,22 @@ _JS = """\
     );
   }
 
+  function benchmarkArtifactPath(record) {
+    return String((record && record.artifact_dir) || "")
+      .replace(/\\\\/g, "/")
+      .toLowerCase();
+  }
+
+  function isSpeedBenchmarkRecord(record) {
+    const path = benchmarkArtifactPath(record);
+    return path.includes("/bench/speed/runs/");
+  }
+
+  function isAllMethodBenchmarkRecord(record) {
+    const path = benchmarkArtifactPath(record);
+    return path.includes("/all-method-benchmark/");
+  }
+
   function stagePassesExtractorFilter(record) {
     const extractor = epubExtractorEffective(record) || epubExtractorRequested(record);
     if (!extractor) return true;
@@ -3734,15 +3750,18 @@ _JS = """\
       return;
     }
     const sorted = [...records].sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
-    const ALL_METHOD_SEGMENT = "/all-method-benchmark/";
-    const latestAllMethodRecords = sorted.filter(r =>
-      String(r.artifact_dir || "").includes(ALL_METHOD_SEGMENT) &&
+    const nonSpeed = sorted.filter(r =>
+      !isSpeedBenchmarkRecord(r)
+    );
+    const preferredRecords = nonSpeed.length > 0 ? nonSpeed : sorted;
+    const latestAllMethodRecords = preferredRecords.filter(r =>
+      isAllMethodBenchmarkRecord(r) &&
       r.per_label &&
       r.per_label.length > 0
     );
     const candidateRecords = latestAllMethodRecords.length > 0
       ? latestAllMethodRecords
-      : sorted.filter(r => r.per_label && r.per_label.length > 0);
+      : preferredRecords.filter(r => r.per_label && r.per_label.length > 0);
     const latestWithPerLabel = candidateRecords.length ? candidateRecords[0] : null;
     if (!latestWithPerLabel) {
       section.innerHTML = '<h2>Per-Label Breakdown</h2><p class="empty-note">No per-label metrics available in benchmark records.</p>';
@@ -3854,7 +3873,11 @@ _JS = """\
       return;
     }
     const sorted = [...records].sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
-    const latest = sorted.find(r => r.boundary_correct != null || r.boundary_over != null || r.boundary_under != null || r.boundary_partial != null);
+    const nonSpeed = sorted.filter(r =>
+      !isSpeedBenchmarkRecord(r)
+    );
+    const preferredRecords = nonSpeed.length > 0 ? nonSpeed : sorted;
+    const latest = preferredRecords.find(r => r.boundary_correct != null || r.boundary_over != null || r.boundary_under != null || r.boundary_partial != null);
     if (!latest) {
       section.innerHTML = '<h2>Boundary Classification</h2><p class="empty-note">No boundary data available in benchmark records.</p>';
       return;

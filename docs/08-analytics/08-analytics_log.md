@@ -190,3 +190,49 @@ Details preserved:
 - Current behavior: prefers rows under `/all-method-benchmark/`, then groups by the latest timestamp in that subset and aggregates each label across that run. If no all-method rows exist, falls back to latest benchmark timestamp grouping.
 - Aggregated precision/recall are recomputed from summed totals (gold/pred weighted), so the card reflects the whole latest run batch.
 
+
+## 2026-02-28 migrated understanding ledger (03:42-04:02 analytics batch)
+
+### 2026-02-28_03.42.13 single-profile dashboard sweep grouping gap
+
+Source: `docs/understandings/2026-02-28_03.42.13-single-profile-dashboard-sweep-grouping-gap.md`
+
+Problem captured:
+- Single-profile all-matched benchmark outputs existed on disk but were missing from all-method dashboard index.
+
+Durable decisions:
+- Group collector rows from both classic all-method config paths and single-profile source paths.
+- Treat single-profile rows as one run-profile unit (prefer `run_config_hash`) so cross-book run aggregation remains stable.
+
+### 2026-02-28_03.52.45 suffixed timestamp per-label grouping gap
+
+Source: `docs/understandings/2026-02-28_03.52.45-suffixed-run-timestamp-per-label-grouping-gap.md`
+
+Problem captured:
+- Suffixed run folders caused timestamp parse fallback to `config_*` dir names, fragmenting one run into many one-eval pseudo-runs.
+
+Durable decisions:
+- Normalize timestamp-prefixed folder names (with optional suffix) to bare `YYYY-MM-DD_HH.MM.SS` for grouping.
+- Keep regression coverage in analytics dashboard tests for suffixed-folder behavior.
+
+### 2026-02-28_03.58.19 speed-suite max-targets causes one-eval diagnostics
+
+Source: `docs/understandings/2026-02-28_03.58.19-speed-suite-max-targets-causes-one-eval-per-label.md`
+
+Findings preserved:
+- Latest benchmark diagnostics can legitimately show one eval when the most recent speed run selected one target.
+- This is a data-selection artifact, not necessarily collector/render failure.
+
+Anti-loop note:
+- Confirm `suite_resolved.json` target selection and `run_manifest.json` counts before changing per-label aggregation logic.
+
+### 2026-02-28_04.02.14 diagnostics prefer non-speed benchmarks
+
+Source: `docs/understandings/2026-02-28_04.02.14-dashboard-diagnostics-prefer-non-speed-benchmarks.md`
+
+Problem captured:
+- One-target speed-suite runs could override richer multi-book benchmark diagnostics due latest-timestamp-only selection.
+
+Durable decisions:
+- Diagnostics selector now prefers non-speed benchmark rows when available.
+- Speed rows remain fallback path when no non-speed benchmark rows exist.

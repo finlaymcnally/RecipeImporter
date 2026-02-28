@@ -1070,15 +1070,29 @@ class TestRenderer:
         )
         render_dashboard(tmp_path / "dash", data)
         js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
-        assert 'const ALL_METHOD_SEGMENT = "/all-method-benchmark/";' in js
-        assert "const latestAllMethodRecords = sorted.filter(r =>" in js
-        assert 'String(r.artifact_dir || "").includes(ALL_METHOD_SEGMENT)' in js
+        assert "function isSpeedBenchmarkRecord(record)" in js
+        assert '.replace(/\\\\/g, "/")' in js
+        assert ".toLowerCase();" in js
+        assert 'return path.includes("/bench/speed/runs/");' in js
+        assert "function isAllMethodBenchmarkRecord(record)" in js
+        assert 'return path.includes("/all-method-benchmark/");' in js
+        assert "const preferredRecords = nonSpeed.length > 0 ? nonSpeed : sorted;" in js
+        assert "const latestAllMethodRecords = preferredRecords.filter(r =>" in js
+        assert "isAllMethodBenchmarkRecord(r)" in js
         assert "const candidateRecords = latestAllMethodRecords.length > 0" in js
         assert 'const latestRunTimestamp = String(latestWithPerLabel.run_timestamp || "");' in js
         assert "const latestRunRecords = candidateRecords.filter(r =>" in js
         assert 'String(r.run_timestamp || "") === latestRunTimestamp' in js
         assert 'latestRunRecords.length + " evals)"' in js
         assert "const byLabel = Object.create(null);" in js
+
+    def test_js_boundary_prefers_non_speed_records_when_available(self, tmp_path):
+        render_dashboard(tmp_path / "dash", DashboardData())
+        js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
+        assert "function renderBoundary()" in js
+        assert "function isSpeedBenchmarkRecord(record)" in js
+        assert "const preferredRecords = nonSpeed.length > 0 ? nonSpeed : sorted;" in js
+        assert "const latest = preferredRecords.find(" in js
 
     def test_js_init_skips_removed_control_setup(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())

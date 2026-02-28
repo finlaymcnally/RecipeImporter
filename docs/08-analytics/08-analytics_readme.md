@@ -250,3 +250,25 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 ### 2026-02-27_20.24.21 dashboard per label latest run aggregation
 - Source: `docs/understandings/2026-02-27_20.24.21-dashboard-per-label-latest-run-aggregation.md`
 - Summary: Stats dashboard per-label card now aggregates per-label totals across all records in the latest all-method run timestamp (fallback to latest benchmark timestamp if no all-method rows exist).
+
+## 2026-02-28 migrated understandings batch (03:42-04:02)
+
+The items below were merged from `docs/understandings` in timestamp order and folded into analytics current-state guidance.
+
+### 2026-02-28_03.42.13 single-profile benchmark rows in all-method index grouping
+- Collector/render grouping must support both path families:
+  - `all-method-benchmark/<source_slug>/config_*`
+  - `single-profile-benchmark/<source_slug>`
+- Single-profile rows should be grouped at run level using `run_config_hash` when present.
+
+### 2026-02-28_03.52.45 suffixed run folder timestamp normalization
+- Benchmark folder names can include suffixes after timestamp (for example `_manual-top5-...`).
+- Collector should normalize `run_timestamp` to prefix `YYYY-MM-DD_HH.MM.SS` so all configs from one run aggregate together.
+
+### 2026-02-28_03.58.19 low-eval diagnostics from speed-suite sampling
+- Latest diagnostics can be tiny when latest benchmark rows came from speed-suite runs with aggressive sampling (`max_targets=1`).
+- Diagnose by checking speed run manifests before treating this as collector corruption.
+
+### 2026-02-28_04.02.14 diagnostics source preference
+- Diagnostics rendering should prefer non-speed benchmark rows when both speed and non-speed rows exist.
+- Speed rows remain valid fallback when they are the only benchmark rows.

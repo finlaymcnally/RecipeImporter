@@ -571,7 +571,7 @@ def test_quality_suite_can_enable_deterministic_sweeps(
     assert resolved["include_deterministic_sweeps_requested"] is True
 
 
-def test_quality_suite_uses_legacy_source_parallel_when_process_workers_unavailable(
+def test_quality_suite_keeps_global_scheduler_when_process_workers_unavailable(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -709,10 +709,10 @@ def test_quality_suite_uses_legacy_source_parallel_when_process_workers_unavaila
     )
 
     assert run_root.exists()
-    assert observed_runtime["scheduler_scope"] == "legacy"
-    assert observed_runtime["max_parallel_sources"] == 2
+    assert observed_runtime["scheduler_scope"] == "global"
+    assert observed_runtime["max_parallel_sources"] == 1
     assert any(
-        "switching to legacy source-thread scheduling" in message
+        "staying on global scheduler and using thread-backed config workers" in message
         for message in progress_messages
     )
 

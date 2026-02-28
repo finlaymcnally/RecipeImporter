@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from typer.testing import CliRunner
 
-from cookimport.cli import app
+from cookimport.cli import _normalize_llm_recipe_pipeline, app
 
 runner = CliRunner()
 
@@ -28,26 +26,11 @@ def test_stage_help_exposes_codex_farm_flags() -> None:
     assert "--tag-catalog-json" in result.stdout
     assert "--codex-farm-failure-mode" in result.stdout
     assert "--table-extraction" in result.stdout
-    assert "COOKIMPORT_ALLOW_CODEX_FARM" in result.stdout
     assert "codex-farm-3pass-v1" in result.stdout
 
 
-def test_stage_rejects_recipe_codex_farm_pipeline_enablement(tmp_path: Path) -> None:
-    source = tmp_path / "book.txt"
-    source.write_text("toast", encoding="utf-8")
-
-    result = runner.invoke(
-        app,
-        [
-            "stage",
-            str(source),
-            "--out",
-            str(tmp_path / "out"),
-            "--llm-recipe-pipeline",
-            "codex-farm-3pass-v1",
-        ],
+def test_stage_accepts_recipe_codex_farm_pipeline_enablement() -> None:
+    assert (
+        _normalize_llm_recipe_pipeline("codex-farm-3pass-v1")
+        == "codex-farm-3pass-v1"
     )
-    assert result.exit_code == 1
-    combined_output = str(getattr(result, "output", "") or "")
-    assert "COOKIMPORT_ALLOW_CODEX_FARM" in combined_output
-    assert "Set COOKIMPORT_ALLOW_CODEX_FARM=1" in combined_output

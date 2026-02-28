@@ -21,9 +21,7 @@ from cookimport.epub_extractor_names import (
     normalize_epub_extractor_name,
 )
 from cookimport.config.run_settings import (
-    RECIPE_CODEX_FARM_PIPELINE_POLICY,
     RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR,
-    RECIPE_CODEX_FARM_UNLOCK_ENV,
     RunSettings,
     build_run_settings,
     compute_effective_workers,
@@ -256,12 +254,7 @@ def _normalize_llm_recipe_pipeline(value: str) -> str:
     if normalized == "off":
         return normalized
     if normalized == "codex-farm-3pass-v1":
-        if os.getenv(RECIPE_CODEX_FARM_UNLOCK_ENV, "").strip() == "1":
-            return normalized
-        raise ValueError(
-            f"Invalid llm_recipe_pipeline. {RECIPE_CODEX_FARM_PIPELINE_POLICY} "
-            f"Set {RECIPE_CODEX_FARM_UNLOCK_ENV}=1 to enable."
-        )
+        return normalized
     raise ValueError(
         f"Invalid llm_recipe_pipeline. {RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR}"
     )
@@ -1489,7 +1482,8 @@ def generate_pred_run_artifacts(
             all_epub=path.suffix.lower() == ".epub",
         ),
     )
-    run_config = run_settings.to_run_config_dict()
+    worker_run_config = run_settings.to_run_config_dict()
+    run_config = dict(worker_run_config)
     run_config["epub_extractor_requested"] = selected_epub_extractor
     run_config["epub_extractor_effective"] = selected_epub_extractor
     run_config["write_markdown"] = bool(write_markdown)
@@ -1567,15 +1561,24 @@ def generate_pred_run_artifacts(
                     event="split_active_started",
                     split_job_count=len(job_specs),
                 )
-                _notify(
-                    f"Running {len(job_specs)} split job(s) with up to {max(1, workers)} workers..."
-                )
                 effective_workers = max(1, workers)
                 if path.suffix.lower() == ".epub":
                     effective_workers = max(effective_workers, epub_split_workers)
                 if path.suffix.lower() == ".pdf":
                     effective_workers = max(effective_workers, pdf_split_workers)
                 max_workers = min(effective_workers, len(job_specs))
+
+                def _split_progress_status(current: int) -> str:
+                    status = _task_progress_message(
+                        "Running split conversion...",
+                        current,
+                        len(job_specs),
+                    )
+                    if max_workers > 1:
+                        return f"{status} (workers={max_workers})"
+                    return status
+
+                _notify(_split_progress_status(0))
                 job_results: list[dict[str, Any]] = []
                 job_errors: list[str] = []
 
@@ -1584,7 +1587,7 @@ def generate_pred_run_artifacts(
                         path,
                         pipeline,
                         run_mapping,
-                        run_config=run_config,
+                        run_config=worker_run_config,
                         start_page=spec.get("start_page"),
                         end_page=spec.get("end_page"),
                         start_spine=spec.get("start_spine"),
@@ -1630,7 +1633,7 @@ def generate_pred_run_artifacts(
                                 path,
                                 pipeline,
                                 run_mapping,
-                                run_config=run_config,
+                                run_config=worker_run_config,
                                 start_page=spec.get("start_page"),
                                 end_page=spec.get("end_page"),
                                 start_spine=spec.get("start_spine"),
@@ -1670,7 +1673,7 @@ def generate_pred_run_artifacts(
                                     }
                                 )
                                 completed += 1
-                                _notify(f"Completed split job {completed}/{len(job_specs)}")
+                                _notify(_split_progress_status(completed))
                             if pending_specs:
                                 _submit(pending_specs.pop(0), worker_slot)
                             elif max_workers > 1:
@@ -1689,7 +1692,7 @@ def generate_pred_run_artifacts(
                             job_errors.append(
                                 f"job {spec.get('job_index', '?')}: {exc}"
                             )
-                        _notify(f"Completed split job {len(job_results)}/{len(job_specs)}")
+                        _notify(_split_progress_status(len(job_results)))
                 finally:
                     if max_workers > 1:
                         _notify(format_worker_activity_reset())

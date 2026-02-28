@@ -10,6 +10,92 @@ read_when:
 
 Use this file for LLM debugging history that still applies to the current codebase.
 
+## 2026-02-28_04.05.00 codex-farm always-on interactive defaults and ungated normalizers
+
+Source task file:
+- `docs/tasks/2026-02-28_04.05.00-codex-farm-always-on-in-interactive-and-normalizers.md`
+
+Problem captured:
+- Interactive and normalization behavior still had codex-gate drift and codex-off defaults that no longer matched desired workflow.
+
+Durable decisions/actions:
+- Removed recipe codex-farm env gating from:
+  - `RunSettings.from_dict(...)`
+  - `cookimport/cli.py:_normalize_llm_recipe_pipeline(...)`
+  - `cookimport/labelstudio/ingest.py:_normalize_llm_recipe_pipeline(...)`
+- Interactive defaults now prefer codex-enabled execution:
+  - `Use Codex Farm recipe pipeline for this run?` defaults to `Yes`.
+  - `Include Codex Farm permutations?` defaults to `Yes`.
+- `run_settings_ui_specs()` always exposes `llm_recipe_pipeline=off|codex-farm-3pass-v1`.
+- `COOKIMPORT_ALLOW_CODEX_FARM` is retained as legacy compatibility surface only (no behavior gate).
+
+Evidence captured:
+- `tests/llm/test_run_settings.py`
+- `tests/labelstudio/test_labelstudio_ingest_parallel.py` (`llm_recipe_pipeline_normalizer` coverage)
+- `tests/labelstudio/test_labelstudio_benchmark_helpers.py` (`resolve_all_method_codex_choice` coverage)
+- `tests/cli/test_cli_llm_flags.py`
+- `tests/cli/test_c3imp_interactive_menu.py` (`choose_run_settings` coverage)
+
+Anti-loop note:
+- If codex appears "disabled," inspect effective run artifacts (`run_manifest`, run settings snapshot) before assuming gating logic still exists.
+
+## 2026-02-28_03.37.51 unlock interactive llm recipe pipeline option
+
+Source task file:
+- `docs/tasks/2026-02-28_03.37.51-unlock-interactive-llm-recipe-pipeline-option.md`
+
+Problem captured:
+- Interactive `Change run settings...` could hide `llm_recipe_pipeline=codex-farm-3pass-v1` even when runtime paths accepted codex values.
+
+Durable decisions/actions:
+- `run_settings_ui_specs()` now surfaces codex-farm recipe choice directly in interactive editor choices.
+- Locked/unlocked UI forks were removed so editor behavior and runtime normalization stay in parity.
+
+Evidence captured:
+- `cookimport/config/run_settings.py`
+- `tests/llm/test_run_settings.py` (`run_settings_ui_specs` choice assertions)
+
+Anti-loop note:
+- If editor choices and runtime behavior diverge, treat `run_settings_ui_specs()` as canonical UI source and update tests first.
+
+## 2026-02-28_02.48.43 setup codex-farm CLI for EPUB benchmark runs
+
+Source task file:
+- `docs/tasks/2026-02-28_02.48.43-setup-codex-farm-cli-for-epub-benchmarks.md`
+
+Problem captured:
+- Benchmark/stage codex paths were enabled in settings surfaces but could still fail immediately when external `codex-farm` binary resolution was missing.
+
+Durable decisions/actions:
+- Keep `codex_farm_cmd` configurable and prefer absolute executable paths for repeatable runs.
+- Keep pipeline-pack rooting explicit when using this repo’s packs (`codex_farm_root=<repo>/llm_pipelines` plus pass1/2/3 pipeline ids).
+- Treat missing binary cases as explicit fail-fast invocation errors, not silent fallback.
+
+Anti-loop note:
+- If codex passes never start, verify command path resolution (`codex_farm_cmd`) before editing prompt assets or run-settings normalization.
+
+## 2026-02-28_02.31.09 enable codex-farm in benchmarks (historical env-gated phase)
+
+Source task file:
+- `docs/tasks/2026-02-28_02.31.09-enable-codex-farm-in-benchmarks.md`
+
+Problem captured:
+- Bench all-method runs could not include codex recipe-pipeline variants even when requested; `include_codex_farm` was threaded but no-op.
+
+Durable decisions/actions:
+- Implemented codex as a real all-method variant dimension and surfaced explicit bench flags:
+  - `bench speed-run --include-codex-farm`
+  - `bench quality-run --include-codex-farm`
+- Kept deterministic sweep expansion opt-in (`include_deterministic_sweeps=False` baseline) to avoid accidental grid blowups.
+- Historical note: this task used `COOKIMPORT_ALLOW_CODEX_FARM` as rollout gate; superseded by ungated normalization in `2026-02-28_04.05.00`.
+
+Evidence captured:
+- `tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+- `tests/cli/test_cli_llm_flags.py`
+
+Anti-loop note:
+- When codex permutations are missing from all-method grids, inspect effective `include_codex_farm` first; do not assume deterministic sweep flags imply codex inclusion.
+
 ## 2026-02-27_19.51.50 docs parity audit for runtime + nearby LLM code
 
 Problem captured:
@@ -73,7 +159,7 @@ Verification/evidence captured:
   - `cookimport/llm/codex_farm_knowledge_orchestrator.py`
   - `cookimport/tagging/orchestrator.py`
 
-## 2026-02-23_11.39.45 recipe codex-farm policy lock
+## 2026-02-23_11.39.45 recipe codex-farm policy lock (historical; superseded 2026-02-28_04.05.00)
 
 Problem captured:
 - Recipe codex-farm parsing correction must remain disabled until benchmark quality materially improves.
@@ -138,12 +224,12 @@ Problem captured:
 - LLM docs had large archive sections that implied broader active runtime use than current code executes.
 
 Durable decisions/actions:
-- Keep docs focused on active stage pass4/pass5 behavior and policy-lock boundaries.
+- Keep docs focused on active stage pass4/pass5 behavior and current recipe pipeline enablement boundaries.
 - Keep recipe pass implementation files documented as shipped code, but clearly label runtime lock state.
 - Keep prediction-run boundary explicit (recipe-pass settings only).
 
 Anti-loop note:
-- If LLM behavior appears inconsistent, verify normalization/policy-lock path first (`run_settings` + CLI + Label Studio ingest) before editing pass assets.
+- If LLM behavior appears inconsistent, verify effective run-settings normalization path first (`run_settings` + CLI + Label Studio ingest) before editing pass assets.
 
 ## 2026-02-27_19.51.50 provenance note
 
@@ -181,7 +267,7 @@ Problem captured:
 
 Durable pattern preserved:
 - Keep `llm_recipe_pipeline` default `off` globally.
-- Enable Codex Farm only via explicit command wrapper that sets required env gate and pipeline option.
+- Enable Codex Farm only via explicit command/profile selection.
 - Prefer absolute `codex_farm_cmd` in run settings/overrides to avoid PATH-dependent failures.
 
 ### 2026-02-28_03.19.05 Oracle gpt-5.2-thinking browser blocker
@@ -206,7 +292,42 @@ Source: `docs/understandings/2026-02-28_03.19.48-interactive-codex-farm-gate-and
 
 Findings preserved:
 - Interactive `cookimport` already routes through run-settings `llm_recipe_pipeline` selection; no special separate interactive-only Codex Farm code path is required.
-- Policy gate still applies: non-`off` recipe pipeline use requires `COOKIMPORT_ALLOW_CODEX_FARM=1`.
+- Historical note: this finding predated ungated recipe normalization and is now superseded by the 2026-02-28_04.05.00 change.
 
 Durable pattern:
 - Use a dedicated launcher (`scripts/interactive-with-codex-farm.sh`) for opt-in sessions so default interactive behavior stays unchanged/off.
+
+## 2026-02-28 migrated understanding ledger (03:47-04:01 LLM batch)
+
+### 2026-02-28_03.47.42 Oracle codex-farm prompt tightening priorities
+
+Source: `docs/understandings/2026-02-28_03.47.42-oracle-codex-farm-prompt-tightening-priorities.md`
+
+Problem captured:
+- Prompt set produced valid outputs but lacked deterministic tie-break and schema-safety specificity, increasing variance risk.
+
+Durable priorities preserved:
+- Highest leverage prompt hardening order: pass2, pass3, then pass1; pass4/pass5 lower leverage.
+- Cross-pass wording upgrades should emphasize:
+  - omit unknown fields instead of guessing,
+  - explicit evidence requirements,
+  - stable ordering constraints,
+  - no extra keys/type drift beyond schema contract.
+
+Anti-loop note:
+- For output variance, tighten prompt contract language before changing model/provider wiring.
+
+### 2026-02-28_04.01.52 codex toggle versus effective run setting
+
+Source: `docs/understandings/2026-02-28_04.01.52-codex-toggle-vs-effective-run-setting.md`
+
+Problem captured:
+- User-observed codex toggle in menu did not match persisted benchmark artifacts for run `2026-02-28_03.54.15`.
+
+Findings preserved:
+- Artifacts and benchmark settings snapshot for that run recorded `llm_recipe_pipeline=off` and `llm_codex_farm.enabled=false`.
+- `run_settings.py` and `run_settings_flow.py` changed shortly after the run (`2026-02-28 04:00:04` and `2026-02-28 04:00:51` local timestamp), so source-at-head and run-time behavior can diverge.
+- Practical debugging rule: use run-time artifacts/manifests as source-of-truth for what executed.
+
+Anti-loop note:
+- Do not infer historical run behavior only from current branch files when run-time normalization logic was edited immediately after the run.

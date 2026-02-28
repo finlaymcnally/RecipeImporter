@@ -346,3 +346,29 @@ Details preserved:
 - Fix shape: allow `_resolve_recipe_range(...)` to map provenance line ranges back to archive block indices (line-index aware, with deterministic offset fallback).
 - Auto-emission now labels section headers as `HOWTO_SECTION` from deterministic section header hits in ingredients/instructions, with a conservative nearby-structure guardrail.
 - Benchmark parity fix requires prediction-side `HOWTO_SECTION` remap (not just gold-side): stage-block loader and canonical line projection both resolve `HOWTO_SECTION` to ingredient/instruction before scoring.
+
+## 2026-02-28 task consolidation (migrated from `docs/tasks`)
+
+### 2026-02-28_00.42.17 importer-side `HOWTO_SECTION` emission implementation
+
+Source task file:
+- `docs/tasks/2026-02-28_00.42.17-howto-section-importer-auto-emission.md`
+
+Problem captured:
+- `HOWTO_SECTION` existed in staging/Label Studio schema surfaces, but importer-side stage predictions flattened headers into structural labels and never emitted `HOWTO_SECTION`.
+
+Durable decisions/actions:
+- Implement emission once in shared stage prediction generation (`cookimport/staging/stage_block_predictions.py`) instead of importer-specific patches.
+- Keep implementation deterministic/rule-based only (no LLM parsing path).
+- Add recipe-range fallback from provenance lines when block-range provenance is absent.
+- Keep benchmark comparability by resolving predicted `HOWTO_SECTION` to structural classes before metrics (`eval_stage_blocks` + `eval_canonical_text`).
+
+Evidence preserved:
+- `pytest tests/staging/test_stage_block_predictions.py -q`
+- `pytest tests/bench/test_eval_stage_blocks.py -q`
+- `pytest tests/labelstudio/test_labelstudio_freeform.py tests/labelstudio/test_labelstudio_benchmark_helpers.py -q`
+- Smoke run produced `HOWTO_SECTION` hits in:
+  - `/tmp/howto-section-stage/output/2026-02-28_00.56.04/.bench/sectioned/stage_block_predictions.json`
+
+Anti-loop note:
+- If section labels disappear again on text imports, verify provenance-range fallback in `_resolve_recipe_range(...)` before changing section extraction heuristics.

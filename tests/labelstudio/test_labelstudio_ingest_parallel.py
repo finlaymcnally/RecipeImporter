@@ -30,14 +30,7 @@ from cookimport.labelstudio.ingest import (
 from cookimport.labelstudio.models import ArchiveBlock
 
 
-def test_llm_recipe_pipeline_normalizer_requires_env_unlock(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("COOKIMPORT_ALLOW_CODEX_FARM", raising=False)
-    with pytest.raises(ValueError, match="COOKIMPORT_ALLOW_CODEX_FARM"):
-        _normalize_llm_recipe_pipeline("codex-farm-3pass-v1")
-
-    monkeypatch.setenv("COOKIMPORT_ALLOW_CODEX_FARM", "1")
+def test_llm_recipe_pipeline_normalizer_accepts_codex_farm() -> None:
     assert _normalize_llm_recipe_pipeline("codex-farm-3pass-v1") == "codex-farm-3pass-v1"
 
 
@@ -342,8 +335,11 @@ def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path:
 
 
 def test_run_labelstudio_import_split_workers_emit_worker_activity(
-    monkeypatch, tmp_path: Path
+    monkeypatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level("WARNING", logger="cookimport.config.run_settings")
     source = tmp_path / "book.epub"
     source.write_text("source", encoding="utf-8")
     output_dir = tmp_path / "golden"
@@ -492,6 +488,14 @@ def test_run_labelstudio_import_split_workers_emit_worker_activity(
         allow_labelstudio_write=True,
     )
 
+    assert any(
+        "Running split conversion... task 0/3 (workers=2)" in message
+        for message in progress_messages
+    )
+    assert any(
+        "Running split conversion... task 3/3 (workers=2)" in message
+        for message in progress_messages
+    )
     worker_events = [
         parse_worker_activity(message) for message in progress_messages
     ]
@@ -505,6 +509,10 @@ def test_run_labelstudio_import_split_workers_emit_worker_activity(
     assert any(
         isinstance(event, dict) and event.get("type") == "reset"
         for event in worker_events
+    )
+    assert not any(
+        "Ignoring unknown labelstudio split run config keys" in record.getMessage()
+        for record in caplog.records
     )
 
 

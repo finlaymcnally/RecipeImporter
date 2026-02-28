@@ -98,6 +98,8 @@ Notes:
 
 - `All-Method Benchmark Runs`: links to a standalone all-method run index page.
 - `Diagnostics (Latest Benchmark)`: per-label + boundary breakdown for the most recent benchmark record that contains that data.
+  - When both speed-suite benchmark rows (`.../bench/speed/runs/...`) and regular benchmark rows exist, diagnostics prefer the latest non-speed rows to avoid one-target speed samples overriding multi-book benchmark diagnostics.
+  - Speed/non-speed and all-method detection normalizes `artifact_dir` path separators first, so Windows-style `\\` paths in history data are handled the same as `/`.
 - `Previous Runs`: scrollable table (about ~5 visible rows) with key benchmark columns only.
   - Normal benchmark rows: timestamp links to `artifact_dir`.
   - All-method benchmark sweeps: collapsed to one row; `Source` shows `all-method benchmark run`, and the timestamp links to the generated run-summary HTML page under `all-method-benchmark/`.

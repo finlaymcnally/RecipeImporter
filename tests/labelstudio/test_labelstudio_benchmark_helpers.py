@@ -4116,20 +4116,10 @@ def test_build_all_method_variants_schema_json_webschema_policy_matrix(
     }
 
 
-def test_resolve_all_method_codex_choice_requires_env_unlock(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_resolve_all_method_codex_choice_when_requested() -> None:
     include_effective, warning = cli._resolve_all_method_codex_choice(True)
-    assert include_effective is False
-    assert warning is not None
-    assert cli.ALL_METHOD_CODEX_FARM_UNLOCK_ENV in warning
-
-    monkeypatch.setenv(cli.ALL_METHOD_CODEX_FARM_UNLOCK_ENV, "1")
-    include_effective_unlocked, warning_unlocked = cli._resolve_all_method_codex_choice(
-        True
-    )
-    assert include_effective_unlocked is True
-    assert warning_unlocked is None
+    assert include_effective is True
+    assert warning is None
 
 
 def test_build_all_method_variants_epub_includes_codex_farm_when_unlocked(
@@ -6288,7 +6278,7 @@ def test_run_all_method_benchmark_writes_scheduler_timeseries(
     assert "elapsed_seconds" in first
 
 
-def test_run_all_method_benchmark_uses_single_config_execution_when_executor_unavailable(
+def test_run_all_method_benchmark_falls_back_to_thread_executor_when_process_workers_unavailable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
@@ -6368,7 +6358,10 @@ def test_run_all_method_benchmark_uses_single_config_execution_when_executor_una
     payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
     assert call_count == len(variants)
     assert payload["successful_variants"] == len(variants)
-    assert any("single-config execution" in message.lower() for message in messages)
+    assert any(
+        "using thread-based config concurrency" in message.lower()
+        for message in messages
+    )
 
 
 def test_run_all_method_benchmark_multi_source_writes_combined_summary_with_failures(

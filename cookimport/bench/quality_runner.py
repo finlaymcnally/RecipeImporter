@@ -843,30 +843,20 @@ def _resolve_quality_runtime_for_environment(
     if process_workers_available:
         return runtime
 
-    source_count = max(1, len(target_variants))
-    configured_parallel_sources = _coerce_int(
-        runtime.get("max_parallel_sources"),
-        minimum=0,
-    )
-    if source_count > 1 and configured_parallel_sources <= 1:
-        # Keep source jobs parallel in restricted runtimes that block process pools.
-        runtime["max_parallel_sources"] = source_count
-
-    runtime["scheduler_scope"] = cli.ALL_METHOD_SCHEDULER_SCOPE_LEGACY
-
     detail = (
         f" ({process_worker_error})"
         if isinstance(process_worker_error, str) and process_worker_error
         else ""
     )
-    parallel_sources = _coerce_int(runtime.get("max_parallel_sources"), minimum=0)
-    parallel_rendered = str(parallel_sources) if parallel_sources > 0 else "auto"
+    _target_count = max(1, len(target_variants))
+    _parallel_sources = _coerce_int(runtime.get("max_parallel_sources"), minimum=0)
+    _parallel_rendered = str(_parallel_sources) if _parallel_sources > 0 else "auto"
     _notify_progress(
         progress_callback,
         (
             f"Quality suite [{experiment_id}] process workers unavailable{detail}; "
-            "switching to legacy source-thread scheduling "
-            f"(max_parallel_sources={parallel_rendered})."
+            "staying on global scheduler and using thread-backed config workers "
+            f"(targets={_target_count}, max_parallel_sources={_parallel_rendered})."
         ),
     )
     return runtime

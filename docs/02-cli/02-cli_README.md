@@ -217,11 +217,11 @@ What each setting affects:
 - `output_dir`: interactive `stage` target output root.
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
 - `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
-- `llm_recipe_pipeline`: recipe codex-farm parsing correction flow. Policy-locked `off` for now (non-`off` values are rejected).
+- `llm_recipe_pipeline`: recipe codex-farm parsing correction flow (`off` or `codex-farm-3pass-v1`).
 - `llm_knowledge_pipeline`: optional knowledge-harvest flow (`off` or `codex-farm-knowledge-v1`) used by `stage` only.
 - `llm_tags_pipeline`: optional tags pass (`off` or `codex-farm-tags-v1`) used by `stage` only.
 - `tag_catalog_json`: required catalog snapshot path when `llm_tags_pipeline` is enabled.
-- `codex_farm_*`: codex-farm command/root/workspace/pipeline-id/context/failure behavior used by `stage`; recipe-pass subset remains disabled unless `COOKIMPORT_ALLOW_CODEX_FARM=1` unlocks `llm_recipe_pipeline=codex-farm-3pass-v1`.
+- `codex_farm_*`: codex-farm command/root/workspace/pipeline-id/context/failure behavior used by `stage`.
 
 Developer note:
 - Per-run toggle definitions live in `cookimport/config/run_settings.py`. Add new fields there with `ui_*` metadata so the interactive editor picks them up automatically.
@@ -241,7 +241,10 @@ Developer note:
    - `Run with quality-suite winner (...)` (saved leaderboard winner settings when available; written to `data/.history/qualitysuite_winner_run_settings.json`)
    - `Run with last import settings (...)` when available
    - `Change run settings...` (full-screen arrow-key editor)
-3. Ask `Use Codex Farm recipe pipeline for this run?` (default tracks currently selected run settings; enabling still requires `COOKIMPORT_ALLOW_CODEX_FARM=1`).
+3. Ask `Use Codex Farm recipe pipeline for this run?` (default `Yes`).
+   - If enabled for this run, also ask:
+   - `Codex Farm model override` picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`)
+   - `Codex Farm reasoning effort override` (`pipeline default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`)
 4. Applies selected EPUB env vars:
    - `C3IMP_EPUB_EXTRACTOR`
    - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`
@@ -326,14 +329,17 @@ Interactive benchmark now has a mode submenu before execution:
    - `All method benchmark (offline, no upload)`
 2. Single offline path:
    - shows benchmark `Run settings` mode picker (`global` / `preferred format` / `quality-suite winner` / `last benchmark` / `change`), using the same editor flow as Import,
-   - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default tracks selected profile; enabling still requires `COOKIMPORT_ALLOW_CODEX_FARM=1`),
+   - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default `Yes`),
+   - when enabled, asks codex model override picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`) + reasoning-effort override menu for that run,
    - calls `labelstudio-benchmark` once with `--no-upload --eval-mode canonical-text`,
    - keeps spinner/status visible for both prediction generation and evaluation phases,
+   - split conversion progress uses the shared counter format from the first update (`Running split conversion... task 0/N`), with `(workers=N)` suffix when split jobs run in parallel,
    - does not resolve Label Studio credentials,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/`.
 3. Single-profile all-matched path:
    - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-suite winner` / `last benchmark` / `change`),
-   - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default tracks selected profile; enabling still requires `COOKIMPORT_ALLOW_CODEX_FARM=1`),
+   - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default `Yes`),
+   - when enabled, asks codex model override picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`) + reasoning-effort override menu for that run,
    - discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename,
    - prints matched/skipped counts and asks final proceed confirmation (`Proceed with N benchmark runs across N matched golden sets?`, default `No`),
    - runs `labelstudio-benchmark` once per matched pair with `--no-upload --eval-mode canonical-text` using the selected single profile (no all-method variant expansion),
@@ -343,15 +349,16 @@ Interactive benchmark now has a mode submenu before execution:
 4. All method path:
    - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-suite winner` / `last benchmark` / `change`) before building all-method variants,
    - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (this controls the base profile; all-method still separately prompts whether to include Codex permutations),
+   - when enabled, asks codex model override picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`) + reasoning-effort override menu for that run,
    - all-method predict-only execution now builds kwargs from `build_benchmark_call_kwargs_from_run_settings(...)`, so Priority 1/3/4/6/7 parsing-scoring controls are forwarded with the same surface as single benchmark runs,
-   - run-settings editor (`Change run settings...`) exposes `llm_recipe_pipeline=codex-farm-3pass-v1` only when `COOKIMPORT_ALLOW_CODEX_FARM=1` is set; otherwise recipe pipeline remains `off`,
+   - run-settings editor (`Change run settings...`) always exposes `llm_recipe_pipeline=off|codex-farm-3pass-v1`,
    - runs `labelstudio-benchmark` configs in `canonical-text` eval mode so extractor permutations can share one freeform gold export,
    - prompts for all-method scope:
      - `Single golden set`: prompts for one gold export and source file.
      - `All golden sets with matching input files`: discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename.
    - source hint fallback order is: run `manifest.json` `source_file`, then first non-empty `freeform_span_labels.jsonl` row `source_file`, then first non-empty `freeform_segment_manifest.jsonl` row `source_file`,
    - all-matched mode prints matched/skipped counts, planned permutation count, and sample skipped reasons before execution,
-  - asks whether to include Codex Farm permutations (default `No`; requires `COOKIMPORT_ALLOW_CODEX_FARM=1`),
+  - asks whether to include Codex Farm permutations (default `Yes`),
   - prints scheduler limits before confirmation, including mode and resolved values:
     - source parallelism (configured/effective),
     - configured/effective inflight,
@@ -375,7 +382,7 @@ Interactive benchmark now has a mode submenu before execution:
     - smart mode: phase-aware admission keeps `heavy + wing` near `split slots + wing backlog target` and auto-raises effective inflight with eval-tail headroom (`all_method_max_eval_tail_pipelines` override or CPU-aware auto default) so evaluate-heavy tails do not starve admissions,
     - timeout watchdog (`all_method_config_timeout_seconds`) marks timed-out configs failed and recycles worker pool so one hung config cannot block source completion,
     - failed-only retry passes (`all_method_retry_failed_configs`) rerun only failed config indices, not successful ones,
-    - startup preflight disables process-based config concurrency when workers are unavailable and runs single-config execution directly,
+    - startup preflight disables process-based config concurrency when workers are unavailable and uses thread-based config concurrency (single-config execution only if thread executor setup also fails),
    - split-worker-heavy conversion is gate-limited to at most `4` simultaneous configs (slot telemetry updates spinner task/progress output instead of printing standalone worker lines),
    - runs each config offline (`--no-upload`) and writes per-source eval artifacts plus:
      - `<source_slug>/all_method_benchmark_report.json`
@@ -505,7 +512,7 @@ Options:
 - `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
-- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1` (Codex Farm requires `COOKIMPORT_ALLOW_CODEX_FARM=1`).
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
 - `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-farm-knowledge-v1`.
 - `--llm-tags-pipeline TEXT` (default `off`): `off|codex-farm-tags-v1`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.
@@ -683,7 +690,7 @@ Options:
 - `--prelabel-upload-as TEXT` (default `annotations`): `annotations|predictions`.
 - `--prelabel-granularity TEXT` (default `block`): `block|span` (`block` = block based; `span` = actual freeform).
 - `--prelabel-allow-partial / --no-prelabel-allow-partial` (default disabled): continue upload when some prelabels fail.
-- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1` (Codex Farm requires `COOKIMPORT_ALLOW_CODEX_FARM=1`).
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used when `--llm-recipe-pipeline` is enabled.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
@@ -809,7 +816,7 @@ Options:
 - `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
-- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1` (Codex Farm requires `COOKIMPORT_ALLOW_CODEX_FARM=1`).
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm during prediction generation.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
@@ -887,7 +894,7 @@ Options:
 
 ### `cookimport bench quality-run`
 
-Runs sequential all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`). In restricted runtimes where process workers are unavailable, quality-run auto-switches all-method from `global` scope to `legacy` source-thread scheduling so multi-source rounds can still run in parallel.
+Runs sequential all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`). In restricted runtimes where process workers are unavailable, quality-run stays on all-method `global` scope and uses thread-backed config workers (falls back to single-config execution only if thread executor setup also fails).
 
 Status behavior:
 
@@ -1015,7 +1022,7 @@ CLI-relevant environment variables:
 - `C3IMP_EPUBCHECK_JAR`: optional EPUBCheck jar path used by `cookimport epub validate` when `--jar` is omitted.
 - `C3IMP_STANDALONE_ANALYSIS_WORKERS`: worker count for EPUB/PDF standalone knowledge-block analysis (`>=1`, default `4`).
 - `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS`: unlocks `markdown`/`markitdown` EPUB extractors across stage/prediction/debug command paths when set truthy (`1|true|yes|on`).
-- `COOKIMPORT_ALLOW_CODEX_FARM`: policy gate for all-method codex-farm permutations (`1` required to enable once policy unlocks).
+- `COOKIMPORT_ALLOW_CODEX_FARM`: legacy no-op compatibility env var (recipe codex-farm options are no longer gated by this variable).
 - `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS`: include optional markdown-based extractors in all-method permutations when set to `1`.
 - `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER`: canonical-text matcher selection (`dmp` only; non-`dmp` values are invalid).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS`: optional profiler threshold for benchmark evaluation stage (`>=0`; enables profile artifact capture when eval runtime meets threshold).
@@ -1036,7 +1043,8 @@ Precedence notes:
 - For interactive Label Studio import/export creds: environment variables win over saved `cookimport.json` credentials.
 - For prelabel Codex settings: `--codex-cmd`/`--codex-model`/`--codex-thinking-effort` win for that run; env vars are defaults.
 - For EPUB extractor/options: explicit stage/benchmark flags or interactive per-run Run Settings selection write `C3IMP_EPUB_EXTRACTOR` plus `C3IMP_EPUB_UNSTRUCTURED_*` vars for that run; markdown extractors still require `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`.
-- For all-method markdown extractors and codex-farm unlock: env vars gate whether optional permutations are included at all.
+- For all-method markdown extractors: `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS=1` gates optional markdown variants.
+- For all-method codex variants: `--include-codex-farm` controls inclusion; `COOKIMPORT_ALLOW_CODEX_FARM` remains legacy no-op.
 - For benchmark sequence matcher: `--sequence-matcher` (or interactive `benchmark_sequence_matcher`) wins for that run and temporarily sets `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER` around evaluation.
 - For tag DB URL: `--db-url` wins; env var is fallback.
 
@@ -1243,3 +1251,62 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 - Interactive all-method benchmark now uses that same chooser path (it no longer bypasses directly to global defaults).
 - Preferred profile persistence stays isolated in `data/.history/preferred_run_settings.json` so non-`RunSettings` keys from `cookimport.json` do not leak into chooser payloads.
 - Last-run snapshots remain per-flow (`import` and `benchmark`) via `cookimport/config/last_run_store.py`.
+
+## 2026-02-28 migrated understandings batch (03:37-03:57)
+
+The items below were merged from `docs/understandings` in timestamp order and folded into CLI current-state guidance.
+
+### 2026-02-28_03.37.41 interactive run-settings codex option gating
+- Interactive `Change run settings` enum choices come from `run_settings_ui_specs()`.
+- `llm_recipe_pipeline=codex-farm-3pass-v1` appears in the editor without env gating (alongside `off`).
+
+### 2026-02-28_03.44.53 single-profile benchmark codex prompt expectations
+- Single-profile benchmark flow does not show the all-method-only `Include Codex Farm permutations?` prompt.
+- In this mode, codex behavior is controlled by the shared run-settings chooser and current `llm_recipe_pipeline` value.
+
+### 2026-02-28_03.52.23 shared chooser is the common codex hook
+- Both interactive import and interactive benchmark run through `choose_run_settings(...)`.
+- Shared codex prompts belong there for consistent behavior across import, single benchmark, single-profile all-matched benchmark, and all-method setup.
+
+### 2026-02-28_03.57.17 codex toggle must include model/reasoning follow-up
+- A yes/no codex toggle alone is incomplete for operator workflow.
+- When codex is effective for this run, chooser should also prompt for optional model override and reasoning effort override in the same flow.
+
+## 2026-02-28 merged task specs (`docs/tasks` batch)
+
+### 2026-02-28_02.08.45 all-method process-worker preflight
+- Source task: `docs/tasks/2026-02-28_02.08.45-all-method-process-worker-preflight.md`
+- All-method scheduling preflights process-worker availability before trying process-pool startup.
+- When workers are unavailable, CLI now falls back to thread-based config concurrency (single-config execution remains a last-resort fallback).
+- This keeps correctness unchanged while making restricted-runtime behavior clearer for operators.
+
+### 2026-02-28_03.32.49 single-profile all-matched interactive benchmark
+- Source task: `docs/tasks/2026-02-28_03.32.49-single-profile-all-matched-interactive-benchmark.md`
+- Interactive benchmark mode picker includes single-profile all-matched mode.
+- Mode runs one offline `labelstudio-benchmark` per matched target (no all-method expansion), preserving canonical-text scoring.
+- Outputs write under `<benchmark_timestamp>/single-profile-benchmark/<index_source_slug>/...`.
+
+### 2026-02-28_03.52.06 interactive codex-farm per-run prompt
+- Source task: `docs/tasks/2026-02-28_03.52.06-interactive-codex-farm-per-run-prompt.md`
+- `choose_run_settings(...)` is the shared codex hook for interactive import and benchmark flows.
+- Prompt sequence for codex-enabled runs is:
+  1. `Use Codex Farm recipe pipeline for this run?` (default `Yes`)
+  2. optional model override
+  3. optional reasoning effort override
+- `None`/cancel from these prompts cancels run setup cleanly.
+
+### 2026-02-28_03.59.43 benchmark split spinner harmonization
+- Source task: `docs/tasks/2026-02-28_03.59.43-benchmark-split-spinner-harmonization.md`
+- Split conversion now emits shared counter text from the first update (`Running split conversion... task 0/N`) and includes `(workers=N)` when parallel.
+- Split worker payloads are sanitized to RunSettings-only keys so worker logs avoid repeated unknown-key warnings.
+
+### 2026-02-28_04.14.07 codex-farm model picker in shared run-settings chooser
+- Source task: `docs/tasks/2026-02-28_04.14.07-codex-farm-model-picker-in-run-settings.md`
+- `choose_run_settings(...)` now uses a menu picker for codex model override instead of direct free-text prompt.
+- Picker contract:
+  - keep current value,
+  - pipeline default (shown when an override exists),
+  - discovered local models,
+  - custom model id fallback.
+- Reasoning-effort prompt behavior is unchanged and still follows model selection when codex is enabled.
+- Cancel/back from model or reasoning prompts cancels run setup cleanly for both import and benchmark interactive flows.

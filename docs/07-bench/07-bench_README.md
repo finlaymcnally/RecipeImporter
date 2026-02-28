@@ -27,10 +27,10 @@ Current scoring surfaces:
 
 - `bench speed-discover`: build deterministic speed suite from pulled gold exports.
 - `bench speed-run`: run timing scenarios (`stage_import`, `benchmark_canonical_legacy`, `benchmark_canonical_pipelined`, `benchmark_all_method_multi_source`).
-- Codex Farm permutations (recipe pass) can be included in all-method grids by passing `--include-codex-farm` to `bench speed-run` / `bench quality-run` (these commands enable `COOKIMPORT_ALLOW_CODEX_FARM=1` for the run). Optional overrides: `--codex-farm-model ...` and `--codex-farm-thinking-effort high` (or `--codex-farm-reasoning-effort`).
+- Codex Farm permutations (recipe pass) can be included in all-method grids by passing `--include-codex-farm` to `bench speed-run` / `bench quality-run`. Optional overrides: `--codex-farm-model ...` and `--codex-farm-thinking-effort high` (or `--codex-farm-reasoning-effort`).
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
 - `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; representative fallback). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
-- `bench quality-run`: run sequential all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). In runtimes that block process pools, quality-run auto-switches all-method `global` scope to `legacy` source-thread scheduling so multi-source rounds still use parallel source workers.
+- `bench quality-run`: run sequential all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). In runtimes that block process pools, quality-run keeps all-method `global` scope and falls back to thread-backed config workers.
 - `bench quality-leaderboard`: aggregate one quality-run experiment into a global cross-source config leaderboard and Pareto frontier.
 - `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-coverage regression gates.
 - `bench eval-stage --gold-spans ... --stage-run ...`: evaluate a stage run directly from `.bench/*/stage_block_predictions.json`.
@@ -573,7 +573,7 @@ Current-contract additions from this audit pack:
 
 ### 2026-02-28_02.05.26 all-method serial fallback in sandbox
 - Source: `docs/understandings/2026-02-28_02.05.26-all-method-serial-fallback-in-sandbox.md`
-- In restricted runtimes where process workers cannot create multiprocessing semaphores, all-method preflights process-pool availability and drops to single-config execution (correctness unchanged, throughput slower).
+- In restricted runtimes where process workers cannot create multiprocessing semaphores, all-method preflights process-pool availability and falls back to thread-backed config workers (single-config fallback remains last resort if thread setup also fails).
 
 ### 2026-02-28_02.12.40 quality-run race pruning contract
 - Source: `docs/understandings/2026-02-28_02.12.40-quality-run-race-pruning-contract.md`
@@ -586,7 +586,7 @@ Current-contract additions from this audit pack:
 
 ### 2026-02-28_02.28.08 quality-run global-to-legacy thread fallback
 - Source: `docs/understandings/2026-02-28_02.28.08-quality-run-global-to-legacy-thread-fallback.md`
-- When process pools are unavailable, preserving parallel source work requires fallback to legacy source-thread scheduling plus `max_parallel_sources > 1`.
+- Historical note (superseded): this described an earlier quality-run fallback that switched to legacy source-thread scheduling.
 
 ### 2026-02-28_02.28.30 quality leaderboard global config aggregation
 - Source: `docs/understandings/2026-02-28_02.28.30-quality-leaderboard-global-config-aggregation.md`
@@ -597,9 +597,13 @@ Current-contract additions from this audit pack:
 - Source: `docs/understandings/2026-02-28_02.33.20-quality-run-serial-root-cause.md`
 - Apparent serial quality-run behavior in this sandbox was environment-limited (`ProcessPoolExecutor` semaphore permission errors), not scheduler logic regression.
 
+### 2026-02-28_04.16.21 all-method processpool semlock sandbox thread fallback
+- Source: `docs/understandings/2026-02-28_04.16.21-all-method-processpool-semlock-sandbox-thread-fallback.md`
+- Sandbox `/dev/shm` restrictions can block `SemLock`; all-method now keeps `global` scope and falls back to thread-backed config workers instead of immediate serial execution.
+
 ### 2026-02-28_02.58.54 codex-farm bench enablement smoke findings
 - Source: `docs/understandings/2026-02-28_02.58.54-codex-farm-bench-enablement-smoke-findings.md`
-- `bench speed-run`/`quality-run` Codex variants become effective only with both `--include-codex-farm` and `COOKIMPORT_ALLOW_CODEX_FARM=1`, plus a resolvable `codex-farm` command.
+- `bench speed-run`/`quality-run` Codex variants become effective with `--include-codex-farm` plus a resolvable `codex-farm` command.
 - DOCX codex variant failed fast when no `full_text` blocks were available; EPUB-only smoke reached pass stages but had one observed stuck/no-final-summary session in this sandbox.
 
 ### 2026-02-28_03.04.14 qualitysuite profile save and cache boundaries
@@ -612,3 +616,72 @@ Current-contract additions from this audit pack:
 - Source: `docs/understandings/2026-02-28_03.08.55-quality-leaderboard-winner-profile-source-of-truth.md`
 - Winner settings should prefer `run_manifest.run_config.prediction_run_config` (when present) to match scored variant dimensions.
 - `bench quality-leaderboard` now persists winner profile to `data/.history/qualitysuite_winner_run_settings.json` for interactive chooser reuse.
+
+## 2026-02-28 migrated understandings batch (03:25-03:59)
+
+The items below were merged from `docs/understandings` in timestamp order and folded into benchmark current-state guidance.
+
+### 2026-02-28_03.25.10 quality-suite deterministic sweep coverage
+- `bench quality-run` supports `--include-deterministic-sweeps` and forwards it through `_build_all_method_target_variants(...)`.
+- Default remains off, so historical quality runs are unchanged unless explicitly enabled.
+- Deterministic sweep coverage can be driven by this flag, schema-v2 experiment levers, or both.
+
+### 2026-02-28_03.25.34 all-method 869 config count breakdown
+- For one observed interactive run with deterministic sweeps enabled (`6` EPUB + `1` DOCX matched sources):
+  - sweep payloads: `11` (`base`, nine single-knob variants, `all_upgrades`),
+  - EPUB variants per sweep: `13`, DOCX variants per sweep: `1`,
+  - total: `6 * 11 * 13 + 1 * 11 * 1 = 869`.
+- Optional dependency presence changes sweep payload count (for that run: `pint` present; `pysbd`/`quantulum3` absent).
+
+### 2026-02-28_03.27.17 preferred-profile is a seed, not a one-config lock
+- Interactive `Run with preferred format` seeds base `RunSettings`; all-method variant expansion still runs.
+- Example mix `6` EPUB + `1` DOCX yields `79` configs (`78` EPUB variants + `1` DOCX variant), not `7`.
+
+### 2026-02-28_03.30.47 quality-run helpfulness workflow for deterministic sweeps
+- To measure sweep usefulness: run `quality-run` with deterministic sweeps, then inspect `quality-leaderboard` by `dimensions.deterministic_sweep`.
+- For cleaner one-knob attribution, keep sweep expansion off and use schema-v2 levers/experiments.
+
+### 2026-02-28_03.32.48 single-profile all-matched benchmark mode
+- Interactive benchmark has a middle path: `single_offline_all_matched` (one selected profile per matched target, no all-method permutations).
+- Run cardinality is exactly matched target count, with outputs under `<run_ts>/single-profile-benchmark/<index_source_slug>/`.
+
+### 2026-02-28_03.44.53 Codex Farm prompt expectations in single-profile mode
+- `single_offline_all_matched` does not ask the all-method-only `Include Codex Farm permutations?` prompt.
+- Single/offline/single-profile modes rely on run-settings `llm_recipe_pipeline`; all-method keeps its separate permutations prompt.
+
+### 2026-02-28_03.58.19 speed-suite `max_targets` can explain tiny diagnostics samples
+- Diagnostics can show `1 eval` when latest benchmark rows came from a speed-suite run with `max_targets=1`.
+- Always check the latest speed run `suite_resolved.json` and `run_manifest.json` before treating low eval counts as dashboard breakage.
+
+### 2026-02-28_03.59.44 benchmark split progress + worker-config sanitization
+- Split conversion progress should use shared task-counter messaging (`task X/Y`, including initial `0/Y`) for spinner consistency.
+- Split worker subprocess config should include only `RunSettings` keys; report-only metadata keys should stay in persisted run metadata, not worker init payloads.
+
+## 2026-02-28 merged task specs (`docs/tasks` batch)
+
+### 2026-02-28_00.45.27 quality-suite curated CUTDOWN defaults
+- Source task: `docs/tasks/2026-02-28_00.45.27-quality-suite-curated-cutdown-targets.md`
+- `bench quality-discover` now prioritizes curated focus IDs first when matched:
+  - `saltfatacidheatcutdown`
+  - `thefoodlabcutdown`
+  - `seaandsmokecutdown`
+- If curated IDs are absent, discovery keeps existing representative stratified fallback behavior.
+- Keep selection logic centralized in quality-suite discovery so downstream quality-run behavior stays deterministic and unchanged.
+
+### 2026-02-28_01.11.10 qualitysuite levers schema-v2 task merge
+- Source task: `docs/tasks/2026-02-28_01.11.10-qualitysuite-levers.md`
+- `bench quality-run` supports experiments schema v2 with `levers[]` and deterministic expansion:
+  - optional baseline experiment,
+  - one experiment per enabled lever,
+  - optional `all_on` merged experiment.
+- `all_on` merge is conflict-checked: if two enabled levers set the same key differently, expansion fails fast with explicit key conflicts.
+- Schema v2 also supports `all_method_runtime_patch` (parallelism/timeouts/sharding/scheduler knobs) and validates runtime keys before execution.
+- `experiments_resolved.json` is the canonical artifact for what was actually expanded and executed.
+
+### 2026-02-28_02.28.08 quality-run process-blocked fallback to legacy source threads
+- Source task: `docs/tasks/2026-02-28_02.28.08-quality-run-threaded-fallback-when-process-blocked.md`
+- `bench quality-run` probes process-worker availability and adapts runtime when blocked.
+- Adaptation applies when requested scheduler scope is `global`:
+  - keep `global` scheduler scope,
+  - run config workers on thread executor when process pools are unavailable.
+- Experiment-level execution remains sequential by design; adaptation affects per-experiment all-method throughput, not result semantics.

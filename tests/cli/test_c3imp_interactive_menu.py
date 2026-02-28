@@ -309,7 +309,6 @@ def test_choose_run_settings_prompt_can_enable_codex_for_run(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    monkeypatch.setenv("COOKIMPORT_ALLOW_CODEX_FARM", "1")
     global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
     monkeypatch.setattr(
         run_settings_flow,
@@ -340,11 +339,219 @@ def test_choose_run_settings_prompt_can_enable_codex_for_run(
     assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
 
 
+def test_choose_run_settings_prompt_defaults_codex_to_yes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_last_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_preferred_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    captured_default: list[bool] = []
+
+    def fake_confirm(*_args, **_kwargs):
+        captured_default.append(bool(_kwargs.get("default")))
+        return True
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="import",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda *_args, **_kwargs: "global",
+        back_action=object(),
+        prompt_confirm=fake_confirm,
+    )
+
+    assert selected is not None
+    assert captured_default == [True]
+    assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
+
+
+def test_choose_run_settings_prompt_collects_codex_model_and_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_last_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_preferred_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    menu_answers = iter(["global", "gpt-5.2", "high"])
+
+    def fake_menu_select(*_args, **_kwargs):
+        return next(menu_answers)
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="benchmark",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=fake_menu_select,
+        back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: True,
+        prompt_text=lambda *_args, **_kwargs: pytest.fail(
+            "prompt_text should not be used for non-custom codex model selection"
+        ),
+    )
+
+    assert selected is not None
+    assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
+    assert selected.codex_farm_model == "gpt-5.2"
+    assert selected.codex_farm_reasoning_effort is not None
+    assert selected.codex_farm_reasoning_effort.value == "high"
+
+
+def test_choose_run_settings_prompt_model_cancel_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_last_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_preferred_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    menu_answers = iter(["global", None])
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="import",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda *_args, **_kwargs: next(menu_answers),
+        back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: True,
+        prompt_text=lambda *_args, **_kwargs: pytest.fail(
+            "prompt_text should not be used when model picker is cancelled"
+        ),
+    )
+
+    assert selected is None
+
+
+def test_choose_run_settings_prompt_reasoning_back_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_last_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_preferred_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    back_action = object()
+    menu_answers = iter(["global", "gpt-5.2", back_action])
+
+    def fake_menu_select(*_args, **_kwargs):
+        return next(menu_answers)
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="benchmark",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=fake_menu_select,
+        back_action=back_action,
+        prompt_confirm=lambda *_args, **_kwargs: True,
+        prompt_text=lambda *_args, **_kwargs: pytest.fail(
+            "prompt_text should not be used for non-custom codex model selection"
+        ),
+    )
+
+    assert selected is None
+
+
+def test_choose_run_settings_prompt_custom_codex_model_and_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_last_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_preferred_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    menu_answers = iter(["global", "__custom__", "high"])
+
+    def fake_menu_select(*_args, **_kwargs):
+        return next(menu_answers)
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="benchmark",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=fake_menu_select,
+        back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: True,
+        prompt_text=lambda *_args, **_kwargs: "gpt-5.3-codex",
+    )
+
+    assert selected is not None
+    assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
+    assert selected.codex_farm_model == "gpt-5.3-codex"
+    assert selected.codex_farm_reasoning_effort is not None
+    assert selected.codex_farm_reasoning_effort.value == "high"
+
+
 def test_choose_run_settings_prompt_can_disable_codex_for_run(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    monkeypatch.setenv("COOKIMPORT_ALLOW_CODEX_FARM", "1")
     global_defaults = cli.RunSettings.from_dict(
         {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
         warn_context="test global defaults",
@@ -378,7 +585,7 @@ def test_choose_run_settings_prompt_can_disable_codex_for_run(
     assert selected.llm_recipe_pipeline.value == "off"
 
 
-def test_choose_run_settings_prompt_respects_codex_env_gate(
+def test_choose_run_settings_prompt_enables_codex_without_env_gate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -410,7 +617,7 @@ def test_choose_run_settings_prompt_respects_codex_env_gate(
     )
 
     assert selected is not None
-    assert selected.llm_recipe_pipeline.value == "off"
+    assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
 
 
 def test_choose_run_settings_prompt_cancel_returns_none(

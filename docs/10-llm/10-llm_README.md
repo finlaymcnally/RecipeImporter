@@ -3,22 +3,22 @@ summary: "Current LLM integration boundaries for codex-farm in stage, prediction
 read_when:
   - When changing codex-farm settings or pipeline IDs
   - When debugging pass4 knowledge or pass5 tag artifacts
-  - When auditing recipe pipeline policy-lock behavior
+  - When auditing recipe pipeline enablement/default behavior
   - When reconciling Label Studio prediction-run LLM wiring vs stage wiring
 ---
 
 # LLM Section Reference
 
-LLM usage in this repo is limited, optional, and explicitly gated.
+LLM usage in this repo is limited and optional.
 
 ## Runtime surface
 
 Settings and entrypoints:
 
-- `cookimport/config/run_settings.py` (canonical settings, UI choices, policy lock coercion)
-- `cookimport/cli.py` (stage + benchmark + Label Studio command normalization/gating)
+- `cookimport/config/run_settings.py` (canonical settings and UI choices)
+- `cookimport/cli.py` (stage + benchmark + Label Studio command normalization)
 - `cookimport/entrypoint.py` (saved settings -> stage defaults pass-through)
-- `cookimport/labelstudio/ingest.py` (prediction-run generation + recipe-pass gating)
+- `cookimport/labelstudio/ingest.py` (prediction-run generation + recipe-pass normalization)
 
 Stage execution paths:
 
@@ -28,7 +28,7 @@ Stage execution paths:
 - `cookimport/staging/writer.py` (stage block predictions writer receives pass4 snippet path)
 - `cookimport/staging/stage_block_predictions.py` (uses knowledge snippets for stage evidence labeling)
 
-Recipe codex-farm pass modules (implementation is present; recipe pass is env-gated via `COOKIMPORT_ALLOW_CODEX_FARM=1`):
+Recipe codex-farm pass modules:
 
 - `cookimport/llm/codex_farm_orchestrator.py` (pass1/pass2/pass3 orchestration)
 - `cookimport/llm/codex_farm_contracts.py` (strict pass1/2/3 bundle contracts)
@@ -59,11 +59,51 @@ Report/model plumbing:
 
 ## Policy boundary (current behavior)
 
-- `llm_recipe_pipeline` supports `off` and `codex-farm-3pass-v1`, but enabling Codex Farm requires `COOKIMPORT_ALLOW_CODEX_FARM=1`.
-- CLI and Label Studio prediction-run normalizers enforce the env gate (non-`off` values error unless unlocked).
-- `RunSettings.from_dict` coerces non-`off` values back to `off` with a warning unless `COOKIMPORT_ALLOW_CODEX_FARM=1` is set.
-- Bench all-method permutations include Codex Farm variants only when explicitly requested (for example `cookimport bench ... --include-codex-farm`) and unlocked via env.
+- `llm_recipe_pipeline` supports `off` and `codex-farm-3pass-v1` without env-gate coercion.
+- `RunSettings.from_dict`, CLI normalizers, and Label Studio prediction-run normalizers accept codex-farm values directly and only reject invalid enum values.
+- Interactive run setup asks `Use Codex Farm recipe pipeline for this run?` (default `Yes`) and then asks model/reasoning overrides when enabled.
+- Interactive all-method setup asks `Include Codex Farm permutations?` (default `Yes`); single/single-profile modes rely only on chosen run settings.
+- Global defaults remain deterministic with `llm_recipe_pipeline=off`.
+- `COOKIMPORT_ALLOW_CODEX_FARM` remains as a legacy no-op compatibility variable.
 - `codex_farm_failure_mode` still controls behavior for active LLM passes (`fail` or `fallback`).
+
+## 2026-02-28 merged task specs (`docs/tasks` batch)
+
+### 2026-02-28_02.31.09 enable codex-farm in benchmarks (historical gate phase)
+
+- Source task: `docs/tasks/2026-02-28_02.31.09-enable-codex-farm-in-benchmarks.md`
+- Added `--include-codex-farm` coverage in bench speed/quality all-method flows and made codex variants a real all-method dimension.
+- Historical note: this task used an env-gated rollout (`COOKIMPORT_ALLOW_CODEX_FARM=1`); that gating was later removed by `2026-02-28_04.05.00`.
+- Durable behavior that remains relevant:
+  - all-method codex variants are explicit/opt-in (`--include-codex-farm`),
+  - deterministic sweeps remain independent from codex inclusion choices.
+
+### 2026-02-28_02.48.43 codex-farm CLI setup for EPUB benchmark runs
+
+- Source task: `docs/tasks/2026-02-28_02.48.43-setup-codex-farm-cli-for-epub-benchmarks.md`
+- Captured operational dependency that benchmark/stage codex paths shell out to external `codex-farm`.
+- Recommended durable setup:
+  - prefer absolute `codex_farm_cmd` paths,
+  - set `codex_farm_root` to this repo’s `llm_pipelines` when using local packs,
+  - keep pass pipeline IDs aligned (`recipe.chunking.v1`, `recipe.schemaorg.v1`, `recipe.final.v1`).
+- Failure semantics:
+  - missing/unresolvable `codex-farm` should fail fast with explicit invocation errors.
+
+### 2026-02-28_03.37.51 unlock interactive llm recipe pipeline option
+
+- Source task: `docs/tasks/2026-02-28_03.37.51-unlock-interactive-llm-recipe-pipeline-option.md`
+- `run_settings_ui_specs()` now always includes `llm_recipe_pipeline=off|codex-farm-3pass-v1`.
+- `Change run settings...` no longer hides codex-farm based on env state.
+- This removed a repeated UX mismatch where runtime accepted codex values but editor choices hid them.
+
+### 2026-02-28_04.05.00 codex-farm always-on in interactive and normalizers
+
+- Source task: `docs/tasks/2026-02-28_04.05.00-codex-farm-always-on-in-interactive-and-normalizers.md`
+- Recipe codex-farm normalization is ungated in `RunSettings`, CLI, and Label Studio ingest paths.
+- Interactive defaults now bias to codex-enabled runs:
+  - per-run chooser prompt default `Yes`,
+  - all-method permutations prompt default `Yes`.
+- Bench/stage behavior remains explicit opt-in at command/profile level (`--include-codex-farm` and run-settings choices); no implicit global always-on execution.
 
 ## Active optional passes
 
@@ -127,7 +167,7 @@ These settings remain part of run settings and stage execution:
 - Pass4 knowledge harvesting and pass5 tag suggestions are stage-only flows; prediction-run generation does not execute those passes.
 - Benchmark prediction generation (`labelstudio-benchmark`) reuses that same prediction-run recipe-pass boundary.
 
-Recipe pass execution in prediction-run paths is env-gated via normalizers (`COOKIMPORT_ALLOW_CODEX_FARM=1`).
+Recipe pass execution in prediction-run paths follows selected run settings with no env gate.
 
 ## Test support + legacy modules
 
@@ -154,7 +194,7 @@ Merged source notes:
 - `docs/understandings/2026-02-27_19.51.50-llm-docs-parity-runtime-surface-map.md`
 
 Current-contract additions:
-- Stage-relevant LLM runtime remains centered on pass4 knowledge and pass5 tags; recipe pass1/2/3 is available but env-gated (`COOKIMPORT_ALLOW_CODEX_FARM=1`) for stage/pred-run use.
+- Stage-relevant LLM runtime remains centered on pass4 knowledge and pass5 tags; recipe pass1/2/3 is available for stage/pred-run use via run settings.
 - Prediction-run generation currently wires recipe-pass settings only; pass4/pass5 execution remains stage-only.
 - LLM docs should keep runtime-adjacent module coverage explicit (prediction wrappers, pass4 helper contracts/writer paths, pass5 provider/validation layer, stage evidence/report consumers).
 - Legacy modules (`client.py`, `prompts.py`, `repair.py`) remain non-primary runtime paths and should stay labeled accordingly.
@@ -168,7 +208,7 @@ Current-contract additions:
 
 ### 2026-02-28_03.17.29 Codex Farm opt-in command pattern
 - Source: `docs/understandings/2026-02-28_03.17.29-codex-farm-opt-in-command-pattern.md`
-- Keep global defaults deterministic (`llm_recipe_pipeline=off`); enable Codex Farm only per-command with explicit env gate and command wrapper.
+- Keep global defaults deterministic (`llm_recipe_pipeline=off`); enable Codex Farm per command/profile.
 - Absolute `codex_farm_cmd` paths avoid PATH fragility when Codex Farm is outside shell defaults.
 
 ### 2026-02-28_03.19.05 Oracle gpt-5.2-thinking browser blocker
@@ -177,5 +217,23 @@ Current-contract additions:
 
 ### 2026-02-28_03.19.48 interactive Codex Farm gate and launcher
 - Source: `docs/understandings/2026-02-28_03.19.48-interactive-codex-farm-gate-and-launcher.md`
-- Interactive mode already respects run-settings `llm_recipe_pipeline`; Codex Farm still requires `COOKIMPORT_ALLOW_CODEX_FARM=1`.
-- Wrapper launcher pattern (`scripts/interactive-with-codex-farm.sh`) enables opt-in sessions without changing default interactive behavior.
+- Interactive mode already respects run-settings `llm_recipe_pipeline`; no additional interactive-only gate path is required.
+- Wrapper launcher pattern (`scripts/interactive-with-codex-farm.sh`) remains useful when you want codex-enabled sessions with preset command/model flags.
+
+## 2026-02-28 migrated understandings batch (03:47-04:01)
+
+The items below were merged from `docs/understandings` in timestamp order and folded into LLM current-state guidance.
+
+### 2026-02-28_03.47.42 Oracle codex-farm prompt-tightening priorities
+- External review found deterministic/schema-safety under-specification across pass prompts.
+- Priority order for highest-impact tightening was:
+  1. pass2 (`recipe.schemaorg.v1`)
+  2. pass3 (`recipe.final.v1`)
+  3. pass1 (`recipe.chunking.v1`)
+  4. pass4/pass5 (medium impact)
+- High-value wording improvements: explicit omit-vs-guess policy, tie-break rules, strict evidence language, stable ordering, and no-extra-properties constraints.
+
+### 2026-02-28_04.01.52 codex toggle vs effective run settings
+- Prompt-time codex selection can diverge from persisted effective run settings when normalization/gating code changes around run time.
+- For run `2026-02-28_03.54.15`, artifacts showed `llm_recipe_pipeline=off` and `llm_codex_farm.enabled=false`; nearby file edits around `04:00` explain likely normalization drift during that session.
+- For incident triage, trust persisted run artifacts (`run_manifest`, run settings snapshot) over assumptions from current head code.

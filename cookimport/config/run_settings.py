@@ -96,8 +96,7 @@ _SUMMARY_ORDER = (
 RECIPE_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
 
 RECIPE_CODEX_FARM_PIPELINE_POLICY = (
-    "Recipe codex-farm parsing correction is disabled unless explicitly unlocked. "
-    f"Set {RECIPE_CODEX_FARM_UNLOCK_ENV}=1 to allow llm_recipe_pipeline=codex-farm-3pass-v1."
+    "Recipe codex-farm parsing correction supports 'off' and 'codex-farm-3pass-v1'."
 )
 
 RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR = (
@@ -873,8 +872,7 @@ class RunSettings(BaseModel):
             label="Recipe LLM Pipeline",
             order=110,
             description=(
-                "Recipe codex-farm parsing correction. "
-                f"Use codex-farm-3pass-v1 only when {RECIPE_CODEX_FARM_UNLOCK_ENV}=1."
+                "Recipe codex-farm parsing correction."
             ),
         ),
     )
@@ -1140,16 +1138,7 @@ class RunSettings(BaseModel):
             if normalized_recipe_pipeline == LlmRecipePipeline.off.value:
                 pass
             elif normalized_recipe_pipeline == LlmRecipePipeline.codex_farm_3pass_v1.value:
-                if os.getenv(RECIPE_CODEX_FARM_UNLOCK_ENV, "").strip() != "1":
-                    logger.warning(
-                        "Forcing llm_recipe_pipeline=off in %s because recipe codex-farm parsing "
-                        "correction is disabled unless explicitly unlocked. Ignoring value %r. "
-                        "Set %s=1 to allow it.",
-                        warn_context,
-                        llm_recipe_pipeline_raw,
-                        RECIPE_CODEX_FARM_UNLOCK_ENV,
-                    )
-                    data["llm_recipe_pipeline"] = LlmRecipePipeline.off.value
+                pass
             else:
                 logger.warning(
                     "Forcing llm_recipe_pipeline=off in %s because recipe codex-farm parsing "
@@ -1295,13 +1284,10 @@ def run_settings_ui_specs() -> list[RunSettingUiSpec]:
         if value_kind == "enum" and isinstance(annotation, type) and issubclass(annotation, Enum):
             choices = tuple(str(member.value) for member in annotation)
             if field_name == "llm_recipe_pipeline":
-                if os.getenv(RECIPE_CODEX_FARM_UNLOCK_ENV, "").strip() == "1":
-                    choices = (
-                        LlmRecipePipeline.off.value,
-                        LlmRecipePipeline.codex_farm_3pass_v1.value,
-                    )
-                else:
-                    choices = (LlmRecipePipeline.off.value,)
+                choices = (
+                    LlmRecipePipeline.off.value,
+                    LlmRecipePipeline.codex_farm_3pass_v1.value,
+                )
             elif field_name == "epub_extractor":
                 choices = epub_extractor_enabled_choices()
             if allows_none:

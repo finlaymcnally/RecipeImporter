@@ -365,3 +365,16 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 ### 2026-02-28_00.54.00 stage block howto emission range and remap notes
 - Source: `docs/understandings/2026-02-28_00.54.00-stage-block-howto-emission-range-and-remap-notes.md`
 - Summary: Documented the fix shape for line-range provenance mapping and prediction-side `HOWTO_SECTION` remap parity required for benchmark-safe auto-emission.
+
+## 2026-02-28 task consolidation (migrated from `docs/tasks`)
+
+### 2026-02-28_00.42.17 deterministic importer-side `HOWTO_SECTION` auto-emission
+- Source task: `docs/tasks/2026-02-28_00.42.17-howto-section-importer-auto-emission.md`
+- Current staging contract:
+  - `cookimport/staging/stage_block_predictions.py` emits `HOWTO_SECTION` deterministically from ingredient/instruction section-header evidence.
+  - Recipe-local labeling now falls back from block ranges to provenance line ranges (`start_line`/`end_line`) when needed, so text-import recipes are no longer forced to all-`OTHER`.
+  - Conflict priority preserves `HOWTO_SECTION` when header lines also match structural ingredient/instruction heuristics.
+- Benchmark parity note:
+  - Scoring-side `HOWTO_SECTION` remap is handled in benchmark evaluators before metrics (`docs/07-bench/07-bench_README.md`), so staging can emit richer labels without shifting structural metric semantics.
+- Durable gotcha:
+  - Per-label benchmark counters can show `HOWTO_SECTION.pred_total == 0` in structural reports because predictions are resolved to ingredient/instruction classes before scoring by design.

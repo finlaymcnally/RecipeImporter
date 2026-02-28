@@ -6,4 +6,4 @@ Recipe codex-farm flow is implemented in `codex_farm_orchestrator.py` with stric
 
 Run settings now include explicit pass pipeline ids (`codex_farm_pipeline_pass1/2/3`) plus optional workspace override (`codex_farm_workspace_root`) so recipeimport can target external codex-farm pipeline packs without code edits.
 
-Default behavior remains deterministic unless `llm_recipe_pipeline=codex-farm-3pass-v1` is explicitly enabled (requires `COOKIMPORT_ALLOW_CODEX_FARM=1`).
+Default behavior remains deterministic unless `llm_recipe_pipeline=codex-farm-3pass-v1` is explicitly enabled.

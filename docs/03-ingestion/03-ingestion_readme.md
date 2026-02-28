@@ -95,7 +95,7 @@ OCR:
 - Creates run output directory using timestamp format `%Y-%m-%d_%H.%M.%S`.
 - Builds `base_mapping` once and always passes it to workers.
 - Builds `RunSettings` and `runConfig` (workers/split knobs, EPUB extractor + unstructured knobs, OCR, table extraction, section + multi-recipe backends, LLM settings, mapping/overrides paths, and markdown sidecar setting).
-- `RunSettings.from_dict(...)` env-gates recipe codex-farm parsing: it coerces `llm_recipe_pipeline` back to `off` unless `COOKIMPORT_ALLOW_CODEX_FARM=1` is set.
+- `RunSettings.from_dict(...)` validates recipe codex-farm parsing values and accepts `llm_recipe_pipeline=codex-farm-3pass-v1` without env gating.
 - Plans jobs with `_plan_jobs(...)`.
 - Executes with `ProcessPoolExecutor`; on `PermissionError`, falls back to serial execution.
 - Writes run heartbeat telemetry to `<run_out>/processing_timeseries.jsonl` while stage is active.
@@ -456,7 +456,7 @@ Reporting/perf:
 - Report includes `recipeLikeness` summary payload (backend/version, thresholds, tier counts, score stats, rejected count).
 - Report now includes `runConfig` for run-level knobs (including `epub_extractor`, unstructured parser/preprocess flags, `multi_recipe_*` splitter settings, worker counts, OCR settings, split sizes, and optional mapping/overrides paths).
 - Report includes `runConfigHash` and `runConfigSummary` for reproducibility and history grouping.
-- Report includes `llmCodexFarm` status payload (recipe pipeline stays `off` unless run settings enable it and `COOKIMPORT_ALLOW_CODEX_FARM=1` is set).
+- Report includes `llmCodexFarm` status payload (recipe pipeline stays `off` unless run settings enable it).
 - Report can include `outputStats` (counts/bytes/largest files by category).
 - Stage appends per-file summary rows into:
   - `data/.history/performance_history.csv`
@@ -490,7 +490,7 @@ Stage CLI options (key ones):
 - `--recipe-score-bronze-min`
 - `--recipe-score-min-ingredient-lines`
 - `--recipe-score-min-instruction-lines`
-- `--llm-recipe-pipeline` (`off|codex-farm-3pass-v1`; Codex Farm requires `COOKIMPORT_ALLOW_CODEX_FARM=1`)
+- `--llm-recipe-pipeline` (`off|codex-farm-3pass-v1`)
 - `--llm-knowledge-pipeline`
 - `--llm-tags-pipeline`
 - `--multi-recipe-splitter`

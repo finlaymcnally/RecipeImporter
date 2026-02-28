@@ -8,17 +8,90 @@ read_when:
 
 This file is the anti-loop log for CLI work. Read it before retrying approaches that may already have failed.
 
+### 2026-02-28_04.14.07 codex-farm model picker in shared run-settings flow
+
+Source task file:
+- `docs/tasks/2026-02-28_04.14.07-codex-farm-model-picker-in-run-settings.md`
+
+Preserved finding:
+- Free-text codex model entry in interactive run setup was error-prone and inconsistent with existing model-picker UX.
+
+Current rule:
+- `choose_run_settings(...)` uses a picker for codex model override in both import and benchmark flows.
+- Picker offers:
+  - keep current value,
+  - pipeline default (when an override exists),
+  - discovered local models,
+  - custom model id fallback.
+- Reasoning-effort prompt behavior remains unchanged.
+- Cancel/back from model or reasoning prompts returns `None` and cleanly cancels run setup.
+
+Task-spec evidence merged:
+- Targeted verification subset:
+  - `. .venv/bin/activate && COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1 pytest -o addopts='' tests/cli/test_c3imp_interactive_menu.py -vv -k "collects_codex_model_and_reasoning or model_cancel_returns_none or reasoning_back_returns_none or custom_codex_model_and_reasoning" --tb=short --show-capture=all --assert=rewrite`
+- Broader chooser regression:
+  - `. .venv/bin/activate && pytest tests/cli/test_c3imp_interactive_menu.py -q`
+
+### 2026-02-28_04.05.00 codex-farm always-on interactive defaults and ungated normalizers
+
+Source task file:
+- `docs/tasks/2026-02-28_04.05.00-codex-farm-always-on-in-interactive-and-normalizers.md`
+
+Preserved finding:
+- Users wanted Codex Farm on now, visible everywhere in interactive setup, without env-gate friction.
+
+Current rule:
+- Recipe Codex Farm is no longer gated by `COOKIMPORT_ALLOW_CODEX_FARM` in run-settings/CLI/labelstudio normalizers.
+- Interactive chooser prompt `Use Codex Farm recipe pipeline for this run?` defaults to `Yes`.
+- Interactive all-method prompt `Include Codex Farm permutations?` defaults to `Yes`.
+- Codex model and reasoning override prompts still appear when codex is enabled for the run.
+- Supersedes older env-gate notes later in this file (`03:37-03:57` merged-understanding batch).
+
+### 2026-02-28_03.59.43 benchmark split-conversion spinner harmonization
+
+Source task file:
+- `docs/tasks/2026-02-28_03.59.43-benchmark-split-spinner-harmonization.md`
+
+Preserved finding:
+- Benchmark import split conversion emitted phase-only start text plus `Completed split job X/Y`; spinner ETA/counter behavior was less consistent than other benchmark spinners.
+- Split worker subprocesses also received report-only run-config keys, causing repeated `Ignoring unknown ... keys` warnings that interrupted spinner output.
+
+Current rule:
+- Split conversion progress callbacks should emit `Running split conversion... task X/Y` from `0/Y` onward, appending `(workers=N)` when parallel workers are active.
+- Split worker subprocesses should receive RunSettings-only config payloads; report metadata-only keys stay in the persisted run config for output artifacts.
+
+Task-spec evidence merged:
+- Verification command: `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_ingest_parallel.py -q -k "split_workers_emit_worker_activity"`.
+- Verification command: `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_ingest_parallel.py -q -k "run_labelstudio_import_emits_post_merge_progress or split_workers_emit_worker_activity"`.
+- Implementation touchpoints:
+  - `cookimport/labelstudio/ingest.py` split progress callback path
+  - worker payload sanitization (`worker_run_config`) for split subprocesses
+  - `tests/labelstudio/test_labelstudio_ingest_parallel.py` assertions for `task 0/3` and `task 3/3`
+
 ### 2026-02-28_03.51.54 per-run codex-farm prompt in interactive run-settings chooser
+
+Source task file:
+- `docs/tasks/2026-02-28_03.52.06-interactive-codex-farm-per-run-prompt.md`
 
 Preserved finding:
 - Operators wanted an explicit per-run codex-farm decision during interactive setup, not only hidden in run-settings editor/all-method prompts.
 
 Current rule:
 - `choose_run_settings(...)` now asks `Use Codex Farm recipe pipeline for this run?` after selecting profile/edit result for both import and benchmark interactive flows.
-- Default answer mirrors current selected profile (`on` if `llm_recipe_pipeline=codex-farm-3pass-v1`, else `off`).
-- Policy lock remains intact: enabling still requires `COOKIMPORT_ALLOW_CODEX_FARM=1`; otherwise run settings stay `off`.
+- Default answer is now `Yes` so Codex Farm is on by default in interactive run setup.
+- When codex is enabled for the run, chooser immediately asks model override text + reasoning effort override so operators do not need to open the full settings editor.
+- Policy lock removed: recipe Codex Farm options are no longer gated by `COOKIMPORT_ALLOW_CODEX_FARM`.
+
+Task-spec evidence merged:
+- Cancel (`None`) from codex confirm prompt cleanly cancels run setup.
+- Verification commands:
+  - `. .venv/bin/activate && pytest tests/cli/test_c3imp_interactive_menu.py -q -k "choose_run_settings"`
+  - `. .venv/bin/activate && pytest tests/llm/test_run_settings.py -q -k "run_settings_ui_specs"`
 
 ### 2026-02-28_03.39.40 single-profile-all-matched interactive benchmark mode
+
+Source task file:
+- `docs/tasks/2026-02-28_03.32.49-single-profile-all-matched-interactive-benchmark.md`
 
 Preserved finding:
 - Operators needed a middle path between one-off single offline runs and full all-method permutations: run one selected profile across every matched freeform gold/source pair.
@@ -29,9 +102,29 @@ Current rule:
 - No all-method variant expansion is applied; run count is one config per matched target.
 - Per-source eval artifacts are written under `<benchmark_timestamp>/single-profile-benchmark/<index_source_slug>/`.
 
-Update (2026-02-28_03.46):
-- Run-settings editor now shows `llm_recipe_pipeline=codex-farm-3pass-v1` only when `COOKIMPORT_ALLOW_CODEX_FARM=1` is set.
-- Without the env unlock, interactive editor keeps recipe pipeline locked to `off`.
+Update (2026-02-28_04.04):
+- Run-settings editor now always shows `llm_recipe_pipeline=off|codex-farm-3pass-v1` (no env gate).
+
+Task-spec evidence merged:
+- Verification command: `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -q`.
+- Primary implementation path: `cookimport/cli.py:_interactive_single_profile_all_matched_benchmark(...)`.
+
+### 2026-02-28_02.08.45 all-method process-worker preflight
+
+Source task file:
+- `docs/tasks/2026-02-28_02.08.45-all-method-process-worker-preflight.md`
+
+Preserved finding:
+- Restricted runtimes frequently failed process-pool startup and logged "falling back to serial mode," which looked like runtime breakage even when runs were healthy.
+
+Current rule:
+- All-method startup now probes process-worker availability before attempting parallel config scheduling.
+- When workers are unavailable, runner chooses single-config execution directly instead of emitting old fallback wording.
+- Defensive executor error handling remains for rare mid-run failures.
+
+Task-spec evidence merged:
+- Verification command: `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -q`.
+- Primary implementation path: `cookimport/cli.py` all-method scheduler startup helpers and status wording.
 
 ### 2026-02-28_03.04.14 dual saved run-settings profiles
 
@@ -559,3 +652,48 @@ Outcome preserved:
 
 Anti-loop note:
 - If benchmark menu options diverge again between single-offline and all-method, audit `_interactive_mode(...)` benchmark branch wiring first before changing chooser internals.
+
+## 2026-02-28 migrated understanding ledger (03:37-03:57 CLI codex setup batch)
+
+### 2026-02-28_03.37.41 interactive llm recipe pipeline UI gate
+
+Source: `docs/understandings/2026-02-28_03.37.41-interactive-llm-recipe-pipeline-ui-gate.md`
+
+Problem captured:
+- Runtime parser accepted codex recipe pipeline under env unlock, but interactive editor hid that option.
+
+Durable decision:
+- `run_settings_ui_specs()` now conditionally exposes `codex-farm-3pass-v1` for `llm_recipe_pipeline` only when `COOKIMPORT_ALLOW_CODEX_FARM=1`.
+
+Anti-loop note:
+- If interactive users cannot select codex pipeline, check UI enum generation before changing run-settings normalization.
+
+### 2026-02-28_03.44.53 single-profile benchmark codex menu behavior
+
+Source: `docs/understandings/2026-02-28_03.44.53-single-profile-benchmark-codex-menu-behavior.md`
+
+Findings preserved:
+- Single-profile all-matched benchmark intentionally does not use all-method codex permutation prompt.
+- In single-profile flow, codex on/off comes from run-settings chooser payload and env gate.
+
+### 2026-02-28_03.52.23 shared run-settings chooser as codex prompt hook
+
+Source: `docs/understandings/2026-02-28_03.52.23-shared-run-settings-chooser-is-codex-prompt-hook.md`
+
+Findings preserved:
+- `choose_run_settings(...)` is a shared choke point for import and benchmark interactive setup.
+- Placing codex prompts there guarantees consistent per-run behavior across interactive entrypoints.
+
+### 2026-02-28_03.57.17 codex toggle needs model/reasoning follow-up
+
+Source: `docs/understandings/2026-02-28_03.57.17-codex-toggle-needs-model-reasoning-followup.md`
+
+Problem captured:
+- Per-run codex enable prompt without immediate model/reasoning prompts forced users into extra menu hops.
+
+Durable decision:
+- When codex is enabled in chooser flow, immediately prompt for model override and reasoning effort override.
+- Preserve env gate behavior: if `COOKIMPORT_ALLOW_CODEX_FARM` is not enabled, recipe pipeline remains `off` and follow-up prompts are skipped.
+
+Anti-loop note:
+- Missing model/reasoning prompts after codex enablement is chooser-flow regression, not benchmark-mode-specific behavior.

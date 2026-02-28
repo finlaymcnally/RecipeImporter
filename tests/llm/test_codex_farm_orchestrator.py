@@ -23,7 +23,11 @@ from cookimport.llm.codex_farm_orchestrator import (
     PASS3_PIPELINE_ID,
     run_codex_farm_recipe_pipeline,
 )
-from cookimport.llm.codex_farm_runner import CodexFarmRunnerError, SubprocessCodexFarmRunner
+from cookimport.llm.codex_farm_runner import (
+    CodexFarmRunnerError,
+    SubprocessCodexFarmRunner,
+    list_codex_farm_models,
+)
 from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner
 
 
@@ -366,3 +370,100 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
     assert "gpt-test-model" in command
     assert "--reasoning-effort" in command
     assert "low" in command
+
+
+def test_list_codex_farm_models_uses_json_cli_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_run(command, **kwargs):  # noqa: ANN001
+        captured["command"] = list(command)
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                [
+                    {
+                        "slug": "gpt-5.3-codex",
+                        "display_name": "GPT-5.3",
+                        "description": "frontier",
+                        "supported_reasoning_efforts": ["low", "medium"],
+                    }
+                ]
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    rows = list_codex_farm_models(cmd="/tmp/codex-farm")
+
+    assert rows == [
+        {
+            "slug": "gpt-5.3-codex",
+            "display_name": "GPT-5.3",
+            "description": "frontier",
+            "supported_reasoning_efforts": ["low", "medium"],
+        }
+    ]
+    command = captured.get("command")
+    assert isinstance(command, list)
+    assert command == ["/tmp/codex-farm", "models", "list", "--json"]
+    kwargs = captured.get("kwargs")
+    assert isinstance(kwargs, dict)
+    assert kwargs.get("text") is True
+    assert kwargs.get("capture_output") is True
+    assert kwargs.get("check") is False
+
+
+def test_subprocess_runner_uses_run_errors_followup_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+
+    calls: list[list[str]] = []
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        argv = list(command)
+        calls.append(argv)
+        if argv[1:3] == ["process", "--pipeline"]:
+            return SimpleNamespace(
+                returncode=1,
+                stdout=json.dumps(
+                    {
+                        "run_id": "run-123",
+                        "status": "failed",
+                        "exit_code": 1,
+                    }
+                ),
+                stderr="pipeline failed",
+            )
+        if argv[1:3] == ["run", "errors"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "errors": [
+                            {"message": "simulated worker error"},
+                        ]
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {argv}")
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    runner = SubprocessCodexFarmRunner(cmd="codex-farm")
+    with pytest.raises(CodexFarmRunnerError) as exc_info:
+        runner.run_pipeline("recipe.chunking.v1", in_dir, out_dir, {})
+
+    assert "run-123" in str(exc_info.value)
+    assert "simulated worker error" in str(exc_info.value)
+    assert len(calls) == 2
+    assert calls[1] == ["codex-farm", "run", "errors", "--run-id", "run-123", "--json"]

@@ -50,8 +50,6 @@ from cookimport.config.last_run_store import (
     save_qualitysuite_winner_run_settings,
 )
 from cookimport.config.run_settings import (
-    RECIPE_CODEX_FARM_PIPELINE_POLICY,
-    RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR,
     RunSettings,
     build_run_settings,
     compute_effective_workers,
@@ -1844,7 +1842,7 @@ def _interactive_all_method_benchmark(
                 fg=typer.colors.BRIGHT_BLACK,
             )
     typer.secho(
-        f"Codex Farm permutations require {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1.",
+        "Codex Farm permutations are available for all-method runs.",
         fg=typer.colors.BRIGHT_BLACK,
     )
     typer.secho(
@@ -1854,7 +1852,7 @@ def _interactive_all_method_benchmark(
 
     include_codex_prompt = _prompt_confirm(
         "Include Codex Farm permutations?",
-        default=False,
+        default=True,
     )
     if include_codex_prompt is None:
         typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)
@@ -2462,6 +2460,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 menu_select=_menu_select,
                 back_action=BACK_ACTION,
                 prompt_confirm=_prompt_confirm,
+                prompt_text=_prompt_text,
             )
             if selected_run_settings is None:
                 typer.secho("Import cancelled.", fg=typer.colors.YELLOW)
@@ -2938,6 +2937,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 menu_select=_menu_select,
                 back_action=BACK_ACTION,
                 prompt_confirm=_prompt_confirm,
+                prompt_text=_prompt_text,
             )
             if selected_benchmark_settings is None:
                 typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
@@ -3506,14 +3506,7 @@ def _normalize_llm_recipe_pipeline(value: str) -> str:
     if normalized == "off":
         return normalized
     if normalized == "codex-farm-3pass-v1":
-        if os.getenv(ALL_METHOD_CODEX_FARM_UNLOCK_ENV, "").strip() == "1":
-            return normalized
-        _fail(
-            f"Invalid LLM recipe pipeline: {value!r}. "
-            f"{RECIPE_CODEX_FARM_PIPELINE_POLICY} "
-            f"Set {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1 to enable."
-        )
-        return "off"
+        return normalized
     _fail(
         f"Invalid LLM recipe pipeline: {value!r}. "
         "Expected one of: off, codex-farm-3pass-v1."
@@ -6993,13 +6986,6 @@ def _build_all_method_target_variants(
 def _resolve_all_method_codex_choice(include_codex_farm: bool) -> tuple[bool, str | None]:
     if not include_codex_farm:
         return False, None
-    if os.getenv(ALL_METHOD_CODEX_FARM_UNLOCK_ENV, "").strip() != "1":
-        return (
-            False,
-            "Codex Farm is disabled unless explicitly unlocked; "
-            f"set {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1 to enable. "
-            "Continuing without Codex Farm permutations.",
-        )
     return True, None
 
 
@@ -9503,6 +9489,7 @@ def _run_all_method_benchmark_global_queue(
         if serial_by_limits:
             _run_serial_items(items, dashboard_tracking=dashboard_tracking)
             return
+        executor_backend = "process"
         process_workers_available, process_worker_error = (
             _probe_all_method_process_pool_executor()
         )
@@ -9515,12 +9502,11 @@ def _run_all_method_benchmark_global_queue(
             _emit_status(
                 (
                     "Process-based config concurrency unavailable"
-                    f"{detail}; running single-config execution."
+                    f"{detail}; using thread-based config concurrency."
                 ),
                 color=typer.colors.YELLOW,
             )
-            _run_serial_items(items, dashboard_tracking=dashboard_tracking)
-            return
+            executor_backend = "thread"
 
         pending_items = list(items)
         futures: dict[Any, tuple[_AllMethodGlobalWorkItem, float]] = {}
@@ -9532,17 +9518,43 @@ def _run_all_method_benchmark_global_queue(
         scheduler_smart_enabled = bool(effective_smart_scheduler)
 
         try:
-            executor = ProcessPoolExecutor(max_workers=worker_limit)
-        except (PermissionError, OSError) as exc:
-            _emit_status(
-                (
-                    "Process-based config concurrency unavailable "
-                    f"({exc}); running single-config execution."
-                ),
-                color=typer.colors.YELLOW,
+            executor = (
+                ProcessPoolExecutor(max_workers=worker_limit)
+                if executor_backend == "process"
+                else ThreadPoolExecutor(max_workers=worker_limit)
             )
-            _run_serial_items(items, dashboard_tracking=dashboard_tracking)
-            return
+        except (PermissionError, OSError) as exc:
+            if executor_backend == "process":
+                _emit_status(
+                    (
+                        "Process-based config concurrency unavailable "
+                        f"({exc}); using thread-based config concurrency."
+                    ),
+                    color=typer.colors.YELLOW,
+                )
+                executor_backend = "thread"
+                try:
+                    executor = ThreadPoolExecutor(max_workers=worker_limit)
+                except Exception as thread_exc:  # noqa: BLE001
+                    _emit_status(
+                        (
+                            "Thread-based config concurrency unavailable "
+                            f"({thread_exc}); running single-config execution."
+                        ),
+                        color=typer.colors.YELLOW,
+                    )
+                    _run_serial_items(items, dashboard_tracking=dashboard_tracking)
+                    return
+            else:
+                _emit_status(
+                    (
+                        "Thread-based config concurrency unavailable "
+                        f"({exc}); running single-config execution."
+                    ),
+                    color=typer.colors.YELLOW,
+                )
+                _run_serial_items(items, dashboard_tracking=dashboard_tracking)
+                return
 
         def _record_completion(
             *,
@@ -9734,7 +9746,10 @@ def _run_all_method_benchmark_global_queue(
                         row=_annotate_prediction_row(item=item, row=row),
                     )
 
-                if effective_config_timeout_seconds is None:
+                if (
+                    effective_config_timeout_seconds is None
+                    or executor_backend != "process"
+                ):
                     continue
                 timeout_threshold = float(max(1, effective_config_timeout_seconds))
                 now = time.monotonic()
@@ -9779,7 +9794,7 @@ def _run_all_method_benchmark_global_queue(
                 _emit_status(
                     (
                         "Config timeout reached for "
-                        f"{len(timed_out)} run(s); restarting worker pool."
+                        f"{len(timed_out)} run(s); restarting process worker pool."
                     ),
                     color=typer.colors.YELLOW,
                 )
@@ -9795,17 +9810,28 @@ def _run_all_method_benchmark_global_queue(
                     _emit_status(
                         (
                             "Process-based config concurrency unavailable after timeout "
-                            f"restart ({exc}); running remaining configs as single-config execution."
+                            f"restart ({exc}); using thread-based config concurrency for remaining configs."
                         ),
                         color=typer.colors.YELLOW,
                     )
-                    _run_serial_items(
-                        pending_items,
-                        dashboard_tracking=dashboard_tracking,
-                    )
-                    pending_items.clear()
-                    futures.clear()
-                    break
+                    executor_backend = "thread"
+                    try:
+                        executor = ThreadPoolExecutor(max_workers=worker_limit)
+                    except Exception as thread_exc:  # noqa: BLE001
+                        _emit_status(
+                            (
+                                "Thread-based config concurrency unavailable "
+                                f"({thread_exc}); running remaining configs as single-config execution."
+                            ),
+                            color=typer.colors.YELLOW,
+                        )
+                        _run_serial_items(
+                            pending_items,
+                            dashboard_tracking=dashboard_tracking,
+                        )
+                        pending_items.clear()
+                        futures.clear()
+                        break
         finally:
             shutdown_fn = getattr(executor, "shutdown", None)
             if callable(shutdown_fn):
@@ -12584,6 +12610,7 @@ def _run_all_method_benchmark(
         if serial_by_limits:
             _run_serial_variants(items, dashboard_tracking=dashboard_tracking)
             return
+        executor_backend = "process"
         process_workers_available, process_worker_error = (
             _probe_all_method_process_pool_executor()
         )
@@ -12596,12 +12623,11 @@ def _run_all_method_benchmark(
             _emit_status(
                 (
                     "Process-based config concurrency unavailable"
-                    f"{detail}; running single-config execution."
+                    f"{detail}; using thread-based config concurrency."
                 ),
                 color=typer.colors.YELLOW,
             )
-            _run_serial_variants(items, dashboard_tracking=dashboard_tracking)
-            return
+            executor_backend = "thread"
 
         pending_items = list(items)
         futures: dict[Any, tuple[int, AllMethodVariant, float]] = {}
@@ -12612,17 +12638,43 @@ def _run_all_method_benchmark(
         )
 
         try:
-            executor = ProcessPoolExecutor(max_workers=worker_limit)
-        except (PermissionError, OSError) as exc:
-            _emit_status(
-                (
-                    "Process-based config concurrency unavailable "
-                    f"({exc}); running single-config execution."
-                ),
-                color=typer.colors.YELLOW,
+            executor = (
+                ProcessPoolExecutor(max_workers=worker_limit)
+                if executor_backend == "process"
+                else ThreadPoolExecutor(max_workers=worker_limit)
             )
-            _run_serial_variants(items, dashboard_tracking=dashboard_tracking)
-            return
+        except (PermissionError, OSError) as exc:
+            if executor_backend == "process":
+                _emit_status(
+                    (
+                        "Process-based config concurrency unavailable "
+                        f"({exc}); using thread-based config concurrency."
+                    ),
+                    color=typer.colors.YELLOW,
+                )
+                executor_backend = "thread"
+                try:
+                    executor = ThreadPoolExecutor(max_workers=worker_limit)
+                except Exception as thread_exc:  # noqa: BLE001
+                    _emit_status(
+                        (
+                            "Thread-based config concurrency unavailable "
+                            f"({thread_exc}); running single-config execution."
+                        ),
+                        color=typer.colors.YELLOW,
+                    )
+                    _run_serial_variants(items, dashboard_tracking=dashboard_tracking)
+                    return
+            else:
+                _emit_status(
+                    (
+                        "Thread-based config concurrency unavailable "
+                        f"({exc}); running single-config execution."
+                    ),
+                    color=typer.colors.YELLOW,
+                )
+                _run_serial_variants(items, dashboard_tracking=dashboard_tracking)
+                return
 
         def _record_completion(
             *,
@@ -12834,7 +12886,10 @@ def _run_all_method_benchmark(
                         row=row,
                     )
 
-                if effective_config_timeout_seconds is None:
+                if (
+                    effective_config_timeout_seconds is None
+                    or executor_backend != "process"
+                ):
                     continue
                 timeout_threshold = float(max(1, effective_config_timeout_seconds))
                 now = time.monotonic()
@@ -12880,7 +12935,7 @@ def _run_all_method_benchmark(
                 _emit_status(
                     (
                         "Config timeout reached for "
-                        f"{len(timed_out)} run(s); restarting worker pool."
+                        f"{len(timed_out)} run(s); restarting process worker pool."
                     ),
                     color=typer.colors.YELLOW,
                 )
@@ -12891,17 +12946,28 @@ def _run_all_method_benchmark(
                     _emit_status(
                         (
                             "Process-based config concurrency unavailable after timeout "
-                            f"restart ({exc}); running remaining configs as single-config execution."
+                            f"restart ({exc}); using thread-based config concurrency for remaining configs."
                         ),
                         color=typer.colors.YELLOW,
                     )
-                    _run_serial_variants(
-                        pending_items,
-                        dashboard_tracking=dashboard_tracking,
-                    )
-                    pending_items.clear()
-                    futures.clear()
-                    break
+                    executor_backend = "thread"
+                    try:
+                        executor = ThreadPoolExecutor(max_workers=worker_limit)
+                    except Exception as thread_exc:  # noqa: BLE001
+                        _emit_status(
+                            (
+                                "Thread-based config concurrency unavailable "
+                                f"({thread_exc}); running remaining configs as single-config execution."
+                            ),
+                            color=typer.colors.YELLOW,
+                        )
+                        _run_serial_variants(
+                            pending_items,
+                            dashboard_tracking=dashboard_tracking,
+                        )
+                        pending_items.clear()
+                        futures.clear()
+                        break
         finally:
             _shutdown_parallel_executor(executor, terminate_workers=False)
 
@@ -14728,7 +14794,7 @@ def stage(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            f"Use codex-farm-3pass-v1 only when {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1."
+            "Values: off or codex-farm-3pass-v1."
         ),
     ),
     llm_knowledge_pipeline: str = typer.Option(
@@ -16250,7 +16316,7 @@ def labelstudio_import(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            f"Use codex-farm-3pass-v1 only when {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1."
+            "Values: off or codex-farm-3pass-v1."
         ),
     ),
     codex_farm_cmd: str = typer.Option(
@@ -17177,7 +17243,7 @@ def labelstudio_benchmark(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            f"Use codex-farm-3pass-v1 only when {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1."
+            "Values: off or codex-farm-3pass-v1."
         ),
     )] = "off",
     codex_farm_cmd: Annotated[str, typer.Option(
@@ -18507,8 +18573,7 @@ def bench_speed_run(
         False,
         "--include-codex-farm/--no-include-codex-farm",
         help=(
-            "Include Codex Farm recipe pipeline permutations in all-method scenarios. "
-            f"Requires {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1."
+            "Include Codex Farm recipe pipeline permutations in all-method scenarios."
         ),
     ),
     codex_farm_model: str | None = typer.Option(
@@ -18902,8 +18967,7 @@ def bench_quality_run(
         False,
         "--include-codex-farm/--no-include-codex-farm",
         help=(
-            "Include Codex Farm recipe pipeline permutations in all-method runs. "
-            f"Requires {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1."
+            "Include Codex Farm recipe pipeline permutations in all-method runs."
         ),
     ),
     codex_farm_model: str | None = typer.Option(

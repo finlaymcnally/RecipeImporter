@@ -81,15 +81,14 @@ def test_run_settings_schema_evolution_ignores_unknown_keys() -> None:
     assert "unknown_new_field" not in settings.to_run_config_dict()
 
 
-def test_run_settings_forces_recipe_codex_farm_pipeline_off() -> None:
+def test_run_settings_accepts_recipe_codex_farm_pipeline() -> None:
     settings = RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-3pass-v1"})
 
-    assert settings.llm_recipe_pipeline.value == "off"
+    assert settings.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
 
 
 def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     monkeypatch.delenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", raising=False)
-    monkeypatch.delenv("COOKIMPORT_ALLOW_CODEX_FARM", raising=False)
     specs = run_settings_ui_specs()
     by_name = {spec.name for spec in specs}
     expected = {
@@ -99,7 +98,7 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     }
     assert by_name == expected
     llm_recipe_spec = next(spec for spec in specs if spec.name == "llm_recipe_pipeline")
-    assert llm_recipe_spec.choices == ("off",)
+    assert llm_recipe_spec.choices == ("off", "codex-farm-3pass-v1")
     llm_tags_spec = next(spec for spec in specs if spec.name == "llm_tags_pipeline")
     assert llm_tags_spec.choices == ("off", "codex-farm-tags-v1")
     epub_extractor_spec = next(spec for spec in specs if spec.name == "epub_extractor")
@@ -142,11 +141,7 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     assert p6_yield_mode_spec.choices == ("legacy_v1", "scored_v1")
 
 
-def test_run_settings_ui_specs_include_recipe_codex_farm_when_unlocked(
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("COOKIMPORT_ALLOW_CODEX_FARM", "1")
-
+def test_run_settings_ui_specs_include_recipe_codex_farm_without_env_gate() -> None:
     specs = run_settings_ui_specs()
     llm_recipe_spec = next(spec for spec in specs if spec.name == "llm_recipe_pipeline")
 

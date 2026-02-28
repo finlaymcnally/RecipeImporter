@@ -11,6 +11,67 @@ read_when:
 This log was pruned to retain only history that still maps to active benchmark features.
 Entries tied to removed benchmark surfaces were retired from this file.
 
+## 0. 2026-02-28 `docs/tasks` merge batch (quality suite + runtime adaptation)
+
+### 2026-02-28_00.45.27 quality suite curated CUTDOWN targets
+
+Source task file:
+- `docs/tasks/2026-02-28_00.45.27-quality-suite-curated-cutdown-targets.md`
+
+Problem captured:
+- Default quality discovery could spread picks across many targets and miss the three high-effort CUTDOWN sets.
+
+Durable decision:
+- Prefer curated target IDs first when present (`saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`), then fall back to representative stratified selection.
+
+Evidence preserved:
+- `tests/bench/test_quality_suite_discovery.py`
+- `tests/bench/test_bench.py`
+
+Anti-loop note:
+- Keep this behavior in discovery (`quality_suite.py`), not in runner, so suite manifests remain explicit and replayable.
+
+### 2026-02-28_01.11.10 qualitysuite levers schema v2
+
+Source task file:
+- `docs/tasks/2026-02-28_01.11.10-qualitysuite-levers.md`
+
+Problem captured:
+- Quality experiments needed a compact, deterministic toggle surface; schema v1 required hand-writing each experiment row and did not carry all-method runtime knobs.
+
+Durable decision:
+- Add experiments schema v2 with `levers[]` expansion (`baseline` + each enabled lever + optional `all_on`).
+- Keep schema v1 compatible.
+- Validate `run_settings_patch` keys against `RunSettings` fields and `all_method_runtime_patch` keys against allowed runtime knobs.
+- Fail fast if `all_on` merge encounters conflicting values for the same key.
+
+Evidence preserved:
+- `tests/bench/test_quality_suite_runner.py`
+- Resolved expansion manifests written to `experiments_resolved.json` per run.
+
+Anti-loop note:
+- If run counts or experiment IDs look wrong, inspect `experiments_resolved.json` first before debugging scheduler code.
+
+### 2026-02-28_02.28.08 quality-run process-blocked fallback to legacy source threads
+
+Source task file:
+- `docs/tasks/2026-02-28_02.28.08-quality-run-threaded-fallback-when-process-blocked.md`
+
+Problem captured:
+- Restricted runtimes without process workers made all-method quality rounds effectively serial under global scheduler settings.
+
+Durable decision:
+- Before all-method round execution, probe process-worker availability.
+- If unavailable and requested scope is `global`, switch runtime scope to `legacy` and ensure `max_parallel_sources >= 2` (bounded by source count) when needed to avoid serialized source work.
+- Keep experiment loop order unchanged (still sequential by experiment id).
+
+Evidence preserved:
+- `tests/bench/test_quality_suite_runner.py -k process_workers_unavailable`
+- `tests/bench/test_quality_suite_runner.py -k schema_v2_levers_expand_and_pass_runtime_knobs`
+
+Anti-loop note:
+- If quality-run looks serial, inspect runtime scope adaptation and effective `max_parallel_sources` before changing scheduler internals.
+
 ## 1. 2026-02-19_15.49.31 README/Log split marker
 
 Decision retained:
@@ -1185,7 +1246,7 @@ Source: `docs/understandings/2026-02-28_02.58.54-codex-farm-bench-enablement-smo
 
 Validation preserved:
 - `bench speed-run` and `bench quality-run` expose `--include-codex-farm`.
-- Codex variants become effective only when `COOKIMPORT_ALLOW_CODEX_FARM=1` and `codex-farm` command resolution is valid.
+- Codex variants become effective when `--include-codex-farm` is selected and `codex-farm` command resolution is valid.
 
 Observed smoke findings:
 - DOCX codex variant failed fast: no `full_text` blocks available.
@@ -1223,3 +1284,92 @@ Durable decision:
 
 Outcome preserved:
 - Interactive chooser can reliably offer `Run with quality-suite winner (...)` using settings that match the scored variant.
+
+## 2026-02-28 migrated understanding ledger (03:25-03:59 benchmark batch)
+
+### 2026-02-28_03.25.10 quality-suite deterministic sweep coverage
+
+Source: `docs/understandings/2026-02-28_03.25.10-quality-suite-deterministic-sweeps-coverage.md`
+
+Findings preserved:
+- Interactive all-method deterministic sweep expansion and quality-suite sweep expansion now share the same variant builder path.
+- `bench quality-run` added explicit `--include-deterministic-sweeps` forwarding; default remains off.
+- Existing quality artifacts from pre-flag runs show empty run-settings patches; this is expected and not a regression.
+
+Anti-loop rule:
+- If deterministic variants are missing in quality output, first verify flag/lever inputs before changing variant-builder logic.
+
+### 2026-02-28_03.25.34 all-method 869 config count explanation
+
+Source: `docs/understandings/2026-02-28_03.25.34-all-method-869-config-breakdown.md`
+
+Findings preserved:
+- Large all-method config counts can be legitimate multiplicative expansion, not accidental duplication.
+- Verified example: 7 matched targets with 11 sweep payloads and EPUB-per-sweep 13-way expansion produced 869 configs.
+- Optional dependency availability (`pysbd`, `quantulum3`, `pint`) directly changes sweep payload composition.
+
+Anti-loop rule:
+- Recompute the multiplicative factors (targets * sweeps * per-source variants) before treating high config counts as a scheduler bug.
+
+### 2026-02-28_03.27.17 preferred-profile vs all-method expansion
+
+Source: `docs/understandings/2026-02-28_03.27.17-preferred-profile-vs-all-method-79-count.md`
+
+Findings preserved:
+- Preferred profile selection does not disable all-method source-variant expansion.
+- Observed `79` configs over `7` matched targets is consistent (`6*13 + 1`).
+
+Anti-loop rule:
+- Do not attempt to force one-config-per-target through preferred-profile selection in all-method mode; use single-profile all-matched mode instead.
+
+### 2026-02-28_03.30.47 quality-run sweep helpfulness measurement
+
+Source: `docs/understandings/2026-02-28_03.30.47-quality-run-deterministic-sweeps-and-helpfulness.md`
+
+Findings preserved:
+- Sweep attribution should be read from `quality-leaderboard` dimensions and score columns, not from raw config labels alone.
+- One-knob causal comparisons are cleaner with lever-isolated experiments and sweeps disabled.
+
+### 2026-02-28_03.32.48 single-profile all-matched interactive benchmark mode
+
+Source: `docs/understandings/2026-02-28_03.32.48-single-profile-all-matched-benchmark-mode.md`
+
+Findings preserved:
+- Added middle benchmark mode between single-file run and all-method permutations.
+- Mode uses all-matched target resolution but executes exactly one config per matched target.
+
+Anti-loop rule:
+- If run count equals matched target count, confirm mode was `single_offline_all_matched` before investigating missing permutations.
+
+### 2026-02-28_03.44.53 single-profile benchmark codex prompt behavior
+
+Source: `docs/understandings/2026-02-28_03.44.53-single-profile-benchmark-codex-menu-behavior.md`
+
+Findings preserved:
+- Separate all-method codex permutation prompt is intentionally absent in single-profile mode.
+- Codex enablement in single-profile mode is controlled by chooser-selected run settings.
+
+Anti-loop rule:
+- Missing all-method codex prompt in single-profile mode is expected UX, not prompt-regression.
+
+### 2026-02-28_03.58.19 speed-suite max-targets and per-label low counts
+
+Source: `docs/understandings/2026-02-28_03.58.19-speed-suite-max-targets-causes-one-eval-per-label.md`
+
+Findings preserved:
+- Latest benchmark timestamp can come from speed-suite scenario runs that intentionally sampled one target.
+- Example run showed `target_count_selected: 1` and therefore only one eval row for diagnostics.
+
+Anti-loop rule:
+- Investigate speed-suite scenario constraints before changing analytics aggregation when diagnostics unexpectedly collapse to one eval.
+
+### 2026-02-28_03.59.44 benchmark split progress and worker config sanitization
+
+Source: `docs/understandings/2026-02-28_03.59.44-benchmark-split-progress-and-worker-config-sanitization.md`
+
+Findings preserved:
+- Split conversion progress now follows shared spinner counter contract (`task X/Y`) so ETA/counter behavior stays consistent.
+- Split worker payloads should contain RunSettings-only keys to avoid warning noise from report-only fields.
+
+Anti-loop rule:
+- If split progress output is noisy, inspect callback message format and worker payload key set before touching scheduler internals.
