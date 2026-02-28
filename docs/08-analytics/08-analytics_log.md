@@ -236,3 +236,27 @@ Problem captured:
 Durable decisions:
 - Diagnostics selector now prefers non-speed benchmark rows when available.
 - Speed rows remain fallback path when no non-speed benchmark rows exist.
+
+## 2026-02-28 migrated understanding ledger (04:08 diagnostics normalization red/green)
+
+### 2026-02-28_04.08.22 dashboard diagnostics path normalization red/green
+
+Source: `docs/understandings/2026-02-28_04.08.22-dashboard-diagnostics-path-normalization-red-green.md`
+
+Problem captured:
+- Diagnostics selectors could choose speed-suite benchmark rows when path separators differed from expected slash style.
+
+Red phase preserved:
+- Added regression assertions in `tests/analytics/test_stats_dashboard.py` requiring diagnostics selectors to use normalized benchmark-path helpers.
+- Initial run failed (`2 failed`) before renderer updates.
+
+Green phase preserved:
+- Added JS helper functions in `dashboard_render.py`:
+  - `benchmarkArtifactPath(record)`
+  - `isSpeedBenchmarkRecord(record)`
+  - `isAllMethodBenchmarkRecord(record)`
+- Updated diagnostics selection logic to use these helpers.
+- Tests passed after update and regenerated dashboard selected non-speed multi-book timestamp for diagnostics.
+
+Anti-loop note:
+- Path-normalization regressions should be fixed in helper functions first; avoid patching selector call-sites with one-off string checks.

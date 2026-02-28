@@ -11,7 +11,7 @@ from cookimport.config.last_run_store import (
     load_qualitysuite_winner_run_settings,
 )
 from cookimport.config.run_settings import LlmRecipePipeline, RunSettings
-from cookimport.labelstudio.prelabel import list_codex_models
+from cookimport.llm.codex_farm_runner import list_codex_farm_models
 from .toggle_editor import edit_run_settings
 
 RunSettingsKind = Literal["import", "benchmark"]
@@ -53,7 +53,7 @@ def _codex_farm_model_choices(
     seen_models: set[str] = set()
     if current_model:
         seen_models.add(current_model)
-    discovered_models = list_codex_models(cmd=selected_settings.codex_farm_cmd)
+    discovered_models = list_codex_farm_models(cmd=selected_settings.codex_farm_cmd)
     for entry in discovered_models:
         model_id = str(entry.get("slug") or "").strip()
         if not model_id or model_id in seen_models:

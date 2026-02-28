@@ -1373,3 +1373,53 @@ Findings preserved:
 
 Anti-loop rule:
 - If split progress output is noisy, inspect callback message format and worker payload key set before touching scheduler internals.
+
+## 2026-02-28 migrated understanding ledger (04:07-04:16 sandbox worker constraints)
+
+### 2026-02-28_04.07.00 quality-run race runtime under sandbox
+
+Source: `docs/understandings/2026-02-28_04.07.00-quality-run-race-runtime-under-sandbox.md`
+
+Problem captured:
+- Quality representative race runs looked "stuck/serial" in sandbox contexts compared to local-host expectations.
+
+Findings preserved:
+- Process-worker probe emitted `PermissionError: [Errno 13] Permission denied` and switched to slower fallback behavior.
+- Observed large-shard config durations were roughly 129-133s each.
+- Representative suite structure (target sharding + race rounds) multiplies that cost into multi-hour wall time.
+
+Durable implication:
+- In Codex sandbox planning, treat representative deterministic race defaults as long-running jobs; use reduced suites for tight iteration loops.
+
+### 2026-02-28_04.16.21 all-method processpool semlock sandbox thread fallback
+
+Source: `docs/understandings/2026-02-28_04.16.21-all-method-processpool-semlock-sandbox-thread-fallback.md`
+
+Problem captured:
+- `ProcessPoolExecutor` init failed at `_multiprocessing.SemLock` due to `/dev/shm` permission limits.
+
+Durable decisions:
+- Keep all-method scheduler scope `global`.
+- When process workers are unavailable, run config workers on `ThreadPoolExecutor`.
+- Reserve serial single-config fallback for thread executor setup failure only.
+- Keep quality-run from forcing global-to-legacy scheduler downgrade just because process probe failed.
+
+Anti-loop note:
+- If throughput regresses in sandbox, verify executor fallback path and host `/dev/shm` constraints before changing all-method scheduling semantics.
+
+## 2026-02-28 migrated understanding ledger (09:33 adaptive admission + slot guard telemetry)
+
+### 2026-02-28_09.33.40 all-method adaptive admission and slot guard map
+
+Source: `docs/understandings/2026-02-28_09.33.40-all-method-adaptive-admission-and-slot-guard-map.md`
+
+Problem captured:
+- Split throughput tuning had drift risk between legacy and global queue scheduler paths, and slot/worker guard telemetry lacked one coherent map.
+
+Findings preserved:
+- Split slot capping now emits explicit scheduler metadata (`split_phase_slots_requested`, `split_phase_slot_mode`, cpu/memory cap fields).
+- Adaptive admission now records decision-time telemetry in both scheduler summary (`adaptive_admission_*`) and timeseries (`admission_*` fields).
+- Matcher/cache guardrails are now warning-only telemetry (`matcher_guardrails`) to catch eval/cache regressions without changing matcher behavior.
+
+Anti-loop note:
+- When comparing all-method performance across runs, check split-slot cap mode and admission reasons first; do not infer scheduler regressions from utilization deltas alone.

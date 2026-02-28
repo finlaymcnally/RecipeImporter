@@ -272,3 +272,17 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 ### 2026-02-28_04.02.14 diagnostics source preference
 - Diagnostics rendering should prefer non-speed benchmark rows when both speed and non-speed rows exist.
 - Speed rows remain valid fallback when they are the only benchmark rows.
+
+## 2026-02-28 migrated understandings batch (04:08 diagnostics path normalization)
+
+### 2026-02-28_04.08.22 dashboard diagnostics path normalization red/green
+- Source: `docs/understandings/2026-02-28_04.08.22-dashboard-diagnostics-path-normalization-red-green.md`
+- Diagnostics selectors now classify speed/all-method rows by normalized artifact paths instead of raw string fragments.
+- Renderer helper contract in `cookimport/analytics/dashboard_render.py`:
+  - `benchmarkArtifactPath(record)`
+  - `isSpeedBenchmarkRecord(record)`
+  - `isAllMethodBenchmarkRecord(record)`
+- Per-label and boundary diagnostics selection now uses those helpers, which handles mixed slash styles (`/` and `\\`) correctly.
+
+Anti-loop note:
+- If diagnostics unexpectedly pick speed rows, test normalized-path helper behavior before changing collector grouping rules.

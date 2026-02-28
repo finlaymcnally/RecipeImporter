@@ -8,6 +8,19 @@ read_when:
 
 This file is the anti-loop log for CLI work. Read it before retrying approaches that may already have failed.
 
+### 2026-02-28_09.26.29 codex-farm model discovery via CLI json contract
+
+Source task file:
+- `docs/tasks/2026-02-28_09.26.29-codex-farm-connection-contract-alignment.md`
+
+Preserved finding:
+- Shared run-settings Codex model picker was still sourcing models from local cache paths, which could drift from Codex Farm caller expectations.
+
+Current rule:
+- `choose_run_settings(...)` codex model picker now discovers models via `codex-farm models list --json` (best-effort; fallback options remain available).
+- Model picker still preserves `keep current`, optional `pipeline default`, and `custom model id...` escape hatch.
+- Pipeline-id and run-error contract enforcement is handled in LLM runner/orchestrator modules, not CLI menu code.
+
 ### 2026-02-28_04.14.07 codex-farm model picker in shared run-settings flow
 
 Source task file:
@@ -21,7 +34,7 @@ Current rule:
 - Picker offers:
   - keep current value,
   - pipeline default (when an override exists),
-  - discovered local models,
+  - discovered models from `codex-farm models list --json` (best-effort with fallback options),
   - custom model id fallback.
 - Reasoning-effort prompt behavior remains unchanged.
 - Cancel/back from model or reasoning prompts returns `None` and cleanly cancels run setup.
@@ -697,3 +710,32 @@ Durable decision:
 
 Anti-loop note:
 - Missing model/reasoning prompts after codex enablement is chooser-flow regression, not benchmark-mode-specific behavior.
+
+## 2026-02-28 migrated understanding ledger (04:09-04:15 CLI Codex prompt surfaces)
+
+### 2026-02-28_04.09.18 c3imp codex-farm interactive prompt paths
+
+Source: `docs/understandings/2026-02-28_04.09.18-c3imp-codex-farm-interactive-prompt-paths.md`
+
+Findings preserved:
+- Interactive import and interactive benchmark both route through `choose_run_settings(...)`.
+- Chooser-level Codex prompt defaults to enabled (`Yes`).
+- Model/reasoning prompts are conditional on resolved recipe pipeline value, not simply on benchmark mode.
+- `single_offline_all_matched` intentionally inherits chooser result and does not expose all-method Codex permutation prompt.
+
+Durable decision:
+- Keep Codex prompt sequencing anchored in shared chooser flow to avoid mode-specific drift.
+
+### 2026-02-28_04.15.12 codex-farm run-settings model picker surface
+
+Source: `docs/understandings/2026-02-28_04.15.12-codex-farm-run-settings-model-picker-surface.md`
+
+Problem captured:
+- Free-text-first model overrides created inconsistent UX and avoidable typo/error loops.
+
+Durable decisions:
+- Use menu-first model picker with explicit `custom model id...` fallback.
+- Preserve cancel contract (`None`/`BACK_ACTION`) for model and reasoning prompts.
+
+Anti-loop note:
+- Treat missing model/reasoning follow-up as chooser-state regression first; do not patch benchmark menus before validating `choose_run_settings(...)` output.

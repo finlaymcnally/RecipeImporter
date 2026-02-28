@@ -26,6 +26,7 @@ from cookimport.llm.codex_farm_orchestrator import (
 from cookimport.llm.codex_farm_runner import (
     CodexFarmRunnerError,
     SubprocessCodexFarmRunner,
+    ensure_codex_farm_pipelines_exist,
     list_codex_farm_models,
 )
 from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner
@@ -106,11 +107,13 @@ def test_orchestrator_runs_three_passes_and_writes_manifest(tmp_path: Path) -> N
     assert apply_result.intermediate_overrides_by_recipe_id
     assert apply_result.final_overrides_by_recipe_id
     assert apply_result.llm_report["enabled"] is True
+    assert apply_result.llm_report["output_schema_paths"] == {}
     manifest_path = apply_result.llm_raw_dir / "llm_manifest.json"
     assert manifest_path.exists()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"]["pass1_ok"] == 1
     assert manifest["counts"]["pass3_ok"] == 1
+    assert manifest["output_schema_paths"] == {}
 
 
 def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
@@ -334,17 +337,53 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
     out_dir = tmp_path / "out"
     root_dir = tmp_path / "pack"
     workspace_root = tmp_path / "workspace"
+    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
     in_dir.mkdir(parents=True, exist_ok=True)
-    root_dir.mkdir(parents=True, exist_ok=True)
+    schema_path.parent.mkdir(parents=True, exist_ok=True)
+    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
     workspace_root.mkdir(parents=True, exist_ok=True)
     (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+    schema_path.write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": False,
+                "required": [],
+                "properties": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pipeline_path.write_text(
+        json.dumps(
+            {
+                "pipeline_id": "recipe.chunking.v1",
+                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+            }
+        ),
+        encoding="utf-8",
+    )
 
     captured: dict[str, object] = {}
 
     def _fake_run(command, **kwargs):  # noqa: ANN001
         captured["command"] = list(command)
         captured["env"] = kwargs.get("env")
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "run_id": "run-123",
+                    "status": "completed",
+                    "exit_code": 0,
+                    "output_schema_path": str(schema_path),
+                }
+            ),
+            stderr="",
+        )
 
     monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
 
@@ -370,6 +409,113 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
     assert "gpt-test-model" in command
     assert "--reasoning-effort" in command
     assert "low" in command
+    assert "--output-schema" in command
+    assert str(schema_path) in command
+
+
+def test_subprocess_runner_fails_before_process_when_output_schema_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    root_dir = tmp_path / "pack"
+    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+    pipeline_path.write_text(
+        json.dumps(
+            {
+                "pipeline_id": "recipe.chunking.v1",
+                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
+                "output_schema_path": "schemas/missing.schema.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    called = {"value": False}
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        called["value"] = True
+        raise AssertionError(f"subprocess.run should not be called: {command}")
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    runner = SubprocessCodexFarmRunner(cmd="codex-farm")
+    with pytest.raises(CodexFarmRunnerError) as exc_info:
+        runner.run_pipeline(
+            "recipe.chunking.v1",
+            in_dir,
+            out_dir,
+            {},
+            root_dir=root_dir,
+        )
+
+    assert "Expected file path does not exist" in str(exc_info.value)
+    assert called["value"] is False
+
+
+def test_subprocess_runner_rejects_process_payload_missing_output_schema_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    root_dir = tmp_path / "pack"
+    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    schema_path.parent.mkdir(parents=True, exist_ok=True)
+    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+    schema_path.write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": False,
+                "required": [],
+                "properties": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pipeline_path.write_text(
+        json.dumps(
+            {
+                "pipeline_id": "recipe.chunking.v1",
+                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def _fake_run(_command, **_kwargs):  # noqa: ANN001
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "run_id": "run-123",
+                    "status": "completed",
+                    "exit_code": 0,
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    runner = SubprocessCodexFarmRunner(cmd="codex-farm")
+    with pytest.raises(CodexFarmRunnerError) as exc_info:
+        runner.run_pipeline(
+            "recipe.chunking.v1",
+            in_dir,
+            out_dir,
+            {},
+            root_dir=root_dir,
+        )
+    assert "missing output_schema_path" in str(exc_info.value)
 
 
 def test_list_codex_farm_models_uses_json_cli_contract(
@@ -439,6 +585,7 @@ def test_subprocess_runner_uses_run_errors_followup_on_failure(
                         "run_id": "run-123",
                         "status": "failed",
                         "exit_code": 1,
+                        "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
                     }
                 ),
                 stderr="pipeline failed",
@@ -467,3 +614,69 @@ def test_subprocess_runner_uses_run_errors_followup_on_failure(
     assert "simulated worker error" in str(exc_info.value)
     assert len(calls) == 2
     assert calls[1] == ["codex-farm", "run", "errors", "--run-id", "run-123", "--json"]
+
+
+def test_ensure_codex_farm_pipelines_exist_queries_cli(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pack_root = tmp_path / "pack"
+    pack_root.mkdir(parents=True, exist_ok=True)
+    captured: dict[str, object] = {}
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        captured["command"] = list(command)
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                [
+                    {"pipeline_id": "recipe.chunking.v1"},
+                    {"pipeline_id": "recipe.schemaorg.v1"},
+                ]
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    ensure_codex_farm_pipelines_exist(
+        cmd="codex-farm",
+        root_dir=pack_root,
+        pipeline_ids=("recipe.chunking.v1",),
+    )
+
+    command = captured.get("command")
+    assert isinstance(command, list)
+    assert command == [
+        "codex-farm",
+        "pipelines",
+        "list",
+        "--root",
+        str(pack_root),
+        "--json",
+    ]
+
+
+def test_ensure_codex_farm_pipelines_exist_raises_for_missing_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pack_root = tmp_path / "pack"
+    pack_root.mkdir(parents=True, exist_ok=True)
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps([{"pipeline_id": "recipe.chunking.v1"}]),
+            stderr="",
+        )
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    with pytest.raises(CodexFarmRunnerError) as exc_info:
+        ensure_codex_farm_pipelines_exist(
+            cmd="codex-farm",
+            root_dir=pack_root,
+            pipeline_ids=("recipe.final.v1",),
+        )
+    assert "recipe.final.v1" in str(exc_info.value)

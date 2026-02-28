@@ -264,6 +264,51 @@ ALL_METHOD_EVAL_SIGNATURE_RESULT_CACHE_SCHEMA_VERSION = (
 ALL_METHOD_SCHEDULER_POLL_SECONDS = 0.15
 ALL_METHOD_SCHEDULER_TIMESERIES_HEARTBEAT_SECONDS = 1.0
 ALL_METHOD_SCHEDULER_TIMESERIES_FILENAME = "scheduler_timeseries.jsonl"
+ALL_METHOD_ADAPTIVE_CPU_HOT_PCT = 95.0
+ALL_METHOD_ADAPTIVE_SATURATION_BACKLOG_MULTIPLIER = 2
+ALL_METHOD_MATCHER_GUARDRAIL_EVAL_RATIO_WARN = 0.10
+ALL_METHOD_MATCHER_GUARDRAIL_CACHE_HIT_WARN = 0.50
+ALL_METHOD_PREDICTION_REUSE_KEY_SCHEMA_VERSION = "all_method_prediction_reuse.v1"
+ALL_METHOD_SPLIT_CONVERT_INPUT_KEY_SCHEMA_VERSION = "all_method_split_convert_input.v1"
+ALL_METHOD_PREDICTION_REUSE_CACHE_SCHEMA_VERSION = (
+    "all_method_prediction_reuse_cache_entry.v1"
+)
+ALL_METHOD_PREDICTION_REUSE_WAIT_SECONDS = 120.0
+ALL_METHOD_PREDICTION_REUSE_POLL_SECONDS = 0.25
+ALL_METHOD_PREDICTION_REUSE_LOCK_SUFFIX = ".lock"
+ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS = (
+    "epub_extractor",
+    "epub_unstructured_html_parser_version",
+    "epub_unstructured_skip_headers_footers",
+    "epub_unstructured_preprocess_mode",
+    "ocr_device",
+    "ocr_batch_size",
+    "workers",
+    "pdf_split_workers",
+    "epub_split_workers",
+    "pdf_pages_per_job",
+    "epub_spine_items_per_job",
+    "section_detector_backend",
+    "multi_recipe_splitter",
+    "multi_recipe_trace",
+    "multi_recipe_min_ingredient_lines",
+    "multi_recipe_min_instruction_lines",
+    "multi_recipe_for_the_guardrail",
+    "web_schema_extractor",
+    "web_schema_normalizer",
+    "web_html_text_extractor",
+    "web_schema_policy",
+    "web_schema_min_confidence",
+    "web_schema_min_ingredients",
+    "web_schema_min_instruction_steps",
+    "llm_recipe_pipeline",
+    "codex_farm_cmd",
+    "codex_farm_pipeline_pass1",
+    "codex_farm_pipeline_pass2",
+    "codex_farm_pipeline_pass3",
+    "codex_farm_context_blocks",
+    "codex_farm_failure_mode",
+)
 PROCESSING_TIMESERIES_HEARTBEAT_SECONDS = 1.0
 PROCESSING_TIMESERIES_FILENAME = "processing_timeseries.jsonl"
 BENCHMARK_EVAL_MODE_STAGE_BLOCKS = "stage-blocks"
@@ -7255,6 +7300,167 @@ def _resolve_all_method_split_worker_cap(
     }
 
 
+def _resolve_all_method_split_phase_slot_cap(
+    *,
+    requested_split_slots: int,
+    source_parallelism_effective: int | None = None,
+) -> tuple[int, dict[str, Any]]:
+    requested = max(1, _report_count(requested_split_slots))
+    source_parallelism = _report_count(source_parallelism_effective)
+    if source_parallelism <= 0:
+        source_parallelism = 1
+
+    cpu_total = max(1, int(os.cpu_count() or 1))
+    cpu_budget_total = max(1, cpu_total - 1)
+    cpu_budget_per_source = max(1, cpu_budget_total // source_parallelism)
+    slot_cap_by_cpu = max(1, cpu_budget_per_source)
+
+    memory_total_bytes = _system_total_memory_bytes()
+    slot_cap_by_memory: int | None = None
+    memory_budget_per_source_bytes: int | None = None
+    if memory_total_bytes is not None and memory_total_bytes > 0:
+        reserve_bytes = max(
+            ALL_METHOD_RESOURCE_GUARD_MIN_RESERVE_BYTES,
+            int(memory_total_bytes * ALL_METHOD_RESOURCE_GUARD_RESERVE_RATIO),
+        )
+        usable_bytes = max(
+            ALL_METHOD_RESOURCE_GUARD_ESTIMATED_SPLIT_WORKER_BYTES,
+            memory_total_bytes - reserve_bytes,
+        )
+        memory_budget_per_source_bytes = max(
+            ALL_METHOD_RESOURCE_GUARD_ESTIMATED_SPLIT_WORKER_BYTES,
+            usable_bytes // source_parallelism,
+        )
+        slot_cap_by_memory = max(
+            1,
+            memory_budget_per_source_bytes
+            // ALL_METHOD_RESOURCE_GUARD_ESTIMATED_SPLIT_WORKER_BYTES,
+        )
+
+    effective_slots = min(requested, slot_cap_by_cpu)
+    if slot_cap_by_memory is not None:
+        effective_slots = min(effective_slots, slot_cap_by_memory)
+    effective_slots = max(1, effective_slots)
+    cap_mode = "resource_guard" if effective_slots < requested else "configured"
+
+    return effective_slots, {
+        "requested_split_phase_slots": requested,
+        "effective_split_phase_slots": effective_slots,
+        "split_phase_slot_mode": cap_mode,
+        "split_phase_slot_cap_by_cpu": slot_cap_by_cpu,
+        "split_phase_slot_cap_by_memory": slot_cap_by_memory,
+        "cpu_total": cpu_total,
+        "cpu_budget_per_source": cpu_budget_per_source,
+        "memory_total_bytes": memory_total_bytes,
+        "memory_budget_per_source_bytes": memory_budget_per_source_bytes,
+    }
+
+
+def _resolve_all_method_scheduler_admission(
+    *,
+    counts: dict[str, int],
+    pending_count: int,
+    total_variants: int,
+    configured_inflight_pipelines: int,
+    split_phase_slots: int,
+    wing_backlog_target: int,
+    max_active_during_eval: int,
+    adaptive_overcommit_limit: int,
+    adaptive_max_guard_target: int,
+    smart_scheduler_enabled: bool,
+    cpu_utilization_pct: float | None = None,
+) -> _AllMethodSchedulerAdmissionDecision:
+    total = max(1, _report_count(total_variants))
+    split_slots = max(1, _report_count(split_phase_slots))
+    configured_inflight = max(1, min(total, _report_count(configured_inflight_pipelines)))
+    wing_target_base = max(1, _report_count(wing_backlog_target))
+    max_active_eval = max(configured_inflight, min(total, _report_count(max_active_during_eval)))
+    overcommit_cap = max(0, _report_count(adaptive_overcommit_limit))
+    guard_cap = max(
+        split_slots + wing_target_base,
+        min(total, _report_count(adaptive_max_guard_target)),
+    )
+    guard_base = min(total, split_slots + wing_target_base)
+    pending = max(0, _report_count(pending_count))
+    evaluate_active = max(0, _report_count(counts.get("evaluate_active")))
+    split_wait = max(0, _report_count(counts.get("split_wait")))
+    heavy_active = max(0, _report_count(counts.get("heavy_active")))
+    prep_active = max(0, _report_count(counts.get("prep_active")))
+    wing_backlog = max(0, _report_count(counts.get("wing_backlog")))
+    eval_tail_open = evaluate_active > 0 and pending > 0
+    cpu_hot = (
+        cpu_utilization_pct is not None
+        and float(cpu_utilization_pct) >= ALL_METHOD_ADAPTIVE_CPU_HOT_PCT
+    )
+
+    active_cap = max_active_eval if eval_tail_open and smart_scheduler_enabled else configured_inflight
+    guard_target = guard_base
+    wing_target = wing_target_base
+    reason = "base"
+    pressure_boost = 0
+    saturation_clamp = False
+    cpu_hot_clamp = False
+
+    if not smart_scheduler_enabled:
+        return _AllMethodSchedulerAdmissionDecision(
+            active_cap=max(1, min(total, active_cap)),
+            guard_target=max(1, min(total, guard_target)),
+            wing_target=max(1, min(total, wing_target)),
+            reason=reason,
+            pressure_boost=pressure_boost,
+            saturation_clamp=saturation_clamp,
+            cpu_hot_clamp=cpu_hot_clamp,
+        )
+
+    heavy_gap = max(0, split_slots - heavy_active)
+    backlog_starved = pending > 0 and (
+        heavy_gap > 0 or (split_wait == 0 and prep_active < split_slots)
+    )
+    if backlog_starved and not cpu_hot:
+        available_overcommit = 0
+        if eval_tail_open:
+            available_overcommit = max(
+                0,
+                min(overcommit_cap, max_active_eval - active_cap),
+            )
+        pressure_boost = min(available_overcommit, max(1, heavy_gap))
+        if pressure_boost > 0:
+            active_cap += pressure_boost
+        wing_boost = max(1, heavy_gap)
+        wing_target = min(total, wing_target_base + wing_boost)
+        guard_target = min(
+            guard_cap,
+            split_slots + wing_target + pressure_boost,
+        )
+        reason = "pressure_boost"
+
+    saturated_backlog_threshold = max(
+        wing_target_base + split_slots,
+        wing_target_base * ALL_METHOD_ADAPTIVE_SATURATION_BACKLOG_MULTIPLIER,
+    )
+    if wing_backlog >= saturated_backlog_threshold and heavy_active >= split_slots:
+        saturation_clamp = True
+        wing_target = wing_target_base
+        guard_target = guard_base
+        active_cap = min(active_cap, max_active_eval if eval_tail_open else configured_inflight)
+        reason = "saturation_clamp"
+
+    if cpu_hot and active_cap > configured_inflight:
+        cpu_hot_clamp = True
+        active_cap = max(configured_inflight, active_cap - 1)
+        reason = "cpu_hot_clamp"
+
+    return _AllMethodSchedulerAdmissionDecision(
+        active_cap=max(1, min(total, active_cap)),
+        guard_target=max(1, min(total, guard_target)),
+        wing_target=max(1, min(total, wing_target)),
+        reason=reason,
+        pressure_boost=max(0, pressure_boost),
+        saturation_clamp=saturation_clamp,
+        cpu_hot_clamp=cpu_hot_clamp,
+    )
+
+
 def _resolve_all_method_source_parallelism(
     *,
     total_sources: int,
@@ -7320,7 +7526,11 @@ def _resolve_all_method_scheduler_limits(
 @dataclass(frozen=True)
 class _AllMethodSchedulerRuntime:
     configured_inflight_pipelines: int
+    split_phase_slots_requested: int
     split_phase_slots: int
+    split_phase_slot_mode: str
+    split_phase_slot_cap_by_cpu: int
+    split_phase_slot_cap_by_memory: int | None
     wing_backlog_target: int
     eval_tail_headroom_configured: int
     eval_tail_headroom_effective: int
@@ -7328,9 +7538,22 @@ class _AllMethodSchedulerRuntime:
     smart_scheduler_enabled: bool
     max_active_during_eval: int
     effective_inflight_pipelines: int
+    adaptive_overcommit_limit: int
+    adaptive_max_guard_target: int
     source_parallelism_effective: int
     cpu_budget_per_source: int
     cpu_budget_total: int
+
+
+@dataclass(frozen=True)
+class _AllMethodSchedulerAdmissionDecision:
+    active_cap: int
+    guard_target: int
+    wing_target: int
+    reason: str
+    pressure_boost: int
+    saturation_clamp: bool
+    cpu_hot_clamp: bool
 
 
 def _resolve_all_method_config_timeout_seconds(
@@ -7365,23 +7588,26 @@ def _resolve_all_method_scheduler_runtime(
     smart_scheduler: bool | None = None,
     source_parallelism_effective: int | None = None,
 ) -> _AllMethodSchedulerRuntime:
-    inflight, split_slots = _resolve_all_method_scheduler_limits(
+    inflight, split_slots_requested = _resolve_all_method_scheduler_limits(
         total_variants=total_variants,
         max_inflight_pipelines=max_inflight_pipelines,
         max_concurrent_split_phases=max_concurrent_split_phases,
     )
     total = max(1, _report_count(total_variants))
-    wing_default = max(1, split_slots)
-    wing_target_requested = _report_count(wing_backlog_target)
-    wing_target = wing_target_requested if wing_target_requested > 0 else wing_default
-    wing_target = max(1, wing_target)
-
     source_parallelism = _report_count(source_parallelism_effective)
     if source_parallelism <= 0:
         source_parallelism = 1
     cpu_total = max(1, int(os.cpu_count() or 1))
     cpu_budget_total = max(1, cpu_total - 1)
     cpu_budget_per_source = max(1, cpu_budget_total // source_parallelism)
+    split_slots, split_slot_guard = _resolve_all_method_split_phase_slot_cap(
+        requested_split_slots=split_slots_requested,
+        source_parallelism_effective=source_parallelism,
+    )
+    wing_default = max(1, split_slots)
+    wing_target_requested = _report_count(wing_backlog_target)
+    wing_target = wing_target_requested if wing_target_requested > 0 else wing_default
+    wing_target = max(1, min(total, wing_target))
 
     eval_tail_requested = _report_count(max_eval_tail_pipelines)
     eval_tail_mode = "configured" if eval_tail_requested > 0 else "auto"
@@ -7406,10 +7632,28 @@ def _resolve_all_method_scheduler_runtime(
     max_active_during_eval = inflight
     if smart_enabled:
         max_active_during_eval = min(total, inflight + eval_tail_effective)
+    adaptive_overcommit_limit = max(
+        0,
+        min(split_slots, max(0, max_active_during_eval - inflight)),
+    )
+    adaptive_max_guard_target = min(
+        total,
+        split_slots + wing_target + adaptive_overcommit_limit,
+    )
 
     return _AllMethodSchedulerRuntime(
         configured_inflight_pipelines=inflight,
+        split_phase_slots_requested=split_slots_requested,
         split_phase_slots=split_slots,
+        split_phase_slot_mode=str(split_slot_guard.get("split_phase_slot_mode") or "configured"),
+        split_phase_slot_cap_by_cpu=_report_count(
+            split_slot_guard.get("split_phase_slot_cap_by_cpu")
+        ),
+        split_phase_slot_cap_by_memory=(
+            _report_count(split_slot_guard.get("split_phase_slot_cap_by_memory"))
+            if split_slot_guard.get("split_phase_slot_cap_by_memory") is not None
+            else None
+        ),
         wing_backlog_target=wing_target,
         eval_tail_headroom_configured=eval_tail_configured,
         eval_tail_headroom_effective=eval_tail_effective,
@@ -7417,10 +7661,107 @@ def _resolve_all_method_scheduler_runtime(
         smart_scheduler_enabled=smart_enabled,
         max_active_during_eval=max_active_during_eval,
         effective_inflight_pipelines=max_active_during_eval if smart_enabled else inflight,
+        adaptive_overcommit_limit=adaptive_overcommit_limit,
+        adaptive_max_guard_target=adaptive_max_guard_target,
         source_parallelism_effective=source_parallelism,
         cpu_budget_per_source=cpu_budget_per_source,
         cpu_budget_total=cpu_budget_total,
     )
+
+
+def _all_method_extract_alignment_guardrail_fields(
+    report_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    report = report_payload if isinstance(report_payload, dict) else {}
+    return {
+        "alignment_cache_enabled": bool(report.get("alignment_cache_enabled")),
+        "alignment_cache_hit": bool(report.get("alignment_cache_hit")),
+        "alignment_cache_load_seconds": _report_metric(report.get("alignment_cache_load_seconds")),
+        "alignment_cache_write_seconds": _report_metric(report.get("alignment_cache_write_seconds")),
+        "alignment_sequence_matcher_impl": str(report.get("alignment_sequence_matcher_impl") or ""),
+        "alignment_sequence_matcher_mode": str(report.get("alignment_sequence_matcher_mode") or ""),
+        "alignment_sequence_matcher_requested_mode": str(
+            report.get("alignment_sequence_matcher_requested_mode") or ""
+        ),
+        "alignment_sequence_matcher_forced_mode": str(
+            report.get("alignment_sequence_matcher_forced_mode") or ""
+        ),
+    }
+
+
+def _all_method_build_matcher_guardrails(
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    executed_rows = [
+        row
+        for row in rows
+        if str(row.get("status") or "").strip().lower() == "ok"
+        and str(row.get("evaluation_result_source") or "").strip().lower() == "executed"
+    ]
+    eval_wall_sum = 0.0
+    prediction_wall_sum = 0.0
+    cache_enabled_count = 0
+    cache_hit_count = 0
+    matcher_mode_counts: dict[str, int] = {}
+
+    for row in executed_rows:
+        timing = _normalize_timing_payload(row.get("timing"))
+        checkpoints = timing.get("checkpoints")
+        if not isinstance(checkpoints, dict):
+            checkpoints = {}
+        eval_wall_sum += max(
+            0.0,
+            _report_metric(checkpoints.get("all_method_eval_wall_seconds")),
+        )
+        prediction_wall_sum += max(
+            0.0,
+            _report_metric(checkpoints.get("all_method_prediction_wall_seconds")),
+        )
+        cache_enabled = bool(row.get("alignment_cache_enabled"))
+        if cache_enabled:
+            cache_enabled_count += 1
+            if bool(row.get("alignment_cache_hit")):
+                cache_hit_count += 1
+        matcher_mode = str(row.get("alignment_sequence_matcher_mode") or "").strip()
+        if matcher_mode:
+            matcher_mode_counts[matcher_mode] = matcher_mode_counts.get(matcher_mode, 0) + 1
+
+    eval_to_prediction_ratio = (
+        (eval_wall_sum / prediction_wall_sum) if prediction_wall_sum > 0 else 0.0
+    )
+    cache_hit_rate = (
+        (float(cache_hit_count) / float(cache_enabled_count))
+        if cache_enabled_count > 0
+        else 1.0
+    )
+    warnings: list[str] = []
+    if eval_to_prediction_ratio > ALL_METHOD_MATCHER_GUARDRAIL_EVAL_RATIO_WARN:
+        warnings.append(
+            "Eval wall share exceeded guardrail: "
+            f"{eval_to_prediction_ratio:.3f} > {ALL_METHOD_MATCHER_GUARDRAIL_EVAL_RATIO_WARN:.3f}"
+        )
+    if cache_enabled_count > 0 and cache_hit_rate < ALL_METHOD_MATCHER_GUARDRAIL_CACHE_HIT_WARN:
+        warnings.append(
+            "Canonical alignment cache hit-rate dropped below guardrail: "
+            f"{cache_hit_rate:.3f} < {ALL_METHOD_MATCHER_GUARDRAIL_CACHE_HIT_WARN:.3f}"
+        )
+    if matcher_mode_counts and not any(
+        mode == "dmp" for mode in matcher_mode_counts
+    ):
+        warnings.append("Matcher guardrail expected dmp mode for canonical alignment.")
+
+    return {
+        "executed_evaluation_rows": len(executed_rows),
+        "eval_wall_seconds_sum": eval_wall_sum,
+        "prediction_wall_seconds_sum": prediction_wall_sum,
+        "eval_to_prediction_wall_ratio": eval_to_prediction_ratio,
+        "cache_enabled_count": cache_enabled_count,
+        "cache_hit_count": cache_hit_count,
+        "cache_hit_rate": cache_hit_rate,
+        "matcher_mode_counts": matcher_mode_counts,
+        "warning_count": len(warnings),
+        "warnings": warnings,
+    }
 
 
 def _all_method_config_dir_name(config_index: int, variant: AllMethodVariant) -> str:
@@ -7463,6 +7804,230 @@ def _stable_json_sha256(payload: Any) -> str:
         ensure_ascii=True,
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _all_method_prediction_reuse_key_payload(
+    *,
+    source_file: Path,
+    run_settings: RunSettings,
+) -> dict[str, Any]:
+    run_config = dict(run_settings.to_run_config_dict())
+    # Sequence matcher is evaluate-only for all-method; prediction artifacts are identical.
+    run_config.pop("benchmark_sequence_matcher", None)
+    return {
+        "schema_version": ALL_METHOD_PREDICTION_REUSE_KEY_SCHEMA_VERSION,
+        "source_file": str(source_file),
+        "run_config": run_config,
+    }
+
+
+def _all_method_split_convert_input_key_payload(
+    *,
+    source_file: Path,
+    run_settings: RunSettings,
+) -> dict[str, Any]:
+    run_config = run_settings.to_run_config_dict()
+    selected_inputs = {
+        key: run_config.get(key)
+        for key in ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS
+        if key in run_config
+    }
+    return {
+        "schema_version": ALL_METHOD_SPLIT_CONVERT_INPUT_KEY_SCHEMA_VERSION,
+        "source_file": str(source_file),
+        "inputs": selected_inputs,
+    }
+
+
+def _build_all_method_prediction_reuse_key(
+    *,
+    source_file: Path,
+    run_settings: RunSettings,
+) -> str:
+    return _stable_json_sha256(
+        _all_method_prediction_reuse_key_payload(
+            source_file=source_file,
+            run_settings=run_settings,
+        )
+    )
+
+
+def _build_all_method_split_convert_input_key(
+    *,
+    source_file: Path,
+    run_settings: RunSettings,
+) -> str:
+    return _stable_json_sha256(
+        _all_method_split_convert_input_key_payload(
+            source_file=source_file,
+            run_settings=run_settings,
+        )
+    )
+
+
+def _all_method_prediction_reuse_cache_entry_path(
+    *,
+    cache_dir: Path,
+    prediction_reuse_key: str,
+) -> Path:
+    safe_key = re.sub(r"[^a-zA-Z0-9_.-]+", "_", str(prediction_reuse_key or "").strip())
+    if not safe_key:
+        safe_key = "unknown"
+    return cache_dir / f"{safe_key}.json"
+
+
+def _load_all_method_prediction_reuse_cache_entry(
+    *,
+    cache_path: Path,
+    expected_key: str,
+) -> dict[str, Any] | None:
+    if not cache_path.exists() or not cache_path.is_file():
+        return None
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if (
+        str(payload.get("schema_version") or "").strip()
+        != ALL_METHOD_PREDICTION_REUSE_CACHE_SCHEMA_VERSION
+    ):
+        return None
+    cached_key = str(payload.get("prediction_reuse_key") or "").strip()
+    if cached_key != str(expected_key):
+        return None
+    config_dir = str(payload.get("config_dir") or "").strip()
+    if not config_dir:
+        return None
+    return payload
+
+
+def _write_all_method_prediction_reuse_cache_entry(
+    *,
+    cache_path: Path,
+    payload: dict[str, Any],
+) -> None:
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = cache_path.with_suffix(
+        f"{cache_path.suffix}.tmp-{os.getpid()}-{time.monotonic_ns()}"
+    )
+    tmp_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    tmp_path.replace(cache_path)
+
+
+def _acquire_all_method_prediction_reuse_lock(lock_path: Path) -> bool:
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    try:
+        fd = os.open(str(lock_path), flags)
+    except FileExistsError:
+        return False
+    except OSError:
+        return False
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "pid": os.getpid(),
+                        "created_at": dt.datetime.now(tz=dt.timezone.utc).isoformat(
+                            timespec="milliseconds"
+                        ),
+                    },
+                    sort_keys=True,
+                )
+            )
+    except Exception:  # noqa: BLE001
+        try:
+            lock_path.unlink()
+        except OSError:
+            pass
+        return False
+    return True
+
+
+def _release_all_method_prediction_reuse_lock(lock_path: Path) -> None:
+    try:
+        lock_path.unlink()
+    except OSError:
+        return
+
+
+def _wait_for_all_method_prediction_reuse_cache_entry(
+    *,
+    cache_path: Path,
+    expected_key: str,
+    lock_path: Path,
+    wait_seconds: float = ALL_METHOD_PREDICTION_REUSE_WAIT_SECONDS,
+    poll_seconds: float = ALL_METHOD_PREDICTION_REUSE_POLL_SECONDS,
+) -> dict[str, Any] | None:
+    deadline = time.monotonic() + max(0.0, float(wait_seconds))
+    sleep_seconds = max(0.05, float(poll_seconds))
+    while time.monotonic() < deadline:
+        cached = _load_all_method_prediction_reuse_cache_entry(
+            cache_path=cache_path,
+            expected_key=expected_key,
+        )
+        if cached is not None:
+            return cached
+        if not lock_path.exists():
+            break
+        time.sleep(sleep_seconds)
+    return _load_all_method_prediction_reuse_cache_entry(
+        cache_path=cache_path,
+        expected_key=expected_key,
+    )
+
+
+def _copy_all_method_prediction_artifacts_for_reuse(
+    *,
+    source_config_dir: str,
+    target_config_dir: str,
+    root_output_dir: Path,
+    scratch_root: Path,
+    processed_output_root: Path,
+) -> float | None:
+    source_dir = str(source_config_dir or "").strip()
+    target_dir = str(target_config_dir or "").strip()
+    if not source_dir or not target_dir:
+        return None
+    if source_dir == target_dir:
+        return None
+
+    source_eval_output_dir = root_output_dir / source_dir
+    target_eval_output_dir = root_output_dir / target_dir
+    source_prediction_records = source_eval_output_dir / "prediction-records.jsonl"
+    if (
+        not source_eval_output_dir.exists()
+        or not source_eval_output_dir.is_dir()
+        or not source_prediction_records.exists()
+        or not source_prediction_records.is_file()
+    ):
+        return None
+
+    source_scratch_dir = scratch_root / source_dir
+    target_scratch_dir = scratch_root / target_dir
+    source_processed_dir = processed_output_root / source_dir
+    target_processed_dir = processed_output_root / target_dir
+
+    def _reset_tree(target_dir_path: Path) -> None:
+        if target_dir_path.exists():
+            shutil.rmtree(target_dir_path)
+
+    copy_started = time.monotonic()
+    _reset_tree(target_eval_output_dir)
+    _reset_tree(target_scratch_dir)
+    _reset_tree(target_processed_dir)
+    shutil.copytree(source_eval_output_dir, target_eval_output_dir)
+    if source_scratch_dir.exists() and source_scratch_dir.is_dir():
+        shutil.copytree(source_scratch_dir, target_scratch_dir)
+    if source_processed_dir.exists() and source_processed_dir.is_dir():
+        shutil.copytree(source_processed_dir, target_processed_dir)
+    return max(0.0, time.monotonic() - copy_started)
 
 
 def _all_method_eval_signature_prediction_rows(
@@ -7548,6 +8113,72 @@ def _group_all_method_rows_by_eval_signature(
             key=lambda row: _report_count(row.get("config_index"))
         )
     return dict(grouped_rows)
+
+
+def _all_method_prediction_reuse_summary(
+    rows: list[dict[str, Any]],
+) -> dict[str, int]:
+    successful_rows = [
+        row
+        for row in rows
+        if str(row.get("status") or "").strip().lower() == "ok"
+    ]
+    prediction_signatures_unique = len(
+        {
+            str(row.get("prediction_reuse_key") or "").strip()
+            for row in successful_rows
+            if str(row.get("prediction_reuse_key") or "").strip()
+        }
+    )
+    prediction_runs_executed = sum(
+        1
+        for row in successful_rows
+        if str(row.get("prediction_result_source") or "").strip().lower() == "executed"
+    )
+    prediction_results_reused_in_run = sum(
+        1
+        for row in successful_rows
+        if str(row.get("prediction_result_source") or "").strip().lower()
+        == "reused_in_run"
+    )
+
+    split_convert_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in successful_rows:
+        split_key = str(row.get("prediction_split_convert_input_key") or "").strip()
+        if not split_key:
+            continue
+        split_convert_groups[split_key].append(row)
+    split_convert_input_groups = len(split_convert_groups)
+    split_convert_reuse_candidates = sum(
+        max(0, len(group_rows) - 1) for group_rows in split_convert_groups.values()
+    )
+    split_convert_reuse_safe_candidates = 0
+    split_convert_reuse_blocked_by_prediction_variance = 0
+    for group_rows in split_convert_groups.values():
+        if len(group_rows) <= 1:
+            continue
+        candidate_count = len(group_rows) - 1
+        prediction_keys = {
+            str(row.get("prediction_reuse_key") or "").strip()
+            for row in group_rows
+            if str(row.get("prediction_reuse_key") or "").strip()
+        }
+        if len(prediction_keys) <= 1:
+            split_convert_reuse_safe_candidates += candidate_count
+        else:
+            split_convert_reuse_blocked_by_prediction_variance += candidate_count
+
+    return {
+        "prediction_signatures_unique": prediction_signatures_unique,
+        "prediction_runs_executed": prediction_runs_executed,
+        "prediction_results_reused_in_run": prediction_results_reused_in_run,
+        "split_convert_input_groups": split_convert_input_groups,
+        "split_convert_reuse_candidates": split_convert_reuse_candidates,
+        "split_convert_reuse_safe_candidates": split_convert_reuse_safe_candidates,
+        "split_convert_reuse_blocked_by_prediction_variance": (
+            split_convert_reuse_blocked_by_prediction_variance
+        ),
+    }
 
 
 def _resolve_all_method_eval_signature_cache_dir(
@@ -7673,12 +8304,17 @@ def _run_all_method_prediction_once(
     scratch_output_dir = scratch_root / config_dir_name
     processed_output_dir = processed_output_root / config_dir_name
     prediction_record_path = eval_output_dir / "prediction-records.jsonl"
-    if eval_output_dir.exists():
-        shutil.rmtree(eval_output_dir)
-    if scratch_output_dir.exists():
-        shutil.rmtree(scratch_output_dir)
-    if processed_output_dir.exists():
-        shutil.rmtree(processed_output_dir)
+    prediction_reuse_key = _build_all_method_prediction_reuse_key(
+        source_file=source_file,
+        run_settings=variant.run_settings,
+    )
+    prediction_split_convert_input_key = _build_all_method_split_convert_input_key(
+        source_file=source_file,
+        run_settings=variant.run_settings,
+    )
+    prediction_result_source = "executed"
+    prediction_representative_config_dir = config_dir_name
+    reused_prediction = False
 
     split_slots = max(1, _report_count(max_concurrent_split_phases))
     split_status_label = format_task_counter(
@@ -7736,6 +8372,28 @@ def _run_all_method_prediction_once(
     def _discard_progress(_message: str) -> None:
         return
 
+    def _prediction_failed_row(error: str, *, elapsed_seconds: float) -> dict[str, Any]:
+        row = _all_method_failed_row(
+            config_index=config_index,
+            config_dir_name=config_dir_name,
+            variant=variant,
+            error=error,
+            elapsed_seconds=elapsed_seconds,
+        )
+        row["prediction_result_source"] = "failed"
+        row["prediction_representative_config_dir"] = config_dir_name
+        row["prediction_reuse_key"] = prediction_reuse_key
+        row["prediction_split_convert_input_key"] = prediction_split_convert_input_key
+        return row
+
+    def _reset_target_prediction_dirs() -> None:
+        if eval_output_dir.exists():
+            shutil.rmtree(eval_output_dir)
+        if scratch_output_dir.exists():
+            shutil.rmtree(scratch_output_dir)
+        if processed_output_dir.exists():
+            shutil.rmtree(processed_output_dir)
+
     benchmark_progress_callback = progress_callback or _discard_progress
     _emit_scheduler_event("config_started")
 
@@ -7761,95 +8419,197 @@ def _run_all_method_prediction_once(
             effective_split_worker_cap,
         )
 
-    try:
-        with _benchmark_split_phase_overrides(
-            split_phase_slots=split_slots,
-            split_phase_gate_dir=split_phase_gate_dir,
-            split_phase_status_label=split_status_label,
-        ):
-            with _benchmark_progress_overrides(
-                progress_callback=benchmark_progress_callback,
-                suppress_summary=True,
-                suppress_spinner=True,
+    prediction_reuse_cache_dir = root_output_dir / ".prediction_reuse_cache"
+    prediction_reuse_cache_path = _all_method_prediction_reuse_cache_entry_path(
+        cache_dir=prediction_reuse_cache_dir,
+        prediction_reuse_key=prediction_reuse_key,
+    )
+    prediction_reuse_lock_path = prediction_reuse_cache_path.with_suffix(
+        f"{prediction_reuse_cache_path.suffix}{ALL_METHOD_PREDICTION_REUSE_LOCK_SUFFIX}"
+    )
+    lock_acquired = False
+
+    def _execute_prediction_run() -> str | None:
+        _reset_target_prediction_dirs()
+        try:
+            with _benchmark_split_phase_overrides(
+                split_phase_slots=split_slots,
+                split_phase_gate_dir=split_phase_gate_dir,
+                split_phase_status_label=split_status_label,
             ):
-                with _benchmark_scheduler_event_overrides(
-                    scheduler_event_callback=_scheduler_event_callback
+                with _benchmark_progress_overrides(
+                    progress_callback=benchmark_progress_callback,
+                    suppress_summary=True,
+                    suppress_spinner=True,
                 ):
-                    benchmark_kwargs = build_benchmark_call_kwargs_from_run_settings(
-                        variant.run_settings,
-                        output_dir=scratch_output_dir,
-                        processed_output_dir=processed_output_dir,
-                        eval_output_dir=eval_output_dir,
-                        eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
-                        execution_mode=BENCHMARK_EXECUTION_MODE_PREDICT_ONLY,
-                        no_upload=True,
-                        write_markdown=True,
-                        write_label_studio_tasks=True,
-                        sequence_matcher_override=variant.run_settings.benchmark_sequence_matcher,
-                    )
-                    benchmark_kwargs.update(
-                        {
-                            "gold_spans": gold_spans_path,
-                            "source_file": source_file,
-                            "predictions_out": prediction_record_path,
-                            "overlap_threshold": overlap_threshold,
-                            "force_source_match": force_source_match,
-                            "alignment_cache_dir": alignment_cache_dir,
-                            "workers": effective_workers,
-                            "pdf_split_workers": effective_pdf_split_workers,
-                            "epub_split_workers": effective_epub_split_workers,
-                        }
-                    )
-                    labelstudio_benchmark(**benchmark_kwargs)
-    except Exception as exc:  # noqa: BLE001
-        _emit_scheduler_event("config_finished", status="failed", error=str(exc))
-        return _all_method_failed_row(
-            config_index=config_index,
-            config_dir_name=config_dir_name,
-            variant=variant,
-            error=str(exc),
-            elapsed_seconds=max(0.0, time.monotonic() - config_started),
+                    with _benchmark_scheduler_event_overrides(
+                        scheduler_event_callback=_scheduler_event_callback
+                    ):
+                        benchmark_kwargs = build_benchmark_call_kwargs_from_run_settings(
+                            variant.run_settings,
+                            output_dir=scratch_output_dir,
+                            processed_output_dir=processed_output_dir,
+                            eval_output_dir=eval_output_dir,
+                            eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+                            execution_mode=BENCHMARK_EXECUTION_MODE_PREDICT_ONLY,
+                            no_upload=True,
+                            write_markdown=False,
+                            write_label_studio_tasks=False,
+                            sequence_matcher_override=variant.run_settings.benchmark_sequence_matcher,
+                        )
+                        benchmark_kwargs.update(
+                            {
+                                "gold_spans": gold_spans_path,
+                                "source_file": source_file,
+                                "predictions_out": prediction_record_path,
+                                "overlap_threshold": overlap_threshold,
+                                "force_source_match": force_source_match,
+                                "alignment_cache_dir": alignment_cache_dir,
+                                "workers": effective_workers,
+                                "pdf_split_workers": effective_pdf_split_workers,
+                                "epub_split_workers": effective_epub_split_workers,
+                            }
+                        )
+                        labelstudio_benchmark(**benchmark_kwargs)
+        except Exception as exc:  # noqa: BLE001
+            return str(exc)
+        return None
+
+    def _try_materialize_reused_prediction(
+        cache_entry: dict[str, Any] | None,
+    ) -> bool:
+        nonlocal prediction_result_source
+        nonlocal prediction_representative_config_dir
+        nonlocal reused_prediction
+        if not isinstance(cache_entry, dict):
+            return False
+        source_config_dir = str(cache_entry.get("config_dir") or "").strip()
+        if not source_config_dir or source_config_dir == config_dir_name:
+            return False
+        copy_seconds = _copy_all_method_prediction_artifacts_for_reuse(
+            source_config_dir=source_config_dir,
+            target_config_dir=config_dir_name,
+            root_output_dir=root_output_dir,
+            scratch_root=scratch_root,
+            processed_output_root=processed_output_root,
         )
+        if copy_seconds is None:
+            return False
+        prediction_result_source = "reused_in_run"
+        prediction_representative_config_dir = source_config_dir
+        reused_prediction = True
+        _emit_scheduler_event(
+            "prediction_reused_in_run",
+            source_config_dir=source_config_dir,
+            reuse_copy_seconds=copy_seconds,
+        )
+        return True
+
+    try:
+        cache_entry = _load_all_method_prediction_reuse_cache_entry(
+            cache_path=prediction_reuse_cache_path,
+            expected_key=prediction_reuse_key,
+        )
+        if not _try_materialize_reused_prediction(cache_entry):
+            lock_acquired = _acquire_all_method_prediction_reuse_lock(
+                prediction_reuse_lock_path
+            )
+            if lock_acquired:
+                cache_entry = _load_all_method_prediction_reuse_cache_entry(
+                    cache_path=prediction_reuse_cache_path,
+                    expected_key=prediction_reuse_key,
+                )
+                if not _try_materialize_reused_prediction(cache_entry):
+                    run_error = _execute_prediction_run()
+                    if run_error is not None:
+                        _emit_scheduler_event(
+                            "config_finished",
+                            status="failed",
+                            error=run_error,
+                        )
+                        return _prediction_failed_row(
+                            run_error,
+                            elapsed_seconds=max(0.0, time.monotonic() - config_started),
+                        )
+            else:
+                waited_entry = _wait_for_all_method_prediction_reuse_cache_entry(
+                    cache_path=prediction_reuse_cache_path,
+                    expected_key=prediction_reuse_key,
+                    lock_path=prediction_reuse_lock_path,
+                )
+                if not _try_materialize_reused_prediction(waited_entry):
+                    run_error = _execute_prediction_run()
+                    if run_error is not None:
+                        _emit_scheduler_event(
+                            "config_finished",
+                            status="failed",
+                            error=run_error,
+                        )
+                        return _prediction_failed_row(
+                            run_error,
+                            elapsed_seconds=max(0.0, time.monotonic() - config_started),
+                        )
+    finally:
+        if lock_acquired:
+            _release_all_method_prediction_reuse_lock(prediction_reuse_lock_path)
+
+    if prediction_result_source == "executed":
+        cache_payload = {
+            "schema_version": ALL_METHOD_PREDICTION_REUSE_CACHE_SCHEMA_VERSION,
+            "created_at": dt.datetime.now(tz=dt.timezone.utc).isoformat(
+                timespec="milliseconds"
+            ),
+            "prediction_reuse_key": prediction_reuse_key,
+            "prediction_split_convert_input_key": prediction_split_convert_input_key,
+            "source_file": str(source_file),
+            "config_index": config_index,
+            "config_dir": config_dir_name,
+        }
+        try:
+            _write_all_method_prediction_reuse_cache_entry(
+                cache_path=prediction_reuse_cache_path,
+                payload=cache_payload,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Ignoring all-method prediction reuse cache write failure for %s: %s",
+                prediction_reuse_cache_path,
+                exc,
+            )
 
     if not prediction_record_path.exists():
+        missing_error = f"Missing prediction-records.jsonl in {eval_output_dir}"
         _emit_scheduler_event(
             "config_finished",
             status="failed",
-            error=f"Missing prediction-records.jsonl in {eval_output_dir}",
+            error=missing_error,
         )
-        return _all_method_failed_row(
-            config_index=config_index,
-            config_dir_name=config_dir_name,
-            variant=variant,
-            error=f"Missing prediction-records.jsonl in {eval_output_dir}",
+        return _prediction_failed_row(
+            missing_error,
             elapsed_seconds=max(0.0, time.monotonic() - config_started),
         )
     try:
         prediction_records = list(read_prediction_records(prediction_record_path))
     except Exception as exc:  # noqa: BLE001
+        parse_error = f"Failed to parse prediction records for {config_dir_name}: {exc}"
         _emit_scheduler_event(
             "config_finished",
             status="failed",
-            error=f"Failed to parse prediction records for {config_dir_name}: {exc}",
+            error=parse_error,
         )
-        return _all_method_failed_row(
-            config_index=config_index,
-            config_dir_name=config_dir_name,
-            variant=variant,
-            error=f"Failed to parse prediction records for {config_dir_name}: {exc}",
+        return _prediction_failed_row(
+            parse_error,
             elapsed_seconds=max(0.0, time.monotonic() - config_started),
         )
     if not prediction_records:
+        empty_error = f"Prediction records are empty for {config_dir_name}"
         _emit_scheduler_event(
             "config_finished",
             status="failed",
-            error=f"Prediction records are empty for {config_dir_name}",
+            error=empty_error,
         )
-        return _all_method_failed_row(
-            config_index=config_index,
-            config_dir_name=config_dir_name,
-            variant=variant,
-            error=f"Prediction records are empty for {config_dir_name}",
+        return _prediction_failed_row(
+            empty_error,
             elapsed_seconds=max(0.0, time.monotonic() - config_started),
         )
 
@@ -7881,10 +8641,22 @@ def _run_all_method_prediction_once(
         report_timing.get("prediction_seconds")
     )
     report_total_seconds = _report_optional_metric(report_timing.get("total_seconds"))
+    if reused_prediction:
+        prediction_phase_seconds = 0.0
+        report_total_seconds = config_wall_seconds
     if prediction_phase_seconds is None and report_total_seconds is not None:
         prediction_phase_seconds = report_total_seconds
     if prediction_phase_seconds is None:
         prediction_phase_seconds = config_wall_seconds
+    prediction_checkpoints: dict[str, float] = {
+        "all_method_prediction_wall_seconds": config_wall_seconds,
+        "all_method_config_wall_seconds": config_wall_seconds,
+        "all_method_prediction_reused_in_run": 1.0 if reused_prediction else 0.0,
+    }
+    if reused_prediction:
+        prediction_checkpoints["all_method_prediction_reuse_copy_seconds"] = (
+            config_wall_seconds
+        )
     config_timing = _timing_with_updates(
         report_timing,
         prediction_seconds=prediction_phase_seconds,
@@ -7892,10 +8664,7 @@ def _run_all_method_prediction_once(
         total_seconds=(
             report_total_seconds if report_total_seconds is not None else config_wall_seconds
         ),
-        checkpoints={
-            "all_method_prediction_wall_seconds": config_wall_seconds,
-            "all_method_config_wall_seconds": config_wall_seconds,
-        },
+        checkpoints=prediction_checkpoints,
     )
 
     pred_context = _load_pred_run_recipe_context(eval_output_dir / "prediction-run")
@@ -7916,11 +8685,16 @@ def _run_all_method_prediction_once(
         "duration_seconds": config_wall_seconds,
         "timing": config_timing,
         "dimensions": dict(variant.dimensions),
+        "prediction_result_source": prediction_result_source,
+        "prediction_representative_config_dir": prediction_representative_config_dir,
+        "prediction_reuse_key": prediction_reuse_key,
+        "prediction_split_convert_input_key": prediction_split_convert_input_key,
     }
     _emit_scheduler_event(
         "config_finished",
         status="ok",
         duration_seconds=config_wall_seconds,
+        prediction_result_source=prediction_result_source,
     )
     return row
 
@@ -8121,6 +8895,19 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
             "- Evaluation results reused in-run/cross-run: "
             f"{_report_count(report_payload.get('evaluation_results_reused_in_run'))}/"
             f"{_report_count(report_payload.get('evaluation_results_reused_cross_run'))}"
+        ),
+        (
+            "- Prediction signatures unique / runs executed / reused in-run: "
+            f"{_report_count(report_payload.get('prediction_signatures_unique'))}/"
+            f"{_report_count(report_payload.get('prediction_runs_executed'))}/"
+            f"{_report_count(report_payload.get('prediction_results_reused_in_run'))}"
+        ),
+        (
+            "- Split/convert input groups / reuse candidates / safe / blocked: "
+            f"{_report_count(report_payload.get('split_convert_input_groups'))}/"
+            f"{_report_count(report_payload.get('split_convert_reuse_candidates'))}/"
+            f"{_report_count(report_payload.get('split_convert_reuse_safe_candidates'))}/"
+            f"{_report_count(report_payload.get('split_convert_reuse_blocked_by_prediction_variance'))}"
         ),
         (
             "- Failed-config retries requested/executed/recovered: "
@@ -8368,6 +9155,19 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
             "- Evaluation results reused in-run/cross-run: "
             f"{_report_count(report_payload.get('evaluation_results_reused_in_run'))}/"
             f"{_report_count(report_payload.get('evaluation_results_reused_cross_run'))}"
+        ),
+        (
+            "- Prediction signatures unique / runs executed / reused in-run: "
+            f"{_report_count(report_payload.get('prediction_signatures_unique'))}/"
+            f"{_report_count(report_payload.get('prediction_runs_executed'))}/"
+            f"{_report_count(report_payload.get('prediction_results_reused_in_run'))}"
+        ),
+        (
+            "- Split/convert input groups / reuse candidates / safe / blocked: "
+            f"{_report_count(report_payload.get('split_convert_input_groups'))}/"
+            f"{_report_count(report_payload.get('split_convert_reuse_candidates'))}/"
+            f"{_report_count(report_payload.get('split_convert_reuse_safe_candidates'))}/"
+            f"{_report_count(report_payload.get('split_convert_reuse_blocked_by_prediction_variance'))}"
         ),
         (
             "- Config timeout / failed-config retry limit: "
@@ -8662,6 +9462,9 @@ def _write_all_method_source_reports_from_global_rows(
             if str(row.get("evaluation_result_source") or "").strip().lower()
             == "reused_cross_run"
         )
+        prediction_reuse_summary = _all_method_prediction_reuse_summary(
+            successful_source_rows
+        )
 
         successful_timing: list[tuple[dict[str, Any], float]] = []
         for row in successful_source_rows:
@@ -8719,6 +9522,35 @@ def _write_all_method_source_reports_from_global_rows(
             "evaluation_runs_executed": evaluation_runs_executed,
             "evaluation_results_reused_in_run": evaluation_results_reused_in_run,
             "evaluation_results_reused_cross_run": evaluation_results_reused_cross_run,
+            "prediction_signatures_unique": _report_count(
+                prediction_reuse_summary.get("prediction_signatures_unique")
+            ),
+            "prediction_runs_executed": _report_count(
+                prediction_reuse_summary.get("prediction_runs_executed")
+            ),
+            "prediction_results_reused_in_run": _report_count(
+                prediction_reuse_summary.get("prediction_results_reused_in_run")
+            ),
+            "split_convert_input_groups": _report_count(
+                prediction_reuse_summary.get("split_convert_input_groups")
+            ),
+            "split_convert_reuse_candidates": _report_count(
+                prediction_reuse_summary.get("split_convert_reuse_candidates")
+            ),
+            "split_convert_reuse_safe_candidates": _report_count(
+                prediction_reuse_summary.get("split_convert_reuse_safe_candidates")
+            ),
+            "split_convert_reuse_blocked_by_prediction_variance": _report_count(
+                prediction_reuse_summary.get(
+                    "split_convert_reuse_blocked_by_prediction_variance"
+                )
+            ),
+            "prediction_reuse_key_schema_version": (
+                ALL_METHOD_PREDICTION_REUSE_KEY_SCHEMA_VERSION
+            ),
+            "split_convert_input_key_schema_version": (
+                ALL_METHOD_SPLIT_CONVERT_INPUT_KEY_SCHEMA_VERSION
+            ),
             "evaluation_signature_cache_dir": str(eval_signature_cache_dir),
             "retry_failed_configs_requested": retry_failed_configs_requested,
             "retry_passes_executed": retry_passes_executed,
@@ -8873,6 +9705,29 @@ def _write_all_method_source_reports_from_global_rows(
                 "evaluation_runs_executed": evaluation_runs_executed,
                 "evaluation_results_reused_in_run": evaluation_results_reused_in_run,
                 "evaluation_results_reused_cross_run": evaluation_results_reused_cross_run,
+                "prediction_signatures_unique": _report_count(
+                    prediction_reuse_summary.get("prediction_signatures_unique")
+                ),
+                "prediction_runs_executed": _report_count(
+                    prediction_reuse_summary.get("prediction_runs_executed")
+                ),
+                "prediction_results_reused_in_run": _report_count(
+                    prediction_reuse_summary.get("prediction_results_reused_in_run")
+                ),
+                "split_convert_input_groups": _report_count(
+                    prediction_reuse_summary.get("split_convert_input_groups")
+                ),
+                "split_convert_reuse_candidates": _report_count(
+                    prediction_reuse_summary.get("split_convert_reuse_candidates")
+                ),
+                "split_convert_reuse_safe_candidates": _report_count(
+                    prediction_reuse_summary.get("split_convert_reuse_safe_candidates")
+                ),
+                "split_convert_reuse_blocked_by_prediction_variance": _report_count(
+                    prediction_reuse_summary.get(
+                        "split_convert_reuse_blocked_by_prediction_variance"
+                    )
+                ),
                 "winner_metrics": winner_metrics,
                 "timing_summary": dict(report_payload.get("timing_summary") or {}),
                 "scheduler": dict(scheduler_summary),
@@ -8987,7 +9842,11 @@ def _run_all_method_benchmark_global_queue(
         source_parallelism_effective=1,
     )
     configured_inflight_pipelines = scheduler_runtime.configured_inflight_pipelines
+    requested_split_phase_slots = scheduler_runtime.split_phase_slots_requested
     effective_split_phase_slots = scheduler_runtime.split_phase_slots
+    split_phase_slot_mode = scheduler_runtime.split_phase_slot_mode
+    split_phase_slot_cap_by_cpu = scheduler_runtime.split_phase_slot_cap_by_cpu
+    split_phase_slot_cap_by_memory = scheduler_runtime.split_phase_slot_cap_by_memory
     effective_wing_backlog_target = scheduler_runtime.wing_backlog_target
     configured_eval_tail_headroom = scheduler_runtime.eval_tail_headroom_configured
     effective_eval_tail_headroom = scheduler_runtime.eval_tail_headroom_effective
@@ -8995,6 +9854,8 @@ def _run_all_method_benchmark_global_queue(
     effective_smart_scheduler = scheduler_runtime.smart_scheduler_enabled
     max_active_during_eval = scheduler_runtime.max_active_during_eval
     effective_inflight_pipelines = scheduler_runtime.effective_inflight_pipelines
+    adaptive_overcommit_limit = scheduler_runtime.adaptive_overcommit_limit
+    adaptive_max_guard_target = scheduler_runtime.adaptive_max_guard_target
     scheduler_cpu_budget_per_source = scheduler_runtime.cpu_budget_per_source
     scheduler_cpu_budget_total = scheduler_runtime.cpu_budget_total
     split_worker_cap_per_config, split_worker_guard = _resolve_all_method_split_worker_cap(
@@ -9051,6 +9912,18 @@ def _run_all_method_benchmark_global_queue(
                 return
             typer.secho(cleaned, fg=color)
 
+    if split_phase_slot_mode != "configured":
+        _emit_status(
+            (
+                "Resource guard capped split slots to "
+                f"{effective_split_phase_slots} "
+                f"(requested {requested_split_phase_slots}; "
+                f"cpu cap {split_phase_slot_cap_by_cpu}; "
+                f"memory cap {split_phase_slot_cap_by_memory})."
+            ),
+            color=typer.colors.YELLOW,
+        )
+
     if split_worker_cap_per_config < max_requested_split_workers:
         _emit_status(
             (
@@ -9083,6 +9956,25 @@ def _run_all_method_benchmark_global_queue(
     scheduler_cpu_source = "proc_stat_linux"
     scheduler_cpu_samples_collected = 0
     scheduler_cpu_totals_last: tuple[int, int] | None = None
+    scheduler_cpu_utilization_pct_last: float | None = None
+    scheduler_cpu_utilization_pct_high_water = 0.0
+    scheduler_admission_adjustments = 0
+    scheduler_admission_pressure_boosts = 0
+    scheduler_admission_saturation_clamps = 0
+    scheduler_admission_cpu_hot_clamps = 0
+    scheduler_admission_active_cap_peak = configured_inflight_pipelines
+    scheduler_admission_guard_target_peak = min(
+        max(1, total_planned_config_runs),
+        max(1, effective_split_phase_slots + effective_wing_backlog_target),
+    )
+    scheduler_admission_last_key: tuple[int, int, str] | None = None
+    scheduler_admission_active_cap_current = configured_inflight_pipelines
+    scheduler_admission_guard_target_current = min(
+        max(1, total_planned_config_runs),
+        max(1, effective_split_phase_slots + effective_wing_backlog_target),
+    )
+    scheduler_admission_wing_target_current = effective_wing_backlog_target
+    scheduler_admission_reason_current = "base"
 
     def _scheduler_event_path(config_index: int) -> Path:
         return scheduler_events_dir / f"config_{config_index:03d}.jsonl"
@@ -9212,6 +10104,8 @@ def _run_all_method_benchmark_global_queue(
         nonlocal scheduler_max_wing_backlog
         nonlocal scheduler_max_active_pipelines
         nonlocal scheduler_max_eval_active
+        nonlocal scheduler_cpu_utilization_pct_last
+        nonlocal scheduler_cpu_utilization_pct_high_water
 
         now = time.monotonic()
         delta = max(0.0, now - scheduler_last_tick)
@@ -9232,6 +10126,13 @@ def _run_all_method_benchmark_global_queue(
             scheduler_max_eval_active,
             counts["evaluate_active"],
         )
+        sampled_cpu = _sample_host_cpu_utilization_pct()
+        if sampled_cpu is not None:
+            scheduler_cpu_utilization_pct_last = sampled_cpu
+            scheduler_cpu_utilization_pct_high_water = max(
+                scheduler_cpu_utilization_pct_high_water,
+                sampled_cpu,
+            )
         scheduler_last_tick = now
         return counts
 
@@ -9280,7 +10181,11 @@ def _run_all_method_benchmark_global_queue(
             "wing_backlog": _report_count(counts.get("wing_backlog")),
             "active": _report_count(counts.get("active")),
             "pending": pending_safe,
-            "cpu_utilization_pct": _sample_host_cpu_utilization_pct(),
+            "cpu_utilization_pct": scheduler_cpu_utilization_pct_last,
+            "admission_active_cap": scheduler_admission_active_cap_current,
+            "admission_guard_target": scheduler_admission_guard_target_current,
+            "admission_wing_target": scheduler_admission_wing_target_current,
+            "admission_reason": scheduler_admission_reason_current,
         }
         try:
             with scheduler_timeseries_path.open("a", encoding="utf-8") as handle:
@@ -9482,6 +10387,18 @@ def _run_all_method_benchmark_global_queue(
         *,
         dashboard_tracking: bool = True,
     ) -> None:
+        nonlocal scheduler_admission_adjustments
+        nonlocal scheduler_admission_pressure_boosts
+        nonlocal scheduler_admission_saturation_clamps
+        nonlocal scheduler_admission_cpu_hot_clamps
+        nonlocal scheduler_admission_active_cap_peak
+        nonlocal scheduler_admission_guard_target_peak
+        nonlocal scheduler_admission_last_key
+        nonlocal scheduler_admission_active_cap_current
+        nonlocal scheduler_admission_guard_target_current
+        nonlocal scheduler_admission_wing_target_current
+        nonlocal scheduler_admission_reason_current
+
         force_parallel_timeout = effective_config_timeout_seconds is not None
         serial_by_limits = (
             len(items) <= 1 or effective_inflight_pipelines <= 1
@@ -9639,6 +10556,65 @@ def _run_all_method_benchmark_global_queue(
             scheduler_event_offsets[item.global_dispatch_index] = 0
             return True
 
+        def _refresh_admission_decision(
+            *,
+            counts: dict[str, int],
+            pending_count: int,
+        ) -> _AllMethodSchedulerAdmissionDecision:
+            nonlocal scheduler_admission_adjustments
+            nonlocal scheduler_admission_pressure_boosts
+            nonlocal scheduler_admission_saturation_clamps
+            nonlocal scheduler_admission_cpu_hot_clamps
+            nonlocal scheduler_admission_active_cap_peak
+            nonlocal scheduler_admission_guard_target_peak
+            nonlocal scheduler_admission_last_key
+            nonlocal scheduler_admission_active_cap_current
+            nonlocal scheduler_admission_guard_target_current
+            nonlocal scheduler_admission_wing_target_current
+            nonlocal scheduler_admission_reason_current
+
+            decision = _resolve_all_method_scheduler_admission(
+                counts=counts,
+                pending_count=pending_count,
+                total_variants=max(1, total_planned_config_runs),
+                configured_inflight_pipelines=configured_inflight_pipelines,
+                split_phase_slots=effective_split_phase_slots,
+                wing_backlog_target=effective_wing_backlog_target,
+                max_active_during_eval=max_active_during_eval,
+                adaptive_overcommit_limit=adaptive_overcommit_limit,
+                adaptive_max_guard_target=max(
+                    scheduler_base_target,
+                    adaptive_max_guard_target,
+                ),
+                smart_scheduler_enabled=scheduler_smart_enabled,
+                cpu_utilization_pct=scheduler_cpu_utilization_pct_last,
+            )
+            decision_key = (decision.active_cap, decision.guard_target, decision.reason)
+            if scheduler_admission_last_key is None:
+                scheduler_admission_last_key = decision_key
+            elif decision_key != scheduler_admission_last_key:
+                scheduler_admission_adjustments += 1
+                scheduler_admission_last_key = decision_key
+                if decision.pressure_boost > 0:
+                    scheduler_admission_pressure_boosts += 1
+                if decision.saturation_clamp:
+                    scheduler_admission_saturation_clamps += 1
+                if decision.cpu_hot_clamp:
+                    scheduler_admission_cpu_hot_clamps += 1
+            scheduler_admission_active_cap_peak = max(
+                scheduler_admission_active_cap_peak,
+                decision.active_cap,
+            )
+            scheduler_admission_guard_target_peak = max(
+                scheduler_admission_guard_target_peak,
+                decision.guard_target,
+            )
+            scheduler_admission_active_cap_current = decision.active_cap
+            scheduler_admission_guard_target_current = decision.guard_target
+            scheduler_admission_wing_target_current = decision.wing_target
+            scheduler_admission_reason_current = decision.reason
+            return decision
+
         try:
             while pending_items or futures:
                 active_indices = {
@@ -9670,39 +10646,24 @@ def _run_all_method_benchmark_global_queue(
                                 "prep",
                             ),
                         )
+                admission_decision = _refresh_admission_decision(
+                    counts=counts,
+                    pending_count=len(pending_items),
+                )
                 _emit_scheduler_snapshot(
                     counts=counts,
                     pending_count=len(pending_items),
                 )
 
                 while len(futures) < worker_limit and pending_items:
-                    if scheduler_smart_enabled:
-                        heavy_plus_wing = counts["heavy_active"] + counts["wing_backlog"]
-                        eval_tail_admission_open = (
-                            counts["evaluate_active"] > 0 and len(pending_items) > 0
-                        )
-                        smart_active_cap = (
-                            max_active_during_eval
-                            if eval_tail_admission_open
-                            else configured_inflight_pipelines
-                        )
-                        smart_active_cap = max(
-                            1,
-                            min(max(1, total_planned_config_runs), smart_active_cap),
-                        )
-                        guard_target = scheduler_base_target
-                        if eval_tail_admission_open:
-                            guard_target = min(
-                                scheduler_base_target,
-                                max_active_during_eval,
-                            )
-                        if counts["active"] >= smart_active_cap:
-                            break
-                        if (
-                            heavy_plus_wing >= guard_target
-                            and counts["active"] >= configured_inflight_pipelines
-                        ):
-                            break
+                    heavy_plus_wing = counts["heavy_active"] + counts["wing_backlog"]
+                    if counts["active"] >= admission_decision.active_cap:
+                        break
+                    if (
+                        heavy_plus_wing >= admission_decision.guard_target
+                        and counts["active"] >= configured_inflight_pipelines
+                    ):
+                        break
                     submitted = _submit_next()
                     if not submitted:
                         break
@@ -9711,6 +10672,10 @@ def _run_all_method_benchmark_global_queue(
                             item.global_dispatch_index
                             for item, _submitted in futures.values()
                         }
+                    )
+                    admission_decision = _refresh_admission_decision(
+                        counts=counts,
+                        pending_count=len(pending_items),
                     )
                     _emit_scheduler_snapshot(
                         counts=counts,
@@ -9916,7 +10881,11 @@ def _run_all_method_benchmark_global_queue(
         "source_count": max(1, total_targets),
         "configured_inflight_pipelines": configured_inflight_pipelines,
         "effective_inflight_pipelines": effective_inflight_pipelines,
+        "split_phase_slots_requested": requested_split_phase_slots,
         "split_phase_slots": effective_split_phase_slots,
+        "split_phase_slot_mode": split_phase_slot_mode,
+        "split_phase_slot_cap_by_cpu": split_phase_slot_cap_by_cpu,
+        "split_phase_slot_cap_by_memory": split_phase_slot_cap_by_memory,
         "wing_backlog_target": effective_wing_backlog_target,
         "split_worker_cap_per_config": split_worker_cap_per_config,
         "split_worker_cap_by_cpu": split_worker_guard.get("split_worker_cap_by_cpu"),
@@ -9925,6 +10894,8 @@ def _run_all_method_benchmark_global_queue(
         "eval_tail_headroom_configured": configured_eval_tail_headroom,
         "eval_tail_headroom_effective": effective_eval_tail_headroom,
         "max_active_during_eval": max_active_during_eval,
+        "adaptive_overcommit_limit": adaptive_overcommit_limit,
+        "adaptive_max_guard_target": adaptive_max_guard_target,
         "source_parallelism_effective": 1,
         "cpu_budget_per_source": scheduler_cpu_budget_per_source,
         "cpu_budget_total": scheduler_cpu_budget_total,
@@ -9945,12 +10916,19 @@ def _run_all_method_benchmark_global_queue(
         "idle_gap_seconds": scheduler_idle_gap_seconds,
         "max_active_pipelines_observed": scheduler_max_active_pipelines,
         "max_eval_active_observed": scheduler_max_eval_active,
+        "adaptive_admission_adjustments": scheduler_admission_adjustments,
+        "adaptive_admission_pressure_boosts": scheduler_admission_pressure_boosts,
+        "adaptive_admission_saturation_clamps": scheduler_admission_saturation_clamps,
+        "adaptive_admission_cpu_hot_clamps": scheduler_admission_cpu_hot_clamps,
+        "adaptive_admission_active_cap_peak": scheduler_admission_active_cap_peak,
+        "adaptive_admission_guard_target_peak": scheduler_admission_guard_target_peak,
         "timeseries_path": str(scheduler_timeseries_path),
         "timeseries_row_count": scheduler_timeseries_rows_written,
         "timeseries_heartbeat_seconds": scheduler_timeseries_heartbeat_seconds,
         "snapshot_poll_seconds": ALL_METHOD_SCHEDULER_POLL_SECONDS,
         "cpu_utilization_source": scheduler_cpu_source,
         "cpu_utilization_samples": scheduler_cpu_samples_collected,
+        "cpu_utilization_pct_high_water": scheduler_cpu_utilization_pct_high_water,
         "scheduler_scope": "global_config_queue",
     }
 
@@ -9965,7 +10943,6 @@ def _run_all_method_benchmark_global_queue(
         for row in variant_rows
         if str(row.get("status") or "").strip().lower() != "ok"
     ]
-
     successful_rows: list[dict[str, Any]] = []
     signature_candidate_rows: list[dict[str, Any]] = []
     evaluation_signatures_unique = 0
@@ -10197,6 +11174,9 @@ def _run_all_method_benchmark_global_queue(
         )
         summary_report_json_path = Path(str(evaluation_summary.get("eval_report_json_path") or ""))
         summary_report_md_path = Path(str(evaluation_summary.get("eval_report_md_path") or ""))
+        alignment_guardrail_fields = _all_method_extract_alignment_guardrail_fields(
+            cast(dict[str, Any] | None, evaluation_summary.get("report"))
+        )
 
         for row in ordered_group:
             result_row = dict(row)
@@ -10255,6 +11235,7 @@ def _run_all_method_benchmark_global_queue(
                 evaluation_summary.get("practical_recall")
             )
             result_row["practical_f1"] = _report_metric(evaluation_summary.get("practical_f1"))
+            result_row.update(alignment_guardrail_fields)
             result_row["eval_signature"] = eval_signature
             result_row["evaluation_result_source"] = row_result_source
             result_row["evaluation_representative_config_dir"] = representative_config_dir
@@ -10269,6 +11250,11 @@ def _run_all_method_benchmark_global_queue(
                 summary_report_md_path,
             )
             successful_rows.append(result_row)
+
+    matcher_guardrails = _all_method_build_matcher_guardrails(successful_rows)
+    scheduler_summary["matcher_guardrails"] = matcher_guardrails
+    for warning in matcher_guardrails.get("warnings", []):
+        _emit_status(f"Matcher guardrail warning: {warning}", color=typer.colors.YELLOW)
 
     source_rows = _write_all_method_source_reports_from_global_rows(
         target_variants=target_variants,
@@ -10311,6 +11297,30 @@ def _run_all_method_benchmark_global_queue(
     )
     total_evaluation_results_reused_cross_run = sum(
         _report_count(row.get("evaluation_results_reused_cross_run"))
+        for row in source_rows
+    )
+    total_prediction_signatures_unique = sum(
+        _report_count(row.get("prediction_signatures_unique")) for row in source_rows
+    )
+    total_prediction_runs_executed = sum(
+        _report_count(row.get("prediction_runs_executed")) for row in source_rows
+    )
+    total_prediction_results_reused_in_run = sum(
+        _report_count(row.get("prediction_results_reused_in_run"))
+        for row in source_rows
+    )
+    total_split_convert_input_groups = sum(
+        _report_count(row.get("split_convert_input_groups")) for row in source_rows
+    )
+    total_split_convert_reuse_candidates = sum(
+        _report_count(row.get("split_convert_reuse_candidates")) for row in source_rows
+    )
+    total_split_convert_reuse_safe_candidates = sum(
+        _report_count(row.get("split_convert_reuse_safe_candidates"))
+        for row in source_rows
+    )
+    total_split_convert_reuse_blocked = sum(
+        _report_count(row.get("split_convert_reuse_blocked_by_prediction_variance"))
         for row in source_rows
     )
     run_wall_seconds = max(0.0, time.monotonic() - run_started)
@@ -10426,6 +11436,19 @@ def _run_all_method_benchmark_global_queue(
         "evaluation_runs_executed": total_evaluation_runs_executed,
         "evaluation_results_reused_in_run": total_evaluation_results_reused_in_run,
         "evaluation_results_reused_cross_run": total_evaluation_results_reused_cross_run,
+        "prediction_signatures_unique": total_prediction_signatures_unique,
+        "prediction_runs_executed": total_prediction_runs_executed,
+        "prediction_results_reused_in_run": total_prediction_results_reused_in_run,
+        "split_convert_input_groups": total_split_convert_input_groups,
+        "split_convert_reuse_candidates": total_split_convert_reuse_candidates,
+        "split_convert_reuse_safe_candidates": total_split_convert_reuse_safe_candidates,
+        "split_convert_reuse_blocked_by_prediction_variance": total_split_convert_reuse_blocked,
+        "prediction_reuse_key_schema_version": (
+            ALL_METHOD_PREDICTION_REUSE_KEY_SCHEMA_VERSION
+        ),
+        "split_convert_input_key_schema_version": (
+            ALL_METHOD_SPLIT_CONVERT_INPUT_KEY_SCHEMA_VERSION
+        ),
         "successful_source_count": successful_source_count,
         "failed_source_count": total_targets - successful_source_count,
         "config_timeout_seconds": effective_config_timeout_seconds,
@@ -11297,6 +12320,13 @@ def _run_all_method_benchmark_multi_source_legacy(
         evaluation_runs_executed = 0
         evaluation_results_reused_in_run = 0
         evaluation_results_reused_cross_run = 0
+        prediction_signatures_unique = 0
+        prediction_runs_executed = 0
+        prediction_results_reused_in_run = 0
+        split_convert_input_groups = 0
+        split_convert_reuse_candidates = 0
+        split_convert_reuse_safe_candidates = 0
+        split_convert_reuse_blocked_by_prediction_variance = 0
         source_estimated_seconds = 0.0
         estimate_basis_tokens: set[str] = set()
         best_winner_metrics: dict[str, float] = {}
@@ -11332,6 +12362,27 @@ def _run_all_method_benchmark_multi_source_legacy(
             )
             evaluation_results_reused_cross_run += _report_count(
                 row.get("evaluation_results_reused_cross_run")
+            )
+            prediction_signatures_unique += _report_count(
+                row.get("prediction_signatures_unique")
+            )
+            prediction_runs_executed += _report_count(
+                row.get("prediction_runs_executed")
+            )
+            prediction_results_reused_in_run += _report_count(
+                row.get("prediction_results_reused_in_run")
+            )
+            split_convert_input_groups += _report_count(
+                row.get("split_convert_input_groups")
+            )
+            split_convert_reuse_candidates += _report_count(
+                row.get("split_convert_reuse_candidates")
+            )
+            split_convert_reuse_safe_candidates += _report_count(
+                row.get("split_convert_reuse_safe_candidates")
+            )
+            split_convert_reuse_blocked_by_prediction_variance += _report_count(
+                row.get("split_convert_reuse_blocked_by_prediction_variance")
             )
             source_estimated_seconds += _report_metric(row.get("source_estimated_seconds"))
             estimate_basis = str(row.get("source_estimate_basis") or "").strip()
@@ -11429,6 +12480,27 @@ def _run_all_method_benchmark_multi_source_legacy(
                     "evaluation_results_reused_cross_run": _report_count(
                         row.get("evaluation_results_reused_cross_run")
                     ),
+                    "prediction_signatures_unique": _report_count(
+                        row.get("prediction_signatures_unique")
+                    ),
+                    "prediction_runs_executed": _report_count(
+                        row.get("prediction_runs_executed")
+                    ),
+                    "prediction_results_reused_in_run": _report_count(
+                        row.get("prediction_results_reused_in_run")
+                    ),
+                    "split_convert_input_groups": _report_count(
+                        row.get("split_convert_input_groups")
+                    ),
+                    "split_convert_reuse_candidates": _report_count(
+                        row.get("split_convert_reuse_candidates")
+                    ),
+                    "split_convert_reuse_safe_candidates": _report_count(
+                        row.get("split_convert_reuse_safe_candidates")
+                    ),
+                    "split_convert_reuse_blocked_by_prediction_variance": _report_count(
+                        row.get("split_convert_reuse_blocked_by_prediction_variance")
+                    ),
                     "report_path": report_path,
                     "report_json_path": report_json_path,
                     "error": str(row.get("error") or ""),
@@ -11482,6 +12554,15 @@ def _run_all_method_benchmark_multi_source_legacy(
             "evaluation_runs_executed": evaluation_runs_executed,
             "evaluation_results_reused_in_run": evaluation_results_reused_in_run,
             "evaluation_results_reused_cross_run": evaluation_results_reused_cross_run,
+            "prediction_signatures_unique": prediction_signatures_unique,
+            "prediction_runs_executed": prediction_runs_executed,
+            "prediction_results_reused_in_run": prediction_results_reused_in_run,
+            "split_convert_input_groups": split_convert_input_groups,
+            "split_convert_reuse_candidates": split_convert_reuse_candidates,
+            "split_convert_reuse_safe_candidates": split_convert_reuse_safe_candidates,
+            "split_convert_reuse_blocked_by_prediction_variance": (
+                split_convert_reuse_blocked_by_prediction_variance
+            ),
             "winner_metrics": best_winner_metrics,
             "timing_summary": aggregate_timing_summary,
             "scheduler": aggregate_scheduler,
@@ -11522,6 +12603,30 @@ def _run_all_method_benchmark_multi_source_legacy(
     )
     total_evaluation_results_reused_cross_run = sum(
         _report_count(row.get("evaluation_results_reused_cross_run"))
+        for row in source_rows
+    )
+    total_prediction_signatures_unique = sum(
+        _report_count(row.get("prediction_signatures_unique")) for row in source_rows
+    )
+    total_prediction_runs_executed = sum(
+        _report_count(row.get("prediction_runs_executed")) for row in source_rows
+    )
+    total_prediction_results_reused_in_run = sum(
+        _report_count(row.get("prediction_results_reused_in_run"))
+        for row in source_rows
+    )
+    total_split_convert_input_groups = sum(
+        _report_count(row.get("split_convert_input_groups")) for row in source_rows
+    )
+    total_split_convert_reuse_candidates = sum(
+        _report_count(row.get("split_convert_reuse_candidates")) for row in source_rows
+    )
+    total_split_convert_reuse_safe_candidates = sum(
+        _report_count(row.get("split_convert_reuse_safe_candidates"))
+        for row in source_rows
+    )
+    total_split_convert_reuse_blocked = sum(
+        _report_count(row.get("split_convert_reuse_blocked_by_prediction_variance"))
         for row in source_rows
     )
     run_wall_seconds = max(0.0, time.monotonic() - run_started)
@@ -11756,6 +12861,19 @@ def _run_all_method_benchmark_multi_source_legacy(
         "evaluation_runs_executed": total_evaluation_runs_executed,
         "evaluation_results_reused_in_run": total_evaluation_results_reused_in_run,
         "evaluation_results_reused_cross_run": total_evaluation_results_reused_cross_run,
+        "prediction_signatures_unique": total_prediction_signatures_unique,
+        "prediction_runs_executed": total_prediction_runs_executed,
+        "prediction_results_reused_in_run": total_prediction_results_reused_in_run,
+        "split_convert_input_groups": total_split_convert_input_groups,
+        "split_convert_reuse_candidates": total_split_convert_reuse_candidates,
+        "split_convert_reuse_safe_candidates": total_split_convert_reuse_safe_candidates,
+        "split_convert_reuse_blocked_by_prediction_variance": total_split_convert_reuse_blocked,
+        "prediction_reuse_key_schema_version": (
+            ALL_METHOD_PREDICTION_REUSE_KEY_SCHEMA_VERSION
+        ),
+        "split_convert_input_key_schema_version": (
+            ALL_METHOD_SPLIT_CONVERT_INPUT_KEY_SCHEMA_VERSION
+        ),
         "successful_source_count": successful_source_count,
         "failed_source_count": total_targets - successful_source_count,
         "config_timeout_seconds": effective_config_timeout_seconds,
@@ -11926,7 +13044,11 @@ def _run_all_method_benchmark(
         source_parallelism_effective=source_parallelism_effective,
     )
     configured_inflight_pipelines = scheduler_runtime.configured_inflight_pipelines
+    requested_split_phase_slots = scheduler_runtime.split_phase_slots_requested
     effective_split_phase_slots = scheduler_runtime.split_phase_slots
+    split_phase_slot_mode = scheduler_runtime.split_phase_slot_mode
+    split_phase_slot_cap_by_cpu = scheduler_runtime.split_phase_slot_cap_by_cpu
+    split_phase_slot_cap_by_memory = scheduler_runtime.split_phase_slot_cap_by_memory
     effective_wing_backlog_target = scheduler_runtime.wing_backlog_target
     configured_eval_tail_headroom = scheduler_runtime.eval_tail_headroom_configured
     effective_eval_tail_headroom = scheduler_runtime.eval_tail_headroom_effective
@@ -11934,6 +13056,8 @@ def _run_all_method_benchmark(
     effective_smart_scheduler = scheduler_runtime.smart_scheduler_enabled
     max_active_during_eval = scheduler_runtime.max_active_during_eval
     effective_inflight_pipelines = scheduler_runtime.effective_inflight_pipelines
+    adaptive_overcommit_limit = scheduler_runtime.adaptive_overcommit_limit
+    adaptive_max_guard_target = scheduler_runtime.adaptive_max_guard_target
     scheduler_source_parallelism = scheduler_runtime.source_parallelism_effective
     scheduler_cpu_budget_per_source = scheduler_runtime.cpu_budget_per_source
     scheduler_cpu_budget_total = scheduler_runtime.cpu_budget_total
@@ -11979,6 +13103,18 @@ def _run_all_method_benchmark(
             return
         typer.secho(cleaned, fg=color)
 
+    if split_phase_slot_mode != "configured":
+        _emit_status(
+            (
+                "Resource guard capped split slots to "
+                f"{effective_split_phase_slots} "
+                f"(requested {requested_split_phase_slots}; "
+                f"cpu cap {split_phase_slot_cap_by_cpu}; "
+                f"memory cap {split_phase_slot_cap_by_memory})."
+            ),
+            color=typer.colors.YELLOW,
+        )
+
     if split_worker_cap_per_config < max_requested_split_workers:
         _emit_status(
             (
@@ -12014,6 +13150,25 @@ def _run_all_method_benchmark(
     scheduler_cpu_source = "proc_stat_linux"
     scheduler_cpu_samples_collected = 0
     scheduler_cpu_totals_last: tuple[int, int] | None = None
+    scheduler_cpu_utilization_pct_last: float | None = None
+    scheduler_cpu_utilization_pct_high_water = 0.0
+    scheduler_admission_adjustments = 0
+    scheduler_admission_pressure_boosts = 0
+    scheduler_admission_saturation_clamps = 0
+    scheduler_admission_cpu_hot_clamps = 0
+    scheduler_admission_active_cap_peak = configured_inflight_pipelines
+    scheduler_admission_guard_target_peak = min(
+        max(1, total_variants),
+        max(1, effective_split_phase_slots + effective_wing_backlog_target),
+    )
+    scheduler_admission_last_key: tuple[int, int, str] | None = None
+    scheduler_admission_active_cap_current = configured_inflight_pipelines
+    scheduler_admission_guard_target_current = min(
+        max(1, total_variants),
+        max(1, effective_split_phase_slots + effective_wing_backlog_target),
+    )
+    scheduler_admission_wing_target_current = effective_wing_backlog_target
+    scheduler_admission_reason_current = "base"
 
     def _scheduler_event_path(config_index: int) -> Path:
         return scheduler_events_dir / f"config_{config_index:03d}.jsonl"
@@ -12148,6 +13303,8 @@ def _run_all_method_benchmark(
         nonlocal scheduler_max_wing_backlog
         nonlocal scheduler_max_active_pipelines
         nonlocal scheduler_max_eval_active
+        nonlocal scheduler_cpu_utilization_pct_last
+        nonlocal scheduler_cpu_utilization_pct_high_water
 
         now = time.monotonic()
         delta = max(0.0, now - scheduler_last_tick)
@@ -12171,6 +13328,13 @@ def _run_all_method_benchmark(
             scheduler_max_eval_active,
             counts["evaluate_active"],
         )
+        sampled_cpu = _sample_host_cpu_utilization_pct()
+        if sampled_cpu is not None:
+            scheduler_cpu_utilization_pct_last = sampled_cpu
+            scheduler_cpu_utilization_pct_high_water = max(
+                scheduler_cpu_utilization_pct_high_water,
+                sampled_cpu,
+            )
         scheduler_last_tick = now
         return counts
 
@@ -12219,7 +13383,11 @@ def _run_all_method_benchmark(
             "wing_backlog": _report_count(counts.get("wing_backlog")),
             "active": _report_count(counts.get("active")),
             "pending": pending_safe,
-            "cpu_utilization_pct": _sample_host_cpu_utilization_pct(),
+            "cpu_utilization_pct": scheduler_cpu_utilization_pct_last,
+            "admission_active_cap": scheduler_admission_active_cap_current,
+            "admission_guard_target": scheduler_admission_guard_target_current,
+            "admission_wing_target": scheduler_admission_wing_target_current,
+            "admission_reason": scheduler_admission_reason_current,
         }
         try:
             with scheduler_timeseries_path.open("a", encoding="utf-8") as handle:
@@ -12431,7 +13599,11 @@ def _run_all_method_benchmark(
             "mode": "smart" if scheduler_smart_enabled else "fixed",
             "configured_inflight_pipelines": configured_inflight_pipelines,
             "effective_inflight_pipelines": effective_inflight_pipelines,
+            "split_phase_slots_requested": requested_split_phase_slots,
             "split_phase_slots": effective_split_phase_slots,
+            "split_phase_slot_mode": split_phase_slot_mode,
+            "split_phase_slot_cap_by_cpu": split_phase_slot_cap_by_cpu,
+            "split_phase_slot_cap_by_memory": split_phase_slot_cap_by_memory,
             "split_worker_cap_per_config": split_worker_cap_per_config,
             "split_worker_cap_by_cpu": split_worker_guard.get("split_worker_cap_by_cpu"),
             "split_worker_cap_by_memory": split_worker_guard.get(
@@ -12442,6 +13614,8 @@ def _run_all_method_benchmark(
             "eval_tail_headroom_configured": configured_eval_tail_headroom,
             "eval_tail_headroom_effective": effective_eval_tail_headroom,
             "max_active_during_eval": max_active_during_eval,
+            "adaptive_overcommit_limit": adaptive_overcommit_limit,
+            "adaptive_max_guard_target": adaptive_max_guard_target,
             "source_parallelism_effective": scheduler_source_parallelism,
             "cpu_budget_per_source": scheduler_cpu_budget_per_source,
             "cpu_budget_total": scheduler_cpu_budget_total,
@@ -12459,12 +13633,19 @@ def _run_all_method_benchmark(
             "idle_gap_seconds": idle_gap_seconds,
             "max_active_pipelines_observed": max_active,
             "max_eval_active_observed": max_eval_active,
+            "adaptive_admission_adjustments": scheduler_admission_adjustments,
+            "adaptive_admission_pressure_boosts": scheduler_admission_pressure_boosts,
+            "adaptive_admission_saturation_clamps": scheduler_admission_saturation_clamps,
+            "adaptive_admission_cpu_hot_clamps": scheduler_admission_cpu_hot_clamps,
+            "adaptive_admission_active_cap_peak": scheduler_admission_active_cap_peak,
+            "adaptive_admission_guard_target_peak": scheduler_admission_guard_target_peak,
             "timeseries_path": str(scheduler_timeseries_path),
             "timeseries_row_count": scheduler_timeseries_rows_written,
             "timeseries_heartbeat_seconds": scheduler_timeseries_heartbeat_seconds,
             "snapshot_poll_seconds": ALL_METHOD_SCHEDULER_POLL_SECONDS,
             "cpu_utilization_source": scheduler_cpu_source,
             "cpu_utilization_samples": scheduler_cpu_samples_collected,
+            "cpu_utilization_pct_high_water": scheduler_cpu_utilization_pct_high_water,
         }
 
     def _shutdown_parallel_executor(
@@ -12603,6 +13784,17 @@ def _run_all_method_benchmark(
         dashboard_tracking: bool = True,
     ) -> None:
         nonlocal scheduler_smart_enabled
+        nonlocal scheduler_admission_adjustments
+        nonlocal scheduler_admission_pressure_boosts
+        nonlocal scheduler_admission_saturation_clamps
+        nonlocal scheduler_admission_cpu_hot_clamps
+        nonlocal scheduler_admission_active_cap_peak
+        nonlocal scheduler_admission_guard_target_peak
+        nonlocal scheduler_admission_last_key
+        nonlocal scheduler_admission_active_cap_current
+        nonlocal scheduler_admission_guard_target_current
+        nonlocal scheduler_admission_wing_target_current
+        nonlocal scheduler_admission_reason_current
         force_parallel_timeout = effective_config_timeout_seconds is not None
         serial_by_limits = (
             len(items) <= 1 or effective_inflight_pipelines <= 1
@@ -12776,6 +13968,65 @@ def _run_all_method_benchmark(
             scheduler_event_offsets[config_index] = 0
             return True
 
+        def _refresh_admission_decision(
+            *,
+            counts: dict[str, int],
+            pending_count: int,
+        ) -> _AllMethodSchedulerAdmissionDecision:
+            nonlocal scheduler_admission_adjustments
+            nonlocal scheduler_admission_pressure_boosts
+            nonlocal scheduler_admission_saturation_clamps
+            nonlocal scheduler_admission_cpu_hot_clamps
+            nonlocal scheduler_admission_active_cap_peak
+            nonlocal scheduler_admission_guard_target_peak
+            nonlocal scheduler_admission_last_key
+            nonlocal scheduler_admission_active_cap_current
+            nonlocal scheduler_admission_guard_target_current
+            nonlocal scheduler_admission_wing_target_current
+            nonlocal scheduler_admission_reason_current
+
+            decision = _resolve_all_method_scheduler_admission(
+                counts=counts,
+                pending_count=pending_count,
+                total_variants=max(1, total_variants),
+                configured_inflight_pipelines=configured_inflight_pipelines,
+                split_phase_slots=effective_split_phase_slots,
+                wing_backlog_target=effective_wing_backlog_target,
+                max_active_during_eval=max_active_during_eval,
+                adaptive_overcommit_limit=adaptive_overcommit_limit,
+                adaptive_max_guard_target=max(
+                    scheduler_base_target,
+                    adaptive_max_guard_target,
+                ),
+                smart_scheduler_enabled=scheduler_smart_enabled,
+                cpu_utilization_pct=scheduler_cpu_utilization_pct_last,
+            )
+            decision_key = (decision.active_cap, decision.guard_target, decision.reason)
+            if scheduler_admission_last_key is None:
+                scheduler_admission_last_key = decision_key
+            elif decision_key != scheduler_admission_last_key:
+                scheduler_admission_adjustments += 1
+                scheduler_admission_last_key = decision_key
+                if decision.pressure_boost > 0:
+                    scheduler_admission_pressure_boosts += 1
+                if decision.saturation_clamp:
+                    scheduler_admission_saturation_clamps += 1
+                if decision.cpu_hot_clamp:
+                    scheduler_admission_cpu_hot_clamps += 1
+            scheduler_admission_active_cap_peak = max(
+                scheduler_admission_active_cap_peak,
+                decision.active_cap,
+            )
+            scheduler_admission_guard_target_peak = max(
+                scheduler_admission_guard_target_peak,
+                decision.guard_target,
+            )
+            scheduler_admission_active_cap_current = decision.active_cap
+            scheduler_admission_guard_target_current = decision.guard_target
+            scheduler_admission_wing_target_current = decision.wing_target
+            scheduler_admission_reason_current = decision.reason
+            return decision
+
         try:
             while pending_items or futures:
                 active_indices = {
@@ -12815,36 +14066,24 @@ def _run_all_method_benchmark(
                             config_index=active_index,
                             phase=scheduler_phase_by_config.get(active_index, "prep"),
                         )
+                admission_decision = _refresh_admission_decision(
+                    counts=counts,
+                    pending_count=len(pending_items),
+                )
                 _emit_scheduler_snapshot(
                     counts=counts,
                     pending_count=len(pending_items),
                 )
 
                 while len(futures) < worker_limit and pending_items:
-                    if scheduler_smart_enabled:
-                        heavy_plus_wing = counts["heavy_active"] + counts["wing_backlog"]
-                        eval_tail_admission_open = (
-                            counts["evaluate_active"] > 0 and len(pending_items) > 0
-                        )
-                        smart_active_cap = (
-                            max_active_during_eval
-                            if eval_tail_admission_open
-                            else configured_inflight_pipelines
-                        )
-                        smart_active_cap = max(1, min(total_variants, smart_active_cap))
-                        guard_target = scheduler_base_target
-                        if eval_tail_admission_open:
-                            guard_target = min(
-                                scheduler_base_target,
-                                max_active_during_eval,
-                            )
-                        if counts["active"] >= smart_active_cap:
-                            break
-                        if (
-                            heavy_plus_wing >= guard_target
-                            and counts["active"] >= configured_inflight_pipelines
-                        ):
-                            break
+                    heavy_plus_wing = counts["heavy_active"] + counts["wing_backlog"]
+                    if counts["active"] >= admission_decision.active_cap:
+                        break
+                    if (
+                        heavy_plus_wing >= admission_decision.guard_target
+                        and counts["active"] >= configured_inflight_pipelines
+                    ):
+                        break
                     submitted = _submit_next()
                     if not submitted:
                         break
@@ -12853,6 +14092,10 @@ def _run_all_method_benchmark(
                             config_index
                             for config_index, _variant, _submitted in futures.values()
                         }
+                    )
+                    admission_decision = _refresh_admission_decision(
+                        counts=counts,
+                        pending_count=len(pending_items),
                     )
                     _emit_scheduler_snapshot(
                         counts=counts,
@@ -13044,6 +14287,9 @@ def _run_all_method_benchmark(
         for row in variant_rows
         if str(row.get("status") or "").strip().lower() != "ok"
     ]
+    prediction_reuse_summary = _all_method_prediction_reuse_summary(
+        prediction_success_rows
+    )
 
     successful_rows: list[dict[str, Any]] = []
     signature_candidate_rows: list[dict[str, Any]] = []
@@ -13254,6 +14500,9 @@ def _run_all_method_benchmark(
         )
         summary_report_json_path = Path(str(evaluation_summary.get("eval_report_json_path") or ""))
         summary_report_md_path = Path(str(evaluation_summary.get("eval_report_md_path") or ""))
+        alignment_guardrail_fields = _all_method_extract_alignment_guardrail_fields(
+            cast(dict[str, Any] | None, evaluation_summary.get("report"))
+        )
 
         for row in ordered_group:
             result_row = dict(row)
@@ -13306,6 +14555,7 @@ def _run_all_method_benchmark(
                 evaluation_summary.get("practical_recall")
             )
             result_row["practical_f1"] = _report_metric(evaluation_summary.get("practical_f1"))
+            result_row.update(alignment_guardrail_fields)
             result_row["eval_signature"] = eval_signature
             result_row["evaluation_result_source"] = row_result_source
             result_row["evaluation_representative_config_dir"] = representative_config_dir
@@ -13333,6 +14583,11 @@ def _run_all_method_benchmark(
     )
     for rank, row in enumerate(successful_rows, start=1):
         row["rank"] = rank
+
+    matcher_guardrails = _all_method_build_matcher_guardrails(successful_rows)
+    scheduler_summary["matcher_guardrails"] = matcher_guardrails
+    for warning in matcher_guardrails.get("warnings", []):
+        _emit_status(f"Matcher guardrail warning: {warning}", color=typer.colors.YELLOW)
 
     successful_timing: list[tuple[dict[str, Any], float]] = []
     for row in successful_rows:
@@ -13379,6 +14634,35 @@ def _run_all_method_benchmark(
         "evaluation_runs_executed": evaluation_runs_executed,
         "evaluation_results_reused_in_run": evaluation_results_reused_in_run,
         "evaluation_results_reused_cross_run": evaluation_results_reused_cross_run,
+        "prediction_signatures_unique": _report_count(
+            prediction_reuse_summary.get("prediction_signatures_unique")
+        ),
+        "prediction_runs_executed": _report_count(
+            prediction_reuse_summary.get("prediction_runs_executed")
+        ),
+        "prediction_results_reused_in_run": _report_count(
+            prediction_reuse_summary.get("prediction_results_reused_in_run")
+        ),
+        "split_convert_input_groups": _report_count(
+            prediction_reuse_summary.get("split_convert_input_groups")
+        ),
+        "split_convert_reuse_candidates": _report_count(
+            prediction_reuse_summary.get("split_convert_reuse_candidates")
+        ),
+        "split_convert_reuse_safe_candidates": _report_count(
+            prediction_reuse_summary.get("split_convert_reuse_safe_candidates")
+        ),
+        "split_convert_reuse_blocked_by_prediction_variance": _report_count(
+            prediction_reuse_summary.get(
+                "split_convert_reuse_blocked_by_prediction_variance"
+            )
+        ),
+        "prediction_reuse_key_schema_version": (
+            ALL_METHOD_PREDICTION_REUSE_KEY_SCHEMA_VERSION
+        ),
+        "split_convert_input_key_schema_version": (
+            ALL_METHOD_SPLIT_CONVERT_INPUT_KEY_SCHEMA_VERSION
+        ),
         "evaluation_signature_cache_dir": str(eval_signature_cache_dir),
         "retry_failed_configs_requested": effective_retry_failed_configs,
         "retry_passes_executed": retry_passes_executed,

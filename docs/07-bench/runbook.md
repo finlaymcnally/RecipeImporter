@@ -86,6 +86,10 @@ cookimport bench speed-run \
   --max-targets 3
 ```
 
+When this scenario is used, inspect each run’s all-method scheduler telemetry for throughput tuning:
+- `scheduler_timeseries.jsonl`: `admission_active_cap`, `admission_guard_target`, `admission_wing_target`, `admission_reason`
+- report scheduler summary: split-slot guard fields (`split_phase_slots_requested`, `split_phase_slot_mode`, `split_phase_slot_cap_*`) and `adaptive_admission_*` counters
+
 Optional deterministic settings pin:
 
 ```bash

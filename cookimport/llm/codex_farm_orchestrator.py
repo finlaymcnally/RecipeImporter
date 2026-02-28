@@ -25,6 +25,8 @@ from .codex_farm_runner import (
     CodexFarmRunner,
     CodexFarmRunnerError,
     SubprocessCodexFarmRunner,
+    ensure_codex_farm_pipelines_exist,
+    resolve_codex_farm_output_schema_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -124,11 +126,13 @@ def run_codex_farm_recipe_pipeline(
     source_hash = _resolve_source_hash(conversion_result)
     states = _build_states(conversion_result, workbook_slug=workbook_slug)
     pipelines = _resolve_pipeline_ids(run_settings)
+    output_schema_paths: dict[str, str] = {}
     if not states:
         llm_manifest = {
             "enabled": True,
             "pipeline": run_settings.llm_recipe_pipeline.value,
             "pipelines": dict(pipelines),
+            "output_schema_paths": dict(output_schema_paths),
             "codex_farm_cmd": run_settings.codex_farm_cmd,
             "codex_farm_model": run_settings.codex_farm_model,
             "codex_farm_reasoning_effort": _effort_override_value(
@@ -166,6 +170,7 @@ def run_codex_farm_recipe_pipeline(
                 "pipeline": run_settings.llm_recipe_pipeline.value,
                 "llmRawDir": str(llm_raw_dir),
                 "counts": llm_manifest["counts"],
+                "output_schema_paths": dict(output_schema_paths),
             },
             llm_raw_dir=llm_raw_dir,
         )
@@ -176,6 +181,22 @@ def run_codex_farm_recipe_pipeline(
     codex_runner: CodexFarmRunner = runner or SubprocessCodexFarmRunner(
         cmd=run_settings.codex_farm_cmd
     )
+    if runner is None:
+        ensure_codex_farm_pipelines_exist(
+            cmd=run_settings.codex_farm_cmd,
+            root_dir=pipeline_root,
+            pipeline_ids=tuple(pipelines.values()),
+            env=env,
+        )
+        output_schema_paths = {
+            pass_name: str(
+                resolve_codex_farm_output_schema_path(
+                    root_dir=pipeline_root,
+                    pipeline_id=pipeline_id,
+                )
+            )
+            for pass_name, pipeline_id in pipelines.items()
+        }
     codex_model = run_settings.codex_farm_model
     codex_reasoning_effort = _effort_override_value(
         run_settings.codex_farm_reasoning_effort
@@ -380,6 +401,7 @@ def run_codex_farm_recipe_pipeline(
         pass3_out_dir=pass3_out_dir,
         llm_manifest_path=llm_manifest_path,
         pipelines=pipelines,
+        output_schema_paths=output_schema_paths,
     )
     _write_json(llm_manifest, llm_manifest_path)
 
@@ -387,6 +409,7 @@ def run_codex_farm_recipe_pipeline(
         "enabled": True,
         "pipeline": run_settings.llm_recipe_pipeline.value,
         "pipelines": dict(pipelines),
+        "output_schema_paths": dict(output_schema_paths),
         "llmRawDir": str(llm_raw_dir),
         "counts": llm_manifest["counts"],
         "timing": llm_manifest["timing"],
@@ -437,6 +460,7 @@ def _build_llm_manifest(
     pass3_out_dir: Path,
     llm_manifest_path: Path,
     pipelines: dict[str, str],
+    output_schema_paths: dict[str, str],
 ) -> dict[str, Any]:
     recipe_rows: dict[str, dict[str, Any]] = {}
     failures: list[dict[str, Any]] = []
@@ -477,6 +501,7 @@ def _build_llm_manifest(
         "codex_farm_context_blocks": run_settings.codex_farm_context_blocks,
         "codex_farm_failure_mode": run_settings.codex_farm_failure_mode.value,
         "pipelines": dict(pipelines),
+        "output_schema_paths": dict(output_schema_paths),
         "counts": counts,
         "timing": pass_timing,
         "paths": _paths_payload(

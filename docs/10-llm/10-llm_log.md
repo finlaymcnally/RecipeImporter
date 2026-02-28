@@ -10,6 +10,55 @@ read_when:
 
 Use this file for LLM debugging history that still applies to the current codebase.
 
+## 2026-02-28_09.49.32 codex-farm caller output-schema enforcement
+
+Source task file:
+- `docs/tasks/2026-02-28_09.49.32-codex-farm-output-schema-enforcement.md`
+
+Problem captured:
+- Caller subprocess runs were not explicitly passing `--output-schema`, so schema-gate behavior depended entirely on pack defaults and offered weaker guardrails for external caller contract drift.
+
+Durable decisions/actions:
+- `SubprocessCodexFarmRunner.run_pipeline(...)` now resolves the pipeline definition under `<pack>/pipelines/**.json`, reads `output_schema_path`, and passes it to `codex-farm process --output-schema ... --json`.
+- Resolution is strict:
+  - missing pipeline definition for the requested `pipeline_id` => fail-fast;
+  - duplicate pipeline definitions for the same `pipeline_id` => fail-fast;
+  - missing `output_schema_path` or missing schema file => fail-fast.
+- Resolution behavior is cached per `(root_dir, pipeline_id)` for repeated pass calls in a run.
+- When `process --json` yields payload JSON, runner now requires `output_schema_path` and verifies it matches the expected override path.
+- Recipe pass manifests/reports now expose `output_schema_paths`; pass4/pass5 reports expose `output_schema_path`.
+
+Evidence captured:
+- `tests/llm/test_codex_farm_orchestrator.py`:
+  - `test_subprocess_runner_passes_root_and_workspace_flags`
+  - `test_subprocess_runner_fails_before_process_when_output_schema_missing`
+  - plus existing codex-runner coverage in the same file
+
+Anti-loop note:
+- If codex subprocess outputs look shape-invalid despite pack schemas, inspect `cookimport/llm/codex_farm_runner.py:_resolve_pipeline_output_schema_path(...)` and captured command args before touching prompts/contracts.
+
+## 2026-02-28_09.26.29 codex-farm connection contract alignment
+
+Source task file:
+- `docs/tasks/2026-02-28_09.26.29-codex-farm-connection-contract-alignment.md`
+
+Problem captured:
+- Caller-side Codex Farm integration drifted from `shared/CodexFarm/CONNECTION_INSTRUCTIONS.md` for model discovery, pipeline discovery, and failure diagnostics.
+
+Durable decisions/actions:
+- Interactive run-settings Codex model picker now reads discovered models via `codex-farm models list --json` (best-effort fallback when unavailable).
+- Recipe/pass4/pass5 subprocess paths now prevalidate configured pipeline ids using `codex-farm pipelines list --root <pack> --json` when using subprocess runner.
+- Subprocess runner now parses `process --json` output and, on failure with `run_id`, fetches first-error context from `codex-farm run errors --run-id <run_id> --json`.
+
+Evidence captured:
+- `tests/llm/test_codex_farm_orchestrator.py`
+- `tests/llm/test_codex_farm_knowledge_orchestrator.py`
+- `tests/tagging/test_tagging.py` (`llm/codex/pass5` subset)
+- `tests/cli/test_c3imp_interactive_menu.py` (codex model/reasoning chooser subset)
+
+Anti-loop note:
+- If model picker options and runtime pipeline failures disagree with Codex Farm CLI output, inspect `cookimport/llm/codex_farm_runner.py` helpers first before changing prompt/config surfaces.
+
 ## 2026-02-28_04.05.00 codex-farm always-on interactive defaults and ungated normalizers
 
 Source task file:
@@ -331,3 +380,52 @@ Findings preserved:
 
 Anti-loop note:
 - Do not infer historical run behavior only from current branch files when run-time normalization logic was edited immediately after the run.
+
+## 2026-02-28 migrated understanding ledger (04:05-09:17 Codex gate alignment + connection contract)
+
+### 2026-02-28_04.05.20 codex-farm gate surface map
+
+Source: `docs/understandings/2026-02-28_04.05.20-codex-farm-gate-surface-map.md`
+
+Verification captured:
+- Post-change verification confirmed codex visibility/effectiveness can diverge when one gate surface is edited in isolation.
+- Critical surfaces:
+  - `RunSettings.from_dict(...)`
+  - `run_settings_ui_specs()`
+  - `cli._normalize_llm_recipe_pipeline(...)`
+  - `cli._resolve_all_method_codex_choice(...)`
+- Prompt defaults (`Use Codex Farm...`, `Include Codex Farm permutations?`) are separate from normalization logic and must be reviewed independently.
+
+Durable implication:
+- Any future codex policy flip must update all four surfaces in one change set to avoid "prompt says on, effective run says off" regressions.
+
+### 2026-02-28_04.11.09 docs-task merge codex gating drift
+
+Source: `docs/understandings/2026-02-28_04.11.09-docs-task-merge-codex-gating-drift.md`
+
+Problem captured:
+- Consolidated docs carried mixed claims (historical env gate vs current ungated runtime), creating debugging ambiguity.
+
+Durable decisions:
+- README text remains current-state source-of-truth (ungated runtime).
+- Env-gated behavior stays `_log`-only as explicitly historical context.
+- Keep `COOKIMPORT_ALLOW_CODEX_FARM` documented as legacy no-op compatibility surface.
+
+Anti-loop note:
+- When docs disagree on codex gating, trust current normalizer code and persisted run artifacts before resurrecting gate logic.
+
+### 2026-02-28_09.17.26 codex-farm connection contract check
+
+Source: `docs/understandings/2026-02-28_09.17.26-codex-farm-connection-contract-check.md`
+
+Scope captured:
+- Runner command contract validated for `process --json` execution and optional model/reasoning/root/workspace flags.
+
+Findings preserved:
+- Model list sourcing currently depends on local cache helper, not CLI JSON listing command.
+- Pipeline IDs remain static run-setting fields; there is no runtime `pipelines list --json` consumption path.
+- Error path surfaces `CodexFarmRunnerError` without `run_id` follow-up diagnostics.
+- Local health checks against configured codex binary succeeded (`doctor`, `models list --json`, `pipelines list --root ... --json`).
+
+Known-gap note:
+- Connection works, but caller-guide parity for discovery/diagnostics remains incomplete and should be treated as explicit integration debt.

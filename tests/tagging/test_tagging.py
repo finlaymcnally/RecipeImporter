@@ -334,6 +334,7 @@ class TestLlmTagPass:
         assert result.suggestions_by_recipe["r-test"] == []
         assert result.llm_validation["selected_entries_dropped"] == 1
         assert result.llm_validation["drop_reasons"]["tag_not_in_shortlist"] == 1
+        assert "output_schema_path" in result.llm_report
 
     def test_llm_second_pass_fallback_mode_returns_deterministic_only(self, catalog: TagCatalog):
         request = LlmSecondPassRequest(

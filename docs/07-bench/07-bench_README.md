@@ -199,6 +199,10 @@ Active all-method behavior:
   - `global` (default): one run-wide config queue across all matched sources.
   - `legacy`: prior per-source scheduler path.
 - Uses bounded config-level parallelism with split-phase slot controls.
+- Applies resource-guard split-slot capping before execution:
+  - `split_phase_slots_requested` vs `split_phase_slots`
+  - `split_phase_slot_mode` (`configured` or `resource_guard`)
+  - `split_phase_slot_cap_by_cpu` / `split_phase_slot_cap_by_memory`
 - Runs config prediction first, computes deterministic evaluation signatures, then runs canonical evaluation once per unique signature.
 - All-method predict-only calls now source benchmark kwargs from `build_benchmark_call_kwargs_from_run_settings(...)`; this keeps all-method run-setting forwarding in parity with single benchmark execution (including Priority 3/6/7 families).
 - Reuses canonical evaluation results in-run (`reused_in_run`) for duplicate signatures.
@@ -235,6 +239,9 @@ Operational interpretation:
   - `p6_*` time/temp/yield knobs
 - When sweeps are enabled, all-method row dimensions include these keys and a `deterministic_sweep` tag for non-baseline configs.
 - For webschema-capable sources (`.html`, `.htm`, `.jsonld`, and schema-like `.json`), all-method expands `web_schema_policy` variants (`prefer_schema`, `schema_only`, `heuristic_only`) and keeps other webschema knobs from base run settings.
+- Scheduler telemetry now includes adaptive admission fields for throughput diagnostics:
+  - summary fields: `adaptive_admission_*`, `cpu_utilization_pct_high_water`, matcher/cache `matcher_guardrails`
+  - timeseries fields: `admission_active_cap`, `admission_guard_target`, `admission_wing_target`, `admission_reason`
 
 ## 7. Speed And Quality Regression Workflows
 
@@ -685,3 +692,18 @@ The items below were merged from `docs/understandings` in timestamp order and fo
   - keep `global` scheduler scope,
   - run config workers on thread executor when process pools are unavailable.
 - Experiment-level execution remains sequential by design; adaptation affects per-experiment all-method throughput, not result semantics.
+
+## 2026-02-28 migrated understandings batch (04:07-04:16 sandbox throughput realities)
+
+### 2026-02-28_04.07.00 quality-run race runtime under sandbox
+- Source: `docs/understandings/2026-02-28_04.07.00-quality-run-race-runtime-under-sandbox.md`
+- In this sandbox, process-worker probe failures can raise `PermissionError: [Errno 13]` and force fallback scheduling behavior that is materially slower.
+- Observed representative-suite timings showed large EPUB shard configs around 129-133s each under fallback.
+- Practical planning rule for this environment: representative deterministic race defaults can be an overnight run (roughly 8-10h), so use reduced targets/rounds for interactive validation.
+
+### 2026-02-28_04.16.21 all-method processpool semlock sandbox thread fallback
+- Source: `docs/understandings/2026-02-28_04.16.21-all-method-processpool-semlock-sandbox-thread-fallback.md`
+- Root cause in restricted runtimes: `/dev/shm` not writable -> multiprocessing `SemLock` setup fails.
+- Current contract keeps all-method scheduler scope `global` and falls back to thread-backed config workers when process workers are unavailable.
+- Serial single-config execution remains last-resort fallback only when thread executor setup fails.
+- This supersedes older notes that implied immediate global-to-legacy scheduler downgrade on process-worker probe failure.

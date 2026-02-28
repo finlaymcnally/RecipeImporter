@@ -18,6 +18,8 @@ from .codex_farm_runner import (
     CodexFarmRunner,
     CodexFarmRunnerError,
     SubprocessCodexFarmRunner,
+    ensure_codex_farm_pipelines_exist,
+    resolve_codex_farm_output_schema_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -96,6 +98,20 @@ def run_codex_farm_knowledge_harvest(
         run_settings.codex_farm_pipeline_pass4_knowledge,
         fallback=DEFAULT_PASS4_PIPELINE_ID,
     )
+    output_schema_path: str | None = None
+    if runner is None:
+        ensure_codex_farm_pipelines_exist(
+            cmd=run_settings.codex_farm_cmd,
+            root_dir=pipeline_root,
+            pipeline_ids=(pipeline_id,),
+            env=env,
+        )
+        output_schema_path = str(
+            resolve_codex_farm_output_schema_path(
+                root_dir=pipeline_root,
+                pipeline_id=pipeline_id,
+            )
+        )
 
     started = time.perf_counter()
     build_report = build_pass4_knowledge_jobs(
@@ -135,6 +151,7 @@ def run_codex_farm_knowledge_harvest(
         "enabled": True,
         "pipeline": run_settings.llm_knowledge_pipeline.value,
         "pipeline_id": pipeline_id,
+        "output_schema_path": output_schema_path,
         "counts": {
             "jobs_written": build_report.jobs_written,
             "outputs_parsed": len(outputs),

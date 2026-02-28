@@ -15,6 +15,8 @@ from cookimport.llm.codex_farm_runner import (
     CodexFarmRunner,
     CodexFarmRunnerError,
     SubprocessCodexFarmRunner,
+    ensure_codex_farm_pipelines_exist,
+    resolve_codex_farm_output_schema_path,
 )
 from cookimport.tagging.catalog import TagCatalog
 from cookimport.tagging.engine import TagSuggestion
@@ -146,6 +148,20 @@ def run_codex_farm_tags_pass(
     workspace_root = _resolve_workspace_root(codex_farm_workspace_root)
     codex_runner = runner or SubprocessCodexFarmRunner(cmd=codex_farm_cmd)
     env = {"CODEX_FARM_ROOT": str(pipeline_root)}
+    output_schema_path: str | None = None
+    if runner is None:
+        ensure_codex_farm_pipelines_exist(
+            cmd=codex_farm_cmd,
+            root_dir=pipeline_root,
+            pipeline_ids=(pipeline_id,),
+            env=env,
+        )
+        output_schema_path = str(
+            resolve_codex_farm_output_schema_path(
+                root_dir=pipeline_root,
+                pipeline_id=pipeline_id,
+            )
+        )
     started = time.perf_counter()
 
     if raw_pass_dir is None:
@@ -165,6 +181,7 @@ def run_codex_farm_tags_pass(
                 codex_farm_reasoning_effort=codex_farm_reasoning_effort,
                 started=started,
                 manifest_path=None,
+                output_schema_path=output_schema_path,
             )
 
     in_dir = raw_pass_dir / "in"
@@ -184,6 +201,7 @@ def run_codex_farm_tags_pass(
         codex_farm_reasoning_effort=codex_farm_reasoning_effort,
         started=started,
         manifest_path=manifest_path,
+        output_schema_path=output_schema_path,
     )
 
 
@@ -202,6 +220,7 @@ def _run_with_dirs(
     codex_farm_reasoning_effort: str | None,
     started: float,
     manifest_path: Path | None,
+    output_schema_path: str | None,
 ) -> CodexFarmTagsPassResult:
     in_dir.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -320,6 +339,7 @@ def _run_with_dirs(
     llm_report: dict[str, Any] = {
         "enabled": True,
         "pipeline_id": pipeline_id,
+        "output_schema_path": output_schema_path,
         "counts": {
             "jobs_written": len(jobs),
             "outputs_read": outputs_read,

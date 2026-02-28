@@ -237,3 +237,36 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 - Prompt-time codex selection can diverge from persisted effective run settings when normalization/gating code changes around run time.
 - For run `2026-02-28_03.54.15`, artifacts showed `llm_recipe_pipeline=off` and `llm_codex_farm.enabled=false`; nearby file edits around `04:00` explain likely normalization drift during that session.
 - For incident triage, trust persisted run artifacts (`run_manifest`, run settings snapshot) over assumptions from current head code.
+
+## 2026-02-28 migrated understandings batch (04:05-09:17 Codex gate surfaces and connection contract)
+
+### 2026-02-28_04.05.20 codex-farm gate surface map
+- Source: `docs/understandings/2026-02-28_04.05.20-codex-farm-gate-surface-map.md`
+- Codex behavior can drift when only one surface is edited.
+- Four runtime surfaces must stay aligned:
+  1. `RunSettings.from_dict(...)` coercion/normalization.
+  2. `run_settings_ui_specs()` interactive enum choices.
+  3. `cookimport/cli.py:_normalize_llm_recipe_pipeline(...)`.
+  4. `cookimport/cli.py:_resolve_all_method_codex_choice(...)`.
+- Prompt defaults (chooser/all-method yes/no) are independent from those normalization surfaces.
+
+### 2026-02-28_04.11.09 docs-task merge codex gating drift
+- Source: `docs/understandings/2026-02-28_04.11.09-docs-task-merge-codex-gating-drift.md`
+- During docs consolidation, stale env-gated wording appeared alongside current ungated runtime behavior.
+- Current authoritative runtime remains ungated in run-settings parser + CLI + Label Studio ingest normalizers.
+- `COOKIMPORT_ALLOW_CODEX_FARM` is legacy compatibility surface (no active gate); keep old gated behavior only as historical `_log` context.
+
+### 2026-02-28_09.26.29 codex-farm connection contract alignment
+- Source: `docs/understandings/2026-02-28_09.26.29-codex-farm-connection-contract-aligned.md`
+- Shared run-settings Codex model picker now discovers choices via `codex-farm models list --json` (best-effort fallback when unavailable).
+- Recipe/pass4/pass5 subprocess paths now validate configured pipeline ids up front via `codex-farm pipelines list --root <pack> --json`.
+- Subprocess failure diagnostics now parse `process --json` output and, when `run_id` is available, append first-error context from `codex-farm run errors --run-id <run_id> --json`.
+
+### 2026-02-28_09.49.32 caller output-schema enforcement wiring
+- Recipe/pass4/pass5 subprocess calls now resolve each pipeline's declared `output_schema_path` from the selected pack and pass it explicitly as `--output-schema` to `codex-farm process`.
+- This keeps caller-side schema contract enforcement aligned with Codex Farm's structured-output retry gate.
+- If pipeline definitions are missing/duplicated, or the resolved schema file is missing, subprocess invocation now fails fast before work starts.
+- When `process --json` returns payload JSON, runner now expects `output_schema_path` and verifies it matches the caller-expected schema path.
+- Runtime manifests/reports now surface schema paths for auditing:
+  - recipe pass manifest/report: `output_schema_paths`
+  - pass4/pass5 reports: `output_schema_path`

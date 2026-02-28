@@ -377,3 +377,18 @@ Current-contract additions from domain mapping merge:
   - `_log` receives chronology, major decisions, failed serious attempts, and unresolved gaps.
 - Retirement rule:
   - remove migrated source docs only after both README and `_log` have absorbed durable details.
+
+## 2026-02-28 migrated understandings digest (cross-domain docs routing + supersession)
+
+### 2026-02-28_09.18.47 docs/tasks routing and supersession map
+- Source: `docs/understandings/2026-02-28_09.18.47-docs-tasks-routing-and-supersession-map.md`
+- Consolidation routing contract used on 2026-02-28:
+  - importer auto-emission task -> `docs/05-staging` (with benchmark remap note to `docs/07-bench`)
+  - qualitysuite levers task -> `docs/07-bench`
+  - codex-farm benchmark enablement + setup tasks -> `docs/10-llm`
+  - codex-farm model picker task -> `docs/02-cli`
+- Supersession rule: keep env-gated codex behavior only as historical log context; README files must describe current ungated runtime.
+- Merge order rule: update both `README` and `_log` before deleting source task/understanding docs.
+
+Anti-loop note:
+- If cross-section doc merges are repeated, use explicit routing + supersession tagging first; ad-hoc merges reintroduce stale behavior claims.

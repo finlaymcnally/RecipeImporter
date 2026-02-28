@@ -5110,6 +5110,7 @@ def test_resolve_all_method_scheduler_runtime_auto_eval_tail_respects_source_par
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(cli.os, "cpu_count", lambda: 17)
+    monkeypatch.setattr(cli, "_system_total_memory_bytes", lambda: 64 * 1024 * 1024 * 1024)
     runtime = cli._resolve_all_method_scheduler_runtime(
         total_variants=40,
         max_inflight_pipelines=4,
@@ -5127,6 +5128,108 @@ def test_resolve_all_method_scheduler_runtime_auto_eval_tail_respects_source_par
     assert runtime.effective_inflight_pipelines == 4
 
 
+def test_resolve_all_method_scheduler_runtime_caps_split_slots_with_resource_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli.os, "cpu_count", lambda: 17)
+    monkeypatch.setattr(cli, "_system_total_memory_bytes", lambda: 64 * 1024 * 1024 * 1024)
+    runtime = cli._resolve_all_method_scheduler_runtime(
+        total_variants=40,
+        max_inflight_pipelines=8,
+        max_concurrent_split_phases=8,
+        smart_scheduler=True,
+        source_parallelism_effective=4,
+    )
+    assert runtime.split_phase_slots_requested == 8
+    assert runtime.split_phase_slots == 4
+    assert runtime.split_phase_slot_mode == "resource_guard"
+    assert runtime.split_phase_slot_cap_by_cpu == 4
+    assert runtime.split_phase_slot_cap_by_memory >= 1
+
+
+def test_resolve_all_method_scheduler_admission_pressure_boosts_when_heavy_slots_starve() -> None:
+    decision = cli._resolve_all_method_scheduler_admission(
+        counts={
+            "heavy_active": 0,
+            "split_wait": 0,
+            "prep_active": 0,
+            "post_active": 0,
+            "evaluate_active": 0,
+            "wing_backlog": 0,
+            "active": 1,
+        },
+        pending_count=5,
+        total_variants=12,
+        configured_inflight_pipelines=2,
+        split_phase_slots=2,
+        wing_backlog_target=2,
+        max_active_during_eval=5,
+        adaptive_overcommit_limit=2,
+        adaptive_max_guard_target=8,
+        smart_scheduler_enabled=True,
+        cpu_utilization_pct=40.0,
+    )
+    assert decision.reason == "pressure_boost"
+    assert decision.pressure_boost == 0
+    assert decision.active_cap == 2
+    assert decision.guard_target >= 6
+
+
+def test_resolve_all_method_scheduler_admission_clamps_when_wing_backlog_is_saturated() -> None:
+    decision = cli._resolve_all_method_scheduler_admission(
+        counts={
+            "heavy_active": 2,
+            "split_wait": 3,
+            "prep_active": 2,
+            "post_active": 0,
+            "evaluate_active": 0,
+            "wing_backlog": 5,
+            "active": 5,
+        },
+        pending_count=3,
+        total_variants=12,
+        configured_inflight_pipelines=2,
+        split_phase_slots=2,
+        wing_backlog_target=2,
+        max_active_during_eval=5,
+        adaptive_overcommit_limit=2,
+        adaptive_max_guard_target=8,
+        smart_scheduler_enabled=True,
+        cpu_utilization_pct=35.0,
+    )
+    assert decision.reason == "saturation_clamp"
+    assert decision.saturation_clamp is True
+    assert decision.active_cap == 2
+    assert decision.guard_target == 4
+
+
+def test_resolve_all_method_scheduler_admission_clamps_when_cpu_hot() -> None:
+    decision = cli._resolve_all_method_scheduler_admission(
+        counts={
+            "heavy_active": 1,
+            "split_wait": 1,
+            "prep_active": 1,
+            "post_active": 0,
+            "evaluate_active": 1,
+            "wing_backlog": 2,
+            "active": 3,
+        },
+        pending_count=2,
+        total_variants=12,
+        configured_inflight_pipelines=2,
+        split_phase_slots=2,
+        wing_backlog_target=2,
+        max_active_during_eval=5,
+        adaptive_overcommit_limit=2,
+        adaptive_max_guard_target=8,
+        smart_scheduler_enabled=True,
+        cpu_utilization_pct=99.0,
+    )
+    assert decision.reason == "cpu_hot_clamp"
+    assert decision.cpu_hot_clamp is True
+    assert decision.active_cap == 4
+
+
 def test_resolve_all_method_split_worker_cap_uses_cpu_and_memory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5142,6 +5245,45 @@ def test_resolve_all_method_split_worker_cap_uses_cpu_and_memory(
     assert guard["split_worker_cap_by_cpu"] == 4
     assert guard["split_worker_cap_by_memory"] == 1
     assert guard["split_worker_cap_per_config"] == 1
+
+
+def test_all_method_prediction_reuse_summary_detects_safe_and_blocked_split_convert_candidates() -> None:
+    rows = [
+        {
+            "status": "ok",
+            "prediction_result_source": "executed",
+            "prediction_reuse_key": "pred-a",
+            "prediction_split_convert_input_key": "split-a",
+        },
+        {
+            "status": "ok",
+            "prediction_result_source": "reused_in_run",
+            "prediction_reuse_key": "pred-a",
+            "prediction_split_convert_input_key": "split-a",
+        },
+        {
+            "status": "ok",
+            "prediction_result_source": "executed",
+            "prediction_reuse_key": "pred-b1",
+            "prediction_split_convert_input_key": "split-b",
+        },
+        {
+            "status": "ok",
+            "prediction_result_source": "executed",
+            "prediction_reuse_key": "pred-b2",
+            "prediction_split_convert_input_key": "split-b",
+        },
+    ]
+
+    summary = cli._all_method_prediction_reuse_summary(rows)
+
+    assert summary["prediction_signatures_unique"] == 3
+    assert summary["prediction_runs_executed"] == 3
+    assert summary["prediction_results_reused_in_run"] == 1
+    assert summary["split_convert_input_groups"] == 2
+    assert summary["split_convert_reuse_candidates"] == 2
+    assert summary["split_convert_reuse_safe_candidates"] == 1
+    assert summary["split_convert_reuse_blocked_by_prediction_variance"] == 1
 
 
 def test_build_all_method_eval_signature_is_stable_for_same_payload(tmp_path: Path) -> None:
@@ -5570,6 +5712,96 @@ def test_run_all_method_benchmark_resource_guard_caps_split_workers(
     assert scheduler["split_worker_cap_by_memory"] >= 4
 
 
+def test_run_all_method_prediction_once_reuses_cached_prediction_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    variant = cli.AllMethodVariant(
+        slug="reuse-check",
+        run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+        dimensions={"epub_extractor": "unstructured"},
+    )
+
+    benchmark_calls = 0
+
+    def fake_labelstudio_benchmark(**kwargs):
+        nonlocal benchmark_calls
+        benchmark_calls += 1
+        _write_fake_all_method_prediction_phase_artifacts(
+            kwargs=kwargs,
+            source_file=source_file,
+            extractor="unstructured",
+            prediction_seconds=1.5,
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    root_output_dir = tmp_path / "all-method"
+    scratch_root = root_output_dir / ".scratch"
+    processed_output_root = tmp_path / "processed-output"
+    scheduler_events_dir = tmp_path / "events"
+    split_phase_gate_dir = tmp_path / "split-gate"
+
+    first_row = cli._run_all_method_prediction_once(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variant=variant,
+        config_index=1,
+        total_variants=2,
+        root_output_dir=root_output_dir,
+        scratch_root=scratch_root,
+        processed_output_root=processed_output_root,
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_concurrent_split_phases=1,
+        split_phase_gate_dir=split_phase_gate_dir,
+        scheduler_events_dir=scheduler_events_dir,
+        alignment_cache_dir=None,
+        split_worker_cap_per_config=None,
+    )
+    second_row = cli._run_all_method_prediction_once(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variant=variant,
+        config_index=2,
+        total_variants=2,
+        root_output_dir=root_output_dir,
+        scratch_root=scratch_root,
+        processed_output_root=processed_output_root,
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_concurrent_split_phases=1,
+        split_phase_gate_dir=split_phase_gate_dir,
+        scheduler_events_dir=scheduler_events_dir,
+        alignment_cache_dir=None,
+        split_worker_cap_per_config=None,
+    )
+
+    assert benchmark_calls == 1
+    assert first_row["prediction_result_source"] == "executed"
+    assert second_row["prediction_result_source"] == "reused_in_run"
+    assert second_row["prediction_representative_config_dir"] == first_row["config_dir"]
+    assert second_row["prediction_reuse_key"] == first_row["prediction_reuse_key"]
+    assert (
+        second_row["prediction_split_convert_input_key"]
+        == first_row["prediction_split_convert_input_key"]
+    )
+
+    second_timing = cli._normalize_timing_payload(second_row.get("timing"))
+    second_checkpoints = second_timing.get("checkpoints")
+    assert isinstance(second_checkpoints, dict)
+    assert second_checkpoints["all_method_prediction_reused_in_run"] == pytest.approx(1.0)
+    assert second_checkpoints["all_method_prediction_reuse_copy_seconds"] >= 0.0
+
+    second_prediction_record = root_output_dir / str(second_row["prediction_record_jsonl"])
+    assert second_prediction_record.exists()
+
+
 def test_run_all_method_prediction_once_uses_adapter_forwarding_surface(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -5669,8 +5901,8 @@ def test_run_all_method_prediction_once_uses_adapter_forwarding_surface(
         eval_mode=cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
         execution_mode=cli.BENCHMARK_EXECUTION_MODE_PREDICT_ONLY,
         no_upload=True,
-        write_markdown=True,
-        write_label_studio_tasks=True,
+        write_markdown=False,
+        write_label_studio_tasks=False,
         sequence_matcher_override=settings.benchmark_sequence_matcher,
     )
     expected_kwargs.update(
@@ -6275,7 +6507,13 @@ def test_run_all_method_benchmark_writes_scheduler_timeseries(
     assert "evaluate_active" in first
     assert "active" in first
     assert "pending" in first
+    assert "admission_active_cap" in first
+    assert "admission_guard_target" in first
+    assert "admission_wing_target" in first
+    assert "admission_reason" in first
     assert "elapsed_seconds" in first
+    assert scheduler["adaptive_admission_adjustments"] >= 0
+    assert scheduler["split_phase_slots_requested"] >= scheduler["split_phase_slots"]
 
 
 def test_run_all_method_benchmark_falls_back_to_thread_executor_when_process_workers_unavailable(

@@ -243,7 +243,7 @@ Developer note:
    - `Change run settings...` (full-screen arrow-key editor)
 3. Ask `Use Codex Farm recipe pipeline for this run?` (default `Yes`).
    - If enabled for this run, also ask:
-   - `Codex Farm model override` picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`)
+   - `Codex Farm model override` picker (`keep current`, `pipeline default`, discovered models from `codex-farm models list --json`, or `custom model id...`)
    - `Codex Farm reasoning effort override` (`pipeline default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`)
 4. Applies selected EPUB env vars:
    - `C3IMP_EPUB_EXTRACTOR`
@@ -1306,7 +1306,25 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 - Picker contract:
   - keep current value,
   - pipeline default (shown when an override exists),
-  - discovered local models,
+  - discovered models from `codex-farm models list --json` (best-effort, with fallback options),
   - custom model id fallback.
 - Reasoning-effort prompt behavior is unchanged and still follows model selection when codex is enabled.
 - Cancel/back from model or reasoning prompts cancels run setup cleanly for both import and benchmark interactive flows.
+
+## 2026-02-28 migrated understandings batch (04:09-04:15 Codex prompt surfaces)
+
+### 2026-02-28_04.09.18 c3imp codex-farm interactive prompt paths
+- Source: `docs/understandings/2026-02-28_04.09.18-c3imp-codex-farm-interactive-prompt-paths.md`
+- Both interactive import and interactive benchmark flows call the same chooser entrypoint: `choose_run_settings(...)` in `cookimport/cli_ui/run_settings_flow.py`.
+- Chooser prompt `Use Codex Farm recipe pipeline for this run?` defaults to `Yes`.
+- Model and reasoning override prompts appear only when the resolved run settings keep `llm_recipe_pipeline=codex-farm-3pass-v1`.
+- `single_offline_all_matched` has no separate Codex include prompt; it inherits chooser output.
+
+### 2026-02-28_04.15.12 codex-farm run-settings model picker surface
+- Source: `docs/understandings/2026-02-28_04.15.12-codex-farm-run-settings-model-picker-surface.md`
+- Codex model override uses menu-first selection (`keep current`, optional `pipeline default`, discovered models, `custom model id...`) instead of free-text-first input.
+- Typing is only used for the explicit `custom model id...` branch.
+- `None`/`BACK_ACTION` from model or reasoning prompts cancels setup for both interactive import and benchmark paths.
+
+Anti-loop note:
+- If Codex enable prompts appear but model/reasoning prompts do not, confirm the resolved chooser payload still has `llm_recipe_pipeline=codex-farm-3pass-v1` before editing benchmark-mode menus.

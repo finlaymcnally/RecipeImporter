@@ -187,3 +187,26 @@ Merge approach:
 
 Anti-loop note:
 - For future domain cleanup, use explicit mapping + dual-surface merge (`README` + `_log`) before deleting source docs; deleting first causes repeated "why was this choice made?" loops.
+
+## 2026-02-28 migrated understanding ledger (09:18 docs routing and supersession)
+
+### 2026-02-28_09.18.47 docs/tasks routing and supersession map
+
+Source: `docs/understandings/2026-02-28_09.18.47-docs-tasks-routing-and-supersession-map.md`
+
+Problem captured:
+- Cross-domain docs/task consolidation risked losing major decision history or reintroducing stale codex-gate claims.
+
+Routing decisions preserved:
+- `2026-02-28_00.42.17-howto-section-importer-auto-emission.md` -> `docs/05-staging` (with benchmark-remap cross-reference to `docs/07-bench`).
+- `2026-02-28_01.11.10-qualitysuite-levers.md` -> `docs/07-bench`.
+- `2026-02-28_02.31.09-enable-codex-farm-in-benchmarks.md` -> `docs/10-llm` (historical env-gated rollout context, now superseded).
+- `2026-02-28_02.48.43-setup-codex-farm-cli-for-epub-benchmarks.md` -> `docs/10-llm`.
+- `2026-02-28_04.14.07-codex-farm-model-picker-in-run-settings.md` -> `docs/02-cli`.
+
+Supersession rules preserved:
+- Retain env-gated Codex Farm content only as historical context in logs.
+- Keep README sections authoritative for current ungated behavior.
+
+Anti-loop note:
+- For future docs consolidation, do not delete source docs before two-surface merge (`README` current contract + `_log` chronology/failures) is complete.
