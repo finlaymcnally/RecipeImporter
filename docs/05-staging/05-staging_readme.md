@@ -116,10 +116,12 @@ Stage-block `KNOWLEDGE` label contract:
 
 Stage-block label resolution contract:
 - `stage_block_predictions.py` labels blocks from recipe-local text matches (title, ingredients, instructions, notes, variant/yield/time lines).
+- `stage_block_predictions.py` emits `HOWTO_SECTION` for deterministic ingredient/instruction section-header hits (`extract_ingredient_sections`, `extract_instruction_sections`) when nearby recipe-structure signals are present.
 - `RECIPE_NOTES` evidence merges schema `comment` rows with recipe-specific notes deterministically extracted from `description` (`extract_recipe_specific_notes`).
 - If ingredient/instruction exact/fuzzy matching misses, it falls back to extracted archive `block_role` hints (`ingredient_line`, `instruction_line`).
-- Multi-label conflicts resolve by fixed priority (`RECIPE_VARIANT` > `RECIPE_TITLE` > `YIELD_LINE` > `TIME_LINE` > `INGREDIENT_LINE` > `RECIPE_NOTES` > `INSTRUCTION_LINE` > `KNOWLEDGE`).
+- Multi-label conflicts resolve by fixed priority (`RECIPE_VARIANT` > `RECIPE_TITLE` > `YIELD_LINE` > `TIME_LINE` > `HOWTO_SECTION` > `INGREDIENT_LINE` > `RECIPE_NOTES` > `INSTRUCTION_LINE` > `KNOWLEDGE`).
 - If a block has both `KNOWLEDGE` and recipe-local labels, recipe-local label wins.
+- Recipe-local stage labeling can derive block ranges from provenance line ranges (`start_line`/`end_line`) when explicit block ranges are absent (for example text-import paths).
 
 ## Intermediate JSON-LD Section Behavior
 
@@ -355,3 +357,11 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 ### 2026-02-27_23.17.42 priority5 shared instruction shaping path
 - Source: `docs/understandings/2026-02-27_23.17.42-priority5-shared-instruction-shaping-path.md`
 - Summary: Priority-5 implementation note: stage draft/jsonld/sections must all consume one shared effective instruction-shaping path, wired from RunSettings through stage + pred-run flows.
+
+### 2026-02-28_00.42.17 howto section auto-emission gap audit
+- Source: `docs/understandings/2026-02-28_00.42.17-howto-section-auto-emission-gap-audit.md`
+- Summary: Captured remaining gap for emitting `HOWTO_SECTION` labels in importer-side stage-block predictions (before auto-emission was implemented).
+
+### 2026-02-28_00.54.00 stage block howto emission range and remap notes
+- Source: `docs/understandings/2026-02-28_00.54.00-stage-block-howto-emission-range-and-remap-notes.md`
+- Summary: Documented the fix shape for line-range provenance mapping and prediction-side `HOWTO_SECTION` remap parity required for benchmark-safe auto-emission.

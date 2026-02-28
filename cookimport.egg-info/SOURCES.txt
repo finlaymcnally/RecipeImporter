@@ -29,6 +29,7 @@ cookimport/bench/eval_stage_blocks.py
 cookimport/bench/noise.py
 cookimport/bench/prediction_records.py
 cookimport/bench/quality_compare.py
+cookimport/bench/quality_leaderboard.py
 cookimport/bench/quality_runner.py
 cookimport/bench/quality_suite.py
 cookimport/bench/report.py

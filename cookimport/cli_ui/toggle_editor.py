@@ -32,7 +32,7 @@ class _EditorState:
         if not self.field_indices:
             raise ValueError("Run settings editor has no editable fields.")
         self.selected_row_index = self.field_indices[0]
-        self.values = initial.to_run_config_dict()
+        self.values = initial.model_dump(mode="json", exclude_none=True)
         self.error_message = ""
 
     @staticmethod
@@ -75,11 +75,18 @@ class _EditorState:
                 return
             choices = list(spec.choices)
             try:
-                position = choices.index(str(current))
+                if spec.allows_none and current is None:
+                    position = choices.index(choices[0])
+                else:
+                    position = choices.index(str(current))
             except ValueError:
                 position = 0
             next_position = (position + delta) % len(choices)
-            self.set_selected_value(choices[next_position])
+            chosen = choices[next_position]
+            if spec.allows_none and chosen == choices[0]:
+                self.set_selected_value(None)
+            else:
+                self.set_selected_value(chosen)
             return
         if spec.value_kind == "bool":
             self.set_selected_value(not bool(current))
@@ -115,10 +122,13 @@ class _EditorState:
             self.set_selected_value(parsed)
             return
         if spec.value_kind == "string":
-            self.set_selected_value(text)
+            if not text and spec.allows_none:
+                self.set_selected_value(None)
+            else:
+                self.set_selected_value(text)
 
     def build_result(self) -> RunSettings:
-        merged = self.initial.to_run_config_dict()
+        merged = self.initial.model_dump(mode="json", exclude_none=True)
         merged.update(self.values)
         return RunSettings.from_dict(merged, warn_context="run settings editor")
 
@@ -161,6 +171,10 @@ def _render_value_fragments(
     row_selected: bool,
 ) -> list[tuple[str, str]]:
     current = _render_value_text(value)
+    if value is None and spec.allows_none and spec.value_kind != "enum":
+        current = "pipeline default" if spec.group == "LLM" else "default"
+    if spec.allows_none and value is None and spec.value_kind == "enum" and spec.choices:
+        current = spec.choices[0]
     if spec.value_kind == "enum":
         options = list(spec.choices)
     elif spec.value_kind == "bool":
@@ -206,7 +220,12 @@ def _build_body(state: _EditorState) -> FormattedText:
 def _build_footer(state: _EditorState) -> FormattedText:
     spec = state.selected_spec()
     value = state.selected_value()
-    value_text = _render_value_text(value)
+    if value is None and spec.allows_none and spec.value_kind == "enum" and spec.choices:
+        value_text = spec.choices[0]
+    elif value is None and spec.allows_none:
+        value_text = "pipeline default" if spec.group == "LLM" else "default"
+    else:
+        value_text = _render_value_text(value)
     lines = [
         f"{spec.label}: {value_text}",
         spec.description or "",

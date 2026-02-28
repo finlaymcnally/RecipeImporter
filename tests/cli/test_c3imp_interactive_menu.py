@@ -12,6 +12,13 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from cookimport import cli
+from cookimport.cli_ui import run_settings_flow
+from cookimport.config.last_run_store import (
+    load_preferred_run_settings,
+    load_qualitysuite_winner_run_settings,
+    save_preferred_run_settings,
+    save_qualitysuite_winner_run_settings,
+)
 from cookimport import entrypoint
 
 
@@ -176,6 +183,304 @@ def test_load_settings_errors_on_legacy_sequence_matcher(
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
     with pytest.raises(ValueError, match="benchmark_sequence_matcher"):
         cli._load_settings()
+
+
+def test_choose_run_settings_returns_saved_preferred_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    preferred_settings = cli.RunSettings.from_dict(
+        {
+            "epub_extractor": "beautifulsoup",
+            "instruction_step_segmentation_policy": "off",
+        },
+        warn_context="test preferred settings",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_last_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_preferred_run_settings",
+        lambda *_args, **_kwargs: preferred_settings,
+    )
+
+    captured_choice_values: list[str] = []
+
+    def fake_menu_select(*_args, choices, **_kwargs):
+        for choice in choices:
+            if isinstance(choice, questionary.Separator):
+                continue
+            captured_choice_values.append(str(choice.value))
+        return "preferred"
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="import",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=fake_menu_select,
+        back_action=object(),
+    )
+
+    assert selected is not None
+    assert selected.to_run_config_dict() == preferred_settings.to_run_config_dict()
+    assert "preferred" in captured_choice_values
+
+
+def test_choose_run_settings_builds_default_preferred_when_unsaved(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_last_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_preferred_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="benchmark",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda *_args, **_kwargs: "preferred",
+        back_action=object(),
+    )
+
+    assert selected is not None
+    assert selected.epub_extractor.value == "beautifulsoup"
+    assert selected.instruction_step_segmentation_policy.value == "off"
+
+
+def test_choose_run_settings_returns_saved_qualitysuite_winner_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    winner_settings = cli.RunSettings.from_dict(
+        {
+            "epub_extractor": "unstructured",
+            "epub_unstructured_html_parser_version": "v2",
+            "epub_unstructured_preprocess_mode": "semantic_v1",
+        },
+        warn_context="test qualitysuite winner settings",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_last_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_preferred_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: winner_settings,
+    )
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="benchmark",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda *_args, **_kwargs: "qualitysuite_winner",
+        back_action=object(),
+    )
+
+    assert selected is not None
+    assert selected.to_run_config_dict() == winner_settings.to_run_config_dict()
+
+
+def test_choose_run_settings_prompt_can_enable_codex_for_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("COOKIMPORT_ALLOW_CODEX_FARM", "1")
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_last_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_preferred_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="import",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda *_args, **_kwargs: "global",
+        back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: True,
+    )
+
+    assert selected is not None
+    assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
+
+
+def test_choose_run_settings_prompt_can_disable_codex_for_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("COOKIMPORT_ALLOW_CODEX_FARM", "1")
+    global_defaults = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        warn_context="test global defaults",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_last_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_preferred_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="benchmark",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda *_args, **_kwargs: "global",
+        back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: False,
+    )
+
+    assert selected is not None
+    assert selected.llm_recipe_pipeline.value == "off"
+
+
+def test_choose_run_settings_prompt_respects_codex_env_gate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.delenv("COOKIMPORT_ALLOW_CODEX_FARM", raising=False)
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_last_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_preferred_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="import",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda *_args, **_kwargs: "global",
+        back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: True,
+    )
+
+    assert selected is not None
+    assert selected.llm_recipe_pipeline.value == "off"
+
+
+def test_choose_run_settings_prompt_cancel_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_last_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_preferred_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="benchmark",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda *_args, **_kwargs: "global",
+        back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: None,
+    )
+
+    assert selected is None
+
+
+def test_preferred_run_settings_roundtrip(tmp_path) -> None:
+    output_dir = tmp_path / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    preferred_settings = cli.RunSettings.from_dict(
+        {
+            "epub_extractor": "beautifulsoup",
+            "instruction_step_segmentation_policy": "off",
+        },
+        warn_context="test preferred roundtrip",
+    )
+
+    save_preferred_run_settings(output_dir, preferred_settings)
+    loaded = load_preferred_run_settings(output_dir)
+
+    assert loaded is not None
+    assert loaded.to_run_config_dict() == preferred_settings.to_run_config_dict()
+
+
+def test_qualitysuite_winner_run_settings_roundtrip(tmp_path) -> None:
+    output_dir = tmp_path / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    winner_settings = cli.RunSettings.from_dict(
+        {
+            "epub_extractor": "unstructured",
+            "epub_unstructured_html_parser_version": "v2",
+            "epub_unstructured_preprocess_mode": "semantic_v1",
+        },
+        warn_context="test qualitysuite winner roundtrip",
+    )
+
+    save_qualitysuite_winner_run_settings(output_dir, winner_settings)
+    loaded = load_qualitysuite_winner_run_settings(output_dir)
+
+    assert loaded is not None
+    assert loaded.to_run_config_dict() == winner_settings.to_run_config_dict()
 
 
 def test_interactive_import_passes_knowledge_pipeline_settings(

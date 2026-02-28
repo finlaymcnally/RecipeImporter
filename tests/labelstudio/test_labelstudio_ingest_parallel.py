@@ -30,9 +30,15 @@ from cookimport.labelstudio.ingest import (
 from cookimport.labelstudio.models import ArchiveBlock
 
 
-def test_llm_recipe_pipeline_normalizer_rejects_codex_farm_enablement() -> None:
-    with pytest.raises(ValueError, match="TURNED OFF"):
+def test_llm_recipe_pipeline_normalizer_requires_env_unlock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("COOKIMPORT_ALLOW_CODEX_FARM", raising=False)
+    with pytest.raises(ValueError, match="COOKIMPORT_ALLOW_CODEX_FARM"):
         _normalize_llm_recipe_pipeline("codex-farm-3pass-v1")
+
+    monkeypatch.setenv("COOKIMPORT_ALLOW_CODEX_FARM", "1")
+    assert _normalize_llm_recipe_pipeline("codex-farm-3pass-v1") == "codex-farm-3pass-v1"
 
 
 def test_plan_parallel_convert_jobs_pdf_splits(monkeypatch) -> None:

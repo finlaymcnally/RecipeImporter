@@ -12,6 +12,7 @@ import pstats
 import queue
 import re
 import shutil
+import shlex
 import threading
 import time
 import zipfile
@@ -44,8 +45,12 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 from rich.text import Text
 
 from cookimport.cli_ui.run_settings_flow import choose_run_settings
-from cookimport.config.last_run_store import save_last_run_settings
+from cookimport.config.last_run_store import (
+    save_last_run_settings,
+    save_qualitysuite_winner_run_settings,
+)
 from cookimport.config.run_settings import (
+    RECIPE_CODEX_FARM_PIPELINE_POLICY,
     RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR,
     RunSettings,
     build_run_settings,
@@ -1724,11 +1729,36 @@ def _interactive_all_method_benchmark(
         unmatched_targets = []
 
     include_markdown_extractors = _resolve_all_method_markdown_extractors_choice()
+    include_deterministic_sweeps = _prompt_confirm(
+        (
+            "Try deterministic option sweeps too? (section detector, multi-recipe splitting, "
+            "ingredient missing-unit policy, instruction step segmentation, time/temp/yield)"
+        ),
+        default=True,
+    )
+    if include_deterministic_sweeps is None:
+        typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)
+        return
+    if include_deterministic_sweeps:
+        missing: list[str] = []
+        if not _all_method_optional_module_available("pysbd"):
+            missing.append("pysbd (instruction step segmenter)")
+        if not _all_method_optional_module_available("quantulum3"):
+            missing.append("quantulum3 (time/temp backends)")
+        if not _all_method_optional_module_available("pint"):
+            missing.append("pint (temperature units)")
+        if missing:
+            typer.secho(
+                "Deterministic sweeps note: optional deps missing, some variants will be skipped: "
+                + ", ".join(missing),
+                fg=typer.colors.BRIGHT_BLACK,
+            )
     base_target_variants = _build_all_method_target_variants(
         targets=targets,
         base_settings=selected_benchmark_settings,
         include_codex_farm=False,
         include_markdown_extractors=include_markdown_extractors,
+        include_deterministic_sweeps=bool(include_deterministic_sweeps),
     )
     total_base_runs = sum(len(variants) for _target, variants in base_target_variants)
     if total_base_runs <= 0:
@@ -1803,22 +1833,18 @@ def _interactive_all_method_benchmark(
         if selected_source.suffix.lower() == ".epub":
             typer.secho(
                 (
-                    "Dimensions: epub_extractor, plus parser/skip_headers/preprocess "
-                    "for unstructured variants."
+                    "Dimensions: epub_extractor + unstructured parser/skip_headers/preprocess, "
+                    "plus deterministic option sweeps when enabled."
                 ),
                 fg=typer.colors.BRIGHT_BLACK,
             )
         else:
             typer.secho(
-                "Dimensions: non-EPUB source uses one configuration (global benchmark run settings).",
+                "Dimensions: non-EPUB source uses global benchmark run settings (plus sweeps when enabled).",
                 fg=typer.colors.BRIGHT_BLACK,
             )
     typer.secho(
-        (
-            "With Codex Farm included: "
-            f"{total_base_runs} configurations (currently unchanged while recipe codex-farm "
-            "parsing is policy-locked OFF)."
-        ),
+        f"Codex Farm permutations require {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1.",
         fg=typer.colors.BRIGHT_BLACK,
     )
     typer.secho(
@@ -1840,11 +1866,52 @@ def _interactive_all_method_benchmark(
     if codex_warning:
         typer.secho(codex_warning, fg=typer.colors.YELLOW)
 
+    benchmark_settings_for_variants = selected_benchmark_settings
+    if include_codex_effective:
+        _ensure_codex_farm_cmd_available(selected_benchmark_settings.codex_farm_cmd)
+        model_prompt = _prompt_text(
+            "Codex Farm model override (blank for pipeline default):",
+            default=str(selected_benchmark_settings.codex_farm_model or ""),
+        )
+        if model_prompt is None:
+            typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)
+            return
+        model_override = str(model_prompt).strip() or None
+        effort_choice = _menu_select(
+            "Codex Farm reasoning effort override:",
+            menu_help="Blank uses pipeline default. Affects all codex-farm passes.",
+            choices=[
+                questionary.Choice("Pipeline default", value="__default__"),
+                questionary.Choice("none", value="none"),
+                questionary.Choice("minimal", value="minimal"),
+                questionary.Choice("low", value="low"),
+                questionary.Choice("medium", value="medium"),
+                questionary.Choice("high", value="high"),
+                questionary.Choice("xhigh", value="xhigh"),
+            ],
+        )
+        if effort_choice in {None, BACK_ACTION}:
+            typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)
+            return
+        reasoning_effort_override = (
+            None if effort_choice == "__default__" else str(effort_choice)
+        )
+        patched_payload = selected_benchmark_settings.model_dump(
+            mode="json", exclude_none=True
+        )
+        patched_payload["codex_farm_model"] = model_override
+        patched_payload["codex_farm_reasoning_effort"] = reasoning_effort_override
+        benchmark_settings_for_variants = RunSettings.from_dict(
+            patched_payload,
+            warn_context="all method benchmark settings",
+        )
+
     selected_target_variants = _build_all_method_target_variants(
         targets=targets,
-        base_settings=selected_benchmark_settings,
+        base_settings=benchmark_settings_for_variants,
         include_codex_farm=include_codex_effective,
         include_markdown_extractors=include_markdown_extractors,
+        include_deterministic_sweeps=bool(include_deterministic_sweeps),
     )
     total_selected_runs = sum(
         len(variants) for _target, variants in selected_target_variants
@@ -2101,6 +2168,167 @@ def _interactive_all_method_benchmark(
     )
 
 
+def _interactive_single_profile_all_matched_benchmark(
+    *,
+    selected_benchmark_settings: RunSettings,
+    benchmark_eval_output: Path,
+    processed_output_root: Path,
+) -> bool:
+    """Run one selected benchmark profile across every matched gold/source pair."""
+    targets, unmatched_targets = _resolve_all_method_targets(DEFAULT_GOLDEN)
+    if not targets:
+        typer.secho(
+            "No matched golden sets were found in data/input. Nothing to benchmark.",
+            fg=typer.colors.YELLOW,
+        )
+        if unmatched_targets:
+            typer.secho(
+                f"Skipped golden sets: {len(unmatched_targets)}",
+                fg=typer.colors.YELLOW,
+            )
+            for unmatched in unmatched_targets[:5]:
+                source_hint_text = unmatched.source_hint or "none"
+                typer.echo(
+                    f"  - {unmatched.gold_display}: {unmatched.reason} "
+                    f"(source hint: {source_hint_text})"
+                )
+            if len(unmatched_targets) > 5:
+                typer.echo(
+                    f"  - ... {len(unmatched_targets) - 5} additional skipped golden sets"
+                )
+        return False
+
+    typer.secho(
+        f"Matched golden sets: {len(targets)}",
+        fg=typer.colors.CYAN,
+    )
+    skipped_color = typer.colors.YELLOW if unmatched_targets else typer.colors.BRIGHT_BLACK
+    typer.secho(
+        f"Skipped golden sets: {len(unmatched_targets)}",
+        fg=skipped_color,
+    )
+    typer.secho(
+        (
+            "Single-profile benchmark will run "
+            f"{len(targets)} configurations across {len(targets)} matched golden sets."
+        ),
+        fg=typer.colors.CYAN,
+    )
+    if unmatched_targets:
+        typer.secho("Skipped golden set samples:", fg=typer.colors.BRIGHT_BLACK)
+        for unmatched in unmatched_targets[:5]:
+            source_hint_text = unmatched.source_hint or "none"
+            typer.echo(
+                f"  - {unmatched.gold_display}: {unmatched.reason} "
+                f"(source hint: {source_hint_text})"
+            )
+        if len(unmatched_targets) > 5:
+            typer.echo(
+                f"  - ... {len(unmatched_targets) - 5} additional skipped golden sets"
+            )
+
+    proceed = _prompt_confirm(
+        (
+            f"Proceed with {len(targets)} benchmark runs across "
+            f"{len(targets)} matched golden sets?"
+        ),
+        default=False,
+    )
+    if proceed is not True:
+        typer.secho("Single-profile benchmark cancelled.", fg=typer.colors.YELLOW)
+        return False
+
+    single_profile_root = benchmark_eval_output / "single-profile-benchmark"
+    single_profile_processed_root = (
+        processed_output_root
+        / benchmark_eval_output.name
+        / "single-profile-benchmark"
+    )
+
+    base_kwargs = build_benchmark_call_kwargs_from_run_settings(
+        selected_benchmark_settings,
+        output_dir=_golden_benchmark_root(),
+        eval_output_dir=single_profile_root,
+        eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        execution_mode=BENCHMARK_EXECUTION_MODE_LEGACY,
+        no_upload=True,
+        write_markdown=True,
+        write_label_studio_tasks=True,
+    )
+
+    failures: list[tuple[AllMethodTarget, str]] = []
+    total_targets = len(targets)
+    for index, target in enumerate(targets, start=1):
+        target_slug = f"{index:02d}_{slugify_name(target.source_file.stem)}"
+        target_eval_output = single_profile_root / target_slug
+        target_processed_output = single_profile_processed_root / target_slug
+        typer.secho(
+            (
+                f"Single-profile benchmark {index}/{total_targets}: "
+                f"{target.source_file_name}"
+            ),
+            fg=typer.colors.CYAN,
+        )
+        try:
+            target_kwargs = dict(base_kwargs)
+            target_kwargs.update(
+                {
+                    "gold_spans": target.gold_spans_path,
+                    "source_file": target.source_file,
+                    "eval_output_dir": target_eval_output,
+                    "processed_output_dir": target_processed_output,
+                }
+            )
+            labelstudio_benchmark(**target_kwargs)
+        except typer.Exit as exc:
+            exit_code = int(getattr(exc, "exit_code", 1))
+            failures.append((target, f"exit code {exit_code}"))
+            typer.secho(
+                (
+                    f"Single-profile benchmark failed for "
+                    f"{target.source_file_name} (exit code {exit_code}); continuing."
+                ),
+                fg=typer.colors.YELLOW,
+            )
+        except Exception as exc:  # noqa: BLE001
+            failures.append((target, str(exc)))
+            typer.secho(
+                (
+                    f"Single-profile benchmark failed for "
+                    f"{target.source_file_name}: {exc}; continuing."
+                ),
+                fg=typer.colors.YELLOW,
+            )
+
+    succeeded = total_targets - len(failures)
+    summary_color = typer.colors.GREEN if not failures else typer.colors.YELLOW
+    typer.secho(
+        (
+            "Single-profile all-matched benchmark complete: "
+            f"{succeeded}/{total_targets} succeeded."
+        ),
+        fg=summary_color,
+    )
+    typer.secho(
+        f"Single-profile benchmark outputs: {single_profile_root}",
+        fg=typer.colors.CYAN,
+    )
+    typer.secho(
+        f"Single-profile processed outputs: {single_profile_processed_root}",
+        fg=typer.colors.CYAN,
+    )
+    if failures:
+        typer.secho("Failed golden set samples:", fg=typer.colors.YELLOW)
+        for failed_target, reason in failures[:5]:
+            typer.echo(
+                f"  - {failed_target.gold_display}: {reason} "
+                f"(source: {failed_target.source_file_name})"
+            )
+        if len(failures) > 5:
+            typer.echo(f"  - ... {len(failures) - 5} additional failures")
+    return True
+
+
 def _interactive_mode(*, limit: int | None = None) -> None:
     """Run the interactive guided flow."""
     typer.secho("\n  Recipe Import Tool\n", fg=typer.colors.CYAN, bold=True)
@@ -2233,6 +2461,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 output_dir=output_folder,
                 menu_select=_menu_select,
                 back_action=BACK_ACTION,
+                prompt_confirm=_prompt_confirm,
             )
             if selected_run_settings is None:
                 typer.secho("Import cancelled.", fg=typer.colors.YELLOW)
@@ -2670,16 +2899,24 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 "How would you like to evaluate?",
                 menu_help=(
                     "Single offline mode runs one local prediction + eval against freeform gold "
-                    "without Label Studio upload. All method benchmark runs many offline "
-                    "permutations with one summary report. Markdown extractors are policy-locked "
-                    f"off unless {EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV}=1. If unlocked, all method "
-                    "still excludes markdown/markitdown by default; set "
+                    "without Label Studio upload. Single-profile all-matched mode runs that same "
+                    "single config across every matched golden set. All method benchmark runs "
+                    "many offline permutations with one summary report. Markdown extractors are "
+                    f"policy-locked off unless {EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV}=1. If unlocked, "
+                    "all method still excludes markdown/markitdown by default; set "
                     f"{ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV}=1 to include them."
                 ),
                 choices=[
                     questionary.Choice(
                         "Generate predictions + evaluate (offline, no upload)",
                         value="single_offline",
+                    ),
+                    questionary.Choice(
+                        (
+                            "Generate predictions + evaluate for all matched golden sets "
+                            "(single config each, offline)"
+                        ),
+                        value="single_offline_all_matched",
                     ),
                     questionary.Choice(
                         "All method benchmark (offline, no upload)",
@@ -2694,25 +2931,26 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 settings,
                 warn_context="interactive benchmark global settings",
             )
+            selected_benchmark_settings = choose_run_settings(
+                kind="benchmark",
+                global_defaults=benchmark_defaults,
+                output_dir=output_folder,
+                menu_select=_menu_select,
+                back_action=BACK_ACTION,
+                prompt_confirm=_prompt_confirm,
+            )
+            if selected_benchmark_settings is None:
+                typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
+                continue
+
+            typer.secho(
+                "Run settings: "
+                f"{selected_benchmark_settings.summary()} "
+                f"(hash {selected_benchmark_settings.short_hash()})",
+                fg=typer.colors.CYAN,
+            )
+
             if benchmark_mode == "single_offline":
-                selected_benchmark_settings = choose_run_settings(
-                    kind="benchmark",
-                    global_defaults=benchmark_defaults,
-                    output_dir=output_folder,
-                    menu_select=_menu_select,
-                    back_action=BACK_ACTION,
-                )
-                if selected_benchmark_settings is None:
-                    typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
-                    continue
-
-                typer.secho(
-                    "Run settings: "
-                    f"{selected_benchmark_settings.summary()} "
-                    f"(hash {selected_benchmark_settings.short_hash()})",
-                    fg=typer.colors.CYAN,
-                )
-
                 benchmark_kwargs = build_benchmark_call_kwargs_from_run_settings(
                     selected_benchmark_settings,
                     output_dir=_golden_benchmark_root(),
@@ -2730,6 +2968,16 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 save_last_run_settings(
                     "benchmark", output_folder, selected_benchmark_settings
                 )
+            elif benchmark_mode == "single_offline_all_matched":
+                completed = _interactive_single_profile_all_matched_benchmark(
+                    selected_benchmark_settings=selected_benchmark_settings,
+                    benchmark_eval_output=benchmark_eval_output,
+                    processed_output_root=output_folder,
+                )
+                if completed:
+                    save_last_run_settings(
+                        "benchmark", output_folder, selected_benchmark_settings
+                    )
             else:
                 all_method_max_parallel_sources = _coerce_positive_int(
                     settings.get(ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY)
@@ -2772,7 +3020,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     default=True,
                 )
                 _interactive_all_method_benchmark(
-                    selected_benchmark_settings=benchmark_defaults,
+                    selected_benchmark_settings=selected_benchmark_settings,
                     benchmark_eval_output=benchmark_eval_output,
                     processed_output_root=output_folder,
                     max_parallel_sources=all_method_max_parallel_sources,
@@ -3255,12 +3503,38 @@ def _normalize_p6_yield_mode(value: str) -> str:
 
 def _normalize_llm_recipe_pipeline(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized != "off":
+    if normalized == "off":
+        return normalized
+    if normalized == "codex-farm-3pass-v1":
+        if os.getenv(ALL_METHOD_CODEX_FARM_UNLOCK_ENV, "").strip() == "1":
+            return normalized
         _fail(
             f"Invalid LLM recipe pipeline: {value!r}. "
-            f"{RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR}"
+            f"{RECIPE_CODEX_FARM_PIPELINE_POLICY} "
+            f"Set {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1 to enable."
         )
-    return normalized
+        return "off"
+    _fail(
+        f"Invalid LLM recipe pipeline: {value!r}. "
+        "Expected one of: off, codex-farm-3pass-v1."
+    )
+    return "off"
+
+
+def _ensure_codex_farm_cmd_available(cmd: str) -> None:
+    cleaned = str(cmd or "codex-farm").strip()
+    if not cleaned:
+        cleaned = "codex-farm"
+    try:
+        binary = shlex.split(cleaned)[0]
+    except ValueError:
+        binary = cleaned.split()[0] if cleaned.split() else "codex-farm"
+    if not shutil.which(binary):
+        _fail(
+            f"Codex Farm command not found: {cleaned!r}. "
+            "Install `codex-farm` (for example from ../shared/CodexFarm) "
+            "or set --codex-farm-cmd to an absolute path."
+        )
 
 
 def _normalize_llm_knowledge_pipeline(value: str) -> str:
@@ -3889,7 +4163,17 @@ def _run_with_progress_status(
     tick_seconds: float = _STATUS_TICK_SECONDS,
     telemetry_path: Path | None = None,
     telemetry_heartbeat_seconds: float = PROCESSING_TIMESERIES_HEARTBEAT_SECONDS,
+    force_live_status: bool | None = None,
 ) -> _StatusReturn:
+    supports_live_status = (
+        bool(force_live_status)
+        if force_live_status is not None
+        else bool(console.is_terminal and not console.is_dumb_terminal)
+    )
+    if force_live_status is None:
+        plain_override = str(os.getenv("COOKIMPORT_PLAIN_PROGRESS", "") or "").strip().lower()
+        if plain_override in {"1", "true", "yes", "on"}:
+            supports_live_status = False
     latest_message = ""
     latest_message_started = time.monotonic()
     latest_counter: tuple[int, int] | None = None
@@ -3915,6 +4199,79 @@ def _run_with_progress_status(
             path=telemetry_file,
             heartbeat_seconds=max(0.05, float(telemetry_heartbeat_seconds)),
         )
+
+    def render_plain(now: float | None = None) -> str:
+        current = now if now is not None else time.monotonic()
+        with state_lock:
+            message = latest_message
+            started_at = latest_message_started
+            counter = latest_counter
+            tracked_total = rate_total
+            last_progress_at = rate_last_progress_at
+            sampled_seconds = rate_sampled_seconds
+            sampled_units = rate_sampled_units
+            recent_avg = _recent_rate_average_seconds_per_task(rate_recent_samples)
+            dashboard_metrics = dict(all_method_metrics)
+            workers = worker_total
+            worker_statuses = dict(worker_activity)
+        if not message:
+            base = str(initial_status).strip() or str(progress_prefix).strip()
+        else:
+            elapsed = max(0, int(current - started_at))
+            eta_seconds: int | None = None
+            avg_seconds_per_task: float | None = None
+            if (
+                counter is not None
+                and tracked_total is not None
+                and counter[1] == tracked_total
+            ):
+                counter_current, counter_total = counter
+                remaining = max(0, counter_total - counter_current)
+                if recent_avg is not None:
+                    avg_seconds_per_task = recent_avg
+                elif sampled_units > 0 and sampled_seconds > 0:
+                    avg_seconds_per_task = sampled_seconds / sampled_units
+                if (
+                    remaining > 0
+                    and avg_seconds_per_task is not None
+                    and avg_seconds_per_task > 0
+                ):
+                    eta_seconds = int(round(avg_seconds_per_task * remaining))
+                    active_hint = max(0, int(dashboard_metrics.get("active") or 0))
+                    eval_hint = max(0, int(dashboard_metrics.get("eval") or 0))
+                    if (
+                        active_hint > 0
+                        and eval_hint > 0
+                        and last_progress_at is not None
+                    ):
+                        stalled_seconds = max(0.0, current - last_progress_at)
+                        if stalled_seconds >= max(
+                            _STATUS_ALL_METHOD_STALL_MIN_SECONDS,
+                            avg_seconds_per_task * _STATUS_ALL_METHOD_STALL_MULTIPLIER,
+                        ):
+                            stalled_floor = stalled_seconds / float(active_hint)
+                            if stalled_floor > avg_seconds_per_task:
+                                eta_seconds = max(
+                                    eta_seconds,
+                                    int(round(stalled_floor * remaining)),
+                                )
+            decorated = _format_status_progress_message(
+                message,
+                elapsed_seconds=elapsed,
+                elapsed_threshold_seconds=elapsed_threshold_seconds,
+                eta_seconds=eta_seconds,
+                avg_seconds_per_task=avg_seconds_per_task,
+            )
+            base = f"{progress_prefix}: {decorated}".strip()
+        if workers <= 0:
+            return base
+        worker_lines = [base]
+        for worker_index in range(1, workers + 1):
+            worker_status = str(worker_statuses.get(worker_index, "idle") or "").strip() or "idle"
+            if len(worker_status) > 120:
+                worker_status = f"{worker_status[:117]}..."
+            worker_lines.append(f"  worker {worker_index:02d}: {worker_status}")
+        return "\n".join(worker_lines)
 
     def render(now: float | None = None) -> str:
         current = now if now is not None else time.monotonic()
@@ -4051,11 +4408,126 @@ def _run_with_progress_status(
             },
         )
 
-    with console.status(render(), spinner="dots") as status:
+    last_plain_snapshot = ""
+
+    def _update_progress_common(msg: str) -> tuple[bool, float]:
+        nonlocal latest_message, latest_message_started
+        nonlocal latest_counter, rate_total, rate_last_current, rate_last_progress_at
+        nonlocal rate_sampled_seconds, rate_sampled_units
+        nonlocal rate_recent_samples, all_method_metrics
+        nonlocal worker_total, worker_activity
+        now = time.monotonic()
+        cleaned = msg.strip()
+        worker_payload = parse_worker_activity(cleaned)
+        counter = None
+        changed = False
+        with state_lock:
+            if worker_payload is not None:
+                payload_type = worker_payload.get("type")
+                if payload_type == "reset":
+                    if worker_total != 0 or worker_activity:
+                        changed = True
+                    worker_total = 0
+                    worker_activity = {}
+                elif payload_type == "activity":
+                    total = int(worker_payload.get("worker_total") or 1)
+                    worker_index = int(worker_payload.get("worker_index") or 1)
+                    worker_status_text = str(worker_payload.get("status") or "").strip()
+                    if total != worker_total:
+                        changed = True
+                        worker_total = total
+                        worker_activity = {
+                            idx: value
+                            for idx, value in worker_activity.items()
+                            if idx <= total
+                        }
+                    if worker_activity.get(worker_index) != worker_status_text:
+                        changed = True
+                        worker_activity[worker_index] = worker_status_text
+            else:
+                counter = _extract_progress_counter(cleaned)
+                message_changed = cleaned != latest_message
+                counter_changed = counter != latest_counter
+                if message_changed or counter_changed:
+                    changed = True
+                if message_changed:
+                    latest_message_started = now
+                latest_message = cleaned
+                latest_counter = counter
+                if message_changed:
+                    all_method_metrics = _extract_all_method_dashboard_metrics(cleaned)
+                if counter is not None:
+                    counter_current, counter_total = counter
+                    should_reset = (
+                        rate_total is None
+                        or rate_last_current is None
+                        or rate_last_progress_at is None
+                        or counter_total != rate_total
+                        or counter_current < rate_last_current
+                    )
+                    if should_reset:
+                        changed = True
+                        rate_total = counter_total
+                        rate_last_current = counter_current
+                        rate_last_progress_at = now
+                        rate_sampled_seconds = 0.0
+                        rate_sampled_units = 0
+                        rate_recent_samples.clear()
+                    else:
+                        delta = counter_current - rate_last_current
+                        if delta > 0:
+                            elapsed_since_progress = max(0.0, now - rate_last_progress_at)
+                            if elapsed_since_progress > 0:
+                                rate_sampled_seconds += elapsed_since_progress
+                                rate_sampled_units += delta
+                                rate_recent_samples.append((elapsed_since_progress, delta))
+                            rate_last_current = counter_current
+                            rate_last_progress_at = now
+        return changed, now
+
+    def _run_plain() -> _StatusReturn:
+        nonlocal last_plain_snapshot
+        typer.secho(
+            str(initial_status).strip() or str(progress_prefix).strip(),
+            fg=typer.colors.CYAN,
+        )
+        _emit_timeseries(event="started", force=True)
+
+        def update_progress(msg: str) -> None:
+            nonlocal last_plain_snapshot
+            changed, now = _update_progress_common(msg)
+            if not changed:
+                return
+            snapshot = render_plain(now)
+            if snapshot and snapshot != last_plain_snapshot:
+                typer.secho(snapshot, fg=typer.colors.CYAN)
+                last_plain_snapshot = snapshot
+            _emit_timeseries(event="update", now=now)
+
+        try:
+            return run(update_progress)
+        finally:
+            _emit_timeseries(event="finished", force=True)
+
+    if not supports_live_status:
+        return _run_plain()
+
+    with console.status(render(), spinner="dots", refresh_per_second=4.0) as status:
         _emit_timeseries(event="started", force=True)
 
         def tick() -> None:
-            while not stop_event.wait(max(0.05, tick_seconds)):
+            while True:
+                with state_lock:
+                    message_snapshot = latest_message
+                    worker_snapshot = worker_total
+                interval = float(tick_seconds)
+                if (
+                    (worker_snapshot > 0 or "\n" in (message_snapshot or ""))
+                    and interval >= 0.5
+                ):
+                    interval = max(interval, 5.0)
+                if stop_event.wait(max(0.05, interval)):
+                    return
                 now = time.monotonic()
                 status.update(render(now))
                 _emit_timeseries(event="tick", now=now)
@@ -4068,71 +4540,9 @@ def _run_with_progress_status(
         ticker.start()
 
         def update_progress(msg: str) -> None:
-            nonlocal latest_message, latest_message_started
-            nonlocal latest_counter, rate_total, rate_last_current, rate_last_progress_at
-            nonlocal rate_sampled_seconds, rate_sampled_units
-            nonlocal rate_recent_samples, all_method_metrics
-            nonlocal worker_total, worker_activity
-            now = time.monotonic()
-            cleaned = msg.strip()
-            worker_payload = parse_worker_activity(cleaned)
-            counter = None
-            with state_lock:
-                if worker_payload is not None:
-                    payload_type = worker_payload.get("type")
-                    if payload_type == "reset":
-                        worker_total = 0
-                        worker_activity = {}
-                    elif payload_type == "activity":
-                        total = int(worker_payload.get("worker_total") or 1)
-                        worker_index = int(worker_payload.get("worker_index") or 1)
-                        worker_status_text = str(
-                            worker_payload.get("status") or ""
-                        ).strip()
-                        if total != worker_total:
-                            worker_total = total
-                            worker_activity = {
-                                idx: value
-                                for idx, value in worker_activity.items()
-                                if idx <= total
-                            }
-                        worker_activity[worker_index] = worker_status_text
-                else:
-                    counter = _extract_progress_counter(cleaned)
-                    latest_message = cleaned
-                    latest_message_started = now
-                    latest_counter = counter
-                    all_method_metrics = _extract_all_method_dashboard_metrics(cleaned)
-                    if counter is not None:
-                        counter_current, counter_total = counter
-                        should_reset = (
-                            rate_total is None
-                            or rate_last_current is None
-                            or rate_last_progress_at is None
-                            or counter_total != rate_total
-                            or counter_current < rate_last_current
-                        )
-                        if should_reset:
-                            rate_total = counter_total
-                            rate_last_current = counter_current
-                            rate_last_progress_at = now
-                            rate_sampled_seconds = 0.0
-                            rate_sampled_units = 0
-                            rate_recent_samples.clear()
-                        else:
-                            delta = counter_current - rate_last_current
-                            if delta > 0:
-                                elapsed_since_progress = max(
-                                    0.0, now - rate_last_progress_at
-                                )
-                                if elapsed_since_progress > 0:
-                                    rate_sampled_seconds += elapsed_since_progress
-                                    rate_sampled_units += delta
-                                    rate_recent_samples.append(
-                                        (elapsed_since_progress, delta)
-                                    )
-                                rate_last_current = counter_current
-                                rate_last_progress_at = now
+            changed, now = _update_progress_common(msg)
+            if not changed:
+                return
             status.update(render(now))
             _emit_timeseries(event="update", now=now)
 
@@ -4140,7 +4550,7 @@ def _run_with_progress_status(
             return run(update_progress)
         finally:
             stop_event.set()
-            ticker.join(timeout=max(0.2, tick_seconds * 2))
+            ticker.join(timeout=max(0.2, float(tick_seconds) * 2))
             _emit_timeseries(event="finished", force=True)
 
 
@@ -6248,89 +6658,253 @@ def _all_method_is_schema_like_json_source(source_file: Path) -> bool:
     return bool(collect_schemaorg_recipe_objects(payload))
 
 
+def _all_method_optional_module_available(module_name: str) -> bool:
+    try:
+        import importlib
+
+        importlib.import_module(module_name)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _build_all_method_sweep_payloads(
+    *,
+    base_payload: dict[str, Any],
+    include_deterministic_sweeps: bool,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Return (sweep_tag, payload) rows for all-method benchmark runs.
+
+    Strategy: baseline + one-at-a-time sweeps + one combined "all_upgrades" payload.
+    This exercises new deterministic knobs without a factorial explosion.
+    """
+
+    def _normalized(value: Any, default: str) -> str:
+        cleaned = str(value if value is not None else default).strip().lower()
+        return cleaned or default
+
+    rows: list[tuple[str, dict[str, Any]]] = [("base", dict(base_payload))]
+    if not include_deterministic_sweeps:
+        return rows
+
+    pysbd_ok = _all_method_optional_module_available("pysbd")
+    quantulum_ok = _all_method_optional_module_available("quantulum3")
+    pint_ok = _all_method_optional_module_available("pint")
+
+    def add_one_at_a_time(
+        *,
+        key: str,
+        values: Iterable[str],
+        default: str,
+        require: bool = True,
+    ) -> None:
+        if not require:
+            return
+        base_value = _normalized(base_payload.get(key), default)
+        for value in values:
+            normalized = _normalized(value, default)
+            if normalized == base_value:
+                continue
+            payload = dict(base_payload)
+            payload[key] = normalized
+            rows.append((f"{key}={normalized}", payload))
+
+    # Priority 2–6 deterministic knobs (non-LLM).
+    add_one_at_a_time(
+        key="section_detector_backend",
+        values=("legacy", "shared_v1"),
+        default="legacy",
+    )
+    add_one_at_a_time(
+        key="multi_recipe_splitter",
+        values=("legacy", "off", "rules_v1"),
+        default="legacy",
+    )
+    add_one_at_a_time(
+        key="ingredient_missing_unit_policy",
+        values=("null", "legacy_medium", "each"),
+        default="null",
+    )
+    add_one_at_a_time(
+        key="instruction_step_segmentation_policy",
+        values=("off", "auto", "always"),
+        default="auto",
+    )
+    add_one_at_a_time(
+        key="instruction_step_segmenter",
+        values=("heuristic_v1", "pysbd_v1"),
+        default="heuristic_v1",
+        require=pysbd_ok,
+    )
+    add_one_at_a_time(
+        key="p6_yield_mode",
+        values=("legacy_v1", "scored_v1"),
+        default="legacy_v1",
+    )
+    add_one_at_a_time(
+        key="p6_time_backend",
+        values=("regex_v1", "quantulum3_v1", "hybrid_regex_quantulum3_v1"),
+        default="regex_v1",
+        require=quantulum_ok,
+    )
+    add_one_at_a_time(
+        key="p6_temperature_backend",
+        values=("regex_v1", "quantulum3_v1", "hybrid_regex_quantulum3_v1"),
+        default="regex_v1",
+        require=quantulum_ok,
+    )
+    add_one_at_a_time(
+        key="p6_temperature_unit_backend",
+        values=("builtin_v1", "pint_v1"),
+        default="builtin_v1",
+        require=pint_ok,
+    )
+
+    upgrades: dict[str, str] = {
+        "section_detector_backend": "shared_v1",
+        "multi_recipe_splitter": "rules_v1",
+        "ingredient_missing_unit_policy": "each",
+        "instruction_step_segmentation_policy": "always",
+        "p6_yield_mode": "scored_v1",
+    }
+    if pysbd_ok:
+        upgrades["instruction_step_segmenter"] = "pysbd_v1"
+    if quantulum_ok:
+        upgrades["p6_time_backend"] = "hybrid_regex_quantulum3_v1"
+        upgrades["p6_temperature_backend"] = "hybrid_regex_quantulum3_v1"
+    if pint_ok:
+        upgrades["p6_temperature_unit_backend"] = "pint_v1"
+
+    combined = dict(base_payload)
+    combined.update(upgrades)
+    if combined != base_payload:
+        rows.append(("all_upgrades", combined))
+
+    return rows
+
+
 def _build_all_method_variants(
     *,
     base_settings: RunSettings,
     source_file: Path,
     include_codex_farm: bool,
     include_markdown_extractors: bool = False,
+    include_deterministic_sweeps: bool = False,
 ) -> list[AllMethodVariant]:
-    _ = include_codex_farm  # Reserved for future policy unlock.
     base_payload = base_settings.to_run_config_dict()
     variants: list[AllMethodVariant] = []
     source_ext = source_file.suffix.lower()
-    section_backend = str(base_payload.get("section_detector_backend", "legacy"))
-    multi_recipe_splitter = str(base_payload.get("multi_recipe_splitter", "legacy"))
-    section_dimension: dict[str, Any] = {}
-    section_slug_suffix = ""
-    if section_backend != "legacy":
-        section_dimension["section_detector_backend"] = section_backend
-        section_slug_suffix = (
-            "__section_"
-            + _all_method_variant_token(section_backend)
-        )
-    multi_recipe_dimension: dict[str, Any] = {}
-    multi_recipe_slug_suffix = ""
-    if multi_recipe_splitter != "legacy":
-        multi_recipe_dimension["multi_recipe_splitter"] = multi_recipe_splitter
-        multi_recipe_slug_suffix = (
-            "__multi_recipe_"
-            + _all_method_variant_token(multi_recipe_splitter)
-        )
 
     webschema_source = source_ext in {".html", ".htm", ".jsonld"} or (
         source_ext == ".json" and _all_method_is_schema_like_json_source(source_file)
     )
-    if source_ext != ".epub" and not webschema_source:
+
+    sweep_payloads = _build_all_method_sweep_payloads(
+        base_payload=dict(base_payload),
+        include_deterministic_sweeps=include_deterministic_sweeps,
+    )
+    dedupe_hashes: set[str] = set()
+
+    def add_variant(
+        *,
+        slug: str,
+        payload: dict[str, Any],
+        dimensions: dict[str, Any],
+        sweep_tag: str,
+    ) -> None:
         run_settings = RunSettings.from_dict(
-            dict(base_payload),
+            dict(payload),
             warn_context="all-method variant",
         )
+        stable_hash = run_settings.stable_hash()
+        if stable_hash in dedupe_hashes:
+            return
+        dedupe_hashes.add(stable_hash)
+        if sweep_tag != "base":
+            dimensions = dict(dimensions)
+            dimensions["deterministic_sweep"] = sweep_tag
         variants.append(
             AllMethodVariant(
-                slug=(
-                    f"source_{_all_method_variant_token(source_ext.lstrip('.') or 'unknown')}"
-                    f"{section_slug_suffix}{multi_recipe_slug_suffix}"
-                ),
+                slug=slug,
                 run_settings=run_settings,
-                dimensions={
-                    "source_extension": source_ext or "none",
-                    **section_dimension,
-                    **multi_recipe_dimension,
-                },
+                dimensions=dimensions,
             )
         )
+        if include_codex_farm:
+            current_llm = str(payload.get("llm_recipe_pipeline") or "off").strip().lower()
+            if current_llm == "off":
+                codex_payload = dict(payload)
+                codex_payload["llm_recipe_pipeline"] = "codex-farm-3pass-v1"
+                codex_dimensions = dict(dimensions)
+                codex_dimensions["llm_recipe_pipeline"] = "codex-farm-3pass-v1"
+                add_variant(
+                    slug=f"{slug}__llm_recipe_{_all_method_variant_token('codex-farm-3pass-v1')}",
+                    payload=codex_payload,
+                    dimensions=codex_dimensions,
+                    sweep_tag=sweep_tag,
+                )
+
+    def base_dimensions(payload: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "section_detector_backend": str(payload.get("section_detector_backend", "legacy")),
+            "multi_recipe_splitter": str(payload.get("multi_recipe_splitter", "legacy")),
+            "ingredient_missing_unit_policy": str(payload.get("ingredient_missing_unit_policy", "null")),
+            "instruction_step_segmentation_policy": str(
+                payload.get("instruction_step_segmentation_policy", "auto")
+            ),
+            "instruction_step_segmenter": str(payload.get("instruction_step_segmenter", "heuristic_v1")),
+            "p6_time_backend": str(payload.get("p6_time_backend", "regex_v1")),
+            "p6_temperature_backend": str(payload.get("p6_temperature_backend", "regex_v1")),
+            "p6_temperature_unit_backend": str(
+                payload.get("p6_temperature_unit_backend", "builtin_v1")
+            ),
+            "p6_yield_mode": str(payload.get("p6_yield_mode", "legacy_v1")),
+        }
+
+    if source_ext != ".epub" and not webschema_source:
+        for sweep_tag, payload in sweep_payloads:
+            suffix = "" if sweep_tag == "base" else f"__det_{_all_method_variant_token(sweep_tag)}"
+            multi_recipe = str(payload.get("multi_recipe_splitter") or "legacy").strip().lower()
+            multi_recipe_suffix = (
+                ""
+                if multi_recipe in {"", "legacy"}
+                else f"__multi_recipe_{_all_method_variant_token(multi_recipe)}"
+            )
+            add_variant(
+                slug=(
+                    f"source_{_all_method_variant_token(source_ext.lstrip('.') or 'unknown')}"
+                    f"{multi_recipe_suffix}"
+                    f"{suffix}"
+                ),
+                payload=payload,
+                sweep_tag=sweep_tag,
+                dimensions={
+                    "source_extension": source_ext or "none",
+                    **base_dimensions(payload),
+                },
+            )
         return variants
 
     if webschema_source:
-        dedupe_hashes: set[str] = set()
-        for schema_policy in ALL_METHOD_WEBSCHEMA_POLICIES:
-            payload = dict(base_payload)
-            payload["web_schema_policy"] = schema_policy
-            run_settings = RunSettings.from_dict(
-                payload,
-                warn_context="all-method variant",
-            )
-            stable_hash = run_settings.stable_hash()
-            if stable_hash in dedupe_hashes:
-                continue
-            dedupe_hashes.add(stable_hash)
-            variants.append(
-                AllMethodVariant(
+        for sweep_tag, payload in sweep_payloads:
+            suffix = "" if sweep_tag == "base" else f"__det_{_all_method_variant_token(sweep_tag)}"
+            for schema_policy in ALL_METHOD_WEBSCHEMA_POLICIES:
+                next_payload = dict(payload)
+                next_payload["web_schema_policy"] = schema_policy
+                add_variant(
                     slug=(
                         f"source_{_all_method_variant_token(source_ext.lstrip('.') or 'unknown')}"
                         f"__webschema_policy_{_all_method_variant_token(schema_policy)}"
-                        f"{section_slug_suffix}{multi_recipe_slug_suffix}"
+                        f"{suffix}"
                     ),
-                    run_settings=run_settings,
+                    payload=next_payload,
+                    sweep_tag=sweep_tag,
                     dimensions={
                         "source_extension": source_ext or "none",
                         "web_schema_policy": schema_policy,
-                        **section_dimension,
-                        **multi_recipe_dimension,
+                        **base_dimensions(next_payload),
                     },
                 )
-            )
         return variants
 
     extractors = ALL_METHOD_EPUB_EXTRACTORS_DEFAULT
@@ -6340,77 +6914,55 @@ def _build_all_method_variants(
             *ALL_METHOD_EPUB_EXTRACTORS_MARKDOWN_OPTIONAL,
         )
 
-    dedupe_hashes: set[str] = set()
-    for extractor in extractors:
-        if extractor == "unstructured":
-            for parser_version, skip_headers_footers, preprocess_mode in product(
-                ALL_METHOD_UNSTRUCTURED_HTML_PARSER_VERSIONS,
-                ALL_METHOD_UNSTRUCTURED_SKIP_HEADERS_FOOTERS,
-                ALL_METHOD_UNSTRUCTURED_PREPROCESS_MODES,
-            ):
-                payload = dict(base_payload)
-                payload.update(
-                    {
-                        "epub_extractor": extractor,
-                        "epub_unstructured_html_parser_version": parser_version,
-                        "epub_unstructured_skip_headers_footers": skip_headers_footers,
-                        "epub_unstructured_preprocess_mode": preprocess_mode,
-                    }
-                )
-                run_settings = RunSettings.from_dict(
-                    payload,
-                    warn_context="all-method variant",
-                )
-                stable_hash = run_settings.stable_hash()
-                if stable_hash in dedupe_hashes:
-                    continue
-                dedupe_hashes.add(stable_hash)
-                variants.append(
-                    AllMethodVariant(
+    for sweep_tag, payload in sweep_payloads:
+        suffix = "" if sweep_tag == "base" else f"__det_{_all_method_variant_token(sweep_tag)}"
+        for extractor in extractors:
+            if extractor == "unstructured":
+                for parser_version, skip_headers_footers, preprocess_mode in product(
+                    ALL_METHOD_UNSTRUCTURED_HTML_PARSER_VERSIONS,
+                    ALL_METHOD_UNSTRUCTURED_SKIP_HEADERS_FOOTERS,
+                    ALL_METHOD_UNSTRUCTURED_PREPROCESS_MODES,
+                ):
+                    next_payload = dict(payload)
+                    next_payload.update(
+                        {
+                            "epub_extractor": extractor,
+                            "epub_unstructured_html_parser_version": parser_version,
+                            "epub_unstructured_skip_headers_footers": skip_headers_footers,
+                            "epub_unstructured_preprocess_mode": preprocess_mode,
+                        }
+                    )
+                    add_variant(
                         slug=(
                             f"extractor_{_all_method_variant_token(extractor)}"
                             f"__parser_{_all_method_variant_token(parser_version)}"
                             f"__skiphf_{_all_method_variant_token(skip_headers_footers)}"
                             f"__pre_{_all_method_variant_token(preprocess_mode)}"
-                            f"{section_slug_suffix}{multi_recipe_slug_suffix}"
+                            f"{suffix}"
                         ),
-                        run_settings=run_settings,
+                        payload=next_payload,
+                        sweep_tag=sweep_tag,
                         dimensions={
                             "epub_extractor": extractor,
                             "epub_unstructured_html_parser_version": parser_version,
                             "epub_unstructured_skip_headers_footers": skip_headers_footers,
                             "epub_unstructured_preprocess_mode": preprocess_mode,
-                            **section_dimension,
-                            **multi_recipe_dimension,
+                            **base_dimensions(next_payload),
                         },
                     )
-                )
-            continue
+                continue
 
-        payload = dict(base_payload)
-        payload["epub_extractor"] = extractor
-        run_settings = RunSettings.from_dict(
-            payload,
-            warn_context="all-method variant",
-        )
-        stable_hash = run_settings.stable_hash()
-        if stable_hash in dedupe_hashes:
-            continue
-        dedupe_hashes.add(stable_hash)
-        variants.append(
-            AllMethodVariant(
-                slug=(
-                    f"extractor_{_all_method_variant_token(extractor)}"
-                    f"{section_slug_suffix}{multi_recipe_slug_suffix}"
-                ),
-                run_settings=run_settings,
+            next_payload = dict(payload)
+            next_payload["epub_extractor"] = extractor
+            add_variant(
+                slug=f"extractor_{_all_method_variant_token(extractor)}{suffix}",
+                payload=next_payload,
+                sweep_tag=sweep_tag,
                 dimensions={
                     "epub_extractor": extractor,
-                    **section_dimension,
-                    **multi_recipe_dimension,
+                    **base_dimensions(next_payload),
                 },
             )
-        )
 
     return variants
 
@@ -6421,6 +6973,7 @@ def _build_all_method_target_variants(
     base_settings: RunSettings,
     include_codex_farm: bool,
     include_markdown_extractors: bool = False,
+    include_deterministic_sweeps: bool = False,
 ) -> list[tuple[AllMethodTarget, list[AllMethodVariant]]]:
     return [
         (
@@ -6430,6 +6983,7 @@ def _build_all_method_target_variants(
                 source_file=target.source_file,
                 include_codex_farm=include_codex_farm,
                 include_markdown_extractors=include_markdown_extractors,
+                include_deterministic_sweeps=include_deterministic_sweeps,
             ),
         )
         for target in targets
@@ -6442,15 +6996,11 @@ def _resolve_all_method_codex_choice(include_codex_farm: bool) -> tuple[bool, st
     if os.getenv(ALL_METHOD_CODEX_FARM_UNLOCK_ENV, "").strip() != "1":
         return (
             False,
-            "Codex Farm is policy-locked off; "
-            f"set {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1 once policy unlocks. "
+            "Codex Farm is disabled unless explicitly unlocked; "
+            f"set {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1 to enable. "
             "Continuing without Codex Farm permutations.",
         )
-    return (
-        False,
-        "Codex Farm was requested, but recipe codex-farm parsing remains policy-locked OFF. "
-        "Continuing without Codex Farm permutations.",
-    )
+    return True, None
 
 
 def _resolve_all_method_markdown_extractors_choice() -> bool:
@@ -6734,6 +7284,20 @@ def _resolve_all_method_source_parallelism(
         return default_parallel_sources
     cpu_cap = max(1, _report_count(os.cpu_count()))
     return max(1, min(requested_parallel_sources, total, cpu_cap))
+
+
+def _probe_all_method_process_pool_executor() -> tuple[bool, str | None]:
+    """Return whether process-based config workers are usable in this runtime."""
+    try:
+        with ProcessPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(int, 1)
+            future.result(timeout=5)
+    except Exception as exc:  # noqa: BLE001
+        detail = str(exc).strip()
+        if detail:
+            return False, f"{type(exc).__name__}: {detail}"
+        return False, type(exc).__name__
+    return True, None
 
 
 def _resolve_all_method_scheduler_limits(
@@ -8933,9 +9497,28 @@ def _run_all_method_benchmark_global_queue(
         dashboard_tracking: bool = True,
     ) -> None:
         force_parallel_timeout = effective_config_timeout_seconds is not None
-        if (
+        serial_by_limits = (
             len(items) <= 1 or effective_inflight_pipelines <= 1
-        ) and not force_parallel_timeout:
+        ) and not force_parallel_timeout
+        if serial_by_limits:
+            _run_serial_items(items, dashboard_tracking=dashboard_tracking)
+            return
+        process_workers_available, process_worker_error = (
+            _probe_all_method_process_pool_executor()
+        )
+        if not process_workers_available:
+            detail = (
+                f" ({process_worker_error})"
+                if isinstance(process_worker_error, str) and process_worker_error
+                else ""
+            )
+            _emit_status(
+                (
+                    "Process-based config concurrency unavailable"
+                    f"{detail}; running single-config execution."
+                ),
+                color=typer.colors.YELLOW,
+            )
             _run_serial_items(items, dashboard_tracking=dashboard_tracking)
             return
 
@@ -8952,7 +9535,10 @@ def _run_all_method_benchmark_global_queue(
             executor = ProcessPoolExecutor(max_workers=worker_limit)
         except (PermissionError, OSError) as exc:
             _emit_status(
-                f"Parallel executor unavailable ({exc}); falling back to serial mode.",
+                (
+                    "Process-based config concurrency unavailable "
+                    f"({exc}); running single-config execution."
+                ),
                 color=typer.colors.YELLOW,
             )
             _run_serial_items(items, dashboard_tracking=dashboard_tracking)
@@ -9208,8 +9794,8 @@ def _run_all_method_benchmark_global_queue(
                 except (PermissionError, OSError) as exc:
                     _emit_status(
                         (
-                            "Parallel executor unavailable after timeout restart "
-                            f"({exc}); continuing in serial mode for remaining configs."
+                            "Process-based config concurrency unavailable after timeout "
+                            f"restart ({exc}); running remaining configs as single-config execution."
                         ),
                         color=typer.colors.YELLOW,
                     )
@@ -11992,7 +12578,28 @@ def _run_all_method_benchmark(
     ) -> None:
         nonlocal scheduler_smart_enabled
         force_parallel_timeout = effective_config_timeout_seconds is not None
-        if (len(items) <= 1 or effective_inflight_pipelines <= 1) and not force_parallel_timeout:
+        serial_by_limits = (
+            len(items) <= 1 or effective_inflight_pipelines <= 1
+        ) and not force_parallel_timeout
+        if serial_by_limits:
+            _run_serial_variants(items, dashboard_tracking=dashboard_tracking)
+            return
+        process_workers_available, process_worker_error = (
+            _probe_all_method_process_pool_executor()
+        )
+        if not process_workers_available:
+            detail = (
+                f" ({process_worker_error})"
+                if isinstance(process_worker_error, str) and process_worker_error
+                else ""
+            )
+            _emit_status(
+                (
+                    "Process-based config concurrency unavailable"
+                    f"{detail}; running single-config execution."
+                ),
+                color=typer.colors.YELLOW,
+            )
             _run_serial_variants(items, dashboard_tracking=dashboard_tracking)
             return
 
@@ -12008,7 +12615,10 @@ def _run_all_method_benchmark(
             executor = ProcessPoolExecutor(max_workers=worker_limit)
         except (PermissionError, OSError) as exc:
             _emit_status(
-                f"Parallel executor unavailable ({exc}); falling back to serial mode.",
+                (
+                    "Process-based config concurrency unavailable "
+                    f"({exc}); running single-config execution."
+                ),
                 color=typer.colors.YELLOW,
             )
             _run_serial_variants(items, dashboard_tracking=dashboard_tracking)
@@ -12280,8 +12890,8 @@ def _run_all_method_benchmark(
                 except (PermissionError, OSError) as exc:
                     _emit_status(
                         (
-                            "Parallel executor unavailable after timeout restart "
-                            f"({exc}); continuing in serial mode for remaining configs."
+                            "Process-based config concurrency unavailable after timeout "
+                            f"restart ({exc}); running remaining configs as single-config execution."
                         ),
                         color=typer.colors.YELLOW,
                     )
@@ -14118,7 +14728,7 @@ def stage(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Policy-locked OFF for now; must remain off until benchmark quality improves."
+            f"Use codex-farm-3pass-v1 only when {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1."
         ),
     ),
     llm_knowledge_pipeline: str = typer.Option(
@@ -15640,7 +16250,7 @@ def labelstudio_import(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Policy-locked OFF for now; must remain off until benchmark quality improves."
+            f"Use codex-farm-3pass-v1 only when {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1."
         ),
     ),
     codex_farm_cmd: str = typer.Option(
@@ -16567,7 +17177,7 @@ def labelstudio_benchmark(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Policy-locked OFF for now; must remain off until benchmark quality improves."
+            f"Use codex-farm-3pass-v1 only when {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1."
         ),
     )] = "off",
     codex_farm_cmd: Annotated[str, typer.Option(
@@ -17893,6 +18503,31 @@ def bench_speed_run(
             "When omitted, uses run settings value."
         ),
     ),
+    include_codex_farm: bool = typer.Option(
+        False,
+        "--include-codex-farm/--no-include-codex-farm",
+        help=(
+            "Include Codex Farm recipe pipeline permutations in all-method scenarios. "
+            f"Requires {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1."
+        ),
+    ),
+    codex_farm_model: str | None = typer.Option(
+        None,
+        "--codex-farm-model",
+        help="Optional Codex Farm model override (blank uses pipeline defaults).",
+    ),
+    codex_farm_reasoning_effort: Annotated[
+        str | None,
+        typer.Option(
+            "--codex-farm-thinking-effort",
+            "--codex-farm-reasoning-effort",
+            help=(
+                "Codex Farm thinking effort override "
+                "(none, minimal, low, medium, high, xhigh). "
+                "Blank uses pipeline defaults."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Run deterministic speed scenarios for a speed suite."""
     from cookimport.bench.speed_runner import (
@@ -17912,6 +18547,9 @@ def bench_speed_run(
     max_targets = _unwrap_typer_option_default(max_targets)
     run_settings_file = _unwrap_typer_option_default(run_settings_file)
     sequence_matcher = _unwrap_typer_option_default(sequence_matcher)
+    include_codex_farm = _unwrap_typer_option_default(include_codex_farm)
+    codex_farm_model = _unwrap_typer_option_default(codex_farm_model)
+    codex_farm_reasoning_effort = _unwrap_typer_option_default(codex_farm_reasoning_effort)
 
     try:
         loaded_suite = load_speed_suite(suite)
@@ -17951,6 +18589,14 @@ def bench_speed_run(
             sequence_matcher
         )
         run_settings_payload["benchmark_sequence_matcher"] = selected_sequence_matcher
+    if codex_farm_model is not None:
+        run_settings_payload["codex_farm_model"] = str(codex_farm_model).strip() or None
+    if codex_farm_reasoning_effort is not None:
+        try:
+            normalized_effort = normalize_codex_reasoning_effort(codex_farm_reasoning_effort)
+        except ValueError as exc:
+            _fail(f"--codex-farm-thinking-effort invalid: {exc}")
+        run_settings_payload["codex_farm_reasoning_effort"] = normalized_effort
 
     run_settings = RunSettings.from_dict(
         run_settings_payload,
@@ -17961,6 +18607,14 @@ def bench_speed_run(
         f"{run_settings.summary()} (hash {run_settings.short_hash()})",
         fg=typer.colors.CYAN,
     )
+    if include_codex_farm:
+        os.environ[ALL_METHOD_CODEX_FARM_UNLOCK_ENV] = "1"
+        _ensure_codex_farm_cmd_available(run_settings.codex_farm_cmd)
+        include_effective, warning = _resolve_all_method_codex_choice(True)
+        if warning is not None:
+            typer.secho(warning, fg=typer.colors.YELLOW)
+        elif include_effective:
+            typer.secho("Codex Farm permutations: enabled.", fg=typer.colors.CYAN)
 
     speed_run_timeseries_path = _processing_timeseries_history_path(
         root=out_dir,
@@ -17980,6 +18634,7 @@ def bench_speed_run(
                 repeats=repeats,
                 max_targets=max_targets,
                 run_settings=run_settings,
+                include_codex_farm_requested=include_codex_farm,
                 progress_callback=update_progress,
             ),
         )
@@ -18130,6 +18785,14 @@ def bench_quality_discover(
         "--seed",
         help="Deterministic selection seed recorded in suite metadata.",
     ),
+    prefer_curated: bool = typer.Option(
+        True,
+        "--prefer-curated/--no-prefer-curated",
+        help=(
+            "Prefer curated CUTDOWN focus IDs when available. "
+            "Disable to select representative targets (all matched when --max-targets is omitted)."
+        ),
+    ),
 ) -> None:
     """Discover deterministic quality-suite targets from pulled gold exports."""
     from cookimport.bench.quality_suite import (
@@ -18137,11 +18800,15 @@ def bench_quality_discover(
         write_quality_suite,
     )
 
+    suite_kwargs: dict[str, Any] = {}
+    if not prefer_curated:
+        suite_kwargs["preferred_target_ids"] = None
     suite = discover_quality_suite(
         gold_root=gold_root,
         input_root=input_root,
         max_targets=max_targets,
         seed=seed,
+        **suite_kwargs,
     )
     write_quality_suite(out, suite)
 
@@ -18189,6 +18856,72 @@ def bench_quality_run(
             "When omitted, uses experiments.base_run_settings_file or cookimport.json."
         ),
     ),
+    search_strategy: str = typer.Option(
+        "race",
+        "--search-strategy",
+        help=(
+            "Experiment search strategy: 'race' prunes the all-method config grid in rounds; "
+            "'exhaustive' runs the full grid across all selected targets."
+        ),
+    ),
+    race_probe_targets: int = typer.Option(
+        2,
+        "--race-probe-targets",
+        min=1,
+        help="Number of target sources used in the first pruning round when --search-strategy=race.",
+    ),
+    race_mid_targets: int = typer.Option(
+        4,
+        "--race-mid-targets",
+        min=1,
+        help="Number of target sources used in the second pruning round when --search-strategy=race.",
+    ),
+    race_keep_ratio: float = typer.Option(
+        0.35,
+        "--race-keep-ratio",
+        min=0.01,
+        max=1.0,
+        help="Fraction of configs kept after the probe round when --search-strategy=race.",
+    ),
+    race_finalists: int = typer.Option(
+        64,
+        "--race-finalists",
+        min=1,
+        help="Minimum finalist config count preserved for the full-suite round in race mode.",
+    ),
+    include_deterministic_sweeps: bool = typer.Option(
+        False,
+        "--include-deterministic-sweeps/--no-include-deterministic-sweeps",
+        help=(
+            "Enable deterministic all-method option sweeps during quality-run "
+            "(section detector, multi-recipe splitting, ingredient missing-unit policy, "
+            "instruction step segmentation, time/temp/yield)."
+        ),
+    ),
+    include_codex_farm: bool = typer.Option(
+        False,
+        "--include-codex-farm/--no-include-codex-farm",
+        help=(
+            "Include Codex Farm recipe pipeline permutations in all-method runs. "
+            f"Requires {ALL_METHOD_CODEX_FARM_UNLOCK_ENV}=1."
+        ),
+    ),
+    codex_farm_model: str | None = typer.Option(
+        None,
+        "--codex-farm-model",
+        help="Optional Codex Farm model override applied to all experiments.",
+    ),
+    codex_farm_reasoning_effort: Annotated[
+        str | None,
+        typer.Option(
+            "--codex-farm-thinking-effort",
+            "--codex-farm-reasoning-effort",
+            help=(
+                "Codex Farm thinking effort override applied to all experiments "
+                "(none, minimal, low, medium, high, xhigh)."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Run sequential all-method quality experiments for a quality suite."""
     from cookimport.bench.quality_runner import run_quality_suite
@@ -18201,6 +18934,26 @@ def bench_quality_run(
     experiments_file = _unwrap_typer_option_default(experiments_file)
     out_dir = _unwrap_typer_option_default(out_dir)
     base_run_settings_file = _unwrap_typer_option_default(base_run_settings_file)
+    search_strategy = _unwrap_typer_option_default(search_strategy)
+    race_probe_targets = _unwrap_typer_option_default(race_probe_targets)
+    race_mid_targets = _unwrap_typer_option_default(race_mid_targets)
+    race_keep_ratio = _unwrap_typer_option_default(race_keep_ratio)
+    race_finalists = _unwrap_typer_option_default(race_finalists)
+    include_deterministic_sweeps = _unwrap_typer_option_default(
+        include_deterministic_sweeps
+    )
+    include_codex_farm = _unwrap_typer_option_default(include_codex_farm)
+    codex_farm_model = _unwrap_typer_option_default(codex_farm_model)
+    codex_farm_reasoning_effort = _unwrap_typer_option_default(codex_farm_reasoning_effort)
+
+    if include_codex_farm:
+        os.environ[ALL_METHOD_CODEX_FARM_UNLOCK_ENV] = "1"
+        _ensure_codex_farm_cmd_available("codex-farm")
+        include_effective, warning = _resolve_all_method_codex_choice(True)
+        if warning is not None:
+            typer.secho(warning, fg=typer.colors.YELLOW)
+        elif include_effective:
+            typer.secho("Codex Farm permutations: enabled.", fg=typer.colors.CYAN)
 
     if not experiments_file.exists() or not experiments_file.is_file():
         _fail(f"Experiments file not found: {experiments_file}")
@@ -18223,6 +18976,10 @@ def bench_quality_run(
         source_name=loaded_suite.name,
     )
     try:
+        try:
+            normalized_effort = normalize_codex_reasoning_effort(codex_farm_reasoning_effort)
+        except ValueError as exc:
+            _fail(f"--codex-farm-thinking-effort invalid: {exc}")
         quality_run_root = _run_with_progress_status(
             initial_status="Running bench quality suite...",
             progress_prefix="Bench quality",
@@ -18232,6 +18989,17 @@ def bench_quality_run(
                 out_dir,
                 experiments_file=experiments_file,
                 base_run_settings_file=base_run_settings_file,
+                search_strategy=search_strategy,
+                race_probe_targets=race_probe_targets,
+                race_mid_targets=race_mid_targets,
+                race_keep_ratio=race_keep_ratio,
+                race_finalists=race_finalists,
+                include_deterministic_sweeps_requested=include_deterministic_sweeps,
+                include_codex_farm_requested=include_codex_farm,
+                codex_farm_model=str(codex_farm_model).strip() or None
+                if codex_farm_model is not None
+                else None,
+                codex_farm_reasoning_effort=normalized_effort,
                 progress_callback=update_progress,
             ),
         )
@@ -18373,6 +19141,155 @@ def bench_quality_compare(
 
     if fail_on_regression and verdict == "FAIL":
         raise typer.Exit(1)
+
+
+@bench_app.command("quality-leaderboard")
+def bench_quality_leaderboard(
+    experiment_id: str = typer.Option(
+        "baseline",
+        "--experiment-id",
+        help="Experiment id under <run-dir>/experiments/ to score (default: baseline).",
+    ),
+    run_dir: Path | None = typer.Option(
+        None,
+        "--run-dir",
+        help=(
+            "Quality run folder (contains experiments_resolved.json). "
+            "When omitted, uses the latest folder under --runs-root."
+        ),
+    ),
+    runs_root: Path = typer.Option(
+        DEFAULT_BENCH_QUALITY_RUNS,
+        "--runs-root",
+        help="Root folder used to locate timestamped quality runs when --run-dir is omitted.",
+    ),
+    out_dir: Path | None = typer.Option(
+        None,
+        "--out-dir",
+        help="Output directory for leaderboard artifacts (defaults under the run folder).",
+    ),
+    allow_partial_coverage: bool = typer.Option(
+        False,
+        "--allow-partial-coverage/--require-full-coverage",
+        help=(
+            "Allow ranking configs that were not evaluated on every golden-set source. "
+            "By default, the leaderboard ranks full-coverage configs when possible."
+        ),
+    ),
+    top_n: int = typer.Option(
+        10,
+        "--top-n",
+        min=1,
+        help="How many top configs to print to stdout.",
+    ),
+) -> None:
+    """Aggregate all-method variants into a single global leaderboard."""
+    from cookimport.bench.quality_leaderboard import (
+        build_quality_leaderboard,
+        resolve_latest_timestamp_dir,
+        write_quality_leaderboard_artifacts,
+    )
+
+    experiment_id = str(_unwrap_typer_option_default(experiment_id) or "baseline").strip()
+    run_dir = _unwrap_typer_option_default(run_dir)
+    runs_root = _unwrap_typer_option_default(runs_root)
+    out_dir = _unwrap_typer_option_default(out_dir)
+    allow_partial_coverage = _unwrap_typer_option_default(allow_partial_coverage)
+    top_n = _unwrap_typer_option_default(top_n)
+
+    if run_dir is None:
+        resolved = resolve_latest_timestamp_dir(runs_root)
+        if resolved is None:
+            _fail(f"No quality run folders found under {runs_root}")
+        run_dir = resolved
+    if not run_dir.exists() or not run_dir.is_dir():
+        _fail(f"Run directory not found: {run_dir}")
+
+    timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+    if out_dir is None:
+        out_dir = run_dir / "leaderboards" / experiment_id / timestamp
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        payload = build_quality_leaderboard(
+            run_dir=run_dir,
+            experiment_id=experiment_id,
+            allow_partial_coverage=bool(allow_partial_coverage),
+        )
+    except Exception as exc:  # noqa: BLE001
+        _fail(str(exc))
+        return
+
+    paths = write_quality_leaderboard_artifacts(payload, out_dir=out_dir)
+    winner = payload.get("winner") if isinstance(payload, dict) else None
+    leaderboard = payload.get("leaderboard") if isinstance(payload, dict) else None
+    total_sources = payload.get("total_source_groups") if isinstance(payload, dict) else None
+    winner_settings_payload = (
+        payload.get("winner_run_settings")
+        if isinstance(payload, dict)
+        else None
+    )
+    if isinstance(winner_settings_payload, dict):
+        try:
+            winner_settings = RunSettings.from_dict(
+                winner_settings_payload,
+                warn_context="quality-leaderboard winner profile",
+            )
+            save_qualitysuite_winner_run_settings(Path(DEFAULT_OUTPUT), winner_settings)
+            typer.secho(
+                "Saved quality-suite winner profile: "
+                f"{Path(DEFAULT_OUTPUT) / '.history' / 'qualitysuite_winner_run_settings.json'}",
+                fg=typer.colors.BRIGHT_BLACK,
+            )
+        except Exception as exc:  # noqa: BLE001
+            typer.secho(
+                f"Warning: failed to save quality-suite winner profile ({exc})",
+                fg=typer.colors.YELLOW,
+            )
+
+    typer.secho("Quality leaderboard complete.", fg=typer.colors.GREEN)
+    typer.secho(f"Run: {run_dir}", fg=typer.colors.CYAN)
+    typer.secho(f"Experiment: {experiment_id}", fg=typer.colors.CYAN)
+    if total_sources is not None:
+        typer.secho(f"Golden-set sources: {total_sources}", fg=typer.colors.CYAN)
+
+    if isinstance(winner, dict):
+        typer.secho("Best overall config:", fg=typer.colors.CYAN)
+        typer.echo(
+            (
+                f"  rank={winner.get('rank')} "
+                f"config_id={winner.get('config_id')} "
+                f"coverage={winner.get('coverage_sources')}/{total_sources or '?'} "
+                f"mean_practical_f1={float(winner.get('mean_practical_f1') or 0.0):.4f} "
+                f"mean_strict_f1={float(winner.get('mean_strict_f1') or 0.0):.4f} "
+                f"median_seconds={float(winner.get('median_duration_seconds') or 0.0):.2f}"
+            )
+        )
+        typer.secho(
+            f"Winner settings: {paths.winner_run_settings_json}",
+            fg=typer.colors.CYAN,
+        )
+
+    if isinstance(leaderboard, list) and leaderboard:
+        typer.secho(f"Top {min(int(top_n), len(leaderboard))} configs:", fg=typer.colors.CYAN)
+        for row in leaderboard[: int(top_n)]:
+            if not isinstance(row, dict):
+                continue
+            typer.echo(
+                (
+                    f"  {row.get('rank')}) {row.get('config_id')} "
+                    f"coverage={row.get('coverage_sources')}/{total_sources or '?'} "
+                    f"practical={float(row.get('mean_practical_f1') or 0.0):.4f} "
+                    f"strict={float(row.get('mean_strict_f1') or 0.0):.4f} "
+                    f"median_s={float(row.get('median_duration_seconds') or 0.0):.2f}"
+                )
+            )
+
+    typer.secho(f"Artifacts: {paths.out_dir}", fg=typer.colors.CYAN)
+    typer.secho(f"Leaderboard JSON: {paths.leaderboard_json}", fg=typer.colors.CYAN)
+    typer.secho(f"Leaderboard CSV: {paths.leaderboard_csv}", fg=typer.colors.CYAN)
+    typer.secho(f"Pareto JSON: {paths.pareto_json}", fg=typer.colors.CYAN)
+    typer.secho(f"Pareto CSV: {paths.pareto_csv}", fg=typer.colors.CYAN)
 
 
 @bench_app.command("eval-stage")

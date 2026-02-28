@@ -28,7 +28,7 @@ Stage execution paths:
 - `cookimport/staging/writer.py` (stage block predictions writer receives pass4 snippet path)
 - `cookimport/staging/stage_block_predictions.py` (uses knowledge snippets for stage evidence labeling)
 
-Recipe codex-farm pass modules (implementation is present but policy-locked off):
+Recipe codex-farm pass modules (implementation is present; recipe pass is env-gated via `COOKIMPORT_ALLOW_CODEX_FARM=1`):
 
 - `cookimport/llm/codex_farm_orchestrator.py` (pass1/pass2/pass3 orchestration)
 - `cookimport/llm/codex_farm_contracts.py` (strict pass1/2/3 bundle contracts)
@@ -59,11 +59,10 @@ Report/model plumbing:
 
 ## Policy boundary (current behavior)
 
-- `llm_recipe_pipeline` is policy-locked to `off`.
-- CLI and Label Studio prediction-run normalizers reject non-`off` recipe pipeline values.
-- `RunSettings.from_dict` coerces legacy non-`off` values back to `off` with a warning.
-- Run settings UI choices intentionally expose only `off` for `llm_recipe_pipeline`.
-- Speed regression runs force all LLM pipelines off in `cookimport/bench/speed_runner.py`.
+- `llm_recipe_pipeline` supports `off` and `codex-farm-3pass-v1`, but enabling Codex Farm requires `COOKIMPORT_ALLOW_CODEX_FARM=1`.
+- CLI and Label Studio prediction-run normalizers enforce the env gate (non-`off` values error unless unlocked).
+- `RunSettings.from_dict` coerces non-`off` values back to `off` with a warning unless `COOKIMPORT_ALLOW_CODEX_FARM=1` is set.
+- Bench all-method permutations include Codex Farm variants only when explicitly requested (for example `cookimport bench ... --include-codex-farm`) and unlocked via env.
 - `codex_farm_failure_mode` still controls behavior for active LLM passes (`fail` or `fallback`).
 
 ## Active optional passes
@@ -108,6 +107,8 @@ These settings remain part of run settings and stage execution:
 - `llm_knowledge_pipeline`
 - `llm_tags_pipeline`
 - `codex_farm_cmd`
+- `codex_farm_model` (optional override passed to codex-farm)
+- `codex_farm_reasoning_effort` (optional override passed to codex-farm as reasoning/thinking effort)
 - `codex_farm_root`
 - `codex_farm_workspace_root`
 - `codex_farm_failure_mode`
@@ -126,7 +127,7 @@ These settings remain part of run settings and stage execution:
 - Pass4 knowledge harvesting and pass5 tag suggestions are stage-only flows; prediction-run generation does not execute those passes.
 - Benchmark prediction generation (`labelstudio-benchmark`) reuses that same prediction-run recipe-pass boundary.
 
-Recipe pass execution in prediction-run paths remains policy-locked off via normalizers.
+Recipe pass execution in prediction-run paths is env-gated via normalizers (`COOKIMPORT_ALLOW_CODEX_FARM=1`).
 
 ## Test support + legacy modules
 
@@ -153,7 +154,28 @@ Merged source notes:
 - `docs/understandings/2026-02-27_19.51.50-llm-docs-parity-runtime-surface-map.md`
 
 Current-contract additions:
-- Stage-relevant LLM runtime remains centered on pass4 knowledge and pass5 tags; recipe pass1/2/3 implementation exists but is policy-locked off for user-facing stage/pred-run defaults.
+- Stage-relevant LLM runtime remains centered on pass4 knowledge and pass5 tags; recipe pass1/2/3 is available but env-gated (`COOKIMPORT_ALLOW_CODEX_FARM=1`) for stage/pred-run use.
 - Prediction-run generation currently wires recipe-pass settings only; pass4/pass5 execution remains stage-only.
 - LLM docs should keep runtime-adjacent module coverage explicit (prediction wrappers, pass4 helper contracts/writer paths, pass5 provider/validation layer, stage evidence/report consumers).
 - Legacy modules (`client.py`, `prompts.py`, `repair.py`) remain non-primary runtime paths and should stay labeled accordingly.
+
+## 2026-02-28 migrated understandings digest (Oracle + Codex Farm ops)
+
+### 2026-02-28_01.58.55 Oracle browser login/session blocker
+- Source: `docs/understandings/2026-02-28_01.58.55-oracle-browser-login-session-blocker.md`
+- Recurring Oracle browser failures were traced to missing ChatGPT browser auth plus unwritable default session paths under `~/.oracle` in Codex sandbox contexts.
+- Local wrapper defaults were moved to writable persistent paths under `/home/mcnal/.local/share/oracle` with `/tmp` fallback and pre-created `sessions/` directories.
+
+### 2026-02-28_03.17.29 Codex Farm opt-in command pattern
+- Source: `docs/understandings/2026-02-28_03.17.29-codex-farm-opt-in-command-pattern.md`
+- Keep global defaults deterministic (`llm_recipe_pipeline=off`); enable Codex Farm only per-command with explicit env gate and command wrapper.
+- Absolute `codex_farm_cmd` paths avoid PATH fragility when Codex Farm is outside shell defaults.
+
+### 2026-02-28_03.19.05 Oracle gpt-5.2-thinking browser blocker
+- Source: `docs/understandings/2026-02-28_03.19.05-oracle-gpt52-thinking-browser-blocker.md`
+- In this sandbox, gpt-5.2-thinking Oracle browser runs were blocked by browser/auth/session constraints (stuck runs or early chrome-close errors), not prompt/file bundle construction.
+
+### 2026-02-28_03.19.48 interactive Codex Farm gate and launcher
+- Source: `docs/understandings/2026-02-28_03.19.48-interactive-codex-farm-gate-and-launcher.md`
+- Interactive mode already respects run-settings `llm_recipe_pipeline`; Codex Farm still requires `COOKIMPORT_ALLOW_CODEX_FARM=1`.
+- Wrapper launcher pattern (`scripts/interactive-with-codex-farm.sh`) enables opt-in sessions without changing default interactive behavior.

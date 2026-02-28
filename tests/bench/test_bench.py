@@ -222,9 +222,11 @@ def test_bench_speed_run_wires_runner(
         repeats,
         max_targets,
         run_settings,
+        include_codex_farm_requested,
         progress_callback,
     ):
         _ = progress_callback
+        _ = include_codex_farm_requested
         captured["suite"] = suite
         captured["out_dir"] = out_dir
         captured["scenarios"] = scenarios
@@ -330,9 +332,19 @@ def test_bench_speed_run_loads_run_settings_file_and_applies_matcher_override(
         repeats,
         max_targets,
         run_settings,
+        include_codex_farm_requested,
         progress_callback,
     ):
-        _ = (suite, out_dir, scenarios, warmups, repeats, max_targets, progress_callback)
+        _ = (
+            suite,
+            out_dir,
+            scenarios,
+            warmups,
+            repeats,
+            max_targets,
+            include_codex_farm_requested,
+            progress_callback,
+        )
         captured["run_settings"] = run_settings
         return run_root
 
@@ -558,8 +570,10 @@ def test_bench_quality_run_wires_runner(
         experiments_file,
         base_run_settings_file,
         progress_callback,
+        **_kwargs,
     ):
         _ = progress_callback
+        _ = _kwargs
         captured["suite"] = suite
         captured["out_dir"] = out_dir
         captured["experiments_file"] = experiments_file
@@ -665,6 +679,81 @@ def test_bench_quality_compare_forwards_selection_and_mismatch_flags(
     assert captured["baseline_experiment_id"] == "baseline"
     assert captured["candidate_experiment_id"] == "candidate"
     assert captured["allow_settings_mismatch"] is True
+
+
+def test_bench_quality_leaderboard_saves_qualitysuite_winner_profile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "quality_run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = tmp_path / "leaderboards" / "baseline" / "2026-02-28_12.00.00"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        "winner_run_settings": {
+            "epub_extractor": "unstructured",
+            "epub_unstructured_html_parser_version": "v2",
+            "epub_unstructured_preprocess_mode": "semantic_v1",
+            "llm_recipe_pipeline": "off",
+        },
+        "winner": {
+            "rank": 1,
+            "config_id": "winnerid",
+            "coverage_sources": 1,
+            "mean_practical_f1": 0.5,
+            "mean_strict_f1": 0.4,
+            "median_duration_seconds": 8.0,
+        },
+        "leaderboard": [],
+        "total_source_groups": 1,
+    }
+    captured: dict[str, object] = {}
+
+    class _Paths:
+        def __init__(self, root: Path) -> None:
+            self.out_dir = root
+            self.leaderboard_json = root / "leaderboard.json"
+            self.leaderboard_csv = root / "leaderboard.csv"
+            self.pareto_json = root / "pareto_frontier.json"
+            self.pareto_csv = root / "pareto_frontier.csv"
+            self.winner_run_settings_json = root / "winner_run_settings.json"
+            self.winner_dimensions_json = root / "winner_dimensions.json"
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_leaderboard.build_quality_leaderboard",
+        lambda **_kwargs: payload,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.quality_leaderboard.write_quality_leaderboard_artifacts",
+        lambda _payload, *, out_dir: _Paths(out_dir),
+    )
+
+    def _fake_save_qualitysuite_winner_run_settings(output_dir, settings):
+        captured["output_dir"] = output_dir
+        captured["settings"] = settings
+
+    monkeypatch.setattr(
+        cli,
+        "save_qualitysuite_winner_run_settings",
+        _fake_save_qualitysuite_winner_run_settings,
+    )
+    monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("typer.echo", lambda *_args, **_kwargs: None)
+
+    cli.bench_quality_leaderboard(
+        experiment_id="baseline",
+        run_dir=run_dir,
+        out_dir=out_dir,
+        top_n=5,
+    )
+
+    assert str(captured["output_dir"]).endswith("data/output")
+    assert isinstance(captured["settings"], cli.RunSettings)
+    settings = captured["settings"]
+    assert settings.epub_extractor.value == "unstructured"
+    assert settings.epub_unstructured_html_parser_version.value == "v2"
+    assert settings.epub_unstructured_preprocess_mode.value == "semantic_v1"
 
 
 # ---------------------------------------------------------------------------

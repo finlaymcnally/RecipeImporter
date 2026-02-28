@@ -21,7 +21,9 @@ from cookimport.epub_extractor_names import (
     normalize_epub_extractor_name,
 )
 from cookimport.config.run_settings import (
+    RECIPE_CODEX_FARM_PIPELINE_POLICY,
     RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR,
+    RECIPE_CODEX_FARM_UNLOCK_ENV,
     RunSettings,
     build_run_settings,
     compute_effective_workers,
@@ -251,11 +253,18 @@ def _normalize_epub_extractor(value: str) -> str:
 
 def _normalize_llm_recipe_pipeline(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized != "off":
+    if normalized == "off":
+        return normalized
+    if normalized == "codex-farm-3pass-v1":
+        if os.getenv(RECIPE_CODEX_FARM_UNLOCK_ENV, "").strip() == "1":
+            return normalized
         raise ValueError(
-            f"Invalid llm_recipe_pipeline. {RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR}"
+            f"Invalid llm_recipe_pipeline. {RECIPE_CODEX_FARM_PIPELINE_POLICY} "
+            f"Set {RECIPE_CODEX_FARM_UNLOCK_ENV}=1 to enable."
         )
-    return normalized
+    raise ValueError(
+        f"Invalid llm_recipe_pipeline. {RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR}"
+    )
 
 
 def _normalize_codex_farm_failure_mode(value: str) -> str:

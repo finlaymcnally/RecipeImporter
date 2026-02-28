@@ -46,6 +46,7 @@ def run_speed_suite(
     repeats: int,
     max_targets: int | None = None,
     run_settings: RunSettings,
+    include_codex_farm_requested: bool = False,
     progress_callback: ProgressCallback | None = None,
 ) -> Path:
     if warmups < 0:
@@ -179,6 +180,7 @@ def run_speed_suite(
                     targets=selected_targets,
                     sample_dir=sample_dir,
                     run_settings=run_settings,
+                    include_codex_farm_requested=include_codex_farm_requested,
                 )
             else:
                 raise ValueError(f"Unsupported speed scenario: {scenario}")
@@ -390,6 +392,7 @@ def _run_all_method_multi_source_sample(
     targets: list[SpeedTarget],
     sample_dir: Path,
     run_settings: RunSettings,
+    include_codex_farm_requested: bool,
 ) -> dict[str, Any]:
     import cookimport.cli as cli
 
@@ -409,10 +412,13 @@ def _run_all_method_multi_source_sample(
             )
         )
 
+    include_codex_effective, _codex_warning = cli._resolve_all_method_codex_choice(
+        include_codex_farm_requested
+    )
     target_variants = cli._build_all_method_target_variants(
         targets=resolved_targets,
         base_settings=run_settings,
-        include_codex_farm=False,
+        include_codex_farm=include_codex_effective,
         include_markdown_extractors=False,
     )
 
@@ -432,8 +438,8 @@ def _run_all_method_multi_source_sample(
             report_md_path = cli._run_all_method_benchmark_multi_source(
                 target_variants=target_variants,
                 unmatched_targets=[],
-                include_codex_farm_requested=False,
-                include_codex_farm_effective=False,
+                include_codex_farm_requested=include_codex_farm_requested,
+                include_codex_farm_effective=include_codex_effective,
                 root_output_dir=all_method_root,
                 processed_output_root=all_method_processed_root,
                 overlap_threshold=0.5,

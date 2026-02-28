@@ -124,7 +124,10 @@ Collector behavior (`collect_dashboard_data`):
 - Sorting is timestamp-parse-aware (mixed `YYYY-MM-DD_HH.MM.SS` and ISO timestamp text tolerated)
 
 Benchmark scan details:
-- Recurses nested eval reports including all-method layouts (`all-method-benchmark/<source_slug>/config_*/eval_report.json`)
+- Recurses nested eval reports including sweep layouts:
+  - `all-method-benchmark/<source_slug>/config_*/eval_report.json`
+  - `single-profile-benchmark/<source_slug>/eval_report.json`
+- For suffixed run folders (for example `2026-02-28_02.03.18_manual-top5-...`), benchmark `run_timestamp` is normalized to the timestamp prefix (`2026-02-28_02.03.18`) so sweep rows aggregate correctly.
 - Excludes `prediction-run` eval dirs and pytest temp artifacts
 - Optional enrichment from `manifest.json` / `coverage.json` (eval dir and `prediction-run/`)
 
@@ -168,7 +171,9 @@ Benchmark scan details:
 ## 5) All-method dashboard contract
 
 Grouping and hierarchy:
-- All-method grouping is derived from benchmark artifact paths containing `all-method-benchmark/<source_slug>/config_*`.
+- All-method grouping is derived from benchmark artifact paths containing either:
+  - `all-method-benchmark/<source_slug>/config_*`
+  - `single-profile-benchmark/<source_slug>`
 - Renderer always writes all-method run index page (`all-method-benchmark/index.html`) even when there are zero all-method runs.
 - Renderer removes stale legacy all-method root pages before writing the current subfolder hierarchy.
 

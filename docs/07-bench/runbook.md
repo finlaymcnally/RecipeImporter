@@ -121,6 +121,16 @@ cookimport bench quality-discover \
   --seed 42
 ```
 
+To include *all* matched golden-set sources (no curated cutdown preference), omit `--max-targets` and pass `--no-prefer-curated`:
+
+```bash
+cookimport bench quality-discover \
+  --gold-root data/golden/pulled-from-labelstudio \
+  --input-root data/input \
+  --out data/golden/bench/quality/suites/pulled_all.json \
+  --no-prefer-curated
+```
+
 ### 4.2 Run quality experiments
 
 ```bash
@@ -128,6 +138,35 @@ cookimport bench quality-run \
   --suite data/golden/bench/quality/suites/pulled_representative.json \
   --experiments-file data/golden/bench/quality/experiments/example.json
 ```
+
+`quality-run` now defaults to `--search-strategy race`, which does staged pruning:
+
+1. Probe round on a small source subset.
+2. Mid round on a larger subset.
+3. Full-suite round on finalists only.
+
+Force exhaustive full-grid evaluation with:
+
+```bash
+cookimport bench quality-run \
+  --suite data/golden/bench/quality/suites/pulled_representative.json \
+  --experiments-file data/golden/bench/quality/experiments/example.json \
+  --search-strategy exhaustive
+```
+
+By default, quality all-method reruns reuse canonical/eval caches under `data/golden/bench/quality/.cache` (override with `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`).
+
+### 4.4 Global “best config” leaderboard (across all sources)
+
+After a `bench quality-run`, aggregate the per-source all-method variant grid into one global ranking:
+
+```bash
+cookimport bench quality-leaderboard \
+  --run-dir data/golden/bench/quality/runs/<timestamp> \
+  --experiment-id baseline
+```
+
+This writes `leaderboard.json`, `leaderboard.csv`, `pareto_frontier.json`, `pareto_frontier.csv`, and `winner_run_settings.json` under `data/golden/bench/quality/runs/<timestamp>/leaderboards/<experiment_id>/<timestamp>/`.
 
 ### 4.3 Compare baseline vs candidate
 

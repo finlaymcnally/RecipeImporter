@@ -37,6 +37,9 @@ Output schemas:
 
 To tune pass behavior, edit prompt text files in `prompts/` and keep `{{INPUT_PATH}}` in each template.
 
+Prompt convention note:
+- `recipe.*.prompt.md` templates now explicitly enforce deterministic JSON behavior (no extra keys, strict field grounding, stable ordering, and "omit rather than guess" for uncertain fields).
+
 ## Label Studio freeform AI templates
 
 Freeform prelabel (full mode) is file-backed and editable:

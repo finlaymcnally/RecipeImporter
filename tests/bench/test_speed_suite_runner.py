@@ -177,8 +177,9 @@ def test_run_speed_suite_all_method_multi_source_runs_once_per_phase(
         targets: list[SpeedTarget],
         sample_dir: Path,
         run_settings: RunSettings,
+        include_codex_farm_requested: bool,
     ) -> dict[str, object]:
-        _ = (sample_dir, run_settings)
+        _ = (sample_dir, run_settings, include_codex_farm_requested)
         target_counts_seen.append(len(targets))
         total = next(total_values)
         return {

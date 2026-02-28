@@ -19,5 +19,5 @@ Current scoring contract:
   - `speed_compare.py` (`bench speed-compare` baseline-vs-candidate regression gating)
 - Deterministic quality regression tooling now mirrors the speed loop:
   - `quality_suite.py` (`bench quality-discover` defaults to curated CUTDOWN target IDs: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; falls back to representative stratified selection when unavailable, and retries filename matching when importer-scored discovery is empty)
-  - `quality_runner.py` (`bench quality-run` sequential all-method experiment execution)
+  - `quality_runner.py` (`bench quality-run` sequential all-method experiment execution with persistent canonical/eval cache reuse under `data/golden/bench/quality/.cache` by default; when process pools are unavailable it auto-switches global all-method scheduling to legacy source-thread scheduling)
   - `quality_compare.py` (`bench quality-compare` baseline-vs-candidate quality gating)

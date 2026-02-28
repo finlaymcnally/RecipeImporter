@@ -89,6 +89,7 @@ def test_run_settings_forces_recipe_codex_farm_pipeline_off() -> None:
 
 def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     monkeypatch.delenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", raising=False)
+    monkeypatch.delenv("COOKIMPORT_ALLOW_CODEX_FARM", raising=False)
     specs = run_settings_ui_specs()
     by_name = {spec.name for spec in specs}
     expected = {
@@ -139,6 +140,17 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     )
     p6_yield_mode_spec = next(spec for spec in specs if spec.name == "p6_yield_mode")
     assert p6_yield_mode_spec.choices == ("legacy_v1", "scored_v1")
+
+
+def test_run_settings_ui_specs_include_recipe_codex_farm_when_unlocked(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("COOKIMPORT_ALLOW_CODEX_FARM", "1")
+
+    specs = run_settings_ui_specs()
+    llm_recipe_spec = next(spec for spec in specs if spec.name == "llm_recipe_pipeline")
+
+    assert llm_recipe_spec.choices == ("off", "codex-farm-3pass-v1")
 
 
 def test_last_run_store_round_trip_and_corrupt_recovery(tmp_path) -> None:

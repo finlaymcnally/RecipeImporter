@@ -27,9 +27,11 @@ Current scoring surfaces:
 
 - `bench speed-discover`: build deterministic speed suite from pulled gold exports.
 - `bench speed-run`: run timing scenarios (`stage_import`, `benchmark_canonical_legacy`, `benchmark_canonical_pipelined`, `benchmark_all_method_multi_source`).
+- Codex Farm permutations (recipe pass) can be included in all-method grids by passing `--include-codex-farm` to `bench speed-run` / `bench quality-run` (these commands enable `COOKIMPORT_ALLOW_CODEX_FARM=1` for the run). Optional overrides: `--codex-farm-model ...` and `--codex-farm-thinking-effort high` (or `--codex-farm-reasoning-effort`).
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
-- `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first, representative fallback).
-- `bench quality-run`: run sequential all-method quality experiments for one discovered suite.
+- `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; representative fallback). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
+- `bench quality-run`: run sequential all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). In runtimes that block process pools, quality-run auto-switches all-method `global` scope to `legacy` source-thread scheduling so multi-source rounds still use parallel source workers.
+- `bench quality-leaderboard`: aggregate one quality-run experiment into a global cross-source config leaderboard and Pareto frontier.
 - `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-coverage regression gates.
 - `bench eval-stage --gold-spans ... --stage-run ...`: evaluate a stage run directly from `.bench/*/stage_block_predictions.json`.
 
@@ -53,6 +55,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--no-write-labelstudio-tasks` (offline/no-upload path)
 
 Interactive benchmark flows (`single_offline`, `all_method`) stay offline and use canonical-text scoring.
+Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are exposed only on `bench eval-stage` (not all-method or speed-suite).
 
 ## 3. Artifact Contracts
 
@@ -109,6 +112,14 @@ Quality suite (`bench quality-run`) artifacts include:
 - `suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`
 - one per-experiment output root under `experiments/<experiment_id>/...` containing all-method benchmark artifacts.
 - `summary.json` stores per-experiment run-settings hashes and strict/practical/source-coverage metrics for compare gating.
+- `experiments_resolved.json` records resolved experiments (including any schema-v2 lever expansion), the canonical alignment cache root, and the all-method runtime knobs used for the run.
+
+Quality leaderboard (`bench quality-leaderboard`) artifacts include:
+- `leaderboard.json`, `leaderboard.csv`
+- `pareto_frontier.json`, `pareto_frontier.csv`
+- `winner_run_settings.json`, `winner_dimensions.json`
+- interactive profile side effect: winner run settings are also saved to `data/.history/qualitysuite_winner_run_settings.json` for `Run with quality-suite winner (...)` menu selection.
+- default output root: `<quality_run_dir>/leaderboards/<experiment_id>/<timestamp>/`
 
 Quality comparison (`bench quality-compare`) artifacts include:
 - `comparison.json`, `comparison.md`
@@ -125,6 +136,9 @@ Prediction-record and telemetry artifacts:
 ### 4.1 Stage-blocks
 
 - Gold rows can contain multiple allowed labels for a block; prediction is correct when it matches any allowed label.
+- `HOWTO_SECTION` is resolved for both gold and prediction label paths before scoring:
+  - `INGREDIENT_LINE` or `INSTRUCTION_LINE` is inferred from nearby structural context.
+  - this keeps structural metrics comparable while preserving `HOWTO_SECTION` in task/export surfaces.
 - Predicted blocks with no gold row default to gold label `OTHER` and are logged in diagnostics.
 - Evaluator compares blockization fingerprints and fails fast with `gold_prediction_blockization_mismatch` when severe drift makes block-level comparison invalid.
 
@@ -143,6 +157,7 @@ Primary metrics:
 
 - Prediction block text is aligned against canonical gold text.
 - Scoring is in canonical line space and is extractor/blockization independent.
+- Canonical line labels also resolve predicted/gold `HOWTO_SECTION` into structural ingredient/instruction classes before metrics.
 - Legacy global alignment is enforced for scoring safety; fast alignment is deprecated and forced to legacy when requested.
 
 Telemetry includes:
@@ -165,6 +180,8 @@ CLI overrides:
 Canonical cache:
 - All-method benchmark runs share canonical alignment cache per source-group by default under:
   - `data/golden/benchmark-vs-golden/.cache/canonical_alignment/<source_group_key>`
+- `bench quality-run` uses a persistent quality cache root by default:
+  - `data/golden/bench/quality/.cache/canonical_alignment/<source_group_key>`
 - Override root via `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`.
 - Cache lock recovery handles dead-owner PID locks first, then age-based fallback for malformed lock metadata.
 
@@ -210,8 +227,13 @@ Operational interpretation:
   - `eval_signature`
   - `evaluation_result_source` (`executed`, `reused_in_run`, `reused_cross_run`)
   - `evaluation_representative_config_dir`
-- When `section_detector_backend != legacy`, all-method row dimensions include `section_detector_backend=<value>` without auto-expanding permutations; backend comparison is explicit via run settings/experiment patches.
-- When `multi_recipe_splitter != legacy`, all-method row dimensions include `multi_recipe_splitter=<value>` without auto-expanding permutations; splitter comparison is explicit via run settings/experiment patches.
+- Interactive all-method benchmark can auto-sweep deterministic Priority 2–6 knobs (default on in the wizard):
+  - `section_detector_backend`
+  - `multi_recipe_splitter`
+  - `ingredient_missing_unit_policy`
+  - `instruction_step_segmentation_policy` / `instruction_step_segmenter`
+  - `p6_*` time/temp/yield knobs
+- When sweeps are enabled, all-method row dimensions include these keys and a `deterministic_sweep` tag for non-baseline configs.
 - For webschema-capable sources (`.html`, `.htm`, `.jsonld`, and schema-like `.json`), all-method expands `web_schema_policy` variants (`prefer_schema`, `schema_only`, `heuristic_only`) and keeps other webschema knobs from base run settings.
 
 ## 7. Speed And Quality Regression Workflows
@@ -232,13 +254,39 @@ Use this parallel flow for baseline-versus-candidate quality checks:
 
 1. `cookimport bench quality-discover`
 2. `cookimport bench quality-run --suite ... --experiments-file ...`
-3. `cookimport bench quality-compare --baseline ... --candidate ...`
+3. `cookimport bench quality-leaderboard --run-dir ... --experiment-id ...`
+4. `cookimport bench quality-compare --baseline ... --candidate ...`
+
+Experiments file notes:
+- Schema v1 uses explicit experiments: `{"schema_version": 1, "experiments": [{"id": "...", "run_settings_patch": {...}}]}`.
+- Schema v2 adds `levers` with `enabled: true/false`.
+  - Runner expands v2 into a concrete experiments list:
+    - `baseline` (when `include_baseline=true`)
+    - one experiment per enabled lever (experiment id = lever id)
+    - optional `all_on` (when `include_all_on=true`) which merges enabled lever patches and fails fast on conflicting keys
+  - Schema v2 supports optional `all_method_runtime_patch` per lever/experiment for all-method runtime knobs.
+  - Schema v2 also supports top-level `all_method_runtime` for run-wide runtime defaults/overrides.
+- Example lever file: `data/golden/bench/quality/experiments/2026-02-28_01.18.41_qualitysuite-levers.json`.
+- `quality-run --include-deterministic-sweeps` applies interactive-style deterministic Priority 2–6 sweep expansion to each experiment’s all-method grid (in addition to experiment run-settings patches).
+
+Search strategy notes:
+- `quality-run --search-strategy race` (default) runs deterministic staged pruning:
+  - probe subset -> mid subset -> full suite on finalists.
+- `quality-run --search-strategy exhaustive` runs the full config grid across all selected targets.
+- Race controls:
+  - `--race-probe-targets`
+  - `--race-mid-targets`
+  - `--race-keep-ratio`
+  - `--race-finalists`
 
 `quality-compare` gates regressions using:
 - strict F1 drop threshold (`strict_f1_drop_max`)
 - practical F1 drop threshold (`practical_f1_drop_max`)
 - source success-rate drop threshold (`source_success_rate_drop_max`)
 - run-settings parity (`run_settings_hash` match required unless `--allow-settings-mismatch` is used)
+
+Suite validation note:
+- `bench quality-run` validates all `targets[]` rows in the suite JSON (not only `selected_target_ids`). If the suite includes stale paths, filter the suite to only rows whose `gold_spans_path` exists before running.
 
 ## 8. Retired Surfaces
 
@@ -383,9 +431,37 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 - Source: `docs/understandings/2026-02-27_22.47.26-priority8-segmentation-implementation-shape.md`
 - Summary: Priority 8 implementation shape: additive segmentation metrics/taxonomy live inside stage-block eval with optional segeval extras.
 
+### 2026-02-28_00.25.56 benchmark option coverage map
+- Source: `docs/understandings/2026-02-28_00.25.56-benchmark-option-coverage-map.md`
+- Summary: Mapped Priority 2/3/5/6/7 option coverage across labelstudio-benchmark all-method and speed-suite flows, and confirmed Priority 8 knobs are eval-stage only.
+
+### 2026-02-28_00.46.58 quality suite curated target selection
+- Source: `docs/understandings/2026-02-28_00.46.58-quality-suite-curated-target-selection.md`
+- Summary: Mapped how quality-suite target IDs are derived from pulled gold export folder slugs and where to enforce curated default selection.
+
+### 2026-02-28_00.53.55 speed2-4 plan current value assessment
+- Source: `docs/understandings/2026-02-28_00.53.55-speed2-4-plan-current-value-assessment.md`
+- Summary: speed2-4 assumes non-DMP matcher experimentation, but canonical alignment is now DMP-only; plan is historical unless matcher experiments are intentionally re-opened.
+
+### 2026-02-28_00.54.33 speed2-3 current value assessment
+- Source: `docs/understandings/2026-02-28_00.54.33-speed2-3-current-value-assessment.md`
+- Summary: speed2-3 delivered the high-ROI DMP matcher outcome; remaining milestones are low value given current cache/scheduler bottlenecks.
+
+### 2026-02-28_01.06.42 quality-run cache scope and speed
+- Source: `docs/understandings/2026-02-28_01.06.42-quality-run-cache-scope-and-speed.md`
+- Summary: quality-run needed a persistent all-method canonical cache root across timestamped reruns to reuse alignment/eval-signature caches.
+
+### 2026-02-28_01.20.10 qualitysuite levers schema v2
+- Source: `docs/understandings/2026-02-28_01.20.10-qualitysuite-levers-schema-v2.md`
+- Summary: Documented schema v2 lever expansion and optional all-method runtime knob patches in quality-run experiments files.
+
 ### 2026-02-28_01.24.58 speed suite run settings adapter parity
 - Source: `docs/understandings/2026-02-28_01.24.58-speed-suite-run-settings-adapter-parity.md`
 - Summary: SpeedSuite parity is primarily about sharing one RunSettings->kwargs adapter layer and carrying effective settings identity into speed artifacts/compare.
+
+### 2026-02-28_01.34.14 quality suite validation stale target rows
+- Source: `docs/understandings/2026-02-28_01.34.14-quality-suite-validation-stale-target-rows.md`
+- Summary: quality-run validates all targets (not only selected IDs), so stale non-selected target rows can fail validation; filter suite rows to existing gold paths.
 
 ### 2026-02-28_03.05.00 sequence matcher locked to dmp
 - Source: `docs/understandings/2026-02-28_03.05.00-sequence-matcher-locked-to-dmp.md`
@@ -488,3 +564,51 @@ Current-contract additions from this audit pack:
     - `test_run_all_method_benchmark_global_queue_interleaves_sharded_heavy_source`
     - `test_run_all_method_benchmark_global_queue_smart_eval_tail_admission`
     - `test_run_all_method_benchmark_global_queue_non_epub_eval_uses_default_extractor`
+
+## 2026-02-28 migrated understandings digest (hotspots, quality-run behavior, Codex Farm bench)
+
+### 2026-02-28_01.52.10 thefoodlab all-method hotspot summary
+- Source: `docs/understandings/2026-02-28_01.52.10-thefoodlab-all-method-hotspot-summary.md`
+- For run `data/golden/benchmark-vs-golden/2026-02-28_01.27.21/all-method-benchmark/thefoodlabcutdown`, wall time was prediction/split throughput bound, not canonical matcher/eval bound (`all_method_eval_wall_seconds` was ~0.64% of prediction wall).
+
+### 2026-02-28_02.05.26 all-method serial fallback in sandbox
+- Source: `docs/understandings/2026-02-28_02.05.26-all-method-serial-fallback-in-sandbox.md`
+- In restricted runtimes where process workers cannot create multiprocessing semaphores, all-method preflights process-pool availability and drops to single-config execution (correctness unchanged, throughput slower).
+
+### 2026-02-28_02.12.40 quality-run race pruning contract
+- Source: `docs/understandings/2026-02-28_02.12.40-quality-run-race-pruning-contract.md`
+- `quality-run` supports deterministic staged pruning via `--search-strategy race` (probe -> optional mid -> finalists on full suite) plus `--search-strategy exhaustive` for full-grid runs.
+- Race ranking key order: mean `practical_f1`, mean strict `f1`, coverage count, then median duration.
+
+### 2026-02-28_02.13.34 manual top-5 all-method replay
+- Source: `docs/understandings/2026-02-28_02.13.34-manual-top5-all-method-replay.md`
+- Confirmed practical replay pattern: rehydrate top configs from source `run_manifest.json`, normalize via `RunSettings.from_dict(...)`, and run one multi-source all-method sweep with a fixed explicit config set.
+
+### 2026-02-28_02.28.08 quality-run global-to-legacy thread fallback
+- Source: `docs/understandings/2026-02-28_02.28.08-quality-run-global-to-legacy-thread-fallback.md`
+- When process pools are unavailable, preserving parallel source work requires fallback to legacy source-thread scheduling plus `max_parallel_sources > 1`.
+
+### 2026-02-28_02.28.30 quality leaderboard global config aggregation
+- Source: `docs/understandings/2026-02-28_02.28.30-quality-leaderboard-global-config-aggregation.md`
+- Global winner aggregation groups per-source variants by stable config key (`dimensions`/run-settings identity) and ranks by mean practical F1, strict F1, then coverage.
+- The same grouped data supports Pareto analysis via median duration vs mean practical F1.
+
+### 2026-02-28_02.33.20 quality-run serial root cause
+- Source: `docs/understandings/2026-02-28_02.33.20-quality-run-serial-root-cause.md`
+- Apparent serial quality-run behavior in this sandbox was environment-limited (`ProcessPoolExecutor` semaphore permission errors), not scheduler logic regression.
+
+### 2026-02-28_02.58.54 codex-farm bench enablement smoke findings
+- Source: `docs/understandings/2026-02-28_02.58.54-codex-farm-bench-enablement-smoke-findings.md`
+- `bench speed-run`/`quality-run` Codex variants become effective only with both `--include-codex-farm` and `COOKIMPORT_ALLOW_CODEX_FARM=1`, plus a resolvable `codex-farm` command.
+- DOCX codex variant failed fast when no `full_text` blocks were available; EPUB-only smoke reached pass stages but had one observed stuck/no-final-summary session in this sandbox.
+
+### 2026-02-28_03.04.14 qualitysuite profile save and cache boundaries
+- Source: `docs/understandings/2026-02-28_03.04.14-qualitysuite-profile-save-and-cache-boundaries.md`
+- Preferred profile path: `data/.history/preferred_run_settings.json`.
+- Quality artifacts root: `data/golden/bench/quality/runs/<timestamp>/...` with leaderboard outputs under `leaderboards/<experiment_id>/<timestamp>/...`.
+- Cache reuse boundary remains evaluation-aligned (alignment/eval-signature cache); new config variants still re-run prediction/import.
+
+### 2026-02-28_03.08.55 quality leaderboard winner profile source of truth
+- Source: `docs/understandings/2026-02-28_03.08.55-quality-leaderboard-winner-profile-source-of-truth.md`
+- Winner settings should prefer `run_manifest.run_config.prediction_run_config` (when present) to match scored variant dimensions.
+- `bench quality-leaderboard` now persists winner profile to `data/.history/qualitysuite_winner_run_settings.json` for interactive chooser reuse.

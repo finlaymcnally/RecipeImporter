@@ -303,3 +303,46 @@ Details preserved:
   - `run_settings_adapters` and bench `pred_run`/knob config mapping
   so run manifests and benchmark artifacts record the same effective segmentation behavior used by staged outputs.
 
+### 2026-02-28_00.42.17 howto section auto-emission gap audit
+
+Source: `docs/understandings/2026-02-28_00.42.17-howto-section-auto-emission-gap-audit.md`
+Summary: Audited where `HOWTO_SECTION` is handled and identified remaining gap for automatic importer-side emission.
+
+Details preserved:
+
+# HOWTO_SECTION Auto-Emission Gap Audit
+
+Discovery:
+
+- Section headers are already detected deterministically in parsing/staging:
+  - `cookimport/parsing/sections.py` (`extract_ingredient_sections`, `extract_instruction_sections`)
+  - `cookimport/staging/jsonld.py` (`HowToSection` for instructions, `recipeimport:ingredientSections` metadata)
+- `HOWTO_SECTION` exists in freeform label taxonomy and normalization:
+  - `cookimport/labelstudio/label_config_freeform.py`
+- Freeform eval remaps `HOWTO_SECTION` to ingredient/instruction context:
+  - `cookimport/labelstudio/eval_freeform.py`
+- Stage/canonical benchmark gold loaders remap `HOWTO_SECTION` in gold paths.
+
+Remaining gap (at time of this note):
+
+- Automatic prediction emission still did not output `HOWTO_SECTION` from imported books.
+- `cookimport/staging/stage_block_predictions.py` labeled recipe blocks as title/ingredient/instruction/etc., but did not derive a dedicated section-header label from section-detection outputs.
+- Stage/canonical benchmark predicted-label paths needed parity remapping for `HOWTO_SECTION` once prediction emission started using that label.
+
+Implication:
+
+Without importer-side prediction emission, users could label `HOWTO_SECTION` manually in Label Studio and score it, but auto-generated prediction evidence from imports would continue to flatten those headers into ingredient/instruction labels.
+
+### 2026-02-28_00.54.00 stage block howto emission range and remap notes
+
+Source: `docs/understandings/2026-02-28_00.54.00-stage-block-howto-emission-range-and-remap-notes.md`
+Summary: HOWTO_SECTION auto-emission required line-range provenance fallback and prediction-side scorer remap parity.
+
+Details preserved:
+
+# Stage HOWTO Emission: Range + Scoring Discovery
+
+- Stage prediction labeling previously skipped recipe-local labels for text imports when provenance had only `start_line`/`end_line` (no `start_block`/`end_block`), producing all-`OTHER` block outputs.
+- Fix shape: allow `_resolve_recipe_range(...)` to map provenance line ranges back to archive block indices (line-index aware, with deterministic offset fallback).
+- Auto-emission now labels section headers as `HOWTO_SECTION` from deterministic section header hits in ingredients/instructions, with a conservative nearby-structure guardrail.
+- Benchmark parity fix requires prediction-side `HOWTO_SECTION` remap (not just gold-side): stage-block loader and canonical line projection both resolve `HOWTO_SECTION` to ingredient/instruction before scoring.

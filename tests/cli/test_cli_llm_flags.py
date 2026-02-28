@@ -28,7 +28,8 @@ def test_stage_help_exposes_codex_farm_flags() -> None:
     assert "--tag-catalog-json" in result.stdout
     assert "--codex-farm-failure-mode" in result.stdout
     assert "--table-extraction" in result.stdout
-    assert "Policy-locked OFF" in result.stdout
+    assert "COOKIMPORT_ALLOW_CODEX_FARM" in result.stdout
+    assert "codex-farm-3pass-v1" in result.stdout
 
 
 def test_stage_rejects_recipe_codex_farm_pipeline_enablement(tmp_path: Path) -> None:
@@ -47,6 +48,6 @@ def test_stage_rejects_recipe_codex_farm_pipeline_enablement(tmp_path: Path) -> 
         ],
     )
     assert result.exit_code == 1
-    combined_output = f"{result.stdout}\n{getattr(result, 'stderr', '')}"
-    assert "TURNED OFF" in combined_output
-    assert "Expected 'off'" in combined_output
+    combined_output = str(getattr(result, "output", "") or "")
+    assert "COOKIMPORT_ALLOW_CODEX_FARM" in combined_output
+    assert "Set COOKIMPORT_ALLOW_CODEX_FARM=1" in combined_output

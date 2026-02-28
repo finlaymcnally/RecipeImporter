@@ -30,6 +30,10 @@ run/sweep) now append elapsed seconds after about 10 seconds on the same phase
 message so long-running steps remain visibly active. When callback messages
 include `X/Y` counters, these spinners also show ETA using average
 seconds-per-item throughput.
+When stdout is not a real terminal (for example, when output is captured), the
+status spinner falls back to plain progress prints on change to avoid log
+floods; multi-line dashboard statuses also throttle tick refreshes. You can
+also force plain progress with `COOKIMPORT_PLAIN_PROGRESS=1`.
 Interactive all-method benchmark runs now keep one persistent dashboard-style
 spinner that shows the source queue, overall source/config progress, and the
 current per-config task line while suppressing per-config benchmark summary

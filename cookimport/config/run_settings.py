@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -77,6 +78,8 @@ _SUMMARY_ORDER = (
     "llm_knowledge_pipeline",
     "llm_tags_pipeline",
     "codex_farm_cmd",
+    "codex_farm_model",
+    "codex_farm_reasoning_effort",
     "codex_farm_pipeline_pass1",
     "codex_farm_pipeline_pass2",
     "codex_farm_pipeline_pass3",
@@ -90,13 +93,15 @@ _SUMMARY_ORDER = (
     "overrides_path",
 )
 
+RECIPE_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
+
 RECIPE_CODEX_FARM_PIPELINE_POLICY = (
-    "Recipe codex-farm AI parsing correction is TURNED OFF and must remain TURNED OFF "
-    "for the foreseeable future until benchmark quality materially improves."
+    "Recipe codex-farm parsing correction is disabled unless explicitly unlocked. "
+    f"Set {RECIPE_CODEX_FARM_UNLOCK_ENV}=1 to allow llm_recipe_pipeline=codex-farm-3pass-v1."
 )
 
 RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR = (
-    f"{RECIPE_CODEX_FARM_PIPELINE_POLICY} Expected 'off'."
+    f"{RECIPE_CODEX_FARM_PIPELINE_POLICY} Expected 'off' or 'codex-farm-3pass-v1'."
 )
 
 
@@ -263,6 +268,15 @@ class LlmTagsPipeline(str, Enum):
 class CodexFarmFailureMode(str, Enum):
     fail = "fail"
     fallback = "fallback"
+
+
+class CodexReasoningEffort(str, Enum):
+    none = "none"
+    minimal = "minimal"
+    low = "low"
+    medium = "medium"
+    high = "high"
+    xhigh = "xhigh"
 
 
 def _ui_meta(
@@ -859,8 +873,8 @@ class RunSettings(BaseModel):
             label="Recipe LLM Pipeline",
             order=110,
             description=(
-                "Recipe codex-farm parsing correction is policy-locked OFF and must remain OFF "
-                "until benchmark quality materially improves."
+                "Recipe codex-farm parsing correction. "
+                f"Use codex-farm-3pass-v1 only when {RECIPE_CODEX_FARM_UNLOCK_ENV}=1."
             ),
         ),
     )
@@ -895,6 +909,27 @@ class RunSettings(BaseModel):
             label="Codex Farm Command",
             order=120,
             description="Executable used when running codex-farm subprocesses.",
+        ),
+    )
+    codex_farm_model: str | None = Field(
+        default=None,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Model",
+            order=122,
+            description="Optional codex-farm model override. Blank uses pipeline defaults.",
+        ),
+    )
+    codex_farm_reasoning_effort: CodexReasoningEffort | None = Field(
+        default=None,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Reasoning Effort",
+            order=123,
+            description=(
+                "Optional codex-farm reasoning effort override "
+                "(none, minimal, low, medium, high, xhigh). Blank uses pipeline defaults."
+            ),
         ),
     )
     codex_farm_root: str | None = Field(
@@ -1050,6 +1085,34 @@ class RunSettings(BaseModel):
             )
         return normalized
 
+    @field_validator("codex_farm_model", mode="before")
+    @classmethod
+    def _normalize_codex_farm_model(cls, value: Any) -> str | None:
+        cleaned = str(value or "").strip()
+        return cleaned or None
+
+    @field_validator("codex_farm_reasoning_effort", mode="before")
+    @classmethod
+    def _normalize_codex_farm_reasoning_effort(cls, value: Any) -> CodexReasoningEffort | None:
+        if value is None:
+            return None
+        if isinstance(value, CodexReasoningEffort):
+            return value
+        if isinstance(value, Enum):
+            candidate = str(value.value).strip().lower()
+        else:
+            candidate = str(value).strip().lower()
+        if not candidate:
+            return None
+        try:
+            return CodexReasoningEffort(candidate)
+        except ValueError as exc:
+            allowed = ", ".join(member.value for member in CodexReasoningEffort)
+            raise ValueError(
+                "codex farm reasoning effort must be one of: "
+                f"{allowed}"
+            ) from exc
+
     @classmethod
     def from_dict(
         cls,
@@ -1074,10 +1137,23 @@ class RunSettings(BaseModel):
                 normalized_recipe_pipeline = str(llm_recipe_pipeline_raw.value).strip().lower()
             else:
                 normalized_recipe_pipeline = str(llm_recipe_pipeline_raw).strip().lower()
-            if normalized_recipe_pipeline != LlmRecipePipeline.off.value:
+            if normalized_recipe_pipeline == LlmRecipePipeline.off.value:
+                pass
+            elif normalized_recipe_pipeline == LlmRecipePipeline.codex_farm_3pass_v1.value:
+                if os.getenv(RECIPE_CODEX_FARM_UNLOCK_ENV, "").strip() != "1":
+                    logger.warning(
+                        "Forcing llm_recipe_pipeline=off in %s because recipe codex-farm parsing "
+                        "correction is disabled unless explicitly unlocked. Ignoring value %r. "
+                        "Set %s=1 to allow it.",
+                        warn_context,
+                        llm_recipe_pipeline_raw,
+                        RECIPE_CODEX_FARM_UNLOCK_ENV,
+                    )
+                    data["llm_recipe_pipeline"] = LlmRecipePipeline.off.value
+            else:
                 logger.warning(
                     "Forcing llm_recipe_pipeline=off in %s because recipe codex-farm parsing "
-                    "correction is policy-locked off. Ignoring value %r.",
+                    "correction only supports: off, codex-farm-3pass-v1. Ignoring value %r.",
                     warn_context,
                     llm_recipe_pipeline_raw,
                 )
@@ -1120,7 +1196,15 @@ class RunSettings(BaseModel):
         return cls.model_validate(data)
 
     def to_run_config_dict(self) -> dict[str, object]:
-        return self.model_dump(mode="json", exclude_none=True)
+        payload = self.model_dump(mode="json", exclude_none=True)
+        if (
+            payload.get("llm_recipe_pipeline") == LlmRecipePipeline.off.value
+            and payload.get("llm_knowledge_pipeline") == LlmKnowledgePipeline.off.value
+            and payload.get("llm_tags_pipeline") == LlmTagsPipeline.off.value
+        ):
+            payload.pop("codex_farm_model", None)
+            payload.pop("codex_farm_reasoning_effort", None)
+        return payload
 
     def summary(self) -> str:
         payload = self.to_run_config_dict()
@@ -1160,6 +1244,7 @@ class RunSettingUiSpec:
     description: str
     value_kind: Literal["enum", "bool", "int", "string"]
     choices: tuple[str, ...] = ()
+    allows_none: bool = False
     step: int = 1
     minimum: int | None = None
     maximum: int | None = None
@@ -1173,6 +1258,13 @@ def _unwrap_optional(annotation: Any) -> Any:
     if len(args) == 1:
         return args[0]
     return annotation
+
+
+def _annotation_allows_none(annotation: Any) -> bool:
+    origin = get_origin(annotation)
+    if origin is None:
+        return False
+    return any(arg is type(None) for arg in get_args(annotation))
 
 
 def _value_kind_for_annotation(annotation: Any) -> Literal["enum", "bool", "int", "string"]:
@@ -1197,14 +1289,28 @@ def run_settings_ui_specs() -> list[RunSettingUiSpec]:
                 raise ValueError(f"RunSettings.{field_name} missing UI metadata key: {key}")
 
         value_kind = _value_kind_for_annotation(field.annotation)
+        allows_none = _annotation_allows_none(field.annotation)
         choices: tuple[str, ...] = ()
         annotation = _unwrap_optional(field.annotation)
         if value_kind == "enum" and isinstance(annotation, type) and issubclass(annotation, Enum):
             choices = tuple(str(member.value) for member in annotation)
             if field_name == "llm_recipe_pipeline":
-                choices = (LlmRecipePipeline.off.value,)
+                if os.getenv(RECIPE_CODEX_FARM_UNLOCK_ENV, "").strip() == "1":
+                    choices = (
+                        LlmRecipePipeline.off.value,
+                        LlmRecipePipeline.codex_farm_3pass_v1.value,
+                    )
+                else:
+                    choices = (LlmRecipePipeline.off.value,)
             elif field_name == "epub_extractor":
                 choices = epub_extractor_enabled_choices()
+            if allows_none:
+                none_label = (
+                    "pipeline default"
+                    if str(extra.get("ui_group", "")) == "LLM"
+                    else "default"
+                )
+                choices = (none_label, *choices)
         elif field_name == "benchmark_sequence_matcher":
             value_kind = "enum"
             choices = tuple(str(mode) for mode in supported_sequence_matcher_modes())
@@ -1218,6 +1324,7 @@ def run_settings_ui_specs() -> list[RunSettingUiSpec]:
                 description=str(extra.get("ui_description", "")).strip(),
                 value_kind=value_kind,
                 choices=choices,
+                allows_none=allows_none,
                 step=int(extra.get("ui_step", 1)),
                 minimum=(
                     int(extra["ui_min"])
@@ -1346,6 +1453,8 @@ def build_run_settings(
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
     llm_tags_pipeline: str | LlmTagsPipeline = LlmTagsPipeline.off,
     codex_farm_cmd: str = "codex-farm",
+    codex_farm_model: str | None = None,
+    codex_farm_reasoning_effort: str | CodexReasoningEffort | None = None,
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
     codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
@@ -1453,6 +1562,17 @@ def build_run_settings(
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
             "llm_tags_pipeline": _normalized_value(llm_tags_pipeline),
             "codex_farm_cmd": str(codex_farm_cmd).strip() or "codex-farm",
+            "codex_farm_model": (
+                str(codex_farm_model).strip()
+                if codex_farm_model is not None and str(codex_farm_model).strip()
+                else None
+            ),
+            "codex_farm_reasoning_effort": (
+                _normalized_value(codex_farm_reasoning_effort)
+                if codex_farm_reasoning_effort is not None
+                and str(codex_farm_reasoning_effort).strip()
+                else None
+            ),
             "codex_farm_root": (
                 str(codex_farm_root) if codex_farm_root is not None else None
             ),

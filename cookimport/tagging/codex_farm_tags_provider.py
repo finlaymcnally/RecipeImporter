@@ -116,6 +116,8 @@ def run_codex_farm_tags_pass(
     catalog: TagCatalog,
     pipeline_id: str,
     codex_farm_cmd: str = "codex-farm",
+    codex_farm_model: str | None = None,
+    codex_farm_reasoning_effort: str | None = None,
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
     runner: CodexFarmRunner | None = None,
@@ -159,6 +161,8 @@ def run_codex_farm_tags_pass(
                 out_dir=temp_root / "out",
                 pipeline_root=pipeline_root,
                 workspace_root=workspace_root,
+                codex_farm_model=codex_farm_model,
+                codex_farm_reasoning_effort=codex_farm_reasoning_effort,
                 started=started,
                 manifest_path=None,
             )
@@ -176,6 +180,8 @@ def run_codex_farm_tags_pass(
         out_dir=out_dir,
         pipeline_root=pipeline_root,
         workspace_root=workspace_root,
+        codex_farm_model=codex_farm_model,
+        codex_farm_reasoning_effort=codex_farm_reasoning_effort,
         started=started,
         manifest_path=manifest_path,
     )
@@ -192,6 +198,8 @@ def _run_with_dirs(
     out_dir: Path,
     pipeline_root: Path,
     workspace_root: Path | None,
+    codex_farm_model: str | None,
+    codex_farm_reasoning_effort: str | None,
     started: float,
     manifest_path: Path | None,
 ) -> CodexFarmTagsPassResult:
@@ -214,6 +222,8 @@ def _run_with_dirs(
         env,
         root_dir=pipeline_root,
         workspace_root=workspace_root,
+        model=codex_farm_model,
+        reasoning_effort=codex_farm_reasoning_effort,
     )
 
     suggestions_by_recipe: dict[str, list[TagSuggestion]] = {job.recipe_key: [] for job in jobs}

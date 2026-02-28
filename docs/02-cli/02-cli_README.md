@@ -106,7 +106,7 @@ Menu numbering and shortcuts:
 
 `Settings` edits global defaults in `cookimport.json`.
 
-Interactive `Import` and single-offline benchmark runs include a per-run chooser (`global defaults` / `last run` / `change run settings`) so experiments do not mutate these global defaults. Interactive all-method benchmark skips the chooser and uses current global benchmark defaults.
+Interactive `Import` and benchmark runs (single-offline + all-method) include a per-run chooser (`global defaults` / `preferred format` / `quality-suite winner` / `last run` / `change run settings`) so experiments do not mutate global defaults.
 
 Config keys and defaults:
 
@@ -221,7 +221,7 @@ What each setting affects:
 - `llm_knowledge_pipeline`: optional knowledge-harvest flow (`off` or `codex-farm-knowledge-v1`) used by `stage` only.
 - `llm_tags_pipeline`: optional tags pass (`off` or `codex-farm-tags-v1`) used by `stage` only.
 - `tag_catalog_json`: required catalog snapshot path when `llm_tags_pipeline` is enabled.
-- `codex_farm_*`: codex-farm command/root/workspace/pipeline-id/context/failure behavior used by `stage`; recipe-pass subset remains wired for benchmark prediction generation but is inactive while `llm_recipe_pipeline` is policy-locked to `off`.
+- `codex_farm_*`: codex-farm command/root/workspace/pipeline-id/context/failure behavior used by `stage`; recipe-pass subset remains disabled unless `COOKIMPORT_ALLOW_CODEX_FARM=1` unlocks `llm_recipe_pipeline=codex-farm-3pass-v1`.
 
 Developer note:
 - Per-run toggle definitions live in `cookimport/config/run_settings.py`. Add new fields there with `ui_*` metadata so the interactive editor picks them up automatically.
@@ -237,18 +237,21 @@ Developer note:
 1. Prompt for `Import All` or one selected file from top-level `data/input`.
 2. Show `Run settings` mode picker:
    - `Run with global defaults (...)`
+   - `Run with preferred format (...)` (saved preferred settings when available; otherwise uses the built-in preferred preset: `epub_extractor=beautifulsoup` + `instruction_step_segmentation_policy=off`)
+   - `Run with quality-suite winner (...)` (saved leaderboard winner settings when available; written to `data/.history/qualitysuite_winner_run_settings.json`)
    - `Run with last import settings (...)` when available
    - `Change run settings...` (full-screen arrow-key editor)
-3. Applies selected EPUB env vars:
+3. Ask `Use Codex Farm recipe pipeline for this run?` (default tracks currently selected run settings; enabling still requires `COOKIMPORT_ALLOW_CODEX_FARM=1`).
+4. Applies selected EPUB env vars:
    - `C3IMP_EPUB_EXTRACTOR`
    - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`
    - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`
    - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
-4. Calls `stage(...)` using the full selected run settings payload (workers/OCR/extractor + section/ingredient parser controls + LLM/codex-farm knobs).
-5. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_import.json` after a successful run.
-6. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
-7. Prints `Outputs written to: <run_folder>`.
-8. Returns to the main menu after successful import.
+5. Calls `stage(...)` using the full selected run settings payload (workers/OCR/extractor + section/ingredient parser controls + LLM/codex-farm knobs).
+6. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_import.json` after a successful run.
+7. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
+8. Prints `Outputs written to: <run_folder>`.
+9. Returns to the main menu after successful import.
 
 ### [E] Label Studio Import Flow
 
@@ -319,23 +322,36 @@ Interactive benchmark now has a mode submenu before execution:
 
 1. Shows benchmark mode picker:
    - `Generate predictions + evaluate (offline, no upload)` (default first choice)
+   - `Generate predictions + evaluate for all matched golden sets (single config each, offline)`
    - `All method benchmark (offline, no upload)`
 2. Single offline path:
-   - shows benchmark `Run settings` mode picker (`global` / `last benchmark` / `change`), using the same editor flow as Import,
+   - shows benchmark `Run settings` mode picker (`global` / `preferred format` / `quality-suite winner` / `last benchmark` / `change`), using the same editor flow as Import,
+   - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default tracks selected profile; enabling still requires `COOKIMPORT_ALLOW_CODEX_FARM=1`),
    - calls `labelstudio-benchmark` once with `--no-upload --eval-mode canonical-text`,
    - keeps spinner/status visible for both prediction generation and evaluation phases,
    - does not resolve Label Studio credentials,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/`.
-3. All method path:
-   - uses global benchmark defaults directly (no run-settings chooser),
+3. Single-profile all-matched path:
+   - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-suite winner` / `last benchmark` / `change`),
+   - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default tracks selected profile; enabling still requires `COOKIMPORT_ALLOW_CODEX_FARM=1`),
+   - discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename,
+   - prints matched/skipped counts and asks final proceed confirmation (`Proceed with N benchmark runs across N matched golden sets?`, default `No`),
+   - runs `labelstudio-benchmark` once per matched pair with `--no-upload --eval-mode canonical-text` using the selected single profile (no all-method variant expansion),
+   - continues when an individual source fails and prints a failure summary at the end,
+   - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-profile-benchmark/<index_source_slug>/`,
+   - writes processed cookbook outputs under `<interactive output_dir>/<benchmark_timestamp>/single-profile-benchmark/<index_source_slug>/...`.
+4. All method path:
+   - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-suite winner` / `last benchmark` / `change`) before building all-method variants,
+   - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (this controls the base profile; all-method still separately prompts whether to include Codex permutations),
    - all-method predict-only execution now builds kwargs from `build_benchmark_call_kwargs_from_run_settings(...)`, so Priority 1/3/4/6/7 parsing-scoring controls are forwarded with the same surface as single benchmark runs,
+   - run-settings editor (`Change run settings...`) exposes `llm_recipe_pipeline=codex-farm-3pass-v1` only when `COOKIMPORT_ALLOW_CODEX_FARM=1` is set; otherwise recipe pipeline remains `off`,
    - runs `labelstudio-benchmark` configs in `canonical-text` eval mode so extractor permutations can share one freeform gold export,
    - prompts for all-method scope:
      - `Single golden set`: prompts for one gold export and source file.
      - `All golden sets with matching input files`: discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename.
    - source hint fallback order is: run `manifest.json` `source_file`, then first non-empty `freeform_span_labels.jsonl` row `source_file`, then first non-empty `freeform_segment_manifest.jsonl` row `source_file`,
    - all-matched mode prints matched/skipped counts, planned permutation count, and sample skipped reasons before execution,
-  - asks whether to include Codex Farm permutations (default `No`; currently remains disabled by policy lock),
+  - asks whether to include Codex Farm permutations (default `No`; requires `COOKIMPORT_ALLOW_CODEX_FARM=1`),
   - prints scheduler limits before confirmation, including mode and resolved values:
     - source parallelism (configured/effective),
     - configured/effective inflight,
@@ -359,7 +375,7 @@ Interactive benchmark now has a mode submenu before execution:
     - smart mode: phase-aware admission keeps `heavy + wing` near `split slots + wing backlog target` and auto-raises effective inflight with eval-tail headroom (`all_method_max_eval_tail_pipelines` override or CPU-aware auto default) so evaluate-heavy tails do not starve admissions,
     - timeout watchdog (`all_method_config_timeout_seconds`) marks timed-out configs failed and recycles worker pool so one hung config cannot block source completion,
     - failed-only retry passes (`all_method_retry_failed_configs`) rerun only failed config indices, not successful ones,
-    - startup fallback to serial mode remains when process workers are unavailable,
+    - startup preflight disables process-based config concurrency when workers are unavailable and runs single-config execution directly,
    - split-worker-heavy conversion is gate-limited to at most `4` simultaneous configs (slot telemetry updates spinner task/progress output instead of printing standalone worker lines),
    - runs each config offline (`--no-upload`) and writes per-source eval artifacts plus:
      - `<source_slug>/all_method_benchmark_report.json`
@@ -375,8 +391,12 @@ Interactive benchmark now has a mode submenu before execution:
    - writes per-config processed cookbook outputs under:
      - `<interactive output_dir>/<benchmark_timestamp>/all-method-benchmark/<source_slug>/config_*/<prediction_timestamp>/...`
    - prints `All method processed outputs: ...` with that root path.
-4. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_benchmark.json` after successful single-offline runs.
-5. Returns to the main menu on completion.
+
+Run count note:
+- When interactive all-method prints `All method benchmark will run N configurations across M matched golden sets`, `N` is based on per-target variant expansion (for example EPUB targets default to `13` variants: `12` unstructured variants + `1` beautifulsoup variant).
+- When deterministic sweeps (Priority 2–6) are enabled in the wizard, run count increases because sweep variants are multiplied in.
+5. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_benchmark.json` after successful single-offline runs and after confirmed single-profile all-matched runs.
+6. Returns to the main menu on completion.
 
 For re-scoring an existing prediction run directly, use `cookimport labelstudio-eval`. For offline single-run benchmarking, use non-interactive `cookimport labelstudio-benchmark --no-upload`.
 
@@ -485,7 +505,7 @@ Options:
 - `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
-- `--llm-recipe-pipeline TEXT` (default `off`): policy-locked `off` (recipe codex-farm parsing correction is currently disabled).
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1` (Codex Farm requires `COOKIMPORT_ALLOW_CODEX_FARM=1`).
 - `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-farm-knowledge-v1`.
 - `--llm-tags-pipeline TEXT` (default `off`): `off|codex-farm-tags-v1`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.
@@ -663,7 +683,7 @@ Options:
 - `--prelabel-upload-as TEXT` (default `annotations`): `annotations|predictions`.
 - `--prelabel-granularity TEXT` (default `block`): `block|span` (`block` = block based; `span` = actual freeform).
 - `--prelabel-allow-partial / --no-prelabel-allow-partial` (default disabled): continue upload when some prelabels fail.
-- `--llm-recipe-pipeline TEXT` (default `off`): policy-locked `off` (recipe codex-farm parsing correction is currently disabled).
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1` (Codex Farm requires `COOKIMPORT_ALLOW_CODEX_FARM=1`).
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used when `--llm-recipe-pipeline` is enabled.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
@@ -789,7 +809,7 @@ Options:
 - `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
-- `--llm-recipe-pipeline TEXT` (default `off`): policy-locked `off` (recipe codex-farm parsing correction is currently disabled).
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1` (Codex Farm requires `COOKIMPORT_ALLOW_CODEX_FARM=1`).
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm during prediction generation.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
@@ -867,7 +887,7 @@ Options:
 
 ### `cookimport bench quality-run`
 
-Runs sequential all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`).
+Runs sequential all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`). In restricted runtimes where process workers are unavailable, quality-run auto-switches all-method from `global` scope to `legacy` source-thread scheduling so multi-source rounds can still run in parallel.
 
 Status behavior:
 
@@ -877,9 +897,10 @@ Status behavior:
 Options:
 
 - `--suite PATH` (required): path to quality suite JSON (typically from `bench quality-discover`).
-- `--experiments-file PATH` (required): JSON experiment definitions.
+- `--experiments-file PATH` (required): JSON experiment definitions (schema v1 explicit experiments, or schema v2 with `levers` + optional `all_method_runtime_patch`).
 - `--out-dir PATH` (default `data/golden/bench/quality/runs`): output root for timestamped quality runs.
 - `--base-run-settings-file PATH`: optional base `RunSettings` JSON payload used by all experiments. When omitted, uses `experiments.base_run_settings_file` or `cookimport.json`.
+- `--include-deterministic-sweeps / --no-include-deterministic-sweeps` (default disabled): expand each experiment’s all-method grid with deterministic Priority 2–6 sweep variants (section detector, multi-recipe splitter, ingredient missing-unit policy, instruction segmentation, time/temp/yield knobs).
 
 ### `cookimport bench quality-compare`
 
@@ -1205,3 +1226,20 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 ### 2026-02-27_20.38.15 load settings sequence matcher coercion
 - Source: `docs/understandings/2026-02-27_20.38.15-load-settings-sequence-matcher-coercion.md`
 - Summary: "Legacy cookimport.json matcher values are now rejected at load time; benchmark sequence matcher must be dmp."
+
+### 2026-02-28_00.50.18 bench run/sweep removal surface map
+- Source: `docs/understandings/2026-02-28_00.50.18-bench-run-sweep-removal-surface-map.md`
+- Summary: Mapped remaining active `bench` command surface after removing deprecated `bench validate/run/sweep/knobs` commands and noted doc surfaces that needed sync.
+
+### 2026-02-28_01.00.09 all-method 79 run count breakdown
+- Source: `docs/understandings/2026-02-28_01.00.09-all-method-79-run-count-breakdown.md`
+- Summary: Explained how the interactive all-method wizard derives the base configuration count (pre-sweep) from target variants (notably EPUB extractor variant expansion).
+
+## 2026-02-28 migrated understandings digest (interactive run-settings chooser)
+
+### 2026-02-28_02.25.24 interactive run-settings preferred option wiring
+- Source: `docs/understandings/2026-02-28_02.25.24-interactive-run-settings-preferred-option-wiring.md`
+- `choose_run_settings(...)` in `cookimport/cli_ui/run_settings_flow.py` is the single interactive run-settings chooser for import and benchmark flows.
+- Interactive all-method benchmark now uses that same chooser path (it no longer bypasses directly to global defaults).
+- Preferred profile persistence stays isolated in `data/.history/preferred_run_settings.json` so non-`RunSettings` keys from `cookimport.json` do not leak into chooser payloads.
+- Last-run snapshots remain per-flow (`import` and `benchmark`) via `cookimport/config/last_run_store.py`.

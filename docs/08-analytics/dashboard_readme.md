@@ -86,7 +86,10 @@ Notes:
 - `index.html` embeds an inline copy of `dashboard_data.json`, so it still works via `file://` even when browser local fetches are restricted.
 - Collectors are read-only. They do not modify the source metrics in `data/output` or `data/golden`.
 - Benchmark rows pointing at pytest temp eval paths (for example `.../pytest-46/test_foo0/eval`) are ignored so local `pytest` runs do not appear in `Previous Runs`.
-- All-method standalone pages are built from benchmark CSV rows (`run_dir` / `artifact_dir`) grouped by paths containing `all-method-benchmark/<source_slug>/config_*` (CSV-first; no extra dashboard-only metric store). The hierarchy is run index -> run summary -> per-book detail, and all pages are written under `data/.history/dashboard/all-method-benchmark/`. The run index page is always written, even when there are zero runs.
+- All-method standalone pages are built from benchmark CSV rows (`run_dir` / `artifact_dir`) grouped by benchmark sweep paths:
+  - `all-method-benchmark/<source_slug>/config_*`
+  - `single-profile-benchmark/<source_slug>`
+  (CSV-first; no extra dashboard-only metric store). The hierarchy is run index -> run summary -> per-book detail, and all pages are written under `data/.history/dashboard/all-method-benchmark/`. The run index page is always written, even when there are zero runs.
 - Before writing all-method pages, renderer removes stale legacy root pages (`all-method-benchmark.html`, old top-level detail pages) so only the subfolder hierarchy remains.
 
 ## Index layout
@@ -102,6 +105,7 @@ Notes:
 Timestamp ordering note:
 - The `Previous Runs` table sorts by parsed time (not raw string compare), so mixed timestamp formats like `YYYY-MM-DDTHH:MM:SS` and `YYYY-MM-DD_HH.MM.SS` still appear in true chronological order.
 - Frontend timestamp parsing should use explicit component parsing for these two forms (with `Date` fallback for timezone-bearing ISO values) rather than relying only on `Date.parse`.
+- Benchmark collector normalizes suffixed sweep folder names like `2026-02-28_02.03.18_manual-top5-...` to `2026-02-28_02.03.18` for dashboard run-grouping.
 
 Benchmark recipes note:
 - `Previous Runs` includes a `Recipes` column.
@@ -114,7 +118,8 @@ Benchmark metrics note:
 - `Strict F1` is the IoU-threshold localization metric (`precision/recall/f1` fields from eval).
 - `Practical F1` is the any-overlap content metric (`practical_*` eval fields).
 - Main dashboard includes an `All-Method Benchmark Runs` section linking to a run index page.
-- All-method run index rows link to run-summary pages that aggregate config metrics across all book jobs in the sweep.
+- All-method run index rows link to run-summary pages that aggregate config metrics across all book jobs in the sweep (including single-profile all-matched sweeps).
+- All-method pages prefer reading `all_method_benchmark_report.json` (when present) so the dashboard can list all configured variants even when evaluation results were reused and not every `config_*/eval_report.json` exists.
 - Run-summary pages now include a compact stats table plus per-metric bar charts (one bar per aggregated configuration), per-config radar/web charts, and per-cookbook average bar/radar sections before the aggregate table/drilldown links.
   - Score metrics on those charts (`Strict Precision`, `Strict Recall`, `Strict F1`, `Practical F1`) are fixed to a 0-100% scale (`1.0 == 100%`).
   - `Recipes` now charts `% identified` against golden recipe headers for each book (from eval `recipe_counts.gold_recipe_headers`) on the same fixed 0-100% scale.

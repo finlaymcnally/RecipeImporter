@@ -24,7 +24,9 @@ from typing import Any
 from .dashboard_schema import BenchmarkRecord, DashboardData
 
 _ALL_METHOD_BENCHMARK_SEGMENT = "all-method-benchmark"
+_SINGLE_PROFILE_BENCHMARK_SEGMENT = "single-profile-benchmark"
 _ALL_METHOD_CONFIG_PREFIX = "config_"
+_ALL_METHOD_REPORT_JSON = "all_method_benchmark_report.json"
 _ALL_METHOD_OUTPUT_SUBDIR = _ALL_METHOD_BENCHMARK_SEGMENT
 _ALL_METHOD_INDEX_PAGE = "index.html"
 _ALL_METHOD_INDEX_HREF = f"{_ALL_METHOD_OUTPUT_SUBDIR}/{_ALL_METHOD_INDEX_PAGE}"
@@ -150,13 +152,18 @@ def _all_method_group_key(
 
     lower_parts = [part.lower() for part in parts]
     for idx, part in enumerate(lower_parts):
-        if part != _ALL_METHOD_BENCHMARK_SEGMENT:
-            continue
-        if idx + 2 >= len(parts):
-            continue
-        source_slug = parts[idx + 1]
-        config_dir = parts[idx + 2]
-        if not config_dir.startswith(_ALL_METHOD_CONFIG_PREFIX):
+        if part == _ALL_METHOD_BENCHMARK_SEGMENT:
+            if idx + 2 >= len(parts):
+                continue
+            source_slug = parts[idx + 1]
+            config_dir = parts[idx + 2]
+            if not config_dir.startswith(_ALL_METHOD_CONFIG_PREFIX):
+                continue
+        elif part == _SINGLE_PROFILE_BENCHMARK_SEGMENT:
+            if idx + 1 >= len(parts):
+                continue
+            source_slug = parts[idx + 1]
+        else:
             continue
         run_root_parts = parts[: idx + 1]
         group_parts = parts[: idx + 2]
@@ -210,6 +217,13 @@ def _config_name(record: BenchmarkRecord) -> str:
     artifact_dir = str(record.artifact_dir or "")
     if not artifact_dir:
         return "<unknown>"
+    _, parts = _normalize_path_parts(artifact_dir)
+    lower_parts = [part.lower() for part in parts]
+    if _SINGLE_PROFILE_BENCHMARK_SEGMENT in lower_parts:
+        config_hash = str(record.run_config_hash or "").strip().lower()
+        if config_hash:
+            return f"profile_{config_hash[:12]}"
+        return "single_profile"
     return Path(artifact_dir).name or artifact_dir
 
 
@@ -520,42 +534,279 @@ def _slug_token(value: str | None) -> str:
     return token or "unknown"
 
 
+def _all_method_group_info_from_path(group_dir: Path) -> tuple[str, str, str | None, str] | None:
+    """Return (group_dir, run_root_dir, run_dir_timestamp, source_slug) for an all-method group dir."""
+    try:
+        resolved = group_dir.expanduser().resolve(strict=False)
+    except OSError:
+        resolved = group_dir
+    parts = list(resolved.parts)
+    lower_parts = [part.lower() for part in parts]
+    for idx, part in enumerate(lower_parts):
+        if part != _ALL_METHOD_BENCHMARK_SEGMENT:
+            continue
+        if idx + 1 >= len(parts):
+            continue
+        run_root_dir = str(Path(*parts[: idx + 1]))
+        group_dir_str = str(Path(*parts[: idx + 2]))
+        run_dir_timestamp = parts[idx - 1] if idx > 0 else None
+        source_slug = parts[idx + 1]
+        return group_dir_str, run_root_dir, run_dir_timestamp, source_slug
+    return None
+
+
+def _load_all_method_report(group_dir: Path) -> dict[str, Any] | None:
+    report_path = group_dir / _ALL_METHOD_REPORT_JSON
+    try:
+        if not report_path.is_file():
+            return None
+    except OSError:
+        return None
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    variants = payload.get("variants")
+    if not isinstance(variants, list):
+        return None
+    return payload
+
+
+def _load_manifest_fields(
+    config_dir: Path,
+) -> tuple[str | None, str | None, int | None, dict[str, Any] | None]:
+    """Load (importer_name, source_file, recipe_count, run_config) from a config dir when available."""
+    candidates = (
+        config_dir / "manifest.json",
+        config_dir / "prediction-run" / "manifest.json",
+    )
+    for path in candidates:
+        try:
+            if not path.is_file():
+                continue
+        except OSError:
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        importer_name = payload.get("importer_name") or payload.get("pipeline")
+        source_file = payload.get("source_file")
+        recipe_count = payload.get("recipe_count")
+        run_config = payload.get("run_config") if isinstance(payload.get("run_config"), dict) else None
+        try:
+            recipe_count_int = int(recipe_count) if recipe_count is not None else None
+        except (TypeError, ValueError):
+            recipe_count_int = None
+        return (
+            str(importer_name) if importer_name is not None else None,
+            str(source_file) if source_file is not None else None,
+            recipe_count_int,
+            run_config,
+        )
+    return (None, None, None, None)
+
+
 def _collect_all_method_groups(data: DashboardData) -> list[_AllMethodGroup]:
-    grouped: dict[str, _AllMethodGroup] = {}
-    seen_by_group: dict[str, dict[str, BenchmarkRecord]] = {}
+    # First pass: collect per-group canonical records from benchmark_records (executed eval reports).
+    group_meta: dict[str, tuple[str, str | None, str]] = {}
+    best_by_group_config: dict[str, dict[str, BenchmarkRecord]] = {}
 
     for record in data.benchmark_records:
         key_info = _all_method_group_key(record)
         if key_info is None:
             continue
-        group_dir, run_root_dir, run_dir_timestamp, source_slug = key_info
+        group_dir_raw, run_root_dir_raw, run_dir_timestamp, source_slug = key_info
+        try:
+            group_dir = str(Path(group_dir_raw).expanduser().resolve(strict=False))
+        except OSError:
+            group_dir = group_dir_raw
+        try:
+            run_root_dir = str(Path(run_root_dir_raw).expanduser().resolve(strict=False))
+        except OSError:
+            run_root_dir = run_root_dir_raw
 
-        group = grouped.get(group_dir)
-        if group is None:
-            group = _AllMethodGroup(
-                group_dir=group_dir,
-                run_root_dir=run_root_dir,
-                run_dir_timestamp=run_dir_timestamp,
-                source_slug=source_slug,
-                records=[],
-            )
-            grouped[group_dir] = group
-            seen_by_group[group_dir] = {}
+        group_meta[group_dir] = (run_root_dir, run_dir_timestamp, source_slug)
+        configs = best_by_group_config.setdefault(group_dir, {})
 
-        record_key = str(record.artifact_dir or "")
-        if not record_key:
-            record_key = f"row-{len(seen_by_group[group_dir]) + 1}"
-        prior = seen_by_group[group_dir].get(record_key)
-        if prior is None:
-            seen_by_group[group_dir][record_key] = record
+        config_dir_name = None
+        _, parts = _normalize_path_parts(record.artifact_dir)
+        lower_parts = [part.lower() for part in parts]
+        for idx, part in enumerate(lower_parts):
+            if part == _ALL_METHOD_BENCHMARK_SEGMENT:
+                if idx + 2 >= len(parts):
+                    continue
+                candidate = parts[idx + 2]
+                if candidate.startswith(_ALL_METHOD_CONFIG_PREFIX):
+                    config_dir_name = candidate
+                    break
+            elif part == _SINGLE_PROFILE_BENCHMARK_SEGMENT:
+                config_hash = str(record.run_config_hash or "").strip().lower()
+                config_dir_name = (
+                    f"profile_{config_hash}"
+                    if config_hash
+                    else "single_profile"
+                )
+                break
+        if config_dir_name is None:
+            config_dir_name = _config_name(record)
+
+        prior = configs.get(config_dir_name)
+        if prior is None or _run_timestamp_sort_key(record.run_timestamp) > _run_timestamp_sort_key(prior.run_timestamp):
+            configs[config_dir_name] = record
+
+    # Second pass: prefer all_method_benchmark_report.json when present (it includes reused variants).
+    groups_by_dir: dict[str, _AllMethodGroup] = {}
+    allowed_run_roots: set[str] = set()
+    for run_root_dir, _, _ in group_meta.values():
+        try:
+            allowed_run_roots.add(str(Path(run_root_dir).expanduser().resolve(strict=False)))
+        except OSError:
+            allowed_run_roots.add(run_root_dir)
+    golden_root = Path(str(data.golden_root or "")).expanduser()
+    try:
+        golden_root = golden_root.resolve(strict=False)
+    except OSError:
+        pass
+
+    report_paths: list[Path] = []
+    try:
+        if golden_root.is_dir():
+            report_paths = list(golden_root.rglob(_ALL_METHOD_REPORT_JSON))
+    except OSError:
+        report_paths = []
+
+    for report_path in report_paths:
+        info = _all_method_group_info_from_path(report_path.parent)
+        if info is None:
+            continue
+        group_dir, run_root_dir, run_dir_timestamp, source_slug = info
+        if allowed_run_roots:
+            try:
+                run_root_dir_key = str(Path(run_root_dir).expanduser().resolve(strict=False))
+            except OSError:
+                run_root_dir_key = run_root_dir
+            if run_root_dir_key not in allowed_run_roots:
+                continue
+
+        report = _load_all_method_report(Path(group_dir))
+        if report is None:
+            continue
+        created_at = str(report.get("created_at") or "").strip() or None
+        variants = report.get("variants") or []
+        if not isinstance(variants, list) or not variants:
             continue
 
-        if _run_timestamp_sort_key(record.run_timestamp) > _run_timestamp_sort_key(prior.run_timestamp):
-            seen_by_group[group_dir][record_key] = record
+        executed = best_by_group_config.get(group_dir, {})
+        manifest_cache: dict[str, tuple[str | None, str | None, int | None, dict[str, Any] | None]] = {}
 
-    groups: list[_AllMethodGroup] = []
-    for group_dir, group in grouped.items():
-        records = list(seen_by_group[group_dir].values())
+        synthetic: list[BenchmarkRecord] = []
+        for variant in variants:
+            if not isinstance(variant, dict):
+                continue
+            config_dir_name = str(variant.get("config_dir") or "").strip()
+            if not config_dir_name:
+                continue
+
+            config_dir_path = Path(group_dir) / config_dir_name
+            rep_name = str(variant.get("evaluation_representative_config_dir") or config_dir_name).strip()
+            base = executed.get(rep_name)
+
+            manifest_key = str(config_dir_path)
+            fields = manifest_cache.get(manifest_key)
+            if fields is None:
+                fields = _load_manifest_fields(config_dir_path)
+                manifest_cache[manifest_key] = fields
+            importer_name, source_file, recipe_count, run_config = fields
+
+            def _f(key: str) -> float | None:
+                value = variant.get(key)
+                try:
+                    return float(value) if value is not None else None
+                except (TypeError, ValueError):
+                    return None
+
+            run_config_hash = str(variant.get("run_config_hash") or "").strip() or None
+            run_config_summary = str(variant.get("run_config_summary") or "").strip() or None
+
+            eval_report_json = str(variant.get("eval_report_json") or "").strip()
+            report_path_abs = None
+            if eval_report_json:
+                report_path_abs = str((Path(group_dir) / eval_report_json).expanduser().resolve(strict=False))
+
+            synthetic.append(
+                BenchmarkRecord(
+                    run_timestamp=created_at,
+                    artifact_dir=str(config_dir_path.expanduser().resolve(strict=False)),
+                    report_path=report_path_abs,
+                    precision=_f("precision"),
+                    recall=_f("recall"),
+                    f1=_f("f1"),
+                    practical_precision=_f("practical_precision"),
+                    practical_recall=_f("practical_recall"),
+                    practical_f1=_f("practical_f1"),
+                    gold_total=base.gold_total if base else None,
+                    gold_recipe_headers=base.gold_recipe_headers if base else None,
+                    pred_total=base.pred_total if base else None,
+                    gold_matched=base.gold_matched if base else None,
+                    recipes=recipe_count,
+                    supported_precision=base.supported_precision if base else None,
+                    supported_recall=base.supported_recall if base else None,
+                    supported_practical_precision=base.supported_practical_precision if base else None,
+                    supported_practical_recall=base.supported_practical_recall if base else None,
+                    supported_practical_f1=base.supported_practical_f1 if base else None,
+                    granularity_mismatch_likely=base.granularity_mismatch_likely if base else None,
+                    pred_width_p50=base.pred_width_p50 if base else None,
+                    gold_width_p50=base.gold_width_p50 if base else None,
+                    per_label=list(base.per_label) if base else [],
+                    boundary_correct=base.boundary_correct if base else None,
+                    boundary_over=base.boundary_over if base else None,
+                    boundary_under=base.boundary_under if base else None,
+                    boundary_partial=base.boundary_partial if base else None,
+                    task_count=base.task_count if base else None,
+                    source_file=source_file or (str(report.get("source_file") or "").strip() or None),
+                    importer_name=importer_name or (base.importer_name if base else None),
+                    run_config=run_config or (base.run_config if base else None),
+                    run_config_hash=run_config_hash or (base.run_config_hash if base else None),
+                    run_config_summary=run_config_summary or (base.run_config_summary if base else None),
+                    processed_report_path=base.processed_report_path if base else None,
+                )
+            )
+
+        if not synthetic:
+            continue
+
+        records = sorted(synthetic, key=_config_name)
+        records = sorted(
+            records,
+            key=lambda row: (
+                _metric(row.f1),
+                _metric(row.practical_f1),
+                _metric(row.precision),
+                _metric(row.recall),
+            ),
+            reverse=True,
+        )
+
+        groups_by_dir[group_dir] = _AllMethodGroup(
+            group_dir=group_dir,
+            run_root_dir=run_root_dir,
+            run_dir_timestamp=run_dir_timestamp,
+            source_slug=source_slug,
+            records=records,
+        )
+
+    # Final pass: add any all-method groups that were present only via benchmark_records (older runs).
+    for group_dir, (run_root_dir, run_dir_timestamp, source_slug) in group_meta.items():
+        if group_dir in groups_by_dir:
+            continue
+        records = list((best_by_group_config.get(group_dir) or {}).values())
+        if not records:
+            continue
         records = sorted(records, key=_config_name)
         records = sorted(
             records,
@@ -567,20 +818,16 @@ def _collect_all_method_groups(data: DashboardData) -> list[_AllMethodGroup]:
             ),
             reverse=True,
         )
-        groups.append(
-            _AllMethodGroup(
-                group_dir=group.group_dir,
-                run_root_dir=group.run_root_dir,
-                run_dir_timestamp=group.run_dir_timestamp,
-                source_slug=group.source_slug,
-                records=records,
-            )
+        groups_by_dir[group_dir] = _AllMethodGroup(
+            group_dir=group_dir,
+            run_root_dir=run_root_dir,
+            run_dir_timestamp=run_dir_timestamp,
+            source_slug=source_slug,
+            records=records,
         )
 
-    groups.sort(
-        key=lambda group: _run_timestamp_sort_key(group.run_dir_timestamp),
-        reverse=True,
-    )
+    groups = list(groups_by_dir.values())
+    groups.sort(key=lambda group: _run_timestamp_sort_key(group.run_dir_timestamp), reverse=True)
     return groups
 
 

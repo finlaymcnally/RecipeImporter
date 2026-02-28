@@ -233,3 +233,47 @@ def test_is_howto_section_text_rejects_generic_all_caps_single_word_headers() ->
     assert _is_howto_section_text("FOR THE SAUCE")
     assert _is_howto_section_text("To Serve")
     assert not _is_howto_section_text("CHAPTER")
+
+
+def test_build_stage_block_predictions_supports_line_range_provenance() -> None:
+    recipe = RecipeCandidate(
+        name="Meat and Gravy",
+        recipeIngredient=["For the meat:", "1 lb beef"],
+        recipeInstructions=["For the meat:", "Brown the beef."],
+        provenance={"location": {"start_line": 1, "end_line": 7}},
+    )
+    raw = RawArtifact(
+        importer="text",
+        sourceHash="abc123",
+        locationId="full_text",
+        extension="json",
+        content={
+            "lines": [
+                {"index": 0, "text": "Title: Meat and Gravy"},
+                {"index": 1, "text": "Ingredients:"},
+                {"index": 2, "text": "For the meat:"},
+                {"index": 3, "text": "1 lb beef"},
+                {"index": 4, "text": "Instructions:"},
+                {"index": 5, "text": "For the meat:"},
+                {"index": 6, "text": "Brown the beef."},
+            ],
+            "text": "Title: Meat and Gravy\nIngredients:\nFor the meat:\n1 lb beef\nInstructions:\nFor the meat:\nBrown the beef.\n",
+        },
+        metadata={"artifact_type": "extracted_text"},
+    )
+    result = ConversionResult(
+        recipes=[recipe],
+        report=ConversionReport(),
+        rawArtifacts=[raw],
+        workbook="line-range",
+        workbookPath="/tmp/line-range.txt",
+    )
+
+    payload = build_stage_block_predictions(result, "line-range")
+
+    assert payload["block_labels"]["2"] == "HOWTO_SECTION"
+    assert payload["block_labels"]["5"] == "HOWTO_SECTION"
+    assert all(
+        "lacked block-range provenance" not in note
+        for note in payload["notes"]
+    )

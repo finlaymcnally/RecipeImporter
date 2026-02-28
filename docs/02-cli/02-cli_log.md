@@ -8,6 +8,55 @@ read_when:
 
 This file is the anti-loop log for CLI work. Read it before retrying approaches that may already have failed.
 
+### 2026-02-28_03.51.54 per-run codex-farm prompt in interactive run-settings chooser
+
+Preserved finding:
+- Operators wanted an explicit per-run codex-farm decision during interactive setup, not only hidden in run-settings editor/all-method prompts.
+
+Current rule:
+- `choose_run_settings(...)` now asks `Use Codex Farm recipe pipeline for this run?` after selecting profile/edit result for both import and benchmark interactive flows.
+- Default answer mirrors current selected profile (`on` if `llm_recipe_pipeline=codex-farm-3pass-v1`, else `off`).
+- Policy lock remains intact: enabling still requires `COOKIMPORT_ALLOW_CODEX_FARM=1`; otherwise run settings stay `off`.
+
+### 2026-02-28_03.39.40 single-profile-all-matched interactive benchmark mode
+
+Preserved finding:
+- Operators needed a middle path between one-off single offline runs and full all-method permutations: run one selected profile across every matched freeform gold/source pair.
+
+Current rule:
+- Interactive benchmark mode picker now includes `Generate predictions + evaluate for all matched golden sets (single config each, offline)`.
+- This mode reuses the standard benchmark run-settings chooser and runs `labelstudio-benchmark` once per matched target with canonical-text eval and no upload.
+- No all-method variant expansion is applied; run count is one config per matched target.
+- Per-source eval artifacts are written under `<benchmark_timestamp>/single-profile-benchmark/<index_source_slug>/`.
+
+Update (2026-02-28_03.46):
+- Run-settings editor now shows `llm_recipe_pipeline=codex-farm-3pass-v1` only when `COOKIMPORT_ALLOW_CODEX_FARM=1` is set.
+- Without the env unlock, interactive editor keeps recipe pipeline locked to `off`.
+
+### 2026-02-28_03.04.14 dual saved run-settings profiles
+
+Preserved finding:
+- One saved preferred profile was not enough for operator workflow; they need both a personal baseline profile and a separate quality-suite winner profile available in interactive runs.
+
+Current rule:
+- `choose_run_settings(...)` now exposes both `Run with preferred format (...)` and `Run with quality-suite winner (...)`.
+- Quality-suite winner settings are loaded from `<output_dir_parent>/.history/qualitysuite_winner_run_settings.json` when present.
+- `bench quality-leaderboard` now saves winner settings into that file automatically.
+- Winner extraction prefers `run_manifest.json -> run_config.prediction_run_config` when present, so the saved winner matches the scored variant dimensions.
+
+### 2026-02-28_02.13.34 preferred-format run-settings option
+
+Preserved finding:
+- The interactive run-settings chooser needed one stable “go-to” profile for repeated import + benchmark runs without editing toggles each time.
+
+Current rule:
+- `choose_run_settings(...)` now includes `Run with preferred format (...)` for both import and benchmark interactive flows.
+- Preferred settings are loaded from `<output_dir_parent>/.history/preferred_run_settings.json` when present.
+- If no preferred file exists yet, the chooser falls back to built-in preferred defaults:
+  - `epub_extractor=beautifulsoup`
+  - `instruction_step_segmentation_policy=off`
+- Interactive all-method benchmark now uses the same run-settings chooser (it no longer hard-wires global defaults only).
+
 ## Merged Discovery Provenance (Archived CLI understandings)
 
 Some earlier CLI-specific understanding notes were merged into this log in timestamp order so CLI behavior + anti-loop notes live in one place.
@@ -424,3 +473,89 @@ Implication:
 
 - Interactive/import/speed entrypoints now share one strict matcher contract: `dmp` only.
 - Any stale `cookimport.json` matcher value must be updated explicitly by the user to continue.
+
+### 2026-02-28_00.50.18 bench run/sweep removal surface map
+
+Source: `docs/understandings/2026-02-28_00.50.18-bench-run-sweep-removal-surface-map.md`
+Summary: Mapped active surfaces after removing deprecated bench validate/run/sweep/knobs commands.
+
+Details preserved:
+
+Deprecated bench-suite commands are now removed from `cookimport/cli.py` (`validate`, `run`, `sweep`, `knobs`) and old suite modules were deleted.
+
+Active bench command surface is now:
+- `bench speed-discover`
+- `bench speed-run`
+- `bench speed-compare`
+- `bench quality-discover`
+- `bench quality-run`
+- `bench quality-compare`
+- `bench eval-stage`
+
+Docs that needed synchronized updates were:
+- `docs/02-cli/02-cli_README.md`
+- `docs/07-bench/07-bench_README.md`
+- `docs/07-bench/runbook.md`
+- `cookimport/CONVENTIONS.md`
+- `cookimport/bench/README.md`
+- `cookimport/bench/CONVENTIONS.md`
+- analytics/architecture context docs that listed benchmark CSV appenders or bench command surfaces.
+
+### 2026-02-28_01.00.09 all-method 79 run count breakdown
+
+Source: `docs/understandings/2026-02-28_01.00.09-all-method-79-run-count-breakdown.md`
+Summary: Why interactive all-method reports 79 configs for current 7 matched targets.
+
+Details preserved:
+
+Observed interactive output:
+- `Matched golden sets: 7`
+- `All method benchmark will run 79 configurations across 7 matched golden sets`
+
+Current count logic comes from `_build_all_method_variants(...)` in `cookimport/cli.py`:
+- Non-EPUB, non-webschema sources: exactly 1 variant.
+- EPUB sources:
+  - Extractors default to `unstructured` + `beautifulsoup`.
+  - `unstructured` expands to `2 parser versions * 2 skip_headers choices * 3 preprocess modes = 12`.
+  - `beautifulsoup` contributes 1.
+  - Total per EPUB source: 13.
+
+Current matched sources in this repo:
+- 6 EPUB targets (`6 * 13 = 78`)
+- 1 DOCX target (`1 * 1 = 1`)
+- Total: `79`
+
+Important non-expanding knobs:
+- `section_detector_backend` and `multi_recipe_splitter` are recorded in dimensions when non-legacy, but they do not auto-expand the all-method matrix.
+- `instruction_step_segmentation_policy`, `instruction_step_segmenter`, `ingredient_missing_unit_policy`, and `p6_yield_mode` are forwarded in run settings but not auto-expanded in all-method.
+
+Update (2026-02-28):
+- Interactive all-method benchmark now offers a wizard toggle to include deterministic option sweeps (Priority 2–6) and defaults it to enabled.
+- With sweeps enabled, the run count will be higher than 79 for the same 7 targets.
+
+Other relevant constraints:
+- Codex Farm permutations are currently policy-locked off, so enabling that prompt does not increase count.
+- Markdown/markitdown extractor variants are excluded unless both unlock env vars are set.
+
+`Ignoring unknown interactive benchmark global settings keys: ...` is expected in interactive mode because `RunSettings.from_dict(...)` receives the whole `cookimport.json` payload and ignores non-RunSettings keys (scheduler/UI/global keys).
+
+## 2026-02-28 migrated understandings batch (CLI)
+
+### 2026-02-28_02.25.24 interactive run-settings preferred option wiring
+
+Source: `docs/understandings/2026-02-28_02.25.24-interactive-run-settings-preferred-option-wiring.md`
+
+Problem captured:
+- Interactive benchmark all-method path had drifted from import/single-offline benchmark by bypassing the shared run-settings chooser and defaulting to global settings.
+
+Durable decisions:
+- Keep `cookimport/cli_ui/run_settings_flow.py::choose_run_settings(...)` as the single chooser entrypoint for interactive import and both benchmark modes.
+- Keep preferred-profile persistence in `data/.history/preferred_run_settings.json` rather than embedding profile-only keys into `cookimport.json`.
+- Preserve mode-specific last-run snapshots in `cookimport/config/last_run_store.py`.
+
+Outcome preserved:
+- One preferred profile can now be selected across import, benchmark single-offline, and benchmark all-method without re-editing toggles.
+- All interactive benchmark launch paths now share the same chooser/summary semantics and run-settings normalization path.
+
+Anti-loop note:
+- If benchmark menu options diverge again between single-offline and all-method, audit `_interactive_mode(...)` benchmark branch wiring first before changing chooser internals.

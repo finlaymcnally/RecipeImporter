@@ -152,3 +152,61 @@ Source understanding merged:
 
 Current status:
 - Its module-parity findings are retained in this log and reflected in `10-llm_README.md`.
+
+## 2026-02-28 migrated understandings batch (LLM ops and external model tooling)
+
+### 2026-02-28_01.58.55 Oracle browser login/session blocker
+
+Source: `docs/understandings/2026-02-28_01.58.55-oracle-browser-login-session-blocker.md`
+
+Problems captured:
+- Browser-run Oracle failures with chrome disconnect/window-close errors.
+- Immediate filesystem failures from unwritable default `~/.oracle/sessions/...` paths in Codex sandbox contexts.
+
+Durable mitigations preserved:
+- Wrapper defaults now target writable Oracle-home paths under `/home/mcnal/.local/share/oracle`.
+- Wrappers create required dirs up front and auto-fallback to `/tmp/oracle-home-$USER` if requested paths are unwritable.
+- Legacy `~/.oracle` env overrides are ignored by wrappers to avoid regressing into permission failures.
+- Wrapper flow includes one-time login helper (`chromium-chatgpt-login`) before browser-headless runs.
+
+Anti-loop note:
+- If Oracle browser runs regress, verify auth/session-path health before changing prompt bundles or model ids.
+
+### 2026-02-28_03.17.29 Codex Farm opt-in command pattern
+
+Source: `docs/understandings/2026-02-28_03.17.29-codex-farm-opt-in-command-pattern.md`
+
+Problem captured:
+- Need command-level Codex Farm access without changing deterministic default runtime policy.
+
+Durable pattern preserved:
+- Keep `llm_recipe_pipeline` default `off` globally.
+- Enable Codex Farm only via explicit command wrapper that sets required env gate and pipeline option.
+- Prefer absolute `codex_farm_cmd` in run settings/overrides to avoid PATH-dependent failures.
+
+### 2026-02-28_03.19.05 Oracle gpt-5.2-thinking browser blocker
+
+Source: `docs/understandings/2026-02-28_03.19.05-oracle-gpt52-thinking-browser-blocker.md`
+
+Context preserved:
+- Attempted Oracle review against `docs/reports/2026-02-28_01.51.16-thefoodlab-all-method-hotspot-report.md` with mapped code attachments.
+
+Findings preserved:
+- Dry-run bundle packaging succeeded.
+- Browser runs either stalled indefinitely in running state or failed with chrome-window-close errors.
+- No API fallback path was available because `OPENAI_API_KEY` was unset.
+- Re-login helper could time out without establishing usable session auth in this sandbox.
+
+Durable implication:
+- In this environment, the blocker is browser/auth/session execution, not prompt assembly or file selection.
+
+### 2026-02-28_03.19.48 interactive Codex Farm gate and launcher
+
+Source: `docs/understandings/2026-02-28_03.19.48-interactive-codex-farm-gate-and-launcher.md`
+
+Findings preserved:
+- Interactive `cookimport` already routes through run-settings `llm_recipe_pipeline` selection; no special separate interactive-only Codex Farm code path is required.
+- Policy gate still applies: non-`off` recipe pipeline use requires `COOKIMPORT_ALLOW_CODEX_FARM=1`.
+
+Durable pattern:
+- Use a dedicated launcher (`scripts/interactive-with-codex-farm.sh`) for opt-in sessions so default interactive behavior stays unchanged/off.

@@ -125,6 +125,8 @@ def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
             *,
             root_dir: Path | None = None,
             workspace_root: Path | None = None,
+            model: str | None = None,
+            reasoning_effort: str | None = None,
         ) -> None:
             self.calls.append(
                 {
@@ -132,6 +134,8 @@ def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
                     "root_dir": root_dir,
                     "workspace_root": workspace_root,
                     "env_root": env.get("CODEX_FARM_ROOT"),
+                    "model": model,
+                    "reasoning_effort": reasoning_effort,
                 }
             )
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -201,6 +205,8 @@ def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
             "codex_farm_pipeline_pass1": "custom.pass1",
             "codex_farm_pipeline_pass2": "custom.pass2",
             "codex_farm_pipeline_pass3": "custom.pass3",
+            "codex_farm_model": "gpt-test-model",
+            "codex_farm_reasoning_effort": "high",
         }
     )
     result = _build_conversion_result(source)
@@ -223,6 +229,8 @@ def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
         assert call["root_dir"] == pack_root
         assert call["workspace_root"] == workspace_root
         assert call["env_root"] == str(pack_root)
+        assert call["model"] == "gpt-test-model"
+        assert call["reasoning_effort"] == "high"
 
     manifest_path = apply_result.llm_raw_dir / "llm_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -344,6 +352,8 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
         {"EXTRA_ENV": "1"},
         root_dir=root_dir,
         workspace_root=workspace_root,
+        model="gpt-test-model",
+        reasoning_effort="low",
     )
 
     command = captured.get("command")
@@ -352,3 +362,7 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
     assert str(root_dir) in command
     assert "--workspace-root" in command
     assert str(workspace_root) in command
+    assert "--model" in command
+    assert "gpt-test-model" in command
+    assert "--reasoning-effort" in command
+    assert "low" in command

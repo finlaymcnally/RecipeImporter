@@ -237,7 +237,11 @@ def _contains_label(block_labels: dict[int, set[str]], target_label: str) -> boo
     return False
 
 
-def _resolve_recipe_range(recipe: RecipeCandidate) -> tuple[int | None, int | None]:
+def _resolve_recipe_range(
+    recipe: RecipeCandidate,
+    *,
+    archive: list[_ArchiveBlockView],
+) -> tuple[int | None, int | None]:
     provenance = recipe.provenance if isinstance(recipe.provenance, dict) else {}
     location = provenance.get("location") if isinstance(provenance, dict) else None
     if not isinstance(location, dict):
@@ -249,7 +253,41 @@ def _resolve_recipe_range(recipe: RecipeCandidate) -> tuple[int | None, int | No
         single = _coerce_int(location.get("block_index"))
         if single is not None:
             return single, single
-        return None, None
+        line_start = _coerce_int(location.get("start_line"))
+        line_end = _coerce_int(location.get("end_line"))
+        if line_start is None:
+            line_start = _coerce_int(location.get("startLine"))
+        if line_end is None:
+            line_end = _coerce_int(location.get("endLine"))
+        if line_start is None and line_end is None:
+            line_single = _coerce_int(location.get("line_index"))
+            if line_single is None:
+                line_single = _coerce_int(location.get("lineIndex"))
+            if line_single is None:
+                line_single = _coerce_int(location.get("line"))
+            if line_single is not None:
+                line_start = line_single
+                line_end = line_single
+
+        if line_start is None and line_end is None:
+            return None, None
+        if line_start is None:
+            line_start = line_end
+        if line_end is None:
+            line_end = line_start
+        if line_start is None or line_end is None:
+            return None, None
+        if line_start > line_end:
+            line_start, line_end = line_end, line_start
+
+        line_index_matches = _match_archive_indices_for_line_range(
+            archive,
+            start_line=line_start,
+            end_line=line_end,
+        )
+        if not line_index_matches:
+            return None, None
+        return min(line_index_matches), max(line_index_matches)
     if start is None:
         start = end
     if end is None:
@@ -275,7 +313,7 @@ def _label_recipe_blocks(
     block_labels: dict[int, set[str]],
     notes: list[str],
 ) -> None:
-    start, end = _resolve_recipe_range(recipe)
+    start, end = _resolve_recipe_range(recipe, archive=archive)
     if start is None or end is None:
         notes.append(
             f"Recipe '{recipe.name}' lacked block-range provenance; skipped recipe-local labeling."
@@ -322,17 +360,12 @@ def _label_recipe_blocks(
         if _block_role(block) == "instruction_line"
     }
 
+    howto_header_rows = _ingredient_section_header_texts(recipe)
+    howto_header_rows.extend(_instruction_section_header_texts(recipe))
     howto_indices = _match_texts_to_block_indices(
-        _ingredient_section_header_texts(recipe),
+        howto_header_rows,
         candidate_blocks,
-        preferred_roles={"ingredient_line", "section_heading"},
-    )
-    howto_indices.update(
-        _match_texts_to_block_indices(
-            _instruction_section_header_texts(recipe),
-            candidate_blocks,
-            preferred_roles={"instruction_line", "section_heading"},
-        )
+        preferred_roles={"ingredient_line", "instruction_line", "section_heading"},
     )
     howto_indices = _filter_howto_section_indices(
         indices=howto_indices,
@@ -411,6 +444,43 @@ def _normalize_for_match(text: str) -> str:
     return normalized.strip()
 
 
+def _match_archive_indices_for_line_range(
+    archive: list[_ArchiveBlockView],
+    *,
+    start_line: int,
+    end_line: int,
+) -> set[int]:
+    offsets = (0, -1, 1)
+    for offset in offsets:
+        low = start_line + offset
+        high = end_line + offset
+        if low > high:
+            continue
+        matches = {
+            block.index
+            for block in archive
+            if (line_index := _coerce_int(block.location.get("line_index"))) is not None
+            and low <= line_index <= high
+        }
+        if matches:
+            return matches
+
+    for offset in offsets:
+        low = start_line + offset
+        high = end_line + offset
+        if low > high:
+            continue
+        matches = {
+            block.index
+            for block in archive
+            if low <= block.index <= high
+        }
+        if matches:
+            return matches
+
+    return set()
+
+
 def _ingredient_texts(recipe: RecipeCandidate) -> list[str]:
     return [str(value or "") for value in recipe.ingredients if str(value or "").strip()]
 
@@ -440,14 +510,12 @@ def _note_texts(recipe: RecipeCandidate) -> list[str]:
 
 def _ingredient_section_header_texts(recipe: RecipeCandidate) -> list[str]:
     sectioned = extract_ingredient_sections(recipe.ingredients)
-    rows = [hit.raw_line for hit in sectioned.header_hits]
-    return _dedupe_text_rows(rows)
+    return [str(hit.raw_line).strip() for hit in sectioned.header_hits if str(hit.raw_line).strip()]
 
 
 def _instruction_section_header_texts(recipe: RecipeCandidate) -> list[str]:
     sectioned = extract_instruction_sections(_instruction_texts(recipe))
-    rows = [hit.raw_line for hit in sectioned.header_hits]
-    return _dedupe_text_rows(rows)
+    return [str(hit.raw_line).strip() for hit in sectioned.header_hits if str(hit.raw_line).strip()]
 
 
 def _dedupe_text_rows(rows: list[str]) -> list[str]:

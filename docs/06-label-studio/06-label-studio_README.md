@@ -311,6 +311,10 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 - Source: `docs/understandings/2026-02-28_00.16.13-howto-section-label-scoring-paths.md`
 - Summary: `HOWTO_SECTION` is UI-visible/exported, then resolved at scoring time to ingredient vs instruction via nearby structural context.
 
+### 2026-02-28_00.50.48 labelstudio export root source identity
+- Source: `docs/understandings/2026-02-28_00.50.48-labelstudio-export-root-source-identity.md`
+- Summary: Export destination selection is source-aware so repeated pulls reuse one folder even when project titles are deduped/suffixed.
+
 Current-contract additions from the HOWTO section audit:
 - Label additions are multi-surface changes, not UI-only changes:
   - UI/export labels: `cookimport/labelstudio/label_config_freeform.py`

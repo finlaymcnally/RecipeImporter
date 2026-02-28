@@ -241,7 +241,7 @@ def test_run_with_progress_status_uses_eval_tail_floor_for_all_method_eta(
         def __init__(self) -> None:
             self.messages: list[str] = []
 
-        def __call__(self, message: str, spinner: str = "dots") -> _FakeStatus:
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
             self.messages.append(message)
             return _FakeStatus(self.messages)
 
@@ -272,6 +272,7 @@ def test_run_with_progress_status_uses_eval_tail_floor_for_all_method_eta(
         run=_run,
         elapsed_threshold_seconds=60,
         tick_seconds=0.05,
+        force_live_status=True,
     )
 
     assert result == {"ok": True}
@@ -308,7 +309,7 @@ def test_run_with_progress_status_shows_elapsed_for_long_steps(
         def __init__(self) -> None:
             self.messages: list[str] = []
 
-        def __call__(self, message: str, spinner: str = "dots") -> _FakeStatus:
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
             self.messages.append(message)
             return _FakeStatus(self.messages)
 
@@ -327,6 +328,7 @@ def test_run_with_progress_status_shows_elapsed_for_long_steps(
         run=_run,
         elapsed_threshold_seconds=1,
         tick_seconds=0.1,
+        force_live_status=True,
     )
 
     assert result == {"ok": True}
@@ -357,7 +359,7 @@ def test_run_with_progress_status_shows_eta_for_xy_progress(
         def __init__(self) -> None:
             self.messages: list[str] = []
 
-        def __call__(self, message: str, spinner: str = "dots") -> _FakeStatus:
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
             self.messages.append(message)
             return _FakeStatus(self.messages)
 
@@ -376,6 +378,7 @@ def test_run_with_progress_status_shows_eta_for_xy_progress(
         run=_run,
         elapsed_threshold_seconds=60,
         tick_seconds=0.05,
+        force_live_status=True,
     )
 
     assert result == {"ok": True}
@@ -408,7 +411,7 @@ def test_run_with_progress_status_writes_processing_timeseries(
         def __init__(self) -> None:
             self.messages: list[str] = []
 
-        def __call__(self, message: str, spinner: str = "dots") -> _FakeStatus:
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
             self.messages.append(message)
             return _FakeStatus(self.messages)
 
@@ -430,6 +433,7 @@ def test_run_with_progress_status_writes_processing_timeseries(
         tick_seconds=0.05,
         telemetry_path=telemetry_path,
         telemetry_heartbeat_seconds=0.05,
+        force_live_status=True,
     )
 
     assert result == {"ok": True}
@@ -466,7 +470,7 @@ def test_run_with_progress_status_renders_worker_activity_summary(
         def __init__(self) -> None:
             self.messages: list[str] = []
 
-        def __call__(self, message: str, spinner: str = "dots") -> _FakeStatus:
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
             self.messages.append(message)
             return _FakeStatus(self.messages)
 
@@ -487,6 +491,7 @@ def test_run_with_progress_status_renders_worker_activity_summary(
         run=_run,
         elapsed_threshold_seconds=60,
         tick_seconds=0.05,
+        force_live_status=True,
     )
 
     assert result == {"ok": True}
@@ -609,7 +614,7 @@ def test_run_with_progress_status_escapes_dashboard_markers(
         def __init__(self) -> None:
             self.messages: list[str] = []
 
-        def __call__(self, message: str, spinner: str = "dots") -> _FakeStatus:
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
             self.messages.append(message)
             return _FakeStatus(self.messages)
 
@@ -624,6 +629,7 @@ def test_run_with_progress_status_escapes_dashboard_markers(
         initial_status="Running import...",
         progress_prefix="Import",
         run=_run,
+        force_live_status=True,
     )
 
     assert result == {"ok": True}
@@ -4110,7 +4116,7 @@ def test_build_all_method_variants_schema_json_webschema_policy_matrix(
     }
 
 
-def test_resolve_all_method_codex_choice_remains_disabled(
+def test_resolve_all_method_codex_choice_requires_env_unlock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     include_effective, warning = cli._resolve_all_method_codex_choice(True)
@@ -4122,9 +4128,23 @@ def test_resolve_all_method_codex_choice_remains_disabled(
     include_effective_unlocked, warning_unlocked = cli._resolve_all_method_codex_choice(
         True
     )
-    assert include_effective_unlocked is False
-    assert warning_unlocked is not None
-    assert "policy-locked OFF" in warning_unlocked
+    assert include_effective_unlocked is True
+    assert warning_unlocked is None
+
+
+def test_build_all_method_variants_epub_includes_codex_farm_when_unlocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(cli.ALL_METHOD_CODEX_FARM_UNLOCK_ENV, "1")
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variants = cli._build_all_method_variants(
+        base_settings=base_settings,
+        source_file=Path("book.epub"),
+        include_codex_farm=True,
+    )
+    assert len(variants) == 26
+    assert len({variant.run_settings.stable_hash() for variant in variants}) == 26
+    assert any("__llm_recipe_codex_farm_3pass_v1" in variant.slug for variant in variants)
 
 
 def test_resolve_all_method_markdown_extractors_requires_policy_unlock(
@@ -6268,7 +6288,7 @@ def test_run_all_method_benchmark_writes_scheduler_timeseries(
     assert "elapsed_seconds" in first
 
 
-def test_run_all_method_benchmark_falls_back_to_serial_when_executor_unavailable(
+def test_run_all_method_benchmark_uses_single_config_execution_when_executor_unavailable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
@@ -6348,7 +6368,7 @@ def test_run_all_method_benchmark_falls_back_to_serial_when_executor_unavailable
     payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
     assert call_count == len(variants)
     assert payload["successful_variants"] == len(variants)
-    assert any("falling back to serial mode" in message.lower() for message in messages)
+    assert any("single-config execution" in message.lower() for message in messages)
 
 
 def test_run_all_method_benchmark_multi_source_writes_combined_summary_with_failures(
@@ -7157,7 +7177,7 @@ def test_interactive_all_method_benchmark_uses_timestamped_output_root(
         lambda _include_requested: (False, None),
     )
 
-    confirm_answers = iter([False, True])
+    confirm_answers = iter([False, False, True])
     monkeypatch.setattr(
         cli,
         "_prompt_confirm",
@@ -7253,7 +7273,7 @@ def test_interactive_all_method_benchmark_all_matched_scope_routes_to_multi_sour
         "_resolve_all_method_codex_choice",
         lambda _include_requested: (False, None),
     )
-    confirm_answers = iter([False, True])
+    confirm_answers = iter([False, False, True])
     monkeypatch.setattr(
         cli,
         "_prompt_confirm",
@@ -7302,12 +7322,17 @@ def test_interactive_benchmark_all_method_mode_routes_to_runner(
     monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
     monkeypatch.setattr(cli, "_load_settings", lambda: {})
+    chosen_settings = cli.RunSettings.from_dict(
+        {
+            "epub_extractor": "beautifulsoup",
+            "instruction_step_segmentation_policy": "off",
+        },
+        warn_context="test all-method chooser",
+    )
     monkeypatch.setattr(
         cli,
         "choose_run_settings",
-        lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("All-method mode should not prompt for run settings.")
-        ),
+        lambda **_kwargs: chosen_settings,
     )
     monkeypatch.setattr(
         cli,
@@ -7339,12 +7364,152 @@ def test_interactive_benchmark_all_method_mode_routes_to_runner(
         cli._interactive_mode()
 
     assert isinstance(captured.get("selected_benchmark_settings"), cli.RunSettings)
-    expected_defaults = cli.RunSettings.from_dict(
-        {},
-        warn_context="interactive benchmark global settings",
+    assert (
+        captured["selected_benchmark_settings"].to_run_config_dict()
+        == chosen_settings.to_run_config_dict()
     )
-    assert captured["selected_benchmark_settings"].to_run_config_dict() == expected_defaults.to_run_config_dict()
     assert captured["processed_output_root"] == cli.DEFAULT_INTERACTIVE_OUTPUT
+
+
+def test_interactive_benchmark_single_profile_all_matched_mode_routes_to_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    menu_answers = iter(["labelstudio_benchmark", "single_offline_all_matched", "exit"])
+    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
+    monkeypatch.setattr(cli, "_load_settings", lambda: {})
+    chosen_settings = cli.RunSettings.from_dict(
+        {
+            "epub_extractor": "beautifulsoup",
+            "instruction_step_segmentation_policy": "off",
+        },
+        warn_context="test single-profile chooser",
+    )
+    monkeypatch.setattr(
+        cli,
+        "choose_run_settings",
+        lambda **_kwargs: chosen_settings,
+    )
+    monkeypatch.setattr(
+        cli,
+        "_resolve_interactive_labelstudio_settings",
+        lambda _settings: (_ for _ in ()).throw(
+            AssertionError(
+                "Single-profile all-matched mode should not resolve Label Studio credentials."
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_interactive_all_method_benchmark",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError(
+                "Single-profile all-matched mode should not route to all-method runner."
+            )
+        ),
+    )
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        cli,
+        "_interactive_single_profile_all_matched_benchmark",
+        lambda **kwargs: captured.update(kwargs) or True,
+    )
+
+    saved_calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(
+        cli,
+        "save_last_run_settings",
+        lambda *args, **_kwargs: saved_calls.append(args),
+    )
+
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
+
+    assert isinstance(captured.get("selected_benchmark_settings"), cli.RunSettings)
+    assert (
+        captured["selected_benchmark_settings"].to_run_config_dict()
+        == chosen_settings.to_run_config_dict()
+    )
+    assert captured["processed_output_root"] == cli.DEFAULT_INTERACTIVE_OUTPUT
+    assert len(saved_calls) == 1
+    assert saved_calls[0][0] == "benchmark"
+
+
+def test_interactive_single_profile_all_matched_benchmark_runs_each_target_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_a = tmp_path / "Book A.epub"
+    source_a.write_text("a", encoding="utf-8")
+    source_b = tmp_path / "Book B.docx"
+    source_b.write_text("b", encoding="utf-8")
+    gold_a = tmp_path / "gold-a" / "exports" / "freeform_span_labels.jsonl"
+    gold_a.parent.mkdir(parents=True, exist_ok=True)
+    gold_a.write_text("{}\n", encoding="utf-8")
+    gold_b = tmp_path / "gold-b" / "exports" / "freeform_span_labels.jsonl"
+    gold_b.parent.mkdir(parents=True, exist_ok=True)
+    gold_b.write_text("{}\n", encoding="utf-8")
+
+    targets = [
+        cli.AllMethodTarget(
+            gold_spans_path=gold_a,
+            source_file=source_a,
+            source_file_name=source_a.name,
+            gold_display="gold-a",
+        ),
+        cli.AllMethodTarget(
+            gold_spans_path=gold_b,
+            source_file=source_b,
+            source_file_name=source_b.name,
+            gold_display="gold-b",
+        ),
+    ]
+    monkeypatch.setattr(
+        cli,
+        "_resolve_all_method_targets",
+        lambda _output_dir: (targets, []),
+    )
+    monkeypatch.setattr(cli, "_prompt_confirm", lambda *_args, **_kwargs: True)
+
+    benchmark_eval_output = tmp_path / "golden" / "2026-02-28_03.30.00"
+    processed_output_root = tmp_path / "processed"
+    selected_settings = cli.RunSettings.from_dict({}, warn_context="test")
+
+    benchmark_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        cli,
+        "labelstudio_benchmark",
+        lambda **kwargs: benchmark_calls.append(kwargs),
+    )
+
+    completed = cli._interactive_single_profile_all_matched_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+    )
+
+    assert completed is True
+    assert len(benchmark_calls) == 2
+    assert benchmark_calls[0]["gold_spans"] == gold_a
+    assert benchmark_calls[0]["source_file"] == source_a
+    assert benchmark_calls[0]["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+    assert benchmark_calls[0]["execution_mode"] == cli.BENCHMARK_EXECUTION_MODE_LEGACY
+    assert benchmark_calls[0]["no_upload"] is True
+    assert benchmark_calls[0]["eval_output_dir"] == (
+        benchmark_eval_output / "single-profile-benchmark" / "01_book_a"
+    )
+    assert benchmark_calls[0]["processed_output_dir"] == (
+        processed_output_root
+        / benchmark_eval_output.name
+        / "single-profile-benchmark"
+        / "01_book_a"
+    )
+    assert benchmark_calls[1]["gold_spans"] == gold_b
+    assert benchmark_calls[1]["source_file"] == source_b
+    assert benchmark_calls[1]["eval_output_dir"] == (
+        benchmark_eval_output / "single-profile-benchmark" / "02_book_b"
+    )
 
 
 def test_interactive_benchmark_all_method_mode_uses_scheduler_limits_from_settings(
@@ -7370,8 +7535,12 @@ def test_interactive_benchmark_all_method_mode_uses_scheduler_limits_from_settin
     monkeypatch.setattr(
         cli,
         "choose_run_settings",
-        lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("All-method mode should not prompt for run settings.")
+        lambda **_kwargs: cli.RunSettings.from_dict(
+            {
+                "epub_extractor": "beautifulsoup",
+                "instruction_step_segmentation_policy": "off",
+            },
+            warn_context="test all-method chooser",
         ),
     )
     monkeypatch.setattr(

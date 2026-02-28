@@ -25,6 +25,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_PASS4_PIPELINE_ID = "recipe.knowledge.v1"
 
 
+def _effort_override_value(value: object | None) -> str | None:
+    if value is None:
+        return None
+    resolved = getattr(value, "value", value)
+    cleaned = str(resolved).strip()
+    return cleaned or None
+
+
 @dataclass(frozen=True, slots=True)
 class CodexFarmKnowledgeHarvestResult:
     llm_report: dict[str, Any]
@@ -80,6 +88,10 @@ def run_codex_farm_knowledge_harvest(
     codex_runner: CodexFarmRunner = runner or SubprocessCodexFarmRunner(
         cmd=run_settings.codex_farm_cmd
     )
+    codex_model = run_settings.codex_farm_model
+    codex_reasoning_effort = _effort_override_value(
+        run_settings.codex_farm_reasoning_effort
+    )
     pipeline_id = _non_empty(
         run_settings.codex_farm_pipeline_pass4_knowledge,
         fallback=DEFAULT_PASS4_PIPELINE_ID,
@@ -103,6 +115,8 @@ def run_codex_farm_knowledge_harvest(
         env,
         root_dir=pipeline_root,
         workspace_root=workspace_root,
+        model=codex_model,
+        reasoning_effort=codex_reasoning_effort,
     )
 
     outputs = read_pass4_knowledge_outputs(pass4_out_dir)

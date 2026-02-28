@@ -885,3 +885,341 @@ Anti-loop summary:
 - Do not treat stale OG checkbox counts as release truth.
 - Keep adapter-parity test coverage active; this lane previously drifted and can regress if kwargs are re-manualized.
 - Do not close global-scheduler acceptance until manual smoke and deeper global-loop tests are both accounted for.
+
+## 17. 2026-02-28 migrated understandings batch (bench)
+
+Chronological migration from `docs/understandings`; source files were removed after this merge.
+
+### 2026-02-28_00.25.56 benchmark option coverage map
+
+Source: `docs/understandings/2026-02-28_00.25.56-benchmark-option-coverage-map.md`
+Summary: Mapped Priority 2/3/5/6/7/8 option coverage across labelstudio-benchmark all-method and speed-suite flows.
+
+Details preserved:
+
+- `labelstudio-benchmark` exposes run-setting options for Priority 2/3/5/6/7 (`section_detector_backend`, `multi_recipe_splitter`, `instruction_step_segmentation_*`, `p6_*`, `web_schema_*`) and forwards them through benchmark prediction generation.
+- Interactive all-method benchmark uses `_build_all_method_target_variants(...)` + `_run_all_method_benchmark_multi_source(...)`; variant `run_settings` are passed through `build_benchmark_call_kwargs_from_run_settings(...)`, so these same priorities are active there.
+- All-method variant expansion is explicit for:
+  - `section_detector_backend != legacy` (dimension/tag only; no auto-matrix)
+  - `multi_recipe_splitter != legacy` (dimension/tag only; no auto-matrix)
+  - webschema inputs (`web_schema_policy` matrix: `prefer_schema|schema_only|heuristic_only`).
+- `bench speed-run` loads full `RunSettings` (from `--run-settings-file` or `cookimport.json`) and passes them into stage, canonical benchmark, and all-method speed scenarios, so Priority 2/3/5/6/7 selectors flow into SpeedSuite.
+- Priority 8 knobs (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are implemented on `bench eval-stage`; they are not exposed in all-method or speed-suite scenario surfaces.
+- Historical note: this understanding mentioned `bench run`/`bench sweep` forwarding gaps; those command surfaces are now retired (see `docs/07-bench/07-bench_README.md` Retired Surfaces).
+
+### 2026-02-28_00.43.39 global scheduler deep-tests and smoke closeout
+
+Source: `docs/understandings/2026-02-28_00.43.39-global-scheduler-deep-tests-and-smoke-closeout.md`
+Summary: Closed global-scheduler remaining checklist with direct loop tests and manual all-matched smoke evidence.
+
+Details preserved:
+
+Discovery:
+
+- Direct tests existed for scheduler-scope dispatch wiring, but not for global-loop internals in `_run_all_method_benchmark_global_queue(...)` and `_plan_all_method_global_work_items(...)`.
+
+What was added:
+
+1. Direct planning/interleaving guard:
+- `test_plan_all_method_global_work_items_tail_pair_interleaves_sharded_sources`
+- Asserts tail-pair + sharding yields interleaved global dispatch order and correct per-source config index progression.
+
+2. Direct global-loop interleaving guard:
+- `test_run_all_method_benchmark_global_queue_interleaves_sharded_heavy_source`
+- Exercises global queue end-to-end (with mocked prediction/eval workers) and asserts light-source work is scheduled before heavy-source tail completion when heavy source is sharded.
+
+3. Direct smart eval-tail admission guard:
+- `test_run_all_method_benchmark_global_queue_smart_eval_tail_admission`
+- Uses scheduler event files to drive phase transitions and asserts smart scheduler opens eval-tail admission (`max_active_pipelines_observed >= 2` with configured inflight `1`).
+
+4. Non-EPUB eval replay regression guard:
+- `test_run_all_method_benchmark_global_queue_non_epub_eval_uses_default_extractor`
+- Protects fix where missing `dimensions.epub_extractor` must pass `None` (not string `"None"`) into eval replay.
+
+Bug found during manual smoke:
+
+- `Invalid EPUB extractor: 'None'. Expected one of: unstructured, beautifulsoup.`
+
+Root cause:
+- `str(None)` conversion in all-method eval-replay call sites produced literal `"None"`.
+
+Fix:
+- Added `_row_dimension_str(...)` in `cookimport/cli.py` and used it in both global and legacy all-method eval-replay paths.
+
+Validation evidence:
+
+Targeted tests:
+- `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1 pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "plan_all_method_global_work_items_tail_pair_interleaves_sharded_sources or run_all_method_benchmark_global_queue_interleaves_sharded_heavy_source or run_all_method_benchmark_global_queue_smart_eval_tail_admission or run_all_method_benchmark_global_queue_non_epub_eval_uses_default_extractor"`
+  - Result: `4 passed, 123 deselected, 2 warnings in 2.71s`
+- `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1 pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "global_queue or scheduler_scope"`
+  - Result: `5 passed, 122 deselected, 2 warnings in 2.54s`
+
+Manual all-matched smoke (real data, global scheduler):
+- Targets selected by smallest matched source size from pulled gold exports:
+  - `Hix written.docx`
+  - `RoastChickenAndOtherStoriesCUTDOWN.epub`
+- Run artifact:
+  - `data/golden/benchmark-vs-golden/2026-02-28_00.42.13_manual-all-matched-global-smoke/all-method-benchmark/all_method_benchmark_multi_source_report.md`
+- Counters:
+  - `scheduler_scope=global_config_queue`
+  - `matched_target_count=2`
+  - `total_config_runs_planned=14`
+  - `total_config_runs_completed=14`
+  - `total_config_runs_successful=14`
+  - `global_queue_failed_configs=0`
+  - `evaluation_signatures_unique=14`
+  - `evaluation_runs_executed=7`
+  - `evaluation_results_reused_cross_run=7`
+
+### 2026-02-28_00.46.58 quality suite curated target selection
+
+Source: `docs/understandings/2026-02-28_00.46.58-quality-suite-curated-target-selection.md`
+Summary: Mapped how quality-suite target IDs are derived and where to enforce curated defaults.
+
+Details preserved:
+
+- `bench quality-discover` delegates to `cookimport/bench/quality_suite.py::discover_quality_suite(...)` for all target selection logic.
+- Target IDs come from gold export folder names via `match_gold_exports_to_inputs(...)` -> `_target_id_for_gold(...)` (`slugify_name(target_dir_name)`).
+- For this repo’s pulled gold exports, curated IDs map directly to folder slugs:
+  - `saltfatacidheatcutdown`
+  - `thefoodlabcutdown`
+  - `seaandsmokecutdown`
+- Current workspace note: importer-scored discovery (`_list_importable_files`) can return an empty set; quality discovery retries matching against plain non-hidden files under `data/input` so gold-source filename hints still resolve.
+- The safest insertion point for curated defaults is quality-suite selection (not runner), so suite manifests carry explicit `selected_target_ids` and downstream `quality-run` behavior remains unchanged.
+
+### 2026-02-28_00.53.55 speed2-4 plan current value assessment
+
+Source: `docs/understandings/2026-02-28_00.53.55-speed2-4-plan-current-value-assessment.md`
+Summary: Assessment of `docs/plans/speed2-4.md` against the current DMP-only canonical alignment contract.
+
+Details preserved:
+
+- `docs/plans/speed2-4.md` assumes stdlib `difflib.SequenceMatcher` is the active canonical matcher and proposes replacing it with a MultiLayer-equivalent implementation plus a difflib/multilayer runtime switch.
+- Current runtime and contracts now enforce DMP-only matcher selection:
+  - `cookimport/bench/sequence_matcher_select.py` supports only `dmp` and rejects all other modes as archived.
+  - `cookimport/bench/CONVENTIONS.md` states canonical alignment is locked to `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=dmp`.
+  - parity tests explicitly reject legacy modes (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `multilayer`).
+- Practical implication:
+  - `speed2-4` is no longer actionable as written; most of its implementation steps conflict with the enforced selector contract.
+  - Residual value is mainly historical/design reference (parity-first validation ideas) if the project ever intentionally re-opens non-DMP matcher experiments behind a fresh plan.
+
+### 2026-02-28_00.54.33 speed2-3 current value assessment
+
+Source: `docs/understandings/2026-02-28_00.54.33-speed2-3-current-value-assessment.md`
+Summary: Assesses whether speed2-3 still has practical value after dmp lock-in and cache/scheduler changes.
+
+Details preserved:
+
+- `docs/plans/speed2-3.md` delivered its highest-value outcome (native `dmp` matcher integration), but most remaining plan items are now low-value for the current codebase.
+- Evidence from repo state + artifacts:
+  - Matcher selection is hard-locked to `dmp` now (`cookimport/bench/sequence_matcher_select.py` supports only `dmp`; non-`dmp` modes error).
+  - Canonical eval telemetry/CLI wiring already reports and forwards `dmp` matcher metadata (`cookimport/bench/eval_canonical_text.py`, `cookimport/cli.py`).
+  - Pre-change heavy run example (`2026-02-27_17.54.41`):
+    - `alignment_sequence_matcher_impl: cydifflib`
+    - `alignment_sequence_matcher_seconds: 1656.1506924400164`
+  - Post-change heavy run example (`2026-02-27_20.47.26`):
+    - `alignment_sequence_matcher_impl: dmp`
+    - `alignment_sequence_matcher_seconds: 0.0700075310014654`
+  - Current repeated runs (`2026-02-27_20.50.38`) are dominated by alignment cache reuse (`alignment_cache_hit: true`, matcher seconds often `0.0`), shifting bottleneck attention to cache/scheduling/reuse policy instead of matcher backend experiments.
+- Practical implication:
+  - Keeping speed2-3 as historical context is useful.
+  - Continuing with deferred milestones (separate backend abstraction + Edlib) is probably not a high-ROI next step unless a new parity/compatibility requirement appears.
+
+### 2026-02-28_01.06.42 quality-run cache scope and speed
+
+Source: `docs/understandings/2026-02-28_01.06.42-quality-run-cache-scope-and-speed.md`
+Summary: Why quality-run reruns were missing cross-run all-method cache reuse and how to fix cache scope.
+
+Details preserved:
+
+Discovery:
+- `bench quality-run` calls all-method with `root_output_dir=<quality_run>/<timestamp>/experiments/<experiment_id>`.
+- Default all-method cache-root resolution treated that as a generic root and used `<quality_run>/<timestamp>/experiments/.cache/canonical_alignment`.
+- Result: cache reuse worked inside one timestamped quality run, but reruns with a new timestamp could not reuse canonical alignment/eval-signature cache entries.
+- Interactive all-method runs already use a stable shared cache root (`data/golden/benchmark-vs-golden/.cache/canonical_alignment`) because their root layout includes `all-method-benchmark`.
+
+Practical fix:
+- For quality-run, pass an explicit persistent cache root when invoking all-method:
+  - default: `<quality_out_dir_parent>/.cache/canonical_alignment` (for default out dir, `data/golden/bench/quality/.cache/canonical_alignment`)
+  - honor `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT` override when set.
+- This also stabilizes eval-signature result cache scope (`.../.cache/eval_signature_results`) across timestamped quality reruns.
+
+### 2026-02-28_01.20.10 qualitysuite levers schema v2
+
+Source: `docs/understandings/2026-02-28_01.20.10-qualitysuite-levers-schema-v2.md`
+Summary: QualitySuite experiments schema v2: levers expansion + runtime knobs.
+
+Details preserved:
+
+- `cookimport bench quality-run` consumes an experiments JSON file via `cookimport/bench/quality_runner.py`.
+- Schema v1:
+  - Explicit list of experiments only.
+  - Each experiment has `id` + `run_settings_patch` (RunSettings fields only).
+- Schema v2 (additive):
+  - Supports `levers[]`: each lever is a toggleable patch with `enabled: true/false`.
+  - By default, the runner expands v2 into a concrete experiments list:
+    - `baseline` (if `include_baseline=true`)
+    - one experiment per enabled lever (experiment id = lever id)
+    - optional `all_on` (if `include_all_on=true`), which merges enabled lever patches and fails fast if two levers set the same key to different values
+  - Supports optional `all_method_runtime_patch` per lever/experiment for all-method runtime knobs (parallelism, timeouts, sharding, smart scheduler).
+- All-method runtime defaults in quality-run:
+  - Quality-run derives runtime defaults from `cookimport.json` keys like `all_method_max_parallel_sources`, and records the resolved values in `experiments_resolved.json`.
+  - Schema v2 can override those defaults via top-level `all_method_runtime`, and/or per lever/experiment `all_method_runtime_patch`.
+
+### 2026-02-28_01.34.14 quality suite validation stale target rows
+
+Source: `docs/understandings/2026-02-28_01.34.14-quality-suite-validation-stale-target-rows.md`
+Summary: Why quality-run can fail on stale non-selected target rows from quality-suite manifests.
+
+Details preserved:
+
+Discovery:
+- `bench quality-discover` can emit additional `targets[]` rows whose `gold_spans_path` is no longer present (observed: `7_thefoodlabcutdown`, `saltfatacidheatcutdown_2`).
+- `bench quality-run` validates **all** `targets[]` rows via `validate_quality_suite(...)`, not just `selected_target_ids`.
+- Result: run fails before execution with `Gold spans file not found` even when selected curated targets are valid.
+
+Practical workaround:
+- Create a derived suite JSON that keeps only rows where both `source_file` and `gold_spans_path` currently exist.
+- Keep `selected_target_ids` intersected with the filtered `targets[]` set.
+- Run `bench quality-run` against this filtered suite.
+
+## 18. 2026-02-28 migrated understandings batch (hotspot, race, codex-farm, profiles)
+
+### 2026-02-28_01.52.10 thefoodlab all-method hotspot summary
+
+Source: `docs/understandings/2026-02-28_01.52.10-thefoodlab-all-method-hotspot-summary.md`
+
+Run examined:
+- `data/golden/benchmark-vs-golden/2026-02-28_01.27.21/all-method-benchmark/thefoodlabcutdown`
+
+Findings preserved:
+- Scheduler heavy-slot utilization was high (`96.7%`) with significant split wait.
+- Summed canonical eval wall was tiny versus prediction wall (`42.70s` vs `6660.64s`).
+- Split convert and split wait dominated runtime (`3765.25s` + `1389.68s`).
+- Executed eval rows showed high cache-hit behavior (`95/100`) and small matcher time per executed eval.
+
+Durable implication:
+- For this workload, optimize split scheduling/throughput and prediction contention before touching matcher/backend internals.
+
+### 2026-02-28_02.05.26 all-method serial fallback in sandbox
+
+Source: `docs/understandings/2026-02-28_02.05.26-all-method-serial-fallback-in-sandbox.md`
+
+Findings preserved:
+- Process-pool preflight can fail in restricted runtimes (`PermissionError` on semaphore creation).
+- All-method now preflights and uses single-config execution when workers are unavailable.
+
+Durable implication:
+- Slow runs in locked-down environments may be expected throughput degradation, not scoring correctness drift.
+
+### 2026-02-28_02.12.40 quality-run race pruning contract
+
+Source: `docs/understandings/2026-02-28_02.12.40-quality-run-race-pruning-contract.md`
+
+Contract preserved:
+- `quality-run --search-strategy race` executes deterministic staged pruning:
+  1. probe round on subset
+  2. optional mid round
+  3. full-suite round on finalists
+- `--search-strategy exhaustive` runs full config grid.
+- Ranking key for pruning: mean practical F1, mean strict F1, coverage count, median duration.
+- Race metadata is emitted to `experiments/<experiment_id>/search_strategy.json`.
+
+Anti-loop note:
+- If config counts differ between runs, check search-strategy and race knobs before assuming config-grid generation changed.
+
+### 2026-02-28_02.13.34 manual top-5 all-method replay
+
+Source: `docs/understandings/2026-02-28_02.13.34-manual-top5-all-method-replay.md`
+
+Preserved replay method:
+- Take top-ranked configs from source report `variants[]`.
+- Rehydrate exact payloads from each config `run_manifest.json`.
+- Normalize with `RunSettings.from_dict(...)`.
+- Resolve matched targets with `_resolve_all_method_targets(DEFAULT_GOLDEN)` and run one global multi-source sweep.
+
+Observed run evidence:
+- Run root: `data/golden/benchmark-vs-golden/2026-02-28_02.03.18_manual-top5-thefoodlab-all-matched/all-method-benchmark/`
+- Completed `7/7` sources, `35/35` configs.
+
+### 2026-02-28_02.28.08 quality-run global-to-legacy thread fallback
+
+Source: `docs/understandings/2026-02-28_02.28.08-quality-run-global-to-legacy-thread-fallback.md`
+
+Findings preserved:
+- `quality-run` remains sequential at experiment level by design.
+- In restricted runtimes, forcing legacy source-thread scheduling preserves multi-source parallelism when process-based config workers are unavailable.
+- To get benefit, `max_parallel_sources` must be greater than `1`.
+
+### 2026-02-28_02.28.30 quality leaderboard global config aggregation
+
+Source: `docs/understandings/2026-02-28_02.28.30-quality-leaderboard-global-config-aggregation.md`
+
+Aggregation contract preserved:
+- Group per-source variants by stable config identity from dimensions (excluding non-RunSettings noise keys).
+- Rank by mean practical F1, mean strict F1, then coverage.
+- Compute speed/quality frontier from median duration vs mean practical F1.
+
+Anti-loop note:
+- Avoid picking global winners from one source’s per-source rank only; aggregate first across source groups.
+
+### 2026-02-28_02.33.20 quality-run serial root cause
+
+Source: `docs/understandings/2026-02-28_02.33.20-quality-run-serial-root-cause.md`
+
+Run examined:
+- `data/golden/bench/quality/runs/2026-02-28_02.19.52`
+
+Findings preserved:
+- Direct process-pool probe failed with `PermissionError`.
+- Runtime probe `_probe_all_method_process_pool_executor()` reported workers unavailable.
+- Parent process had no child worker PIDs during run.
+- Probe round was skewed by one heavy source, making the stream appear serial.
+
+Durable implication:
+- In this runtime, config-level process parallelism is unavailable until environment permissions change.
+
+### 2026-02-28_02.58.54 codex-farm bench enablement smoke findings
+
+Source: `docs/understandings/2026-02-28_02.58.54-codex-farm-bench-enablement-smoke-findings.md`
+
+Validation preserved:
+- `bench speed-run` and `bench quality-run` expose `--include-codex-farm`.
+- Codex variants become effective only when `COOKIMPORT_ALLOW_CODEX_FARM=1` and `codex-farm` command resolution is valid.
+
+Observed smoke findings:
+- DOCX codex variant failed fast: no `full_text` blocks available.
+- EPUB-only smoke reached codex pass directories (`pass1_chunking`, `pass2_schemaorg`, `pass3_final`) but one sandbox run did not finalize `summary.json`/`report.md` despite no active workers.
+
+Anti-loop note:
+- Distinguish codex pipeline failure (fast explicit error) from orchestration/finalization hang (run appears stuck after codex post-start).
+
+### 2026-02-28_03.04.14 qualitysuite profile save and cache boundaries
+
+Source: `docs/understandings/2026-02-28_03.04.14-qualitysuite-profile-save-and-cache-boundaries.md`
+
+Boundaries preserved:
+- Preferred chooser profile file: `data/.history/preferred_run_settings.json`.
+- Quality suite artifacts live under `data/golden/bench/quality/runs/<timestamp>/` with experiment subtrees and leaderboard outputs.
+- Quality run telemetry stream path:
+  - `data/golden/bench/quality/runs/.history/processing_timeseries/<timestamp>__bench_quality_run__<suite>.jsonl`
+- Cross-run reuse is aligned to canonical-eval caches:
+  - `.../.cache/canonical_alignment/...`
+  - `.../.cache/eval_signature_results/...`
+
+Durable implication:
+- Changed/new configs still re-run prediction/import; cache wins are primarily on alignment/eval reuse.
+
+### 2026-02-28_03.08.55 quality leaderboard winner profile source-of-truth
+
+Source: `docs/understandings/2026-02-28_03.08.55-quality-leaderboard-winner-profile-source-of-truth.md`
+
+Problem captured:
+- Winner profile settings could drift from displayed winner dimensions when sourced from top-level manifest run-config.
+
+Durable decision:
+- Prefer `run_manifest.run_config.prediction_run_config` when present, then normalize through `RunSettings`.
+- Persist resolved winner settings to `data/.history/qualitysuite_winner_run_settings.json`.
+
+Outcome preserved:
+- Interactive chooser can reliably offer `Run with quality-suite winner (...)` using settings that match the scored variant.

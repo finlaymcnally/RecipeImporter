@@ -25,6 +25,8 @@ class CodexFarmRunner(Protocol):
         *,
         root_dir: Path | None = None,
         workspace_root: Path | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> None:
         """Run a codex-farm pipeline over input/output directories."""
 
@@ -42,6 +44,8 @@ class SubprocessCodexFarmRunner:
         *,
         root_dir: Path | None = None,
         workspace_root: Path | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
         command = [
@@ -53,8 +57,12 @@ class SubprocessCodexFarmRunner:
             str(in_dir),
             "--out",
             str(out_dir),
-            "--json",
         ]
+        if model:
+            command.extend(["--model", str(model)])
+        if reasoning_effort:
+            command.extend(["--reasoning-effort", str(reasoning_effort)])
+        command.append("--json")
         if root_dir is not None:
             command.extend(["--root", str(root_dir)])
         if workspace_root is not None:

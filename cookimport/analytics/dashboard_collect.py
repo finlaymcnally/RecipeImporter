@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 # Folders use dots in the time portion: YYYY-MM-DD_HH.MM.SS
 # but some older folders may use colons: YYYY-MM-DD_HH:MM:SS
 _TS_DIR_RE = re.compile(
-    r"^(\d{4}-\d{2}-\d{2})[_](\d{2})[.:](\d{2})[.:](\d{2})$"
+    r"^(\d{4}-\d{2}-\d{2})[_](\d{2})[.:](\d{2})[.:](\d{2})(?:$|_.+)$"
 )
 
 _JOB_PARTS = ".job_parts"
@@ -293,15 +293,19 @@ def _safe_div(numerator: float | None, denominator: int | float | None) -> float
     return numerator / denominator
 
 
-def _parse_dir_timestamp(name: str) -> datetime | None:
+def _extract_dir_timestamp_text(name: str) -> str | None:
     m = _TS_DIR_RE.match(name)
     if not m:
         return None
+    return f"{m.group(1)}_{m.group(2)}.{m.group(3)}.{m.group(4)}"
+
+
+def _parse_dir_timestamp(name: str) -> datetime | None:
+    normalized = _extract_dir_timestamp_text(name)
+    if normalized is None:
+        return None
     try:
-        return datetime.strptime(
-            f"{m.group(1)}_{m.group(2)}.{m.group(3)}.{m.group(4)}",
-            "%Y-%m-%d_%H.%M.%S",
-        )
+        return datetime.strptime(normalized, "%Y-%m-%d_%H.%M.%S")
     except ValueError:
         return None
 
@@ -374,8 +378,9 @@ def _resolve_eval_run_timestamp(eval_dir: Path, golden_root: Path) -> str:
     """Resolve benchmark run timestamp from eval dir or nearest timestamped parent."""
     path = eval_dir
     while True:
-        if _parse_dir_timestamp(path.name) is not None:
-            return path.name
+        normalized = _extract_dir_timestamp_text(path.name)
+        if normalized is not None:
+            return normalized
         if path == golden_root or path.parent == path:
             break
         path = path.parent

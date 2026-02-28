@@ -39,6 +39,14 @@ PASS2_PIPELINE_ID = DEFAULT_PASS2_PIPELINE_ID
 PASS3_PIPELINE_ID = DEFAULT_PASS3_PIPELINE_ID
 
 
+def _effort_override_value(value: object | None) -> str | None:
+    if value is None:
+        return None
+    resolved = getattr(value, "value", value)
+    cleaned = str(resolved).strip()
+    return cleaned or None
+
+
 @dataclass
 class CodexFarmApplyResult:
     updated_conversion_result: ConversionResult
@@ -122,6 +130,10 @@ def run_codex_farm_recipe_pipeline(
             "pipeline": run_settings.llm_recipe_pipeline.value,
             "pipelines": dict(pipelines),
             "codex_farm_cmd": run_settings.codex_farm_cmd,
+            "codex_farm_model": run_settings.codex_farm_model,
+            "codex_farm_reasoning_effort": _effort_override_value(
+                run_settings.codex_farm_reasoning_effort
+            ),
             "codex_farm_root": run_settings.codex_farm_root,
             "codex_farm_workspace_root": run_settings.codex_farm_workspace_root,
             "codex_farm_context_blocks": run_settings.codex_farm_context_blocks,
@@ -163,6 +175,10 @@ def run_codex_farm_recipe_pipeline(
     env = {"CODEX_FARM_ROOT": str(pipeline_root)}
     codex_runner: CodexFarmRunner = runner or SubprocessCodexFarmRunner(
         cmd=run_settings.codex_farm_cmd
+    )
+    codex_model = run_settings.codex_farm_model
+    codex_reasoning_effort = _effort_override_value(
+        run_settings.codex_farm_reasoning_effort
     )
 
     pass_timing: dict[str, float] = {
@@ -213,6 +229,8 @@ def run_codex_farm_recipe_pipeline(
         env,
         root_dir=pipeline_root,
         workspace_root=workspace_root,
+        model=codex_model,
+        reasoning_effort=codex_reasoning_effort,
     )
     pass_timing["pass1_seconds"] = round(time.perf_counter() - pass1_started, 3)
     _consume_pass1_outputs(states, pass1_out_dir, total_blocks=total_blocks)
@@ -262,6 +280,8 @@ def run_codex_farm_recipe_pipeline(
             env,
             root_dir=pipeline_root,
             workspace_root=workspace_root,
+            model=codex_model,
+            reasoning_effort=codex_reasoning_effort,
         )
         pass_timing["pass2_seconds"] = round(time.perf_counter() - pass2_started, 3)
     for state in pass2_states:
@@ -313,6 +333,8 @@ def run_codex_farm_recipe_pipeline(
             env,
             root_dir=pipeline_root,
             workspace_root=workspace_root,
+            model=codex_model,
+            reasoning_effort=codex_reasoning_effort,
         )
         pass_timing["pass3_seconds"] = round(time.perf_counter() - pass3_started, 3)
     for state in pass3_states:
@@ -446,6 +468,10 @@ def _build_llm_manifest(
         "enabled": True,
         "pipeline": run_settings.llm_recipe_pipeline.value,
         "codex_farm_cmd": run_settings.codex_farm_cmd,
+        "codex_farm_model": run_settings.codex_farm_model,
+        "codex_farm_reasoning_effort": _effort_override_value(
+            run_settings.codex_farm_reasoning_effort
+        ),
         "codex_farm_root": run_settings.codex_farm_root,
         "codex_farm_workspace_root": run_settings.codex_farm_workspace_root,
         "codex_farm_context_blocks": run_settings.codex_farm_context_blocks,

@@ -540,6 +540,42 @@ class TestCollectors:
             for r in data.benchmark_records
         )
 
+    def test_benchmark_collector_normalizes_suffixed_run_dir_timestamps(self, tmp_path):
+        run_dir_name = "2026-02-28_02.03.18_manual-top5-thefoodlab-all-matched"
+        normalized_ts = "2026-02-28_02.03.18"
+        all_method_root = (
+            tmp_path
+            / "golden"
+            / "benchmark-vs-golden"
+            / run_dir_name
+            / "all-method-benchmark"
+            / "thefoodlabcutdown"
+        )
+        config_a = all_method_root / "config_001_aaa"
+        config_b = all_method_root / "config_002_bbb"
+        config_a.mkdir(parents=True)
+        config_b.mkdir(parents=True)
+        (config_a / "eval_report.json").write_text(
+            json.dumps(SAMPLE_EVAL_REPORT),
+            encoding="utf-8",
+        )
+        (config_b / "eval_report.json").write_text(
+            json.dumps(SAMPLE_EVAL_REPORT),
+            encoding="utf-8",
+        )
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        records = [
+            r
+            for r in data.benchmark_records
+            if "all-method-benchmark/thefoodlabcutdown/config_" in str(r.artifact_dir)
+        ]
+        assert len(records) == 2
+        assert {r.run_timestamp for r in records} == {normalized_ts}
+
     def test_csv_collector_benchmark_run_config_columns(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
         history_dir.mkdir(parents=True)
@@ -1299,8 +1335,186 @@ class TestRenderer:
             "config_001_aaa_extractor_beautifulsoup"
         )
 
-    def test_render_all_method_section_when_no_groups(self, tmp_path):
+    def test_all_method_renders_report_variants_without_eval_reports(self, tmp_path):
+        golden_root = tmp_path / "golden"
+        all_method_root = (
+            golden_root
+            / "eval-vs-pipeline"
+            / "2026-02-23_16.01.06"
+            / "all-method-benchmark"
+            / "thefoodlabcutdown"
+        )
+        all_method_root.mkdir(parents=True, exist_ok=True)
+
+        for idx in range(1, 4):
+            config_dir = all_method_root / f"config_{idx:03d}_cfg{idx}_extractor_beautifulsoup"
+            (config_dir / "prediction-run").mkdir(parents=True, exist_ok=True)
+            (config_dir / "prediction-run" / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "importer_name": "epub",
+                        "source_file": "/tmp/thefoodlabCUTDOWN.epub",
+                        "recipe_count": 10 + idx,
+                        "run_config": {"epub_extractor": "beautifulsoup"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        (all_method_root / "all_method_benchmark_report.json").write_text(
+            json.dumps(
+                {
+                    "created_at": "2026-02-23T16:10:00",
+                    "source_file": "/tmp/thefoodlabCUTDOWN.epub",
+                    "variants": [
+                        {
+                            "config_dir": "config_001_cfg1_extractor_beautifulsoup",
+                            "evaluation_representative_config_dir": "config_001_cfg1_extractor_beautifulsoup",
+                            "evaluation_result_source": "executed",
+                            "eval_report_json": "config_001_cfg1_extractor_beautifulsoup/eval_report.json",
+                            "precision": 0.10,
+                            "recall": 0.20,
+                            "f1": 0.1333,
+                            "practical_precision": 0.40,
+                            "practical_recall": 0.50,
+                            "practical_f1": 0.4444,
+                            "run_config_hash": "hash001",
+                            "run_config_summary": "epub_extractor=beautifulsoup",
+                        },
+                        {
+                            "config_dir": "config_002_cfg2_extractor_beautifulsoup",
+                            "evaluation_representative_config_dir": "config_001_cfg1_extractor_beautifulsoup",
+                            "evaluation_result_source": "reused_in_run",
+                            "eval_report_json": "config_001_cfg1_extractor_beautifulsoup/eval_report.json",
+                            "precision": 0.10,
+                            "recall": 0.20,
+                            "f1": 0.1333,
+                            "practical_precision": 0.40,
+                            "practical_recall": 0.50,
+                            "practical_f1": 0.4444,
+                            "run_config_hash": "hash002",
+                            "run_config_summary": "epub_extractor=beautifulsoup",
+                        },
+                        {
+                            "config_dir": "config_003_cfg3_extractor_beautifulsoup",
+                            "evaluation_representative_config_dir": "config_001_cfg1_extractor_beautifulsoup",
+                            "evaluation_result_source": "reused_in_run",
+                            "eval_report_json": "config_001_cfg1_extractor_beautifulsoup/eval_report.json",
+                            "precision": 0.10,
+                            "recall": 0.20,
+                            "f1": 0.1333,
+                            "practical_precision": 0.40,
+                            "practical_recall": 0.50,
+                            "practical_f1": 0.4444,
+                            "run_config_hash": "hash003",
+                            "run_config_summary": "epub_extractor=beautifulsoup",
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
         data = DashboardData(
+            golden_root=str(golden_root),
+            benchmark_records=[
+                BenchmarkRecord(
+                    run_timestamp="2026-02-23T16:04:10",
+                    artifact_dir=str(all_method_root / "config_001_cfg1_extractor_beautifulsoup"),
+                    precision=0.10,
+                    recall=0.20,
+                    f1=0.1333,
+                    practical_f1=0.4444,
+                    recipes=11,
+                    gold_recipe_headers=20,
+                    source_file="/tmp/thefoodlabCUTDOWN.epub",
+                    importer_name="epub",
+                    run_config_hash="hash001",
+                )
+            ],
+        )
+        render_dashboard(tmp_path / "dash", data)
+
+        all_method_index = tmp_path / "dash" / "all-method-benchmark" / "index.html"
+        index_html = all_method_index.read_text(encoding="utf-8")
+        assert "2026-02-23_16.01.06" in index_html
+        assert "<td class=\"num\">3</td>" in index_html
+
+        detail_path = (
+            tmp_path
+            / "dash"
+            / "all-method-benchmark"
+            / "all-method-benchmark__2026-02-23_16.01.06__thefoodlabcutdown.html"
+        )
+        detail_html = detail_path.read_text(encoding="utf-8")
+        assert "config_001_cfg1_extractor_beautifulsoup" in detail_html
+        assert "config_002_cfg2_extractor_beautifulsoup" in detail_html
+        assert "config_003_cfg3_extractor_beautifulsoup" in detail_html
+
+    def test_render_includes_single_profile_sweep_runs(self, tmp_path):
+        golden_root = tmp_path / "golden"
+        single_profile_root = (
+            golden_root
+            / "benchmark-vs-golden"
+            / "2026-02-28_03.35.11"
+            / "single-profile-benchmark"
+        )
+        hash_value = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        data = DashboardData(
+            golden_root=str(golden_root),
+            benchmark_records=[
+                BenchmarkRecord(
+                    run_timestamp="2026-02-28_03.35.11",
+                    artifact_dir=str(single_profile_root / "01_book_a"),
+                    precision=0.35,
+                    recall=0.45,
+                    f1=0.3938,
+                    practical_f1=0.55,
+                    recipes=10,
+                    gold_recipe_headers=12,
+                    source_file="/tmp/book_a.epub",
+                    importer_name="epub",
+                    run_config_summary="epub_extractor=beautifulsoup",
+                    run_config_hash=hash_value,
+                ),
+                BenchmarkRecord(
+                    run_timestamp="2026-02-28_03.35.11",
+                    artifact_dir=str(single_profile_root / "02_book_b"),
+                    precision=0.40,
+                    recall=0.50,
+                    f1=0.4444,
+                    practical_f1=0.60,
+                    recipes=11,
+                    gold_recipe_headers=13,
+                    source_file="/tmp/book_b.epub",
+                    importer_name="epub",
+                    run_config_summary="epub_extractor=beautifulsoup",
+                    run_config_hash=hash_value,
+                ),
+            ],
+        )
+        render_dashboard(tmp_path / "dash", data)
+
+        all_method_dir = tmp_path / "dash" / "all-method-benchmark"
+        index_html = (all_method_dir / "index.html").read_text(encoding="utf-8")
+        assert (
+            "<tr><td>2026-02-28_03.35.11</td><td class=\"num\">2</td>"
+            "<td class=\"num\">1</td><td>profile_abcdef123456</td>"
+        ) in index_html
+        assert "all-method-benchmark-run__2026-02-28_03.35.11.html" in index_html
+
+        run_detail_html = (
+            all_method_dir
+            / "all-method-benchmark-run__2026-02-28_03.35.11.html"
+        ).read_text(encoding="utf-8")
+        assert "all-method-benchmark__2026-02-28_03.35.11__01_book_a.html" in run_detail_html
+        assert "all-method-benchmark__2026-02-28_03.35.11__02_book_b.html" in run_detail_html
+
+    def test_render_all_method_section_when_no_groups(self, tmp_path):
+        golden_root = tmp_path / "golden-empty"
+        golden_root.mkdir(parents=True, exist_ok=True)
+        data = DashboardData(
+            golden_root=str(golden_root),
             benchmark_records=[
                 BenchmarkRecord(
                     run_timestamp="2026-02-23T16:05:10",
