@@ -72,6 +72,37 @@ Evidence preserved:
 Anti-loop note:
 - If quality-run looks serial, inspect runtime scope adaptation and effective `max_parallel_sources` before changing scheduler internals.
 
+### 2026-02-28_04.12.26 all-method split throughput optimization (ExecPlan merge)
+
+Merged source file:
+- Former `docs/tasks/2026-02-28_04.12.26-all-method-split-throughput-optimization.md` (removed after merge).
+
+Problem captured:
+- All-method wall time had shifted from older eval-dominant behavior to split/prediction-dominant behavior on current CUTDOWN-heavy runs, so matcher-focused tuning had lower ROI and risked churn.
+
+Durable decisions retained:
+- Prioritize scheduler/split throughput knobs before matcher changes.
+- Keep matcher/eval changes as telemetry-only guardrails (`matcher_guardrails` warnings), not scoring-algorithm edits.
+- Apply adaptive admission + split-slot resource guards symmetrically in both scheduler paths (`_run_all_method_benchmark_global_queue` and legacy per-source path) to avoid behavior drift.
+- Add in-run prediction/split-convert reuse telemetry and treat reuse rollout as evidence-gated (instrument first, then decide).
+- Reduce prediction write overhead for all-method predict-only calls by forcing `write_markdown=False` and `write_label_studio_tasks=False`.
+
+Important outcomes preserved:
+- Speed comparison evidence from the task:
+  - baseline `2026-02-28_02.54.07` vs candidate `2026-02-28_09.57.10`,
+  - median total seconds for `benchmark_all_method_multi_source`: `2.1447 -> 0.9532` (`-55.56%`).
+- Quality comparison evidence from the task:
+  - baseline `2026-02-28_02.54.03` vs candidate `2026-02-28_09.57.37`,
+  - `strict_f1_macro +0.03025`, `practical_f1_macro +0.02490`, `source_success_rate` unchanged at `1.0`.
+
+Failed/avoided paths worth keeping:
+- Pre-eval over-admission can regress smart-eval-tail contracts; over-admission must remain bounded to eval-active phases.
+- Expected split/convert reuse was not observed on the default 13-config single-target EPUB profile (`split_convert_reuse_candidates=0`), so treating missing reuse as a bug was a false lead for that matrix.
+
+Anti-loop notes:
+- If speed/quality compare verdict fails while metrics improved, check run-settings hash parity first; this task hit intentional mismatch from `codex_farm_cmd` path differences and used mismatch-allowed compares.
+- If throughput changes diverge between `global` and `legacy`, verify admission/slot-cap edits were mirrored in both scheduler code paths before tuning new knobs.
+
 ## 1. 2026-02-19_15.49.31 README/Log split marker
 
 Decision retained:
@@ -1423,3 +1454,98 @@ Findings preserved:
 
 Anti-loop note:
 - When comparing all-method performance across runs, check split-slot cap mode and admission reasons first; do not infer scheduler regressions from utilization deltas alone.
+
+## 2026-02-28 migrated understanding ledger (09:33-10:20 quality-run controls and outcomes)
+
+### 2026-02-28_09.33.40 all-method adaptive admission and slot guard map
+
+Source: `docs/understandings/2026-02-28_09.33.40-all-method-adaptive-admission-and-slot-guard-map.md`
+
+Problem captured:
+- Throughput tuning changed multiple scheduler control layers at once and risked drift between global-queue and legacy paths.
+
+Findings preserved:
+- Scheduling behavior is now explained as three layers that must be read together: split-slot capping, split-worker caps, and adaptive admission guard/target decisions.
+- Resource-guard slot caps are resolved once and then applied consistently in both scheduler paths.
+- Scheduler timeseries and summary payloads now expose the relevant decision fields (`split_phase_slot_*`, `adaptive_admission_*`, `admission_reason`, CPU high-water).
+
+Anti-loop note:
+- Investigate slot-cap mode and admission reason transitions before assuming scheduler regression from raw utilization changes.
+
+### 2026-02-28_10.02.42 all-method prediction reuse telemetry scope
+
+Source: `docs/understandings/2026-02-28_10.02.42-all-method-prediction-reuse-telemetry-scope.md`
+
+Problem captured:
+- Reuse telemetry was being interpreted as "broken" when counters stayed zero in common quality profiles.
+
+Findings preserved:
+- Reuse hashing excludes `benchmark_sequence_matcher` by design (evaluate-only) and split/convert feasibility uses narrower source+inputs keys.
+- In run `2026-02-28_09.57.37` (13 configs), counters were `prediction_runs_executed=13`, `prediction_results_reused_in_run=0`, `split_convert_reuse_candidates=0`, `split_convert_reuse_safe_candidates=0`.
+- Compare runs in this pass needed `--allow-settings-mismatch` only because run-settings hashes differed on `codex_farm_cmd` string shape.
+
+Anti-loop note:
+- Zero split/convert reuse on the default 13-config EPUB profile is expected matrix shape, not automatically a telemetry defect.
+
+### 2026-02-28_10.06.02 qualitysuite runtime cardinality and walltime
+
+Source: `docs/understandings/2026-02-28_10.06.02-qualitysuite-runtime-cardinality-and-walltime.md`
+
+Problem captured:
+- Quality-run wall time was repeatedly misestimated because total config cardinality and execution boundaries were not called out together.
+
+Findings preserved:
+- Suite-level runtime scales with experiment count while each experiment can still parallelize internally.
+- Evidence snapshot:
+  - `2026-02-28_00.54.37`: 3 targets / 39 configs / `2108.39s`.
+  - `2026-02-28_03.39.35`: 1 target / 143 configs / `1133.07s`.
+  - `2026-02-28_09.57.37`: 1 target / 13 configs / `232.41s` wall time with parallelized summed source runtime `1256.66s`.
+- Process-worker restrictions remain a known multiplier in sandboxed hosts.
+
+Anti-loop note:
+- If a run "feels slow," first check experiment count and config expansion cardinality before editing scheduler code.
+
+### 2026-02-28_10.12.51 quality sweep signal and top-tier candidates
+
+Source: `docs/understandings/2026-02-28_10.12.51-quality-sweep-quality-signal-and-top-tier-candidates.md`
+
+Problem captured:
+- Deterministic sweeps were repeatedly assumed to improve quality without stable cross-run evidence.
+
+Findings preserved:
+- Sweep-enabled run `2026-02-28_03.39.35` did not beat non-sweep best; both top rows tied at `0.411011` practical and `0.389916` strict.
+- Cross-source run `2026-02-28_00.54.37` remains the stronger top-tier signal and favored unstructured + v1 parser + semantic preprocess + header/footer skipping.
+- Single-source run `2026-02-28_09.57.37` showed practical-vs-strict tradeoff families instead of one universally best setting.
+
+Anti-loop note:
+- Keep sweeps off by default for baseline until a repeatable cross-source quality lift is demonstrated.
+
+### 2026-02-28_10.13.01 quality-run parallel experiment boundary
+
+Source: `docs/understandings/2026-02-28_10.13.01-quality-run-parallel-experiment-boundary.md`
+
+Problem captured:
+- Experiment-level parallelism changes risked breaking summary ordering and continue-on-failure expectations.
+
+Findings preserved:
+- `run_quality_suite(...)` now supports bounded parallel experiment execution with `max_parallel_experiments`.
+- Output ordering contract is unchanged: summary rows follow resolved experiment order, not completion order.
+- Failure contract is unchanged: one failed experiment does not stop unrelated experiments from finishing and summarizing.
+
+Anti-loop note:
+- Out-of-order completion is expected; treat summary row order as the canonical reporting order contract.
+
+### 2026-02-28_10.20.58 quality-run auto parallelism and load admission
+
+Source: `docs/understandings/2026-02-28_10.20.58-quality-run-auto-parallelism-and-load-admission.md`
+
+Problem captured:
+- Manual experiment worker caps were causing either under-utilization or host overload in mixed run sizes.
+
+Findings preserved:
+- Omitted `--max-parallel-experiments` now means auto mode (effective cap `min(total_experiments, cpu_count, 8)`).
+- `experiments_resolved.json` records requested/effective parallelism metadata and whether adaptive admission was active.
+- Auto admission policy ramps up gradually and clamps down immediately under higher host load.
+
+Anti-loop note:
+- If experiment throughput is unstable, inspect resolved auto metadata and host load behavior before forcing fixed caps.

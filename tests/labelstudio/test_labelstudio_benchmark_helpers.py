@@ -6298,10 +6298,19 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
     tmp_path: Path,
 ) -> None:
     base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_payload = base_settings.to_run_config_dict()
     variants = [
         cli.AllMethodVariant(
             slug=f"config_{index:02d}",
-            run_settings=base_settings,
+            run_settings=cli.RunSettings.from_dict(
+                {
+                    **base_payload,
+                    # Keep scheduler test focused on admission/slot behavior by
+                    # forcing unique prediction signatures per config.
+                    "ocr_batch_size": index,
+                },
+                warn_context="test",
+            ),
             dimensions={"index": index},
         )
         for index in range(1, 7)

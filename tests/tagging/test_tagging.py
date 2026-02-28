@@ -335,6 +335,10 @@ class TestLlmTagPass:
         assert result.llm_validation["selected_entries_dropped"] == 1
         assert result.llm_validation["drop_reasons"]["tag_not_in_shortlist"] == 1
         assert "output_schema_path" in result.llm_report
+        assert "process_run" in result.llm_report
+        assert result.llm_report["process_run"]["pipeline_id"] == "recipe.tags.v1"
+        assert "telemetry_report" in result.llm_report["process_run"]
+        assert "autotune_report" in result.llm_report["process_run"]
 
     def test_llm_second_pass_fallback_mode_returns_deterministic_only(self, catalog: TagCatalog):
         request = LlmSecondPassRequest(

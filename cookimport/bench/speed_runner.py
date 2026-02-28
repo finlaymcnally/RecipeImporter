@@ -47,6 +47,7 @@ def run_speed_suite(
     max_targets: int | None = None,
     run_settings: RunSettings,
     include_codex_farm_requested: bool = False,
+    codex_farm_confirmed: bool = False,
     progress_callback: ProgressCallback | None = None,
 ) -> Path:
     if warmups < 0:
@@ -55,6 +56,11 @@ def run_speed_suite(
         raise ValueError("repeats must be >= 1")
     if not scenarios:
         raise ValueError("At least one scenario is required.")
+    if include_codex_farm_requested and not codex_farm_confirmed:
+        raise ValueError(
+            "SpeedSuite Codex Farm permutations require explicit positive user "
+            "confirmation. Set codex_farm_confirmed=True only after user approval."
+        )
 
     run_started = dt.datetime.now()
     run_timestamp = run_started.strftime("%Y-%m-%d_%H.%M.%S")
@@ -211,6 +217,8 @@ def run_speed_suite(
         repeats=repeats,
         run_timestamp=run_timestamp,
         run_settings=run_settings,
+        include_codex_farm_requested=include_codex_farm_requested,
+        codex_farm_confirmed=codex_farm_confirmed,
         sample_rows=sample_rows,
     )
     (run_root / "summary.json").write_text(
@@ -236,6 +244,8 @@ def run_speed_suite(
             "run_settings": run_settings.to_run_config_dict(),
             "run_settings_summary": run_settings.summary(),
             "run_settings_hash": run_settings.stable_hash(),
+            "include_codex_farm_requested": bool(include_codex_farm_requested),
+            "include_codex_farm_confirmed": bool(codex_farm_confirmed),
         },
         artifacts={
             "suite_resolved_json": "suite_resolved.json",
@@ -499,6 +509,8 @@ def _build_summary_payload(
     repeats: int,
     run_timestamp: str,
     run_settings: RunSettings,
+    include_codex_farm_requested: bool,
+    codex_farm_confirmed: bool,
     sample_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
     repeat_rows = [row for row in sample_rows if row.get("phase") == "repeat"]
@@ -575,6 +587,8 @@ def _build_summary_payload(
         "run_settings": run_settings_payload,
         "run_settings_summary": run_settings.summary(),
         "run_settings_hash": run_settings.stable_hash(),
+        "include_codex_farm_requested": bool(include_codex_farm_requested),
+        "include_codex_farm_confirmed": bool(codex_farm_confirmed),
         "sample_count": len(sample_rows),
         "summary_rows": summary_rows,
         "scenario_rollups": scenario_rollups,

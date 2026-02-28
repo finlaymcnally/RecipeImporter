@@ -28,9 +28,11 @@ Current scoring surfaces:
 - `bench speed-discover`: build deterministic speed suite from pulled gold exports.
 - `bench speed-run`: run timing scenarios (`stage_import`, `benchmark_canonical_legacy`, `benchmark_canonical_pipelined`, `benchmark_all_method_multi_source`).
 - Codex Farm permutations (recipe pass) can be included in all-method grids by passing `--include-codex-farm` to `bench speed-run` / `bench quality-run`. Optional overrides: `--codex-farm-model ...` and `--codex-farm-thinking-effort high` (or `--codex-farm-reasoning-effort`).
+- `bench speed-run` requires explicit positive confirmation when Codex Farm is requested: `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
+- `bench quality-run` requires explicit positive confirmation when Codex Farm is requested: `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
 - `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; representative fallback). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
-- `bench quality-run`: run sequential all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). In runtimes that block process pools, quality-run keeps all-method `global` scope and falls back to thread-backed config workers.
+- `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope and falls back to thread-backed config workers.
 - `bench quality-leaderboard`: aggregate one quality-run experiment into a global cross-source config leaderboard and Pareto frontier.
 - `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-coverage regression gates.
 - `bench eval-stage --gold-spans ... --stage-run ...`: evaluate a stage run directly from `.bench/*/stage_block_predictions.json`.
@@ -100,7 +102,7 @@ Canonical-text outputs include:
 
 Speed suite (`bench speed-run`) artifacts include:
 - `suite_resolved.json`, `samples.jsonl`, `summary.json`, `report.md`, `run_manifest.json`
-- `summary.json` includes `run_settings`, `run_settings_summary`, and `run_settings_hash` so baseline/candidate comparisons can enforce settings parity.
+- `summary.json` includes `run_settings`, `run_settings_summary`, `run_settings_hash`, and Codex Farm request/confirmation flags so baseline/candidate comparisons can enforce settings parity and audit Codex usage.
 - per-sample artifacts under `scenario_runs/<target_id>/<scenario>/<phase_index>/...`
   - suite-level all-method samples use synthetic target id `__all_matched__` and folder `_all_matched`.
 
@@ -112,7 +114,7 @@ Quality suite (`bench quality-run`) artifacts include:
 - `suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`
 - one per-experiment output root under `experiments/<experiment_id>/...` containing all-method benchmark artifacts.
 - `summary.json` stores per-experiment run-settings hashes and strict/practical/source-coverage metrics for compare gating.
-- `experiments_resolved.json` records resolved experiments (including any schema-v2 lever expansion), the canonical alignment cache root, and the all-method runtime knobs used for the run.
+- `experiments_resolved.json` records resolved experiments (including any schema-v2 lever expansion), the canonical alignment cache root, all-method runtime knobs, and Codex Farm request/confirmation flags used for the run.
 
 Quality leaderboard (`bench quality-leaderboard`) artifacts include:
 - `leaderboard.json`, `leaderboard.csv`
@@ -264,6 +266,12 @@ Use this parallel flow for baseline-versus-candidate quality checks:
 3. `cookimport bench quality-leaderboard --run-dir ... --experiment-id ...`
 4. `cookimport bench quality-compare --baseline ... --candidate ...`
 
+For repeated certainty checks before promoting a new top-tier set, use
+`scripts/quality_top_tier_tournament.py` with:
+- experiments file: `data/golden/bench/quality/experiments/2026-02-28_10.31.55_qualitysuite-top-tier-tournament.json`
+- thresholds file: `data/golden/bench/quality/thresholds/2026-02-28_10.31.55_qualitysuite-top-tier-gates.json`
+- output root: `data/golden/bench/quality/tournaments/<timestamp>/...` (`summary.json`, `report.md`, `folds.json`)
+
 Experiments file notes:
 - Schema v1 uses explicit experiments: `{"schema_version": 1, "experiments": [{"id": "...", "run_settings_patch": {...}}]}`.
 - Schema v2 adds `levers` with `enabled: true/false`.
@@ -275,6 +283,7 @@ Experiments file notes:
   - Schema v2 also supports top-level `all_method_runtime` for run-wide runtime defaults/overrides.
 - Example lever file: `data/golden/bench/quality/experiments/2026-02-28_01.18.41_qualitysuite-levers.json`.
 - `quality-run --include-deterministic-sweeps` applies interactive-style deterministic Priority 2–6 sweep expansion to each experiment’s all-method grid (in addition to experiment run-settings patches).
+- `quality-run --include-codex-farm` requires `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION` and will fail fast without it.
 
 Search strategy notes:
 - `quality-run --search-strategy race` (default) runs deterministic staged pruning:
@@ -327,7 +336,7 @@ Benchmark package modules:
 - `cookimport/bench/speed_runner.py`: speed scenario executor and speed-run summary/report generation.
 - `cookimport/bench/speed_compare.py`: baseline-vs-candidate speed comparison and regression verdict/report formatting.
 - `cookimport/bench/quality_suite.py`: deterministic quality target discovery (curated CUTDOWN focus IDs first, representative fallback, plus filename-match retry when importer-scored discovery is empty), manifest I/O, and validation.
-- `cookimport/bench/quality_runner.py`: sequential all-method quality experiment executor and quality summary/report generation.
+- `cookimport/bench/quality_runner.py`: bounded-parallel all-method quality experiment executor and quality summary/report generation.
 - `cookimport/bench/quality_compare.py`: baseline-vs-candidate quality comparison and regression verdict/report formatting.
 - `cookimport/bench/sequence_matcher_select.py`: matcher selection contract, env parsing, and telemetry metadata.
 - `cookimport/bench/dmp_sequence_matcher.py`: diff-match-patch backed SequenceMatcher adapter.
@@ -489,7 +498,7 @@ Current bench contracts added/confirmed by those task files:
 - Speed regression workflow is deterministic and first-class under `bench speed-discover`, `bench speed-run`, `bench speed-compare` with pulled Label Studio golds as default discovery source.
 - All-method canonical evaluation uses deterministic eval signatures so prediction runs remain per-config while evaluation runs collapse to one-per-signature with in-run and cross-run reuse provenance.
 - SpeedSuite is orchestrator-only and now relies on shared run-settings adapters; `run_settings_hash` is persisted and `speed-compare` fails by default on settings mismatch unless explicitly overridden.
-- QualitySuite is implemented as deterministic representative discovery + sequential experiment runner + baseline/candidate comparator with strict/practical/source-coverage gates and strict patch-key validation.
+- QualitySuite is implemented as deterministic representative discovery + bounded-parallel experiment runner (CPU-aware auto by default) + baseline/candidate comparator with strict/practical/source-coverage gates and strict patch-key validation.
 - Stage-block prediction note labeling now includes description-derived recipe notes (in addition to schema comments), closing the zero-prediction `RECIPE_NOTES` gap for description-only recipes.
 - Global mega-run scheduler is implemented for all-method multi-source runs (`scheduler_scope=global` default), with rollback path `scheduler_scope=legacy`.
 - Priority 8 segmentation diagnostics are additive on existing stage-block contracts (`report.segmentation`, boundary mismatch JSONLs, optional `segeval` metrics).
@@ -691,9 +700,9 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 - Adaptation applies when requested scheduler scope is `global`:
   - keep `global` scheduler scope,
   - run config workers on thread executor when process pools are unavailable.
-- Experiment-level execution remains sequential by design; adaptation affects per-experiment all-method throughput, not result semantics.
+- Historical note (superseded): this previously assumed experiment-level execution was always sequential; current runs are CPU-aware by default and still allow explicit bounded caps with `--max-parallel-experiments`.
 
-## 2026-02-28 migrated understandings batch (04:07-04:16 sandbox throughput realities)
+## 2026-02-28 migrated understandings batch (04:07-10:02 sandbox throughput realities)
 
 ### 2026-02-28_04.07.00 quality-run race runtime under sandbox
 - Source: `docs/understandings/2026-02-28_04.07.00-quality-run-race-runtime-under-sandbox.md`
@@ -701,9 +710,79 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 - Observed representative-suite timings showed large EPUB shard configs around 129-133s each under fallback.
 - Practical planning rule for this environment: representative deterministic race defaults can be an overnight run (roughly 8-10h), so use reduced targets/rounds for interactive validation.
 
+### 2026-02-28_04.12.26 all-method split throughput optimization (merged task doc)
+- Merged from former `docs/tasks/2026-02-28_04.12.26-all-method-split-throughput-optimization.md` (file removed after merge).
+- Optimization focus was intentionally split/prediction throughput, not matcher/eval algorithm changes, based on newer hotspot evidence where prediction dominated wall time.
+- Implemented/kept contracts from that task:
+  - adaptive admission and split-slot resource-guard telemetry in both scheduler scopes (`global` + `legacy`),
+  - matcher/cache regression guardrails as warning telemetry only (`matcher_guardrails`), with no scorer behavior changes,
+  - prediction-reuse and split/convert-reuse counters in all-method report payloads,
+  - predict-only all-method runs skip markdown/task artifact writes (`write_markdown=False`, `write_label_studio_tasks=False`).
+- Baseline/candidate benchmark evidence captured in the task:
+  - speed compare (`2026-02-28_02.54.07` -> `2026-02-28_09.57.10`) median total seconds `2.1447 -> 0.9532` (`-55.56%`) for `benchmark_all_method_multi_source`,
+  - quality compare (`2026-02-28_02.54.03` vs `2026-02-28_09.57.37`) improved strict/practical F1 with unchanged source success rate.
+- Anti-loop notes kept from the task:
+  - compare verdicts can fail on `run_settings_hash` mismatch from `codex_farm_cmd` path differences even when LLM pipelines are off; use mismatch-allowed compares when validating throughput deltas.
+  - zero split/convert reuse candidates on the default 13-config single-target EPUB profile is expected for that matrix and does not indicate broken reuse telemetry.
+
 ### 2026-02-28_04.16.21 all-method processpool semlock sandbox thread fallback
 - Source: `docs/understandings/2026-02-28_04.16.21-all-method-processpool-semlock-sandbox-thread-fallback.md`
 - Root cause in restricted runtimes: `/dev/shm` not writable -> multiprocessing `SemLock` setup fails.
 - Current contract keeps all-method scheduler scope `global` and falls back to thread-backed config workers when process workers are unavailable.
 - Serial single-config execution remains last-resort fallback only when thread executor setup fails.
 - This supersedes older notes that implied immediate global-to-legacy scheduler downgrade on process-worker probe failure.
+
+### 2026-02-28_10.02.42 all-method prediction reuse telemetry scope
+- Source: `docs/understandings/2026-02-28_10.02.42-all-method-prediction-reuse-telemetry-scope.md`
+- All-method reports now include `prediction_reuse_*` and `split_convert_reuse_*` counters plus schema-version markers for key payload contracts.
+- Predict-only all-method benchmark calls now skip markdown and Label Studio task artifact writes (`write_markdown=False`, `write_label_studio_tasks=False`) to reduce prediction write overhead.
+- On the default single-target 13-config EPUB quality profile, telemetry showed zero split/convert reuse candidates (instrumentation active, no natural duplicate conversion inputs in that matrix).
+
+## 2026-02-28 merged understandings (09:33-10:20 quality-run controls and evidence)
+
+The items below were merged from `docs/understandings` in source timestamp order.
+
+### 2026-02-28_09.33.40 all-method adaptive admission and slot guard map
+- Source: `docs/understandings/2026-02-28_09.33.40-all-method-adaptive-admission-and-slot-guard-map.md`
+- All-method scheduling has three interacting controls: split-slot capping (`split_phase_slot_mode` and slot caps), split-worker capping (`split_worker_cap_*`), and adaptive admission decisions (`admission_active_cap`, `admission_guard_target`, `admission_reason`).
+- Resource-guard slot capping is resolved once and applied consistently in both global-queue and legacy scheduler paths.
+- Scheduler timeseries is the debug source of truth for refill/throughput changes (`adaptive_admission_*`, split-slot fields, CPU high-water).
+
+### 2026-02-28_10.02.42 all-method prediction reuse telemetry scope
+- Source: `docs/understandings/2026-02-28_10.02.42-all-method-prediction-reuse-telemetry-scope.md`
+- Prediction reuse hashing intentionally excludes `benchmark_sequence_matcher` (evaluate-only field) while split/convert feasibility uses a narrower source+inputs key.
+- Candidate run `2026-02-28_09.57.37` (13 configs) recorded `prediction_runs_executed=13`, `prediction_results_reused_in_run=0`, `split_convert_reuse_candidates=0`, `split_convert_reuse_safe_candidates=0`.
+- Speed/quality compares can require `--allow-settings-mismatch` when baseline/candidate differ only by `codex_farm_cmd` string shape (`codex-farm` vs absolute path) even with LLM pipelines off.
+
+### 2026-02-28_10.06.02 qualitysuite runtime cardinality and walltime
+- Source: `docs/understandings/2026-02-28_10.06.02-qualitysuite-runtime-cardinality-and-walltime.md`
+- `bench quality-run` total wall time grows roughly linearly with experiment count because experiment execution is orchestrated sequentially by default contract.
+- Parallelism boundary is per experiment (all-method scheduler), not unlimited cross-experiment stacking.
+- Concrete evidence in this repo:
+  - `2026-02-28_00.54.37`: 3 targets / 39 configs / `2108.39s`.
+  - `2026-02-28_03.39.35`: 1 target / 143 configs / `1133.07s`.
+  - `2026-02-28_09.57.37`: 1 target / 13 configs / `232.41s` wall time with `1256.66s` summed source runtime (parallelized).
+- Restricted environments that block process workers can materially increase wall time even when scheduler settings are unchanged.
+
+### 2026-02-28_10.12.51 quality sweep signal and top-tier candidates
+- Source: `docs/understandings/2026-02-28_10.12.51-quality-sweep-quality-signal-and-top-tier-candidates.md`
+- Deterministic sweeps have not shown proven quality lift yet: run `2026-02-28_03.39.35` had identical best sweep and non-sweep metrics (`mean_practical_f1=0.411011`, `mean_strict_f1=0.389916`).
+- Cross-source run `2026-02-28_00.54.37` still carries strongest multi-source signal; winner dimensions were `unstructured` extractor + `v1` parser + `semantic_v1` preprocess + `skip_headers_footers=true`.
+- Latest single-source run `2026-02-28_09.57.37` confirms practical-vs-strict tradeoff families instead of one dominant profile.
+
+### 2026-02-28_10.13.01 quality-run parallel experiment boundary
+- Source: `docs/understandings/2026-02-28_10.13.01-quality-run-parallel-experiment-boundary.md`
+- `run_quality_suite(...)` now supports bounded experiment-level parallelism via `max_parallel_experiments`.
+- `summary.json` order remains deterministic by resolved experiment order, not completion order.
+- Continue-on-failure behavior is unchanged: failed experiments are isolated to failed rows while other experiments continue.
+
+### 2026-02-28_10.20.58 quality-run auto parallelism and load admission
+- Source: `docs/understandings/2026-02-28_10.20.58-quality-run-auto-parallelism-and-load-admission.md`
+- When `--max-parallel-experiments` is omitted, quality-run uses auto mode with effective cap `min(total_experiments, cpu_count, 8)`.
+- `experiments_resolved.json` persists requested/effective mode metadata (`max_parallel_experiments_requested`, `*_mode`, `*_effective`, `*_cpu_count`, `*_adaptive`).
+- Auto mode uses load-aware admission: gradual ramp up under lighter pressure and immediate clamp under hotter load.
+
+### Anti-loop checks from this batch
+- If throughput differs between global and legacy scheduler scopes, verify split-slot capping and admission logic are mirrored in both paths before tuning new knobs.
+- If reuse counters are zero on the 13-config EPUB profile, treat that as expected dataset shape unless input-key telemetry says otherwise.
+- If quality compare verdict fails while metrics improved, inspect run-settings hash parity before treating results as a regression.

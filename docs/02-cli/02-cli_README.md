@@ -865,6 +865,10 @@ Options:
 - `--max-targets INTEGER>=1`: optional cap on number of targets from the suite.
 - `--run-settings-file PATH`: optional JSON payload in `RunSettings` shape for deterministic speed-run settings.
 - `--sequence-matcher TEXT`: optional canonical-text matcher override for benchmark scenarios (when omitted, uses `benchmark_sequence_matcher` from effective run settings).
+- `--include-codex-farm / --no-include-codex-farm` (default disabled): include Codex Farm recipe-pipeline permutations in all-method scenarios.
+- `--speedsuite-codex-farm-confirmation TEXT`: required with `--include-codex-farm`; must be `I_HAVE_EXPLICIT_USER_CONFIRMATION`.
+- `--codex-farm-model TEXT`: optional Codex Farm model override (blank keeps pipeline defaults).
+- `--codex-farm-thinking-effort|--codex-farm-reasoning-effort TEXT`: optional Codex Farm reasoning-effort override (`none|minimal|low|medium|high|xhigh`) (blank keeps pipeline defaults).
 
 ### `cookimport bench speed-compare`
 
@@ -894,7 +898,7 @@ Options:
 
 ### `cookimport bench quality-run`
 
-Runs sequential all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`). In restricted runtimes where process workers are unavailable, quality-run stays on all-method `global` scope and uses thread-backed config workers (falls back to single-config execution only if thread executor setup also fails).
+Runs all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`). Experiment-level execution is CPU-aware by default (auto cap + adaptive worker target based on host load); override with `--max-parallel-experiments` to force a fixed cap. In restricted runtimes where process workers are unavailable, quality-run stays on all-method `global` scope and uses thread-backed config workers (falls back to single-config execution only if thread executor setup also fails).
 
 Status behavior:
 
@@ -907,7 +911,21 @@ Options:
 - `--experiments-file PATH` (required): JSON experiment definitions (schema v1 explicit experiments, or schema v2 with `levers` + optional `all_method_runtime_patch`).
 - `--out-dir PATH` (default `data/golden/bench/quality/runs`): output root for timestamped quality runs.
 - `--base-run-settings-file PATH`: optional base `RunSettings` JSON payload used by all experiments. When omitted, uses `experiments.base_run_settings_file` or `cookimport.json`.
+- `--max-parallel-experiments INTEGER>=1` (optional): fixed experiment-level concurrency cap for quality-run. When omitted, quality-run auto-selects a CPU-aware adaptive cap.
 - `--include-deterministic-sweeps / --no-include-deterministic-sweeps` (default disabled): expand each experiment’s all-method grid with deterministic Priority 2–6 sweep variants (section detector, multi-recipe splitter, ingredient missing-unit policy, instruction segmentation, time/temp/yield knobs).
+- `--include-codex-farm / --no-include-codex-farm` (default disabled): include Codex Farm recipe-pipeline permutations in all-method runs.
+- `--qualitysuite-codex-farm-confirmation TEXT`: required with `--include-codex-farm`; must be `I_HAVE_EXPLICIT_USER_CONFIRMATION`.
+- `--codex-farm-model TEXT`: optional Codex Farm model override applied to all experiments.
+- `--codex-farm-thinking-effort|--codex-farm-reasoning-effort TEXT`: optional Codex Farm reasoning-effort override (`none|minimal|low|medium|high|xhigh`) applied to all experiments.
+
+Quick tuning guide for `--max-parallel-experiments`:
+
+| Experiment count | Suggested setting |
+| --- | --- |
+| 1-2 | omit flag (auto) or `2` |
+| 3-5 | omit flag (auto) or `3` |
+| 6-10 | omit flag (auto) or `4` |
+| 11+ | omit flag (auto) or `4-6` (watch thermals/background load) |
 
 ### `cookimport bench quality-compare`
 
@@ -1044,7 +1062,7 @@ Precedence notes:
 - For prelabel Codex settings: `--codex-cmd`/`--codex-model`/`--codex-thinking-effort` win for that run; env vars are defaults.
 - For EPUB extractor/options: explicit stage/benchmark flags or interactive per-run Run Settings selection write `C3IMP_EPUB_EXTRACTOR` plus `C3IMP_EPUB_UNSTRUCTURED_*` vars for that run; markdown extractors still require `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`.
 - For all-method markdown extractors: `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS=1` gates optional markdown variants.
-- For all-method codex variants: `--include-codex-farm` controls inclusion; `COOKIMPORT_ALLOW_CODEX_FARM` remains legacy no-op.
+- For all-method codex variants: `--include-codex-farm` controls inclusion; `bench speed-run` requires `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`; `bench quality-run` requires `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`; `COOKIMPORT_ALLOW_CODEX_FARM` remains legacy no-op.
 - For benchmark sequence matcher: `--sequence-matcher` (or interactive `benchmark_sequence_matcher`) wins for that run and temporarily sets `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER` around evaluation.
 - For tag DB URL: `--db-url` wins; env var is fallback.
 

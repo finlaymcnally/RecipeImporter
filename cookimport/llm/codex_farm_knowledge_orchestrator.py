@@ -18,6 +18,7 @@ from .codex_farm_runner import (
     CodexFarmRunner,
     CodexFarmRunnerError,
     SubprocessCodexFarmRunner,
+    as_pipeline_run_result_payload,
     ensure_codex_farm_pipelines_exist,
     resolve_codex_farm_output_schema_path,
 )
@@ -124,7 +125,7 @@ def run_codex_farm_knowledge_harvest(
         overrides=overrides,
     )
 
-    codex_runner.run_pipeline(
+    process_run = codex_runner.run_pipeline(
         pipeline_id,
         pass4_in_dir,
         pass4_out_dir,
@@ -134,6 +135,7 @@ def run_codex_farm_knowledge_harvest(
         model=codex_model,
         reasoning_effort=codex_reasoning_effort,
     )
+    process_run_payload = as_pipeline_run_result_payload(process_run)
 
     outputs = read_pass4_knowledge_outputs(pass4_out_dir)
     missing_chunk_ids = sorted(set(build_report.chunk_ids) - set(outputs))
@@ -167,6 +169,7 @@ def run_codex_farm_knowledge_harvest(
             "manifest_path": str(manifest_path),
         },
         "missing_chunk_ids": missing_chunk_ids,
+        "process_run": process_run_payload,
     }
     _write_json(llm_report, manifest_path)
 

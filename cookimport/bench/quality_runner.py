@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import datetime as dt
 import json
 import math
 import os
 import re
 import statistics
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -219,6 +221,60 @@ class _ResolvedExperiment:
     all_method_runtime: dict[str, Any]
 
 
+def _safe_system_load_ratio_per_cpu() -> float | None:
+    """Best-effort 1m load/cpu ratio; None when unavailable."""
+    try:
+        load_1m, _load_5m, _load_15m = os.getloadavg()
+    except (AttributeError, OSError):
+        return None
+    cpu_count = _coerce_int(os.cpu_count(), minimum=1)
+    if cpu_count <= 0:
+        return None
+    try:
+        ratio = float(load_1m) / float(cpu_count)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+    if not math.isfinite(ratio):
+        return None
+    return max(0.0, ratio)
+
+
+def _resolve_experiment_parallelism_cap(
+    *,
+    requested: int | None,
+    total_experiments: int,
+) -> tuple[int, str, int]:
+    cpu_count = _coerce_int(os.cpu_count(), minimum=1)
+    if requested is None:
+        auto_cap = max(1, min(total_experiments, cpu_count, 8))
+        return auto_cap, "auto", cpu_count
+    fixed_cap = max(1, min(int(requested), total_experiments))
+    return fixed_cap, "fixed", cpu_count
+
+
+def _desired_experiment_parallel_workers(
+    *,
+    workers_cap: int,
+    load_ratio_per_cpu: float | None,
+) -> int:
+    """Map host load pressure to a bounded worker target."""
+    workers_cap = max(1, int(workers_cap))
+    if workers_cap <= 1:
+        return 1
+    if load_ratio_per_cpu is None:
+        return workers_cap
+    pressure = max(0.0, float(load_ratio_per_cpu))
+    if pressure >= 1.05:
+        return 1
+    if pressure >= 0.90:
+        return max(1, int(math.ceil(workers_cap * 0.25)))
+    if pressure >= 0.75:
+        return max(1, int(math.ceil(workers_cap * 0.50)))
+    if pressure >= 0.55:
+        return max(1, int(math.ceil(workers_cap * 0.75)))
+    return workers_cap
+
+
 def run_quality_suite(
     suite: QualitySuite,
     out_dir: Path,
@@ -232,8 +288,10 @@ def run_quality_suite(
     race_finalists: int = 64,
     include_deterministic_sweeps_requested: bool = False,
     include_codex_farm_requested: bool = False,
+    codex_farm_confirmed: bool = False,
     codex_farm_model: str | None = None,
     codex_farm_reasoning_effort: str | None = None,
+    max_parallel_experiments: int | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> Path:
     search_strategy_clean = str(search_strategy or "exhaustive").strip().lower()
@@ -246,6 +304,13 @@ def run_quality_suite(
     race_mid_targets = max(race_probe_targets, int(race_mid_targets))
     race_keep_ratio = max(0.01, min(1.0, float(race_keep_ratio)))
     race_finalists = max(1, int(race_finalists))
+    if max_parallel_experiments is not None:
+        max_parallel_experiments = max(1, int(max_parallel_experiments))
+    if include_codex_farm_requested and not codex_farm_confirmed:
+        raise ValueError(
+            "QualitySuite Codex Farm permutations require explicit positive user "
+            "confirmation. Set codex_farm_confirmed=True only after user approval."
+        )
 
     selected_targets = _resolve_selected_targets(suite)
     if not selected_targets:
@@ -271,6 +336,25 @@ def run_quality_suite(
         experiments=expanded_experiments,
         base_payload=base_settings_payload,
         all_method_runtime_base=all_method_runtime_base,
+    )
+    total_experiments = len(resolved_experiments)
+    max_parallel_experiments_effective, max_parallel_experiments_mode, cpu_count = (
+        _resolve_experiment_parallelism_cap(
+            requested=max_parallel_experiments,
+            total_experiments=total_experiments,
+        )
+    )
+
+    progress_lock = threading.Lock()
+
+    def _thread_safe_progress(message: str) -> None:
+        if progress_callback is None:
+            return
+        with progress_lock:
+            progress_callback(message)
+
+    progress_reporter: ProgressCallback | None = (
+        _thread_safe_progress if progress_callback is not None else None
     )
 
     run_started = dt.datetime.now()
@@ -311,6 +395,14 @@ def run_quality_suite(
             include_deterministic_sweeps_requested
         ),
         "include_codex_farm_requested": bool(include_codex_farm_requested),
+        "include_codex_farm_confirmed": bool(codex_farm_confirmed),
+        "max_parallel_experiments_requested": max_parallel_experiments
+        if max_parallel_experiments is not None
+        else "auto",
+        "max_parallel_experiments_mode": max_parallel_experiments_mode,
+        "max_parallel_experiments_effective": max_parallel_experiments_effective,
+        "max_parallel_experiments_cpu_count": cpu_count,
+        "max_parallel_experiments_adaptive": max_parallel_experiments_mode == "auto",
         "experiments": [
             {
                 "id": item.id,
@@ -342,21 +434,14 @@ def run_quality_suite(
         encoding="utf-8",
     )
 
-    total_experiments = len(resolved_experiments)
-    results: list[QualityExperimentResult] = []
-
-    for index, experiment in enumerate(resolved_experiments, start=1):
-        _notify_progress(
-            progress_callback,
-            (
-                f"{format_task_counter('Quality suite', index, total_experiments, noun='task')}: "
-                f"{experiment.id}"
-            ),
-        )
+    def _run_resolved_experiment(
+        *,
+        experiment: _ResolvedExperiment,
+    ) -> QualityExperimentResult:
         experiment_root = run_root / "experiments" / experiment.id
         experiment_root.mkdir(parents=True, exist_ok=True)
         try:
-            result = _run_single_experiment(
+            return _run_single_experiment(
                 experiment_id=experiment.id,
                 suite_targets=selected_targets,
                 run_root=run_root,
@@ -373,17 +458,142 @@ def run_quality_suite(
                 race_keep_ratio=race_keep_ratio,
                 race_finalists=race_finalists,
                 include_deterministic_sweeps=include_deterministic_sweeps_requested,
-                progress_callback=progress_callback,
+                progress_callback=progress_reporter,
             )
         except Exception as exc:  # noqa: BLE001
-            result = QualityExperimentResult(
+            return QualityExperimentResult(
                 id=experiment.id,
                 status="failed",
                 error=str(exc),
                 run_settings_hash=experiment.run_settings.stable_hash(),
                 run_settings_summary=experiment.run_settings.summary(),
             )
-        results.append(result)
+    results_by_index: list[QualityExperimentResult | None] = [None] * total_experiments
+
+    if max_parallel_experiments_effective <= 1:
+        for index, experiment in enumerate(resolved_experiments, start=1):
+            _notify_progress(
+                progress_reporter,
+                (
+                    f"{format_task_counter('Quality suite', index, total_experiments, noun='task')}: "
+                    f"{experiment.id}"
+                ),
+            )
+            results_by_index[index - 1] = _run_resolved_experiment(
+                experiment=experiment,
+            )
+    else:
+        _notify_progress(
+            progress_reporter,
+            (
+                "Quality suite parallel dispatch: "
+                f"mode={max_parallel_experiments_mode} "
+                f"workers_cap={max_parallel_experiments_effective} "
+                f"tasks={total_experiments}"
+            ),
+        )
+        with ThreadPoolExecutor(
+            max_workers=max_parallel_experiments_effective,
+            thread_name_prefix="quality-exp",
+        ) as executor:
+            future_to_index: dict[Any, int] = {}
+            pending_entries = list(enumerate(resolved_experiments, start=1))
+            next_pending_index = 0
+            dynamic_worker_target = (
+                1
+                if max_parallel_experiments_mode == "auto"
+                else max_parallel_experiments_effective
+            )
+            last_announced_worker_target: int | None = None
+            completed = 0
+
+            while next_pending_index < len(pending_entries) or future_to_index:
+                if max_parallel_experiments_mode == "auto":
+                    load_ratio = _safe_system_load_ratio_per_cpu()
+                    desired_target = _desired_experiment_parallel_workers(
+                        workers_cap=max_parallel_experiments_effective,
+                        load_ratio_per_cpu=load_ratio,
+                    )
+                    if desired_target > dynamic_worker_target:
+                        dynamic_worker_target = min(
+                            desired_target,
+                            dynamic_worker_target + 1,
+                        )
+                    else:
+                        dynamic_worker_target = desired_target
+                else:
+                    load_ratio = None
+                    dynamic_worker_target = max_parallel_experiments_effective
+
+                if dynamic_worker_target != last_announced_worker_target:
+                    load_display = (
+                        f"{load_ratio:.2f}" if load_ratio is not None else "n/a"
+                    )
+                    _notify_progress(
+                        progress_reporter,
+                        (
+                            "Quality suite worker target: "
+                            f"{dynamic_worker_target}/{max_parallel_experiments_effective} "
+                            f"(mode={max_parallel_experiments_mode}, "
+                            f"load_per_cpu={load_display})"
+                        ),
+                    )
+                    last_announced_worker_target = dynamic_worker_target
+
+                while (
+                    next_pending_index < len(pending_entries)
+                    and len(future_to_index) < dynamic_worker_target
+                ):
+                    index, experiment = pending_entries[next_pending_index]
+                    next_pending_index += 1
+                    _notify_progress(
+                        progress_reporter,
+                        (
+                            f"{format_task_counter('Quality suite', index, total_experiments, noun='task')}: "
+                            f"{experiment.id}"
+                        ),
+                    )
+                    future = executor.submit(
+                        _run_resolved_experiment,
+                        experiment=experiment,
+                    )
+                    future_to_index[future] = index
+
+                if not future_to_index:
+                    continue
+
+                done, _pending = wait(
+                    set(future_to_index),
+                    timeout=0.5,
+                    return_when=FIRST_COMPLETED,
+                )
+                if not done:
+                    continue
+                for future in done:
+                    index = future_to_index.pop(future)
+                    completed += 1
+                    position = index - 1
+                    experiment = resolved_experiments[position]
+                    try:
+                        result = future.result()
+                    except Exception as exc:  # pragma: no cover - defensive fallback
+                        result = QualityExperimentResult(
+                            id=experiment.id,
+                            status="failed",
+                            error=str(exc),
+                            run_settings_hash=experiment.run_settings.stable_hash(),
+                            run_settings_summary=experiment.run_settings.summary(),
+                        )
+                    results_by_index[position] = result
+                    _notify_progress(
+                        progress_reporter,
+                        (
+                            f"{format_task_counter('Quality suite complete', completed, total_experiments, noun='task')}: "
+                            f"{result.id}"
+                        ),
+                    )
+
+    results = [result for result in results_by_index if result is not None]
 
     summary_payload = _build_summary_payload(
         suite=suite,

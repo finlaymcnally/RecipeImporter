@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from .codex_farm_runner import CodexFarmPipelineRunResult
+
 OutputBuilder = Callable[[dict[str, Any]], dict[str, Any]]
 
 
@@ -26,7 +28,7 @@ class FakeCodexFarmRunner:
         workspace_root: Path | None = None,  # noqa: ARG002 - parity with subprocess runner
         model: str | None = None,  # noqa: ARG002 - parity with subprocess runner
         reasoning_effort: str | None = None,  # noqa: ARG002 - parity with subprocess runner
-    ) -> None:
+    ) -> CodexFarmPipelineRunResult:
         self.calls.append(pipeline_id)
         out_dir.mkdir(parents=True, exist_ok=True)
         builder = (self.output_builders or {}).get(pipeline_id)
@@ -38,6 +40,17 @@ class FakeCodexFarmRunner:
                 json.dumps(output, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
+        return CodexFarmPipelineRunResult(
+            pipeline_id=pipeline_id,
+            run_id=None,
+            subprocess_exit_code=0,
+            process_exit_code=0,
+            output_schema_path=None,
+            process_payload=None,
+            telemetry_report=None,
+            autotune_report=None,
+            telemetry=None,
+        )
 
 
 def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]:

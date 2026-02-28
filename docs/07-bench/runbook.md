@@ -86,6 +86,19 @@ cookimport bench speed-run \
   --max-targets 3
 ```
 
+If you enable Codex Farm permutations for speed runs, explicit positive confirmation is required:
+
+```bash
+cookimport bench speed-run \
+  --suite data/golden/bench/speed/suites/pulled_from_labelstudio.json \
+  --scenarios benchmark_all_method_multi_source \
+  --warmups 0 \
+  --repeats 1 \
+  --max-targets 3 \
+  --include-codex-farm \
+  --speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION
+```
+
 When this scenario is used, inspect each run’s all-method scheduler telemetry for throughput tuning:
 - `scheduler_timeseries.jsonl`: `admission_active_cap`, `admission_guard_target`, `admission_wing_target`, `admission_reason`
 - report scheduler summary: split-slot guard fields (`split_phase_slots_requested`, `split_phase_slot_mode`, `split_phase_slot_cap_*`) and `adaptive_admission_*` counters
@@ -143,6 +156,34 @@ cookimport bench quality-run \
   --experiments-file data/golden/bench/quality/experiments/example.json
 ```
 
+If you enable Codex Farm permutations, you must provide explicit positive confirmation:
+
+```bash
+cookimport bench quality-run \
+  --suite data/golden/bench/quality/suites/pulled_representative.json \
+  --experiments-file data/golden/bench/quality/experiments/example.json \
+  --include-codex-farm \
+  --qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION
+```
+
+Experiment-level parallelism is CPU-aware by default (auto cap + adaptive worker target based on host load). To pin a fixed cap:
+
+```bash
+cookimport bench quality-run \
+  --suite data/golden/bench/quality/suites/pulled_representative.json \
+  --experiments-file data/golden/bench/quality/experiments/example.json \
+  --max-parallel-experiments 4
+```
+
+Quick tuning guide for `--max-parallel-experiments`:
+
+| Experiment count | Suggested setting |
+| --- | --- |
+| 1-2 | omit flag (auto) or `2` |
+| 3-5 | omit flag (auto) or `3` |
+| 6-10 | omit flag (auto) or `4` |
+| 11+ | omit flag (auto) or `4-6` (watch thermals/background load) |
+
 `quality-run` now defaults to `--search-strategy race`, which does staged pruning:
 
 1. Probe round on a small source subset.
@@ -185,6 +226,30 @@ cookimport bench quality-compare \
 
 By default, compare enforces run-settings parity (`run_settings_hash`).
 Use `--allow-settings-mismatch` only when intentional.
+
+### 4.5 Top-tier certainty tournament (multi-seed)
+
+Use the tournament script to run repeated quality folds and apply fixed PASS/FAIL gates before promoting settings:
+
+```bash
+python scripts/quality_top_tier_tournament.py \
+  --experiments-file data/golden/bench/quality/experiments/2026-02-28_10.31.55_qualitysuite-top-tier-tournament.json \
+  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_10.31.55_qualitysuite-top-tier-gates.json
+```
+
+Optional fixed experiment cap (otherwise quality-run auto parallel mode is used):
+
+```bash
+python scripts/quality_top_tier_tournament.py \
+  --experiments-file data/golden/bench/quality/experiments/2026-02-28_10.31.55_qualitysuite-top-tier-tournament.json \
+  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_10.31.55_qualitysuite-top-tier-gates.json \
+  --max-parallel-experiments 4
+```
+
+Outputs are written under `data/golden/bench/quality/tournaments/<timestamp>/`:
+- `tournament_resolved.json`: resolved config/seeds/candidates used for the run
+- `folds.json`: per-fold quality metrics and leaderboard winner snapshots
+- `summary.json`, `report.md`: aggregate PASS/FAIL verdicts and promoted top-tier candidates
 
 ## 5. Artifact map
 

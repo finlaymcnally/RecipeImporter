@@ -25,6 +25,7 @@ from .codex_farm_runner import (
     CodexFarmRunner,
     CodexFarmRunnerError,
     SubprocessCodexFarmRunner,
+    as_pipeline_run_result_payload,
     ensure_codex_farm_pipelines_exist,
     resolve_codex_farm_output_schema_path,
 )
@@ -158,6 +159,7 @@ def run_codex_farm_recipe_pipeline(
                 pass3_out_dir=pass3_out_dir,
                 llm_manifest_path=llm_raw_dir / "llm_manifest.json",
             ),
+            "process_runs": {},
             "recipes": {},
         }
         _write_json(llm_manifest, llm_raw_dir / "llm_manifest.json")
@@ -171,6 +173,7 @@ def run_codex_farm_recipe_pipeline(
                 "llmRawDir": str(llm_raw_dir),
                 "counts": llm_manifest["counts"],
                 "output_schema_paths": dict(output_schema_paths),
+                "process_runs": {},
             },
             llm_raw_dir=llm_raw_dir,
         )
@@ -207,6 +210,7 @@ def run_codex_farm_recipe_pipeline(
         "pass2_seconds": 0.0,
         "pass3_seconds": 0.0,
     }
+    process_runs: dict[str, dict[str, Any]] = {}
     intermediate_overrides: dict[str, dict[str, Any]] = {}
     final_overrides: dict[str, dict[str, Any]] = {}
 
@@ -243,7 +247,7 @@ def run_codex_farm_recipe_pipeline(
         )
 
     pass1_started = time.perf_counter()
-    codex_runner.run_pipeline(
+    pass1_run = codex_runner.run_pipeline(
         pipelines["pass1"],
         pass1_in_dir,
         pass1_out_dir,
@@ -253,6 +257,9 @@ def run_codex_farm_recipe_pipeline(
         model=codex_model,
         reasoning_effort=codex_reasoning_effort,
     )
+    pass1_payload = as_pipeline_run_result_payload(pass1_run)
+    if pass1_payload is not None:
+        process_runs["pass1"] = pass1_payload
     pass_timing["pass1_seconds"] = round(time.perf_counter() - pass1_started, 3)
     _consume_pass1_outputs(states, pass1_out_dir, total_blocks=total_blocks)
     _apply_pass1_midpoint_clamps(states, total_blocks=total_blocks)
@@ -294,7 +301,7 @@ def run_codex_farm_recipe_pipeline(
         )
     if any(path.suffix == ".json" for path in pass2_in_dir.iterdir()):
         pass2_started = time.perf_counter()
-        codex_runner.run_pipeline(
+        pass2_run = codex_runner.run_pipeline(
             pipelines["pass2"],
             pass2_in_dir,
             pass2_out_dir,
@@ -304,6 +311,9 @@ def run_codex_farm_recipe_pipeline(
             model=codex_model,
             reasoning_effort=codex_reasoning_effort,
         )
+        pass2_payload = as_pipeline_run_result_payload(pass2_run)
+        if pass2_payload is not None:
+            process_runs["pass2"] = pass2_payload
         pass_timing["pass2_seconds"] = round(time.perf_counter() - pass2_started, 3)
     for state in pass2_states:
         if state.pass2_status == "error":
@@ -347,7 +357,7 @@ def run_codex_farm_recipe_pipeline(
         )
     if any(path.suffix == ".json" for path in pass3_in_dir.iterdir()):
         pass3_started = time.perf_counter()
-        codex_runner.run_pipeline(
+        pass3_run = codex_runner.run_pipeline(
             pipelines["pass3"],
             pass3_in_dir,
             pass3_out_dir,
@@ -357,6 +367,9 @@ def run_codex_farm_recipe_pipeline(
             model=codex_model,
             reasoning_effort=codex_reasoning_effort,
         )
+        pass3_payload = as_pipeline_run_result_payload(pass3_run)
+        if pass3_payload is not None:
+            process_runs["pass3"] = pass3_payload
         pass_timing["pass3_seconds"] = round(time.perf_counter() - pass3_started, 3)
     for state in pass3_states:
         out_path = pass3_out_dir / state.bundle_name
@@ -402,6 +415,7 @@ def run_codex_farm_recipe_pipeline(
         llm_manifest_path=llm_manifest_path,
         pipelines=pipelines,
         output_schema_paths=output_schema_paths,
+        process_runs=process_runs,
     )
     _write_json(llm_manifest, llm_manifest_path)
 
@@ -414,6 +428,7 @@ def run_codex_farm_recipe_pipeline(
         "counts": llm_manifest["counts"],
         "timing": llm_manifest["timing"],
         "failures": llm_manifest["failures"],
+        "process_runs": llm_manifest.get("process_runs", {}),
     }
 
     return CodexFarmApplyResult(
@@ -461,6 +476,7 @@ def _build_llm_manifest(
     llm_manifest_path: Path,
     pipelines: dict[str, str],
     output_schema_paths: dict[str, str],
+    process_runs: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     recipe_rows: dict[str, dict[str, Any]] = {}
     failures: list[dict[str, Any]] = []
@@ -513,6 +529,7 @@ def _build_llm_manifest(
             pass3_out_dir=pass3_out_dir,
             llm_manifest_path=llm_manifest_path,
         ),
+        "process_runs": dict(process_runs),
         "failures": failures,
         "recipes": recipe_rows,
         "llm_raw_dir": str(llm_raw_dir),

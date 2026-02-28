@@ -134,6 +134,46 @@ def test_run_speed_suite_writes_artifacts_and_excludes_warmups(
     assert summary["sequence_matcher"] == "dmp"
 
 
+def test_run_speed_suite_rejects_codex_farm_without_confirmation(
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "alpha.epub"
+    source_file.write_text("epub", encoding="utf-8")
+    gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text('{"source_file":"alpha.epub"}\n', encoding="utf-8")
+
+    suite = SpeedSuite(
+        name="speed_suite",
+        generated_at="2026-02-28_12.00.00",
+        gold_root=str((tmp_path / "gold").resolve()),
+        input_root=str(tmp_path.resolve()),
+        targets=[
+            SpeedTarget(
+                target_id="alpha",
+                source_file=str(source_file.resolve()),
+                gold_spans_path=str(gold_spans.resolve()),
+            )
+        ],
+        unmatched=[],
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        run_speed_suite(
+            suite,
+            tmp_path / "runs",
+            scenarios=[SpeedScenario.STAGE_IMPORT],
+            warmups=0,
+            repeats=1,
+            run_settings=RunSettings.from_dict({}, warn_context="test speed runner"),
+            include_codex_farm_requested=True,
+            codex_farm_confirmed=False,
+            progress_callback=None,
+        )
+
+    assert "explicit positive user confirmation" in str(excinfo.value)
+
+
 def test_run_speed_suite_all_method_multi_source_runs_once_per_phase(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

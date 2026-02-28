@@ -71,6 +71,10 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
 
     assert apply_result.llm_report["enabled"] is True
     assert "output_schema_path" in apply_result.llm_report
+    assert "process_run" in apply_result.llm_report
+    assert apply_result.llm_report["process_run"]["pipeline_id"] == "recipe.knowledge.v1"
+    assert "telemetry_report" in apply_result.llm_report["process_run"]
+    assert "autotune_report" in apply_result.llm_report["process_run"]
     assert apply_result.manifest_path.exists()
     manifest = json.loads(apply_result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"]["jobs_written"] > 0

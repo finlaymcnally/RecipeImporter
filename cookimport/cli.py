@@ -208,6 +208,9 @@ DEFAULT_PRELABEL_TIMEOUT_SECONDS = 300
 KNOWN_LABELSTUDIO_TASK_SCOPES = {"pipeline", "canonical-blocks", "freeform-spans"}
 SUPPORTED_LABELSTUDIO_TASK_SCOPES = {"freeform-spans"}
 ALL_METHOD_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
+BENCH_CODEX_FARM_CONFIRMATION_TOKEN = "I_HAVE_EXPLICIT_USER_CONFIRMATION"
+QUALITY_RUN_CODEX_FARM_CONFIRMATION_TOKEN = BENCH_CODEX_FARM_CONFIRMATION_TOKEN
+SPEED_RUN_CODEX_FARM_CONFIRMATION_TOKEN = BENCH_CODEX_FARM_CONFIRMATION_TOKEN
 ALL_METHOD_EPUB_EXTRACTORS_DEFAULT = (
     "unstructured",
     "beautifulsoup",
@@ -7032,6 +7035,46 @@ def _resolve_all_method_codex_choice(include_codex_farm: bool) -> tuple[bool, st
     if not include_codex_farm:
         return False, None
     return True, None
+
+
+def _resolve_qualitysuite_codex_farm_confirmation(
+    *,
+    include_codex_farm: bool,
+    confirmation: str | None,
+) -> bool:
+    if not include_codex_farm:
+        return False
+    provided = str(confirmation or "").strip()
+    if provided == QUALITY_RUN_CODEX_FARM_CONFIRMATION_TOKEN:
+        return True
+    _fail(
+        "bench quality-run with --include-codex-farm requires explicit positive user "
+        "confirmation. Re-run with "
+        f"--qualitysuite-codex-farm-confirmation "
+        f"{QUALITY_RUN_CODEX_FARM_CONFIRMATION_TOKEN} "
+        "only after the user has explicitly approved Codex Farm usage."
+    )
+    return False
+
+
+def _resolve_speedsuite_codex_farm_confirmation(
+    *,
+    include_codex_farm: bool,
+    confirmation: str | None,
+) -> bool:
+    if not include_codex_farm:
+        return False
+    provided = str(confirmation or "").strip()
+    if provided == SPEED_RUN_CODEX_FARM_CONFIRMATION_TOKEN:
+        return True
+    _fail(
+        "bench speed-run with --include-codex-farm requires explicit positive user "
+        "confirmation. Re-run with "
+        f"--speedsuite-codex-farm-confirmation "
+        f"{SPEED_RUN_CODEX_FARM_CONFIRMATION_TOKEN} "
+        "only after the user has explicitly approved Codex Farm usage."
+    )
+    return False
 
 
 def _resolve_all_method_markdown_extractors_choice() -> bool:
@@ -19860,6 +19903,14 @@ def bench_speed_run(
             "Include Codex Farm recipe pipeline permutations in all-method scenarios."
         ),
     ),
+    speedsuite_codex_farm_confirmation: str | None = typer.Option(
+        None,
+        "--speedsuite-codex-farm-confirmation",
+        help=(
+            "Required with --include-codex-farm. Set to "
+            "I_HAVE_EXPLICIT_USER_CONFIRMATION only after explicit positive user approval."
+        ),
+    ),
     codex_farm_model: str | None = typer.Option(
         None,
         "--codex-farm-model",
@@ -19897,8 +19948,15 @@ def bench_speed_run(
     run_settings_file = _unwrap_typer_option_default(run_settings_file)
     sequence_matcher = _unwrap_typer_option_default(sequence_matcher)
     include_codex_farm = _unwrap_typer_option_default(include_codex_farm)
+    speedsuite_codex_farm_confirmation = _unwrap_typer_option_default(
+        speedsuite_codex_farm_confirmation
+    )
     codex_farm_model = _unwrap_typer_option_default(codex_farm_model)
     codex_farm_reasoning_effort = _unwrap_typer_option_default(codex_farm_reasoning_effort)
+    codex_farm_confirmed = _resolve_speedsuite_codex_farm_confirmation(
+        include_codex_farm=include_codex_farm,
+        confirmation=speedsuite_codex_farm_confirmation,
+    )
 
     try:
         loaded_suite = load_speed_suite(suite)
@@ -19984,6 +20042,7 @@ def bench_speed_run(
                 max_targets=max_targets,
                 run_settings=run_settings,
                 include_codex_farm_requested=include_codex_farm,
+                codex_farm_confirmed=codex_farm_confirmed,
                 progress_callback=update_progress,
             ),
         )
@@ -20238,6 +20297,15 @@ def bench_quality_run(
         min=1,
         help="Minimum finalist config count preserved for the full-suite round in race mode.",
     ),
+    max_parallel_experiments: int | None = typer.Option(
+        None,
+        "--max-parallel-experiments",
+        help=(
+            "Maximum number of quality experiments executed concurrently. "
+            "Each experiment still uses all-method internal scheduling. "
+            "When omitted, quality-run auto-selects a CPU-aware adaptive cap."
+        ),
+    ),
     include_deterministic_sweeps: bool = typer.Option(
         False,
         "--include-deterministic-sweeps/--no-include-deterministic-sweeps",
@@ -20252,6 +20320,14 @@ def bench_quality_run(
         "--include-codex-farm/--no-include-codex-farm",
         help=(
             "Include Codex Farm recipe pipeline permutations in all-method runs."
+        ),
+    ),
+    qualitysuite_codex_farm_confirmation: str | None = typer.Option(
+        None,
+        "--qualitysuite-codex-farm-confirmation",
+        help=(
+            "Required with --include-codex-farm. Set to "
+            "I_HAVE_EXPLICIT_USER_CONFIRMATION only after explicit positive user approval."
         ),
     ),
     codex_farm_model: str | None = typer.Option(
@@ -20271,7 +20347,7 @@ def bench_quality_run(
         ),
     ] = None,
 ) -> None:
-    """Run sequential all-method quality experiments for a quality suite."""
+    """Run all-method quality experiments for a quality suite."""
     from cookimport.bench.quality_runner import run_quality_suite
     from cookimport.bench.quality_suite import (
         load_quality_suite,
@@ -20287,12 +20363,27 @@ def bench_quality_run(
     race_mid_targets = _unwrap_typer_option_default(race_mid_targets)
     race_keep_ratio = _unwrap_typer_option_default(race_keep_ratio)
     race_finalists = _unwrap_typer_option_default(race_finalists)
+    max_parallel_experiments = _unwrap_typer_option_default(max_parallel_experiments)
+    if max_parallel_experiments is not None:
+        try:
+            max_parallel_experiments = int(max_parallel_experiments)
+        except (TypeError, ValueError):
+            _fail("--max-parallel-experiments must be an integer >= 1.")
+        if max_parallel_experiments < 1:
+            _fail("--max-parallel-experiments must be >= 1 when provided.")
     include_deterministic_sweeps = _unwrap_typer_option_default(
         include_deterministic_sweeps
     )
     include_codex_farm = _unwrap_typer_option_default(include_codex_farm)
+    qualitysuite_codex_farm_confirmation = _unwrap_typer_option_default(
+        qualitysuite_codex_farm_confirmation
+    )
     codex_farm_model = _unwrap_typer_option_default(codex_farm_model)
     codex_farm_reasoning_effort = _unwrap_typer_option_default(codex_farm_reasoning_effort)
+    codex_farm_confirmed = _resolve_qualitysuite_codex_farm_confirmation(
+        include_codex_farm=include_codex_farm,
+        confirmation=qualitysuite_codex_farm_confirmation,
+    )
 
     if include_codex_farm:
         os.environ[ALL_METHOD_CODEX_FARM_UNLOCK_ENV] = "1"
@@ -20342,8 +20433,10 @@ def bench_quality_run(
                 race_mid_targets=race_mid_targets,
                 race_keep_ratio=race_keep_ratio,
                 race_finalists=race_finalists,
+                max_parallel_experiments=max_parallel_experiments,
                 include_deterministic_sweeps_requested=include_deterministic_sweeps,
                 include_codex_farm_requested=include_codex_farm,
+                codex_farm_confirmed=codex_farm_confirmed,
                 codex_farm_model=str(codex_farm_model).strip() or None
                 if codex_farm_model is not None
                 else None,

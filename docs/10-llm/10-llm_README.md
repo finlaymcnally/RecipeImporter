@@ -56,6 +56,10 @@ Pass5 tags modules:
 Report/model plumbing:
 
 - `cookimport/core/models.py` (`ConversionReport.llm_codex_farm` field carried in stage/pred-run reports)
+- Codex subprocess metadata is now persisted per pass:
+  - recipe pass manifest/report: `process_runs.pass1|pass2|pass3`
+  - pass4 knowledge report: `process_run`
+  - pass5 tags report: `process_run`
 
 ## Policy boundary (current behavior)
 
@@ -104,6 +108,47 @@ Report/model plumbing:
   - per-run chooser prompt default `Yes`,
   - all-method permutations prompt default `Yes`.
 - Bench/stage behavior remains explicit opt-in at command/profile level (`--include-codex-farm` and run-settings choices); no implicit global always-on execution.
+
+### 2026-02-28_09.26.29 codex-farm connection contract alignment
+
+- Merged from former `docs/tasks/2026-02-28_09.26.29-codex-farm-connection-contract-alignment.md` (file removed after merge).
+- Interactive model discovery now follows caller contract via `codex-farm models list --json` (best-effort fallback if unavailable).
+- Subprocess-backed pass orchestration prevalidates configured pipeline ids via `codex-farm pipelines list --root <pack> --json`.
+- Subprocess failure diagnostics now parse `process --json` and, when `run_id` is present, append `codex-farm run errors --run-id <run_id> --json` context.
+- Boundary note:
+  - strict pipeline prevalidation is scoped to subprocess-backed execution and does not block fake/injected test runners.
+
+### 2026-02-28_09.49.32 codex-farm caller output-schema enforcement
+
+- Merged from former `docs/tasks/2026-02-28_09.49.32-codex-farm-output-schema-enforcement.md` (file removed after merge).
+- Recipe/pass4/pass5 subprocess calls now resolve each pipeline `output_schema_path` from pack pipeline definitions and pass it explicitly as `--output-schema`.
+- Fail-fast guards now trigger before subprocess execution for:
+  - missing/duplicate pipeline definition for requested `pipeline_id`,
+  - missing `output_schema_path`,
+  - missing schema file on disk.
+- When `process --json` payload is present, runner now requires `output_schema_path` and validates parity with caller-expected schema path.
+- Runtime auditability:
+  - recipe pass manifest/report: `output_schema_paths`,
+  - pass4/pass5 reports: `output_schema_path`.
+
+### 2026-02-28_10.15.00 codex-exec telemetry contract ingest
+
+- Merged from former `docs/tasks/2026-02-28_10.15.00-codex-farm-telemetry-contract-ingest.md` (file removed after merge).
+- Runner now returns structured process metadata plus:
+  - `telemetry_report` copied from `process --json.telemetry_report` (CodexFarm caller contract, schema v2),
+  - `autotune_report` from `run autotune --run-id <id> --json` (flag overrides, command preview, and optional prompt/pipeline diffs),
+  - compact best-effort telemetry slices from `codex_exec_activity.csv` keyed by `run_id` + `pipeline_id` under `telemetry`.
+- Persisted telemetry surfaces:
+  - recipe pass manifest/report: `process_runs.pass1|pass2|pass3`,
+  - pass4 knowledge report: `process_run`,
+  - pass5 tags report: `process_run`.
+- Telemetry ingestion remains non-fatal:
+  - missing/unreadable telemetry CSV adds warnings in payload and does not fail conversion runs,
+  - missing embedded `telemetry_report` (older codex-farm or `--no-telemetry-report`) is tolerated,
+  - missing/unsupported `run autotune` command is tolerated (payload key remains null).
+- CSV resolution follows codex-farm process semantics:
+  - `--data-dir` override when present,
+  - otherwise `<cwd>/var`.
 
 ## Active optional passes
 
@@ -238,7 +283,7 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 - For run `2026-02-28_03.54.15`, artifacts showed `llm_recipe_pipeline=off` and `llm_codex_farm.enabled=false`; nearby file edits around `04:00` explain likely normalization drift during that session.
 - For incident triage, trust persisted run artifacts (`run_manifest`, run settings snapshot) over assumptions from current head code.
 
-## 2026-02-28 migrated understandings batch (04:05-09:17 Codex gate surfaces and connection contract)
+## 2026-02-28 migrated understandings batch (04:05-10:08 Codex gate surfaces and connection contract)
 
 ### 2026-02-28_04.05.20 codex-farm gate surface map
 - Source: `docs/understandings/2026-02-28_04.05.20-codex-farm-gate-surface-map.md`
@@ -270,3 +315,51 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 - Runtime manifests/reports now surface schema paths for auditing:
   - recipe pass manifest/report: `output_schema_paths`
   - pass4/pass5 reports: `output_schema_path`
+
+### 2026-02-28_10.08.00 codex-exec telemetry ingestion in recipeimport
+- Recipe/pass4/pass5 runner calls now retain per-process metadata (`run_id`, `process_exit_code`, `subprocess_exit_code`, `process_payload`) and also surface:
+  - `telemetry_report` from `process --json` (CodexFarm schema-v2 caller contract with `insights` and `tuning_playbook`),
+  - `autotune_report` from `run autotune --json` (non-mutating override/diff suggestions),
+  - `telemetry` CSV slices keyed by `run_id` + `pipeline_id` for compact per-row context.
+- Telemetry slices are read from Codex Farm `codex_exec_activity.csv` and persisted into recipe artifacts (`process_runs` / `process_run`) with compact rows + summary counts for:
+  - retry context and previous-error hashes,
+  - Heads Up tip ids/texts/scores and usage flags,
+  - normalized failures and suspected rate limits,
+  - output hashes/previews/presence stats,
+  - codex event count/type summaries and token counters.
+
+## 2026-02-28 merged understandings (09:26-10:13 codex-farm subprocess and telemetry boundary)
+
+The items below were merged from `docs/understandings` in source timestamp order.
+
+### 2026-02-28_09.26.29 codex-farm connection contract aligned
+- Source: `docs/understandings/2026-02-28_09.26.29-codex-farm-connection-contract-aligned.md`
+- Interactive model discovery now uses `codex-farm models list --json` via runner helper so choices reflect live CLI discovery.
+- Subprocess-backed recipe/pass4/pass5 flows validate pipeline IDs using `codex-farm pipelines list --root <pack> --json` before execution.
+- Failure paths parse `process --json` and pull first-error details from `codex-farm run errors --run-id <run_id> --json` when available.
+
+### 2026-02-28_09.50.17 codex-farm output schema resolution point
+- Source: `docs/understandings/2026-02-28_09.50.17-codex-farm-output-schema-resolution-point.md`
+- Correct caller-side insertion point for schema enforcement is `SubprocessCodexFarmRunner.run_pipeline(...)` command assembly.
+- This single boundary guarantees consistent `--output-schema` handling across recipe pass1/2/3, pass4 knowledge, and pass5 tags.
+- Process payload contract check also belongs here: validate returned `output_schema_path` against caller-expected schema path.
+
+### 2026-02-28_10.03.37 codex-exec telemetry consumption boundary (historical snapshot)
+- Source: `docs/understandings/2026-02-28_10.03.37-codex-exec-telemetry-consumption-boundary.md`
+- Snapshot finding at that time: repo runtime did not yet ingest `codex_exec_activity.csv` rich telemetry fields; analytics consumed performance history contracts instead.
+- This historical boundary is intentionally kept to prevent false assumptions when reading older artifacts or logs.
+- Superseded by the implementation captured in `2026-02-28_10.13.48` and task merge entry `2026-02-28_10.08.00`.
+
+### 2026-02-28_10.13.48 codex-farm run-id telemetry ingestion path
+- Source: `docs/understandings/2026-02-28_10.13.48-codex-farm-runid-telemetry-ingestion-path.md`
+- `run_id` from `process --json` is the join key into Codex Farm telemetry rows for the exact pipeline run.
+- Runner now persists compact pass-level telemetry slices in:
+  - recipe pass manifests/reports: `process_runs.pass1|pass2|pass3`
+  - pass4/pass5 reports: `process_run`
+- Telemetry ingestion remains non-fatal and warnings are carried in payloads when CSV data is missing/unreadable.
+- CSV path discovery follows codex-farm semantics: explicit `--data-dir` if present, otherwise `<cwd>/var/codex_exec_activity.csv`.
+
+### Known bad or easy-to-repeat mistakes
+- Do not inject schema enforcement separately in each orchestrator; keep it centralized at subprocess runner command assembly.
+- Do not treat missing telemetry CSV as conversion failure; current contract is warn-and-continue with bounded payload slices.
+- When behavior differs between UI choices and runtime, verify live CLI discovery and persisted run artifacts before changing prompts or enums.

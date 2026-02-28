@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import threading
+import time
 
 import pytest
 
@@ -214,6 +216,7 @@ def test_run_quality_suite_writes_artifacts_and_continues_after_failure(
         tmp_path / "runs",
         experiments_file=experiments_file,
         base_run_settings_file=base_run_settings_file,
+        max_parallel_experiments=1,
         progress_callback=progress_messages.append,
     )
 
@@ -277,6 +280,285 @@ def test_run_quality_suite_rejects_unknown_patch_keys(tmp_path: Path) -> None:
         )
 
     assert "unknown run_settings_patch key" in str(excinfo.value)
+
+
+def test_run_quality_suite_rejects_codex_farm_without_confirmation(
+    tmp_path: Path,
+) -> None:
+    suite = _build_suite(tmp_path)
+    experiments_file = tmp_path / "experiments.json"
+    _write_json(
+        experiments_file,
+        {
+            "schema_version": 1,
+            "experiments": [{"id": "baseline", "run_settings_patch": {}}],
+        },
+    )
+    base_run_settings_file = tmp_path / "base_run_settings.json"
+    _write_json(base_run_settings_file, {})
+
+    with pytest.raises(ValueError) as excinfo:
+        run_quality_suite(
+            suite,
+            tmp_path / "runs",
+            experiments_file=experiments_file,
+            base_run_settings_file=base_run_settings_file,
+            include_codex_farm_requested=True,
+            codex_farm_confirmed=False,
+            progress_callback=None,
+        )
+
+    assert "explicit positive user confirmation" in str(excinfo.value)
+
+
+def test_run_quality_suite_parallelizes_experiments_and_preserves_summary_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    suite = _build_suite(tmp_path)
+    experiments_file = tmp_path / "experiments_parallel.json"
+    _write_json(
+        experiments_file,
+        {
+            "schema_version": 1,
+            "experiments": [
+                {"id": "baseline", "run_settings_patch": {}},
+                {"id": "candidate", "run_settings_patch": {"workers": 3}},
+            ],
+        },
+    )
+    base_run_settings_file = tmp_path / "base_run_settings.json"
+    _write_json(base_run_settings_file, {"workers": 2})
+
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_codex_choice",
+        lambda _include_codex: (False, None),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_markdown_extractors_choice",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._build_all_method_target_variants",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._probe_all_method_process_pool_executor",
+        lambda: (True, None),
+    )
+
+    started: set[str] = set()
+    started_lock = threading.Lock()
+    both_started = threading.Event()
+    completion_order: list[str] = []
+
+    def _fake_run_all_method_multi_source(**kwargs):
+        root_output_dir = Path(kwargs["root_output_dir"])
+        experiment_id = root_output_dir.name
+
+        with started_lock:
+            started.add(experiment_id)
+            if len(started) >= 2:
+                both_started.set()
+
+        assert both_started.wait(timeout=0.5)
+        if experiment_id == "baseline":
+            time.sleep(0.06)
+        else:
+            time.sleep(0.01)
+
+        source_report = (
+            root_output_dir
+            / "sources"
+            / experiment_id
+            / "all_method_benchmark_report.json"
+        )
+        _write_json(
+            source_report,
+            {
+                "winner_by_f1": {
+                    "precision": 0.60,
+                    "recall": 0.60,
+                    "f1": 0.60,
+                    "practical_precision": 0.70,
+                    "practical_recall": 0.70,
+                    "practical_f1": 0.70,
+                }
+            },
+        )
+
+        report_md_path = root_output_dir / "all_method_benchmark_multi_source_report.md"
+        report_json_path = report_md_path.with_suffix(".json")
+        _write_json(
+            report_json_path,
+            {
+                "matched_target_count": 1,
+                "total_config_runs_planned": 1,
+                "total_config_runs_completed": 1,
+                "total_config_runs_successful": 1,
+                "evaluation_signatures_unique": 1,
+                "evaluation_runs_executed": 1,
+                "evaluation_results_reused_in_run": 0,
+                "evaluation_results_reused_cross_run": 0,
+                "sources": [
+                    {
+                        "source_group_key": experiment_id,
+                        "status": "ok",
+                        "source_shard_total": 1,
+                        "report_json_path": str(
+                            source_report.relative_to(root_output_dir)
+                        ),
+                        "winner_metrics": {"precision": 0.6, "recall": 0.6, "f1": 0.6},
+                    }
+                ],
+            },
+        )
+        report_md_path.write_text("report", encoding="utf-8")
+        completion_order.append(experiment_id)
+        return report_md_path
+
+    monkeypatch.setattr(
+        "cookimport.cli._run_all_method_benchmark_multi_source",
+        _fake_run_all_method_multi_source,
+    )
+
+    run_root = run_quality_suite(
+        suite,
+        tmp_path / "runs",
+        experiments_file=experiments_file,
+        base_run_settings_file=base_run_settings_file,
+        search_strategy="exhaustive",
+        max_parallel_experiments=2,
+        progress_callback=None,
+    )
+
+    assert both_started.is_set()
+    assert completion_order[0] == "candidate"
+
+    summary = json.loads((run_root / "summary.json").read_text(encoding="utf-8"))
+    assert [row["id"] for row in summary["experiments"]] == ["baseline", "candidate"]
+
+    resolved = json.loads(
+        (run_root / "experiments_resolved.json").read_text(encoding="utf-8")
+    )
+    assert resolved["max_parallel_experiments_requested"] == 2
+    assert resolved["max_parallel_experiments_effective"] == 2
+
+
+def test_run_quality_suite_auto_parallelism_uses_cpu_aware_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    suite = _build_suite(tmp_path)
+    experiments_file = tmp_path / "experiments_auto.json"
+    _write_json(
+        experiments_file,
+        {
+            "schema_version": 1,
+            "experiments": [
+                {"id": "baseline", "run_settings_patch": {}},
+                {"id": "candidate", "run_settings_patch": {"workers": 3}},
+            ],
+        },
+    )
+    base_run_settings_file = tmp_path / "base_run_settings.json"
+    _write_json(base_run_settings_file, {"workers": 2})
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner.os.cpu_count",
+        lambda: 6,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner.os.getloadavg",
+        lambda: (0.05, 0.05, 0.05),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_codex_choice",
+        lambda _include_codex: (False, None),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_markdown_extractors_choice",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._build_all_method_target_variants",
+        lambda **_kwargs: [],
+    )
+
+    def _fake_run_all_method_multi_source(**kwargs):
+        root_output_dir = Path(kwargs["root_output_dir"])
+        experiment_id = root_output_dir.name
+        source_report = (
+            root_output_dir
+            / "sources"
+            / experiment_id
+            / "all_method_benchmark_report.json"
+        )
+        _write_json(
+            source_report,
+            {
+                "winner_by_f1": {
+                    "precision": 0.60,
+                    "recall": 0.60,
+                    "f1": 0.60,
+                    "practical_precision": 0.70,
+                    "practical_recall": 0.70,
+                    "practical_f1": 0.70,
+                }
+            },
+        )
+        report_md_path = root_output_dir / "all_method_benchmark_multi_source_report.md"
+        report_json_path = report_md_path.with_suffix(".json")
+        _write_json(
+            report_json_path,
+            {
+                "matched_target_count": 1,
+                "total_config_runs_planned": 1,
+                "total_config_runs_completed": 1,
+                "total_config_runs_successful": 1,
+                "evaluation_signatures_unique": 1,
+                "evaluation_runs_executed": 1,
+                "evaluation_results_reused_in_run": 0,
+                "evaluation_results_reused_cross_run": 0,
+                "sources": [
+                    {
+                        "source_group_key": experiment_id,
+                        "status": "ok",
+                        "source_shard_total": 1,
+                        "report_json_path": str(
+                            source_report.relative_to(root_output_dir)
+                        ),
+                        "winner_metrics": {"precision": 0.6, "recall": 0.6, "f1": 0.6},
+                    }
+                ],
+            },
+        )
+        report_md_path.write_text("report", encoding="utf-8")
+        return report_md_path
+
+    monkeypatch.setattr(
+        "cookimport.cli._run_all_method_benchmark_multi_source",
+        _fake_run_all_method_multi_source,
+    )
+
+    run_root = run_quality_suite(
+        suite,
+        tmp_path / "runs",
+        experiments_file=experiments_file,
+        base_run_settings_file=base_run_settings_file,
+        search_strategy="exhaustive",
+        max_parallel_experiments=None,
+        progress_callback=None,
+    )
+
+    resolved = json.loads(
+        (run_root / "experiments_resolved.json").read_text(encoding="utf-8")
+    )
+    assert resolved["max_parallel_experiments_requested"] == "auto"
+    assert resolved["max_parallel_experiments_mode"] == "auto"
+    assert resolved["max_parallel_experiments_cpu_count"] == 6
+    assert resolved["max_parallel_experiments_effective"] == 2
+    assert resolved["max_parallel_experiments_adaptive"] is True
 
 
 def test_quality_cache_root_honors_env_override(

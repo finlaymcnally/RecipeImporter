@@ -15,6 +15,7 @@ from cookimport.llm.codex_farm_runner import (
     CodexFarmRunner,
     CodexFarmRunnerError,
     SubprocessCodexFarmRunner,
+    as_pipeline_run_result_payload,
     ensure_codex_farm_pipelines_exist,
     resolve_codex_farm_output_schema_path,
 )
@@ -234,7 +235,7 @@ def _run_with_dirs(
         filenames_by_recipe_key[job.recipe_key] = filename
         jobs_by_filename[filename] = job
 
-    codex_runner.run_pipeline(
+    process_run = codex_runner.run_pipeline(
         pipeline_id,
         in_dir,
         out_dir,
@@ -244,6 +245,7 @@ def _run_with_dirs(
         model=codex_farm_model,
         reasoning_effort=codex_farm_reasoning_effort,
     )
+    process_run_payload = as_pipeline_run_result_payload(process_run)
 
     suggestions_by_recipe: dict[str, list[TagSuggestion]] = {job.recipe_key: [] for job in jobs}
     proposals_by_recipe: dict[str, list[dict[str, str]]] = {job.recipe_key: [] for job in jobs}
@@ -350,6 +352,7 @@ def _run_with_dirs(
         },
         "timing": {"total_seconds": elapsed_seconds},
         "paths": {"in_dir": str(in_dir), "out_dir": str(out_dir)},
+        "process_run": process_run_payload,
     }
     if manifest_path is not None:
         _write_json({"llm_report": llm_report, "llm_validation": llm_validation}, manifest_path)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import datetime as dt
 import json
 from pathlib import Path
@@ -114,6 +115,8 @@ def test_orchestrator_runs_three_passes_and_writes_manifest(tmp_path: Path) -> N
     assert manifest["counts"]["pass1_ok"] == 1
     assert manifest["counts"]["pass3_ok"] == 1
     assert manifest["output_schema_paths"] == {}
+    assert sorted(manifest["process_runs"].keys()) == ["pass1", "pass2", "pass3"]
+    assert apply_result.llm_report["process_runs"] == manifest["process_runs"]
 
 
 def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
@@ -368,27 +371,52 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
     )
 
     captured: dict[str, object] = {}
+    calls: list[list[str]] = []
 
     def _fake_run(command, **kwargs):  # noqa: ANN001
-        captured["command"] = list(command)
+        argv = list(command)
+        calls.append(argv)
         captured["env"] = kwargs.get("env")
-        return SimpleNamespace(
-            returncode=0,
-            stdout=json.dumps(
-                {
-                    "run_id": "run-123",
-                    "status": "completed",
-                    "exit_code": 0,
-                    "output_schema_path": str(schema_path),
-                }
-            ),
-            stderr="",
-        )
+        if argv[1:3] == ["process", "--pipeline"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "run_id": "run-test-passes-root-and-workspace-flags",
+                        "status": "completed",
+                        "exit_code": 0,
+                        "output_schema_path": str(schema_path),
+                        "telemetry_report": {
+                            "schema_version": 2,
+                            "matched_rows": 0,
+                            "insights": {},
+                            "recommendations": {},
+                            "tuning_playbook": {},
+                        },
+                    }
+                ),
+                stderr="",
+            )
+        if argv[1:3] == ["run", "autotune"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "schema_version": 1,
+                        "run_id": "run-test-passes-root-and-workspace-flags",
+                        "pipeline_id": "recipe.chunking.v1",
+                        "flag_overrides": [],
+                        "command_preview": "",
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {argv}")
 
     monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
 
     runner = SubprocessCodexFarmRunner(cmd="codex-farm")
-    runner.run_pipeline(
+    run_result = runner.run_pipeline(
         "recipe.chunking.v1",
         in_dir,
         out_dir,
@@ -398,8 +426,18 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
         model="gpt-test-model",
         reasoning_effort="low",
     )
+    assert run_result.run_id == "run-test-passes-root-and-workspace-flags"
+    assert run_result.process_exit_code == 0
+    assert run_result.subprocess_exit_code == 0
+    assert run_result.output_schema_path == str(schema_path)
+    assert run_result.telemetry_report is not None
+    assert run_result.telemetry_report["schema_version"] == 2
+    assert run_result.autotune_report is not None
+    assert run_result.autotune_report["schema_version"] == 1
+    assert run_result.telemetry is not None
+    assert run_result.telemetry.get("row_count") == 0
 
-    command = captured.get("command")
+    command = calls[0]
     assert isinstance(command, list)
     assert "--root" in command
     assert str(root_dir) in command
@@ -411,6 +449,247 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
     assert "low" in command
     assert "--output-schema" in command
     assert str(schema_path) in command
+    assert calls[1] == [
+        "codex-farm",
+        "run",
+        "autotune",
+        "--run-id",
+        "run-test-passes-root-and-workspace-flags",
+        "--json",
+        "--pipeline",
+        "recipe.chunking.v1",
+    ]
+
+
+def test_subprocess_runner_collects_codex_exec_activity_telemetry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    root_dir = tmp_path / "pack"
+    data_dir = tmp_path / "farm-data"
+    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    telemetry_csv = data_dir / "codex_exec_activity.csv"
+
+    in_dir.mkdir(parents=True, exist_ok=True)
+    schema_path.parent.mkdir(parents=True, exist_ok=True)
+    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+    schema_path.write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": False,
+                "required": [],
+                "properties": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pipeline_path.write_text(
+        json.dumps(
+            {
+                "pipeline_id": "recipe.chunking.v1",
+                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    fieldnames = [
+        "logged_at_utc",
+        "started_at_utc",
+        "finished_at_utc",
+        "duration_ms",
+        "status",
+        "exit_code",
+        "accepted_nonzero_exit",
+        "output_payload_present",
+        "output_bytes",
+        "output_sha256",
+        "output_preview",
+        "output_preview_chars",
+        "output_preview_truncated",
+        "codex_event_count",
+        "codex_event_types_json",
+        "tokens_input",
+        "tokens_cached_input",
+        "tokens_output",
+        "tokens_total",
+        "prompt_sha256",
+        "prompt_chars",
+        "pipeline_id",
+        "run_id",
+        "task_id",
+        "worker_id",
+        "input_path",
+        "output_path",
+        "heads_up_applied",
+        "heads_up_tip_count",
+        "heads_up_input_signature",
+        "heads_up_tip_ids_json",
+        "heads_up_tip_texts_json",
+        "heads_up_tip_scores_json",
+        "attempt_index",
+        "retry_context_applied",
+        "retry_previous_error",
+        "retry_previous_error_chars",
+        "retry_previous_error_sha256",
+        "failure_category",
+        "rate_limit_suspected",
+        "stderr_tail",
+        "stdout_tail",
+    ]
+    with telemetry_csv.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerow(
+            {
+                "logged_at_utc": "2026-02-28T09:00:00.000Z",
+                "started_at_utc": "2026-02-28T08:59:58.000Z",
+                "finished_at_utc": "2026-02-28T09:00:00.000Z",
+                "duration_ms": "2000",
+                "status": "ok",
+                "exit_code": "0",
+                "accepted_nonzero_exit": "false",
+                "output_payload_present": "true",
+                "output_bytes": "321",
+                "output_sha256": "abc123",
+                "output_preview": "{\"bundle_version\":\"1\"}",
+                "output_preview_chars": "22",
+                "output_preview_truncated": "false",
+                "codex_event_count": "4",
+                "codex_event_types_json": json.dumps(
+                    ["thread.started", "turn.completed"],
+                    sort_keys=True,
+                ),
+                "tokens_input": "100",
+                "tokens_cached_input": "20",
+                "tokens_output": "30",
+                "tokens_total": "130",
+                "prompt_sha256": "prompt-sha",
+                "prompt_chars": "999",
+                "pipeline_id": "recipe.chunking.v1",
+                "run_id": "run-123",
+                "task_id": "task-1",
+                "worker_id": "worker-a",
+                "input_path": "/tmp/in.json",
+                "output_path": "/tmp/out.json",
+                "heads_up_applied": "true",
+                "heads_up_tip_count": "2",
+                "heads_up_input_signature": "sig-1",
+                "heads_up_tip_ids_json": json.dumps(["tip-a", "tip-b"], sort_keys=True),
+                "heads_up_tip_texts_json": json.dumps(["Tip A", "Tip B"], sort_keys=True),
+                "heads_up_tip_scores_json": json.dumps([0.9, 0.2], sort_keys=True),
+                "attempt_index": "2",
+                "retry_context_applied": "true",
+                "retry_previous_error": "schema validation failed",
+                "retry_previous_error_chars": "24",
+                "retry_previous_error_sha256": "retry-sha",
+                "failure_category": "accepted_nonzero_exit",
+                "rate_limit_suspected": "false",
+                "stderr_tail": "",
+                "stdout_tail": "",
+            }
+        )
+
+    calls: list[list[str]] = []
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        argv = list(command)
+        calls.append(argv)
+        if "process" in argv and "--pipeline" in argv:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "run_id": "run-123",
+                        "status": "completed",
+                        "exit_code": 0,
+                        "output_schema_path": str(schema_path),
+                        "telemetry_report": {
+                            "schema_version": 2,
+                            "matched_rows": 1,
+                            "insights": {
+                                "pass_forward_effectiveness": {
+                                    "retry_context": {"rows_applied": 1},
+                                }
+                            },
+                            "recommendations": {},
+                            "tuning_playbook": {},
+                        },
+                    }
+                ),
+                stderr="",
+            )
+        if "run" in argv and "autotune" in argv:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "schema_version": 1,
+                        "run_id": "run-123",
+                        "pipeline_id": "recipe.chunking.v1",
+                        "flag_overrides": [
+                            {
+                                "flag": "--workers",
+                                "current": "8",
+                                "suggested": "4",
+                            }
+                        ],
+                        "command_preview": "codex-farm process ... --workers 4",
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {argv}")
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    runner = SubprocessCodexFarmRunner(cmd=f"codex-farm --data-dir {data_dir}")
+    run_result = runner.run_pipeline(
+        "recipe.chunking.v1",
+        in_dir,
+        out_dir,
+        {},
+        root_dir=root_dir,
+    )
+
+    assert run_result.run_id == "run-123"
+    assert run_result.telemetry_report is not None
+    assert run_result.telemetry_report["schema_version"] == 2
+    assert run_result.telemetry_report["matched_rows"] == 1
+    assert run_result.autotune_report is not None
+    assert run_result.autotune_report["schema_version"] == 1
+    assert run_result.autotune_report["flag_overrides"][0]["flag"] == "--workers"
+    assert run_result.telemetry is not None
+    assert run_result.telemetry["row_count"] == 1
+    assert run_result.telemetry["summary"]["attempt_index_counts"] == {"2": 1}
+    assert run_result.telemetry["summary"]["failure_category_counts"] == {
+        "accepted_nonzero_exit": 1
+    }
+    rows = run_result.telemetry["rows"]
+    assert len(rows) == 1
+    assert rows[0]["heads_up_tip_ids"] == ["tip-a", "tip-b"]
+    assert rows[0]["retry_context_applied"] is True
+    assert rows[0]["output_sha256"] == "abc123"
+    assert rows[0]["codex_event_types"] == ["thread.started", "turn.completed"]
+    assert calls[1] == [
+        "codex-farm",
+        "--data-dir",
+        str(data_dir),
+        "run",
+        "autotune",
+        "--run-id",
+        "run-123",
+        "--json",
+        "--pipeline",
+        "recipe.chunking.v1",
+    ]
 
 
 def test_subprocess_runner_fails_before_process_when_output_schema_missing(
