@@ -1103,6 +1103,20 @@ class TestRenderer:
         assert "setupGlobalCollapseControls();" not in js
         assert "renderPreviousRuns();" in js
 
+    def test_benchmark_trend_chart_uses_fixed_height(self, tmp_path):
+        render_dashboard(tmp_path / "dash", DashboardData())
+        js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
+        css = (tmp_path / "dash" / "assets" / "style.css").read_text(encoding="utf-8")
+        assert ".highcharts-host {" in css
+        assert "height: 400px;" in css
+        assert "const HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED = false;" in js
+        assert "window.Highcharts.setOptions({" in js
+        assert "mouseWheel: {" in js
+        assert "enabled: HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED" in js
+        assert 'window.Highcharts.stockChart("benchmark-trend-chart", {' in js
+        assert "chart: {" in js
+        assert "height: 400," in js
+
     def test_render_builds_all_method_standalone_pages(self, tmp_path):
         all_method_root = (
             tmp_path

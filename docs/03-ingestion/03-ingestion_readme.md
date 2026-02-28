@@ -97,7 +97,7 @@ OCR:
 - Builds `RunSettings` and `runConfig` (workers/split knobs, EPUB extractor + unstructured knobs, OCR, table extraction, section + multi-recipe backends, LLM settings, mapping/overrides paths, and markdown sidecar setting).
 - `RunSettings.from_dict(...)` validates recipe codex-farm parsing values and accepts `llm_recipe_pipeline=codex-farm-3pass-v1` without env gating.
 - Plans jobs with `_plan_jobs(...)`.
-- Executes with `ProcessPoolExecutor`; on `PermissionError`, falls back to serial execution.
+- Executes with process-first worker fanout and fallback order `ProcessPoolExecutor -> ThreadPoolExecutor -> serial`.
 - Writes run heartbeat telemetry to `<run_out>/processing_timeseries.jsonl` while stage is active.
 
 Important detail:

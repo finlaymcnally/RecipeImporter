@@ -24,6 +24,9 @@ _DEFAULT_SILVER_MIN = 0.55
 _DEFAULT_BRONZE_MIN = 0.35
 _DEFAULT_MIN_INGREDIENT_LINES = 1
 _DEFAULT_MIN_INSTRUCTION_LINES = 1
+_PATTERN_TOC_LIKE_PENALTY = 0.18
+_PATTERN_DUPLICATE_TITLE_PENALTY = 0.09
+_PATTERN_OVERLAP_DUPLICATE_PENALTY = 0.26
 
 _GENERIC_TITLES = {"recipe", "untitled recipe", "untitled", "new recipe"}
 _FILENAME_TITLE_RE = re.compile(r"\.\w{2,5}$")
@@ -70,6 +73,34 @@ def _setting_value(settings: RunSettings | None, key: str, fallback: Any) -> Any
 def _instruction_text(value: Any) -> str:
     text = getattr(value, "text", value)
     return str(text).strip()
+
+
+def _pattern_flags_from_location(location: Any) -> set[str]:
+    if not isinstance(location, dict):
+        return set()
+    flags: set[str] = set()
+    raw_flags = location.get("pattern_flags")
+    if isinstance(raw_flags, str):
+        parts = [part.strip() for part in raw_flags.split(",")]
+        flags.update(part for part in parts if part)
+    elif isinstance(raw_flags, list):
+        for raw_flag in raw_flags:
+            normalized = str(raw_flag).strip()
+            if normalized:
+                flags.add(normalized)
+
+    raw_actions = location.get("pattern_actions")
+    if isinstance(raw_actions, list):
+        for action in raw_actions:
+            if not isinstance(action, dict):
+                continue
+            action_name = str(action.get("action") or "").strip().lower()
+            if action_name == "reject_overlap_duplicate_candidate":
+                flags.add("overlap_duplicate_candidate")
+            elif action_name == "trim_candidate_start":
+                flags.add("duplicate_title_intro")
+
+    return flags
 
 
 def _normalized_thresholds(
@@ -283,6 +314,24 @@ def score_recipe_likeness(
         gap = min_instruction_lines - instruction_count
         minimum_line_penalty += min(0.15, gap * 0.04)
 
+    pattern_flags = _pattern_flags_from_location(location)
+    toc_like_penalty = (
+        _PATTERN_TOC_LIKE_PENALTY if "toc_like_cluster" in pattern_flags else 0.0
+    )
+    duplicate_title_penalty = (
+        _PATTERN_DUPLICATE_TITLE_PENALTY
+        if "duplicate_title_intro" in pattern_flags
+        else 0.0
+    )
+    overlap_duplicate_penalty = (
+        _PATTERN_OVERLAP_DUPLICATE_PENALTY
+        if "overlap_duplicate_candidate" in pattern_flags
+        else 0.0
+    )
+    pattern_penalty_total = (
+        toc_like_penalty + duplicate_title_penalty + overlap_duplicate_penalty
+    )
+
     base_score = (
         (title_quality * 0.2)
         + (ingredient_quality * 0.31)
@@ -291,7 +340,14 @@ def score_recipe_likeness(
         + (density_score * 0.06)
         + (heading_anchor_score * 0.04)
     )
-    score = _clamp(base_score - short_penalty - long_penalty - noise_penalty - minimum_line_penalty)
+    score = _clamp(
+        base_score
+        - short_penalty
+        - long_penalty
+        - noise_penalty
+        - minimum_line_penalty
+        - pattern_penalty_total
+    )
 
     gold_min, silver_min, bronze_min = _normalized_thresholds(settings)
     if score >= gold_min:
@@ -320,6 +376,12 @@ def score_recipe_likeness(
         reasons.append("content_too_long")
     if noise_penalty >= 0.08:
         reasons.append("high_symbol_noise")
+    if toc_like_penalty > 0:
+        reasons.append("pattern_toc_like_penalty")
+    if duplicate_title_penalty > 0:
+        reasons.append("pattern_duplicate_title_penalty")
+    if overlap_duplicate_penalty > 0:
+        reasons.append("pattern_overlap_duplicate_penalty")
     if tier is RecipeLikenessTier.reject:
         reasons.append("below_reject_threshold")
 
@@ -341,6 +403,15 @@ def score_recipe_likeness(
         "short_penalty": round(short_penalty, 4),
         "long_penalty": round(long_penalty, 4),
         "minimum_line_penalty": round(minimum_line_penalty, 4),
+        "pattern_toc_like_penalty": round(toc_like_penalty, 4),
+        "pattern_duplicate_title_penalty": round(duplicate_title_penalty, 4),
+        "pattern_overlap_duplicate_penalty": round(overlap_duplicate_penalty, 4),
+        "pattern_penalty_total": round(pattern_penalty_total, 4),
+        "pattern_flag_toc_like_cluster": bool("toc_like_cluster" in pattern_flags),
+        "pattern_flag_duplicate_title_intro": bool("duplicate_title_intro" in pattern_flags),
+        "pattern_flag_overlap_duplicate_candidate": bool(
+            "overlap_duplicate_candidate" in pattern_flags
+        ),
     }
 
     return RecipeLikenessResult(

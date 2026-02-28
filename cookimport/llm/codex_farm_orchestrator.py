@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,6 +13,7 @@ from cookimport.core.models import ConversionResult, RecipeCandidate, RecipeDraf
 
 from .codex_farm_contracts import (
     BlockLite,
+    PatternHint,
     Pass1RecipeChunkingInput,
     Pass1RecipeChunkingOutput,
     Pass2SchemaOrgInput,
@@ -40,6 +42,7 @@ DEFAULT_PASS3_PIPELINE_ID = "recipe.final.v1"
 PASS1_PIPELINE_ID = DEFAULT_PASS1_PIPELINE_ID
 PASS2_PIPELINE_ID = DEFAULT_PASS2_PIPELINE_ID
 PASS3_PIPELINE_ID = DEFAULT_PASS3_PIPELINE_ID
+_PASS1_PATTERN_HINTS_ENV = "COOKIMPORT_CODEX_FARM_PASS1_PATTERN_HINTS"
 
 
 def _effort_override_value(value: object | None) -> str | None:
@@ -127,6 +130,7 @@ def run_codex_farm_recipe_pipeline(
     source_hash = _resolve_source_hash(conversion_result)
     states = _build_states(conversion_result, workbook_slug=workbook_slug)
     pipelines = _resolve_pipeline_ids(run_settings)
+    pass1_pattern_hints_enabled = _pass1_pattern_hints_enabled()
     output_schema_paths: dict[str, str] = {}
     if not states:
         llm_manifest = {
@@ -143,6 +147,7 @@ def run_codex_farm_recipe_pipeline(
             "codex_farm_workspace_root": run_settings.codex_farm_workspace_root,
             "codex_farm_context_blocks": run_settings.codex_farm_context_blocks,
             "codex_farm_failure_mode": run_settings.codex_farm_failure_mode.value,
+            "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
             "counts": {
                 "recipes_total": 0,
                 "pass1_inputs": 0,
@@ -174,6 +179,7 @@ def run_codex_farm_recipe_pipeline(
                 "counts": llm_manifest["counts"],
                 "output_schema_paths": dict(output_schema_paths),
                 "process_runs": {},
+                "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
             },
             llm_raw_dir=llm_raw_dir,
         )
@@ -216,6 +222,9 @@ def run_codex_farm_recipe_pipeline(
 
     # Pass 1
     for state in states:
+        pattern_hints = (
+            _pattern_hints_for_state(state) if pass1_pattern_hints_enabled else []
+        )
         pass1_input = Pass1RecipeChunkingInput(
             recipe_id=state.recipe_id,
             workbook_slug=workbook_slug,
@@ -240,6 +249,7 @@ def run_codex_farm_recipe_pipeline(
                     + run_settings.codex_farm_context_blocks
                 ),
             ),
+            pattern_hints=pattern_hints,
         )
         _write_json(
             pass1_input.model_dump(mode="json", by_alias=True),
@@ -416,6 +426,7 @@ def run_codex_farm_recipe_pipeline(
         pipelines=pipelines,
         output_schema_paths=output_schema_paths,
         process_runs=process_runs,
+        pass1_pattern_hints_enabled=pass1_pattern_hints_enabled,
     )
     _write_json(llm_manifest, llm_manifest_path)
 
@@ -429,6 +440,7 @@ def run_codex_farm_recipe_pipeline(
         "timing": llm_manifest["timing"],
         "failures": llm_manifest["failures"],
         "process_runs": llm_manifest.get("process_runs", {}),
+        "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
     }
 
     return CodexFarmApplyResult(
@@ -477,6 +489,7 @@ def _build_llm_manifest(
     pipelines: dict[str, str],
     output_schema_paths: dict[str, str],
     process_runs: dict[str, dict[str, Any]],
+    pass1_pattern_hints_enabled: bool,
 ) -> dict[str, Any]:
     recipe_rows: dict[str, dict[str, Any]] = {}
     failures: list[dict[str, Any]] = []
@@ -516,6 +529,7 @@ def _build_llm_manifest(
         "codex_farm_workspace_root": run_settings.codex_farm_workspace_root,
         "codex_farm_context_blocks": run_settings.codex_farm_context_blocks,
         "codex_farm_failure_mode": run_settings.codex_farm_failure_mode.value,
+        "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
         "pipelines": dict(pipelines),
         "output_schema_paths": dict(output_schema_paths),
         "counts": counts,
@@ -623,6 +637,78 @@ def _recipe_location(recipe: RecipeCandidate) -> dict[str, Any]:
         provenance["location"] = location
         recipe.provenance = provenance
     return location
+
+
+def _pass1_pattern_hints_enabled() -> bool:
+    raw_value = os.environ.get(_PASS1_PATTERN_HINTS_ENV, "")
+    normalized = str(raw_value).strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+
+def _pattern_hints_for_state(state: _RecipeState) -> list[PatternHint]:
+    location = _recipe_location(state.recipe)
+    start = _coerce_int(location.get("start_block"))
+    if start is None:
+        start = _coerce_int(location.get("startBlock"))
+    end = _coerce_int(location.get("end_block"))
+    if end is None:
+        end = _coerce_int(location.get("endBlock"))
+
+    hints: list[PatternHint] = []
+    seen: set[tuple[str, int | None, int | None, str | None]] = set()
+
+    raw_flags = location.get("pattern_flags")
+    if isinstance(raw_flags, str):
+        candidate_flags = [part.strip() for part in raw_flags.split(",")]
+    elif isinstance(raw_flags, list):
+        candidate_flags = [str(flag).strip() for flag in raw_flags]
+    else:
+        candidate_flags = []
+    for flag in candidate_flags:
+        if not flag:
+            continue
+        key = (flag, start, end, None)
+        if key in seen:
+            continue
+        seen.add(key)
+        hints.append(
+            PatternHint(
+                hint_type=flag,
+                start_block_index=start,
+                end_block_index=end,
+                note="deterministic pattern detector flag",
+            )
+        )
+
+    raw_actions = location.get("pattern_actions")
+    if isinstance(raw_actions, list):
+        for raw_action in raw_actions:
+            if not isinstance(raw_action, dict):
+                continue
+            action_name = str(raw_action.get("action") or "").strip()
+            if not action_name:
+                continue
+            action_start = _coerce_int(raw_action.get("original_start_block"))
+            action_end = _coerce_int(raw_action.get("trimmed_start_block"))
+            if action_start is None:
+                action_start = start
+            if action_end is None:
+                action_end = end
+            note = f"deterministic action: {action_name}"
+            key = (action_name, action_start, action_end, note)
+            if key in seen:
+                continue
+            seen.add(key)
+            hints.append(
+                PatternHint(
+                    hint_type=action_name,
+                    start_block_index=action_start,
+                    end_block_index=action_end,
+                    note=note,
+                )
+            )
+
+    return hints
 
 
 def _build_states(

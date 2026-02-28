@@ -468,6 +468,7 @@ Stages one file or all files under a folder (recursive for folder input). Always
 Each stage run folder includes `run_manifest.json` for source/config/artifact traceability.
 Each stage run folder also includes `processing_timeseries.jsonl` (status snapshots + CPU utilization samples).
 After stage history CSV append, the CLI also auto-refreshes dashboard artifacts under `<out parent>/.history/dashboard` (best effort).
+Stage job worker fallback order is `process -> thread -> serial`; if process workers are denied in sandboxed runtimes, stage emits a warning that it switched to thread-based worker concurrency.
 
 Arguments:
 
@@ -659,6 +660,7 @@ Options:
 
 Creates Label Studio tasks from one source file.
 The prediction run directory now includes `run_manifest.json`.
+Split conversion worker fallback order during prediction generation is `process -> thread -> serial`; serial fallback warning appears only when thread worker startup also fails.
 
 Arguments:
 
@@ -898,7 +900,7 @@ Options:
 
 ### `cookimport bench quality-run`
 
-Runs all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`). Experiment-level execution is CPU-aware by default (auto cap + adaptive worker target based on host load; default auto ceiling `16`, override with `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); override with `--max-parallel-experiments` to force a fixed cap. In restricted runtimes where process workers are unavailable, quality-run stays on all-method `global` scope and uses thread-backed config workers (falls back to single-config execution only if thread executor setup also fails).
+Runs all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`). Experiment-level execution is CPU-aware by default (auto cap + adaptive worker target based on host load; default auto ceiling `16`, override with `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); override with `--max-parallel-experiments` to force a fixed cap. When process-pool probing fails in auto mode (common in `/dev/shm`-restricted runtimes), quality-run now switches experiment fanout to subprocess workers to avoid thread/GIL bottlenecks; override with `COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE=thread|subprocess|auto`.
 
 Status behavior:
 
@@ -1043,6 +1045,7 @@ CLI-relevant environment variables:
 - `COOKIMPORT_ALLOW_CODEX_FARM`: legacy no-op compatibility env var (recipe codex-farm options are no longer gated by this variable).
 - `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS`: include optional markdown-based extractors in all-method permutations when set to `1`.
 - `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`: optional auto-mode ceiling for `bench quality-run` experiment concurrency (default `16`; ignored when `--max-parallel-experiments` is set).
+- `COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE`: quality-run experiment fanout backend (`auto` default, `thread`, or `subprocess`). `auto` picks subprocess fanout when process-pool probing fails.
 - `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER`: canonical-text matcher selection (`dmp` only; non-`dmp` values are invalid).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS`: optional profiler threshold for benchmark evaluation stage (`>=0`; enables profile artifact capture when eval runtime meets threshold).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N`: optional `pstats` top-N row count for benchmark evaluation profiling output (default `40`).

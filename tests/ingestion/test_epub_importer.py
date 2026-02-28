@@ -109,6 +109,80 @@ def test_convert_epub_emits_post_candidate_progress(monkeypatch, tmp_path: Path)
     assert progress_messages[-1] == "EPUB conversion complete."
 
 
+def test_convert_epub_emits_pattern_diagnostics_and_trim_actions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "pattern.epub"
+    source.write_bytes(b"dummy-epub")
+    importer = EpubImporter()
+    importer._extractor_diagnostics = {"beautifulsoup": [], "unstructured": [], "markdown": []}
+    importer._extractor_meta = {"beautifulsoup": {}, "unstructured": {}, "markdown": {}}
+    importer._unstructured_spine_xhtml = []
+    importer._markitdown_markdown = None
+    blocks = [
+        Block(text="Table of Contents"),
+        Block(text="Soups .......... 7"),
+        Block(text="Stews .......... 12"),
+        Block(text="Desserts .......... 44"),
+        Block(text="Herb Bread"),
+        Block(text="A short intro sentence."),
+        Block(text="Herb Bread"),
+        Block(text="Ingredients"),
+        Block(text="1 cup flour"),
+        Block(text="Instructions"),
+        Block(text="Bake."),
+    ]
+    for block in blocks:
+        signals.enrich_block(block)
+
+    monkeypatch.setenv("C3IMP_EPUB_EXTRACTOR", "beautifulsoup")
+    monkeypatch.setattr(importer, "_extract_docpack", lambda *_args, **_kwargs: blocks)
+    monkeypatch.setattr(
+        importer,
+        "_detect_candidates",
+        lambda _blocks: [(0, len(blocks), 0.95)],
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_fields",
+        lambda candidate_blocks: RecipeCandidate(
+            name=str(candidate_blocks[0].text),
+            recipeIngredient=["1 cup flour"],
+            recipeInstructions=["Bake."],
+        ),
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_standalone_tips",
+        lambda *_args, **_kwargs: ([], [], 0, 0),
+    )
+
+    result = importer.convert(source, None)
+
+    assert len(result.recipes) == 1
+    location = result.recipes[0].provenance["location"]
+    assert location["start_block"] == 6
+    assert any(
+        warning.startswith("pattern_toc_like_cluster_detected:")
+        for warning in result.report.warnings
+    )
+    assert any(
+        warning.startswith("pattern_duplicate_title_flow_detected:")
+        for warning in result.report.warnings
+    )
+
+    diagnostics_artifact = next(
+        artifact for artifact in result.raw_artifacts if artifact.location_id == "pattern_diagnostics"
+    )
+    assert diagnostics_artifact.content["pre_candidate_excluded_indices"] == [0, 1, 2, 3]
+    assert diagnostics_artifact.content["candidate_start_trim_actions"]
+
+    non_recipe_text = [row["text"] for row in result.non_recipe_blocks]
+    assert "Table of Contents" in non_recipe_text
+    assert "A short intro sentence." in non_recipe_text
+
+
 def test_convert_epub_applies_multi_recipe_splitter_postprocessing(
     monkeypatch,
     tmp_path: Path,

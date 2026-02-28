@@ -103,6 +103,8 @@ Notes:
 - `Previous Runs`: scrollable table (about ~5 visible rows) with key benchmark columns only.
   - Normal benchmark rows: timestamp links to `artifact_dir`.
   - All-method benchmark sweeps: collapsed to one row; `Source` shows `all-method benchmark run`, and the timestamp links to the generated run-summary HTML page under `all-method-benchmark/`.
+  - The `Benchmark Score Trend` Highcharts panel uses a fixed 400px chart/container height to avoid browser reflow loops that can cause gradual chart height growth.
+  - Highcharts mouse-wheel zoom is disabled globally in dashboard JS (`HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED = false`) so page scrolling does not zoom charts by accident; toggle that constant to re-enable later.
 
 Timestamp ordering note:
 - The `Previous Runs` table sorts by parsed time (not raw string compare), so mixed timestamp formats like `YYYY-MM-DDTHH:MM:SS` and `YYYY-MM-DD_HH.MM.SS` still appear in true chronological order.

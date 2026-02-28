@@ -9,7 +9,7 @@ import shutil
 import threading
 import time
 from contextlib import contextmanager, nullcontext
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -30,6 +30,10 @@ from cookimport.core.progress_messages import (
     format_task_counter,
     format_worker_activity,
     format_worker_activity_reset,
+)
+from cookimport.core.executor_fallback import (
+    resolve_process_thread_executor,
+    shutdown_executor,
 )
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
@@ -1620,71 +1624,71 @@ def generate_pred_run_artifacts(
                         return f"{base} spine {start}-{end}"
                     return base
 
-                try:
-                    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                def _run_parallel_split_jobs(executor: Any) -> None:
+                    if max_workers > 1:
+                        _notify(format_worker_activity_reset())
+                    pending_specs = list(job_specs)
+                    futures: dict[Any, tuple[int, dict[str, int | None]]] = {}
+
+                    def _submit(spec: dict[str, int | None], worker_slot: int) -> None:
+                        future = executor.submit(
+                            _parallel_convert_worker,
+                            path,
+                            pipeline,
+                            run_mapping,
+                            run_config=worker_run_config,
+                            start_page=spec.get("start_page"),
+                            end_page=spec.get("end_page"),
+                            start_spine=spec.get("start_spine"),
+                            end_spine=spec.get("end_spine"),
+                        )
+                        futures[future] = (worker_slot, spec)
                         if max_workers > 1:
-                            _notify(format_worker_activity_reset())
-                        pending_specs = list(job_specs)
-                        futures: dict[Any, tuple[int, dict[str, int | None]]] = {}
-
-                        def _submit(spec: dict[str, int | None], worker_slot: int) -> None:
-                            future = executor.submit(
-                                _parallel_convert_worker,
-                                path,
-                                pipeline,
-                                run_mapping,
-                                run_config=worker_run_config,
-                                start_page=spec.get("start_page"),
-                                end_page=spec.get("end_page"),
-                                start_spine=spec.get("start_spine"),
-                                end_spine=spec.get("end_spine"),
+                            _notify(
+                                format_worker_activity(
+                                    worker_slot,
+                                    max_workers,
+                                    _split_worker_status(spec),
+                                )
                             )
-                            futures[future] = (worker_slot, spec)
-                            if max_workers > 1:
-                                _notify(
-                                    format_worker_activity(
-                                        worker_slot,
-                                        max_workers,
-                                        _split_worker_status(spec),
-                                    )
-                                )
 
-                        for worker_slot in range(1, max_workers + 1):
-                            if not pending_specs:
-                                break
+                    for worker_slot in range(1, max_workers + 1):
+                        if not pending_specs:
+                            break
+                        _submit(pending_specs.pop(0), worker_slot)
+
+                    completed = 0
+                    while futures:
+                        future = next(as_completed(list(futures.keys())))
+                        worker_slot, spec = futures.pop(future)
+                        try:
+                            importer_name, job_result = future.result()
+                        except Exception as exc:
+                            job_errors.append(
+                                f"job {spec.get('job_index', '?')}: {exc}"
+                            )
+                        else:
+                            job_results.append(
+                                {
+                                    **spec,
+                                    "result": job_result,
+                                    "importer_name": importer_name,
+                                }
+                            )
+                            completed += 1
+                            _notify(_split_progress_status(completed))
+                        if pending_specs:
                             _submit(pending_specs.pop(0), worker_slot)
+                        elif max_workers > 1:
+                            _notify(
+                                format_worker_activity(
+                                    worker_slot,
+                                    max_workers,
+                                    "idle",
+                                )
+                            )
 
-                        completed = 0
-                        while futures:
-                            future = next(as_completed(list(futures.keys())))
-                            worker_slot, spec = futures.pop(future)
-                            try:
-                                importer_name, job_result = future.result()
-                            except Exception as exc:
-                                job_errors.append(
-                                    f"job {spec.get('job_index', '?')}: {exc}"
-                                )
-                            else:
-                                job_results.append(
-                                    {
-                                        **spec,
-                                        "result": job_result,
-                                        "importer_name": importer_name,
-                                    }
-                                )
-                                completed += 1
-                                _notify(_split_progress_status(completed))
-                            if pending_specs:
-                                _submit(pending_specs.pop(0), worker_slot)
-                            elif max_workers > 1:
-                                _notify(
-                                    format_worker_activity(
-                                        worker_slot,
-                                        max_workers,
-                                        "idle",
-                                    )
-                                )
-                except PermissionError:
+                def _run_serial_split_jobs() -> None:
                     for spec in job_specs:
                         try:
                             _run_job_serial(spec)
@@ -1693,6 +1697,28 @@ def generate_pred_run_artifacts(
                                 f"job {spec.get('job_index', '?')}: {exc}"
                             )
                         _notify(_split_progress_status(len(job_results)))
+                try:
+                    executor_resolution = resolve_process_thread_executor(
+                        max_workers=max_workers,
+                        process_unavailable_message=lambda exc: (
+                            "Process-based worker concurrency unavailable "
+                            f"({exc}); using thread-based worker concurrency."
+                        ),
+                        thread_unavailable_message=lambda exc: (
+                            "Thread-based worker concurrency unavailable "
+                            f"({exc}); running split jobs serially."
+                        ),
+                    )
+                    for message in executor_resolution.messages:
+                        _notify(message)
+                    if executor_resolution.executor is None:
+                        _run_serial_split_jobs()
+                    else:
+                        executor = executor_resolution.executor
+                        try:
+                            _run_parallel_split_jobs(executor)
+                        finally:
+                            shutdown_executor(executor, wait=True, cancel_futures=False)
                 finally:
                     if max_workers > 1:
                         _notify(format_worker_activity_reset())

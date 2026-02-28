@@ -272,7 +272,8 @@ Prediction/eval telemetry files are written under eval output roots, and benchma
 3. Confirm you are checking `data/golden/*` paths (not only `data/output/*`).
 4. If overlap looks zero, test with `--force-source-match` to rule out source identity mismatch.
 5. For split EPUB/PDF paths, verify merged block indices were rebased globally.
-6. For prelabel failures, read `prelabel_errors.jsonl` and `prelabel_report.json` first.
+6. If process workers are denied during split conversion, confirm logs show thread fallback (`Process-based worker concurrency unavailable ... using thread-based worker concurrency.`); serial fallback should appear only if thread startup also fails.
+7. For prelabel failures, read `prelabel_errors.jsonl` and `prelabel_report.json` first.
 
 ## 8) Explicitly Retired Features
 

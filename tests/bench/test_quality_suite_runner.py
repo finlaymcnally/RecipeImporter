@@ -8,6 +8,7 @@ import time
 import pytest
 
 from cookimport.bench.quality_runner import (
+    QualityExperimentResult,
     _resolve_quality_alignment_cache_root,
     run_quality_suite,
 )
@@ -791,6 +792,103 @@ def test_run_quality_suite_auto_parallelism_honors_ceiling_env_override(
     assert resolved["max_parallel_experiments_auto_ceiling_source"] == "env"
 
 
+def test_run_quality_suite_switches_to_subprocess_executor_when_process_pool_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    suite = _build_suite(tmp_path)
+    experiments_file = tmp_path / "experiments_subprocess.json"
+    _write_json(
+        experiments_file,
+        {
+            "schema_version": 1,
+            "experiments": [
+                {"id": "baseline", "run_settings_patch": {}},
+                {"id": "candidate", "run_settings_patch": {"workers": 3}},
+            ],
+        },
+    )
+    base_run_settings_file = tmp_path / "base_run_settings.json"
+    _write_json(base_run_settings_file, {"workers": 2})
+
+    monkeypatch.setattr(
+        "cookimport.cli._probe_all_method_process_pool_executor",
+        lambda: (False, "PermissionError: denied"),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_codex_choice",
+        lambda _include_codex: (False, None),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_markdown_extractors_choice",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._build_all_method_target_variants",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._run_single_experiment",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("thread-backed experiment path should not be used")
+        ),
+    )
+
+    observed_ids: list[str] = []
+
+    def _fake_subprocess_worker(**kwargs):
+        experiment = kwargs["experiment"]
+        observed_ids.append(experiment.id)
+        return {
+            "baseline": QualityExperimentResult(
+                id="baseline",
+                status="ok",
+                run_settings_hash=experiment.run_settings.stable_hash(),
+                run_settings_summary=experiment.run_settings.summary(),
+                strict_f1_macro=0.60,
+                practical_f1_macro=0.70,
+                source_success_rate=1.0,
+                sources_planned=1,
+                sources_successful=1,
+            ),
+            "candidate": QualityExperimentResult(
+                id="candidate",
+                status="ok",
+                run_settings_hash=experiment.run_settings.stable_hash(),
+                run_settings_summary=experiment.run_settings.summary(),
+                strict_f1_macro=0.61,
+                practical_f1_macro=0.71,
+                source_success_rate=1.0,
+                sources_planned=1,
+                sources_successful=1,
+            ),
+        }[experiment.id]
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._run_single_experiment_via_subprocess",
+        _fake_subprocess_worker,
+    )
+
+    run_root = run_quality_suite(
+        suite,
+        tmp_path / "runs",
+        experiments_file=experiments_file,
+        base_run_settings_file=base_run_settings_file,
+        search_strategy="exhaustive",
+        max_parallel_experiments=2,
+        progress_callback=None,
+    )
+
+    resolved = json.loads(
+        (run_root / "experiments_resolved.json").read_text(encoding="utf-8")
+    )
+    assert resolved["experiment_executor_mode"] == "subprocess"
+    assert "process_pool_unavailable" in str(
+        resolved["experiment_executor_reason"] or ""
+    )
+    assert sorted(observed_ids) == ["baseline", "candidate"]
+
+
 def test_quality_cache_root_honors_env_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -809,6 +907,7 @@ def test_quality_suite_schema_v2_levers_expand_and_pass_runtime_knobs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setenv("COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE", "thread")
     suite = _build_suite(tmp_path)
     experiments_file = tmp_path / "experiments_v2.json"
     _write_json(

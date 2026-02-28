@@ -252,6 +252,73 @@ def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
     assert apply_result.llm_report["pipelines"] == manifest["pipelines"]
 
 
+def test_pass1_pattern_hints_default_off_and_env_gated(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    settings = _build_run_settings(tmp_path / "pack")
+
+    result_off = _build_conversion_result(source)
+    result_off.recipes[0].provenance["location"]["pattern_flags"] = [
+        "toc_like_cluster",
+        "duplicate_title_intro",
+    ]
+    result_off.recipes[0].provenance["location"]["pattern_actions"] = [
+        {
+            "action": "trim_candidate_start",
+            "original_start_block": 1,
+            "trimmed_start_block": 2,
+        }
+    ]
+    apply_off = run_codex_farm_recipe_pipeline(
+        conversion_result=result_off,
+        run_settings=settings,
+        run_root=tmp_path / "run-off",
+        workbook_slug="book",
+        runner=FakeCodexFarmRunner(),
+    )
+    pass1_payload_off = json.loads(
+        next((apply_off.llm_raw_dir / "pass1_chunking" / "in").glob("*.json")).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert pass1_payload_off["pattern_hints"] == []
+    assert apply_off.llm_report["pass1_pattern_hints_enabled"] is False
+
+    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_PASS1_PATTERN_HINTS", "1")
+    result_on = _build_conversion_result(source)
+    result_on.recipes[0].provenance["location"]["pattern_flags"] = [
+        "toc_like_cluster",
+        "duplicate_title_intro",
+    ]
+    result_on.recipes[0].provenance["location"]["pattern_actions"] = [
+        {
+            "action": "trim_candidate_start",
+            "original_start_block": 1,
+            "trimmed_start_block": 2,
+        }
+    ]
+    apply_on = run_codex_farm_recipe_pipeline(
+        conversion_result=result_on,
+        run_settings=settings,
+        run_root=tmp_path / "run-on",
+        workbook_slug="book",
+        runner=FakeCodexFarmRunner(),
+    )
+    pass1_payload_on = json.loads(
+        next((apply_on.llm_raw_dir / "pass1_chunking" / "in").glob("*.json")).read_text(
+            encoding="utf-8"
+        )
+    )
+    hint_types = {hint["hint_type"] for hint in pass1_payload_on["pattern_hints"]}
+    assert "toc_like_cluster" in hint_types
+    assert "duplicate_title_intro" in hint_types
+    assert "trim_candidate_start" in hint_types
+    assert apply_on.llm_report["pass1_pattern_hints_enabled"] is True
+
+
 def test_orchestrator_recipe_level_failures_fallback_without_crashing(tmp_path: Path) -> None:
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")

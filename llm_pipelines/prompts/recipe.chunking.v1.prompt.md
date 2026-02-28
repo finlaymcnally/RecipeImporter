@@ -11,6 +11,7 @@ Execution rules:
    - `blocks_before`
    - `blocks_candidate`
    - `blocks_after`
+   - optional `pattern_hints` (advisory only; never override block evidence)
 4) Do not invent or reconstruct missing content.
 
 Decision rules:

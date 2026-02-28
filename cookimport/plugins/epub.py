@@ -64,6 +64,14 @@ from cookimport.parsing.multi_recipe_splitter import (
     MultiRecipeSplitConfig,
     split_candidate_blocks,
 )
+from cookimport.parsing.pattern_flags import (
+    OverlapCandidate,
+    apply_candidate_start_trims,
+    detect_deterministic_patterns,
+    normalize_title_for_pattern,
+    pattern_warning_lines,
+    resolve_overlap_duplicate_candidates,
+)
 from cookimport.parsing.section_detector import (
     SectionKind,
     detect_sections_from_blocks,
@@ -454,6 +462,16 @@ class EpubImporter:
                     )
                 )
 
+            pattern_diagnostics = detect_deterministic_patterns(blocks)
+            for idx, flags in pattern_diagnostics.block_flags.items():
+                if not (0 <= idx < len(blocks)):
+                    continue
+                for flag in sorted(flags):
+                    blocks[idx].add_feature(flag, True)
+            for idx in pattern_diagnostics.excluded_indices:
+                if 0 <= idx < len(blocks):
+                    blocks[idx].add_feature("exclude_from_candidate_detection", True)
+
             # 2. Segment into Candidates
             _notify(f"Segmenting {len(blocks)} blocks...")
             candidates_ranges = self._detect_candidates(blocks)
@@ -480,11 +498,20 @@ class EpubImporter:
                         },
                     )
                 )
+            candidates_ranges, pattern_trim_actions = apply_candidate_start_trims(
+                candidates_ranges,
+                pattern_diagnostics,
+            )
+            pattern_trim_actions_by_candidate = {
+                int(action.get("candidate_index", -1)): dict(action)
+                for action in pattern_trim_actions
+            }
             accepted_candidate_ranges: list[tuple[int, int, float]] = []
             rejected_block_details: dict[int, dict[str, Any]] = {}
             recipe_likeness_results = []
             recipe_scoring_debug_rows: list[dict[str, Any]] = []
             rejected_candidate_count = 0
+            candidate_records: list[dict[str, Any]] = []
             
             # 3. Extract Fields
             total_candidates = len(candidates_ranges)
@@ -516,7 +543,19 @@ class EpubImporter:
                         "end_block": end,
                         "chunk_index": i,
                         "segmentation_score": segmentation_score,
+                        "pattern_detector_version": pattern_diagnostics.version,
                     }
+                    candidate_pattern_flags = pattern_diagnostics.flags_for_span(start, end)
+                    candidate_pattern_actions: list[dict[str, Any]] = []
+                    trim_action = pattern_trim_actions_by_candidate.get(i)
+                    if trim_action is not None:
+                        candidate_pattern_actions.append(dict(trim_action))
+                        if "duplicate_title_intro" not in candidate_pattern_flags:
+                            candidate_pattern_flags.append("duplicate_title_intro")
+                    if candidate_pattern_flags:
+                        location_info["pattern_flags"] = sorted(set(candidate_pattern_flags))
+                    if candidate_pattern_actions:
+                        location_info["pattern_actions"] = list(candidate_pattern_actions)
                     if multi_recipe_meta is not None:
                         location_info["multi_recipe"] = multi_recipe_meta
                     if spine_values:
@@ -538,23 +577,7 @@ class EpubImporter:
 
                     likeness = score_recipe_likeness(candidate, settings=run_settings)
                     gate_action = recipe_gate_action(likeness, settings=run_settings)
-                    candidate.recipe_likeness = likeness
-                    candidate.confidence = likeness.score
-                    if isinstance(candidate.provenance, dict):
-                        candidate.provenance["confidence_score"] = candidate.confidence
-                    recipe_likeness_results.append(likeness)
-                    recipe_scoring_debug_rows.append(
-                        build_recipe_scoring_debug_row(
-                            candidate=candidate,
-                            result=likeness,
-                            gate_action=gate_action,
-                            candidate_index=i,
-                            location=location_for_debug,
-                            importer="epub",
-                            source_hash=file_hash,
-                        )
-                    )
-                    
+
                     raw_artifacts.append(
                         RawArtifact(
                             importer="epub",
@@ -572,40 +595,150 @@ class EpubImporter:
                         )
                     )
 
-                    if gate_action == "reject":
-                        rejected_candidate_count += 1
-                        for block_idx, block in enumerate(candidate_blocks, start=start):
-                            text = block.text.strip()
-                            if not text:
-                                continue
-                            features = dict(block.features) if isinstance(block.features, dict) else {}
-                            features.update(
-                                {
-                                    "source": "rejected_recipe_candidate",
-                                    "gate_action": gate_action,
-                                    "score": likeness.score,
-                                    "tier": likeness.tier.value,
-                                }
-                            )
-                            rejected_block_details[block_idx] = {
-                                "location": {
-                                    "start_block": start,
-                                    "end_block": end,
-                                    "chunk_index": i,
-                                },
-                                "features": features,
-                            }
-                        continue
-
-                    accepted_candidate_ranges.append((start, end, segmentation_score))
-                    recipes.append(candidate)
-                    tip_candidates.extend(
-                        extract_tip_candidates_from_candidate(candidate, overrides=overrides)
+                    candidate_records.append(
+                        {
+                            "candidate": candidate,
+                            "candidate_blocks": candidate_blocks,
+                            "start": start,
+                            "end": end,
+                            "segmentation_score": segmentation_score,
+                            "location_info": location_info,
+                            "location_for_debug": location_for_debug,
+                            "likeness": likeness,
+                            "gate_action": gate_action,
+                            "candidate_index": i,
+                        }
                     )
                     
                 except Exception as e:
                     logger.warning(f"Failed to extract candidate {i} in {path}: {e}")
                     report.warnings.append(f"Failed to parse candidate {i}: {e}")
+
+            overlap_decisions = resolve_overlap_duplicate_candidates(
+                [
+                    OverlapCandidate(
+                        candidate_index=int(record["candidate_index"]),
+                        start_block=int(record["start"]),
+                        end_block=int(record["end"]),
+                        normalized_title=normalize_title_for_pattern(
+                            str(getattr(record["candidate"], "name", "") or "")
+                        ),
+                        score=float(record["likeness"].score),
+                    )
+                    for record in candidate_records
+                ]
+            )
+            overlap_decisions_by_loser = {
+                int(decision.get("loser_candidate_index", -1)): decision
+                for decision in overlap_decisions
+            }
+
+            for record in candidate_records:
+                candidate = record["candidate"]
+                start = int(record["start"])
+                end = int(record["end"])
+                segmentation_score = float(record["segmentation_score"])
+                candidate_blocks = record["candidate_blocks"]
+                location_info = dict(record["location_info"])
+                location_for_debug = dict(record["location_for_debug"])
+                candidate_index = int(record["candidate_index"])
+                likeness = record["likeness"]
+                gate_action = str(record["gate_action"])
+
+                overlap_decision = overlap_decisions_by_loser.get(candidate_index)
+                if overlap_decision is not None:
+                    pattern_flags = set(
+                        str(flag).strip()
+                        for flag in location_info.get("pattern_flags", [])
+                        if str(flag).strip()
+                    )
+                    pattern_flags.add("overlap_duplicate_candidate")
+                    pattern_actions = [
+                        dict(action)
+                        for action in location_info.get("pattern_actions", [])
+                        if isinstance(action, dict)
+                    ]
+                    pattern_actions.append(dict(overlap_decision))
+                    location_info["pattern_flags"] = sorted(pattern_flags)
+                    location_info["pattern_actions"] = pattern_actions
+                    location_for_debug["pattern_flags"] = sorted(pattern_flags)
+                    location_for_debug["pattern_actions"] = pattern_actions
+                    if isinstance(candidate.provenance, dict):
+                        location_payload = candidate.provenance.get("location")
+                        if not isinstance(location_payload, dict):
+                            location_payload = {}
+                        location_payload.update(
+                            {
+                                "pattern_detector_version": pattern_diagnostics.version,
+                                "pattern_flags": sorted(pattern_flags),
+                                "pattern_actions": pattern_actions,
+                            }
+                        )
+                        candidate.provenance["location"] = location_payload
+                    likeness = score_recipe_likeness(candidate, settings=run_settings)
+                    forced_features = dict(likeness.features)
+                    forced_features["forced_overlap_duplicate_reject"] = True
+                    forced_reasons = list(likeness.reasons)
+                    if "pattern_overlap_duplicate_reject" not in forced_reasons:
+                        forced_reasons.append("pattern_overlap_duplicate_reject")
+                    likeness = likeness.model_copy(
+                        update={"features": forced_features, "reasons": forced_reasons}
+                    )
+                    gate_action = "reject"
+
+                candidate.recipe_likeness = likeness
+                candidate.confidence = likeness.score
+                if isinstance(candidate.provenance, dict):
+                    candidate.provenance["confidence_score"] = candidate.confidence
+                recipe_likeness_results.append(likeness)
+                recipe_scoring_debug_rows.append(
+                    build_recipe_scoring_debug_row(
+                        candidate=candidate,
+                        result=likeness,
+                        gate_action=gate_action,
+                        candidate_index=candidate_index,
+                        location=location_for_debug,
+                        importer="epub",
+                        source_hash=file_hash,
+                    )
+                )
+
+                if gate_action == "reject":
+                    rejected_candidate_count += 1
+                    for block_idx, block in enumerate(candidate_blocks, start=start):
+                        text = block.text.strip()
+                        if not text:
+                            continue
+                        features = dict(block.features) if isinstance(block.features, dict) else {}
+                        features.update(
+                            {
+                                "source": "rejected_recipe_candidate",
+                                "gate_action": gate_action,
+                                "score": likeness.score,
+                                "tier": likeness.tier.value,
+                            }
+                        )
+                        if location_info.get("pattern_flags"):
+                            features["pattern_flags"] = list(location_info.get("pattern_flags", []))
+                        if location_info.get("pattern_actions"):
+                            features["pattern_actions"] = list(
+                                location_info.get("pattern_actions", [])
+                            )
+                        rejected_block_details[block_idx] = {
+                            "location": {
+                                "start_block": start,
+                                "end_block": end,
+                                "chunk_index": candidate_index,
+                            },
+                            "features": features,
+                        }
+                    continue
+
+                accepted_candidate_ranges.append((start, end, segmentation_score))
+                recipes.append(candidate)
+                tip_candidates.extend(
+                    extract_tip_candidates_from_candidate(candidate, overrides=overrides)
+                )
 
             if recipe_scoring_debug_rows:
                 raw_artifacts.append(
@@ -621,6 +754,29 @@ class EpubImporter:
                         metadata={"artifact_type": "recipe_scoring_debug"},
                     )
                 )
+            raw_artifacts.append(
+                RawArtifact(
+                    importer="epub",
+                    sourceHash=file_hash,
+                    locationId="pattern_diagnostics",
+                    extension="json",
+                    content={
+                        **pattern_diagnostics.to_artifact_content(total_blocks=len(blocks)),
+                        "candidate_start_trim_actions": pattern_trim_actions,
+                        "overlap_duplicate_resolutions": overlap_decisions,
+                    },
+                    metadata={
+                        "artifact_type": "pattern_diagnostics",
+                        "detector_version": pattern_diagnostics.version,
+                    },
+                )
+            )
+            for warning in pattern_warning_lines(
+                pattern_diagnostics,
+                overlap_dropped_count=len(overlap_decisions),
+            ):
+                if warning not in report.warnings:
+                    report.warnings.append(warning)
 
             _notify("Analyzing standalone knowledge blocks...")
             (
@@ -1477,7 +1633,12 @@ class EpubImporter:
         if not blocks:
             return []
 
-        yield_indices = [i for i, b in enumerate(blocks) if b.features.get("is_yield")]
+        yield_indices = [
+            i
+            for i, b in enumerate(blocks)
+            if b.features.get("is_yield")
+            and not b.features.get("exclude_from_candidate_detection")
+        ]
         if yield_indices:
             starts: List[Tuple[int, int]] = []
             seen_starts: set[int] = set()
@@ -1505,6 +1666,9 @@ class EpubImporter:
         i = 0
         while i < len(blocks):
             block = blocks[i]
+            if block.features.get("exclude_from_candidate_detection"):
+                i += 1
+                continue
             if block.features.get("is_ingredient_header") or self._is_recipe_anchor(blocks, i):
                 title_idx = self._backtrack_for_title(blocks, i)
                 start_idx = title_idx if title_idx != -1 else i
@@ -1633,6 +1797,8 @@ class EpubImporter:
         min_idx = max(-1, anchor_idx - limit)
         for i in range(anchor_idx - 1, min_idx, -1):
             b = blocks[i]
+            if b.features.get("exclude_from_candidate_detection"):
+                break
             if b.features.get("is_ingredient_header"):
                 break
             if b.features.get("is_yield") or b.features.get("is_time"):
@@ -1642,6 +1808,8 @@ class EpubImporter:
                 j = i - 1
                 while j > min_idx:
                     prev = blocks[j]
+                    if prev.features.get("exclude_from_candidate_detection"):
+                        break
                     if prev.features.get("is_ingredient_header"):
                         break
                     if prev.features.get("is_yield") or prev.features.get("is_time"):
@@ -1664,6 +1832,8 @@ class EpubImporter:
         """
         for i in range(anchor_idx + 1, len(blocks)):
             b = blocks[i]
+            if b.features.get("exclude_from_candidate_detection"):
+                return i
             next_block = blocks[i + 1] if i + 1 < len(blocks) else None
 
             # Check if this is a variation header - if so, continue (don't stop)

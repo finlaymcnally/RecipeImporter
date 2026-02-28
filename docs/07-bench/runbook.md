@@ -166,7 +166,7 @@ cookimport bench quality-run \
   --qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION
 ```
 
-Experiment-level parallelism is CPU-aware by default (auto cap + adaptive worker target based on host load). Auto cap ceiling defaults to `16` and can be overridden with `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`. To pin a fixed cap:
+Experiment-level parallelism is CPU-aware by default (auto cap + adaptive worker target based on host load). Auto cap ceiling defaults to `16` and can be overridden with `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`. In environments where process-pool probing fails (for example `/dev/shm` permissions), auto mode switches experiment fanout to subprocess workers; override with `COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE=thread|subprocess|auto`. To pin a fixed cap:
 
 ```bash
 cookimport bench quality-run \

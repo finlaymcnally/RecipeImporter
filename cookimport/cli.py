@@ -74,6 +74,10 @@ from cookimport.core.progress_messages import (
     format_task_counter,
     parse_worker_activity,
 )
+from cookimport.core.executor_fallback import (
+    resolve_process_thread_executor,
+    shutdown_executor,
+)
 from cookimport.core.overrides_io import load_parsing_overrides
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
 from cookimport.core.scoring import summarize_recipe_likeness
@@ -16620,7 +16624,6 @@ def stage(
     run_config_hash = _stable_run_config_hash(run_config)
     run_config_summary = _render_run_config_summary(run_config)
 
-    from concurrent.futures import ProcessPoolExecutor, as_completed
     from cookimport.cli_worker import stage_one_file, stage_pdf_job, stage_epub_job
     progress_queue = None
     try:
@@ -16974,96 +16977,93 @@ def stage(
     dashboard = WorkerDashboard()
     try:
         with Live(dashboard, refresh_per_second=10) as live:
-            try:
-                with ProcessPoolExecutor(max_workers=effective_workers) as executor:
-                    futures: dict[Any, JobSpec] = {}
-                    for job in job_specs:
-                        job_run_config = _run_config_for_file(job.file_path)
-                        job_run_config_hash = _run_config_hash_for_file(job.file_path)
-                        job_run_config_summary = _run_config_summary_for_file(job.file_path)
-                        job_epub_extractor = effective_epub_extractors.get(job.file_path)
-                        if job.is_split:
-                            if job.split_kind == "epub":
-                                futures[
-                                    executor.submit(
-                                        stage_epub_job,
-                                        job.file_path,
-                                        out,
-                                        base_mapping,
-                                        run_dt,
-                                        job.start_spine,
-                                        job.end_spine,
-                                        job.job_index,
-                                        job.job_count,
-                                        progress_queue,
-                                        job.display_name,
-                                        job_epub_extractor,
-                                        job_run_config,
-                                        job_run_config_hash,
-                                        job_run_config_summary,
-                                    )
-                                ] = job
-                            else:
-                                futures[
-                                    executor.submit(
-                                        stage_pdf_job,
-                                        job.file_path,
-                                        out,
-                                        base_mapping,
-                                        run_dt,
-                                        job.start_page,
-                                        job.end_page,
-                                        job.job_index,
-                                        job.job_count,
-                                        progress_queue,
-                                        job.display_name,
-                                        job_run_config,
-                                        job_run_config_hash,
-                                        job_run_config_summary,
-                                    )
-                                ] = job
-                        else:
+            def _run_jobs_with_executor(executor: Any) -> None:
+                futures: dict[Any, JobSpec] = {}
+                for job in job_specs:
+                    job_run_config = _run_config_for_file(job.file_path)
+                    job_run_config_hash = _run_config_hash_for_file(job.file_path)
+                    job_run_config_summary = _run_config_summary_for_file(job.file_path)
+                    job_epub_extractor = effective_epub_extractors.get(job.file_path)
+                    if job.is_split:
+                        if job.split_kind == "epub":
                             futures[
                                 executor.submit(
-                                    stage_one_file,
+                                    stage_epub_job,
                                     job.file_path,
                                     out,
                                     base_mapping,
-                                    limit,
                                     run_dt,
+                                    job.start_spine,
+                                    job.end_spine,
+                                    job.job_index,
+                                    job.job_count,
                                     progress_queue,
                                     job.display_name,
                                     job_epub_extractor,
                                     job_run_config,
                                     job_run_config_hash,
                                     job_run_config_summary,
-                                    write_markdown,
                                 )
                             ] = job
+                        else:
+                            futures[
+                                executor.submit(
+                                    stage_pdf_job,
+                                    job.file_path,
+                                    out,
+                                    base_mapping,
+                                    run_dt,
+                                    job.start_page,
+                                    job.end_page,
+                                    job.job_index,
+                                    job.job_count,
+                                    progress_queue,
+                                    job.display_name,
+                                    job_run_config,
+                                    job_run_config_hash,
+                                    job_run_config_summary,
+                                )
+                            ] = job
+                    else:
+                        futures[
+                            executor.submit(
+                                stage_one_file,
+                                job.file_path,
+                                out,
+                                base_mapping,
+                                limit,
+                                run_dt,
+                                progress_queue,
+                                job.display_name,
+                                job_epub_extractor,
+                                job_run_config,
+                                job_run_config_hash,
+                                job_run_config_summary,
+                                write_markdown,
+                            )
+                        ] = job
 
-                    for future in as_completed(futures):
-                        job = futures[future]
-                        try:
-                            res = future.result()
-                        except Exception as exc:
-                            res = {
-                                "file": job.file_path.name,
-                                "status": "error",
-                                "reason": str(exc),
-                                "job_index": job.job_index,
-                                "job_count": job.job_count,
-                                "start_page": job.start_page,
-                                "end_page": job.end_page,
-                                "start_spine": job.start_spine,
-                                "end_spine": job.end_spine,
-                            }
+                for future in as_completed(futures):
+                    job = futures[future]
+                    try:
+                        res = future.result()
+                    except Exception as exc:
+                        res = {
+                            "file": job.file_path.name,
+                            "status": "error",
+                            "reason": str(exc),
+                            "job_index": job.job_index,
+                            "job_count": job.job_count,
+                            "start_page": job.start_page,
+                            "end_page": job.end_page,
+                            "start_spine": job.start_spine,
+                            "end_spine": job.end_spine,
+                        }
 
-                        progress_bar.update(overall_task, advance=1)
-                        handle_job_result(job, res, live)
-            except PermissionError:
-                live.console.print(
-                    "[yellow]⚠ Multiprocessing unavailable; running jobs serially.[/yellow]"
-                )
+                    progress_bar.update(overall_task, advance=1)
+                    handle_job_result(job, res, live)
+
+            def _run_jobs_serial() -> None:
                 for job in job_specs:
                     job_run_config = _run_config_for_file(job.file_path)
                     job_run_config_hash = _run_config_hash_for_file(job.file_path)
@@ -17120,6 +17120,27 @@ def stage(
                         )
                     progress_bar.update(overall_task, advance=1)
                     handle_job_result(job, res, live)
+            executor_resolution = resolve_process_thread_executor(
+                max_workers=effective_workers,
+                process_unavailable_message=lambda exc: (
+                    "Process-based worker concurrency unavailable "
+                    f"({exc}); using thread-based worker concurrency."
+                ),
+                thread_unavailable_message=lambda exc: (
+                    "Thread-based worker concurrency unavailable "
+                    f"({exc}); running jobs serially."
+                ),
+            )
+            for message in executor_resolution.messages:
+                live.console.print(f"[yellow]⚠ {message}[/yellow]")
+            if executor_resolution.executor is None:
+                _run_jobs_serial()
+            else:
+                executor = executor_resolution.executor
+                try:
+                    _run_jobs_with_executor(executor)
+                finally:
+                    shutdown_executor(executor, wait=True, cancel_futures=False)
     finally:
         stop_event.set()
         if queue_thread is not None:

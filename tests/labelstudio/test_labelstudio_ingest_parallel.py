@@ -416,7 +416,7 @@ def test_run_labelstudio_import_split_workers_emit_worker_activity(
         ],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.ProcessPoolExecutor",
+        "cookimport.core.executor_fallback.ProcessPoolExecutor",
         ThreadPoolExecutor,
     )
     monkeypatch.setattr(
@@ -513,6 +513,189 @@ def test_run_labelstudio_import_split_workers_emit_worker_activity(
     assert not any(
         "Ignoring unknown labelstudio split run config keys" in record.getMessage()
         for record in caplog.records
+    )
+
+
+def test_run_labelstudio_import_split_workers_fallback_to_thread_on_process_denied(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+    processed_root = tmp_path / "processed"
+
+    fake_result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    class FakeLabelStudioClient:
+        def __init__(self, _url: str, _key: str) -> None:
+            pass
+
+        def list_projects(self):
+            return []
+
+        def find_project_by_title(self, _title: str):
+            return None
+
+        def create_project(
+            self, title: str, _label_config: str, description: str | None = None
+        ):
+            return {"id": 123, "title": title, "description": description}
+
+        def import_tasks(self, _project_id: int, _tasks):
+            return None
+
+    class BrokenProcessPoolExecutor:
+        def __init__(self, *_args, **_kwargs) -> None:
+            raise PermissionError("sandbox denied")
+
+    thread_pool_started = {"count": 0}
+
+    class TrackingThreadPoolExecutor(ThreadPoolExecutor):
+        def __init__(self, *args, **kwargs):
+            thread_pool_started["count"] += 1
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._plan_parallel_convert_jobs",
+        lambda *_args, **_kwargs: [
+            {
+                "job_index": 0,
+                "start_page": None,
+                "end_page": None,
+                "start_spine": 0,
+                "end_spine": 10,
+            },
+            {
+                "job_index": 1,
+                "start_page": None,
+                "end_page": None,
+                "start_spine": 10,
+                "end_spine": 20,
+            },
+            {
+                "job_index": 2,
+                "start_page": None,
+                "end_page": None,
+                "start_spine": 20,
+                "end_spine": 30,
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.core.executor_fallback.ProcessPoolExecutor",
+        BrokenProcessPoolExecutor,
+    )
+    monkeypatch.setattr(
+        "cookimport.core.executor_fallback.ThreadPoolExecutor",
+        TrackingThreadPoolExecutor,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._parallel_convert_worker",
+        lambda *_args, **_kwargs: ("fake", fake_result),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._merge_parallel_results",
+        lambda *_args, **_kwargs: fake_result,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            SimpleNamespace(index=0, text="hello", location={"block_index": 0}, source_kind="raw")
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_file_hash",
+        lambda _path: "hash",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._write_processed_outputs",
+        lambda **_kwargs: processed_root / "2026-02-11_00:00:00",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: [
+            {"data": {"segment_id": f"seg-{i}"}} for i in range(5)
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 1000,
+            "segment_chars": 950,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks, **_kwargs: tasks,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.LabelStudioClient",
+        FakeLabelStudioClient,
+    )
+
+    progress_messages: list[str] = []
+    run_labelstudio_import(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        project_name="benchmark project",
+        segment_blocks=40,
+        segment_overlap=5,
+        overwrite=False,
+        resume=False,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="test",
+        limit=None,
+        sample=None,
+        progress_callback=progress_messages.append,
+        workers=2,
+        pdf_split_workers=1,
+        epub_split_workers=2,
+        pdf_pages_per_job=50,
+        epub_spine_items_per_job=10,
+        processed_output_root=processed_root,
+        allow_labelstudio_write=True,
+    )
+
+    assert thread_pool_started["count"] >= 1
+    assert any(
+        "using thread-based worker concurrency" in message.lower()
+        for message in progress_messages
+    )
+    assert not any(
+        "running split jobs serially" in message.lower()
+        for message in progress_messages
+    )
+    worker_events = [parse_worker_activity(message) for message in progress_messages]
+    assert any(
+        isinstance(event, dict)
+        and event.get("type") == "activity"
+        and event.get("worker_total") == 2
+        for event in worker_events
     )
 
 

@@ -49,6 +49,7 @@ cookimport/config/run_settings.py
 cookimport/config/run_settings_adapters.py
 cookimport/core/__init__.py
 cookimport/core/blocks.py
+cookimport/core/executor_fallback.py
 cookimport/core/mapping_io.py
 cookimport/core/models.py
 cookimport/core/overrides_io.py
@@ -109,6 +110,7 @@ cookimport/parsing/instruction_parser.py
 cookimport/parsing/markdown_blocks.py
 cookimport/parsing/markitdown_adapter.py
 cookimport/parsing/multi_recipe_splitter.py
+cookimport/parsing/pattern_flags.py
 cookimport/parsing/patterns.py
 cookimport/parsing/schemaorg_ingest.py
 cookimport/parsing/section_detector.py

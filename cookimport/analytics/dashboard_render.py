@@ -2296,6 +2296,7 @@ section h3 {
 }
 .highcharts-host {
   width: 100%;
+  height: 400px;
   min-height: 360px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -2673,6 +2674,8 @@ _JS = """\
   let activeDays = 0; // 0 = all
   let selectedFileTrend = "";
   let throughputScaleMode = "clamp95";
+  // Keep wheel-zoom off across all Highcharts charts unless explicitly re-enabled.
+  const HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED = false;
   const TABLE_COLLAPSE_DEFAULT_ROWS = {
     "recent-runs": 8,
     "file-trend-table": 8,
@@ -2728,8 +2731,28 @@ _JS = """\
   }
 
   function init() {
+    applyHighchartsGlobalDefaults();
     renderHeader();
     renderAll();
+  }
+
+  function applyHighchartsGlobalDefaults() {
+    if (
+      typeof window === "undefined" ||
+      !window.Highcharts ||
+      typeof window.Highcharts.setOptions !== "function"
+    ) {
+      return;
+    }
+    window.Highcharts.setOptions({
+      chart: {
+        zooming: {
+          mouseWheel: {
+            enabled: HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED,
+          },
+        },
+      },
+    });
   }
 
   // ---- Header ----
@@ -2998,6 +3021,9 @@ _JS = """\
     }
 
     window.Highcharts.stockChart("benchmark-trend-chart", {
+      chart: {
+        height: 400,
+      },
       credits: { enabled: false },
       title: { text: "Strict and Practical Score Trends" },
       legend: { enabled: true },

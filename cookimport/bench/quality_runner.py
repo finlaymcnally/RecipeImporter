@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import datetime as dt
 import json
@@ -9,13 +10,17 @@ import math
 import os
 import re
 import statistics
+import subprocess
+import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from cookimport.bench.quality_eta import estimate_quality_run_eta, format_eta_seconds_short
 from cookimport.bench.quality_suite import QualitySuite
 from cookimport.bench.speed_suite import resolve_repo_path
 from cookimport.config.run_settings import RunSettings
@@ -31,6 +36,13 @@ _QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_ENV = (
     "COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS"
 )
 _QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_DEFAULT = 16
+_QUALITY_LIVE_ETA_POLL_SECONDS_ENV = "COOKIMPORT_QUALITY_LIVE_ETA_POLL_SECONDS"
+_QUALITY_LIVE_ETA_POLL_SECONDS_DEFAULT = 15.0
+_QUALITY_EXPERIMENT_EXECUTOR_MODE_ENV = "COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE"
+_QUALITY_EXPERIMENT_EXECUTOR_MODES = {"auto", "thread", "subprocess"}
+_QUALITY_EXPERIMENT_WORKER_REQUEST_ARG = "--experiment-worker-request"
+_QUALITY_EXPERIMENT_WORKER_REQUEST_FILENAME = "_experiment_worker_request.json"
+_QUALITY_EXPERIMENT_WORKER_RESULT_FILENAME = "_experiment_worker_result.json"
 _ALL_METHOD_RUNTIME_ALLOWED_KEYS = {
     "max_parallel_sources",
     "max_inflight_pipelines",
@@ -270,6 +282,43 @@ def _resolve_auto_parallel_experiment_ceiling() -> tuple[int, str]:
     return max(1, env_value), "env"
 
 
+def _resolve_quality_live_eta_poll_seconds() -> float:
+    env_raw = str(os.getenv(_QUALITY_LIVE_ETA_POLL_SECONDS_ENV, "") or "").strip()
+    if not env_raw:
+        return _QUALITY_LIVE_ETA_POLL_SECONDS_DEFAULT
+    try:
+        numeric = float(env_raw)
+    except (TypeError, ValueError):
+        return _QUALITY_LIVE_ETA_POLL_SECONDS_DEFAULT
+    return max(2.0, numeric)
+
+
+def _resolve_quality_experiment_executor_mode(
+    *,
+    max_parallel_experiments_effective: int,
+) -> tuple[str, str]:
+    requested_raw = str(
+        os.getenv(_QUALITY_EXPERIMENT_EXECUTOR_MODE_ENV, "") or ""
+    ).strip().lower()
+    requested_mode = (
+        requested_raw if requested_raw in _QUALITY_EXPERIMENT_EXECUTOR_MODES else "auto"
+    )
+    if max_parallel_experiments_effective <= 1:
+        return "thread", "single_worker"
+    if requested_mode == "thread":
+        return "thread", "env"
+    if requested_mode == "subprocess":
+        return "subprocess", "env"
+
+    import cookimport.cli as cli
+
+    available, error = cli._probe_all_method_process_pool_executor()
+    if available:
+        return "thread", "process_pool_available"
+    detail = str(error or "").strip() or "unknown"
+    return "subprocess", f"process_pool_unavailable:{detail}"
+
+
 def _desired_experiment_parallel_workers(
     *,
     workers_cap: int,
@@ -291,6 +340,220 @@ def _desired_experiment_parallel_workers(
     if pressure >= 0.55:
         return max(1, int(math.ceil(workers_cap * 0.75)))
     return workers_cap
+
+
+def _build_live_quality_eta_message(
+    *,
+    run_root: Path,
+    completed_experiments: int,
+    total_experiments: int,
+) -> str | None:
+    estimate = estimate_quality_run_eta(run_root / "experiments")
+    if estimate.active_experiments <= 0:
+        return None
+    eta_display = format_eta_seconds_short(estimate.estimated_remaining_seconds)
+    return (
+        f"Quality suite live task {completed_experiments}/{total_experiments}: "
+        f"active_experiments={estimate.active_experiments} "
+        f"work_units={estimate.pending_work_units:.1f} "
+        f"eta={eta_display} "
+        f"eta_models={estimate.experiments_with_eta}of{estimate.active_experiments}"
+    )
+
+
+def _truncate_subprocess_text(value: str, *, max_chars: int = 600) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    return text[-max_chars:]
+
+
+def _run_single_experiment_via_subprocess(
+    *,
+    experiment: _ResolvedExperiment,
+    suite_targets: list[Any],
+    run_root: Path,
+    experiment_root: Path,
+    include_markdown_extractors: bool,
+    include_codex_farm_requested: bool,
+    include_codex_effective: bool,
+    canonical_alignment_cache_root: Path,
+    search_strategy: str,
+    race_probe_targets: int,
+    race_mid_targets: int,
+    race_keep_ratio: float,
+    race_finalists: int,
+    include_deterministic_sweeps: bool,
+) -> QualityExperimentResult:
+    request_path = experiment_root / _QUALITY_EXPERIMENT_WORKER_REQUEST_FILENAME
+    result_path = experiment_root / _QUALITY_EXPERIMENT_WORKER_RESULT_FILENAME
+    payload = {
+        "experiment_id": experiment.id,
+        "suite_targets": [
+            target.model_dump() if hasattr(target, "model_dump") else dict(target)
+            for target in suite_targets
+        ],
+        "run_root": str(run_root),
+        "experiment_root": str(experiment_root),
+        "run_settings_payload": experiment.run_settings.to_run_config_dict(),
+        "all_method_runtime": dict(experiment.all_method_runtime),
+        "include_markdown_extractors": bool(include_markdown_extractors),
+        "include_codex_farm_requested": bool(include_codex_farm_requested),
+        "include_codex_effective": bool(include_codex_effective),
+        "canonical_alignment_cache_root": str(canonical_alignment_cache_root),
+        "search_strategy": str(search_strategy or "exhaustive"),
+        "race_probe_targets": int(race_probe_targets),
+        "race_mid_targets": int(race_mid_targets),
+        "race_keep_ratio": float(race_keep_ratio),
+        "race_finalists": int(race_finalists),
+        "include_deterministic_sweeps": bool(include_deterministic_sweeps),
+        "result_path": str(result_path),
+    }
+    request_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    command = [
+        sys.executable,
+        "-m",
+        "cookimport.bench.quality_runner",
+        _QUALITY_EXPERIMENT_WORKER_REQUEST_ARG,
+        str(request_path),
+    ]
+    completed = subprocess.run(
+        command,
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    parsed_result: QualityExperimentResult | None = None
+    if result_path.exists():
+        try:
+            parsed_result = QualityExperimentResult.model_validate(
+                _load_json_dict(result_path)
+            )
+        except Exception as exc:  # noqa: BLE001
+            parsed_result = QualityExperimentResult(
+                id=experiment.id,
+                status="failed",
+                error=f"Invalid subprocess worker result payload: {exc}",
+                run_settings_hash=experiment.run_settings.stable_hash(),
+                run_settings_summary=experiment.run_settings.summary(),
+            )
+
+    if completed.returncode == 0 and parsed_result is not None:
+        return parsed_result
+
+    stdout_tail = _truncate_subprocess_text(str(completed.stdout or ""))
+    stderr_tail = _truncate_subprocess_text(str(completed.stderr or ""))
+    error_parts = [
+        f"Subprocess experiment worker exited non-zero ({completed.returncode})."
+    ]
+    if stderr_tail:
+        error_parts.append(f"stderr: {stderr_tail}")
+    if stdout_tail:
+        error_parts.append(f"stdout: {stdout_tail}")
+    if parsed_result is not None and parsed_result.error:
+        error_parts.append(f"worker_error: {parsed_result.error}")
+    error_message = " ".join(error_parts).strip()
+    return QualityExperimentResult(
+        id=experiment.id,
+        status="failed",
+        error=error_message,
+        run_settings_hash=experiment.run_settings.stable_hash(),
+        run_settings_summary=experiment.run_settings.summary(),
+    )
+
+
+def _run_experiment_worker_request(request_path: Path) -> int:
+    from cookimport.bench.quality_suite import QualityTarget
+
+    payload = _load_json_dict(request_path)
+    experiment_id = str(payload.get("experiment_id") or "").strip() or "unknown"
+    result_path_raw = str(payload.get("result_path") or "").strip()
+    result_path = Path(result_path_raw) if result_path_raw else None
+    if result_path is None:
+        raise ValueError("Experiment worker payload is missing result_path.")
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+
+    run_settings_payload_raw = payload.get("run_settings_payload")
+    run_settings_payload = (
+        dict(run_settings_payload_raw)
+        if isinstance(run_settings_payload_raw, dict)
+        else {}
+    )
+    run_settings = RunSettings.from_dict(
+        run_settings_payload,
+        warn_context="quality experiment worker run settings",
+    )
+    suite_targets_raw = payload.get("suite_targets")
+    suite_targets = (
+        [
+            QualityTarget.model_validate(item)
+            for item in suite_targets_raw
+            if isinstance(item, dict)
+        ]
+        if isinstance(suite_targets_raw, list)
+        else []
+    )
+    all_method_runtime_raw = payload.get("all_method_runtime")
+    all_method_runtime = (
+        dict(all_method_runtime_raw)
+        if isinstance(all_method_runtime_raw, dict)
+        else {}
+    )
+    run_root = Path(str(payload.get("run_root") or ""))
+    experiment_root = Path(str(payload.get("experiment_root") or ""))
+    canonical_alignment_cache_root = Path(
+        str(payload.get("canonical_alignment_cache_root") or "")
+    )
+
+    exit_code = 0
+    try:
+        result = _run_single_experiment(
+            experiment_id=experiment_id,
+            suite_targets=suite_targets,
+            run_root=run_root,
+            experiment_root=experiment_root,
+            run_settings=run_settings,
+            all_method_runtime=all_method_runtime,
+            include_markdown_extractors=bool(payload.get("include_markdown_extractors")),
+            include_codex_farm_requested=bool(payload.get("include_codex_farm_requested")),
+            include_codex_effective=bool(payload.get("include_codex_effective")),
+            canonical_alignment_cache_root=canonical_alignment_cache_root,
+            search_strategy=str(payload.get("search_strategy") or "exhaustive"),
+            race_probe_targets=_coerce_int(payload.get("race_probe_targets"), minimum=1),
+            race_mid_targets=_coerce_int(payload.get("race_mid_targets"), minimum=1),
+            race_keep_ratio=max(
+                0.01,
+                min(1.0, _coerce_float(payload.get("race_keep_ratio")) or 0.35),
+            ),
+            race_finalists=_coerce_int(payload.get("race_finalists"), minimum=1),
+            include_deterministic_sweeps=bool(
+                payload.get("include_deterministic_sweeps")
+            ),
+            progress_callback=None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        exit_code = 1
+        result = QualityExperimentResult(
+            id=experiment_id,
+            status="failed",
+            error=str(exc),
+            run_settings_hash=run_settings.stable_hash(),
+            run_settings_summary=run_settings.summary(),
+        )
+
+    result_path.write_text(
+        json.dumps(result.model_dump(), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    return exit_code
 
 
 def run_quality_suite(
@@ -366,6 +629,7 @@ def run_quality_suite(
         requested=max_parallel_experiments,
         total_experiments=total_experiments,
     )
+    live_eta_poll_seconds = _resolve_quality_live_eta_poll_seconds()
 
     progress_lock = threading.Lock()
 
@@ -428,6 +692,8 @@ def run_quality_suite(
         "max_parallel_experiments_auto_ceiling": auto_parallel_experiment_ceiling,
         "max_parallel_experiments_auto_ceiling_source": auto_parallel_experiment_ceiling_source,
         "max_parallel_experiments_auto_ceiling_env": _QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_ENV,
+        "quality_live_eta_poll_seconds": live_eta_poll_seconds,
+        "quality_live_eta_poll_seconds_env": _QUALITY_LIVE_ETA_POLL_SECONDS_ENV,
         "experiments": [
             {
                 "id": item.id,
@@ -447,11 +713,19 @@ def run_quality_suite(
     include_codex_effective, _codex_warning = cli._resolve_all_method_codex_choice(
         include_codex_farm_requested
     )
+    experiment_executor_mode, experiment_executor_reason = (
+        _resolve_quality_experiment_executor_mode(
+            max_parallel_experiments_effective=max_parallel_experiments_effective
+        )
+    )
     include_markdown_extractors = cli._resolve_all_method_markdown_extractors_choice()
     resolved_payload["include_codex_farm_effective"] = bool(include_codex_effective)
     resolved_payload["include_markdown_extractors_effective"] = bool(
         include_markdown_extractors
     )
+    resolved_payload["experiment_executor_mode"] = experiment_executor_mode
+    resolved_payload["experiment_executor_reason"] = experiment_executor_reason
+    resolved_payload["experiment_executor_mode_env"] = _QUALITY_EXPERIMENT_EXECUTOR_MODE_ENV
     if _codex_warning is not None:
         resolved_payload["include_codex_farm_warning"] = str(_codex_warning)
     (run_root / "experiments_resolved.json").write_text(
@@ -493,6 +767,32 @@ def run_quality_suite(
                 run_settings_hash=experiment.run_settings.stable_hash(),
                 run_settings_summary=experiment.run_settings.summary(),
             )
+
+    def _dispatch_resolved_experiment(
+        *,
+        experiment: _ResolvedExperiment,
+    ) -> QualityExperimentResult:
+        experiment_root = run_root / "experiments" / experiment.id
+        experiment_root.mkdir(parents=True, exist_ok=True)
+        if experiment_executor_mode == "subprocess":
+            return _run_single_experiment_via_subprocess(
+                experiment=experiment,
+                suite_targets=selected_targets,
+                run_root=run_root,
+                experiment_root=experiment_root,
+                include_markdown_extractors=include_markdown_extractors,
+                include_codex_farm_requested=include_codex_farm_requested,
+                include_codex_effective=include_codex_effective,
+                canonical_alignment_cache_root=canonical_alignment_cache_root,
+                search_strategy=search_strategy_clean,
+                race_probe_targets=race_probe_targets,
+                race_mid_targets=race_mid_targets,
+                race_keep_ratio=race_keep_ratio,
+                race_finalists=race_finalists,
+                include_deterministic_sweeps=include_deterministic_sweeps_requested,
+            )
+        return _run_resolved_experiment(experiment=experiment)
+
     results_by_index: list[QualityExperimentResult | None] = [None] * total_experiments
 
     if max_parallel_experiments_effective <= 1:
@@ -504,7 +804,7 @@ def run_quality_suite(
                     f"{experiment.id}"
                 ),
             )
-            results_by_index[index - 1] = _run_resolved_experiment(
+            results_by_index[index - 1] = _dispatch_resolved_experiment(
                 experiment=experiment,
             )
     else:
@@ -513,6 +813,7 @@ def run_quality_suite(
             (
                 "Quality suite parallel dispatch: "
                 f"mode={max_parallel_experiments_mode} "
+                f"executor={experiment_executor_mode} "
                 f"workers_cap={max_parallel_experiments_effective} "
                 f"tasks={total_experiments}"
             ),
@@ -534,6 +835,8 @@ def run_quality_suite(
                 dynamic_worker_target = max_parallel_experiments_effective
             last_announced_worker_target: int | None = None
             completed = 0
+            next_live_eta_update = time.monotonic() + live_eta_poll_seconds
+            last_live_eta_message = ""
 
             while next_pending_index < len(pending_entries) or future_to_index:
                 if max_parallel_experiments_mode == "auto":
@@ -572,6 +875,22 @@ def run_quality_suite(
                     )
                     last_announced_worker_target = dynamic_worker_target
 
+                if progress_reporter is not None and live_eta_poll_seconds > 0:
+                    now_monotonic = time.monotonic()
+                    if now_monotonic >= next_live_eta_update:
+                        live_eta_message = _build_live_quality_eta_message(
+                            run_root=run_root,
+                            completed_experiments=completed,
+                            total_experiments=total_experiments,
+                        )
+                        if (
+                            live_eta_message is not None
+                            and live_eta_message != last_live_eta_message
+                        ):
+                            _notify_progress(progress_reporter, live_eta_message)
+                            last_live_eta_message = live_eta_message
+                        next_live_eta_update = now_monotonic + live_eta_poll_seconds
+
                 while (
                     next_pending_index < len(pending_entries)
                     and len(future_to_index) < dynamic_worker_target
@@ -586,7 +905,7 @@ def run_quality_suite(
                         ),
                     )
                     future = executor.submit(
-                        _run_resolved_experiment,
+                        _dispatch_resolved_experiment,
                         experiment=experiment,
                     )
                     future_to_index[future] = index
@@ -1909,3 +2228,33 @@ def _render_metric(value: Any) -> str:
     if numeric is None:
         return "n/a"
     return f"{numeric:.4f}"
+
+
+def _build_worker_cli_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m cookimport.bench.quality_runner",
+        add_help=True,
+    )
+    parser.add_argument(
+        _QUALITY_EXPERIMENT_WORKER_REQUEST_ARG,
+        dest="experiment_worker_request",
+        type=str,
+        default="",
+        help="Internal worker mode: run one experiment from a request JSON file.",
+    )
+    return parser
+
+
+def _main(argv: list[str] | None = None) -> int:
+    parser = _build_worker_cli_parser()
+    args = parser.parse_args(argv)
+    request_path_raw = str(getattr(args, "experiment_worker_request", "") or "").strip()
+    if not request_path_raw:
+        parser.error(
+            f"{_QUALITY_EXPERIMENT_WORKER_REQUEST_ARG} is required when invoking this module directly."
+        )
+    return _run_experiment_worker_request(Path(request_path_raw).expanduser())
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

@@ -64,6 +64,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_progress_messages.py": ("bench",),
     "test_quality_suite_compare.py": ("bench",),
     "test_quality_suite_discovery.py": ("bench",),
+    "test_quality_eta.py": ("bench",),
     "test_quality_leaderboard.py": ("bench",),
     "test_quality_suite_runner.py": ("bench",),
     "test_recipe_sections.py": ("parsing",),

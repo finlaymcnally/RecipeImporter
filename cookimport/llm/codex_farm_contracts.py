@@ -20,6 +20,15 @@ class BlockLite(BaseModel):
     heading_level: int | None = None
 
 
+class PatternHint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    hint_type: str
+    start_block_index: int | None = None
+    end_block_index: int | None = None
+    note: str | None = None
+
+
 class Pass1RecipeChunkingInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -32,6 +41,7 @@ class Pass1RecipeChunkingInput(BaseModel):
     blocks_before: list[BlockLite] = Field(default_factory=list)
     blocks_candidate: list[BlockLite] = Field(default_factory=list)
     blocks_after: list[BlockLite] = Field(default_factory=list)
+    pattern_hints: list[PatternHint] = Field(default_factory=list)
 
 
 class Pass1RecipeChunkingOutput(BaseModel):
