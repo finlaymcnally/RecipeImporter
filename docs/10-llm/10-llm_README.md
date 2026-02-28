@@ -19,7 +19,6 @@ Settings and entrypoints:
 - `cookimport/cli.py` (stage + benchmark + Label Studio command normalization/gating)
 - `cookimport/entrypoint.py` (saved settings -> stage defaults pass-through)
 - `cookimport/labelstudio/ingest.py` (prediction-run generation + recipe-pass gating)
-- `cookimport/bench/pred_run.py` (offline prediction-run wrapper around Label Studio ingest)
 
 Stage execution paths:
 
@@ -125,7 +124,7 @@ These settings remain part of run settings and stage execution:
 
 - Label Studio prediction-run generation (`generate_pred_run_artifacts`) currently wires recipe-pass settings only (pass1/2/3 + codex-farm command/root/workspace/context/failure mode).
 - Pass4 knowledge harvesting and pass5 tag suggestions are stage-only flows; prediction-run generation does not execute those passes.
-- Benchmark prediction generation (`labelstudio-benchmark` and `cookimport/bench/pred_run.py`) reuses that same prediction-run recipe-pass boundary.
+- Benchmark prediction generation (`labelstudio-benchmark`) reuses that same prediction-run recipe-pass boundary.
 
 Recipe pass execution in prediction-run paths remains policy-locked off via normalizers.
 

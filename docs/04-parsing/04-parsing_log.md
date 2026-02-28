@@ -487,6 +487,36 @@ Priority-6 parser/yield behavior should be wired through `RunSettings` and carri
 - Interactive and speed/benchmark adapters already use `cookimport/config/run_settings_adapters.py` as the central mapping layer from `RunSettings` to CLI call kwargs.
 - Current baseline parser/staging contracts remain legacy defaults (`parse_instruction` sum-all + first-temperature; draft yield placeholders), so Priority 6 can be added as new `p6_*` settings without changing default behavior.
 
+### 2026-02-27_23.39.38 priority6 wiring and oven-like audit
+
+Source: `docs/understandings/2026-02-27_23.39.38-priority6-wiring-and-ovenlike-audit.md`
+Summary: Priority 6 wiring audit identified selector-forwarding gaps in benchmark manifests/ingest/pred-run paths and documented the oven-like local negative-hint fix.
+
+Details preserved:
+
+
+# Priority 6 Wiring and Oven-Like Audit
+
+## What was checked
+
+- `cookimport/cli.py` benchmark prediction/eval wiring (`labelstudio_benchmark`)
+- `cookimport/labelstudio/ingest.py` signatures + `build_run_settings(...)` calls
+- `cookimport/bench/pred_run.py` config forwarding into `generate_pred_run_artifacts(...)`
+- `cookimport/parsing/instruction_parser.py` oven-like classification behavior
+
+## Findings
+
+- Benchmark runtime execution already forwarded `p6_*` selectors into prediction generation, but benchmark manifest dictionaries (`predict_only_run_config`, `benchmark_run_config`) initially omitted them.
+- `labelstudio_benchmark` passed `p6_*` kwargs into `run_labelstudio_import(...)`, but ingest signatures had not yet been extended, causing a latent runtime mismatch on upload-enabled paths.
+- `bench/pred_run.py` forwarded only a subset of parsing knobs and initially dropped `p6_*` selectors from helper-driven offline prediction runs.
+- Oven-like classification used a broad negative-hint window; distant `internal` text could suppress nearby preheat/bake temperatures, making `max_oven_temp_f` unexpectedly null.
+
+## Resolution pattern
+
+- Add `p6_*` parameters and forwarding in ingest + bench helper signatures.
+- Include `p6_*` selectors in benchmark run-manifest run-config payloads for reproducibility.
+- Keep oven-like positive context broad, but evaluate negative hints in a tighter local window around the matched temperature.
+
 ## 2026-02-27 tasks consolidation ledger (migrated from `docs/tasks`)
 
 The following task files were merged into this section and then removed from `docs/tasks`:

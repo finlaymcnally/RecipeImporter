@@ -766,3 +766,122 @@ Outcome preserved:
 - `evaluate_stage_blocks` now emits boundary metrics + taxonomy and optional `segeval`.
 - `bench eval-stage` exposes segmentation flags (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`).
 - Optional dependency path is explicit via `segmentation_eval` extra and clear install guidance.
+
+## 16. 2026-02-27_23.25.14 to 2026-02-28_00.11 OGplan audit pack (migrated from `docs/understandings`)
+
+Merged source files:
+- `2026-02-27_23.25.14-ogplan-implementation-audit-refresh.md`
+- `2026-02-27_23.25.40-ogplan-eval-signature-dedupe-audit.md`
+- `2026-02-27_23.26.10-ogplan-audit-live-code-check.md`
+- `2026-02-27_23.26.52-ogplan-global-scheduler-audit-snapshot.md`
+- `2026-02-27_23.31.29-all-method-run-settings-forwarding-audit.md`
+- `2026-02-27_23.34.54-ogplan-priority-1-8-live-audit.md`
+- `2026-02-28_00.11.05-ogplan-audit-consolidated-status.md`
+
+### 2026-02-27_23.25.14 OGplan implementation audit refresh
+
+Problem captured:
+- OGplan archive checklist state and real runtime delivery were diverging, causing repeated "is this shipped?" loops.
+
+Durable findings:
+- Runtime+tests show speed suite, tail-throughput scheduling, eval-signature dedupe, and global scheduler as implemented.
+- Priority lanes are mostly implemented in runtime; strict OG archive checkboxes are not a reliable completion signal.
+- `speed2-2` remained not implemented as written; `speed2-4` remained partial/unwired.
+
+### 2026-02-27_23.25.40 eval-signature dedupe verification
+
+Problem captured:
+- Needed proof that dedupe behavior was not a docs-only claim and worked across both scheduler scopes.
+
+Durable findings:
+- Predict-only -> grouped evaluate-only flow is active.
+- Reuse counters/provenance are shipped (`evaluation_runs_executed`, `evaluation_results_reused_in_run`, `evaluation_results_reused_cross_run`, `evaluation_result_source`, `evaluation_representative_config_dir`).
+- Both legacy and global scheduler paths honor dedupe/reuse behavior.
+
+Anti-loop note:
+- If dedupe appears broken, inspect signature payload equality and provenance counters before changing evaluator internals.
+
+### 2026-02-27_23.26.10 + 23.26.52 live-check/global-scheduler snapshot
+
+Problems captured:
+- Needed explicit requirement-to-evidence mapping for global scheduler rollout claims.
+- Dispatch-level tests could pass while deeper global-loop behavior regressed.
+
+Durable findings:
+- `_AllMethodGlobalWorkItem`, global planning, global queue execution, and per-source report rebuild from global rows are implemented.
+- Global scope is default; `legacy` remains explicit rollback.
+- Explicit open items remained in this audit snapshot:
+  - manual real-data all-matched smoke still deferred,
+  - deeper direct tests for global-loop internals remained thinner than legacy-path tests.
+
+Anti-loop note:
+- Do not declare global scheduler acceptance "fully done" from dispatch tests alone; include manual smoke and direct global-loop behavior checks.
+
+### 2026-02-27_23.31.29 all-method run-settings forwarding parity audit
+
+Problem captured:
+- All-method variant dimensions could imply knobs that were not actually forwarded into prediction execution.
+
+Durable findings:
+- Adapter setting surface: `58` keys.
+- All-method forwarded setting surface: `25` keys.
+- Missing in all-method forwarding: `33` keys.
+- Missing families included `recipe_score_*`, `multi_recipe_*`, `ingredient_*`, `p6_*`, `web_schema_*`, and output toggles.
+
+Interpretation risk captured:
+- All-method rows can advertise non-default dimensions while effective prediction kwargs still use defaults for omitted families.
+
+Anti-loop note:
+- Before trusting per-dimension conclusions, verify forwarding parity for that family in `_run_all_method_prediction_once(...)`.
+
+### 2026-02-27_23.34.54 + 2026-02-28_00.11.05 priority and consolidated status merge
+
+Problems captured:
+- Priority 1-8 status was being interpreted from stale OG checkboxes.
+- Cross-audit conclusions needed one normalized completion model.
+
+Durable findings:
+- Core runtime implementation across Priority 2-8 is present; Priority 1 remains partial only against strict optional OG additive lanes.
+- Consolidated completion model now documented:
+  1. runtime code path exists and is reachable,
+  2. focused tests pass,
+  3. active plan/task docs track implemented state,
+  4. OG checklist state (lowest-trust archival signal).
+- Consolidated practical closeout priorities:
+  - fix all-method forwarding parity for missing families,
+  - add direct global-loop behavior tests,
+  - capture deferred manual all-matched smoke evidence.
+
+### 2026-02-28_00.19.46 all-method forwarding adapter parity closure
+
+Source: `docs/understandings/2026-02-28_00.19.46-all-method-forwarding-adapter-parity.md`
+Summary: all-method predict-only lane now reuses benchmark adapter payload and applies only all-method-specific overrides.
+
+Problems captured:
+- `_run_all_method_prediction_once(...)` maintained a second manual kwargs list for `labelstudio_benchmark(...)`, which drifted from the adapter-backed single benchmark lane.
+
+Durable decisions:
+- Build all-method prediction kwargs from `build_benchmark_call_kwargs_from_run_settings(...)`.
+- Keep all-method-only overrides explicit and narrow:
+  - run-scoped paths (`gold_spans`, `source_file`, `predictions_out`),
+  - benchmark controls (`overlap_threshold`, `force_source_match`, `alignment_cache_dir`),
+  - worker/resource caps (`workers`, `pdf_split_workers`, `epub_split_workers`).
+
+Outcome preserved:
+- Forwarding parity moved from manual duplication to shared-adapter contract.
+- Regression lock added:
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers.py::test_run_all_method_prediction_once_uses_adapter_forwarding_surface`.
+
+### Validation command snapshots preserved by this audit pack
+
+Notable reported results from the merged audit set:
+- broad OG feature slice: `94 passed`
+- scheduler/dedupe target slice: `4 passed, 118 deselected`
+- priority core + matcher parity slice: `41 passed`
+- Priority 6 focused slice: `58 passed`
+- refreshed priority sweep: `87 passed, 2 warnings` and `58 passed, 2 warnings`
+
+Anti-loop summary:
+- Do not treat stale OG checkbox counts as release truth.
+- Keep adapter-parity test coverage active; this lane previously drifted and can regress if kwargs are re-manualized.
+- Do not close global-scheduler acceptance until manual smoke and deeper global-loop tests are both accounted for.

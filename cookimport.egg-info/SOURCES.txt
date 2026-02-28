@@ -26,16 +26,12 @@ cookimport/bench/cost.py
 cookimport/bench/dmp_sequence_matcher.py
 cookimport/bench/eval_canonical_text.py
 cookimport/bench/eval_stage_blocks.py
-cookimport/bench/knobs.py
 cookimport/bench/noise.py
-cookimport/bench/packet.py
-cookimport/bench/pred_run.py
 cookimport/bench/prediction_records.py
 cookimport/bench/quality_compare.py
 cookimport/bench/quality_runner.py
 cookimport/bench/quality_suite.py
 cookimport/bench/report.py
-cookimport/bench/runner.py
 cookimport/bench/segeval_adapter.py
 cookimport/bench/segmentation_metrics.py
 cookimport/bench/sequence_matcher_multilayer.py
@@ -43,9 +39,6 @@ cookimport/bench/sequence_matcher_select.py
 cookimport/bench/speed_compare.py
 cookimport/bench/speed_runner.py
 cookimport/bench/speed_suite.py
-cookimport/bench/suite.py
-cookimport/bench/sweep.py
-cookimport/bench/trace.py
 cookimport/cli_ui/__init__.py
 cookimport/cli_ui/run_settings_flow.py
 cookimport/cli_ui/toggle_editor.py

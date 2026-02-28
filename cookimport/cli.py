@@ -191,8 +191,6 @@ DEFAULT_GOLDEN_SENT_TO_LABELSTUDIO = GOLDEN_SENT_TO_LABELSTUDIO_ROOT
 DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO = GOLDEN_PULLED_FROM_LABELSTUDIO_ROOT
 DEFAULT_GOLDEN_BENCHMARK = GOLDEN_BENCHMARK_ROOT
 DEFAULT_HISTORY = HISTORY_ROOT
-DEFAULT_BENCH_SUITES = DEFAULT_GOLDEN / "bench" / "suites"
-DEFAULT_BENCH_RUNS = DEFAULT_GOLDEN / "bench" / "runs"
 DEFAULT_BENCH_SPEED_ROOT = DEFAULT_GOLDEN / "bench" / "speed"
 DEFAULT_BENCH_SPEED_SUITES = DEFAULT_BENCH_SPEED_ROOT / "suites"
 DEFAULT_BENCH_SPEED_RUNS = DEFAULT_BENCH_SPEED_ROOT / "runs"
@@ -6030,35 +6028,6 @@ def evaluate_stage(
     return eval_result_local, format_stage_block_eval_report_md
 
 
-def _sum_bench_recipe_count(run_root: Path) -> int | None:
-    total = 0
-    found_any = False
-    for manifest_path in run_root.glob("per_item/*/pred_run/manifest.json"):
-        try:
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
-            continue
-        if not isinstance(payload, dict):
-            continue
-
-        recipe_count: int | None
-        try:
-            recipe_count = int(payload.get("recipe_count"))
-        except (TypeError, ValueError):
-            recipe_count = None
-
-        if recipe_count is None:
-            processed_report_path = payload.get("processed_report_path")
-            recipe_count = _load_total_recipes_from_report_path(processed_report_path)
-
-        if recipe_count is None:
-            continue
-        total += recipe_count
-        found_any = True
-
-    return total if found_any else None
-
-
 def _prune_empty_dirs(start: Path, *, stop_exclusive: Path | None = None) -> None:
     """Best-effort cleanup of empty directories after moving benchmark artifacts."""
     current = start
@@ -6513,6 +6482,20 @@ def _median_metric(values: list[float]) -> float | None:
     if len(ordered) % 2 == 1:
         return ordered[mid]
     return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+
+def _row_dimension_str(
+    row: dict[str, Any],
+    key: str,
+) -> str | None:
+    dimensions = row.get("dimensions")
+    if not isinstance(dimensions, dict):
+        return None
+    value = dimensions.get(key)
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    return cleaned or None
 
 
 def _normalize_timing_payload(payload: Any) -> dict[str, Any]:
@@ -7242,57 +7225,32 @@ def _run_all_method_prediction_once(
                 with _benchmark_scheduler_event_overrides(
                     scheduler_event_callback=_scheduler_event_callback
                 ):
-                    labelstudio_benchmark(
-                        gold_spans=gold_spans_path,
-                        source_file=source_file,
+                    benchmark_kwargs = build_benchmark_call_kwargs_from_run_settings(
+                        variant.run_settings,
                         output_dir=scratch_output_dir,
                         processed_output_dir=processed_output_dir,
                         eval_output_dir=eval_output_dir,
-                        execution_mode=BENCHMARK_EXECUTION_MODE_PREDICT_ONLY,
-                        predictions_out=prediction_record_path,
                         eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
-                        sequence_matcher=variant.run_settings.benchmark_sequence_matcher,
-                        overlap_threshold=overlap_threshold,
-                        force_source_match=force_source_match,
+                        execution_mode=BENCHMARK_EXECUTION_MODE_PREDICT_ONLY,
                         no_upload=True,
-                        workers=effective_workers,
-                        pdf_split_workers=effective_pdf_split_workers,
-                        epub_split_workers=effective_epub_split_workers,
-                        pdf_pages_per_job=variant.run_settings.pdf_pages_per_job,
-                        epub_spine_items_per_job=variant.run_settings.epub_spine_items_per_job,
-                        ocr_device=variant.run_settings.ocr_device.value,
-                        ocr_batch_size=variant.run_settings.ocr_batch_size,
-                        warm_models=variant.run_settings.warm_models,
-                        epub_extractor=variant.run_settings.epub_extractor.value,
-                        epub_unstructured_html_parser_version=(
-                            variant.run_settings.epub_unstructured_html_parser_version.value
-                        ),
-                        epub_unstructured_skip_headers_footers=(
-                            variant.run_settings.epub_unstructured_skip_headers_footers
-                        ),
-                        epub_unstructured_preprocess_mode=(
-                            variant.run_settings.epub_unstructured_preprocess_mode.value
-                        ),
-                        section_detector_backend=(
-                            variant.run_settings.section_detector_backend.value
-                        ),
-                        instruction_step_segmentation_policy=(
-                            variant.run_settings.instruction_step_segmentation_policy.value
-                        ),
-                        instruction_step_segmenter=(
-                            variant.run_settings.instruction_step_segmenter.value
-                        ),
-                        llm_recipe_pipeline=variant.run_settings.llm_recipe_pipeline.value,
-                        codex_farm_cmd=variant.run_settings.codex_farm_cmd,
-                        codex_farm_root=variant.run_settings.codex_farm_root,
-                        codex_farm_workspace_root=variant.run_settings.codex_farm_workspace_root,
-                        codex_farm_pipeline_pass1=variant.run_settings.codex_farm_pipeline_pass1,
-                        codex_farm_pipeline_pass2=variant.run_settings.codex_farm_pipeline_pass2,
-                        codex_farm_pipeline_pass3=variant.run_settings.codex_farm_pipeline_pass3,
-                        codex_farm_context_blocks=variant.run_settings.codex_farm_context_blocks,
-                        codex_farm_failure_mode=variant.run_settings.codex_farm_failure_mode.value,
-                        alignment_cache_dir=alignment_cache_dir,
+                        write_markdown=True,
+                        write_label_studio_tasks=True,
+                        sequence_matcher_override=variant.run_settings.benchmark_sequence_matcher,
                     )
+                    benchmark_kwargs.update(
+                        {
+                            "gold_spans": gold_spans_path,
+                            "source_file": source_file,
+                            "predictions_out": prediction_record_path,
+                            "overlap_threshold": overlap_threshold,
+                            "force_source_match": force_source_match,
+                            "alignment_cache_dir": alignment_cache_dir,
+                            "workers": effective_workers,
+                            "pdf_split_workers": effective_pdf_split_workers,
+                            "epub_split_workers": effective_epub_split_workers,
+                        }
+                    )
+                    labelstudio_benchmark(**benchmark_kwargs)
     except Exception as exc:  # noqa: BLE001
         _emit_scheduler_event("config_finished", status="failed", error=str(exc))
         return _all_method_failed_row(
@@ -9562,12 +9520,7 @@ def _run_all_method_benchmark_global_queue(
                 eval_output_dir=representative_eval_output_dir,
                 processed_output_dir=representative_processed_output_dir,
                 sequence_matcher=sequence_matcher,
-                epub_extractor=str(
-                    representative_row.get("dimensions", {}).get("epub_extractor")
-                    if isinstance(representative_row.get("dimensions"), dict)
-                    else ""
-                )
-                or None,
+                epub_extractor=_row_dimension_str(representative_row, "epub_extractor"),
                 overlap_threshold=overlap_threshold,
                 force_source_match=force_source_match,
                 alignment_cache_dir=canonical_alignment_cache_dir,
@@ -12559,12 +12512,7 @@ def _run_all_method_benchmark(
                 eval_output_dir=representative_eval_output_dir,
                 processed_output_dir=representative_processed_output_dir,
                 sequence_matcher=sequence_matcher,
-                epub_extractor=str(
-                    representative_row.get("dimensions", {}).get("epub_extractor")
-                    if isinstance(representative_row.get("dimensions"), dict)
-                    else ""
-                )
-                or None,
+                epub_extractor=_row_dimension_str(representative_row, "epub_extractor"),
                 overlap_threshold=overlap_threshold,
                 force_source_match=force_source_match,
                 alignment_cache_dir=canonical_alignment_cache_dir,
@@ -17852,33 +17800,6 @@ def labelstudio_benchmark(
                 )
 
 
-@bench_app.command("validate")
-def bench_validate(
-    suite: Path = typer.Option(
-        ..., "--suite", help="Path to bench suite JSON file."
-    ),
-) -> None:
-    """Validate a bench suite manifest (check source files and gold dirs exist)."""
-    from cookimport.bench.suite import load_suite, validate_suite
-
-    try:
-        s = load_suite(suite)
-    except Exception as exc:  # noqa: BLE001
-        _fail(f"Failed to load suite: {exc}")
-
-    errors = validate_suite(s, REPO_ROOT)
-    if errors:
-        typer.secho("Validation errors:", fg=typer.colors.RED)
-        for err in errors:
-            typer.secho(f"  - {err}", fg=typer.colors.RED)
-        raise typer.Exit(1)
-
-    typer.secho(
-        f"Suite '{s.name}' is valid ({len(s.items)} item(s)).",
-        fg=typer.colors.GREEN,
-    )
-
-
 @bench_app.command("speed-discover")
 def bench_speed_discover(
     gold_root: Path = typer.Option(
@@ -18199,7 +18120,10 @@ def bench_quality_discover(
         None,
         "--max-targets",
         min=1,
-        help="Optional cap for representative target selection.",
+        help=(
+            "Optional cap for selected targets "
+            "(curated CUTDOWN focus IDs when available, representative fallback otherwise)."
+        ),
     ),
     seed: int = typer.Option(
         42,
@@ -18578,248 +18502,6 @@ def bench_eval_stage(
         f"{float((report or {}).get('macro_f1_excluding_other') or 0.0):.3f}",
         fg=typer.colors.CYAN,
     )
-
-
-@bench_app.command("run")
-def bench_run(
-    suite: Path = typer.Option(
-        ..., "--suite", help="Path to bench suite JSON file."
-    ),
-    out_dir: Path = typer.Option(
-        DEFAULT_BENCH_RUNS,
-        "--out-dir",
-        help="Output directory for bench runs.",
-    ),
-    baseline: Path | None = typer.Option(
-        None, "--baseline", help="Previous run directory to compute deltas against."
-    ),
-    config_path: Path | None = typer.Option(
-        None, "--config", help="Knob config JSON file."
-    ),
-    sequence_matcher: str = typer.Option(
-        "dmp",
-        "--sequence-matcher",
-        help=(
-            "Canonical-text SequenceMatcher mode used during this bench run "
-            "(dmp only)."
-        ),
-    ),
-    write_markdown: bool | None = typer.Option(
-        None,
-        "--write-markdown/--no-write-markdown",
-        help=(
-            "Override config for markdown sidecar writes in bench prediction runs. "
-            "When omitted, keep config/default behavior."
-        ),
-    ),
-    write_label_studio_tasks: bool | None = typer.Option(
-        None,
-        "--write-labelstudio-tasks/--no-write-labelstudio-tasks",
-        help=(
-            "Override config for label_studio_tasks.jsonl writes in bench prediction runs. "
-            "When omitted, keep config/default behavior."
-        ),
-    ),
-) -> None:
-    """Run the offline benchmark suite: generate predictions, evaluate, report."""
-    from cookimport.bench.packet import build_iteration_packet
-    from cookimport.bench.runner import run_suite
-    from cookimport.bench.suite import load_suite, validate_suite
-
-    suite = _unwrap_typer_option_default(suite)
-    out_dir = _unwrap_typer_option_default(out_dir)
-    baseline = _unwrap_typer_option_default(baseline)
-    config_path = _unwrap_typer_option_default(config_path)
-    sequence_matcher = _unwrap_typer_option_default(sequence_matcher)
-    write_markdown = _unwrap_typer_option_default(write_markdown)
-    write_label_studio_tasks = _unwrap_typer_option_default(write_label_studio_tasks)
-
-    try:
-        s = load_suite(suite)
-    except Exception as exc:  # noqa: BLE001
-        _fail(f"Failed to load suite: {exc}")
-
-    errors = validate_suite(s, REPO_ROOT)
-    if errors:
-        typer.secho("Suite validation errors:", fg=typer.colors.RED)
-        for err in errors:
-            typer.secho(f"  - {err}", fg=typer.colors.RED)
-        raise typer.Exit(1)
-
-    config: dict[str, Any] | None = None
-    if config_path and config_path.exists():
-        loaded_config = json.loads(config_path.read_text(encoding="utf-8"))
-        if isinstance(loaded_config, dict):
-            config = dict(loaded_config)
-
-    selected_sequence_matcher = _normalize_benchmark_sequence_matcher_mode(
-        sequence_matcher
-    )
-    effective_config: dict[str, Any] | None = dict(config) if config is not None else None
-    if effective_config is None:
-        effective_config = {}
-    effective_config["benchmark_sequence_matcher"] = selected_sequence_matcher
-    if write_markdown is not None:
-        effective_config["write_markdown"] = bool(write_markdown)
-    if write_label_studio_tasks is not None:
-        effective_config["write_label_studio_tasks"] = bool(write_label_studio_tasks)
-    bench_run_timeseries_path = _processing_timeseries_history_path(
-        root=out_dir,
-        scope="bench_run",
-        source_name=s.name,
-    )
-
-    try:
-        with _temporary_benchmark_sequence_matcher(selected_sequence_matcher):
-            run_root, agg_metrics = _run_with_progress_status(
-                initial_status="Running bench suite...",
-                progress_prefix="Bench",
-                telemetry_path=bench_run_timeseries_path,
-                run=lambda update_progress: run_suite(
-                    s,
-                    out_dir,
-                    repo_root=REPO_ROOT,
-                    config=effective_config,
-                    baseline_run_dir=baseline,
-                    progress_callback=update_progress,
-                ),
-            )
-    except Exception as exc:  # noqa: BLE001
-        _fail(str(exc))
-
-    # Build iteration packet
-    build_iteration_packet(run_root, baseline_run_dir=baseline)
-    bench_recipe_total = _sum_bench_recipe_count(run_root)
-
-    from cookimport.analytics.perf_report import append_benchmark_csv, history_path
-    csv_history_path = history_path(DEFAULT_OUTPUT)
-    append_benchmark_csv(
-        agg_metrics,
-        csv_history_path,
-        run_timestamp=run_root.name,
-        run_dir=str(run_root),
-        eval_scope="bench-suite",
-        source_file=s.name,
-        recipes=bench_recipe_total,
-        run_config=effective_config,
-    )
-    _refresh_dashboard_after_history_write(
-        csv_path=csv_history_path,
-        output_root=DEFAULT_OUTPUT,
-        reason="bench run history append",
-    )
-
-    typer.secho("Bench suite complete.", fg=typer.colors.GREEN)
-    typer.secho(f"Report: {run_root / 'report.md'}", fg=typer.colors.CYAN)
-    typer.secho(f"Metrics: {run_root / 'metrics.json'}", fg=typer.colors.CYAN)
-    typer.secho(f"Packet: {run_root / 'iteration_packet'}", fg=typer.colors.CYAN)
-    typer.secho(
-        f"Processing telemetry: {bench_run_timeseries_path}",
-        fg=typer.colors.BRIGHT_BLACK,
-    )
-
-
-@bench_app.command("sweep")
-def bench_sweep(
-    suite: Path = typer.Option(
-        ..., "--suite", help="Path to bench suite JSON file."
-    ),
-    out_dir: Path = typer.Option(
-        DEFAULT_BENCH_RUNS,
-        "--out-dir",
-        help="Output directory for sweep runs.",
-    ),
-    budget: int = typer.Option(
-        25, "--budget", min=1, help="Max number of sweep configurations to try."
-    ),
-    seed: int = typer.Option(42, "--seed", help="Random seed for sweep."),
-    objective: str = typer.Option(
-        "coverage", "--objective", help="Optimization objective (coverage or precision)."
-    ),
-    sequence_matcher: str = typer.Option(
-        "dmp",
-        "--sequence-matcher",
-        help=(
-            "Canonical-text SequenceMatcher mode used during this sweep "
-            "(dmp only)."
-        ),
-    ),
-) -> None:
-    """Run a parameter sweep over the bench suite."""
-    from cookimport.bench.suite import load_suite, validate_suite
-    from cookimport.bench.sweep import run_sweep
-
-    suite = _unwrap_typer_option_default(suite)
-    out_dir = _unwrap_typer_option_default(out_dir)
-    budget = _unwrap_typer_option_default(budget)
-    seed = _unwrap_typer_option_default(seed)
-    objective = _unwrap_typer_option_default(objective)
-    sequence_matcher = _unwrap_typer_option_default(sequence_matcher)
-
-    try:
-        s = load_suite(suite)
-    except Exception as exc:  # noqa: BLE001
-        _fail(f"Failed to load suite: {exc}")
-
-    errors = validate_suite(s, REPO_ROOT)
-    if errors:
-        typer.secho("Suite validation errors:", fg=typer.colors.RED)
-        for err in errors:
-            typer.secho(f"  - {err}", fg=typer.colors.RED)
-        raise typer.Exit(1)
-    bench_sweep_timeseries_path = _processing_timeseries_history_path(
-        root=out_dir,
-        scope="bench_sweep",
-        source_name=s.name,
-    )
-    selected_sequence_matcher = _normalize_benchmark_sequence_matcher_mode(
-        sequence_matcher
-    )
-
-    try:
-        with _temporary_benchmark_sequence_matcher(selected_sequence_matcher):
-            sweep_root = _run_with_progress_status(
-                initial_status="Running parameter sweep...",
-                progress_prefix="Sweep",
-                telemetry_path=bench_sweep_timeseries_path,
-                run=lambda update_progress: run_sweep(
-                    s,
-                    out_dir,
-                    repo_root=REPO_ROOT,
-                    budget=budget,
-                    seed=seed,
-                    objective=objective,
-                    progress_callback=update_progress,
-                ),
-            )
-    except Exception as exc:  # noqa: BLE001
-        _fail(str(exc))
-
-    typer.secho("Sweep complete.", fg=typer.colors.GREEN)
-    typer.secho(f"Results: {sweep_root}", fg=typer.colors.CYAN)
-    typer.secho(
-        f"Processing telemetry: {bench_sweep_timeseries_path}",
-        fg=typer.colors.BRIGHT_BLACK,
-    )
-
-
-@bench_app.command("knobs")
-def bench_knobs() -> None:
-    """List all tunable knobs and their defaults."""
-    from cookimport.bench.knobs import list_knobs
-
-    knobs = list_knobs()
-    if not knobs:
-        typer.echo("No tunable knobs registered.")
-        return
-    for knob in knobs:
-        bounds = f" bounds={knob.bounds}" if knob.bounds else ""
-        choices = f" choices={list(knob.choices)}" if knob.choices else ""
-        typer.echo(
-            f"  {knob.name} ({knob.kind}) default={knob.default}{bounds}{choices}"
-        )
-        if knob.description:
-            typer.secho(f"    {knob.description}", fg=typer.colors.BRIGHT_BLACK)
 
 
 if __name__ == "__main__":

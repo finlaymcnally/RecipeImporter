@@ -308,7 +308,8 @@ Developer note:
    - Detected type is informational only.
    - Export supports freeform projects only; legacy scopes are rejected with an explicit error.
 5. Calls `run_labelstudio_export(...)` with `output_dir=data/golden/pulled-from-labelstudio`.
-   - By default, export writes to: `data/golden/pulled-from-labelstudio/<project_slug>/exports/`.
+   - By default, export writes to: `data/golden/pulled-from-labelstudio/<source_slug_or_project_slug>/exports/`.
+   - When one source file is detectable, export uses the source filename stem slug so repeat pulls overwrite the same folder even if project names gain suffixes like `-2`.
    - If `--run-dir` is supplied in non-interactive mode, export writes to that run directory.
 6. Prints export summary path and returns to the main menu.
 
@@ -327,6 +328,7 @@ Interactive benchmark now has a mode submenu before execution:
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/`.
 3. All method path:
    - uses global benchmark defaults directly (no run-settings chooser),
+   - all-method predict-only execution now builds kwargs from `build_benchmark_call_kwargs_from_run_settings(...)`, so Priority 1/3/4/6/7 parsing-scoring controls are forwarded with the same surface as single benchmark runs,
    - runs `labelstudio-benchmark` configs in `canonical-text` eval mode so extractor permutations can share one freeform gold export,
    - prompts for all-method scope:
      - `Single golden set`: prompts for one gold export and source file.
@@ -387,7 +389,7 @@ For re-scoring an existing prediction run directly, use `cookimport labelstudio-
 5. Returns to the main menu on completion.
 
 Note:
-- History-writing commands (`stage`, `perf-report --write-csv`, `labelstudio-eval`, `labelstudio-benchmark`, `bench run`, and non-dry `benchmark-csv-backfill` with updates) now auto-run the same dashboard refresh process for their target history root.
+- History-writing commands (`stage`, `perf-report --write-csv`, `labelstudio-eval`, `labelstudio-benchmark`, and non-dry `benchmark-csv-backfill` with updates) now auto-run the same dashboard refresh process for their target history root.
 
 ### [Z] Exit Conditions
 
@@ -410,7 +412,7 @@ Top-level command groups:
 - `cookimport perf-report`
 - `cookimport benchmark-csv-backfill`
 - `cookimport stats-dashboard`
-- `cookimport bench <validate|speed-discover|speed-run|speed-compare|quality-discover|quality-run|quality-compare|eval-stage|run|sweep|knobs>`
+- `cookimport bench <speed-discover|speed-run|speed-compare|quality-discover|quality-run|quality-compare|eval-stage>`
 - `cookimport tag-catalog export`
 - `cookimport tag-recipes <debug-signals|suggest|apply>`
 
@@ -807,14 +809,6 @@ Upload requirement:
 
 - Upload mode is blocked unless `--allow-labelstudio-write` is set.
 
-### `cookimport bench validate`
-
-Validates a bench suite manifest.
-
-Options:
-
-- `--suite PATH` (required): suite JSON path.
-
 ### `cookimport bench speed-discover`
 
 Builds a speed-suite manifest by matching pulled freeform gold exports to importable source files.
@@ -861,14 +855,14 @@ Options:
 
 ### `cookimport bench quality-discover`
 
-Builds a deterministic representative quality-suite manifest by matching pulled freeform gold exports to importable source files and selecting stratified targets.
+Builds a deterministic quality-suite manifest by matching pulled freeform gold exports to source files in `data/input`. Discovery now prefers this curated target-id order when matched: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; otherwise it falls back to representative stratified selection. If importer-scored discovery returns zero files, it retries against non-hidden filenames in `--input-root`.
 
 Options:
 
 - `--gold-root PATH` (default `data/golden/pulled-from-labelstudio`): root containing pulled gold export folders.
 - `--input-root PATH` (default `data/input`): root containing source files for import runs.
 - `--out PATH` (default `data/golden/bench/quality/suites/pulled_representative.json`): destination for generated quality-suite JSON.
-- `--max-targets INTEGER>=1`: optional cap for representative selection.
+- `--max-targets INTEGER>=1`: optional cap for selected targets (curated focus when available, representative fallback otherwise).
 - `--seed INTEGER` (default `42`): deterministic selection seed stored in suite metadata.
 
 ### `cookimport bench quality-run`
@@ -918,53 +912,6 @@ Options:
 - `--label-projection TEXT` (default `core_structural_v1`): segmentation label projection for boundary diagnostics.
 - `--boundary-tolerance-blocks INTEGER>=0` (default `0`): tolerance window used when matching gold/pred boundaries.
 - `--segmentation-metrics TEXT` (default `boundary_f1`): comma-separated segmentation metrics (`boundary_f1`, optional `pk`, `windowdiff`, `boundary_similarity` when `segeval` is installed).
-
-### `cookimport bench run`
-
-Runs offline benchmark suite and writes report/metrics/iteration packet.
-
-Status behavior:
-
-- Spinner updates include `item X/Y` counters for per-suite-item work, with item id prefixes in nested prediction/eval messages.
-- Spinner telemetry is persisted under `<out_dir>/.history/processing_timeseries/<timestamp>__bench_run__<suite>.jsonl`.
-- After benchmark CSV append, auto-refreshes dashboard artifacts for the benchmark history root.
-
-Options:
-
-- `--suite PATH` (required): suite JSON path.
-- `--out-dir PATH` (default `data/golden/bench/runs`): run output root.
-- `--baseline PATH`: prior run directory for deltas.
-- `--config PATH`: knob config JSON file.
-- `--sequence-matcher TEXT` (default `dmp`): canonical-text matcher mode (`dmp` only).
-- `--write-markdown / --no-write-markdown`: optional override for benchmark prediction markdown sidecar writes (when omitted, keep config/default behavior).
-- `--write-labelstudio-tasks / --no-write-labelstudio-tasks`: optional override for benchmark prediction task JSONL writes (when omitted, keep config/default behavior).
-
-### `cookimport bench sweep`
-
-Runs random/configured sweep over suite knobs.
-
-Status behavior:
-
-- Spinner updates include `config X/Y` counters.
-- Nested suite updates are forwarded as `config X/Y | item X/Y [item_id] ...` so both loop levels are visible.
-- Spinner telemetry is persisted under `<out_dir>/.history/processing_timeseries/<timestamp>__bench_sweep__<suite>.jsonl`.
-
-Options:
-
-- `--suite PATH` (required): suite JSON path.
-- `--out-dir PATH` (default `data/golden/bench/runs`): sweep output root.
-- `--budget INTEGER>=1` (default `25`): max configurations to evaluate.
-- `--seed INTEGER` (default `42`): RNG seed.
-- `--objective TEXT` (default `coverage`): objective name (`coverage` or `precision`).
-- `--sequence-matcher TEXT` (default `dmp`): canonical-text matcher mode (`dmp` only).
-
-### `cookimport bench knobs`
-
-Lists currently registered tunable knobs and defaults.
-
-Options:
-
-- no command-specific options.
 
 ### `cookimport tag-catalog export`
 

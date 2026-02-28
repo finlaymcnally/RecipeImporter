@@ -13,6 +13,7 @@ from cookimport.bench.eval_stage_blocks import (
     compute_block_metrics,
     evaluate_stage_blocks,
     load_gold_block_labels,
+    load_stage_block_labels,
 )
 
 
@@ -127,6 +128,65 @@ def test_build_gold_line_labels_maps_howto_section_by_neighboring_labels() -> No
     )
     assert labels[1] == {"INGREDIENT_LINE"}
     assert labels[4] == {"INSTRUCTION_LINE"}
+
+
+def test_load_stage_block_labels_maps_howto_section_by_neighboring_labels(
+    tmp_path: Path,
+) -> None:
+    stage_path = tmp_path / "stage_block_predictions.json"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "abc123",
+                "block_count": 6,
+                "block_labels": {
+                    "0": "INGREDIENT_LINE",
+                    "1": "HOWTO_SECTION",
+                    "2": "INGREDIENT_LINE",
+                    "3": "INSTRUCTION_LINE",
+                    "4": "HOWTO_SECTION",
+                    "5": "INSTRUCTION_LINE",
+                },
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    labels = load_stage_block_labels(stage_path)
+    assert labels[1] == "INGREDIENT_LINE"
+    assert labels[4] == "INSTRUCTION_LINE"
+
+
+def test_build_pred_line_labels_maps_howto_section_by_neighboring_labels() -> None:
+    lines = canonical_eval._build_canonical_lines("a\nb\nc\nd\ne")
+
+    def _line_block_payload(line_index: int, label: str) -> dict[str, object]:
+        line = lines[line_index]
+        return {
+            "matched": True,
+            "label": label,
+            "canonical_start_char": line["start_char"],
+            "canonical_end_char": line["end_char"],
+        }
+
+    aligned_prediction_blocks = [
+        _line_block_payload(0, "INGREDIENT_LINE"),
+        _line_block_payload(1, "HOWTO_SECTION"),
+        _line_block_payload(2, "INGREDIENT_LINE"),
+        _line_block_payload(3, "INSTRUCTION_LINE"),
+        _line_block_payload(4, "HOWTO_SECTION"),
+    ]
+
+    labels = canonical_eval._build_pred_line_labels(
+        lines=lines,
+        aligned_prediction_blocks=aligned_prediction_blocks,
+    )
+    assert labels[1] == "INGREDIENT_LINE"
+    assert labels[4] == "INSTRUCTION_LINE"
 
 
 def test_compute_block_metrics_reports_macro_and_worst_label() -> None:

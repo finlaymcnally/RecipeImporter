@@ -102,6 +102,7 @@ def test_discover_quality_suite_is_deterministic_with_representative_cap(
     assert len(suite_a.targets) == 3
     assert len(suite_a.unmatched) == 1
     assert suite_a.selection["algorithm_version"] == "quality_representative_v1"
+    assert suite_a.selection["selection_mode"] == "representative_strata"
     assert suite_a.selection["max_targets"] == 2
     assert suite_a.selection["seed"] == 42
     assert suite_a.selected_target_ids == suite_b.selected_target_ids
@@ -111,6 +112,109 @@ def test_discover_quality_suite_is_deterministic_with_representative_cap(
     )
     assert all(target.canonical_text_chars > 0 for target in suite_a.targets)
     assert all(target.gold_span_rows > 0 for target in suite_a.targets)
+
+
+def test_discover_quality_suite_prefers_curated_cutdown_targets_when_available(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    input_root = tmp_path / "input"
+    input_root.mkdir(parents=True, exist_ok=True)
+    for source_name in (
+        "saltfatacidheat.epub",
+        "thefoodlab.epub",
+        "seaandsmoke.epub",
+        "fallback.epub",
+    ):
+        (input_root / source_name).write_text("epub", encoding="utf-8")
+
+    gold_root = tmp_path / "gold"
+    _write_target(
+        gold_root,
+        target_name="saltfatacidheatcutdown",
+        source_file="saltfatacidheat.epub",
+        labels=["INGREDIENT_LINE", "INSTRUCTION_LINE"],
+        canonical_chars=400,
+    )
+    _write_target(
+        gold_root,
+        target_name="thefoodlabcutdown",
+        source_file="thefoodlab.epub",
+        labels=["INGREDIENT_LINE"],
+        canonical_chars=300,
+    )
+    _write_target(
+        gold_root,
+        target_name="seaandsmokecutdown",
+        source_file="seaandsmoke.epub",
+        labels=["INSTRUCTION_LINE"],
+        canonical_chars=200,
+    )
+    _write_target(
+        gold_root,
+        target_name="fallback_target",
+        source_file="fallback.epub",
+        labels=["OTHER"],
+        canonical_chars=100,
+    )
+
+    monkeypatch.setattr(
+        "cookimport.bench.speed_suite._list_importable_files",
+        lambda _input_root: [
+            input_root / "saltfatacidheat.epub",
+            input_root / "thefoodlab.epub",
+            input_root / "seaandsmoke.epub",
+            input_root / "fallback.epub",
+        ],
+    )
+
+    suite = discover_quality_suite(
+        gold_root=gold_root,
+        input_root=input_root,
+        seed=42,
+    )
+
+    assert suite.selected_target_ids == [
+        "saltfatacidheatcutdown",
+        "thefoodlabcutdown",
+        "seaandsmokecutdown",
+    ]
+    assert suite.selection["selection_mode"] == "curated_target_ids"
+    assert suite.selection["preferred_target_ids_missing"] == []
+
+
+def test_discover_quality_suite_falls_back_to_raw_input_filenames_when_importable_scan_is_empty(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    input_root = tmp_path / "input"
+    input_root.mkdir(parents=True, exist_ok=True)
+    (input_root / "alpha.epub").write_text("epub", encoding="utf-8")
+
+    gold_root = tmp_path / "gold"
+    _write_target(
+        gold_root,
+        target_name="alpha_target",
+        source_file="alpha.epub",
+        labels=["OTHER"],
+        canonical_chars=64,
+    )
+
+    monkeypatch.setattr(
+        "cookimport.bench.speed_suite._list_importable_files",
+        lambda _input_root: [],
+    )
+
+    suite = discover_quality_suite(
+        gold_root=gold_root,
+        input_root=input_root,
+        seed=42,
+    )
+
+    assert len(suite.targets) == 1
+    assert suite.targets[0].target_id == "alpha_target"
+    assert suite.selected_target_ids == ["alpha_target"]
+    assert suite.unmatched == []
 
 
 def test_quality_suite_round_trip_and_validate(tmp_path: Path) -> None:

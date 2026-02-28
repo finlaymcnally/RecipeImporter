@@ -134,3 +134,33 @@ Discovery:
 - Stage-block evaluation collapses gold to per-block label sets; a prediction is counted correct if it matches any label in that block's set.
 - Per-label precision/recall still penalize the non-chosen labels on multi-labeled blocks, so overall accuracy can look better than per-label/macro F1.
 
+### 2026-02-28_00.16.13 howtosection label scoring paths
+
+Source: `docs/understandings/2026-02-28_00.16.13-howto-section-label-scoring-paths.md`
+Summary: Mapped label definition and scorer consumption paths for `HOWTO_SECTION`, including where scoring remap logic must be applied.
+
+Details preserved:
+
+
+# HowToSection Label Scoring Paths
+
+## Discovery
+
+- Label Studio freeform UI labels come from `cookimport/labelstudio/label_config_freeform.py` (`FREEFORM_LABELS` + `normalize_freeform_label`).
+- Freeform eval scoring (`cookimport/labelstudio/eval_freeform.py`) computes metrics directly from normalized labels in `LabeledRange`.
+- Benchmark scorers do not reuse freeform eval:
+  - stage-block scorer: `cookimport/bench/eval_stage_blocks.py`
+  - canonical-text scorer: `cookimport/bench/eval_canonical_text.py`
+- Both benchmark scorers derive allowed labels from `cookimport/staging/stage_block_predictions.py:FREEFORM_LABELS`.
+
+## Implication
+
+Adding a new label in UI only is not enough. Without scorer-side handling:
+- stage-block benchmark can reject or mis-score gold labels,
+- canonical-text benchmark can silently drop or isolate the label,
+- freeform eval can count it as its own class instead of structural ingredient/instruction behavior.
+
+## Resolution Pattern
+
+- Keep `HOWTO_SECTION` as an explicit UI/export label.
+- During scoring, remap `HOWTO_SECTION` to `INGREDIENT_LINE` or `INSTRUCTION_LINE` via nearby structural context before metrics are computed.

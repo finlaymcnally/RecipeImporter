@@ -55,14 +55,13 @@ Primary CLI entry points:
 - `cookimport stats-dashboard`
 - `cookimport labelstudio-eval` (benchmark CSV append + refresh)
 - `cookimport labelstudio-benchmark` (benchmark CSV append + refresh)
-- `cookimport bench run` (suite aggregate benchmark CSV append + refresh)
 
 Regression anchors:
 - `tests/analytics/test_perf_report.py`
 - `tests/analytics/test_stats_dashboard.py`
 - `tests/analytics/test_benchmark_csv_backfill_cli.py`
 - `tests/labelstudio/test_labelstudio_benchmark_helpers.py` (dashboard refresh/CSV wiring in benchmark flows)
-- `tests/bench/test_bench.py` (bench-run analytics append/refresh wiring)
+- `tests/bench/test_bench.py` (bench command helper and artifact contracts)
 
 ## 3) Artifact contracts
 
@@ -165,7 +164,6 @@ Benchmark scan details:
 
 - `cookimport labelstudio-eval` appends freeform-eval benchmark rows and refreshes dashboard.
 - `cookimport labelstudio-benchmark` appends benchmark rows (with timing + run-config metadata) and refreshes dashboard.
-- `cookimport bench run` appends suite aggregate benchmark rows and refreshes dashboard.
 
 ## 5) All-method dashboard contract
 
@@ -232,7 +230,7 @@ Merged source notes:
 - `docs/understandings/2026-02-27_19.52.27-analytics-docs-code-surface-gap-audit.md`
 
 Current-contract additions:
-- Analytics ownership covers telemetry artifact persistence and dashboard collector/renderer behavior, including command-side history appenders in `labelstudio-eval`, `labelstudio-benchmark`, and `bench run`.
+- Analytics ownership covers telemetry artifact persistence and dashboard collector/renderer behavior, including command-side history appenders in `labelstudio-eval` and `labelstudio-benchmark`.
 - Main dashboard index contract remains intentionally reduced to `All-Method Benchmark Runs`, `Diagnostics (Latest Benchmark)`, and `Previous Runs`.
 - Legacy throughput/filter/KPI main-index branches are retired behavior and should stay historical-only.
 - Compatibility fallback for legacy history path lookup (`<output_root>/.history/performance_history.csv`) and stale all-method root-page cleanup are active renderer/collector hygiene rules.
@@ -247,4 +245,3 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 ### 2026-02-27_20.24.21 dashboard per label latest run aggregation
 - Source: `docs/understandings/2026-02-27_20.24.21-dashboard-per-label-latest-run-aggregation.md`
 - Summary: Stats dashboard per-label card now aggregates per-label totals across all records in the latest all-method run timestamp (fallback to latest benchmark timestamp if no all-method rows exist).
-

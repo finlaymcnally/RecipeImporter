@@ -56,6 +56,155 @@ def _slugify_name(name: str) -> str:
     return slug or "unknown"
 
 
+def _normalize_source_hash(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text or text.lower() == "unknown":
+        return None
+    return text
+
+
+def _normalize_source_file(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text or text.lower() == "unknown":
+        return None
+    return text
+
+
+def _slugify_source_file(source_file: str | None) -> str | None:
+    normalized = _normalize_source_file(source_file)
+    if not normalized:
+        return None
+    source_stem = Path(normalized.replace("\\", "/")).stem
+    if not source_stem:
+        return None
+    return _slugify_name(source_stem)
+
+
+def _infer_source_identity_from_export_payload(
+    payload: list[dict[str, Any]],
+) -> tuple[str | None, str | None]:
+    source_hashes: set[str] = set()
+    source_files: set[str] = set()
+    for task in payload:
+        if not isinstance(task, dict):
+            continue
+        data = task.get("data")
+        if not isinstance(data, dict):
+            continue
+        normalized_hash = _normalize_source_hash(data.get("source_hash"))
+        if normalized_hash:
+            source_hashes.add(normalized_hash)
+        normalized_file = _normalize_source_file(data.get("source_file"))
+        if normalized_file:
+            source_files.add(normalized_file)
+    source_hash = next(iter(source_hashes)) if len(source_hashes) == 1 else None
+    source_file = next(iter(source_files)) if len(source_files) == 1 else None
+    return source_hash, source_file
+
+
+def _load_run_manifest_source_identity(run_root: Path) -> tuple[str | None, str | None]:
+    manifest_path = run_root / "run_manifest.json"
+    if not manifest_path.exists() or not manifest_path.is_file():
+        return None, None
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None, None
+    source = payload.get("source")
+    if not isinstance(source, dict):
+        return None, None
+    return (
+        _normalize_source_hash(source.get("source_hash")),
+        _normalize_source_file(source.get("path")),
+    )
+
+
+def _find_existing_export_run_root_for_source(
+    *,
+    output_dir: Path,
+    source_hash: str | None,
+    source_file: str | None,
+    preferred_slug: str | None,
+) -> Path | None:
+    if not output_dir.exists() or not output_dir.is_dir():
+        return None
+
+    normalized_hash = _normalize_source_hash(source_hash)
+    normalized_file = _normalize_source_file(source_file)
+    if not normalized_hash and not normalized_file:
+        return None
+
+    source_basename = (
+        Path(normalized_file.replace("\\", "/")).name.casefold()
+        if normalized_file
+        else None
+    )
+
+    candidates: list[tuple[int, int, float, Path]] = []
+    for candidate in output_dir.iterdir():
+        if not candidate.is_dir():
+            continue
+        manifest_hash, manifest_file = _load_run_manifest_source_identity(candidate)
+        score = 0
+        if normalized_hash and manifest_hash == normalized_hash:
+            score += 3
+        if normalized_file and manifest_file:
+            if manifest_file == normalized_file:
+                score += 2
+            elif (
+                source_basename
+                and Path(manifest_file.replace("\\", "/")).name.casefold()
+                == source_basename
+            ):
+                score += 1
+        if score <= 0:
+            continue
+        preferred_match = 1 if preferred_slug and candidate.name == preferred_slug else 0
+        try:
+            mtime = candidate.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        candidates.append((score, preferred_match, mtime, candidate))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+    return candidates[0][3]
+
+
+def _resolve_export_run_root(
+    *,
+    output_dir: Path,
+    project_name: str,
+    manifest_source_hash: str | None,
+    manifest_source_file: str | None,
+    export_payload: list[dict[str, Any]],
+) -> Path:
+    payload_source_hash, payload_source_file = _infer_source_identity_from_export_payload(
+        export_payload
+    )
+    source_hash = payload_source_hash or _normalize_source_hash(manifest_source_hash)
+    source_file = payload_source_file or _normalize_source_file(manifest_source_file)
+    preferred_slug = _slugify_source_file(source_file)
+    if preferred_slug:
+        preferred_path = output_dir / preferred_slug
+        if preferred_path.exists() and preferred_path.is_dir():
+            return preferred_path
+
+    existing_root = _find_existing_export_run_root_for_source(
+        output_dir=output_dir,
+        source_hash=source_hash,
+        source_file=source_file,
+        preferred_slug=preferred_slug,
+    )
+    if existing_root is not None:
+        return existing_root
+
+    if preferred_slug:
+        return output_dir / preferred_slug
+    return output_dir / _slugify_name(project_name)
+
+
 def _select_annotation(task: dict[str, Any]) -> dict[str, Any] | None:
     annotations = task.get("annotations") or task.get("completions") or []
     if not annotations:
@@ -364,20 +513,26 @@ def run_labelstudio_export(
     if not project_id:
         raise RuntimeError("Label Studio project lookup missing id.")
 
-    if run_root is None:
-        run_root = output_dir / _slugify_name(project_name)
-        run_root.mkdir(parents=True, exist_ok=True)
+    export_payload = client.export_tasks(int(project_id))
 
+    payload_scope = _infer_scope_from_export_payload(export_payload)
+    _raise_if_legacy_scope(payload_scope, source="export payload")
+
+    if run_root is None:
+        run_root = _resolve_export_run_root(
+            output_dir=output_dir,
+            project_name=project_name,
+            manifest_source_hash=manifest_source_hash,
+            manifest_source_file=manifest_source_file,
+            export_payload=[row for row in export_payload if isinstance(row, dict)],
+        )
+    run_root.mkdir(parents=True, exist_ok=True)
     export_root = run_root / "exports"
     export_root.mkdir(parents=True, exist_ok=True)
-    export_payload = client.export_tasks(int(project_id))
     export_path = export_root / "labelstudio_export.json"
     export_path.write_text(
         json.dumps(export_payload, indent=2, sort_keys=True), encoding="utf-8"
     )
-
-    payload_scope = _infer_scope_from_export_payload(export_payload)
-    _raise_if_legacy_scope(payload_scope, source="export payload")
 
     span_rows: list[dict[str, Any]] = []
     segment_rows: dict[str, dict[str, Any]] = {}

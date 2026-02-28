@@ -155,7 +155,8 @@ Dashboard output:
   - `<output_dir>/<timestamp>/labelstudio/<book_slug>/...`
   - includes `manifest.json`, coverage, tasks JSONL, and optional prelabel report/error artifacts.
 - `labelstudio-export` default root when `--run-dir` is not set:
-  - `<output_dir>/<project_slug>/exports/...` (default `output_dir`: `data/golden/pulled-from-labelstudio`)
+  - `<output_dir>/<source_slug_or_project_slug>/exports/...` (default `output_dir`: `data/golden/pulled-from-labelstudio`)
+  - When one source file is detectable, the source filename stem drives the slug so repeat pulls overwrite the same folder even if project names are suffixed (`-2`, `-3`, ...).
 - `labelstudio-benchmark` eval roots:
   - default under `data/golden/benchmark-vs-golden/<timestamp>/`
   - may co-locate prediction artifacts under `prediction-run/`.
@@ -177,7 +178,7 @@ All run-producing paths now rely on `run_manifest.json` as a stable traceability
 ### 6.3 Evaluation and offline suite
 
 - `labelstudio-eval` and `labelstudio-benchmark` evaluate freeform predictions against freeform gold.
-- `bench run/sweep` provide fully offline prediction+eval loops from suite manifests in `data/golden/bench/suites`.
+- `bench speed-*`, `bench quality-*`, and `bench eval-stage` provide offline benchmark/regression tooling.
 
 ## 7. Tagging Subsystem
 

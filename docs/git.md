@@ -4,5 +4,13 @@ read_when:
   - do not read
 ---
 
+```bash
 git add .
-git commit -m "Implement Priority 6 metadata extraction (yield, temp, time) and Priority 8 segmentation metrics. Add global benchmark scheduler with eval-signature deduplication and cross-run caching. Integrate HOWTO_SECTION labeling and update implementation audit documentation."
+git commit -m "Refactor staging to emit HOWTO_SECTION and sync benchmark scoring parity.
+
+- Implement deterministic HOWTO_SECTION emission for subsection headers.
+- Resolve HOWTO_SECTION to correct structural context for benchmark scoring.
+- Remove legacy benchmark code and outdated OGplan execution plans.
+- Consolidate Label Studio benchmark tests and update cli.py staging.
+- Synchronize architectural documentation and READMEs across docs/."
+```

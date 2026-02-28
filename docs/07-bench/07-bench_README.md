@@ -14,7 +14,7 @@ Historical chronology lives in `docs/07-bench/07-bench_log.md`.
 ## 1. Scope
 
 Benchmarking in this repo covers two paths:
-- `cookimport bench ...` (offline suite/sweep/speed workflows)
+- `cookimport bench ...` (offline speed/quality/eval workflows)
 - `cookimport labelstudio-benchmark` (single-run benchmark primitive also reused by interactive benchmark flows)
 
 Current scoring surfaces:
@@ -25,19 +25,13 @@ Current scoring surfaces:
 
 ### 2.1 `cookimport bench`
 
-- `bench validate --suite <path>`: validate suite manifest paths.
-- `bench run --suite <path>`: offline prediction + eval + aggregate report.
-- `bench sweep --suite <path>`: parameter sweep wrapper around benchmark runs.
-- `bench eval-stage --gold-spans ... --stage-run ...`: evaluate a stage run directly from `.bench/*/stage_block_predictions.json`.
-- `bench knobs`: list tunable sweep knobs.
 - `bench speed-discover`: build deterministic speed suite from pulled gold exports.
 - `bench speed-run`: run timing scenarios (`stage_import`, `benchmark_canonical_legacy`, `benchmark_canonical_pipelined`, `benchmark_all_method_multi_source`).
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
-- `bench quality-discover`: build deterministic representative quality suite from pulled gold exports.
+- `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first, representative fallback).
 - `bench quality-run`: run sequential all-method quality experiments for one discovered suite.
 - `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-coverage regression gates.
-- `bench run` and `bench sweep` currently execute stage-block suite evaluation (`cookimport/bench/runner.py`).
-- `--sequence-matcher` on `bench run` / `bench sweep` is forwarded for compatibility/config parity; canonical-text matcher choice is actively used by canonical benchmark flows (`labelstudio-benchmark`, `bench speed-run` benchmark scenarios).
+- `bench eval-stage --gold-spans ... --stage-run ...`: evaluate a stage run directly from `.bench/*/stage_block_predictions.json`.
 
 ### 2.2 `cookimport labelstudio-benchmark` benchmark controls
 
@@ -71,7 +65,7 @@ Required supporting artifact:
 - `extracted_archive.json` (prediction text stream and block metadata)
 
 Generated roots:
-- `labelstudio-benchmark` and `bench run` write benchmark artifacts under benchmark run roots.
+- `labelstudio-benchmark` writes benchmark artifacts under benchmark run roots.
 - Stage runs write stage evidence under `.bench/<workbook_slug>/stage_block_predictions.json`; pred-run builders copy this into run-root `stage_block_predictions.json`.
 
 ### 3.2 Gold artifacts
@@ -99,22 +93,7 @@ Canonical-text outputs include:
 - `missed_gold_lines.jsonl`, `wrong_label_lines.jsonl`
 - `unmatched_pred_blocks.jsonl`, `alignment_gaps.jsonl`
 
-### 3.4 Suite/sweep/speed/quality artifacts
-
-Bench suite (`bench run`) run-root artifacts include:
-- `suite_used.json`, `report.md`, `metrics.json`, `run_manifest.json`
-- `knobs_effective.json`, `trace.jsonl`
-- optional `cost_summary.json`
-- `per_item/<item_id>/...` trees containing:
-  - `pred_run/` prediction-run artifacts
-  - `eval_freeform/` evaluator artifacts (`eval_report.*`, mismatch JSONL files)
-  - `noise_stats.json`
-- `iteration_packet/` (`summary.md`, `cases.jsonl`, `top_failures.md`, `README.md`)
-
-Bench sweep (`bench sweep`) artifacts include:
-- `leaderboard.json`
-- optional `best_config.json`
-- one nested benchmark run root per tested config (`config_*/<timestamp>/...`)
+### 3.4 Speed/quality artifacts
 
 Speed suite (`bench speed-run`) artifacts include:
 - `suite_resolved.json`, `samples.jsonl`, `summary.json`, `report.md`, `run_manifest.json`
@@ -181,8 +160,6 @@ Matcher selector:
 
 CLI overrides:
 - `labelstudio-benchmark --sequence-matcher ...`
-- `bench run --sequence-matcher ...`
-- `bench sweep --sequence-matcher ...`
 - `bench speed-run --sequence-matcher ...` (optional override; default comes from effective run settings payload)
 
 Canonical cache:
@@ -206,6 +183,7 @@ Active all-method behavior:
   - `legacy`: prior per-source scheduler path.
 - Uses bounded config-level parallelism with split-phase slot controls.
 - Runs config prediction first, computes deterministic evaluation signatures, then runs canonical evaluation once per unique signature.
+- All-method predict-only calls now source benchmark kwargs from `build_benchmark_call_kwargs_from_run_settings(...)`; this keeps all-method run-setting forwarding in parity with single benchmark execution (including Priority 3/6/7 families).
 - Reuses canonical evaluation results in-run (`reused_in_run`) for duplicate signatures.
 - Reuses cached evaluation results across runs (`reused_cross_run`) using:
   - `.../.cache/eval_signature_results/__global__/<eval_signature>.json` in global scope.
@@ -265,6 +243,7 @@ Use this parallel flow for baseline-versus-candidate quality checks:
 ## 8. Retired Surfaces
 
 Removed from active benchmark contracts:
+- `bench validate`, `bench run`, `bench sweep`, and `bench knobs` command surfaces
 - pipeline-task span-IoU scoring as the primary benchmark truth
 - upload-first interactive benchmark mode
 - fast canonical alignment as an active scoring path
@@ -278,26 +257,21 @@ CLI and settings entrypoints:
 - `cookimport/config/run_settings.py`: validates and exposes `benchmark_sequence_matcher` options used by run configs/UI.
 - `cookimport/config/run_settings_adapters.py`: shared `RunSettings` -> runtime kwargs adapters for stage and benchmark calls used by interactive + speed/quality flows.
 - `cookimport/analytics/perf_report.py`: benchmark history CSV append helpers used by benchmark command flows.
-- `cookimport/runs.py`: shared run-manifest model/writer used by bench suite and speed-suite outputs.
+- `cookimport/runs.py`: shared run-manifest model/writer used by speed/quality outputs.
 
 Benchmark package modules:
-- `cookimport/bench/suite.py`: suite models and manifest loading/validation.
-- `cookimport/bench/runner.py`: bench suite orchestration (`pred_run -> eval -> aggregate`) and per-item artifact writing.
-- `cookimport/bench/pred_run.py`: offline prediction-run builder wrapper around ingest artifact generation.
 - `cookimport/bench/eval_stage_blocks.py`: stage-block evaluator, mismatch diagnostics, and stage-block report formatting.
 - `cookimport/bench/eval_canonical_text.py`: canonical-text evaluator, alignment, line-space scoring, and canonical eval report formatting.
 - `cookimport/bench/prediction_records.py`: prediction-record schema v1 validation + read/write helpers for replay/evaluate-only flows.
-- `cookimport/bench/packet.py`: iteration packet generation (`cases.jsonl`, summary, top failures) from bench run artifacts.
 - `cookimport/bench/report.py`: suite-level metric aggregation and markdown report formatting.
 - `cookimport/bench/noise.py`: dedupe/consolidation helpers for prediction noise diagnostics.
 - `cookimport/bench/cost.py`: estimated LLM review cost calculator and escalation queue writer (counting only; no model calls).
-- `cookimport/bench/trace.py`: structured trace collector for bench run event logs.
-- `cookimport/bench/knobs.py`: tunable registry and config merge/validation helpers for sweeps.
-- `cookimport/bench/sweep.py`: random-search parameter sweep wrapper over bench suite runs.
+- `cookimport/bench/segmentation_metrics.py`: segmentation boundary metrics and deterministic error taxonomy.
+- `cookimport/bench/segeval_adapter.py`: optional `segeval` metric adapter used only when requested and installed.
 - `cookimport/bench/speed_suite.py`: deterministic speed target discovery, manifest I/O, and validation.
 - `cookimport/bench/speed_runner.py`: speed scenario executor and speed-run summary/report generation.
 - `cookimport/bench/speed_compare.py`: baseline-vs-candidate speed comparison and regression verdict/report formatting.
-- `cookimport/bench/quality_suite.py`: deterministic representative quality target discovery, manifest I/O, and validation.
+- `cookimport/bench/quality_suite.py`: deterministic quality target discovery (curated CUTDOWN focus IDs first, representative fallback, plus filename-match retry when importer-scored discovery is empty), manifest I/O, and validation.
 - `cookimport/bench/quality_runner.py`: sequential all-method quality experiment executor and quality summary/report generation.
 - `cookimport/bench/quality_compare.py`: baseline-vs-candidate quality comparison and regression verdict/report formatting.
 - `cookimport/bench/sequence_matcher_select.py`: matcher selection contract, env parsing, and telemetry metadata.
@@ -441,3 +415,76 @@ Known anti-loop reminders from the merged task docs:
 - Old speed runs without `run_settings_hash` will intentionally trip compare mismatch checks unless `--allow-settings-mismatch` is set.
 - Global scheduler changes are orchestration-only; scoring semantics are intentionally unchanged.
 - If RECIPE_NOTES regress to zero predictions, verify note sourcing includes description-derived notes before touching evaluator math.
+
+## 2026-02-27_23.25.14 to 2026-02-28_00.11 migrated understandings digest (OGplan audit pack)
+
+This batch consolidates the late-night OGplan audit set that cross-checked runtime code, tests, and stale OG checklist state.
+
+### 2026-02-27_23.25.14 ogplan implementation audit refresh
+- Source: `docs/understandings/2026-02-27_23.25.14-ogplan-implementation-audit-refresh.md`
+- Summary: OGplan checklist state is stale; speed suite, tail throughput, eval-signature dedupe, global scheduler, and most Priority lanes are implemented in runtime/tests.
+
+### 2026-02-27_23.25.40 ogplan eval signature dedupe audit
+- Source: `docs/understandings/2026-02-27_23.25.40-ogplan-eval-signature-dedupe-audit.md`
+- Summary: eval-signature dedupe is implemented in both scheduler scopes with in-run and cross-run reuse counters/provenance.
+
+### 2026-02-27_23.26.10 ogplan audit live code check
+- Source: `docs/understandings/2026-02-27_23.26.10-ogplan-audit-live-code-check.md`
+- Summary: status model normalized to runtime+tests first; speed2-2 remains not implemented as written, speed2-4 remains partial/unwired, speed2-3 remains partial by design.
+
+### 2026-02-27_23.26.52 ogplan global scheduler audit snapshot
+- Source: `docs/understandings/2026-02-27_23.26.52-ogplan-global-scheduler-audit-snapshot.md`
+- Summary: global scheduler core is shipped and defaulted, but manual all-matched smoke and deeper direct global-loop behavior tests were still open.
+
+### 2026-02-27_23.31.29 all-method run settings forwarding audit
+- Source: `docs/understandings/2026-02-27_23.31.29-all-method-run-settings-forwarding-audit.md`
+- Summary: adapter supports `58` run-setting keys, all-method prediction path forwarded `25`, leaving `33` keys missing in that lane.
+
+### 2026-02-27_23.34.54 ogplan priority 1-8 live audit
+- Source: `docs/understandings/2026-02-27_23.34.54-ogplan-priority-1-8-live-audit.md`
+- Summary: core Priority 2-8 runtime delivery is present; Priority 1 is partial relative to strict OG optional-additive backend matrix.
+
+### 2026-02-28_00.11.05 ogplan audit consolidated status
+- Source: `docs/understandings/2026-02-28_00.11.05-ogplan-audit-consolidated-status.md`
+- Summary: merged view confirms global scheduler + dedupe architecture is active, with forwarding parity as the biggest remaining all-method correctness gap.
+
+### 2026-02-28_00.19.46 all-method forwarding adapter parity
+- Source: `docs/understandings/2026-02-28_00.19.46-all-method-forwarding-adapter-parity.md`
+- Summary: all-method predict-only lane now builds kwargs from `build_benchmark_call_kwargs_from_run_settings(...)` plus explicit all-method overrides, removing manual dual-lane drift.
+
+### 2026-02-28_00.43.39 global scheduler deep-tests and smoke closeout
+- Source: `docs/understandings/2026-02-28_00.43.39-global-scheduler-deep-tests-and-smoke-closeout.md`
+- Summary: Added direct global-loop tests for work-item interleaving and smart eval-tail admission, then recorded a successful real all-matched global smoke run (`14/14` configs successful) on `Hix written.docx` + `RoastChickenAndOtherStoriesCUTDOWN.epub`.
+
+Current-contract additions from this audit pack:
+- Completion precedence for benchmark planning claims is:
+  1) runtime behavior in active code paths,
+  2) focused tests passing,
+  3) active `docs/plans/*.md` / task-state docs,
+  4) OG checklist checkboxes (archival/stale).
+- Global scheduler remains the default all-method scope with explicit rollback path `legacy`; manual smoke acceptance is now recorded for this audit family.
+- All-method forwarding parity was the highest-risk interpretability gap in this audit family:
+  - adapter key surface `58`,
+  - all-method forwarded keys `25`,
+  - missing in all-method forwarding `33`.
+- Missing-forwarding families identified by the audit included:
+  - Priority 1 recipe scoring knobs (`recipe_scorer_backend`, `recipe_score_*`)
+  - Priority 3 splitter knobs (`multi_recipe_*`)
+  - Priority 4 ingredient knobs (`ingredient_*`)
+  - Priority 6 knobs (`p6_*`)
+  - Priority 7 webschema knobs (`web_schema_*`, `web_html_text_extractor`)
+  - output toggles (`write_label_studio_tasks`, `write_markdown`)
+- Closure update:
+  - `2026-02-28_00.19.46` migrated understanding records adapter-based forwarding parity for all-method predict-only execution.
+  - all-method-specific behavior now applies as additive overrides on top of adapter payload (paths, cache/control flags, worker caps), rather than a separately maintained kwargs list.
+  - `2026-02-28_00.43.39` adds direct global-loop internals tests (`_plan_all_method_global_work_items` interleaving and `_run_all_method_benchmark_global_queue` smart eval-tail admission), and records a manual all-matched smoke run at:
+    - `data/golden/benchmark-vs-golden/2026-02-28_00.42.13_manual-all-matched-global-smoke/all-method-benchmark/all_method_benchmark_multi_source_report.md`
+    - Key counters: `matched_target_count=2`, `total_config_runs_planned=14`, `total_config_runs_completed=14`, `total_config_runs_successful=14`, `global_queue_failed_configs=0`.
+  - Smoke follow-up bugfix: all-method eval replay now normalizes missing `dimensions.epub_extractor` to `None` (instead of string `"None"`), so non-EPUB sources correctly fall back to default extractor behavior in evaluate-only replay.
+- Ongoing guardrail:
+  - keep `test_run_all_method_prediction_once_uses_adapter_forwarding_surface` as parity lock to prevent regression.
+  - keep global-loop guards:
+    - `test_plan_all_method_global_work_items_tail_pair_interleaves_sharded_sources`
+    - `test_run_all_method_benchmark_global_queue_interleaves_sharded_heavy_source`
+    - `test_run_all_method_benchmark_global_queue_smart_eval_tail_admission`
+    - `test_run_all_method_benchmark_global_queue_non_epub_eval_uses_default_extractor`

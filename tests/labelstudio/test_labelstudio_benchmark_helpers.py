@@ -1214,28 +1214,6 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
     assert captured_dashboard["out_dir"] == tmp_path / ".history" / "dashboard"
 
 
-def test_sum_bench_recipe_count_from_per_item_manifests(tmp_path: Path) -> None:
-    run_root = tmp_path / "bench-run"
-    (run_root / "per_item" / "a" / "pred_run").mkdir(parents=True, exist_ok=True)
-    (run_root / "per_item" / "b" / "pred_run").mkdir(parents=True, exist_ok=True)
-    (run_root / "per_item" / "c" / "pred_run").mkdir(parents=True, exist_ok=True)
-
-    (run_root / "per_item" / "a" / "pred_run" / "manifest.json").write_text(
-        json.dumps({"recipe_count": 4}),
-        encoding="utf-8",
-    )
-    (run_root / "per_item" / "b" / "pred_run" / "manifest.json").write_text(
-        json.dumps({"recipe_count": 7}),
-        encoding="utf-8",
-    )
-    (run_root / "per_item" / "c" / "pred_run" / "manifest.json").write_text(
-        json.dumps({}),
-        encoding="utf-8",
-    )
-
-    assert cli._sum_bench_recipe_count(run_root) == 11
-
-
 def test_labelstudio_commands_default_output_roots() -> None:
     import_param = inspect.signature(cli.labelstudio_import).parameters["output_dir"]
     export_param = inspect.signature(cli.labelstudio_export).parameters["output_dir"]
@@ -4370,6 +4348,638 @@ def test_plan_all_method_source_jobs_shards_heavy_sources(
     assert len(unsharded_plans[0].variants) == 6
 
 
+def test_plan_all_method_global_work_items_tail_pair_interleaves_sharded_sources(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    heavy_variants = [
+        cli.AllMethodVariant(
+            slug=f"heavy_{index:02d}",
+            run_settings=base_settings,
+            dimensions={"variant": index},
+        )
+        for index in range(4)
+    ]
+    light_variant = cli.AllMethodVariant(
+        slug="light_01",
+        run_settings=base_settings,
+        dimensions={"variant": 1},
+    )
+
+    heavy_source = tmp_path / "heavy.epub"
+    light_source = tmp_path / "light.docx"
+    heavy_source.write_text("x", encoding="utf-8")
+    light_source.write_text("x", encoding="utf-8")
+    heavy_gold = tmp_path / "gold-heavy" / "exports" / "freeform_span_labels.jsonl"
+    light_gold = tmp_path / "gold-light" / "exports" / "freeform_span_labels.jsonl"
+    heavy_gold.parent.mkdir(parents=True, exist_ok=True)
+    light_gold.parent.mkdir(parents=True, exist_ok=True)
+    heavy_gold.write_text("{}\n", encoding="utf-8")
+    light_gold.write_text("{}\n", encoding="utf-8")
+
+    target_variants = [
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=heavy_gold,
+                source_file=heavy_source,
+                source_file_name=heavy_source.name,
+                gold_display="heavy",
+            ),
+            heavy_variants,
+        ),
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=light_gold,
+                source_file=light_source,
+                source_file_name=light_source.name,
+                gold_display="light",
+            ),
+            [light_variant],
+        ),
+    ]
+
+    def fake_estimate(*, target, variants, prior_report_root=None):
+        _ = variants
+        _ = prior_report_root
+        estimated = 3000.0 if target.source_file == heavy_source else 100.0
+        return cli._AllMethodSourceEstimate(
+            estimated_seconds=estimated,
+            estimate_basis="test",
+            canonical_text_chars=0,
+            variant_count=len(variants),
+        )
+
+    monkeypatch.setattr(cli, "_estimate_all_method_source_cost", fake_estimate)
+
+    work_items = cli._plan_all_method_global_work_items(
+        target_variants=target_variants,
+        scheduling_strategy=cli.ALL_METHOD_SOURCE_SCHEDULING_TAIL_PAIR,
+        shard_threshold_seconds=1000.0,
+        shard_max_parts=2,
+        shard_min_variants=2,
+        root_output_dir=tmp_path / "run",
+        processed_output_root=tmp_path / "processed",
+        canonical_alignment_cache_root=tmp_path / "cache",
+    )
+
+    assert [item.global_dispatch_index for item in work_items] == [1, 2, 3, 4, 5]
+    assert [item.source_file_name for item in work_items] == [
+        "heavy.epub",
+        "heavy.epub",
+        "light.docx",
+        "heavy.epub",
+        "heavy.epub",
+    ]
+    heavy_items = [item for item in work_items if item.source_file == heavy_source]
+    assert [item.config_index for item in heavy_items] == [1, 2, 3, 4]
+    assert all(item.config_total == 4 for item in heavy_items)
+
+
+def test_run_all_method_benchmark_global_queue_interleaves_sharded_heavy_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    heavy_variants = [
+        cli.AllMethodVariant(
+            slug=f"heavy_{index:02d}",
+            run_settings=base_settings,
+            dimensions={"variant": index},
+        )
+        for index in range(4)
+    ]
+    light_variant = cli.AllMethodVariant(
+        slug="light_01",
+        run_settings=base_settings,
+        dimensions={"variant": 1},
+    )
+    heavy_source = tmp_path / "heavy.epub"
+    light_source = tmp_path / "light.docx"
+    heavy_source.write_text("x", encoding="utf-8")
+    light_source.write_text("x", encoding="utf-8")
+    heavy_gold = tmp_path / "gold-heavy" / "exports" / "freeform_span_labels.jsonl"
+    light_gold = tmp_path / "gold-light" / "exports" / "freeform_span_labels.jsonl"
+    heavy_gold.parent.mkdir(parents=True, exist_ok=True)
+    light_gold.parent.mkdir(parents=True, exist_ok=True)
+    heavy_gold.write_text("{}\n", encoding="utf-8")
+    light_gold.write_text("{}\n", encoding="utf-8")
+
+    target_variants = [
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=heavy_gold,
+                source_file=heavy_source,
+                source_file_name=heavy_source.name,
+                gold_display="heavy",
+            ),
+            heavy_variants,
+        ),
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=light_gold,
+                source_file=light_source,
+                source_file_name=light_source.name,
+                gold_display="light",
+            ),
+            [light_variant],
+        ),
+    ]
+
+    def fake_estimate(*, target, variants, prior_report_root=None):
+        _ = variants
+        _ = prior_report_root
+        estimated = 3000.0 if target.source_file == heavy_source else 100.0
+        return cli._AllMethodSourceEstimate(
+            estimated_seconds=estimated,
+            estimate_basis="test",
+            canonical_text_chars=0,
+            variant_count=len(variants),
+        )
+
+    call_order: list[str] = []
+
+    def fake_prediction_once(**kwargs):
+        source_file = kwargs["source_file"]
+        variant = kwargs["variant"]
+        config_index = int(kwargs["config_index"])
+        root_output_dir = kwargs["root_output_dir"]
+        assert isinstance(source_file, Path)
+        assert isinstance(root_output_dir, Path)
+        call_order.append(source_file.name)
+
+        config_dir_name = cli._all_method_config_dir_name(config_index, variant)
+        eval_output_dir = root_output_dir / config_dir_name
+        prediction_record_path = eval_output_dir / "prediction-records.jsonl"
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        write_prediction_records(
+            prediction_record_path,
+            [
+                make_prediction_record(
+                    example_id=f"global:{source_file.name}:{config_index}",
+                    example_index=0,
+                    prediction={
+                        "schema_kind": "stage-block.v1",
+                        "block_index": 0,
+                        "pred_label": "RECIPE_TITLE",
+                        "block_text": f"{source_file.name}:{variant.slug}",
+                        "block_features": {},
+                    },
+                    predict_meta={
+                        "source_file": str(source_file),
+                        "source_hash": f"source-{source_file.stem}",
+                    },
+                )
+            ],
+        )
+
+        return {
+            "config_index": config_index,
+            "config_dir": config_dir_name,
+            "slug": variant.slug,
+            "status": "ok",
+            "error": "",
+            "run_config_hash": variant.run_settings.stable_hash(),
+            "run_config_summary": variant.run_settings.summary(),
+            "prediction_record_jsonl": str(
+                prediction_record_path.relative_to(root_output_dir)
+            ),
+            "benchmark_sequence_matcher": variant.run_settings.benchmark_sequence_matcher,
+            "duration_seconds": 0.01,
+            "timing": {"total_seconds": 0.01, "checkpoints": {}},
+            "dimensions": dict(variant.dimensions),
+        }
+
+    def fake_eval_once(**kwargs):
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        report_json_path = eval_output_dir / "eval_report.json"
+        report_md_path = eval_output_dir / "eval_report.md"
+        report_json_path.write_text(
+            json.dumps(
+                {
+                    "precision": 0.8,
+                    "recall": 0.8,
+                    "f1": 0.8,
+                    "practical_precision": 0.8,
+                    "practical_recall": 0.8,
+                    "practical_f1": 0.8,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        report_md_path.write_text("ok", encoding="utf-8")
+        return {
+            "status": "ok",
+            "error": "",
+            "precision": 0.8,
+            "recall": 0.8,
+            "f1": 0.8,
+            "practical_precision": 0.8,
+            "practical_recall": 0.8,
+            "practical_f1": 0.8,
+            "timing": {
+                "total_seconds": 0.01,
+                "prediction_seconds": 0.0,
+                "evaluation_seconds": 0.01,
+                "checkpoints": {},
+            },
+            "report": {
+                "precision": 0.8,
+                "recall": 0.8,
+                "f1": 0.8,
+                "practical_precision": 0.8,
+                "practical_recall": 0.8,
+                "practical_f1": 0.8,
+            },
+            "report_md_text": "ok",
+            "eval_report_json_path": report_json_path,
+            "eval_report_md_path": report_md_path,
+            "duration_seconds": 0.01,
+        }
+
+    monkeypatch.setattr(cli, "_estimate_all_method_source_cost", fake_estimate)
+    monkeypatch.setattr(cli, "_run_all_method_prediction_once", fake_prediction_once)
+    monkeypatch.setattr(cli, "_run_all_method_evaluate_prediction_record_once", fake_eval_once)
+
+    report_md_path = cli._run_all_method_benchmark_global_queue(
+        target_variants=target_variants,
+        unmatched_targets=[],
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method",
+        processed_output_root=tmp_path / "processed",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_parallel_sources=1,
+        max_inflight_pipelines=1,
+        max_concurrent_split_phases=1,
+        source_scheduling=cli.ALL_METHOD_SOURCE_SCHEDULING_TAIL_PAIR,
+        source_shard_threshold_seconds=1000.0,
+        source_shard_max_parts=2,
+        source_shard_min_variants=2,
+        smart_scheduler=False,
+    )
+
+    payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
+    assert payload["scheduler_scope"] == "global_config_queue"
+    assert payload["source_job_count_planned"] == 3
+    assert payload["source_schedule_plan"][1]["source_file_name"] == light_source.name
+    assert len(call_order) == 5
+    assert call_order.index(light_source.name) < 4
+
+
+def test_run_all_method_benchmark_global_queue_smart_eval_tail_admission(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variants = [
+        cli.AllMethodVariant(
+            slug=f"cfg_{index}",
+            run_settings=base_settings,
+            dimensions={"variant": index},
+        )
+        for index in (1, 2, 3)
+    ]
+    source_file = tmp_path / "book.docx"
+    source_file.write_text("x", encoding="utf-8")
+    gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    target_variants = [
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold_spans,
+                source_file=source_file,
+                source_file_name=source_file.name,
+                gold_display="gold",
+            ),
+            variants,
+        )
+    ]
+
+    started_at: dict[int, float] = {}
+    evaluate_started_at: dict[int, float] = {}
+    finished_at: dict[int, float] = {}
+    state_lock = threading.Lock()
+
+    def fake_prediction_once(**kwargs):
+        source_file_local = kwargs["source_file"]
+        variant = kwargs["variant"]
+        config_index = int(kwargs["config_index"])
+        root_output_dir = kwargs["root_output_dir"]
+        scheduler_events_dir = kwargs["scheduler_events_dir"]
+        assert isinstance(source_file_local, Path)
+        assert isinstance(root_output_dir, Path)
+        assert isinstance(scheduler_events_dir, Path)
+
+        config_dir_name = cli._all_method_config_dir_name(config_index, variant)
+        eval_output_dir = root_output_dir / config_dir_name
+        prediction_record_path = eval_output_dir / "prediction-records.jsonl"
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+
+        def emit(event_name: str) -> None:
+            event_path = scheduler_events_dir / f"config_{config_index:03d}.jsonl"
+            with event_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(
+                        {
+                            "event": event_name,
+                            "config_index": config_index,
+                        },
+                        sort_keys=True,
+                    )
+                    + "\n"
+                )
+
+        with state_lock:
+            started_at[config_index] = time.monotonic()
+        emit("config_started")
+        emit("split_active_started")
+        time.sleep(0.03)
+        emit("split_active_finished")
+        emit("post_started")
+        emit("post_finished")
+        emit("evaluate_started")
+        with state_lock:
+            evaluate_started_at[config_index] = time.monotonic()
+        time.sleep(0.35 if config_index == 1 else 0.2)
+        emit("evaluate_finished")
+        emit("config_finished")
+        with state_lock:
+            finished_at[config_index] = time.monotonic()
+
+        write_prediction_records(
+            prediction_record_path,
+            [
+                make_prediction_record(
+                    example_id=f"tail:{source_file_local.name}:{config_index}",
+                    example_index=0,
+                    prediction={
+                        "schema_kind": "stage-block.v1",
+                        "block_index": 0,
+                        "pred_label": "RECIPE_TITLE",
+                        "block_text": f"{source_file_local.name}:{config_index}",
+                        "block_features": {},
+                    },
+                    predict_meta={
+                        "source_file": str(source_file_local),
+                        "source_hash": f"source-{source_file_local.stem}",
+                    },
+                )
+            ],
+        )
+
+        return {
+            "config_index": config_index,
+            "config_dir": config_dir_name,
+            "slug": variant.slug,
+            "status": "ok",
+            "error": "",
+            "run_config_hash": variant.run_settings.stable_hash(),
+            "run_config_summary": variant.run_settings.summary(),
+            "prediction_record_jsonl": str(
+                prediction_record_path.relative_to(root_output_dir)
+            ),
+            "benchmark_sequence_matcher": variant.run_settings.benchmark_sequence_matcher,
+            "duration_seconds": 0.01,
+            "timing": {"total_seconds": 0.01, "checkpoints": {}},
+            "dimensions": dict(variant.dimensions),
+        }
+
+    def fake_eval_once(**kwargs):
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        report_json_path = eval_output_dir / "eval_report.json"
+        report_md_path = eval_output_dir / "eval_report.md"
+        report_json_path.write_text(
+            json.dumps(
+                {
+                    "precision": 0.8,
+                    "recall": 0.8,
+                    "f1": 0.8,
+                    "practical_precision": 0.8,
+                    "practical_recall": 0.8,
+                    "practical_f1": 0.8,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        report_md_path.write_text("ok", encoding="utf-8")
+        return {
+            "status": "ok",
+            "error": "",
+            "precision": 0.8,
+            "recall": 0.8,
+            "f1": 0.8,
+            "practical_precision": 0.8,
+            "practical_recall": 0.8,
+            "practical_f1": 0.8,
+            "timing": {
+                "total_seconds": 0.01,
+                "prediction_seconds": 0.0,
+                "evaluation_seconds": 0.01,
+                "checkpoints": {},
+            },
+            "report": {
+                "precision": 0.8,
+                "recall": 0.8,
+                "f1": 0.8,
+                "practical_precision": 0.8,
+                "practical_recall": 0.8,
+                "practical_f1": 0.8,
+            },
+            "report_md_text": "ok",
+            "eval_report_json_path": report_json_path,
+            "eval_report_md_path": report_md_path,
+            "duration_seconds": 0.01,
+        }
+
+    monkeypatch.setattr(cli, "_run_all_method_prediction_once", fake_prediction_once)
+    monkeypatch.setattr(cli, "_run_all_method_evaluate_prediction_record_once", fake_eval_once)
+    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+
+    report_md_path = cli._run_all_method_benchmark_global_queue(
+        target_variants=target_variants,
+        unmatched_targets=[],
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method",
+        processed_output_root=tmp_path / "processed",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_parallel_sources=1,
+        max_inflight_pipelines=1,
+        max_concurrent_split_phases=1,
+        max_eval_tail_pipelines=1,
+        source_scheduling=cli.ALL_METHOD_SOURCE_SCHEDULING_DISCOVERY,
+        smart_scheduler=True,
+    )
+
+    payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
+    scheduler = payload["scheduler_summary"]
+    assert scheduler["configured_inflight_pipelines"] == 1
+    assert scheduler["eval_tail_headroom_effective"] == 1
+    assert scheduler["max_active_pipelines_observed"] >= 2
+    assert evaluate_started_at[1] <= started_at[2]
+    assert started_at[2] < finished_at[1]
+
+
+def test_run_all_method_benchmark_global_queue_non_epub_eval_uses_default_extractor(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variant = cli.AllMethodVariant(
+        slug="source_docx",
+        run_settings=settings,
+        dimensions={"source_extension": ".docx"},
+    )
+    source_file = tmp_path / "book.docx"
+    source_file.write_text("x", encoding="utf-8")
+    gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    target_variants = [
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold_spans,
+                source_file=source_file,
+                source_file_name=source_file.name,
+                gold_display="gold",
+            ),
+            [variant],
+        )
+    ]
+
+    def fake_prediction_once(**kwargs):
+        source_file_local = kwargs["source_file"]
+        variant_local = kwargs["variant"]
+        config_index = int(kwargs["config_index"])
+        root_output_dir = kwargs["root_output_dir"]
+        config_dir_name = cli._all_method_config_dir_name(config_index, variant_local)
+        eval_output_dir = root_output_dir / config_dir_name
+        prediction_record_path = eval_output_dir / "prediction-records.jsonl"
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        write_prediction_records(
+            prediction_record_path,
+            [
+                make_prediction_record(
+                    example_id=f"default-extractor:{config_index}",
+                    example_index=0,
+                    prediction={
+                        "schema_kind": "stage-block.v1",
+                        "block_index": 0,
+                        "pred_label": "RECIPE_TITLE",
+                        "block_text": f"{source_file_local.name}:{config_index}",
+                        "block_features": {},
+                    },
+                    predict_meta={
+                        "source_file": str(source_file_local),
+                        "source_hash": f"source-{source_file_local.stem}",
+                    },
+                )
+            ],
+        )
+        return {
+            "config_index": config_index,
+            "config_dir": config_dir_name,
+            "slug": variant_local.slug,
+            "status": "ok",
+            "error": "",
+            "run_config_hash": variant_local.run_settings.stable_hash(),
+            "run_config_summary": variant_local.run_settings.summary(),
+            "prediction_record_jsonl": str(
+                prediction_record_path.relative_to(root_output_dir)
+            ),
+            "benchmark_sequence_matcher": variant_local.run_settings.benchmark_sequence_matcher,
+            "duration_seconds": 0.01,
+            "timing": {"total_seconds": 0.01, "checkpoints": {}},
+            "dimensions": dict(variant_local.dimensions),
+        }
+
+    captured_epub_extractors: list[str | None] = []
+
+    def fake_eval_once(**kwargs):
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        captured_epub_extractors.append(kwargs.get("epub_extractor"))
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        report_json_path = eval_output_dir / "eval_report.json"
+        report_md_path = eval_output_dir / "eval_report.md"
+        report_json_path.write_text(
+            json.dumps(
+                {
+                    "precision": 0.8,
+                    "recall": 0.8,
+                    "f1": 0.8,
+                    "practical_precision": 0.8,
+                    "practical_recall": 0.8,
+                    "practical_f1": 0.8,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        report_md_path.write_text("ok", encoding="utf-8")
+        return {
+            "status": "ok",
+            "error": "",
+            "precision": 0.8,
+            "recall": 0.8,
+            "f1": 0.8,
+            "practical_precision": 0.8,
+            "practical_recall": 0.8,
+            "practical_f1": 0.8,
+            "timing": {
+                "total_seconds": 0.01,
+                "prediction_seconds": 0.0,
+                "evaluation_seconds": 0.01,
+                "checkpoints": {},
+            },
+            "report": {
+                "precision": 0.8,
+                "recall": 0.8,
+                "f1": 0.8,
+                "practical_precision": 0.8,
+                "practical_recall": 0.8,
+                "practical_f1": 0.8,
+            },
+            "report_md_text": "ok",
+            "eval_report_json_path": report_json_path,
+            "eval_report_md_path": report_md_path,
+            "duration_seconds": 0.01,
+        }
+
+    monkeypatch.setattr(cli, "_run_all_method_prediction_once", fake_prediction_once)
+    monkeypatch.setattr(cli, "_run_all_method_evaluate_prediction_record_once", fake_eval_once)
+
+    cli._run_all_method_benchmark_global_queue(
+        target_variants=target_variants,
+        unmatched_targets=[],
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method",
+        processed_output_root=tmp_path / "processed",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_inflight_pipelines=1,
+        max_concurrent_split_phases=1,
+        smart_scheduler=False,
+    )
+
+    assert captured_epub_extractors == [None]
+
+
 def test_resolve_all_method_scheduler_limits_invalid_overrides_fall_back_to_defaults() -> None:
     inflight, split_slots = cli._resolve_all_method_scheduler_limits(
         total_variants=12,
@@ -4948,6 +5558,125 @@ def test_run_all_method_benchmark_resource_guard_caps_split_workers(
     assert scheduler["split_worker_cap_per_config"] == 4
     assert scheduler["split_worker_cap_by_cpu"] == 4
     assert scheduler["split_worker_cap_by_memory"] >= 4
+
+
+def test_run_all_method_prediction_once_uses_adapter_forwarding_surface(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "book.html"
+    source_file.write_text("<html></html>", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    settings = cli.RunSettings.from_dict(
+        {
+            "workers": 6,
+            "pdf_split_workers": 5,
+            "epub_split_workers": 4,
+            "multi_recipe_splitter": "rules_v1",
+            "multi_recipe_trace": True,
+            "multi_recipe_min_ingredient_lines": 3,
+            "multi_recipe_min_instruction_lines": 2,
+            "multi_recipe_for_the_guardrail": False,
+            "web_schema_extractor": "extruct",
+            "web_schema_normalizer": "pyld",
+            "web_html_text_extractor": "trafilatura",
+            "web_schema_policy": "schema_only",
+            "web_schema_min_confidence": 0.82,
+            "web_schema_min_ingredients": 4,
+            "web_schema_min_instruction_steps": 3,
+            "ingredient_text_fix_backend": "ftfy",
+            "ingredient_pre_normalize_mode": "aggressive_v1",
+            "ingredient_packaging_mode": "regex_v1",
+            "ingredient_parser_backend": "hybrid_nlp_then_quantulum3",
+            "ingredient_unit_canonicalizer": "pint",
+            "ingredient_missing_unit_policy": "each",
+            "p6_time_backend": "quantulum3_v1",
+            "p6_time_total_strategy": "selective_sum_v1",
+            "p6_temperature_backend": "hybrid_regex_quantulum3_v1",
+            "p6_temperature_unit_backend": "pint_v1",
+            "p6_ovenlike_mode": "off",
+            "p6_yield_mode": "scored_v1",
+            "p6_emit_metadata_debug": True,
+            "recipe_scorer_backend": "heuristic_v1",
+            "recipe_score_gold_min": 0.8,
+            "recipe_score_silver_min": 0.6,
+            "recipe_score_bronze_min": 0.4,
+            "recipe_score_min_ingredient_lines": 2,
+            "recipe_score_min_instruction_lines": 2,
+        },
+        warn_context="test",
+    )
+    variant = cli.AllMethodVariant(
+        slug="forwarding-check",
+        run_settings=settings,
+        dimensions={"source_extension": "html"},
+    )
+
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_labelstudio_benchmark(**kwargs):
+        captured_kwargs.update(kwargs)
+        _write_fake_all_method_prediction_phase_artifacts(
+            kwargs=kwargs,
+            source_file=source_file,
+            extractor=str(kwargs.get("epub_extractor") or "unstructured"),
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    root_output_dir = tmp_path / "all-method"
+    scratch_root = root_output_dir / ".scratch"
+    processed_output_root = tmp_path / "processed-output"
+    scheduler_events_dir = tmp_path / "events"
+    split_phase_gate_dir = tmp_path / "split-gate"
+
+    row = cli._run_all_method_prediction_once(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variant=variant,
+        config_index=1,
+        total_variants=1,
+        root_output_dir=root_output_dir,
+        scratch_root=scratch_root,
+        processed_output_root=processed_output_root,
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_concurrent_split_phases=1,
+        split_phase_gate_dir=split_phase_gate_dir,
+        scheduler_events_dir=scheduler_events_dir,
+        alignment_cache_dir=None,
+        split_worker_cap_per_config=None,
+    )
+
+    assert row["status"] == "ok"
+    config_dir_name = cli._all_method_config_dir_name(1, variant)
+    expected_kwargs = cli.build_benchmark_call_kwargs_from_run_settings(
+        settings,
+        output_dir=scratch_root / config_dir_name,
+        processed_output_dir=processed_output_root / config_dir_name,
+        eval_output_dir=root_output_dir / config_dir_name,
+        eval_mode=cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        execution_mode=cli.BENCHMARK_EXECUTION_MODE_PREDICT_ONLY,
+        no_upload=True,
+        write_markdown=True,
+        write_label_studio_tasks=True,
+        sequence_matcher_override=settings.benchmark_sequence_matcher,
+    )
+    expected_kwargs.update(
+        {
+            "gold_spans": gold_spans,
+            "source_file": source_file,
+            "predictions_out": root_output_dir / config_dir_name / "prediction-records.jsonl",
+            "overlap_threshold": 0.5,
+            "force_source_match": False,
+            "alignment_cache_dir": None,
+        }
+    )
+
+    for key, value in expected_kwargs.items():
+        assert key in captured_kwargs
+        assert captured_kwargs[key] == value
 
 
 def test_run_all_method_benchmark_writes_ranked_summary(

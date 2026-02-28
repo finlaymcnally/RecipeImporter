@@ -253,7 +253,8 @@ Prediction/eval telemetry files are written under eval output roots, and benchma
 
 ### 6.2 Export
 
-- Default: `<export_output_root>/<project_slug>/exports/...`
+- Default: `<export_output_root>/<source_slug_or_project_slug>/exports/...`
+- If export payload/source metadata resolves to one source file, its filename stem is used as slug so repeated pulls overwrite the same folder even when project names are deduped with suffixes (`-2`, `-3`, ...).
 - `--run-dir` overrides destination.
 - Run root also carries `run_manifest.json`.
 
@@ -309,3 +310,14 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 ### 2026-02-28_00.16.13 howtosection label scoring paths
 - Source: `docs/understandings/2026-02-28_00.16.13-howto-section-label-scoring-paths.md`
 - Summary: `HOWTO_SECTION` is UI-visible/exported, then resolved at scoring time to ingredient vs instruction via nearby structural context.
+
+Current-contract additions from the HOWTO section audit:
+- Label additions are multi-surface changes, not UI-only changes:
+  - UI/export labels: `cookimport/labelstudio/label_config_freeform.py`
+  - freeform eval labels: `cookimport/labelstudio/eval_freeform.py`
+  - benchmark allowed labels: `cookimport/staging/stage_block_predictions.py:FREEFORM_LABELS`
+  - benchmark scorers: `cookimport/bench/eval_stage_blocks.py`, `cookimport/bench/eval_canonical_text.py`
+- `HOWTO_SECTION` remains an explicit task/export label for annotator visibility.
+- Scoring should remap `HOWTO_SECTION` to `INGREDIENT_LINE` or `INSTRUCTION_LINE` using nearby context before metric computation.
+- Anti-loop guard:
+  - if a new label appears in Label Studio but not in benchmark/eval results, check scorer label maps before changing task generation.

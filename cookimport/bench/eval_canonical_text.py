@@ -1069,7 +1069,39 @@ def _build_pred_line_labels(
 
         pred_line_labels[line_index] = best_label
 
-    return pred_line_labels
+    resolved_label_sets = resolve_howto_label_sets_by_index(
+        {
+            index: {label}
+            for index, label in pred_line_labels.items()
+        }
+    )
+    resolved_line_labels: dict[int, str] = {}
+    for index, original_label in sorted(pred_line_labels.items()):
+        resolved_set = {
+            str(label)
+            for label in resolved_label_sets.get(index, {original_label})
+            if str(label) in _FREEFORM_LABEL_SET
+        }
+        if not resolved_set:
+            resolved_set = {"OTHER"}
+        resolved_line_labels[index] = _pick_primary_label(
+            resolved_set,
+            preferred_label=original_label,
+        )
+    return resolved_line_labels
+
+
+def _pick_primary_label(
+    labels: set[str],
+    *,
+    preferred_label: str | None = None,
+) -> str:
+    if preferred_label and preferred_label in labels:
+        return preferred_label
+    for label in FREEFORM_LABELS:
+        if label in labels:
+            return label
+    return "OTHER"
 
 
 def _build_alignment_gap_rows(

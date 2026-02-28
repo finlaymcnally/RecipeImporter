@@ -7,6 +7,10 @@ from typing import Any, Iterable
 
 from cookimport.core.models import ConversionResult, HowToStep, RecipeCandidate
 from cookimport.labelstudio.archive import build_extracted_archive, normalize_display_text
+from cookimport.parsing.sections import (
+    extract_ingredient_sections,
+    extract_instruction_sections,
+)
 from cookimport.parsing.tips import extract_recipe_specific_notes
 
 FREEFORM_LABELS: tuple[str, ...] = (
@@ -27,10 +31,10 @@ _LABEL_RESOLUTION_PRIORITY: tuple[str, ...] = (
     "RECIPE_TITLE",
     "YIELD_LINE",
     "TIME_LINE",
+    "HOWTO_SECTION",
     "INGREDIENT_LINE",
     "RECIPE_NOTES",
     "INSTRUCTION_LINE",
-    "HOWTO_SECTION",
     "KNOWLEDGE",
 )
 
@@ -60,6 +64,9 @@ _VARIANT_HEADER_RE = re.compile(
 )
 _VARIANT_PREFIX_RE = re.compile(r"^\s*variations?\b|^\s*variants?\b", re.IGNORECASE)
 _INSTRUCTION_PREFIX_RE = re.compile(r"^\s*(?:\d+[.)]|[-*])\s+")
+_HOWTO_SENTENCE_END_RE = re.compile(r"[.!?]\s*$")
+_HOWTO_WORD_RE = re.compile(r"[A-Za-z]+")
+_HOWTO_ALL_CAPS_RE = re.compile(r"^[A-Z0-9][A-Z0-9 &/+-]*$")
 
 
 class _ArchiveBlockView:
@@ -291,6 +298,7 @@ def _label_recipe_blocks(
     ingredient_indices = _match_texts_to_block_indices(
         _ingredient_texts(recipe),
         candidate_blocks,
+        preferred_roles={"ingredient_line", "section_heading"},
     )
     for idx in ingredient_indices:
         _mark_label(block_labels, idx, "INGREDIENT_LINE")
@@ -298,9 +306,46 @@ def _label_recipe_blocks(
     instruction_indices = _match_texts_to_block_indices(
         _instruction_texts(recipe),
         candidate_blocks,
+        preferred_roles={"instruction_line", "section_heading"},
     )
     for idx in instruction_indices:
         _mark_label(block_labels, idx, "INSTRUCTION_LINE")
+
+    ingredient_role_indices = {
+        block.index
+        for block in candidate_blocks
+        if _block_role(block) == "ingredient_line"
+    }
+    instruction_role_indices = {
+        block.index
+        for block in candidate_blocks
+        if _block_role(block) == "instruction_line"
+    }
+
+    howto_indices = _match_texts_to_block_indices(
+        _ingredient_section_header_texts(recipe),
+        candidate_blocks,
+        preferred_roles={"ingredient_line", "section_heading"},
+    )
+    howto_indices.update(
+        _match_texts_to_block_indices(
+            _instruction_section_header_texts(recipe),
+            candidate_blocks,
+            preferred_roles={"instruction_line", "section_heading"},
+        )
+    )
+    howto_indices = _filter_howto_section_indices(
+        indices=howto_indices,
+        candidate_blocks=candidate_blocks,
+        structural_signal_indices=(
+            ingredient_indices
+            | instruction_indices
+            | ingredient_role_indices
+            | instruction_role_indices
+        ),
+    )
+    for idx in howto_indices:
+        _mark_label(block_labels, idx, "HOWTO_SECTION")
 
     note_indices = _match_texts_to_block_indices(
         _note_texts(recipe),
@@ -390,6 +435,18 @@ def _note_texts(recipe: RecipeCandidate) -> list[str]:
         if text:
             rows.append(text)
     rows.extend(extract_recipe_specific_notes(recipe))
+    return _dedupe_text_rows(rows)
+
+
+def _ingredient_section_header_texts(recipe: RecipeCandidate) -> list[str]:
+    sectioned = extract_ingredient_sections(recipe.ingredients)
+    rows = [hit.raw_line for hit in sectioned.header_hits]
+    return _dedupe_text_rows(rows)
+
+
+def _instruction_section_header_texts(recipe: RecipeCandidate) -> list[str]:
+    sectioned = extract_instruction_sections(_instruction_texts(recipe))
+    rows = [hit.raw_line for hit in sectioned.header_hits]
     return _dedupe_text_rows(rows)
 
 
@@ -524,6 +581,76 @@ def _find_time_block_indices(
     return matches
 
 
+def _is_howto_section_text(text: str) -> bool:
+    stripped = str(text or "").strip().strip(":").strip()
+    if not stripped:
+        return False
+    if len(stripped) > 90:
+        return False
+    if _INSTRUCTION_PREFIX_RE.match(stripped):
+        return False
+    if _HOWTO_SENTENCE_END_RE.search(stripped):
+        return False
+    lowered = stripped.lower()
+    if lowered.startswith(("for ", "to ")):
+        return True
+    if _YIELD_KEYWORDS_RE.search(stripped):
+        return False
+    if _TIME_KEYWORDS_RE.search(stripped):
+        return False
+
+    words = _HOWTO_WORD_RE.findall(stripped)
+    if not words:
+        return False
+    if len(words) > 8:
+        return False
+
+    if len(words) == 1 and _HOWTO_ALL_CAPS_RE.fullmatch(stripped):
+        # Guardrail: broad all-caps single-token headers are usually chapter headings.
+        return False
+    return True
+
+
+def _has_nearby_structural_signal(
+    block_index: int,
+    structural_signal_indices: set[int],
+    *,
+    max_distance: int,
+) -> bool:
+    for candidate_index in structural_signal_indices:
+        if candidate_index == block_index:
+            continue
+        if abs(candidate_index - block_index) <= max_distance:
+            return True
+    return False
+
+
+def _filter_howto_section_indices(
+    *,
+    indices: set[int],
+    candidate_blocks: list[_ArchiveBlockView],
+    structural_signal_indices: set[int],
+) -> set[int]:
+    if not indices:
+        return set()
+    block_by_index = {block.index: block for block in candidate_blocks}
+    accepted: set[int] = set()
+    for index in sorted(indices):
+        block = block_by_index.get(index)
+        if block is None:
+            continue
+        if not _is_howto_section_text(block.text):
+            continue
+        if not _has_nearby_structural_signal(
+            index,
+            structural_signal_indices,
+            max_distance=3,
+        ):
+            continue
+        accepted.add(index)
+    return accepted
+
+
 def _block_features(block: _ArchiveBlockView) -> dict[str, Any]:
     location = block.location if isinstance(block.location, dict) else {}
     features = location.get("features")
@@ -543,6 +670,8 @@ def _block_role(block: _ArchiveBlockView) -> str:
 def _match_texts_to_block_indices(
     rows: list[str],
     candidate_blocks: list[_ArchiveBlockView],
+    *,
+    preferred_roles: set[str] | None = None,
 ) -> set[int]:
     if not rows:
         return set()
@@ -553,18 +682,34 @@ def _match_texts_to_block_indices(
         return set()
 
     exact_index_by_text: dict[str, list[int]] = {}
+    normalized_preferred_roles = {
+        str(role or "").strip().lower()
+        for role in (preferred_roles or set())
+        if str(role or "").strip()
+    }
+    role_by_index: dict[int, str] = {}
     for block in candidate_blocks:
         block_norm = _normalize_for_match(block.text)
         if not block_norm:
             continue
         exact_index_by_text.setdefault(block_norm, []).append(block.index)
+        if normalized_preferred_roles:
+            role_by_index[block.index] = _block_role(block)
 
     used_indices: set[int] = set()
     matched: set[int] = set()
 
     for row in normalized_rows:
         exact_indices = exact_index_by_text.get(row, [])
-        chosen_exact = _pick_first_unmatched(exact_indices, used_indices)
+        if normalized_preferred_roles:
+            chosen_exact = _pick_first_unmatched(
+                exact_indices,
+                used_indices,
+                preferred_roles=normalized_preferred_roles,
+                role_by_index=role_by_index,
+            )
+        else:
+            chosen_exact = _pick_first_unmatched(exact_indices, used_indices)
         if chosen_exact is not None:
             used_indices.add(chosen_exact)
             matched.add(chosen_exact)
@@ -580,7 +725,15 @@ def _match_texts_to_block_indices(
                 continue
             if len(block_norm) >= 12 and block_norm in row:
                 fuzzy_candidates.append(block.index)
-        chosen_fuzzy = _pick_first_unmatched(fuzzy_candidates, used_indices)
+        if normalized_preferred_roles:
+            chosen_fuzzy = _pick_first_unmatched(
+                fuzzy_candidates,
+                used_indices,
+                preferred_roles=normalized_preferred_roles,
+                role_by_index=role_by_index,
+            )
+        else:
+            chosen_fuzzy = _pick_first_unmatched(fuzzy_candidates, used_indices)
         if chosen_fuzzy is not None:
             used_indices.add(chosen_fuzzy)
             matched.add(chosen_fuzzy)
@@ -588,12 +741,25 @@ def _match_texts_to_block_indices(
     return matched
 
 
-def _pick_first_unmatched(candidates: Iterable[int], used: set[int]) -> int | None:
+def _pick_first_unmatched(
+    candidates: Iterable[int],
+    used: set[int],
+    *,
+    preferred_roles: set[str] | None = None,
+    role_by_index: dict[int, str] | None = None,
+) -> int | None:
+    fallback: int | None = None
     for idx in candidates:
         if idx in used:
             continue
-        return idx
-    return None
+        if fallback is None:
+            fallback = idx
+        if not preferred_roles or role_by_index is None:
+            continue
+        role = role_by_index.get(idx, "")
+        if role in preferred_roles:
+            return idx
+    return fallback
 
 
 def _resolve_block_label(labels: list[str]) -> str:

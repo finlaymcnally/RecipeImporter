@@ -1,121 +1,62 @@
 ---
-summary: "Quick-start runbook for offline benchmark-suite commands, outputs, and interpretation."
+summary: "Quick-start runbook for active offline benchmark commands, outputs, and interpretation."
 read_when:
-  - When running cookimport bench validate/run/sweep/knobs workflows
-  - When onboarding contributors to offline benchmark iteration
+  - When running cookimport bench speed/quality/eval-stage workflows
+  - When running offline labelstudio-benchmark comparisons
 ---
 
 # Offline Benchmark Runbook
 
-Quick-start guide for running the offline bench suite — no Label Studio required.
+Quick-start guide for active offline benchmark flows.
 
 ## Prerequisites
 
-- Python venv activated with dev deps installed
-- Source files in `data/input/` (EPUB, PDF, etc.)
-- Existing gold exports under `data/golden/` (from prior Label Studio annotation)
+- Project venv activated with dev deps installed.
+- Source files under `data/input/`.
+- Freeform gold exports under `data/golden/pulled-from-labelstudio/.../exports/`.
 
-## 1. Validate a Suite
+## 1. Single offline benchmark run (prediction + eval)
 
-```bash
-cookimport bench validate --suite data/golden/bench/suites/my_suite.json
-```
-
-This checks that all source files and gold export directories referenced in the suite actually exist.
-
-## 2. Run the Benchmark
+Use `labelstudio-benchmark` in offline mode when you want one end-to-end benchmark run for one source/gold pair.
 
 ```bash
-cookimport bench run --suite data/golden/bench/suites/my_suite.json
+cookimport labelstudio-benchmark \
+  --no-upload \
+  --source-file data/input/mybook.epub \
+  --gold-spans data/golden/pulled-from-labelstudio/mybook/exports/freeform_span_labels.jsonl \
+  --eval-mode canonical-text
 ```
 
-Outputs go to `data/golden/bench/runs/<timestamp>/`:
+Artifacts go under `data/golden/benchmark-vs-golden/<timestamp>/` by default.
 
-```
-<timestamp>/
-  suite_used.json       # Exact suite definition used
-  report.md             # Aggregate recall/precision report
-  metrics.json          # Machine-readable aggregate metrics
-  knobs_effective.json  # Configuration values used
-  iteration_packet/     # Ranked failure cases + context
-    summary.md
-    cases.jsonl
-    top_failures.md
-    README.md
-  per_item/<item_id>/
-    pred_run/           # Generated prediction artifacts
-    eval_freeform/      # Evaluation results vs gold
-```
+## 2. Evaluate an existing stage run only
 
-### With a baseline for deltas
+Use `bench eval-stage` when predictions already exist under `.bench/*/stage_block_predictions.json` in a stage run.
 
 ```bash
-cookimport bench run \
-  --suite data/golden/bench/suites/my_suite.json \
-  --baseline data/golden/bench/runs/2026-02-12_10.00.00
+cookimport bench eval-stage \
+  --gold-spans data/golden/pulled-from-labelstudio/mybook/exports/freeform_span_labels.jsonl \
+  --stage-run data/output/2026-02-28_00.00.00
 ```
 
-The iteration packet will include metric deltas vs the baseline.
-
-### With custom knob config
+Optional segmentation diagnostics knobs:
 
 ```bash
-cookimport bench run \
-  --suite data/golden/bench/suites/my_suite.json \
-  --config my_knobs.json
+cookimport bench eval-stage \
+  --gold-spans ... \
+  --stage-run ... \
+  --label-projection core_structural_v1 \
+  --boundary-tolerance-blocks 0 \
+  --segmentation-metrics boundary_f1,pk,windowdiff,boundary_similarity
 ```
 
-Where `my_knobs.json` overrides defaults:
-```json
-{
-  "segment_blocks": 60,
-  "segment_overlap": 10,
-  "write_markdown": false,
-  "write_label_studio_tasks": false
-}
-```
+Notes:
+- `pk/windowdiff/boundary_similarity` require `segeval` installed.
+- `bench eval-stage` does not regenerate predictions.
 
-### With direct write-toggle overrides
+## 3. Speed regression loop
 
-```bash
-cookimport bench run \
-  --suite data/golden/bench/suites/my_suite.json \
-  --no-write-markdown \
-  --no-write-labelstudio-tasks
-```
-
-These CLI flags override config/defaults for the current run only.
-
-## 3. Interpret the Results
-
-- **`report.md`** — Start here for suite-level precision/recall/F1 rollups and per-item links.
-- **`iteration_packet/top_failures.md`** — Top failures with block text context. Tells you exactly what the pipeline missed or hallucinated.
-- **`iteration_packet/cases.jsonl`** — Machine-readable case list sorted by severity. Feed this to an agent or script.
-- **`per_item/<id>/eval_freeform/eval_report.md`** — Detailed per-item stage-block evaluation, including additive segmentation boundary metrics and taxonomy.
-- **`per_item/<id>/eval_freeform/missed_gold_boundaries.jsonl`** / **`false_positive_boundaries.jsonl`** — Boundary-level mismatch rows for segmentation debugging.
-
-## 4. Run a Parameter Sweep
-
-```bash
-cookimport bench sweep \
-  --suite data/golden/bench/suites/my_suite.json \
-  --budget 10 \
-  --seed 42
-```
-
-Produces a leaderboard + best config under `data/golden/bench/runs/sweep_<timestamp>/`.
-
-## 5. List Available Knobs
-
-```bash
-cookimport bench knobs
-```
-
-Shows all tunable parameters with their defaults, bounds, and descriptions.
-
-## 6. Run Speed Regression Checks
-
-Discover a deterministic speed suite from pulled Label Studio gold exports:
+### 3.1 Discover deterministic targets
 
 ```bash
 cookimport bench speed-discover \
@@ -124,30 +65,17 @@ cookimport bench speed-discover \
   --out data/golden/bench/speed/suites/pulled_from_labelstudio.json
 ```
 
-Run timing-only scenarios (stage import + canonical benchmark legacy):
+### 3.2 Run timing scenarios
 
 ```bash
 cookimport bench speed-run \
   --suite data/golden/bench/speed/suites/pulled_from_labelstudio.json \
   --scenarios stage_import,benchmark_canonical_legacy \
   --warmups 1 \
-  --repeats 2 \
-  --max-targets 1
+  --repeats 2
 ```
 
-Optional: pin a specific run-settings payload for deterministic baseline/candidate parity:
-
-```bash
-cookimport bench speed-run \
-  --suite data/golden/bench/speed/suites/pulled_from_labelstudio.json \
-  --run-settings-file path/to/run_settings.json \
-  --scenarios stage_import,benchmark_canonical_legacy \
-  --warmups 1 \
-  --repeats 2 \
-  --max-targets 1
-```
-
-Optional: run the all-method multi-source scenario (exercises source scheduling/sharding/tail-pair):
+Optional all-method scenario:
 
 ```bash
 cookimport bench speed-run \
@@ -158,7 +86,15 @@ cookimport bench speed-run \
   --max-targets 3
 ```
 
-Compare baseline vs candidate and fail on regression:
+Optional deterministic settings pin:
+
+```bash
+cookimport bench speed-run \
+  --suite data/golden/bench/speed/suites/pulled_from_labelstudio.json \
+  --run-settings-file path/to/run_settings.json
+```
+
+### 3.3 Compare baseline vs candidate
 
 ```bash
 cookimport bench speed-compare \
@@ -167,23 +103,14 @@ cookimport bench speed-compare \
   --fail-on-regression
 ```
 
-By default, `speed-compare` marks verdict `FAIL` when `run_settings_hash` differs between baseline and candidate.
-Use this only when intentional:
+By default, compare enforces run-settings parity (`run_settings_hash`).
+Use `--allow-settings-mismatch` only when intentional.
 
-```bash
-cookimport bench speed-compare \
-  --baseline data/golden/bench/speed/runs/<baseline_timestamp> \
-  --candidate data/golden/bench/speed/runs/<candidate_timestamp> \
-  --allow-settings-mismatch
-```
+## 4. Quality regression loop
 
-Artifacts are written under `data/golden/bench/speed/`:
-- `runs/<timestamp>/summary.json` and `report.md`
-- `comparisons/<timestamp>/comparison.json` and `comparison.md`
+### 4.1 Discover deterministic quality targets
 
-## 7. Run Quality Regression Checks
-
-Discover a deterministic representative quality suite from pulled Label Studio gold exports:
+By default, discovery prioritizes `saltfatacidheatcutdown`, `thefoodlabcutdown`, and `seaandsmokecutdown` when matched; otherwise it uses representative stratified selection.
 
 ```bash
 cookimport bench quality-discover \
@@ -194,7 +121,7 @@ cookimport bench quality-discover \
   --seed 42
 ```
 
-Run one or more all-method experiments over the same discovered suite:
+### 4.2 Run quality experiments
 
 ```bash
 cookimport bench quality-run \
@@ -202,7 +129,7 @@ cookimport bench quality-run \
   --experiments-file data/golden/bench/quality/experiments/example.json
 ```
 
-Compare baseline vs candidate experiments and fail on quality regression:
+### 4.3 Compare baseline vs candidate
 
 ```bash
 cookimport bench quality-compare \
@@ -213,48 +140,27 @@ cookimport bench quality-compare \
   --fail-on-regression
 ```
 
-By default, `quality-compare` marks verdict `FAIL` when `run_settings_hash` differs between baseline and candidate.
-Use this override only when intentional:
+By default, compare enforces run-settings parity (`run_settings_hash`).
+Use `--allow-settings-mismatch` only when intentional.
 
-```bash
-cookimport bench quality-compare \
-  --baseline data/golden/bench/quality/runs/<baseline_timestamp> \
-  --candidate data/golden/bench/quality/runs/<candidate_timestamp> \
-  --allow-settings-mismatch
-```
+## 5. Artifact map
 
-Artifacts are written under `data/golden/bench/quality/`:
-- `suites/<name>.json`
-- `runs/<timestamp>/summary.json` and `report.md`
-- `comparisons/<timestamp>/comparison.json` and `comparison.md`
+- `bench eval-stage`:
+  - `eval_report.json`, `eval_report.md`
+  - `missed_gold_blocks.jsonl`, `wrong_label_blocks.jsonl`
+  - `missed_gold_boundaries.jsonl`, `false_positive_boundaries.jsonl`
+- `bench speed-run`:
+  - `summary.json`, `report.md`, `samples.jsonl`, `run_manifest.json`
+- `bench speed-compare`:
+  - `comparison.json`, `comparison.md`
+- `bench quality-run`:
+  - `summary.json`, `report.md`, `suite_resolved.json`, `experiments_resolved.json`
+- `bench quality-compare`:
+  - `comparison.json`, `comparison.md`
 
-## Suite Manifest Format
+## Improvement loop
 
-Suites are JSON files (commonly under `data/golden/bench/suites/`):
-
-```json
-{
-  "name": "dev",
-  "items": [
-    {
-      "item_id": "unique-identifier",
-      "source_path": "data/input/mybook.epub",
-      "gold_dir": "data/golden/<timestamp>/labelstudio/<slug>",
-      "force_source_match": false,
-      "notes": "Optional description"
-    }
-  ]
-}
-```
-
-- `source_path` and `gold_dir` are repo-relative
-- `gold_dir` must contain `exports/freeform_span_labels.jsonl` and `exports/freeform_segment_manifest.jsonl`
-- `force_source_match` ignores source hash/file identity when matching (use for renamed/truncated variants)
-
-## Improvement Loop
-
-1. Run bench → read `iteration_packet/top_failures.md`
-2. Identify a pattern (e.g., "ingredient lines in section X all missed")
-3. Fix the parser/heuristic or adjust knobs
-4. Re-run bench with `--baseline` pointing to the previous run
-5. Check `iteration_packet/summary.md` for delta improvements
+1. Run one flow.
+2. Inspect report + JSON artifacts.
+3. Change parser/importer/scheduler settings.
+4. Re-run and compare baseline vs candidate artifacts.

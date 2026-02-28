@@ -28,6 +28,6 @@ Durable reporting/dashboard caveats for `cookimport/analytics/`.
 - All-method detail pages should keep a compact stats-only summary block and per-metric bar-chart blocks ahead of the full ranked configuration table for quick scanability.
 - Ranked all-method rows should expose explicit dimension fields (`Extractor`, `Parser`, `Skip HF`, `Preprocess`) so users can compare configuration differences without parsing slug strings.
 - Run-config metrics contract is `run_config_hash` + `run_config_summary` + `run_config_json` in CSV. Dashboard UI should display summary/hash first and use JSON/report fallback only when CSV context is incomplete.
-- Benchmark CSV `recipes` should be populated for all benchmark entrypoints (`labelstudio-benchmark`, `labelstudio-eval`, `bench run`) using pred-run manifest `recipe_count` first, then `processed_report_path` fallback.
+- Benchmark CSV `recipes` should be populated for benchmark entrypoints (`labelstudio-benchmark`, `labelstudio-eval`) using pred-run manifest `recipe_count` first, then `processed_report_path` fallback.
 - Benchmark CSV should also persist `gold_recipe_headers` from eval `recipe_counts.gold_recipe_headers`; all-method recipes charts must use `% identified` (`recipes / gold_recipe_headers`, clamped to 100%) on fixed 0-100% axes rather than max-relative recipe counts.
 - If historical benchmark rows predate that persistence path, use `cookimport benchmark-csv-backfill` to patch CSV `recipes/report_path/file_name` from benchmark manifests before regenerating the dashboard.

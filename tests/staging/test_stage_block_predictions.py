@@ -11,7 +11,10 @@ from cookimport.core.models import (
     RawArtifact,
     RecipeCandidate,
 )
-from cookimport.staging.stage_block_predictions import build_stage_block_predictions
+from cookimport.staging.stage_block_predictions import (
+    _is_howto_section_text,
+    build_stage_block_predictions,
+)
 
 
 def _build_result(
@@ -146,3 +149,87 @@ def test_build_stage_block_predictions_marks_notes_from_description_only() -> No
 
     assert payload["block_labels"]["7"] == "RECIPE_NOTES"
     assert 7 in payload["label_blocks"]["RECIPE_NOTES"]
+
+
+def _build_sectioned_result() -> ConversionResult:
+    recipe = RecipeCandidate(
+        name="Meat and Gravy",
+        recipeIngredient=[
+            "For the meat:",
+            "1 lb beef",
+            "For the gravy:",
+            "2 tbsp flour",
+        ],
+        recipeInstructions=[
+            "For the meat:",
+            "Brown the beef.",
+            "For the gravy:",
+            "Whisk flour into drippings.",
+        ],
+        provenance={"location": {"start_block": 0, "end_block": 8}},
+    )
+
+    raw = RawArtifact(
+        importer="text",
+        sourceHash="abc123",
+        locationId="full_text",
+        extension="json",
+        content={
+            "blocks": [
+                {"index": 0, "text": "Meat and Gravy", "features": {"is_heading": True}},
+                {"index": 1, "text": "For the meat:", "features": {"block_role": "ingredient_line"}},
+                {"index": 2, "text": "1 lb beef", "features": {"block_role": "ingredient_line"}},
+                {"index": 3, "text": "For the gravy:", "features": {"block_role": "ingredient_line"}},
+                {"index": 4, "text": "2 tbsp flour", "features": {"block_role": "ingredient_line"}},
+                {"index": 5, "text": "For the meat:", "features": {"block_role": "instruction_line"}},
+                {"index": 6, "text": "Brown the beef.", "features": {"block_role": "instruction_line"}},
+                {"index": 7, "text": "For the gravy:", "features": {"block_role": "instruction_line"}},
+                {
+                    "index": 8,
+                    "text": "Whisk flour into drippings.",
+                    "features": {"block_role": "instruction_line"},
+                },
+            ],
+            "block_count": 9,
+        },
+        metadata={"artifact_type": "extracted_blocks"},
+    )
+
+    return ConversionResult(
+        recipes=[recipe],
+        report=ConversionReport(),
+        rawArtifacts=[raw],
+        workbook="sectioned",
+        workbookPath="/tmp/sectioned.txt",
+    )
+
+
+def test_build_stage_block_predictions_emits_howto_sections_from_headers() -> None:
+    payload = build_stage_block_predictions(_build_sectioned_result(), "sectioned")
+
+    block_labels = payload["block_labels"]
+    assert block_labels["0"] == "RECIPE_TITLE"
+    assert block_labels["1"] == "HOWTO_SECTION"
+    assert block_labels["3"] == "HOWTO_SECTION"
+    assert block_labels["5"] == "HOWTO_SECTION"
+    assert block_labels["7"] == "HOWTO_SECTION"
+    assert block_labels["2"] == "INGREDIENT_LINE"
+    assert block_labels["6"] == "INSTRUCTION_LINE"
+
+    conflicts = payload["conflicts"]
+    assert any(
+        row.get("block_index") == 1
+        and set(row.get("labels", [])) == {"HOWTO_SECTION", "INGREDIENT_LINE"}
+        for row in conflicts
+    )
+    assert any(
+        row.get("block_index") == 5
+        and set(row.get("labels", [])) == {"HOWTO_SECTION", "INSTRUCTION_LINE"}
+        for row in conflicts
+    )
+
+
+def test_is_howto_section_text_rejects_generic_all_caps_single_word_headers() -> None:
+    assert _is_howto_section_text("FOR THE SAUCE")
+    assert _is_howto_section_text("To Serve")
+    assert not _is_howto_section_text("CHAPTER")

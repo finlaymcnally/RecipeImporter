@@ -234,7 +234,8 @@ References:
 - `labelstudio-benchmark`
 
 Current non-emitter clarification:
-- `cookimport bench run/sweep/speed-*` flows write benchmark artifacts and history telemetry, but do not currently write `run_manifest.json`.
+- `cookimport bench speed-run` writes `run_manifest.json`.
+- Other `cookimport bench ...` flows currently write benchmark artifacts/telemetry without `run_manifest.json`.
 
 Manifest responsibilities:
 - source identity (`path`, `source_hash`)
@@ -347,7 +348,7 @@ Merged source notes:
 Current-contract additions:
 - Label Studio defaults are workflow-specific roots: `data/golden/sent-to-labelstudio`, `data/golden/pulled-from-labelstudio`, and `data/golden/benchmark-vs-golden`.
 - Stage and Label Studio docs must include full run-root artifact contracts, including `run_manifest.json`, `sections/`, `.bench/stage_block_predictions.json`, and optional `tables/`, `knowledge/`, and `tags/` outputs where applicable.
-- `run_manifest.json` scope is intentionally narrower than some older docs implied: stage + Label Studio prediction/import/export/eval/benchmark flows emit manifests; `bench run/sweep/speed-*` currently do not.
+- `run_manifest.json` scope is intentionally narrower than some older docs implied: stage + Label Studio prediction/import/export/eval/benchmark flows emit manifests; in `cookimport bench`, `speed-run` emits manifests while other bench commands currently do not.
 - Legacy removed features (EPUB race, Label Studio decorate mode, legacy scope execution branches) should be kept only as retired-context notes, not active behavior docs.
 
 Known bad loops to avoid:
@@ -362,3 +363,17 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 - Source: `docs/understandings/2026-02-27_21.16.59-priority-plan-overlap-parallelization-map.md`
 - Summary: Priority 1-8 overlap map for safe parallel implementation sequencing.
 
+### 2026-02-28_00.17.07 docs tasks domain mapping merge
+- Source: `docs/understandings/2026-02-28_00.17.07-docs-tasks-domain-mapping-merge.md`
+- Summary: Captured canonical domain mapping used to retire `docs/tasks` files into section READMEs + `_log` files.
+
+Current-contract additions from domain mapping merge:
+- Task history should be merged by ownership domain before file deletion:
+  - benchmark/scheduler/segmentation tasks -> `docs/07-bench`
+  - Priority 1/2/3/7 ingestion/importer tasks -> `docs/03-ingestion`
+  - Priority 4/5/6 parsing/staging-shaping tasks -> `docs/04-parsing`
+- Merge style contract:
+  - README receives current-state contracts, anti-loop reminders, and known-bad context.
+  - `_log` receives chronology, major decisions, failed serious attempts, and unresolved gaps.
+- Retirement rule:
+  - remove migrated source docs only after both README and `_log` have absorbed durable details.

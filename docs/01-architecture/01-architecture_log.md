@@ -150,3 +150,40 @@ Derived from explicit `cookimport/...` paths in `docs/plans/priority-1.md` throu
 - Lane D (evaluation): `priority-8` (ideally after at least `priority-3` MVP)
 - `priority-1` is best treated as an umbrella/integration phase after 2/3/4/6/7/8 foundations are in place.
 
+### 2026-02-28_00.17.07 docs tasks domain mapping merge
+
+Source: `docs/understandings/2026-02-28_00.17.07-docs-tasks-domain-mapping-merge.md`
+Summary: Captured cross-domain mapping and merge method used to retire `docs/tasks` files without losing failed-attempt context.
+
+Details preserved:
+
+
+# Docs Tasks Domain Mapping Merge
+
+Date: 2026-02-28
+
+Mapping used for `docs/tasks` retirement:
+
+- `docs/tasks/2026-02-27_18.51.16-speed-regression-benchmark-suite-from-pulled-goldens.md` -> `docs/07-bench`
+- `docs/tasks/2026-02-27_19.45.53-all-method-eval-signature-dedupe.md` -> `docs/07-bench`
+- `docs/tasks/2026-02-27_20.08.17-speed-suite-runtime-parity-single-path.md` -> `docs/07-bench`
+- `docs/tasks/2026-02-27_20.43.12-quality-suite-representative-all-method-agent-loop.md` -> `docs/07-bench`
+- `docs/tasks/2026-02-27_20.43.54-stage-block-recipe-notes-from-description.md` -> `docs/07-bench`
+- `docs/tasks/2026-02-27_20.58.16-all-method-global-mega-run-scheduler.md` -> `docs/07-bench`
+- `docs/tasks/priority-8.md` -> `docs/07-bench`
+- `docs/tasks/priority-1.md` -> `docs/03-ingestion`
+- `docs/tasks/priority-2.md` -> `docs/03-ingestion`
+- `docs/tasks/priority-3.md` -> `docs/03-ingestion`
+- `docs/tasks/priority-7.md` -> `docs/03-ingestion`
+- `docs/tasks/priority-4.md` -> `docs/04-parsing`
+- `docs/tasks/priority-5.md` -> `docs/04-parsing`
+- `docs/tasks/priority-6.md` -> `docs/04-parsing`
+
+Merge approach:
+
+- README updates captured current-state contracts and anti-loop reminders per domain.
+- `_log` updates captured chronology, critical decisions, failure modes, and unresolved gaps from the retired task docs.
+- `docs/tasks` files were removed after merge.
+
+Anti-loop note:
+- For future domain cleanup, use explicit mapping + dual-surface merge (`README` + `_log`) before deleting source docs; deleting first causes repeated "why was this choice made?" loops.

@@ -34,7 +34,6 @@ This CSV is populated by:
 - benchmark/eval commands that append benchmark rows:
   - `labelstudio-eval`
   - `labelstudio-benchmark`
-  - `bench run`
 - optional one-off repair command for older benchmark rows:
   - `benchmark-csv-backfill` (patches missing benchmark `recipes/report_path/file_name` from manifests)
 - After successful CSV writes, these commands now auto-refresh dashboard artifacts under the same history root (`.history/dashboard`) in best-effort mode.
@@ -106,7 +105,7 @@ Timestamp ordering note:
 
 Benchmark recipes note:
 - `Previous Runs` includes a `Recipes` column.
-- Benchmark recipe counts are persisted in CSV `recipes` for benchmark entrypoints (`labelstudio-benchmark`, `labelstudio-eval`, `bench run`) whenever recipe context is available.
+- Benchmark recipe counts are persisted in CSV `recipes` for benchmark entrypoints (`labelstudio-benchmark`, `labelstudio-eval`) whenever recipe context is available.
 - Collector prefers manifest `recipe_count`, then falls back to `processed_report_path` -> report `totalRecipes` when needed.
 - For historical rows created before CSV persistence was complete, run `cookimport benchmark-csv-backfill` once to patch missing values.
 
@@ -130,7 +129,7 @@ Timeline notes merged from former `docs/understandings` files:
 
 - `2026-02-15_23.17.17`: local `file://` dashboard failures were fixed by embedding inline JSON in `index.html`; keep inline-first + fetch-fallback behavior.
 - `2026-02-16_10.56.36`: benchmark `Gold`/`Matched` are span-eval metrics; `Recipes` is separate and should not be interpreted as score denominator.
-- `2026-02-16_11.33.17`: benchmark `recipes` must be persisted across all benchmark CSV append paths (`labelstudio-benchmark`, `labelstudio-eval`, `bench run`) to avoid blank `Recipes` rows.
+- `2026-02-16_11.33.17`: benchmark `recipes` must be persisted across benchmark CSV append paths (`labelstudio-benchmark`, `labelstudio-eval`) to avoid blank `Recipes` rows.
 - `2026-02-25`: main dashboard index was trimmed to focus on all-method links, latest-benchmark diagnostics, and a scrollable benchmark history table (no throughput/speed views).
 
 ## Regenerate

@@ -16,6 +16,13 @@ from cookimport.core.slug import slugify_name
 from cookimport.paths import REPO_ROOT
 
 _QUALITY_SELECTION_ALGORITHM_VERSION = "quality_representative_v1"
+_DEFAULT_CURATED_QUALITY_TARGET_IDS = (
+    "saltfatacidheatcutdown",
+    "thefoodlabcutdown",
+    "seaandsmokecutdown",
+)
+_QUALITY_SELECTION_MODE_CURATED = "curated_target_ids"
+_QUALITY_SELECTION_MODE_REPRESENTATIVE = "representative_strata"
 _SIZE_BUCKETS = ("small", "medium", "large")
 _LABEL_BUCKETS = ("sparse", "medium", "dense")
 
@@ -55,19 +62,31 @@ def discover_quality_suite(
     *,
     max_targets: int | None = None,
     seed: int = 42,
+    preferred_target_ids: list[str] | tuple[str, ...] | None = (
+        _DEFAULT_CURATED_QUALITY_TARGET_IDS
+    ),
 ) -> QualitySuite:
     if max_targets is not None and max_targets < 1:
         raise ValueError("max_targets must be >= 1 when provided")
 
+    gold_exports = _discover_freeform_gold_exports(gold_root)
     matched_targets, unmatched_targets = match_gold_exports_to_inputs(
-        _discover_freeform_gold_exports(gold_root),
+        gold_exports,
         input_root=input_root,
         gold_root=gold_root,
     )
+    if not matched_targets and unmatched_targets:
+        matched_targets, unmatched_targets = match_gold_exports_to_inputs(
+            gold_exports,
+            input_root=input_root,
+            gold_root=gold_root,
+            importable_files=_list_input_files(input_root),
+        )
     quality_targets = _annotate_quality_targets(matched_targets)
-    selected_target_ids = _select_representative_target_ids(
+    selected_target_ids, selection_metadata = _select_quality_target_ids(
         quality_targets,
         max_targets=max_targets,
+        preferred_target_ids=preferred_target_ids,
     )
     strata_counts = _build_strata_counts(quality_targets)
     timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
@@ -84,6 +103,7 @@ def discover_quality_suite(
             "max_targets": max_targets,
             "matched_count": len(quality_targets),
             "strata_counts": strata_counts,
+            **selection_metadata,
         },
         targets=quality_targets,
         selected_target_ids=selected_target_ids,
@@ -159,6 +179,19 @@ def _discover_freeform_gold_exports(gold_root: Path) -> list[Path]:
         if path.is_file()
     ]
     return sorted(exports, key=str)
+
+
+def _list_input_files(input_root: Path) -> list[Path]:
+    if not input_root.exists():
+        return []
+    return sorted(
+        [
+            path
+            for path in input_root.glob("*")
+            if path.is_file() and not path.name.startswith(".")
+        ],
+        key=str,
+    )
 
 
 def _annotate_quality_targets(
@@ -252,6 +285,64 @@ def _select_representative_target_ids(
         if not progressed:
             break
     return selected
+
+
+def _select_quality_target_ids(
+    targets: list[QualityTarget],
+    *,
+    max_targets: int | None,
+    preferred_target_ids: list[str] | tuple[str, ...] | None,
+) -> tuple[list[str], dict[str, Any]]:
+    normalized_preferred_ids = _normalize_target_ids(preferred_target_ids)
+    if normalized_preferred_ids:
+        target_ids = {target.target_id for target in targets}
+        selected_preferred = [
+            target_id
+            for target_id in normalized_preferred_ids
+            if target_id in target_ids
+        ]
+        missing_preferred = [
+            target_id
+            for target_id in normalized_preferred_ids
+            if target_id not in target_ids
+        ]
+        if selected_preferred:
+            selected_target_ids = selected_preferred
+            if max_targets is not None:
+                selected_target_ids = selected_target_ids[: max_targets]
+            return selected_target_ids, {
+                "selection_mode": _QUALITY_SELECTION_MODE_CURATED,
+                "preferred_target_ids_requested": normalized_preferred_ids,
+                "preferred_target_ids_selected": selected_preferred,
+                "preferred_target_ids_missing": missing_preferred,
+            }
+
+    return _select_representative_target_ids(
+        targets,
+        max_targets=max_targets,
+    ), {
+        "selection_mode": _QUALITY_SELECTION_MODE_REPRESENTATIVE,
+        "preferred_target_ids_requested": normalized_preferred_ids,
+        "preferred_target_ids_selected": [],
+        "preferred_target_ids_missing": normalized_preferred_ids,
+    }
+
+
+def _normalize_target_ids(
+    preferred_target_ids: list[str] | tuple[str, ...] | None,
+) -> list[str]:
+    if not preferred_target_ids:
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_target_id in preferred_target_ids:
+        target_id = slugify_name(str(raw_target_id))
+        if not target_id or target_id == "unknown" or target_id in seen:
+            continue
+        seen.add(target_id)
+        normalized.append(target_id)
+    return normalized
 
 
 def _build_strata_counts(targets: list[QualityTarget]) -> dict[str, int]:

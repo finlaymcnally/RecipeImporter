@@ -177,3 +177,126 @@ def test_labelstudio_export_writes_canonical_gold_artifacts(
     canonical_manifest = json.loads(canonical_manifest_path.read_text(encoding="utf-8"))
     assert canonical_manifest["schema_version"] == "canonical_gold.v1"
     assert canonical_manifest["canonical_span_error_count"] == 0
+
+
+def test_labelstudio_export_uses_source_slug_for_default_run_root(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def find_project_by_title(self, title: str) -> dict[str, object]:
+            return {"id": 51, "title": title}
+
+        def export_tasks(self, _project_id: int) -> list[dict[str, object]]:
+            return [
+                {
+                    "id": 1,
+                    "data": {
+                        "segment_id": "seg-1",
+                        "source_hash": "hash-1",
+                        "source_file": "/tmp/My Book.epub",
+                        "book_id": "book",
+                        "segment_text": "Hello",
+                        "source_map": {
+                            "blocks": [
+                                {
+                                    "block_id": "b-0",
+                                    "block_index": 0,
+                                    "segment_start": 0,
+                                    "segment_end": 5,
+                                }
+                            ]
+                        },
+                    },
+                    "annotations": [],
+                }
+            ]
+
+    monkeypatch.setattr("cookimport.labelstudio.export.LabelStudioClient", FakeClient)
+
+    output_dir = tmp_path / "pulled-from-labelstudio"
+    result = run_labelstudio_export(
+        project_name="My Book-2",
+        output_dir=output_dir,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="token",
+        run_dir=None,
+    )
+
+    assert result["export_root"] == output_dir / "my_book" / "exports"
+    assert not (output_dir / "my_book_2").exists()
+
+
+def test_labelstudio_export_reuses_existing_run_root_for_same_source(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def find_project_by_title(self, title: str) -> dict[str, object]:
+            return {"id": 77, "title": title}
+
+        def export_tasks(self, _project_id: int) -> list[dict[str, object]]:
+            return [
+                {
+                    "id": 1,
+                    "data": {
+                        "segment_id": "seg-1",
+                        "source_hash": "hash-existing",
+                        "source_file": "/tmp/My Book.epub",
+                        "book_id": "book",
+                        "segment_text": "Hello",
+                        "source_map": {
+                            "blocks": [
+                                {
+                                    "block_id": "b-0",
+                                    "block_index": 0,
+                                    "segment_start": 0,
+                                    "segment_end": 5,
+                                }
+                            ]
+                        },
+                    },
+                    "annotations": [],
+                }
+            ]
+
+    monkeypatch.setattr("cookimport.labelstudio.export.LabelStudioClient", FakeClient)
+
+    output_dir = tmp_path / "pulled-from-labelstudio"
+    existing_run_root = output_dir / "my_book"
+    (existing_run_root / "exports").mkdir(parents=True, exist_ok=True)
+    (existing_run_root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "source": {
+                    "path": "/tmp/My Book.epub",
+                    "source_hash": "hash-existing",
+                }
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_labelstudio_export(
+        project_name="My Book-2",
+        output_dir=output_dir,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="token",
+        run_dir=None,
+    )
+
+    assert result["export_root"] == existing_run_root / "exports"
+    assert not (output_dir / "my_book_2").exists()
+
+    run_manifest = json.loads(
+        (existing_run_root / "run_manifest.json").read_text(encoding="utf-8")
+    )
+    assert run_manifest["artifacts"]["label_studio_project_name"] == "My Book-2"

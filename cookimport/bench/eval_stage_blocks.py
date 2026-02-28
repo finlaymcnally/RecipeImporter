@@ -884,7 +884,27 @@ def load_stage_block_labels(stage_block_predictions_json_path: Path) -> dict[int
                 f"missing labels for {len(missing)} indices."
             )
 
-    return dict(sorted(labels.items()))
+    resolved_label_sets = resolve_howto_label_sets_by_index(
+        {
+            index: {label}
+            for index, label in labels.items()
+        }
+    )
+    resolved_labels: dict[int, str] = {}
+    for index, original_label in sorted(labels.items()):
+        resolved_set = {
+            str(label)
+            for label in resolved_label_sets.get(index, {original_label})
+            if str(label) in _FREEFORM_LABEL_SET
+        }
+        if not resolved_set:
+            resolved_set = {"OTHER"}
+        resolved_labels[index] = _primary_gold_label(
+            resolved_set,
+            pred_label=original_label,
+        )
+
+    return resolved_labels
 
 
 def compute_block_metrics(

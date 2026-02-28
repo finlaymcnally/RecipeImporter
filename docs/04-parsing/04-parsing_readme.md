@@ -680,6 +680,21 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 - Source: `docs/understandings/2026-02-27_23.22.41-priority6-runtime-wiring-map.md`
 - Summary: Priority 6 wiring map: run settings flow into stage/pred-run via run_config, then draft_v1 consumes parser/yield options from that shared payload.
 
+### 2026-02-27_23.39.38 priority6 wiring and ovenlike audit
+- Source: `docs/understandings/2026-02-27_23.39.38-priority6-wiring-and-ovenlike-audit.md`
+- Summary: Priority 6 wiring audit found selector-forwarding gaps in ingest/pred-run/manifests and refined oven-like temperature suppression logic to a tighter local negative-hint window.
+
+Current-contract additions from this audit:
+- If `p6_*` selectors are expected, confirm they are present in:
+  - benchmark call kwargs,
+  - ingest signatures + `build_run_settings(...)`,
+  - pred-run helper forwarding,
+  - manifest `predict_only_run_config` and `benchmark_run_config`.
+- `max_oven_temp_f` extraction is intentionally context-sensitive:
+  - broad positive oven context is allowed,
+  - negative hints are applied in a local window near the matched temperature,
+  - distant `internal` mentions should not suppress nearby preheat/bake temperatures.
+
 ## 2026-02-27 tasks consolidation (migrated from `docs/tasks`)
 
 Merged task files (creation order in `docs/tasks`):
