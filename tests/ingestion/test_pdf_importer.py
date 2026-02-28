@@ -111,6 +111,96 @@ def test_convert_pdf_emits_post_candidate_progress(monkeypatch, tmp_path: Path) 
     assert progress_messages[-1] == "PDF conversion complete."
 
 
+def test_convert_pdf_emits_pattern_diagnostics_and_trim_actions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "pattern.pdf"
+    source.write_bytes(b"%PDF-1.4 dummy")
+    importer = PdfImporter()
+    blocks = [
+        Block(text="Table of Contents", page=0),
+        Block(text="Soups .......... 7", page=0),
+        Block(text="Stews .......... 12", page=0),
+        Block(text="Desserts .......... 44", page=0),
+        Block(text="Herb Bread", page=0),
+        Block(text="A short intro sentence.", page=0),
+        Block(text="Herb Bread", page=0),
+        Block(text="Ingredients", page=0),
+        Block(text="1 cup flour", page=0),
+        Block(text="Instructions", page=0),
+        Block(text="Bake.", page=0),
+    ]
+    for block in blocks:
+        signals.enrich_block(block)
+
+    monkeypatch.setattr(
+        importer,
+        "_extract_blocks_from_page",
+        lambda _page, _abs_page: list(blocks),
+    )
+    monkeypatch.setattr(importer, "_needs_ocr", lambda _doc: False)
+    monkeypatch.setattr(
+        importer,
+        "_detect_candidates",
+        lambda _blocks: [(0, len(blocks), 0.95)],
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_fields",
+        lambda candidate_blocks: RecipeCandidate(
+            name=str(candidate_blocks[0].text),
+            recipeIngredient=["1 cup flour"],
+            recipeInstructions=["Bake."],
+        ),
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_standalone_tips",
+        lambda *_args, **_kwargs: ([], [], 0, 0),
+    )
+
+    class _FakeDoc:
+        def __init__(self) -> None:
+            self._closed = False
+
+        def __len__(self) -> int:
+            return 1
+
+        def __getitem__(self, _index: int) -> object:
+            return object()
+
+        def close(self) -> None:
+            self._closed = True
+
+    monkeypatch.setattr("cookimport.plugins.pdf.fitz.open", lambda _path: _FakeDoc())
+
+    result = importer.convert(source, None)
+
+    assert len(result.recipes) == 1
+    location = result.recipes[0].provenance["location"]
+    assert location["start_block"] == 6
+    assert location["pattern_actions"]
+    assert any(
+        warning.startswith("pattern_toc_like_cluster_detected:")
+        for warning in result.report.warnings
+    )
+    assert any(
+        warning.startswith("pattern_duplicate_title_flow_detected:")
+        for warning in result.report.warnings
+    )
+
+    diagnostics_artifact = next(
+        artifact for artifact in result.raw_artifacts if artifact.location_id == "pattern_diagnostics"
+    )
+    assert diagnostics_artifact.content["pre_candidate_excluded_indices"] == [0, 1, 2, 3]
+    assert diagnostics_artifact.content["candidate_start_trim_actions"]
+
+    non_recipe_text = [row["text"] for row in result.non_recipe_blocks]
+    assert "Table of Contents" in non_recipe_text
+    assert "A short intro sentence." in non_recipe_text
+
+
 def test_convert_pdf_applies_multi_recipe_splitter_postprocessing(
     monkeypatch,
     tmp_path: Path,

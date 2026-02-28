@@ -71,6 +71,13 @@ Report/model plumbing:
 - `COOKIMPORT_ALLOW_CODEX_FARM` remains as a legacy no-op compatibility variable.
 - `codex_farm_failure_mode` still controls behavior for active LLM passes (`fail` or `fallback`).
 
+## Pass1 Pattern Hints Boundary
+
+- Pass1 recipe chunking input contract supports optional `pattern_hints` (`cookimport/llm/codex_farm_contracts.py`).
+- Prompt contract marks `pattern_hints` as advisory only and never a replacement for block evidence (`llm_pipelines/prompts/recipe.chunking.v1.prompt.md`).
+- Runtime wiring is default-off and explicitly gated by env var `COOKIMPORT_CODEX_FARM_PASS1_PATTERN_HINTS` in `cookimport/llm/codex_farm_orchestrator.py`.
+- This handoff is metadata-only; it does not enable AI parsing/cleaning in EPUB/PDF ingestion.
+
 ## 2026-02-28 merged task specs (`docs/tasks` batch)
 
 ### 2026-02-28_02.31.09 enable codex-farm in benchmarks (historical gate phase)
@@ -384,3 +391,25 @@ The items below were merged from `docs/understandings` in source timestamp order
   - `telemetry_report`: structured caller telemetry contract.
   - `autotune_report`: concrete suggested overrides/diffs.
   - `telemetry`: compact activity slices.
+
+## 2026-02-28 task consolidation (`docs/tasks` CodexFarm telemetry ingest batch)
+
+Merged task files (source creation order):
+- `2026-02-28_10.08.00-codex-farm-telemetry-contract-ingest.md`
+- `2026-02-28_10.22.31-codex-farm-telemetry-implementation-summary.md`
+- `2026-02-28_10.28.23-codex-farm-telemetry-v2-alignment.md`
+- `2026-02-28_10.35.22-codex-farm-autotune-payload-ingest.md`
+
+Current contract distilled from this task batch:
+- Runner boundary (`cookimport/llm/codex_farm_runner.py`) is the only place that parses and normalizes Codex Farm process metadata for recipe/pass4/pass5 callers.
+- `run_pipeline(...)` returns structured process metadata including:
+  - `telemetry_report` from `process --json` (schema-v2 caller contract)
+  - `autotune_report` from best-effort `run autotune --run-id <id> --json`
+  - compact CSV `telemetry` slices from `codex_exec_activity.csv` keyed by `run_id + pipeline_id`
+- Serialized pass metadata persists this shape consistently:
+  - recipe pass manifests/reports: `process_runs.pass1|pass2|pass3`
+  - pass4/pass5 reports/manifests: `process_run`
+- Missing telemetry CSV, missing schema-v2 report, or missing autotune support are non-fatal by design; conversion correctness must not depend on observability payload availability.
+
+Known anti-loop boundary:
+- Do not duplicate telemetry parsing/wiring in each orchestrator; keep ingest/normalization centralized in the runner and only serialize shared runner payload downstream.

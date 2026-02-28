@@ -73,6 +73,26 @@ def _latest_timestamp_dir(path: Path) -> Path:
     return sorted(candidates, key=lambda entry: entry.name)[-1]
 
 
+def _latest_partial_quality_run_dir(path: Path) -> Path | None:
+    if not path.exists() or not path.is_dir():
+        return None
+    candidates = sorted(
+        [entry for entry in path.iterdir() if entry.is_dir()],
+        key=lambda entry: entry.name,
+        reverse=True,
+    )
+    for candidate in candidates:
+        has_summary = (candidate / "summary.json").exists() and (
+            candidate / "report.md"
+        ).exists()
+        if has_summary:
+            continue
+        has_runner_metadata = (candidate / "experiments_resolved.json").exists()
+        if has_runner_metadata:
+            return candidate
+    return None
+
+
 def _coerce_float(value: Any) -> float | None:
     if value is None:
         return None
@@ -733,6 +753,14 @@ def _parse_args() -> argparse.Namespace:
         help="Output root for tournament artifacts.",
     )
     parser.add_argument(
+        "--resume-tournament-dir",
+        default="",
+        help=(
+            "Optional existing tournament directory to resume. "
+            "When set, reuse fold artifacts in that directory instead of creating a new timestamp."
+        ),
+    )
+    parser.add_argument(
         "--cookimport-cmd",
         default=".venv/bin/cookimport",
         help="Cookimport executable path.",
@@ -803,9 +831,22 @@ def main() -> int:
     if not candidate_experiment_ids:
         raise ValueError("No candidate experiments configured/resolved.")
 
-    timestamp = _timestamp()
     output_root = Path(args.output_root)
-    tournament_root = output_root / timestamp
+    resume_tournament_dir_raw = str(
+        getattr(args, "resume_tournament_dir", "") or ""
+    ).strip()
+    resume_requested = bool(resume_tournament_dir_raw)
+    if resume_requested:
+        tournament_root = Path(resume_tournament_dir_raw).expanduser()
+        if not tournament_root.exists() or not tournament_root.is_dir():
+            raise FileNotFoundError(
+                "Resume tournament directory not found or not a directory: "
+                f"{tournament_root}"
+            )
+        timestamp = str(tournament_root.name or "").strip() or _timestamp()
+    else:
+        timestamp = _timestamp()
+        tournament_root = output_root / timestamp
     tournament_root.mkdir(parents=True, exist_ok=True)
     configured_alignment_cache_root = str(
         quality_run_config.get("canonical_alignment_cache_root") or ""
@@ -841,6 +882,8 @@ def main() -> int:
         "duplicate_suite_fold_dedup": True,
         "gate_impossibility_pruning": True,
         "gates": gates,
+        "resume_requested": resume_requested,
+        "resume_tournament_dir": str(tournament_root) if resume_requested else None,
         "dry_run": bool(args.dry_run),
     }
     _write_json(tournament_root / "tournament_resolved.json", resolved_payload)
@@ -859,6 +902,27 @@ def main() -> int:
         suite_path = fold_root / "suite.json"
         run_out_dir = fold_root / "quality_runs"
         leaderboard_root = fold_root / "leaderboards"
+        existing_fold_result_path = fold_root / "fold_result.json"
+
+        if (
+            resume_requested
+            and not args.dry_run
+            and existing_fold_result_path.exists()
+            and existing_fold_result_path.is_file()
+        ):
+            existing_fold_payload = _load_json_object(existing_fold_result_path)
+            existing_suite_signature = str(
+                existing_fold_payload.get("suite_signature") or ""
+            ).strip()
+            if existing_suite_signature:
+                seen_suite_signatures.setdefault(existing_suite_signature, index)
+            fold_rows.append(existing_fold_payload)
+            if bool(existing_fold_payload.get("duplicate_suite_skipped")):
+                duplicate_suite_folds_skipped += 1
+                continue
+            if bool(existing_fold_payload.get("included_in_gates")):
+                evaluated_fold_rows.append(existing_fold_payload)
+                continue
 
         discover_cmd = [
             args.cookimport_cmd,
@@ -900,6 +964,7 @@ def main() -> int:
             "run_out_dir": str(run_out_dir),
             "leaderboard_root": str(leaderboard_root),
             "run_dir": None,
+            "resume_run_dir": None,
             "executed_quality_run": False,
             "included_in_gates": False,
             "baseline": {},
@@ -921,10 +986,32 @@ def main() -> int:
         fold_rows.append(fold_payload)
         executable_folds.append(fold_payload)
 
-    total_unique_folds_planned = len(executable_folds)
+    total_unique_folds_planned = len(executable_folds) + len(evaluated_fold_rows)
     active_candidate_ids = list(candidate_experiment_ids)
     pruned_candidates: dict[str, dict[str, Any]] = {}
-    quality_runs_executed = 0
+    quality_runs_executed = sum(
+        1 for row in evaluated_fold_rows if bool(row.get("executed_quality_run"))
+    )
+    if evaluated_fold_rows:
+        latest_evaluated = sorted(
+            evaluated_fold_rows,
+            key=lambda row: int(row.get("fold_index", 0) or 0),
+        )[-1]
+        active_after = latest_evaluated.get("active_candidate_ids_after_fold")
+        if isinstance(active_after, list):
+            active_candidate_ids = [
+                str(candidate_id).strip()
+                for candidate_id in active_after
+                if str(candidate_id).strip()
+            ]
+        for evaluated_row in evaluated_fold_rows:
+            pruned_after = evaluated_row.get("pruned_candidates_after_fold")
+            if not isinstance(pruned_after, dict):
+                continue
+            for candidate_id, prune_payload in pruned_after.items():
+                if not isinstance(prune_payload, dict):
+                    continue
+                pruned_candidates[str(candidate_id)] = dict(prune_payload)
     early_stop_triggered = False
 
     # Phase 2: run quality experiments only for unique folds, pruning impossible candidates.
@@ -985,6 +1072,14 @@ def main() -> int:
                     str(int(args.max_parallel_experiments)),
                 ]
             )
+        resume_run_dir = None
+        if not args.dry_run:
+            resume_run_dir = _latest_partial_quality_run_dir(run_out_dir)
+            if resume_run_dir is not None:
+                quality_run_cmd.extend(["--resume-run-dir", str(resume_run_dir)])
+                fold_payload["resume_run_dir"] = str(resume_run_dir)
+        else:
+            fold_payload["resume_run_dir"] = None
 
         _run_command(
             quality_run_cmd,

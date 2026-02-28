@@ -536,3 +536,27 @@ Outcome preserved:
 Anti-loop notes:
 - If obvious boundaries are rejected, read trace reasons before tuning thresholds globally.
 - Keep segmentation-eval ambitions coordinated with benchmark Priority 8 work; do not duplicate evaluator surfaces in ingestion paths.
+
+## 2026-02-28 docs/tasks consolidation batch (deterministic pattern detection + optional hint handoff)
+
+### 2026-02-28_12.19.18 EPUB/PDF deterministic pattern detector and codex-hint boundary
+
+Source task file:
+- `docs/tasks/2026-02-28_12.19.18-deterministic-pattern-detector-and-codex-hints.md`
+
+Problem captured:
+- Cookbook TOC-like clusters, duplicate title+ramble blocks, and overlap duplicates were still leaking into candidate extraction/scoring paths in ways that caused avoidable false candidates.
+
+Durable decisions/outcomes:
+- Added shared deterministic pattern module used by both EPUB and PDF candidate flows.
+- Added explicit deterministic actions and diagnostics (`pattern_diagnostics.json` + warning keys) before and after candidate detection.
+- Preserved all suppressed text in `non_recipe_blocks` to avoid silent evidence loss.
+- Added optional pass1 `pattern_hints` wiring as advisory metadata only, env-gated and default-off.
+
+Evidence preserved:
+- `pytest -o addopts='' tests/ingestion/test_epub_importer.py tests/ingestion/test_pdf_importer.py tests/ingestion/test_epub_extraction_quickwins.py tests/core/test_recipe_likeness_scoring.py -q` (`45 passed` recorded)
+- `pytest -o addopts='' tests/staging/test_split_merge_status.py tests/llm/test_codex_farm_contracts.py tests/llm/test_codex_farm_orchestrator.py -q` (`20 passed` recorded)
+- Gap-closure assertions added later for PDF trim/diagnostics and direct pattern-penalty scoring checks.
+
+Anti-loop note:
+- Do not turn pattern suppression into silent deletion; if suppression is active, diagnostics + non-recipe preservation must remain intact.

@@ -14,3 +14,4 @@
 - EPUB `unstructured` path now supports explicit HTML parser/preprocess options and BR-splitting pre-normalization via `epub_html_normalize.py`; inspect `raw_spine_xhtml_*.xhtml` and `norm_spine_xhtml_*.xhtml` raw artifacts when debugging.
 - EPUB HTML extractors (`beautifulsoup` and `unstructured`) now run shared `epub_postprocess.py` cleanup after extraction (soft-hyphen/unicode cleanup, bullet stripping, BR/table line splitting, and pagebreak/nav noise suppression).
 - EPUB extraction health metrics are computed in `epub_health.py` and written to raw artifact `epub_extraction_health.json`; warning keys are added to `ConversionReport.warnings` when suspicious patterns are detected.
+- Deterministic cookbook noise controls now live in `pattern_flags.py` and are shared by EPUB/PDF for TOC-like exclusion, duplicate-title intro trims, overlap-duplicate rejection, and `pattern_diagnostics.json` warning/artifact emission.

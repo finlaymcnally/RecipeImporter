@@ -260,3 +260,25 @@ Green phase preserved:
 
 Anti-loop note:
 - Path-normalization regressions should be fixed in helper functions first; avoid patching selector call-sites with one-off string checks.
+
+## 2026-02-28 docs/tasks consolidation batch (dashboard chart interaction default)
+
+### 2026-02-28_12.18.03 disable Highcharts mouse-wheel zoom
+
+Source task file:
+- `docs/tasks/2026-02-28_12.18.03-disable-dashboard-highcharts-wheel-zoom.md`
+
+Problem captured:
+- Dashboard trend-chart wheel zoom caused frequent accidental zoom while users were just scrolling page content.
+
+Durable decisions/outcomes:
+- Added a global dashboard default for Highcharts mouse-wheel zoom off.
+- Kept a clear, single toggle (`HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED`) for future re-enable.
+- Implemented via dashboard init `Highcharts.setOptions(...)` so behavior applies to all dashboard charts consistently.
+
+Evidence preserved:
+- `pytest tests/analytics/test_stats_dashboard.py -k benchmark_trend_chart_uses_fixed_height`
+- `pytest tests/analytics/test_stats_dashboard.py`
+
+Anti-loop note:
+- If wheel zoom comes back unexpectedly, check global init default first before changing per-chart options.

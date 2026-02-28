@@ -46,31 +46,46 @@ def _with_matcher_mode(mode: str) -> None:
 
 
 def _benchmark_mode(mode: str, left_text: str, right_text: str, repeats: int) -> BenchmarkResult:
-    _with_matcher_mode(mode)
-    try:
-        selection = get_sequence_matcher_selection()
-    except Exception as exc:  # noqa: BLE001
-        return BenchmarkResult(
-            mode=mode,
-            implementation="unavailable",
-            version=None,
-            error=str(exc),
-            best_seconds=0.0,
-            mean_seconds=0.0,
-            speedup_vs_stdlib_best=None,
-            speedup_vs_stdlib_mean=None,
-            opcode_count=0,
-        )
+    if mode == "stdlib":
+        selection = None
+        implementation = "stdlib"
+        version = None
+    else:
+        _with_matcher_mode(mode)
+        try:
+            selection = get_sequence_matcher_selection()
+        except Exception as exc:  # noqa: BLE001
+            return BenchmarkResult(
+                mode=mode,
+                implementation="unavailable",
+                version=None,
+                error=str(exc),
+                best_seconds=0.0,
+                mean_seconds=0.0,
+                speedup_vs_stdlib_best=None,
+                speedup_vs_stdlib_mean=None,
+                opcode_count=0,
+            )
+        implementation = selection.implementation
+        version = selection.version
     samples: list[float] = []
     opcode_count = 0
     for _ in range(max(1, int(repeats))):
         started = time.perf_counter()
-        matcher = selection.matcher_class(
-            None,
-            left_text,
-            right_text,
-            autojunk=False,
-        )
+        if mode == "stdlib":
+            matcher = StdlibSequenceMatcher(
+                None,
+                left_text,
+                right_text,
+                autojunk=False,
+            )
+        else:
+            matcher = selection.matcher_class(
+                None,
+                left_text,
+                right_text,
+                autojunk=False,
+            )
         opcodes = matcher.get_opcodes()
         elapsed = max(0.0, time.perf_counter() - started)
         samples.append(elapsed)
@@ -80,8 +95,8 @@ def _benchmark_mode(mode: str, left_text: str, right_text: str, repeats: int) ->
     mean_seconds = sum(samples) / float(len(samples))
     return BenchmarkResult(
         mode=mode,
-        implementation=selection.implementation,
-        version=selection.version,
+        implementation=implementation,
+        version=version,
         error=None,
         best_seconds=best_seconds,
         mean_seconds=mean_seconds,
@@ -120,10 +135,19 @@ def _selected_matching_block_signature(left_text: str, right_text: str) -> list[
     ]
 
 
+def _stdlib_matching_block_signature(left_text: str, right_text: str) -> list[tuple[int, int, int]]:
+    matcher = StdlibSequenceMatcher(None, left_text, right_text, autojunk=False)
+    return [
+        (int(match.a), int(match.b), int(match.size))
+        for match in matcher.get_matching_blocks()
+        if int(match.size) > 0
+    ]
+
+
 def _parse_modes(raw_modes: str) -> list[str]:
     parsed = [part.strip() for part in str(raw_modes or "").split(",") if part.strip()]
     if not parsed:
-        return ["stdlib", "auto"]
+        return ["stdlib", "dmp"]
     # Preserve ordering while deduplicating.
     unique: list[str] = []
     for mode in parsed:
@@ -153,10 +177,10 @@ def main() -> int:
     )
     parser.add_argument(
         "--modes",
-        default="stdlib,auto,dmp",
+        default="stdlib,dmp",
         help=(
             "Comma-separated matcher modes to benchmark "
-            "(default: stdlib,auto,dmp)."
+            "(default: stdlib,dmp)."
         ),
     )
     args = parser.parse_args()
@@ -205,9 +229,8 @@ def main() -> int:
                 )
             )
 
-        _with_matcher_mode("stdlib")
         stdlib_opcodes = _stdlib_opcode_signature(left_text, right_text)
-        stdlib_blocks = _selected_matching_block_signature(left_text, right_text)
+        stdlib_blocks = _stdlib_matching_block_signature(left_text, right_text)
 
         print(
             f"Generated texts: left_chars={len(left_text)} right_chars={len(right_text)} "
@@ -219,9 +242,13 @@ def main() -> int:
                     f"{result.mode}: unavailable error={result.error}"
                 )
                 continue
-            _with_matcher_mode(result.mode)
-            selected_opcodes = _selected_opcode_signature(left_text, right_text)
-            selected_blocks = _selected_matching_block_signature(left_text, right_text)
+            if result.mode == "stdlib":
+                selected_opcodes = stdlib_opcodes
+                selected_blocks = stdlib_blocks
+            else:
+                _with_matcher_mode(result.mode)
+                selected_opcodes = _selected_opcode_signature(left_text, right_text)
+                selected_blocks = _selected_matching_block_signature(left_text, right_text)
             opcode_parity = selected_opcodes == stdlib_opcodes
             block_parity = selected_blocks == stdlib_blocks
             print(

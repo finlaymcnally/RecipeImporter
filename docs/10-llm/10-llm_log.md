@@ -564,3 +564,66 @@ Findings preserved:
 
 Anti-loop note:
 - If telemetry is missing, validate `run_id` and `pipeline_id` join inputs before changing payload models or report writers.
+
+## 2026-02-28 docs/tasks consolidation batch (Codex Farm telemetry/report/autotune ingest)
+
+### 2026-02-28_10.08.00 codex-farm telemetry contract ingest
+
+Source task file:
+- `docs/tasks/2026-02-28_10.08.00-codex-farm-telemetry-contract-ingest.md`
+
+Problem captured:
+- Process metadata was too thin for prompt-tuning loops; runner did not ingest rich `codex_exec_activity.csv` signals.
+
+Durable decisions/outcomes:
+- Added structured runner return payload (`CodexFarmPipelineRunResult`) for subprocess runs.
+- Added best-effort telemetry CSV ingestion keyed by `run_id + pipeline_id`.
+- Persisted compact telemetry to recipe/pass4/pass5 artifacts under `process_runs`/`process_run` without copying full CSV row payloads.
+- Kept telemetry ingestion non-fatal with warnings when CSV is missing/unreadable.
+
+Evidence preserved:
+- `pytest -o addopts='' tests/llm/test_codex_farm_orchestrator.py -q` (`13 passed`)
+- `pytest -o addopts='' tests/llm/test_codex_farm_knowledge_orchestrator.py -q` (`1 passed`)
+- `pytest -o addopts='' tests/tagging/test_tagging.py -k "llm or codex or pass5 or tags" -q` (`4 passed`)
+
+### 2026-02-28_10.22.31 telemetry ingest implementation summary merge
+
+Source task file:
+- `docs/tasks/2026-02-28_10.22.31-codex-farm-telemetry-implementation-summary.md`
+
+Implementation surfaces preserved:
+- Runner + fake runner contract parity updates.
+- Orchestrator/report serialization updates across recipe pass, pass4 knowledge, and pass5 tags.
+- Deterministic test coverage for telemetry persistence and process payload shape.
+
+Anti-loop note:
+- If one pass has telemetry and another does not, compare shared runner payload serialization path first before editing pass-specific report writers.
+
+### 2026-02-28_10.28.23 telemetry_report schema-v2 alignment
+
+Source task file:
+- `docs/tasks/2026-02-28_10.28.23-codex-farm-telemetry-v2-alignment.md`
+
+Problem captured:
+- Embedded `process --json.telemetry_report` (schema-v2) existed but was not exposed as first-class pass metadata.
+
+Durable decisions/outcomes:
+- Elevated embedded `telemetry_report` to top-level structured runner payload field.
+- Preserved compact CSV telemetry slices as supplemental row-level context (did not replace them).
+- Kept compatibility with older Codex Farm builds where `telemetry_report` can be absent.
+
+### 2026-02-28_10.35.22 autotune payload ingest
+
+Source task file:
+- `docs/tasks/2026-02-28_10.35.22-codex-farm-autotune-payload-ingest.md`
+
+Problem captured:
+- Caller-ready `run autotune --json` guidance was not captured in recipeimport artifacts.
+
+Durable decisions/outcomes:
+- Runner now attempts best-effort `run autotune --run-id <id> --json` after successful process calls.
+- Payload is persisted as `autotune_report` in the same shared `process_runs`/`process_run` metadata surfaces.
+- Missing command/support remains non-fatal and leaves `autotune_report=null`.
+
+Anti-loop note:
+- Do not treat null `autotune_report` as conversion failure; check Codex Farm binary support/version first.

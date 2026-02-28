@@ -186,3 +186,21 @@ Default export root is source-aware:
 - fallback to project slug only when source identity is unavailable.
 
 This keeps repeated pulls for the same source in one folder while preserving explicit `--run-dir` behavior.
+
+## 2026-02-28 docs/tasks consolidation batch (Label Studio split-convert sandbox fallback)
+
+### 2026-02-28_12.20.59 split-convert process-worker denial fallback
+
+Source task file:
+- `docs/tasks/2026-02-28_12.20.59-sandbox-parallel-fallbacks-stage-and-labelstudio.md`
+
+Problem captured:
+- Label Studio split conversion dropped straight to serial mode when process workers were denied in sandboxed runtimes, causing avoidable throughput loss.
+
+Durable decisions/outcomes:
+- Replaced fallback ordering in `cookimport/labelstudio/ingest.py` with `process -> thread -> serial`.
+- Reused shared fallback resolver surface (`cookimport/core/executor_fallback.py`) to reduce divergence from stage behavior.
+- Added regression tests for process-denied fallback behavior/message contracts.
+
+Anti-loop note:
+- If split conversion appears serial, verify whether thread fallback was attempted and failed before treating it as scheduler regression.

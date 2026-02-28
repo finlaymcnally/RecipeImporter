@@ -38,6 +38,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_excel_importer.py": ("ingestion",),
     "test_ingredient_parser.py": ("parsing",),
     "test_instruction_parser.py": ("parsing",),
+    "test_joblib_runtime.py": ("core",),
     "test_yield_extraction.py": ("parsing",),
     "test_knowledge_job_bundles.py": ("llm",),
     "test_knowledge_output_ingest.py": ("llm",),

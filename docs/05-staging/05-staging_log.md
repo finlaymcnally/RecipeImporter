@@ -372,3 +372,55 @@ Evidence preserved:
 
 Anti-loop note:
 - If section labels disappear again on text imports, verify provenance-range fallback in `_resolve_recipe_range(...)` before changing section extraction heuristics.
+
+## 2026-02-28 docs/tasks consolidation batch (stage sandbox fallback behavior)
+
+### 2026-02-28_12.20.59 process-worker-denied fallback: stage `process -> thread -> serial`
+
+Source task file:
+- `docs/tasks/2026-02-28_12.20.59-sandbox-parallel-fallbacks-stage-and-labelstudio.md`
+
+Problem captured:
+- In sandboxed hosts where process pools fail (`PermissionError`/`SemLock` style startup failures), stage paths fell directly to serial loops and looked like throughput regressions.
+
+Durable decisions/outcomes:
+- Added shared fallback helper (`cookimport/core/executor_fallback.py`) and switched stage fallback order to `process -> thread -> serial`.
+- Kept serial fallback only as terminal safety behavior.
+- Added regression tests for process-denied fallback messaging and behavior.
+- Hardened one stage assertion to normalize whitespace because wrapped warning text produced false-negative contiguous-string checks.
+
+Evidence preserved:
+- Speed-suite baseline/candidate compare PASS:
+  - baseline run `data/golden/bench/speed/runs/2026-02-28_14.35.15`
+  - candidate run `data/golden/bench/speed/runs/2026-02-28_14.35.52`
+  - compare `data/golden/bench/speed/comparisons/2026-02-28_14.36.36/comparison.json`
+
+Anti-loop note:
+- If stage appears serial again, confirm fallback-mode message and executor-resolution telemetry before touching merge/write code paths.
+
+### 2026-02-28_15.00.57 process-worker-denied fallback: stage `process -> subprocess-backed -> thread -> serial`
+
+Source task file:
+- `docs/tasks/2026-02-28_15.00.57-stage-subprocess-worker-fallback-for-shm-restricted-hosts.md`
+
+Problem captured:
+- On this host, process pools fail with `PermissionError: [Errno 13] Permission denied` due SemLock restrictions.
+- Previous stage fallback improved to threads, but CPU-heavy paths could still degrade and appear near-serial.
+
+Durable decisions/outcomes:
+- Added subprocess-backed stage execution path in `cookimport/cli.py` that activates when process workers are denied and stage worker subprocess probe passes.
+- Added internal worker entrypoint in `cookimport/cli_worker.py`:
+  - `--stage-worker-self-test`
+  - `--stage-worker-request <request_json>`
+- Subprocess worker path supports single-file, PDF split, and EPUB split jobs and returns pickled result payloads.
+- Thread fallback remains as secondary path when subprocess worker launch/probe is unavailable; serial remains terminal safety fallback.
+
+Evidence preserved:
+- `. .venv/bin/activate && pytest tests/ingestion/test_performance_features.py -k "process_pool_permission_error_falls_back_to_thread or stage_worker or worker_label" -q`
+- `. .venv/bin/activate && cookimport stage /tmp/stage_subprocess_probe/in --out /tmp/stage_subprocess_probe/out --workers 2 --limit 1`
+  - Runtime warning now reports subprocess-backed fallback, not serial fallback.
+  - Worker panel shows `SubprocessWorker-1`, `SubprocessWorker-2`.
+
+Anti-loop note:
+- This does not restore host process-pool capability itself; `/dev/shm`/SemLock policy is still restricted.
+- If subprocess fallback regresses, check `--stage-worker-self-test` availability and request/result payload creation under `<out>/.stage_worker_requests` before touching parser/importer logic.

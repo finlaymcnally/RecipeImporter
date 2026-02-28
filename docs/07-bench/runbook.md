@@ -175,6 +175,15 @@ cookimport bench quality-run \
   --max-parallel-experiments 4
 ```
 
+If a run is interrupted, resume from the existing run directory (it reuses completed experiment snapshots):
+
+```bash
+cookimport bench quality-run \
+  --suite data/golden/bench/quality/suites/pulled_representative.json \
+  --experiments-file data/golden/bench/quality/experiments/example.json \
+  --resume-run-dir data/golden/bench/quality/runs/<existing_timestamp>
+```
+
 Quick tuning guide for `--max-parallel-experiments`:
 
 | Experiment count | Suggested setting |
@@ -246,6 +255,15 @@ python scripts/quality_top_tier_tournament.py \
   --max-parallel-experiments 4
 ```
 
+Resume an interrupted tournament in the same directory (reuses completed folds and resumes partial fold quality-runs):
+
+```bash
+python scripts/quality_top_tier_tournament.py \
+  --experiments-file data/golden/bench/quality/experiments/2026-02-28_10.31.55_qualitysuite-top-tier-tournament.json \
+  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_10.31.55_qualitysuite-top-tier-gates.json \
+  --resume-tournament-dir data/golden/bench/quality/tournaments/<existing_timestamp>
+```
+
 Outputs are written under `data/golden/bench/quality/tournaments/<timestamp>/`:
 - `tournament_resolved.json`: resolved config/seeds/candidates used for the run
 - `folds.json`: per-fold quality metrics and leaderboard winner snapshots
@@ -268,6 +286,7 @@ Notes:
   - `comparison.json`, `comparison.md`
 - `bench quality-run`:
   - `summary.json`, `report.md`, `suite_resolved.json`, `experiments_resolved.json`
+  - crash-safe incremental artifacts: `checkpoint.json`, `summary.partial.json`, `report.partial.md`, `experiments/<id>/quality_experiment_result.json`
 - `bench quality-compare`:
   - `comparison.json`, `comparison.md`
 

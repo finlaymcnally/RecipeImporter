@@ -468,7 +468,8 @@ Stages one file or all files under a folder (recursive for folder input). Always
 Each stage run folder includes `run_manifest.json` for source/config/artifact traceability.
 Each stage run folder also includes `processing_timeseries.jsonl` (status snapshots + CPU utilization samples).
 After stage history CSV append, the CLI also auto-refreshes dashboard artifacts under `<out parent>/.history/dashboard` (best effort).
-Stage job worker fallback order is `process -> thread -> serial`; if process workers are denied in sandboxed runtimes, stage emits a warning that it switched to thread-based worker concurrency.
+Stage job worker fallback order is `process -> subprocess-backed workers -> thread -> serial`; if process workers are denied in sandboxed runtimes, stage emits a warning that it switched to subprocess-backed worker concurrency.
+When thread fallback is active, `processing_timeseries.jsonl` worker labels include thread names so concurrent workers are visible (instead of collapsing to one `MainProcess` label).
 
 Arguments:
 
@@ -900,7 +901,7 @@ Options:
 
 ### `cookimport bench quality-run`
 
-Runs all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`). Experiment-level execution is CPU-aware by default (auto cap + adaptive worker target based on host load; default auto ceiling `16`, override with `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); override with `--max-parallel-experiments` to force a fixed cap. When process-pool probing fails in auto mode (common in `/dev/shm`-restricted runtimes), quality-run now switches experiment fanout to subprocess workers to avoid thread/GIL bottlenecks; override with `COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE=thread|subprocess|auto`.
+Runs all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`). While running, it also writes crash-safe incremental artifacts (`checkpoint.json`, `summary.partial.json`, `report.partial.md`, and per-experiment `quality_experiment_result.json`) so interrupted runs can be resumed with `--resume-run-dir`. Experiment-level execution is CPU-aware by default (auto cap + adaptive worker target based on host load; default auto ceiling `16`, override with `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); override with `--max-parallel-experiments` to force a fixed cap. When process-pool probing fails in auto mode (common in `/dev/shm`-restricted runtimes), quality-run now switches experiment fanout to subprocess workers to avoid thread/GIL bottlenecks; override with `COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE=thread|subprocess|auto`.
 
 Status behavior:
 
@@ -912,6 +913,7 @@ Options:
 - `--suite PATH` (required): path to quality suite JSON (typically from `bench quality-discover`).
 - `--experiments-file PATH` (required): JSON experiment definitions (schema v1 explicit experiments, or schema v2 with `levers` + optional `all_method_runtime_patch`).
 - `--out-dir PATH` (default `data/golden/bench/quality/runs`): output root for timestamped quality runs.
+- `--resume-run-dir PATH`: resume an existing quality-run directory and skip completed experiments from checkpoint snapshots.
 - `--base-run-settings-file PATH`: optional base `RunSettings` JSON payload used by all experiments. When omitted, uses `experiments.base_run_settings_file` or `cookimport.json`.
 - `--max-parallel-experiments INTEGER>=1` (optional): fixed experiment-level concurrency cap for quality-run. When omitted, quality-run auto-selects a CPU-aware adaptive cap.
 - `--include-deterministic-sweeps / --no-include-deterministic-sweeps` (default disabled): expand each experiment’s all-method grid with deterministic Priority 2–6 sweep variants (section detector, multi-recipe splitter, ingredient missing-unit policy, instruction segmentation, time/temp/yield knobs).
@@ -1046,6 +1048,8 @@ CLI-relevant environment variables:
 - `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS`: include optional markdown-based extractors in all-method permutations when set to `1`.
 - `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`: optional auto-mode ceiling for `bench quality-run` experiment concurrency (default `16`; ignored when `--max-parallel-experiments` is set).
 - `COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE`: quality-run experiment fanout backend (`auto` default, `thread`, or `subprocess`). `auto` picks subprocess fanout when process-pool probing fails.
+- `JOBLIB_MULTIPROCESSING`: when unset, startup now auto-sets `JOBLIB_MULTIPROCESSING=0` in SemLock-restricted runtimes to avoid noisy `joblib ... will operate in serial mode` warnings.
+- `COOKIMPORT_DISABLE_JOBLIB_SEMLOCK_GUARD`: disable the automatic `JOBLIB_MULTIPROCESSING` guard (`1|true|yes|on`).
 - `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER`: canonical-text matcher selection (`dmp` only; non-`dmp` values are invalid).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS`: optional profiler threshold for benchmark evaluation stage (`>=0`; enables profile artifact capture when eval runtime meets threshold).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N`: optional `pstats` top-N row count for benchmark evaluation profiling output (default `40`).

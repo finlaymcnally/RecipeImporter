@@ -97,8 +97,9 @@ OCR:
 - Builds `RunSettings` and `runConfig` (workers/split knobs, EPUB extractor + unstructured knobs, OCR, table extraction, section + multi-recipe backends, LLM settings, mapping/overrides paths, and markdown sidecar setting).
 - `RunSettings.from_dict(...)` validates recipe codex-farm parsing values and accepts `llm_recipe_pipeline=codex-farm-3pass-v1` without env gating.
 - Plans jobs with `_plan_jobs(...)`.
-- Executes with process-first worker fanout and fallback order `ProcessPoolExecutor -> ThreadPoolExecutor -> serial`.
+- Executes with process-first worker fanout and fallback order `ProcessPoolExecutor -> subprocess-backed workers -> ThreadPoolExecutor -> serial`.
 - Writes run heartbeat telemetry to `<run_out>/processing_timeseries.jsonl` while stage is active.
+- Under thread fallback, worker labels include thread names (for example `MainProcess (...) / ThreadPoolExecutor-...`) so telemetry worker counts reflect concurrent thread workers.
 
 Important detail:
 - Because `base_mapping` is always passed, worker `_run_import(...)` usually does not call `importer.inspect(...)` in non-split conversion path. Inspection is still used during split planning.
@@ -272,6 +273,14 @@ Candidate segmentation:
 - Yield-driven anchors and title backtracking heuristics
 - Produces candidate provenance with `start_spine` / `end_spine` when available
 - Optional shared post-candidate split pass (`multi_recipe_splitter=rules_v1`) can split one detected candidate span into multiple recipe spans and adds `provenance.multi_recipe` metadata on split children.
+- Deterministic pre-candidate pattern detection now runs through `cookimport/parsing/pattern_flags.py`:
+  - TOC-like clusters set `exclude_from_candidate_detection` and are skipped by `_detect_candidates(...)`
+  - duplicate-title intro flows can emit `trim_candidate_start` actions
+  - overlap duplicate candidates can emit `reject_overlap_duplicate_candidate` actions (keep highest scored candidate)
+- Pattern diagnostics and warnings:
+  - raw artifact `pattern_diagnostics.json` is emitted beside other importer raw artifacts
+  - report warnings include stable keys like `pattern_toc_like_cluster_detected`, `pattern_duplicate_title_flow_detected`, `pattern_overlap_duplicate_candidates_resolved`
+- Suppressed candidate text is preserved in `non_recipe_blocks` with traceable pattern metadata.
 
 Unstructured-specific behavior:
 - Normalizes spine XHTML via `normalize_epub_html_for_unstructured(...)` before partitioning.
@@ -351,9 +360,11 @@ Candidate and provenance behavior:
 - Candidate IDs initially `urn:recipeimport:pdf:<hash>:c<i>` before global merge rewrite (split case)
 - Provenance location includes `start_page`, `end_page`, `start_block`, `end_block`
 - Optional shared post-candidate split pass (`multi_recipe_splitter=rules_v1`) can split one detected candidate span into multiple recipe spans and adds `provenance.multi_recipe` metadata on split children.
+- The same deterministic pattern detector/action flow used by EPUB is also applied in PDF before and after candidate detection (`exclude_from_candidate_detection`, candidate-start trims, overlap duplicate rejection).
 - Raw artifacts include:
   - `full_text` extracted block dump
   - per-candidate block dumps (`locationId` like `c<i>`)
+  - `pattern_diagnostics` (`pattern_diagnostics.json`)
 
 Column ordering details:
 - Column boundaries inferred from x-gap threshold (`page_width * 0.12`)
@@ -652,3 +663,19 @@ Known anti-loop reminders from the merged task docs:
 - There is no stage-time `--pipeline` importer selector; importer choice remains score-based.
 - Backend evidence for section/splitter behavior is primarily in per-source import reports (`runConfig`), not top-level stage `run_manifest.json`.
 - For webschema all-method runs, permutation growth is intentionally bounded to `web_schema_policy` only; do not expand full cross-product variants by default.
+
+## 2026-02-28 task consolidation (`docs/tasks` deterministic pattern controls)
+
+Merged task file:
+- `2026-02-28_12.19.18-deterministic-pattern-detector-and-codex-hints.md`
+
+Current ingestion-side contract reinforced by this task:
+- EPUB/PDF pre-candidate flow runs deterministic pattern controls before/after candidate detection (no AI/LLM dependency in ingestion).
+- Action surfaces stay explicit and auditable:
+  - `exclude_from_candidate_detection`
+  - `trim_candidate_start`
+  - `reject_overlap_duplicate_candidate`
+- Suppressed text is never dropped silently; it remains in `non_recipe_blocks` with traceable pattern metadata.
+- Raw diagnostics artifact is required for debugging drift: `pattern_diagnostics.json`.
+- Warning keys (`pattern_toc_like_cluster_detected`, `pattern_duplicate_title_flow_detected`, `pattern_overlap_duplicate_candidates_resolved`) are part of expected report/debug output.
+- Optional Codex Farm pass1 `pattern_hints` handoff remains metadata-only and default-off (`COOKIMPORT_CODEX_FARM_PASS1_PATTERN_HINTS`); this does not enable AI parsing/cleanup during ingestion.

@@ -326,3 +326,13 @@ Current-contract additions from the HOWTO section audit:
 - Scoring should remap `HOWTO_SECTION` to `INGREDIENT_LINE` or `INSTRUCTION_LINE` using nearby context before metric computation.
 - Anti-loop guard:
   - if a new label appears in Label Studio but not in benchmark/eval results, check scorer label maps before changing task generation.
+
+## 2026-02-28 task consolidation (`docs/tasks` split-convert fallback hardening)
+
+Merged task file:
+- `2026-02-28_12.20.59-sandbox-parallel-fallbacks-stage-and-labelstudio.md`
+
+Current Label Studio split-convert fallback contract:
+- Split conversion fallback order now mirrors stage/all-method behavior: `process -> thread -> serial`.
+- Process-worker denial should produce thread-fallback warning text first; serial fallback should only appear if thread startup also fails.
+- Shared resolver plumbing is centralized in `cookimport/core/executor_fallback.py` to keep fallback behavior aligned across stage and Label Studio surfaces.

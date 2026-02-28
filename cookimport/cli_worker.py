@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import argparse
 import datetime as dt
+import json
 import logging
 import multiprocessing
 import os
+import pickle
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -47,6 +51,9 @@ from cookimport.staging.writer import (
 
 logger = logging.getLogger(__name__)
 
+_STAGE_WORKER_REQUEST_ARG = "--stage-worker-request"
+_STAGE_WORKER_SELF_TEST_ARG = "--stage-worker-self-test"
+
 
 @contextmanager
 def _temporary_epub_extractor(value: str | None):
@@ -64,7 +71,11 @@ def _temporary_epub_extractor(value: str | None):
             os.environ["C3IMP_EPUB_EXTRACTOR"] = previous
 
 def _worker_label() -> str:
-    return f"{multiprocessing.current_process().name} ({os.getpid()})"
+    process_label = f"{multiprocessing.current_process().name} ({os.getpid()})"
+    thread_name = str(threading.current_thread().name or "").strip()
+    if thread_name and thread_name != "MainThread":
+        return f"{process_label} / {thread_name}"
+    return process_label
 
 def _safe_progress_put(progress_queue: Any | None, payload: tuple[Any, ...]) -> None:
     if not progress_queue:
@@ -685,3 +696,143 @@ def stage_epub_job(
         stop_event.set()
         if heartbeat_thread.is_alive():
             heartbeat_thread.join(timeout=0.5)
+
+
+def _run_stage_worker_request(request_path: Path) -> int:
+    payload = json.loads(request_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Invalid stage worker request payload.")
+
+    result_path_raw = str(payload.get("result_path") or "").strip()
+    if not result_path_raw:
+        raise ValueError("Stage worker request is missing result_path.")
+    result_path = Path(result_path_raw).expanduser()
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+
+    job_payload_raw = payload.get("job")
+    job_payload = dict(job_payload_raw) if isinstance(job_payload_raw, dict) else {}
+    job_kind = str(job_payload.get("job_kind") or "").strip()
+
+    file_path = Path(str(job_payload.get("file_path") or "")).expanduser()
+    out_path = Path(str(job_payload.get("out_path") or "")).expanduser()
+    display_name = str(job_payload.get("display_name") or "").strip() or file_path.name
+
+    mapping_payload_raw = job_payload.get("mapping_config")
+    mapping_payload = (
+        dict(mapping_payload_raw) if isinstance(mapping_payload_raw, dict) else None
+    )
+    mapping_config = (
+        MappingConfig.model_validate(mapping_payload)
+        if isinstance(mapping_payload, dict)
+        else None
+    )
+
+    run_dt_raw = str(job_payload.get("run_dt") or "").strip()
+    if not run_dt_raw:
+        raise ValueError("Stage worker request is missing run_dt.")
+    run_dt = dt.datetime.fromisoformat(run_dt_raw)
+
+    run_config_raw = job_payload.get("run_config")
+    run_config = dict(run_config_raw) if isinstance(run_config_raw, dict) else None
+    run_config_hash = str(job_payload.get("run_config_hash") or "").strip() or None
+    run_config_summary = (
+        str(job_payload.get("run_config_summary") or "").strip() or None
+    )
+
+    if job_kind == "single":
+        limit_raw = job_payload.get("limit")
+        limit = int(limit_raw) if limit_raw is not None else None
+        write_markdown = bool(job_payload.get("write_markdown", True))
+        epub_extractor = str(job_payload.get("epub_extractor") or "").strip() or None
+        result = stage_one_file(
+            file_path=file_path,
+            out=out_path,
+            mapping_config=mapping_config,
+            limit=limit,
+            run_dt=run_dt,
+            progress_queue=None,
+            display_name=display_name,
+            epub_extractor=epub_extractor,
+            run_config=run_config,
+            run_config_hash=run_config_hash,
+            run_config_summary=run_config_summary,
+            write_markdown=write_markdown,
+        )
+    elif job_kind == "pdf_split":
+        result = stage_pdf_job(
+            file_path=file_path,
+            out=out_path,
+            mapping_config=mapping_config,
+            run_dt=run_dt,
+            start_page=int(job_payload.get("start_page") or 0),
+            end_page=int(job_payload.get("end_page") or 0),
+            job_index=int(job_payload.get("job_index") or 0),
+            job_count=int(job_payload.get("job_count") or 1),
+            progress_queue=None,
+            display_name=display_name,
+            run_config=run_config,
+            run_config_hash=run_config_hash,
+            run_config_summary=run_config_summary,
+        )
+    elif job_kind == "epub_split":
+        epub_extractor = str(job_payload.get("epub_extractor") or "").strip() or None
+        result = stage_epub_job(
+            file_path=file_path,
+            out=out_path,
+            mapping_config=mapping_config,
+            run_dt=run_dt,
+            start_spine=int(job_payload.get("start_spine") or 0),
+            end_spine=int(job_payload.get("end_spine") or 0),
+            job_index=int(job_payload.get("job_index") or 0),
+            job_count=int(job_payload.get("job_count") or 1),
+            progress_queue=None,
+            display_name=display_name,
+            epub_extractor=epub_extractor,
+            run_config=run_config,
+            run_config_hash=run_config_hash,
+            run_config_summary=run_config_summary,
+        )
+    else:
+        raise ValueError(f"Unsupported stage worker job kind: {job_kind or '<empty>'}")
+
+    with result_path.open("wb") as handle:
+        pickle.dump(result, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    return 0
+
+
+def _build_worker_cli_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m cookimport.cli_worker",
+        add_help=True,
+    )
+    parser.add_argument(
+        _STAGE_WORKER_REQUEST_ARG,
+        dest="stage_worker_request",
+        type=str,
+        default="",
+        help="Internal worker mode: run one stage job from a request JSON file.",
+    )
+    parser.add_argument(
+        _STAGE_WORKER_SELF_TEST_ARG,
+        dest="stage_worker_self_test",
+        action="store_true",
+        help="Internal probe mode for stage subprocess worker availability.",
+    )
+    return parser
+
+
+def _main(argv: list[str] | None = None) -> int:
+    parser = _build_worker_cli_parser()
+    args = parser.parse_args(argv)
+    if bool(getattr(args, "stage_worker_self_test", False)):
+        return 0
+    request_path_raw = str(getattr(args, "stage_worker_request", "") or "").strip()
+    if not request_path_raw:
+        parser.error(
+            f"{_STAGE_WORKER_REQUEST_ARG} is required when invoking this module directly."
+        )
+    return _run_stage_worker_request(Path(request_path_raw).expanduser())
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main(sys.argv[1:]))

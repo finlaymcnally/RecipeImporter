@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import pickle
 from typer.testing import CliRunner
 from cookimport.cli import app
 from cookimport.ocr.doctr_engine import resolve_ocr_device
@@ -131,8 +132,12 @@ def test_stage_process_pool_permission_error_falls_back_to_thread(
 
     assert result.exit_code == 0
     output_text = result.output.lower()
-    assert "using thread-based worker concurrency" in output_text
-    assert "running jobs serially" not in output_text
+    normalized_output_text = " ".join(output_text.split())
+    assert (
+        "using subprocess-backed worker concurrency" in normalized_output_text
+        or "using in-process thread worker concurrency" in normalized_output_text
+    )
+    assert "running jobs serially" not in normalized_output_text
 
     timestamp_dirs = [
         path
@@ -143,3 +148,116 @@ def test_stage_process_pool_permission_error_falls_back_to_thread(
     timestamp_dir = timestamp_dirs[0]
     assert (timestamp_dir / "file1.excel_import_report.json").exists()
     assert (timestamp_dir / "file2.excel_import_report.json").exists()
+
+
+def test_worker_label_includes_thread_name_for_thread_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cookimport import cli_worker
+
+    class _DummyProcess:
+        name = "MainProcess"
+
+    class _DummyThread:
+        name = "ThreadPoolExecutor-0_3"
+
+    monkeypatch.setattr(
+        "cookimport.cli_worker.multiprocessing.current_process",
+        lambda: _DummyProcess(),
+    )
+    monkeypatch.setattr("cookimport.cli_worker.os.getpid", lambda: 4321)
+    monkeypatch.setattr(
+        "cookimport.cli_worker.threading.current_thread",
+        lambda: _DummyThread(),
+    )
+
+    assert cli_worker._worker_label() == "MainProcess (4321) / ThreadPoolExecutor-0_3"
+
+
+def test_worker_label_keeps_process_only_for_main_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cookimport import cli_worker
+
+    class _DummyProcess:
+        name = "ForkProcess-2"
+
+    class _DummyThread:
+        name = "MainThread"
+
+    monkeypatch.setattr(
+        "cookimport.cli_worker.multiprocessing.current_process",
+        lambda: _DummyProcess(),
+    )
+    monkeypatch.setattr("cookimport.cli_worker.os.getpid", lambda: 2468)
+    monkeypatch.setattr(
+        "cookimport.cli_worker.threading.current_thread",
+        lambda: _DummyThread(),
+    )
+
+    assert cli_worker._worker_label() == "ForkProcess-2 (2468)"
+
+
+def test_stage_worker_request_dispatches_single_job(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cookimport import cli_worker
+
+    source_file = tmp_path / "example.txt"
+    source_file.write_text("example", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    result_path = tmp_path / "result.pkl"
+    request_path = tmp_path / "request.json"
+
+    called: dict[str, object] = {}
+
+    def _fake_stage_one_file(*args, **kwargs):  # noqa: ANN002, ANN003
+        called["file_path"] = kwargs.get("file_path")
+        called["display_name"] = kwargs.get("display_name")
+        return {
+            "file": "example.txt",
+            "status": "success",
+            "recipes": 1,
+            "tips": 0,
+            "duration": 0.1,
+        }
+
+    monkeypatch.setattr(cli_worker, "stage_one_file", _fake_stage_one_file)
+
+    request_payload = {
+        "result_path": str(result_path),
+        "job": {
+            "job_kind": "single",
+            "file_path": str(source_file),
+            "out_path": str(out_dir),
+            "mapping_config": None,
+            "run_dt": "2026-02-28T12:00:00",
+            "display_name": "example.txt",
+            "run_config": {},
+            "run_config_hash": "abc",
+            "run_config_summary": "summary",
+            "limit": None,
+            "epub_extractor": None,
+            "write_markdown": True,
+        },
+    }
+    request_path.write_text(
+        json.dumps(request_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    exit_code = cli_worker._run_stage_worker_request(request_path)
+    assert exit_code == 0
+    assert called.get("file_path") == source_file
+    with result_path.open("rb") as handle:
+        result_payload = pickle.load(handle)  # noqa: S301
+    assert isinstance(result_payload, dict)
+    assert result_payload.get("status") == "success"
+
+
+def test_stage_worker_cli_self_test() -> None:
+    from cookimport import cli_worker
+
+    assert cli_worker._main(["--stage-worker-self-test"]) == 0

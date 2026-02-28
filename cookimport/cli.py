@@ -8,11 +8,14 @@ import json
 import logging
 import multiprocessing
 import os
+import pickle
 import pstats
 import queue
 import re
 import shutil
 import shlex
+import subprocess
+import sys
 import threading
 import time
 import zipfile
@@ -16974,6 +16977,161 @@ def stage(
                 )
         _write_stage_timeseries(event="job_completed", force=True)
 
+    stage_worker_request_root = out / ".stage_worker_requests"
+    stage_worker_request_root.mkdir(parents=True, exist_ok=True)
+    stage_worker_mapping_payload = base_mapping.model_dump(mode="json")
+    stage_subprocess_worker_probe_cache: bool | None = None
+
+    def _stage_subprocess_worker_available() -> bool:
+        nonlocal stage_subprocess_worker_probe_cache
+        if stage_subprocess_worker_probe_cache is not None:
+            return stage_subprocess_worker_probe_cache
+        command = [
+            sys.executable,
+            "-m",
+            "cookimport.cli_worker",
+            "--stage-worker-self-test",
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=str(REPO_ROOT),
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            stage_subprocess_worker_probe_cache = False
+            return False
+        stage_subprocess_worker_probe_cache = completed.returncode == 0
+        return bool(stage_subprocess_worker_probe_cache)
+
+    def _stage_job_failure_payload(job: JobSpec, reason: str) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "file": job.file_path.name,
+            "status": "error",
+            "reason": reason,
+            "job_index": job.job_index,
+            "job_count": job.job_count,
+        }
+        if job.start_page is not None:
+            payload["start_page"] = job.start_page
+        if job.end_page is not None:
+            payload["end_page"] = job.end_page
+        if job.start_spine is not None:
+            payload["start_spine"] = job.start_spine
+        if job.end_spine is not None:
+            payload["end_spine"] = job.end_spine
+        return payload
+
+    def _stage_subprocess_job_payload(job: JobSpec) -> dict[str, Any]:
+        job_run_config = _run_config_for_file(job.file_path)
+        job_run_config_hash = _run_config_hash_for_file(job.file_path)
+        job_run_config_summary = _run_config_summary_for_file(job.file_path)
+        payload: dict[str, Any] = {
+            "file_path": str(job.file_path),
+            "out_path": str(out),
+            "mapping_config": stage_worker_mapping_payload,
+            "run_dt": run_dt.isoformat(timespec="seconds"),
+            "display_name": job.display_name,
+            "run_config": job_run_config,
+            "run_config_hash": job_run_config_hash,
+            "run_config_summary": job_run_config_summary,
+        }
+        if job.is_split:
+            payload["job_index"] = job.job_index
+            payload["job_count"] = job.job_count
+            if job.split_kind == "epub":
+                payload["job_kind"] = "epub_split"
+                payload["start_spine"] = job.start_spine
+                payload["end_spine"] = job.end_spine
+                payload["epub_extractor"] = effective_epub_extractors.get(job.file_path)
+            else:
+                payload["job_kind"] = "pdf_split"
+                payload["start_page"] = job.start_page
+                payload["end_page"] = job.end_page
+        else:
+            payload["job_kind"] = "single"
+            payload["limit"] = limit
+            payload["epub_extractor"] = effective_epub_extractors.get(job.file_path)
+            payload["write_markdown"] = bool(write_markdown)
+        return payload
+
+    def _run_stage_job_via_subprocess(job: JobSpec) -> dict[str, Any]:
+        job_key = f"{job.file_path.stem}_{job.job_index}_{int(time.time() * 1_000_000)}"
+        request_path = stage_worker_request_root / f"{job_key}.request.json"
+        result_path = stage_worker_request_root / f"{job_key}.result.pkl"
+        request_payload = {
+            "result_path": str(result_path),
+            "job": _stage_subprocess_job_payload(job),
+        }
+        request_path.write_text(
+            json.dumps(request_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        command = [
+            sys.executable,
+            "-m",
+            "cookimport.cli_worker",
+            "--stage-worker-request",
+            str(request_path),
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=str(REPO_ROOT),
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except Exception as exc:
+            return _stage_job_failure_payload(
+                job,
+                f"Subprocess worker launch failed: {exc}",
+            )
+        finally:
+            try:
+                request_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        if completed.returncode != 0:
+            stderr_tail = (completed.stderr or "").strip()
+            stdout_tail = (completed.stdout or "").strip()
+            detail = stderr_tail or stdout_tail
+            if detail:
+                detail = detail.splitlines()[-1]
+                reason = (
+                    "Subprocess worker exited non-zero "
+                    f"({completed.returncode}): {detail}"
+                )
+            else:
+                reason = f"Subprocess worker exited non-zero ({completed.returncode})."
+            return _stage_job_failure_payload(job, reason)
+        if not result_path.exists() or not result_path.is_file():
+            return _stage_job_failure_payload(
+                job,
+                "Subprocess worker did not produce a result payload.",
+            )
+        try:
+            with result_path.open("rb") as handle:
+                result_payload = pickle.load(handle)  # noqa: S301
+        except Exception as exc:
+            return _stage_job_failure_payload(
+                job,
+                f"Failed to read subprocess worker result payload: {exc}",
+            )
+        finally:
+            try:
+                result_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        if not isinstance(result_payload, dict):
+            return _stage_job_failure_payload(
+                job,
+                "Invalid subprocess worker result payload.",
+            )
+        return result_payload
+
     dashboard = WorkerDashboard()
     try:
         with Live(dashboard, refresh_per_second=10) as live:
@@ -17063,6 +17221,45 @@ def stage(
                     progress_bar.update(overall_task, advance=1)
                     handle_job_result(job, res, live)
 
+            def _run_jobs_with_subprocess_executor(executor: Any) -> None:
+                worker_limit = max(1, min(effective_workers, len(job_specs)))
+                pending_jobs = list(job_specs)
+                futures: dict[Any, tuple[JobSpec, int]] = {}
+                available_slots: deque[int] = deque(range(1, worker_limit + 1))
+
+                def _submit_job(job: JobSpec, slot: int) -> None:
+                    futures[executor.submit(_run_stage_job_via_subprocess, job)] = (job, slot)
+                    _set_worker_status(
+                        f"SubprocessWorker-{slot}",
+                        job.display_name,
+                        "Running subprocess worker...",
+                    )
+
+                while pending_jobs and available_slots:
+                    _submit_job(pending_jobs.pop(0), available_slots.popleft())
+
+                while futures:
+                    future = next(as_completed(list(futures.keys())))
+                    job, slot = futures.pop(future)
+                    try:
+                        res = future.result()
+                    except Exception as exc:
+                        res = _stage_job_failure_payload(
+                            job,
+                            f"Subprocess worker dispatch failed: {exc}",
+                        )
+                    _set_worker_status(
+                        f"SubprocessWorker-{slot}",
+                        job.display_name,
+                        "Done",
+                    )
+                    progress_bar.update(overall_task, advance=1)
+                    handle_job_result(job, res, live)
+                    if pending_jobs:
+                        _submit_job(pending_jobs.pop(0), slot)
+                    else:
+                        available_slots.append(slot)
+
             def _run_jobs_serial() -> None:
                 for job in job_specs:
                     job_run_config = _run_config_for_file(job.file_path)
@@ -17124,7 +17321,7 @@ def stage(
                 max_workers=effective_workers,
                 process_unavailable_message=lambda exc: (
                     "Process-based worker concurrency unavailable "
-                    f"({exc}); using thread-based worker concurrency."
+                    f"({exc}); using subprocess-backed worker concurrency."
                 ),
                 thread_unavailable_message=lambda exc: (
                     "Thread-based worker concurrency unavailable "
@@ -17138,7 +17335,19 @@ def stage(
             else:
                 executor = executor_resolution.executor
                 try:
-                    _run_jobs_with_executor(executor)
+                    use_subprocess_workers = (
+                        executor_resolution.backend == "thread"
+                        and _stage_subprocess_worker_available()
+                    )
+                    if executor_resolution.backend == "thread" and not use_subprocess_workers:
+                        live.console.print(
+                            "[yellow]⚠ Subprocess-backed worker concurrency unavailable; "
+                            "using in-process thread worker concurrency.[/yellow]"
+                        )
+                    if use_subprocess_workers:
+                        _run_jobs_with_subprocess_executor(executor)
+                    else:
+                        _run_jobs_with_executor(executor)
                 finally:
                     shutdown_executor(executor, wait=True, cancel_futures=False)
     finally:
@@ -19900,6 +20109,23 @@ def bench_speed_run(
         min=1,
         help="Optional cap on number of targets from the suite.",
     ),
+    max_parallel_tasks: int | None = typer.Option(
+        None,
+        "--max-parallel-tasks",
+        min=1,
+        help=(
+            "Maximum SpeedSuite tasks dispatched concurrently. "
+            "When omitted, speed-run auto-selects a bounded CPU-aware cap."
+        ),
+    ),
+    resume_run_dir: Path | None = typer.Option(
+        None,
+        "--resume-run-dir",
+        help=(
+            "Resume an existing speed run directory. Completed sample snapshots "
+            "are reused and pending tasks continue."
+        ),
+    ),
     run_settings_file: Path | None = typer.Option(
         None,
         "--run-settings-file",
@@ -19966,6 +20192,8 @@ def bench_speed_run(
     warmups = _unwrap_typer_option_default(warmups)
     repeats = _unwrap_typer_option_default(repeats)
     max_targets = _unwrap_typer_option_default(max_targets)
+    max_parallel_tasks = _unwrap_typer_option_default(max_parallel_tasks)
+    resume_run_dir = _unwrap_typer_option_default(resume_run_dir)
     run_settings_file = _unwrap_typer_option_default(run_settings_file)
     sequence_matcher = _unwrap_typer_option_default(sequence_matcher)
     include_codex_farm = _unwrap_typer_option_default(include_codex_farm)
@@ -19995,6 +20223,18 @@ def bench_speed_run(
         selected_scenarios = parse_speed_scenarios(scenarios)
     except ValueError as exc:
         _fail(str(exc))
+
+    if max_parallel_tasks is not None:
+        try:
+            max_parallel_tasks = int(max_parallel_tasks)
+        except (TypeError, ValueError):
+            _fail("--max-parallel-tasks must be an integer >= 1.")
+        if max_parallel_tasks < 1:
+            _fail("--max-parallel-tasks must be >= 1 when provided.")
+
+    if resume_run_dir is not None:
+        if not resume_run_dir.exists() or not resume_run_dir.is_dir():
+            _fail(f"--resume-run-dir must point to an existing directory: {resume_run_dir}")
 
     run_settings_payload: dict[str, Any]
     if run_settings_file is not None:
@@ -20061,6 +20301,8 @@ def bench_speed_run(
                 warmups=warmups,
                 repeats=repeats,
                 max_targets=max_targets,
+                max_parallel_tasks=max_parallel_tasks,
+                resume_run_dir=resume_run_dir,
                 run_settings=run_settings,
                 include_codex_farm_requested=include_codex_farm,
                 codex_farm_confirmed=codex_farm_confirmed,
@@ -20277,6 +20519,14 @@ def bench_quality_run(
         "--out-dir",
         help="Output directory for timestamped quality suite runs.",
     ),
+    resume_run_dir: Path | None = typer.Option(
+        None,
+        "--resume-run-dir",
+        help=(
+            "Resume an existing quality run directory. Completed experiments are reused "
+            "from on-disk checkpoints and skipped."
+        ),
+    ),
     base_run_settings_file: Path | None = typer.Option(
         None,
         "--base-run-settings-file",
@@ -20378,6 +20628,7 @@ def bench_quality_run(
     suite = _unwrap_typer_option_default(suite)
     experiments_file = _unwrap_typer_option_default(experiments_file)
     out_dir = _unwrap_typer_option_default(out_dir)
+    resume_run_dir = _unwrap_typer_option_default(resume_run_dir)
     base_run_settings_file = _unwrap_typer_option_default(base_run_settings_file)
     search_strategy = _unwrap_typer_option_default(search_strategy)
     race_probe_targets = _unwrap_typer_option_default(race_probe_targets)
@@ -20405,6 +20656,9 @@ def bench_quality_run(
         include_codex_farm=include_codex_farm,
         confirmation=qualitysuite_codex_farm_confirmation,
     )
+    if resume_run_dir is not None:
+        if not resume_run_dir.exists() or not resume_run_dir.is_dir():
+            _fail(f"--resume-run-dir must point to an existing directory: {resume_run_dir}")
 
     if include_codex_farm:
         os.environ[ALL_METHOD_CODEX_FARM_UNLOCK_ENV] = "1"
@@ -20455,6 +20709,7 @@ def bench_quality_run(
                 race_keep_ratio=race_keep_ratio,
                 race_finalists=race_finalists,
                 max_parallel_experiments=max_parallel_experiments,
+                resume_run_dir=resume_run_dir,
                 include_deterministic_sweeps_requested=include_deterministic_sweeps,
                 include_codex_farm_requested=include_codex_farm,
                 codex_farm_confirmed=codex_farm_confirmed,

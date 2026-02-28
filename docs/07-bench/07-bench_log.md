@@ -1640,3 +1640,122 @@ Findings preserved:
 
 Anti-loop note:
 - If extra seeds appear to add no signal, inspect fold suite signatures and duplicate-fold skips before widening search space.
+
+## 2026-02-28 docs/tasks consolidation batch (quality controls + speed2-3 closeout)
+
+### 2026-02-28_10.09.34 quality-run parallel experiments
+
+Source task file:
+- `docs/tasks/2026-02-28_10.09.34-quality-run-parallel-experiments.md`
+
+Problem captured:
+- `bench quality-run` ran experiments one-at-a-time, stretching wall time even when host capacity was idle.
+
+Durable decisions/outcomes:
+- Added bounded experiment fanout to `run_quality_suite(...)` with deterministic summary ordering by resolved experiment index.
+- Kept continue-on-failure semantics unchanged under parallel fanout.
+- Made omitted `--max-parallel-experiments` mean CPU/load-aware auto mode.
+- Raised auto ceiling to `16` (env override: `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`).
+- Added subprocess experiment fanout fallback when process-pool probing fails (`COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE`).
+
+Evidence preserved:
+- `pytest tests/bench/test_quality_suite_runner.py -q`
+- `pytest tests/bench/test_bench.py -k quality_run -q`
+
+Anti-loop note:
+- If throughput looks low, inspect `experiments_resolved.json` metadata (`*_requested`, `*_effective`, executor mode, auto ceiling) before retuning scheduler internals.
+
+### 2026-02-28_10.35.58 qualitysuite codex-farm confirmation gate
+
+Source task file:
+- `docs/tasks/2026-02-28_10.35.58-qualitysuite-codex-farm-confirmation-gate.md`
+
+Problem captured:
+- `--include-codex-farm` could be enabled without explicit user-confirmation intent.
+
+Durable decisions/outcomes:
+- Added required CLI token gate:
+  - `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`
+- Enforced the same confirmation at runner boundary (`codex_farm_confirmed=True`) for direct Python callers.
+
+Evidence preserved:
+- `pytest -o addopts='' tests/bench/test_bench.py tests/bench/test_quality_suite_runner.py -q` (`34 passed` recorded in task)
+
+Anti-loop note:
+- Do not remove one of the two gate layers (CLI + runner). Single-layer checks reopen bypass paths.
+
+### 2026-02-28_10.41.47 speedsuite codex-farm confirmation gate
+
+Source task file:
+- `docs/tasks/2026-02-28_10.41.47-speedsuite-codex-farm-confirmation-gate.md`
+
+Problem captured:
+- SpeedSuite had the same missing explicit confirmation gap for Codex Farm permutations.
+
+Durable decisions/outcomes:
+- Added required CLI token gate:
+  - `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`
+- Enforced runner-side confirmation for direct `run_speed_suite(...)` callers.
+
+Evidence preserved:
+- `pytest -o addopts='' tests/bench/test_bench.py tests/bench/test_speed_suite_runner.py -q` (`29 passed` recorded in task)
+
+Anti-loop note:
+- If Codex variants are unexpectedly rejected, debug confirmation-token plumbing first, not permutation builders.
+
+### 2026-02-27 to 2026-02-28 speed2-3 matcher closeout + variance evidence
+
+Source task file:
+- `docs/tasks/speed2-3.md`
+
+Problem captured:
+- Canonical-text mismatch-heavy cases were alignment-bound and historically slow under stdlib matcher behavior.
+
+Durable outcomes from this historical plan:
+- High-value milestone landed: runtime matcher path is now dmp-based and benchmark telemetry reflects requested/effective matcher mode.
+- Current runtime contract is dmp-only; non-dmp runtime selector values are intentionally rejected.
+- Standalone matcher benchmark script keeps `stdlib` as reference baseline for parity/speed comparisons.
+
+Critical fix preserved:
+- `scripts/bench_sequence_matcher_impl.py` previously crashed when `stdlib` mode flowed through dmp-only runtime selector.
+- Script now bypasses selector for explicit stdlib benchmarking and has regression coverage.
+
+Evidence preserved:
+- Narrow compare PASS:
+  - baseline `data/golden/bench/speed/runs/2026-02-28_13.26.16`
+  - candidate `data/golden/bench/speed/runs/2026-02-28_13.26.22`
+  - compare `data/golden/bench/speed/comparisons/2026-02-28_13.26.28/comparison.json`
+- Full-suite follow-up at `warmups=0,repeats=1` showed FAIL variance:
+  - compare `data/golden/bench/speed/comparisons/2026-02-28_14.39.37/comparison.json`
+
+Anti-loop note:
+- Treat one-pass full-suite compare FAILs at low warmup/repeat as noisy signal; re-run with stronger sampling before tuning matcher/runtime code.
+
+### 2026-02-28_14.30.18 qualitysuite crash-safe checkpoint + resume
+
+Source task file:
+- `docs/tasks/2026-02-28_14.30.18-qualitysuite-crash-safe-checkpoint-resume.md`
+
+Problem captured:
+- Interrupted quality runs lost progress because final summary/report artifacts were only written on clean completion.
+
+Durable decisions/outcomes:
+- Added per-experiment persisted result snapshots and run-level checkpoint artifacts.
+- Added explicit resume command surface:
+  - `bench quality-run --resume-run-dir <existing_run_dir>`
+- Added tournament fold resume plumbing:
+  - `scripts/quality_top_tier_tournament.py --resume-tournament-dir ...`
+- Added compatibility guards so resume fails fast when experiment layout/settings are incompatible.
+
+Checkpoint artifact contract retained:
+- `experiments/<experiment_id>/quality_experiment_result.json`
+- `checkpoint.json`
+- `summary.partial.json`
+- `report.partial.md`
+
+Evidence preserved:
+- `pytest tests/bench/test_quality_suite_runner.py -q`
+- `pytest tests/bench/test_bench.py -k quality_run -q`
+
+Anti-loop note:
+- If resume unexpectedly reruns completed experiments, validate experiment-id compatibility + checkpoint snapshot contents before changing scheduler behavior.

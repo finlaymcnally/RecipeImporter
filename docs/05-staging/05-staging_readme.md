@@ -378,3 +378,18 @@ This section consolidates discoveries migrated from `docs/understandings` into t
   - Scoring-side `HOWTO_SECTION` remap is handled in benchmark evaluators before metrics (`docs/07-bench/07-bench_README.md`), so staging can emit richer labels without shifting structural metric semantics.
 - Durable gotcha:
   - Per-label benchmark counters can show `HOWTO_SECTION.pred_total == 0` in structural reports because predictions are resolved to ingredient/instruction classes before scoring by design.
+
+## 2026-02-28 task consolidation (`docs/tasks` sandbox fallback hardening)
+
+Merged task file:
+- `2026-02-28_12.20.59-sandbox-parallel-fallbacks-stage-and-labelstudio.md`
+
+Current stage fallback contract:
+- Stage parallel processing now follows `process -> subprocess-backed workers -> thread -> serial` fallback order when worker startup fails.
+- Shared fallback resolution logic lives in `cookimport/core/executor_fallback.py` and is reused across stage/split-convert call sites.
+- Subprocess-backed stage workers are launched through `python -m cookimport.cli_worker --stage-worker-request ...` and return pickled result payloads to the parent stage run.
+- Serial mode remains a last-resort safety net only after thread startup failure.
+- User-visible warning text should explicitly describe subprocess-backed fallback when process workers are denied.
+
+Performance/regression evidence retained in task:
+- SpeedSuite baseline/candidate compare for stage-import scenario passed (`data/golden/bench/speed/comparisons/2026-02-28_14.36.36/comparison.json`).

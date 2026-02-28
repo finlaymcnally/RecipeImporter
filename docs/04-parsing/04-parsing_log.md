@@ -593,3 +593,25 @@ Open gap captured:
 Anti-loop notes:
 - If P6 knobs appear set but benchmark/stage manifests lack them, inspect CLI->ingest run-config threading first.
 - If oven-like max temperature unexpectedly drops to null, inspect local negative-hint scope before changing global temperature extraction.
+
+## 2026-02-28 docs/tasks consolidation batch (pattern flags + scoring penalties)
+
+### 2026-02-28_12.19.18 deterministic pattern detector rollout and penalty guardrails
+
+Source task file:
+- `docs/tasks/2026-02-28_12.19.18-deterministic-pattern-detector-and-codex-hints.md`
+
+Problem captured:
+- Pattern suppression logic for TOC noise and duplicate recipe-intro structures needed one shared deterministic implementation and transparent diagnostics across EPUB/PDF and scoring surfaces.
+
+Durable decisions/outcomes:
+- Centralized pattern detection/action logic in `cookimport/parsing/pattern_flags.py` and reused it across importer/scoring boundaries.
+- Kept rollout deterministic and policy-aligned (no AI parsing/cleanup in ingestion).
+- Preserved scoring-penalty behavior with explicit constants (`toc=0.18`, `duplicate_title=0.09`, `overlap_duplicate=0.26`) after targeted tests passed.
+- Added/retained advisory-only pass1 `pattern_hints` contract wiring behind explicit env gate.
+
+Evidence preserved:
+- Targeted ingestion/core suites and follow-up gap-closure assertions for PDF diagnostics/trim and direct scoring penalties (recorded as passing in task).
+
+Anti-loop note:
+- If candidate suppression appears over-aggressive, inspect `pattern_diagnostics.json` and penalty reasons before changing constants blindly.

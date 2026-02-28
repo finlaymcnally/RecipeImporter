@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-import contextlib
 import datetime as dt
+import contextlib
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass
 import io
 import json
+import os
 import statistics
+import threading
 import time
 from enum import Enum
 from pathlib import Path
@@ -32,9 +36,25 @@ class SpeedScenario(str, Enum):
 
 SPEED_SUITE_ALL_MATCHED_TARGET_ID = "__all_matched__"
 _SPEED_SUITE_ALL_MATCHED_TARGET_DIR = "_all_matched"
+_SPEED_SAMPLE_RESULT_FILENAME = "speed_sample_result.json"
+_SPEED_RUN_CHECKPOINT_FILENAME = "checkpoint.json"
+_SPEED_RUN_PARTIAL_SUMMARY_FILENAME = "summary.partial.json"
+_SPEED_RUN_PARTIAL_REPORT_FILENAME = "report.partial.md"
+_SPEED_RUN_PARTIAL_SAMPLES_FILENAME = "samples.partial.jsonl"
+_SPEED_AUTO_MAX_PARALLEL_TASKS = 4
 
 
 ProgressCallback = Callable[[str], None]
+
+
+@dataclass(frozen=True)
+class _SpeedTask:
+    index: int
+    total: int
+    scenario: SpeedScenario
+    target: SpeedTarget | None
+    phase: str
+    phase_index: int
 
 
 def run_speed_suite(
@@ -45,6 +65,8 @@ def run_speed_suite(
     warmups: int,
     repeats: int,
     max_targets: int | None = None,
+    max_parallel_tasks: int | None = None,
+    resume_run_dir: Path | None = None,
     run_settings: RunSettings,
     include_codex_farm_requested: bool = False,
     codex_farm_confirmed: bool = False,
@@ -62,16 +84,26 @@ def run_speed_suite(
             "confirmation. Set codex_farm_confirmed=True only after user approval."
         )
 
-    run_started = dt.datetime.now()
-    run_timestamp = run_started.strftime("%Y-%m-%d_%H.%M.%S")
-    run_root = out_dir / run_timestamp
-    run_root.mkdir(parents=True, exist_ok=True)
-
     selected_targets = list(suite.targets)
     if max_targets is not None:
         selected_targets = selected_targets[: max(0, max_targets)]
     if not selected_targets:
         raise ValueError("No speed targets selected for this run.")
+
+    run_started = dt.datetime.now()
+    if resume_run_dir is not None:
+        run_root = Path(resume_run_dir).expanduser()
+        if not run_root.exists() or not run_root.is_dir():
+            raise ValueError(
+                f"--resume-run-dir must point to an existing speed run directory: {run_root}"
+            )
+        run_timestamp = _resolve_speed_resume_run_timestamp(run_root=run_root) or (
+            str(run_root.name or "").strip() or run_started.strftime("%Y-%m-%d_%H.%M.%S")
+        )
+    else:
+        run_timestamp = run_started.strftime("%Y-%m-%d_%H.%M.%S")
+        run_root = out_dir / run_timestamp
+    run_root.mkdir(parents=True, exist_ok=True)
 
     suite_payload = suite.model_dump()
     suite_payload["targets"] = [target.model_dump() for target in selected_targets]
@@ -81,133 +113,306 @@ def run_speed_suite(
         json.dumps(suite_payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+    tasks = _build_speed_tasks(
+        selected_targets=selected_targets,
+        scenarios=scenarios,
+        warmups=warmups,
+        repeats=repeats,
+    )
+    total_tasks = len(tasks)
+    if total_tasks <= 0:
+        raise ValueError("No speed tasks resolved for this run.")
 
-    sample_rows: list[dict[str, Any]] = []
-    scenario_work_items: list[tuple[SpeedScenario, SpeedTarget | None]] = []
-    for scenario in scenarios:
-        if _scenario_runs_once_per_suite(scenario):
-            scenario_work_items.append((scenario, None))
-            continue
-        for target in selected_targets:
-            scenario_work_items.append((scenario, target))
+    parallel_tasks_effective, parallel_tasks_mode, cpu_count = (
+        _resolve_speed_parallel_tasks_cap(
+            requested=max_parallel_tasks,
+            total_tasks=total_tasks,
+        )
+    )
 
-    total_tasks = len(scenario_work_items) * (warmups + repeats)
-    completed_tasks = 0
+    run_config_payload = {
+        "suite_name": suite.name,
+        "suite_generated_at": str(suite.generated_at),
+        "target_ids": [str(target.target_id) for target in selected_targets],
+        "scenarios": [scenario.value for scenario in scenarios],
+        "warmups": int(warmups),
+        "repeats": int(repeats),
+        "max_targets": max_targets,
+        "run_settings_hash": run_settings.stable_hash(),
+        "include_codex_farm_requested": bool(include_codex_farm_requested),
+        "include_codex_farm_confirmed": bool(codex_farm_confirmed),
+    }
+    if resume_run_dir is not None:
+        _validate_speed_resume_compatibility(
+            run_root=run_root,
+            run_config=run_config_payload,
+        )
+
+    progress_lock = threading.Lock()
 
     def _notify(message: str) -> None:
         if progress_callback is None:
             return
-        progress_callback(message)
+        with progress_lock:
+            progress_callback(message)
 
-    for scenario, scenario_target in scenario_work_items:
+    sample_rows_by_index: list[dict[str, Any] | None] = [None] * total_tasks
+    if resume_run_dir is not None:
+        for task in tasks:
+            resumed_row = _load_speed_task_snapshot(run_root=run_root, task=task)
+            if resumed_row is None:
+                continue
+            sample_rows_by_index[task.index - 1] = resumed_row
+    resumed_completed_count = sum(row is not None for row in sample_rows_by_index)
+    if resumed_completed_count > 0:
+        _notify(
+            "Speed suite resume: "
+            f"reusing {resumed_completed_count}/{total_tasks} completed tasks from {run_root}"
+        )
+
+    def _ordered_sample_rows() -> list[dict[str, Any]]:
+        return [row for row in sample_rows_by_index if row is not None]
+
+    def _write_checkpoint(status: str) -> None:
+        rows = _ordered_sample_rows()
+        _write_samples_jsonl(run_root / _SPEED_RUN_PARTIAL_SAMPLES_FILENAME, rows)
+        partial_summary = _build_summary_payload(
+            suite=suite,
+            selected_targets=selected_targets,
+            scenarios=scenarios,
+            warmups=warmups,
+            repeats=repeats,
+            run_timestamp=run_timestamp,
+            run_settings=run_settings,
+            include_codex_farm_requested=include_codex_farm_requested,
+            codex_farm_confirmed=codex_farm_confirmed,
+            sample_rows=rows,
+            parallel_tasks_requested=max_parallel_tasks,
+            parallel_tasks_effective=parallel_tasks_effective,
+            parallel_tasks_mode=parallel_tasks_mode,
+            parallel_tasks_cpu_count=cpu_count,
+            resume_requested=bool(resume_run_dir is not None),
+        )
+        (run_root / _SPEED_RUN_PARTIAL_SUMMARY_FILENAME).write_text(
+            json.dumps(partial_summary, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        (run_root / _SPEED_RUN_PARTIAL_REPORT_FILENAME).write_text(
+            _format_speed_run_report(partial_summary),
+            encoding="utf-8",
+        )
+        completed_indices = [
+            index + 1
+            for index, row in enumerate(sample_rows_by_index)
+            if row is not None
+        ]
+        pending_indices = [
+            index + 1
+            for index, row in enumerate(sample_rows_by_index)
+            if row is None
+        ]
+        checkpoint_payload = {
+            "schema_version": 1,
+            "updated_at": dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S"),
+            "run_timestamp": run_timestamp,
+            "status": str(status),
+            "task_count_total": total_tasks,
+            "task_count_completed": len(completed_indices),
+            "completed_task_indices": completed_indices,
+            "pending_task_indices": pending_indices,
+            "sample_result_filename": _SPEED_SAMPLE_RESULT_FILENAME,
+            "partial_samples_path": _SPEED_RUN_PARTIAL_SAMPLES_FILENAME,
+            "partial_summary_path": _SPEED_RUN_PARTIAL_SUMMARY_FILENAME,
+            "partial_report_path": _SPEED_RUN_PARTIAL_REPORT_FILENAME,
+            "parallel_tasks_mode": parallel_tasks_mode,
+            "parallel_tasks_requested": (
+                max_parallel_tasks if max_parallel_tasks is not None else "auto"
+            ),
+            "parallel_tasks_effective": parallel_tasks_effective,
+            "run_config": run_config_payload,
+        }
+        (run_root / _SPEED_RUN_CHECKPOINT_FILENAME).write_text(
+            json.dumps(checkpoint_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    def _run_task(task: _SpeedTask) -> dict[str, Any]:
+        sample_dir = _speed_task_sample_dir(run_root=run_root, task=task)
+        sample_dir.mkdir(parents=True, exist_ok=True)
+        target = task.target
         target_id = (
-            SPEED_SUITE_ALL_MATCHED_TARGET_ID
-            if scenario_target is None
-            else scenario_target.target_id
+            SPEED_SUITE_ALL_MATCHED_TARGET_ID if target is None else str(target.target_id)
         )
-        source_file_for_row = (
-            None if scenario_target is None else scenario_target.source_file
-        )
-        gold_spans_for_row = (
-            None if scenario_target is None else scenario_target.gold_spans_path
-        )
+        source_file_for_row = None if target is None else target.source_file
+        gold_spans_for_row = None if target is None else target.gold_spans_path
         target_source = (
             None
-            if scenario_target is None
-            else resolve_repo_path(scenario_target.source_file, repo_root=REPO_ROOT)
+            if target is None
+            else resolve_repo_path(target.source_file, repo_root=REPO_ROOT)
         )
         target_gold = (
             None
-            if scenario_target is None
-            else resolve_repo_path(scenario_target.gold_spans_path, repo_root=REPO_ROOT)
+            if target is None
+            else resolve_repo_path(target.gold_spans_path, repo_root=REPO_ROOT)
         )
 
-        for phase, phase_index in _iter_sample_phases(warmups=warmups, repeats=repeats):
-            completed_tasks += 1
-            task_prefix = format_task_counter(
-                "Speed suite",
-                completed_tasks,
-                total_tasks,
-                noun="task",
+        sample_started = time.monotonic()
+        if task.scenario == SpeedScenario.STAGE_IMPORT:
+            if target_source is None:
+                raise ValueError("stage_import scenario requires a concrete target.")
+            metrics = _run_stage_import_sample(
+                source_file=target_source,
+                sample_dir=sample_dir,
+                run_settings=run_settings,
             )
+        elif task.scenario == SpeedScenario.BENCHMARK_CANONICAL_LEGACY:
+            if target_source is None or target_gold is None:
+                raise ValueError(
+                    "benchmark_canonical_legacy scenario requires a concrete target."
+                )
+            metrics = _run_benchmark_sample(
+                source_file=target_source,
+                gold_spans_path=target_gold,
+                sample_dir=sample_dir,
+                execution_mode="legacy",
+                run_settings=run_settings,
+            )
+        elif task.scenario == SpeedScenario.BENCHMARK_CANONICAL_PIPELINED:
+            if target_source is None or target_gold is None:
+                raise ValueError(
+                    "benchmark_canonical_pipelined scenario requires a concrete target."
+                )
+            metrics = _run_benchmark_sample(
+                source_file=target_source,
+                gold_spans_path=target_gold,
+                sample_dir=sample_dir,
+                execution_mode="pipelined",
+                run_settings=run_settings,
+            )
+        elif task.scenario == SpeedScenario.BENCHMARK_ALL_METHOD_MULTI_SOURCE:
+            metrics = _run_all_method_multi_source_sample(
+                targets=selected_targets,
+                sample_dir=sample_dir,
+                run_settings=run_settings,
+                include_codex_farm_requested=include_codex_farm_requested,
+            )
+        else:
+            raise ValueError(f"Unsupported speed scenario: {task.scenario}")
+
+        wall_seconds = max(0.0, time.monotonic() - sample_started)
+        timing_payload = metrics.pop("timing", {})
+        row = {
+            "target_id": target_id,
+            "source_file": source_file_for_row,
+            "gold_spans_path": gold_spans_for_row,
+            "scenario": task.scenario.value,
+            "phase": task.phase,
+            "phase_index": task.phase_index,
+            "wall_seconds": float(wall_seconds),
+            "timing": timing_payload,
+            "metrics": metrics,
+            "sample_dir": _relative_to_run_root(sample_dir, run_root),
+            "task_index": task.index,
+        }
+        snapshot_path = sample_dir / _SPEED_SAMPLE_RESULT_FILENAME
+        snapshot_path.write_text(
+            json.dumps(row, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        return row
+
+    _write_checkpoint("in_progress")
+    completed_count = resumed_completed_count
+    pending_tasks = [task for task in tasks if sample_rows_by_index[task.index - 1] is None]
+    failure_exc: BaseException | None = None
+    try:
+        if parallel_tasks_effective <= 1:
+            for task in tasks:
+                task_prefix = format_task_counter(
+                    "Speed suite",
+                    task.index,
+                    task.total,
+                    noun="task",
+                )
+                if sample_rows_by_index[task.index - 1] is not None:
+                    _notify(
+                        f"{task_prefix} [{_speed_task_target_id(task)}] {task.scenario.value} "
+                        f"{task.phase} {task.phase_index} (resumed)"
+                    )
+                    continue
+                _notify(
+                    f"{task_prefix} [{_speed_task_target_id(task)}] {task.scenario.value} "
+                    f"{task.phase} {task.phase_index}..."
+                )
+                row = _run_task(task)
+                sample_rows_by_index[task.index - 1] = row
+                completed_count += 1
+                _write_checkpoint("in_progress")
+                _notify(
+                    f"{format_task_counter('Speed suite complete', completed_count, total_tasks, noun='task')} "
+                    f"[{_speed_task_target_id(task)}] {task.scenario.value} {task.phase} {task.phase_index}"
+                )
+        else:
             _notify(
-                f"{task_prefix} [{target_id}] {scenario.value} "
-                f"{phase} {phase_index}..."
+                "Speed suite parallel dispatch: "
+                f"mode={parallel_tasks_mode} workers={parallel_tasks_effective} tasks={total_tasks}"
             )
-
-            sample_dir = (
-                run_root
-                / "scenario_runs"
-                / (
-                    _SPEED_SUITE_ALL_MATCHED_TARGET_DIR
-                    if scenario_target is None
-                    else scenario_target.target_id
-                )
-                / scenario.value
-                / f"{phase}_{phase_index:02d}"
+            executor: ThreadPoolExecutor | None = ThreadPoolExecutor(
+                max_workers=parallel_tasks_effective,
+                thread_name_prefix="speed-task",
             )
-            sample_dir.mkdir(parents=True, exist_ok=True)
+            future_to_task: dict[Future[dict[str, Any]], _SpeedTask] = {}
+            next_pending = 0
+            try:
+                while next_pending < len(pending_tasks) or future_to_task:
+                    while (
+                        next_pending < len(pending_tasks)
+                        and len(future_to_task) < parallel_tasks_effective
+                    ):
+                        task = pending_tasks[next_pending]
+                        next_pending += 1
+                        _notify(
+                            f"{format_task_counter('Speed suite', task.index, task.total, noun='task')} "
+                            f"[{_speed_task_target_id(task)}] {task.scenario.value} {task.phase} {task.phase_index}..."
+                        )
+                        future = executor.submit(_run_task, task)
+                        future_to_task[future] = task
 
-            sample_started = time.monotonic()
-            if scenario == SpeedScenario.STAGE_IMPORT:
-                if target_source is None:
-                    raise ValueError("stage_import scenario requires a concrete target.")
-                metrics = _run_stage_import_sample(
-                    source_file=target_source,
-                    sample_dir=sample_dir,
-                    run_settings=run_settings,
-                )
-            elif scenario == SpeedScenario.BENCHMARK_CANONICAL_LEGACY:
-                if target_source is None or target_gold is None:
-                    raise ValueError(
-                        "benchmark_canonical_legacy scenario requires a concrete target."
+                    if not future_to_task:
+                        continue
+
+                    done, _pending = wait(
+                        set(future_to_task),
+                        timeout=0.5,
+                        return_when=FIRST_COMPLETED,
                     )
-                metrics = _run_benchmark_sample(
-                    source_file=target_source,
-                    gold_spans_path=target_gold,
-                    sample_dir=sample_dir,
-                    execution_mode="legacy",
-                    run_settings=run_settings,
-                )
-            elif scenario == SpeedScenario.BENCHMARK_CANONICAL_PIPELINED:
-                if target_source is None or target_gold is None:
-                    raise ValueError(
-                        "benchmark_canonical_pipelined scenario requires a concrete target."
-                    )
-                metrics = _run_benchmark_sample(
-                    source_file=target_source,
-                    gold_spans_path=target_gold,
-                    sample_dir=sample_dir,
-                    execution_mode="pipelined",
-                    run_settings=run_settings,
-                )
-            elif scenario == SpeedScenario.BENCHMARK_ALL_METHOD_MULTI_SOURCE:
-                metrics = _run_all_method_multi_source_sample(
-                    targets=selected_targets,
-                    sample_dir=sample_dir,
-                    run_settings=run_settings,
-                    include_codex_farm_requested=include_codex_farm_requested,
-                )
-            else:
-                raise ValueError(f"Unsupported speed scenario: {scenario}")
+                    if not done:
+                        continue
+                    for future in done:
+                        task = future_to_task.pop(future)
+                        row = future.result()
+                        sample_rows_by_index[task.index - 1] = row
+                        completed_count += 1
+                        _write_checkpoint("in_progress")
+                        _notify(
+                            f"{format_task_counter('Speed suite complete', completed_count, total_tasks, noun='task')} "
+                            f"[{_speed_task_target_id(task)}] {task.scenario.value} {task.phase} {task.phase_index}"
+                        )
+            except BaseException:
+                if executor is not None:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    executor = None
+                raise
+            finally:
+                if executor is not None:
+                    executor.shutdown(wait=True, cancel_futures=False)
+    except BaseException as exc:  # noqa: BLE001
+        failure_exc = exc
+        _write_checkpoint("in_progress")
+    if failure_exc is not None:
+        raise failure_exc
 
-            wall_seconds = max(0.0, time.monotonic() - sample_started)
-            timing_payload = metrics.pop("timing", {})
-            sample_rows.append(
-                {
-                    "target_id": target_id,
-                    "source_file": source_file_for_row,
-                    "gold_spans_path": gold_spans_for_row,
-                    "scenario": scenario.value,
-                    "phase": phase,
-                    "phase_index": phase_index,
-                    "wall_seconds": float(wall_seconds),
-                    "timing": timing_payload,
-                    "metrics": metrics,
-                    "sample_dir": _relative_to_run_root(sample_dir, run_root),
-                }
-            )
-
+    sample_rows = _ordered_sample_rows()
     _write_samples_jsonl(run_root / "samples.jsonl", sample_rows)
     summary_payload = _build_summary_payload(
         suite=suite,
@@ -220,6 +425,11 @@ def run_speed_suite(
         include_codex_farm_requested=include_codex_farm_requested,
         codex_farm_confirmed=codex_farm_confirmed,
         sample_rows=sample_rows,
+        parallel_tasks_requested=max_parallel_tasks,
+        parallel_tasks_effective=parallel_tasks_effective,
+        parallel_tasks_mode=parallel_tasks_mode,
+        parallel_tasks_cpu_count=cpu_count,
+        resume_requested=bool(resume_run_dir is not None),
     )
     (run_root / "summary.json").write_text(
         json.dumps(summary_payload, indent=2, sort_keys=True),
@@ -229,6 +439,7 @@ def run_speed_suite(
         _format_speed_run_report(summary_payload),
         encoding="utf-8",
     )
+    _write_checkpoint("complete")
 
     manifest = RunManifest(
         run_kind="bench_speed_suite",
@@ -240,6 +451,13 @@ def run_speed_suite(
             "repeats": int(repeats),
             "max_targets": max_targets,
             "scenarios": [scenario.value for scenario in scenarios],
+            "max_parallel_tasks_requested": (
+                max_parallel_tasks if max_parallel_tasks is not None else "auto"
+            ),
+            "max_parallel_tasks_mode": parallel_tasks_mode,
+            "max_parallel_tasks_effective": parallel_tasks_effective,
+            "resume_requested": bool(resume_run_dir is not None),
+            "resume_run_dir": str(run_root) if resume_run_dir is not None else None,
             "sequence_matcher": run_settings.benchmark_sequence_matcher,
             "run_settings": run_settings.to_run_config_dict(),
             "run_settings_summary": run_settings.summary(),
@@ -249,9 +467,13 @@ def run_speed_suite(
         },
         artifacts={
             "suite_resolved_json": "suite_resolved.json",
+            "checkpoint_json": _SPEED_RUN_CHECKPOINT_FILENAME,
             "samples_jsonl": "samples.jsonl",
+            "samples_partial_jsonl": _SPEED_RUN_PARTIAL_SAMPLES_FILENAME,
             "summary_json": "summary.json",
+            "summary_partial_json": _SPEED_RUN_PARTIAL_SUMMARY_FILENAME,
             "report_md": "report.md",
+            "report_partial_md": _SPEED_RUN_PARTIAL_REPORT_FILENAME,
         },
         notes="Deterministic speed regression suite run.",
     )
@@ -301,6 +523,191 @@ def _iter_sample_phases(*, warmups: int, repeats: int) -> Iterable[tuple[str, in
         yield ("warmup", index)
     for index in range(1, repeats + 1):
         yield ("repeat", index)
+
+
+def _coerce_int(value: Any, *, minimum: int = 0) -> int:
+    try:
+        numeric = int(value)
+    except (TypeError, ValueError):
+        numeric = minimum
+    return max(minimum, numeric)
+
+
+def _resolve_speed_parallel_tasks_cap(
+    *,
+    requested: int | None,
+    total_tasks: int,
+) -> tuple[int, str, int]:
+    cpu_count = _coerce_int(os.cpu_count(), minimum=1)
+    if requested is None:
+        auto_cap = max(1, min(total_tasks, cpu_count, _SPEED_AUTO_MAX_PARALLEL_TASKS))
+        return auto_cap, "auto", cpu_count
+    fixed_cap = max(1, min(int(requested), total_tasks))
+    return fixed_cap, "fixed", cpu_count
+
+
+def _build_speed_tasks(
+    *,
+    selected_targets: list[SpeedTarget],
+    scenarios: list[SpeedScenario],
+    warmups: int,
+    repeats: int,
+) -> list[_SpeedTask]:
+    scenario_work_items: list[tuple[SpeedScenario, SpeedTarget | None]] = []
+    for scenario in scenarios:
+        if _scenario_runs_once_per_suite(scenario):
+            scenario_work_items.append((scenario, None))
+            continue
+        for target in selected_targets:
+            scenario_work_items.append((scenario, target))
+
+    total = len(scenario_work_items) * (warmups + repeats)
+    tasks: list[_SpeedTask] = []
+    current = 0
+    for scenario, scenario_target in scenario_work_items:
+        for phase, phase_index in _iter_sample_phases(warmups=warmups, repeats=repeats):
+            current += 1
+            tasks.append(
+                _SpeedTask(
+                    index=current,
+                    total=total,
+                    scenario=scenario,
+                    target=scenario_target,
+                    phase=phase,
+                    phase_index=phase_index,
+                )
+            )
+    return tasks
+
+
+def _speed_task_target_id(task: _SpeedTask) -> str:
+    if task.target is None:
+        return SPEED_SUITE_ALL_MATCHED_TARGET_ID
+    return str(task.target.target_id)
+
+
+def _speed_task_sample_dir(*, run_root: Path, task: _SpeedTask) -> Path:
+    return (
+        run_root
+        / "scenario_runs"
+        / (
+            _SPEED_SUITE_ALL_MATCHED_TARGET_DIR
+            if task.target is None
+            else str(task.target.target_id)
+        )
+        / task.scenario.value
+        / f"{task.phase}_{task.phase_index:02d}"
+    )
+
+
+def _load_speed_task_snapshot(*, run_root: Path, task: _SpeedTask) -> dict[str, Any] | None:
+    snapshot_path = _speed_task_sample_dir(run_root=run_root, task=task) / _SPEED_SAMPLE_RESULT_FILENAME
+    if not snapshot_path.exists() or not snapshot_path.is_file():
+        return None
+    try:
+        payload = _load_json_dict(snapshot_path)
+    except Exception:  # noqa: BLE001
+        return None
+    payload_target_id = str(payload.get("target_id") or "").strip()
+    if payload_target_id != _speed_task_target_id(task):
+        return None
+    payload_scenario = str(payload.get("scenario") or "").strip()
+    if payload_scenario != task.scenario.value:
+        return None
+    payload_phase = str(payload.get("phase") or "").strip()
+    if payload_phase != task.phase:
+        return None
+    payload_phase_index = _coerce_int(payload.get("phase_index"), minimum=0)
+    if payload_phase_index != task.phase_index:
+        return None
+    payload.setdefault("task_index", task.index)
+    return payload
+
+
+def _validate_speed_resume_compatibility(
+    *,
+    run_root: Path,
+    run_config: dict[str, Any],
+) -> None:
+    checkpoint_path = run_root / _SPEED_RUN_CHECKPOINT_FILENAME
+    if not checkpoint_path.exists() or not checkpoint_path.is_file():
+        return
+    payload = _load_json_dict(checkpoint_path)
+    existing_config_raw = payload.get("run_config")
+    if not isinstance(existing_config_raw, dict):
+        return
+    existing_config = {
+        "suite_name": str(existing_config_raw.get("suite_name") or ""),
+        "suite_generated_at": str(existing_config_raw.get("suite_generated_at") or ""),
+        "target_ids": [
+            str(item)
+            for item in (existing_config_raw.get("target_ids") or [])
+            if str(item).strip()
+        ],
+        "scenarios": [
+            str(item)
+            for item in (existing_config_raw.get("scenarios") or [])
+            if str(item).strip()
+        ],
+        "warmups": _coerce_int(existing_config_raw.get("warmups"), minimum=0),
+        "repeats": _coerce_int(existing_config_raw.get("repeats"), minimum=1),
+        "max_targets": existing_config_raw.get("max_targets"),
+        "run_settings_hash": str(existing_config_raw.get("run_settings_hash") or ""),
+        "include_codex_farm_requested": bool(
+            existing_config_raw.get("include_codex_farm_requested")
+        ),
+        "include_codex_farm_confirmed": bool(
+            existing_config_raw.get("include_codex_farm_confirmed")
+        ),
+    }
+    expected_config = {
+        "suite_name": str(run_config.get("suite_name") or ""),
+        "suite_generated_at": str(run_config.get("suite_generated_at") or ""),
+        "target_ids": [str(item) for item in (run_config.get("target_ids") or [])],
+        "scenarios": [str(item) for item in (run_config.get("scenarios") or [])],
+        "warmups": _coerce_int(run_config.get("warmups"), minimum=0),
+        "repeats": _coerce_int(run_config.get("repeats"), minimum=1),
+        "max_targets": run_config.get("max_targets"),
+        "run_settings_hash": str(run_config.get("run_settings_hash") or ""),
+        "include_codex_farm_requested": bool(run_config.get("include_codex_farm_requested")),
+        "include_codex_farm_confirmed": bool(run_config.get("include_codex_farm_confirmed")),
+    }
+    if existing_config != expected_config:
+        raise ValueError(
+            "Resume run directory settings do not match requested speed suite run. "
+            "Use matching arguments or start a new run directory."
+        )
+
+
+def _resolve_speed_resume_run_timestamp(*, run_root: Path) -> str | None:
+    checkpoint_path = run_root / _SPEED_RUN_CHECKPOINT_FILENAME
+    if checkpoint_path.exists() and checkpoint_path.is_file():
+        try:
+            checkpoint_payload = _load_json_dict(checkpoint_path)
+        except Exception:  # noqa: BLE001
+            checkpoint_payload = {}
+        run_timestamp = str(checkpoint_payload.get("run_timestamp") or "").strip()
+        if run_timestamp:
+            return run_timestamp
+    partial_summary_path = run_root / _SPEED_RUN_PARTIAL_SUMMARY_FILENAME
+    if partial_summary_path.exists() and partial_summary_path.is_file():
+        try:
+            summary_payload = _load_json_dict(partial_summary_path)
+        except Exception:  # noqa: BLE001
+            summary_payload = {}
+        run_timestamp = str(summary_payload.get("run_timestamp") or "").strip()
+        if run_timestamp:
+            return run_timestamp
+    summary_path = run_root / "summary.json"
+    if summary_path.exists() and summary_path.is_file():
+        try:
+            summary_payload = _load_json_dict(summary_path)
+        except Exception:  # noqa: BLE001
+            summary_payload = {}
+        run_timestamp = str(summary_payload.get("run_timestamp") or "").strip()
+        if run_timestamp:
+            return run_timestamp
+    return None
 
 
 def _run_stage_import_sample(
@@ -512,6 +919,11 @@ def _build_summary_payload(
     include_codex_farm_requested: bool,
     codex_farm_confirmed: bool,
     sample_rows: list[dict[str, Any]],
+    parallel_tasks_requested: int | None = None,
+    parallel_tasks_effective: int = 1,
+    parallel_tasks_mode: str = "fixed",
+    parallel_tasks_cpu_count: int | None = None,
+    resume_requested: bool = False,
 ) -> dict[str, Any]:
     repeat_rows = [row for row in sample_rows if row.get("phase") == "repeat"]
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
@@ -589,6 +1001,17 @@ def _build_summary_payload(
         "run_settings_hash": run_settings.stable_hash(),
         "include_codex_farm_requested": bool(include_codex_farm_requested),
         "include_codex_farm_confirmed": bool(codex_farm_confirmed),
+        "max_parallel_tasks_requested": (
+            parallel_tasks_requested if parallel_tasks_requested is not None else "auto"
+        ),
+        "max_parallel_tasks_effective": int(max(1, parallel_tasks_effective)),
+        "max_parallel_tasks_mode": str(parallel_tasks_mode or "fixed"),
+        "max_parallel_tasks_cpu_count": (
+            int(parallel_tasks_cpu_count)
+            if parallel_tasks_cpu_count is not None
+            else _coerce_int(os.cpu_count(), minimum=1)
+        ),
+        "resume_requested": bool(resume_requested),
         "sample_count": len(sample_rows),
         "summary_rows": summary_rows,
         "scenario_rollups": scenario_rollups,
@@ -605,6 +1028,11 @@ def _format_speed_run_report(summary_payload: dict[str, Any]) -> str:
         f"- Targets: {summary_payload.get('target_count_selected')}",
         f"- Warmups: {summary_payload.get('warmups')}",
         f"- Repeats: {summary_payload.get('repeats')}",
+        "- Parallel tasks: "
+        f"{summary_payload.get('max_parallel_tasks_effective')} "
+        f"(mode={summary_payload.get('max_parallel_tasks_mode')}, "
+        f"requested={summary_payload.get('max_parallel_tasks_requested')})",
+        f"- Resume requested: {summary_payload.get('resume_requested')}",
         f"- Sequence matcher: {summary_payload.get('sequence_matcher')}",
         f"- Run settings hash: {summary_payload.get('run_settings_hash')}",
         "",

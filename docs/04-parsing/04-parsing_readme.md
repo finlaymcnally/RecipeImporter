@@ -58,6 +58,7 @@ Core modules:
 - `cookimport/parsing/epub_postprocess.py`
 - `cookimport/parsing/epub_health.py`
 - `cookimport/parsing/patterns.py`
+- `cookimport/parsing/pattern_flags.py`
 - `cookimport/parsing/spacy_support.py`
 
 Parsing-adjacent module (not in current stage recipe-path runtime):
@@ -291,6 +292,30 @@ Recipe boundary detection directly controls which text reaches parsing/linking/t
 - `cookimport/parsing/unstructured_adapter.py` maps unstructured elements to deterministic blocks + diagnostics metadata.
 - `cookimport/parsing/epub_postprocess.py` and `cookimport/parsing/epub_health.py` are shared guardrails after HTML-based extraction.
 - `cookimport/plugins/epub.py` and `cookimport/plugins/pdf.py` both read `run_settings.section_detector_backend` and can route field extraction through the shared detector when set to `shared_v1`.
+
+## Deterministic Pattern Flags (`cookimport/parsing/pattern_flags.py`)
+
+### Scope
+
+- Shared deterministic detector/action helper used by EPUB and PDF importers before candidate extraction and during overlap resolution.
+
+### Current behavior
+
+- Detects TOC-like contiguous clusters and duplicate title-intro flows from block text only (no LLM dependency).
+- Returns structured diagnostics (`PatternDiagnostics`) with:
+  - `block_flags`
+  - cluster summaries/scores
+  - duplicate-title pair metadata
+  - pre-candidate `excluded_indices`
+- Provides action helpers:
+  - `apply_candidate_start_trims(...)`
+  - `resolve_overlap_duplicate_candidates(...)`
+  - `pattern_warning_lines(...)` for stable report warning strings.
+
+### Where outputs are consumed
+
+- EPUB/PDF add `pattern_flags`/`pattern_actions` to candidate provenance location metadata.
+- `cookimport/core/scoring.py` applies deterministic penalties from those flags and records reasons in scoring debug output.
 
 ### Known historical fix
 
@@ -711,3 +736,13 @@ Known anti-loop reminders from the merged task docs:
 - For Priority 5 regressions, check auto-threshold behavior and numbered-step fragment handling before changing sentence split regexes.
 - For Priority 6 reproducibility, verify `p6_*` selectors are present in benchmark/stage run-config surfaces and threaded through Label Studio ingest signatures.
 - For Priority 4 section-header regressions (`Garnish`-style one-word headers), inspect header heuristics before blaming parser backend output.
+
+## 2026-02-28 task consolidation (`docs/tasks` pattern detector rollout context)
+
+Merged task file:
+- `2026-02-28_12.19.18-deterministic-pattern-detector-and-codex-hints.md`
+
+Parsing-side contract reminders from this rollout:
+- `cookimport/parsing/pattern_flags.py` is the shared deterministic boundary for TOC-like detection, duplicate-title intro detection, overlap candidate resolution, and stable warning-line generation.
+- Current deterministic penalty constants were held stable during rollout (`toc=0.18`, `duplicate_title=0.09`, `overlap_duplicate=0.26`) after targeted regression checks.
+- `pattern_hints` exposure to pass1 is advisory metadata only and remains explicitly env-gated/default-off; parsing/import behavior must remain deterministic-first.

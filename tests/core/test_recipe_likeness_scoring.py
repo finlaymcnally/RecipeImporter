@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import RecipeCandidate, RecipeLikenessResult, RecipeLikenessTier
 from cookimport.core.scoring import (
@@ -118,3 +120,54 @@ def test_summarize_recipe_likeness_includes_thresholds_and_stats() -> None:
     assert summary["counts"]["bronze"] == 1
     assert summary["rejectedCandidateCount"] == 2
     assert summary["scoreStats"]["max"] == 0.91
+
+
+def test_score_recipe_likeness_applies_pattern_penalties_from_flags_and_actions() -> None:
+    base_candidate = RecipeCandidate(
+        name="Herb Bread",
+        recipeIngredient=[
+            "2 cups bread flour",
+            "1 tbsp olive oil",
+            "1 tsp kosher salt",
+            "1 tsp instant yeast",
+        ],
+        recipeInstructions=[
+            "Whisk flour, salt, and yeast in a bowl.",
+            "Add water and olive oil, then mix into a shaggy dough.",
+            "Let rest, shape, and bake until deeply golden.",
+        ],
+        description="A straightforward overnight loaf with crisp crust and open crumb.",
+        provenance={"location": {"start_block": 12}},
+    )
+    baseline = score_recipe_likeness(base_candidate, settings=RunSettings())
+    assert baseline.features["pattern_penalty_total"] == 0.0
+
+    flagged_candidate = RecipeCandidate(
+        name=base_candidate.name,
+        recipeIngredient=list(base_candidate.ingredients),
+        recipeInstructions=list(base_candidate.instructions),
+        description=base_candidate.description,
+        provenance={
+            "location": {
+                "start_block": 12,
+                "pattern_flags": ["toc_like_cluster"],
+                "pattern_actions": [
+                    {"action": "trim_candidate_start"},
+                    {"action": "reject_overlap_duplicate_candidate"},
+                ],
+            }
+        },
+    )
+    flagged = score_recipe_likeness(flagged_candidate, settings=RunSettings())
+
+    assert flagged.features["pattern_toc_like_penalty"] == pytest.approx(0.18, abs=1e-4)
+    assert flagged.features["pattern_duplicate_title_penalty"] == pytest.approx(0.09, abs=1e-4)
+    assert flagged.features["pattern_overlap_duplicate_penalty"] == pytest.approx(0.26, abs=1e-4)
+    assert flagged.features["pattern_penalty_total"] == pytest.approx(0.53, abs=1e-4)
+    assert flagged.features["pattern_flag_toc_like_cluster"] is True
+    assert flagged.features["pattern_flag_duplicate_title_intro"] is True
+    assert flagged.features["pattern_flag_overlap_duplicate_candidate"] is True
+    assert "pattern_toc_like_penalty" in flagged.reasons
+    assert "pattern_duplicate_title_penalty" in flagged.reasons
+    assert "pattern_overlap_duplicate_penalty" in flagged.reasons
+    assert flagged.score < baseline.score

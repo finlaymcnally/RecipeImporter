@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -283,3 +285,27 @@ def test_matching_blocks_tuple_helper_drops_terminal_zero_block() -> None:
         autojunk=False,
     )
     assert _matching_blocks_as_tuples(matcher) == [(0, 0, 3)]
+
+
+def test_sequence_matcher_benchmark_script_supports_stdlib_and_dmp_modes() -> None:
+    script_path = Path(__file__).resolve().parents[2] / "scripts" / "bench_sequence_matcher_impl.py"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(script_path),
+            "--tokens",
+            "80",
+            "--repeats",
+            "1",
+            "--modes",
+            "stdlib,dmp",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=str(Path(__file__).resolve().parents[2]),
+    )
+    assert proc.returncode == 0
+    output = proc.stdout
+    assert "stdlib: impl=stdlib" in output
+    assert "dmp: impl=dmp" in output

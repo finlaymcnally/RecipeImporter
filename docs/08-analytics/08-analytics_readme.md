@@ -286,3 +286,14 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 
 Anti-loop note:
 - If diagnostics unexpectedly pick speed rows, test normalized-path helper behavior before changing collector grouping rules.
+
+## 2026-02-28 task consolidation (`docs/tasks` dashboard wheel-zoom safeguard)
+
+Merged task file:
+- `2026-02-28_12.18.03-disable-dashboard-highcharts-wheel-zoom.md`
+
+Current dashboard interaction contract:
+- Highcharts mouse-wheel zoom is disabled globally for generated dashboard pages to prevent accidental chart zoom while scrolling.
+- Toggle point is explicit and centralized in dashboard JS init via `HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED`.
+- Re-enable path is intentionally one-line: set that constant to `true`.
+- This is a global default (`Highcharts.setOptions(...)`) so newly-added dashboard charts inherit the same behavior unless explicitly overridden.
