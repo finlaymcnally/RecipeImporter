@@ -8,6 +8,7 @@ from cookimport.cli_ui.toggle_editor import (
     _render_value_fragments,
 )
 from cookimport.config.run_settings import RunSettings, run_settings_ui_specs
+from cookimport.epub_extractor_names import epub_extractor_enabled_choices
 
 
 def _spec(name: str):
@@ -18,12 +19,19 @@ def _text(fragments: list[tuple[str, str]]) -> str:
     return "".join(text for _, text in fragments)
 
 
+def _extractor_row(selected: str) -> str:
+    return " | ".join(
+        f"[{choice}]" if choice == selected else choice
+        for choice in epub_extractor_enabled_choices()
+    )
+
+
 def test_enum_rows_show_all_options_with_selected_boxed() -> None:
     spec = _spec("epub_extractor")
 
     fragments = _render_value_fragments(spec, "beautifulsoup", row_selected=False)
 
-    assert _text(fragments) == "unstructured | [beautifulsoup] | markdown | markitdown"
+    assert _text(fragments) == _extractor_row("beautifulsoup")
 
 
 def test_bool_rows_show_both_options_with_selected_boxed() -> None:
@@ -39,7 +47,7 @@ def test_selected_row_uses_highlight_style_on_selected_option() -> None:
 
     fragments = _render_value_fragments(spec, "beautifulsoup", row_selected=True)
 
-    assert _text(fragments) == "unstructured | [beautifulsoup] | markdown | markitdown"
+    assert _text(fragments) == _extractor_row("beautifulsoup")
     assert any(style == "reverse bold" for style, _ in fragments)
 
 

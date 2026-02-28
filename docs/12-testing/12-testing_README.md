@@ -16,6 +16,7 @@ Use `docs/12-testing/12-testing_log.md` for build/fix history and prior attempts
 This section covers:
 
 - test folder/domain organization,
+- layout exceptions and support assets under `tests/`,
 - marker-based focused runs,
 - compact pytest output defaults,
 - compact-output enforcement rules when callers override `addopts`.
@@ -24,14 +25,22 @@ This section covers:
 
 Primary test folders:
 
-- `tests/ingestion`
-- `tests/parsing`
-- `tests/labelstudio`
-- `tests/cli`
+- `tests/analytics`
 - `tests/bench`
-- `tests/tagging`
-- `tests/llm`
+- `tests/cli`
 - `tests/core`
+- `tests/ingestion`
+- `tests/labelstudio`
+- `tests/llm`
+- `tests/parsing`
+- `tests/staging`
+- `tests/tagging`
+
+Active layout exceptions and support assets:
+
+- `tests/test_eval_freeform_practical_metrics.py` remains at `tests/` root and is marker-tagged as both `labelstudio` and `bench`.
+- `tests/fixtures/*` holds fixture generators and binary fixture assets used by tests.
+- `tests/tagging_gold/*` holds tagging gold fixtures used by tagging tests.
 
 Key test-runtime files:
 
@@ -39,13 +48,21 @@ Key test-runtime files:
 - `tests/conftest.py`
 - `tests/paths.py`
 - `tests/README.md`
+- `tests/CONVENTIONS.md`
 - `tests/AGENTS.md`
+
+Path helper contract:
+
+- `tests/paths.py` is the shared root resolver for `REPO_ROOT`, `FIXTURES_DIR`, `TAGGING_GOLD_DIR`, and `DOCS_EXAMPLES_DIR`.
 
 ## Marker and Run Contracts
 
 Current contracts:
 
 - Marker assignment is centralized in `tests/conftest.py` (do not require touching every file for domain grouping).
+- `_FILE_MARKERS` in `tests/conftest.py` currently maps every `test_*.py` filename, and unknown files would fall back to `core`.
+- Domain markers declared in `pytest.ini` are: `analytics`, `bench`, `cli`, `core`, `ingestion`, `labelstudio`, `llm`, `parsing`, `staging`, `tagging`.
+- `slow` and `smoke` slices are controlled centrally by `_SLOW_FILES` and `_SMOKE_FILES` in `tests/conftest.py`.
 - Smoke slice exists for quick sanity (`pytest -m smoke`).
 - Domain-focused runs should work with marker filters and/or domain folders.
 - Failure output should include concise pointers to relevant `docs/*_log.md` files.
@@ -63,6 +80,8 @@ Current compact-output behavior:
 - Default pytest runs avoid per-test dot/progress floods.
 - Success-path print noise is removed from normal test modules.
 - Compact mode remains enforced even with `-o addopts=''` unless explicit verbose opt-out is requested.
+- `pytest -v/-vv` is clamped back to compact mode unless opt-out is enabled.
+- Failure hints are emitted once at run end (not per failure) by `pytest_terminal_summary(...)`/`pytest_sessionfinish(...)`.
 
 Verbose opt-out contract:
 
@@ -76,44 +95,28 @@ Design intent:
 ## Known Risks and Sharp Edges
 
 - Overly strict compact-mode enforcement can surprise contributors expecting manual `-v/-vv` alone to restore classic pytest output.
+- Marker mapping is keyed by basename (`test_*.py` filename), so duplicate names across different folders would collide.
 - Path-sensitive tests can regress when files move unless shared helpers in `tests/paths.py` are used consistently.
 - Remaining `print(...)` usage in manual helper scripts (for example `tests/fixtures/generate_scanned_pdf.py`) is intentional and should not be treated as test-runner noise.
 
-## Merged Task Specs (2026-02-22_22 to 2026-02-22_23)
+## Active Guardrails (Historical Outcomes Still In Effect)
 
-### 2026-02-22_22.58.41 modular low-noise tests
+- 2026-02-22: low-noise defaults and centralized marker mapping introduced and are still active.
+- 2026-02-22: tests were reorganized into domain folders; `tests/paths.py` remains the path-stability helper.
+- 2026-02-22: success-path test stdout noise was trimmed; only intentional helper-script prints remain.
+- 2026-02-22: compact-output enforcement on `addopts` override landed and remains opt-out via `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`.
 
-Task source:
-- `docs/tasks/2026-02-22_22.58.41 - modular-low-noise-tests.md`
+## 2026-02-27 Merged Understandings: Testing Docs Prune + Coverage Audit
 
-Durable outcomes:
-- Low-noise defaults in repo test config.
-- Central marker mapping for domain runs.
-- Smoke marker lane and concise failure hints.
+Merged source notes:
+- `docs/understandings/2026-02-27_19.44.54-testing-doc-pruning-current-contracts.md`
+- `docs/understandings/2026-02-27_19.50.34-testing-doc-code-coverage-audit.md`
 
-### 2026-02-22_23.06.30 tests folder domain reorg
+Current-contract additions:
+- Keep docs aligned to current domain-folder layout plus intentional root-level cross-domain module (`tests/test_eval_freeform_practical_metrics.py`).
+- Keep support-asset folders (`tests/fixtures/*`, `tests/tagging_gold/*`) and `tests/paths.py` constants documented as active test contract surfaces.
+- Keep marker fallback semantics documented: unmapped test files default to marker `core`.
+- Keep stale `docs/tasks/*` links and old flat-path examples retired.
 
-Task source:
-- `docs/tasks/2026-02-22_23.06.30 - tests-folder-domain-reorg.md`
-
-Durable outcomes:
-- `tests/test_*.py` files moved into domain folders.
-- Shared `tests/paths.py` helper introduced to stabilize path-sensitive tests after moves.
-
-### 2026-02-22_23.24.59 trim test output noise
-
-Task source:
-- `docs/tasks/2026-02-22_23.24.59 - trim-test-output-noise.md`
-
-Durable outcomes:
-- Dot flood and non-informational output removed from default runs.
-- Success-path prints stripped from test modules (manual helper-script prints retained).
-
-### 2026-02-22_23.35.12 enforce compact output on overrides
-
-Task source:
-- `docs/tasks/2026-02-22_23.35.12 - enforce-compact-pytest-output-on-overrides.md`
-
-Durable outcomes:
-- Compact reporter behavior remains enforced even with `-o addopts=''`.
-- Explicit verbose escape hatch stays `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`.
+Anti-loop rule:
+- Before changing testing docs/contracts, verify `tests/conftest.py` marker mapping and compact-output enforcement behavior first.

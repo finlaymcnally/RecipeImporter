@@ -165,7 +165,7 @@ What each setting affects:
 - `all_method_config_timeout_seconds`, `all_method_retry_failed_configs`: all-method safety controls (per-config timeout and failed-config retry passes).
 - all-method canonical alignment cache root is resolved per run and shared across timestamps (default under `data/golden/benchmark-vs-golden/.cache/canonical_alignment`; override via `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`).
 - `benchmark_sequence_matcher`: canonical-text alignment matcher mode for benchmark/eval flows (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`, and future added modes); `fallback` order is `cydifflib -> cdifflib -> dmp -> multilayer -> stdlib`.
-- `epub_extractor`: runtime extractor choice (`unstructured`, `beautifulsoup`, `markdown`, or `markitdown`) via `C3IMP_EPUB_EXTRACTOR`.
+- `epub_extractor`: runtime extractor choice via `C3IMP_EPUB_EXTRACTOR` (default-enabled choices: `unstructured`, `beautifulsoup`; `markdown`/`markitdown` are policy-locked off unless `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`).
 - `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
 - `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
 - `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none`, `br_split_v1`, or `semantic_v1` alias).
@@ -357,6 +357,7 @@ Interactive mode exits when:
 Top-level command groups:
 
 - `cookimport stage`
+- `cookimport debug-epub-extract`
 - `cookimport epub <inspect|dump|unpack|blocks|candidates|validate>`
 - `cookimport inspect`
 - `cookimport labelstudio-import`
@@ -366,7 +367,7 @@ Top-level command groups:
 - `cookimport perf-report`
 - `cookimport benchmark-csv-backfill`
 - `cookimport stats-dashboard`
-- `cookimport bench <validate|run|sweep|knobs>`
+- `cookimport bench <validate|speed-discover|speed-run|speed-compare|eval-stage|run|sweep|knobs>`
 - `cookimport tag-catalog export`
 - `cookimport tag-recipes <debug-signals|suggest|apply>`
 
@@ -415,7 +416,7 @@ Options:
 - `--pdf-split-workers INTEGER>=1` (default `7`): max workers for one split PDF.
 - `--epub-split-workers INTEGER>=1` (default `7`): max workers for one split EPUB.
 - `--write-markdown / --no-write-markdown` (default write): write markdown sidecar artifacts (`sections.md`, `tips.md`, `topic_candidates.md`, `chunks.md`, `tables.md`).
-- `--epub-extractor TEXT` (default `unstructured`): `unstructured|beautifulsoup|markdown|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
+- `--epub-extractor TEXT` (default `unstructured`): default-enabled values are `unstructured|beautifulsoup`; `markdown|markitdown` are rejected unless `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`. Exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
 - `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
@@ -590,12 +591,23 @@ Options:
 - `--prelabel / --no-prelabel` (default disabled): freeform-only first-pass LLM labeling.
 - `--prelabel-provider TEXT` (default `codex-cli`): provider backend for prelabeling.
 - `--codex-cmd TEXT`: override Codex CLI command (defaults to `COOKIMPORT_CODEX_CMD` or `codex exec -`).
+- `--codex-model TEXT`: explicit Codex model for prelabel calls (defaults to `COOKIMPORT_CODEX_MODEL` or your Codex CLI default model).
+- `--codex-thinking-effort`, `--codex-reasoning-effort` (alias flags): Codex reasoning-effort hint (`none|minimal|low|medium|high|xhigh`, normalized per model compatibility).
 - `--prelabel-timeout-seconds INTEGER>=1` (default `300`): timeout per provider call.
 - `--prelabel-cache-dir PATH`: optional prompt/response cache directory.
 - `--prelabel-workers INTEGER>=1` (default `15`): concurrent freeform prelabel provider calls (`1` keeps serialized behavior).
 - `--prelabel-upload-as TEXT` (default `annotations`): `annotations|predictions`.
 - `--prelabel-granularity TEXT` (default `block`): `block|span` (`block` = block based; `span` = actual freeform).
 - `--prelabel-allow-partial / --no-prelabel-allow-partial` (default disabled): continue upload when some prelabels fail.
+- `--llm-recipe-pipeline TEXT` (default `off`): policy-locked `off` (recipe codex-farm parsing correction is currently disabled).
+- `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used when `--llm-recipe-pipeline` is enabled.
+- `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
+- `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
+- `--codex-farm-pipeline-pass1 TEXT` (default `recipe.chunking.v1`): pass-1 pipeline id.
+- `--codex-farm-pipeline-pass2 TEXT` (default `recipe.schemaorg.v1`): pass-2 pipeline id.
+- `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.v1`): pass-3 pipeline id.
+- `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate in pass-1 bundles.
+- `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 
 Prelabel behavior notes:
 - `labelstudio-import` is freeform-only (`freeform-spans`), so `--prelabel` always applies to freeform tasks.
@@ -645,6 +657,11 @@ Behavior note:
   - `--no-write-markdown` to skip markdown sidecars in processed stage outputs.
   - `--no-write-labelstudio-tasks` to skip `label_studio_tasks.jsonl` in offline pred-runs (stage-block scoring remains unchanged because it reads stage evidence + extracted archive).
 - Eval mode is configurable via `--eval-mode stage-blocks|canonical-text` (default `stage-blocks`).
+- Execution mode is configurable via `--execution-mode legacy|pipelined|predict-only` (default `legacy`).
+- Prediction-record roundtrip supports evaluate-only replays:
+  - `--predictions-out` writes prediction-stage records to JSONL.
+  - `--predictions-in` skips generation and evaluates from a prior record JSONL.
+  - `--predictions-in` and `--predictions-out` are mutually exclusive.
 - Re-scoring an old prediction run without regeneration is still done with `cookimport labelstudio-eval --pred-run ... --gold-spans ...`.
 - Interactive mode (`cookimport` -> Benchmark) always runs offline benchmark generation/eval (`single offline` or `all method`).
 - Interactive all-method mode always uses `canonical-text` eval mode.
@@ -667,8 +684,10 @@ Options:
 - `--force-source-match` (default `false`): ignore source identity checks while matching.
 - `--eval-mode TEXT` (default `stage-blocks`): `stage-blocks|canonical-text`.
 - `--sequence-matcher TEXT` (default `fallback`): canonical-text matcher mode (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`, plus future added modes).
+- `--execution-mode TEXT` (default `legacy`): `legacy|pipelined|predict-only`.
+- `--predictions-out PATH`: optional JSONL output for prediction-stage records (for later evaluate-only runs).
+- `--predictions-in PATH`: optional JSONL input to run evaluate-only without generating predictions.
 - `--pipeline TEXT` (default `auto`): importer selection.
-- `--chunk-level TEXT` (default `both`): `structural|atomic|both`.
 - `--project-name TEXT`: explicit prediction project name.
 - `--allow-labelstudio-write / --no-allow-labelstudio-write` (default disabled): required gate for upload mode.
 - `--no-upload` (default `false`): force offline benchmark (no upload, no credential resolution).
@@ -682,7 +701,7 @@ Options:
 - `--epub-split-workers INTEGER>=1` (default `7`): EPUB split workers for prediction import.
 - `--pdf-pages-per-job INTEGER>=1` (default `50`): PDF shard size.
 - `--epub-spine-items-per-job INTEGER>=1` (default `10`): EPUB shard size.
-- `--epub-extractor TEXT` (default `unstructured`): `unstructured|beautifulsoup|markdown|markitdown`; exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
+- `--epub-extractor TEXT` (default `unstructured`): default-enabled values are `unstructured|beautifulsoup`; `markdown|markitdown` are rejected unless `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`. Exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
 - `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
@@ -695,6 +714,7 @@ Options:
 - `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.v1`): pass-3 pipeline id (final draft generation).
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
+- `--alignment-cache-dir PATH` (internal/hidden): optional canonical alignment cache directory override for benchmark runs.
 - `markitdown` note: prediction EPUB split jobs are disabled for this extractor for the same reason as stage runs.
 - explicit-choice note: prediction generation no longer supports `--epub-extractor auto`; requested/effective extractor values are the selected concrete backend.
 - `--ocr-device TEXT` (default `auto`): `auto|cpu|cuda|mps`.
@@ -713,6 +733,60 @@ Options:
 
 - `--suite PATH` (required): suite JSON path.
 
+### `cookimport bench speed-discover`
+
+Builds a speed-suite manifest by matching pulled freeform gold exports to importable source files.
+
+Options:
+
+- `--gold-root PATH` (default `data/golden/pulled-from-labelstudio`): root containing pulled gold export folders.
+- `--input-root PATH` (default `data/input`): root containing source files for import runs.
+- `--out PATH` (default `data/golden/bench/speed/suites/pulled_from_labelstudio.json`): destination for generated speed-suite JSON.
+
+### `cookimport bench speed-run`
+
+Runs deterministic speed scenarios for a speed suite and writes timestamped run artifacts (`summary.json`, `report.md`, `samples.jsonl`, `run_manifest.json`).
+
+Status behavior:
+
+- Spinner updates include `task X/Y` counters per target/scenario/sample phase.
+- Spinner telemetry is persisted under `<out_dir>/.history/processing_timeseries/<timestamp>__bench_speed_run__<suite>.jsonl`.
+
+Options:
+
+- `--suite PATH` (required): path to speed suite JSON (typically from `bench speed-discover`).
+- `--out-dir PATH` (default `data/golden/bench/speed/runs`): output root for timestamped speed runs.
+- `--scenarios TEXT` (default `stage_import,benchmark_canonical_legacy`): comma-separated scenario list from `stage_import|benchmark_canonical_legacy|benchmark_canonical_pipelined|benchmark_all_method_multi_source`.
+- `--warmups INTEGER>=0` (default `1`): warmup samples per target+scenario (excluded from medians).
+- `--repeats INTEGER>=1` (default `2`): measured samples per target+scenario.
+- `--max-targets INTEGER>=1`: optional cap on number of targets from the suite.
+- `--sequence-matcher TEXT` (default `fallback`): canonical-text matcher mode used by benchmark scenarios.
+
+### `cookimport bench speed-compare`
+
+Compares baseline and candidate speed runs and emits a timestamped comparison report.
+
+Options:
+
+- `--baseline PATH` (required): baseline speed run directory (`summary.json` required).
+- `--candidate PATH` (required): candidate speed run directory (`summary.json` required).
+- `--out-dir PATH` (default `data/golden/bench/speed/comparisons`): output root for comparison reports.
+- `--regression-pct FLOAT>=0` (default `5.0`): percent threshold for regression detection (used with absolute floor).
+- `--absolute-seconds-floor FLOAT>=0` (default `0.5`): minimum absolute seconds increase required to mark regression.
+- `--fail-on-regression / --no-fail-on-regression` (default disabled): exit non-zero when verdict is `FAIL`.
+
+### `cookimport bench eval-stage`
+
+Evaluates an existing stage run (no prediction generation) against a freeform gold export.
+
+Options:
+
+- `--gold-spans PATH` (required): exported `freeform_span_labels.jsonl` gold file.
+- `--stage-run PATH` (required): stage run directory containing `.bench/*/stage_block_predictions.json`.
+- `--workbook-slug TEXT`: workbook folder under `.bench` (required when multiple workbooks exist).
+- `--extracted-archive PATH`: explicit extracted archive JSON path (otherwise auto-resolves unique `raw/**/full_text.json`).
+- `--out-dir PATH`: output directory for eval artifacts (defaults to `data/golden/benchmark-vs-golden/<timestamp>`).
+
 ### `cookimport bench run`
 
 Runs offline benchmark suite and writes report/metrics/iteration packet.
@@ -730,6 +804,8 @@ Options:
 - `--baseline PATH`: prior run directory for deltas.
 - `--config PATH`: knob config JSON file.
 - `--sequence-matcher TEXT` (default `fallback`): canonical-text matcher mode (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`, plus future added modes).
+- `--write-markdown / --no-write-markdown`: optional override for benchmark prediction markdown sidecar writes (when omitted, keep config/default behavior).
+- `--write-labelstudio-tasks / --no-write-labelstudio-tasks`: optional override for benchmark prediction task JSONL writes (when omitted, keep config/default behavior).
 
 ### `cookimport bench sweep`
 
@@ -794,6 +870,11 @@ Options:
 - `--explain` (default `false`): include evidence text in output.
 - `--limit INTEGER`: cap number of recipes processed.
 - `--llm` (default `false`): enable LLM second pass for missing categories.
+- `--codex-farm-cmd TEXT` (default `codex-farm`): codex-farm executable used when `--llm` is enabled.
+- `--codex-farm-root PATH`: optional codex-farm pipeline-pack root.
+- `--codex-farm-workspace-root PATH`: optional codex-farm workspace root.
+- `--codex-farm-pipeline-pass5-tags TEXT` (default `recipe.tags.v1`): pass-5 tags pipeline id for LLM second pass.
+- `--codex-farm-failure-mode TEXT` (default `fallback`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 
 Runtime rule:
 
@@ -813,6 +894,11 @@ Options:
 - `--explain` (default `false`): show evidence.
 - `--min-confidence FLOAT`: filter suggestions below threshold.
 - `--llm` (default `false`): enable LLM second pass.
+- `--codex-farm-cmd TEXT` (default `codex-farm`): codex-farm executable used when `--llm` is enabled.
+- `--codex-farm-root PATH`: optional codex-farm pipeline-pack root.
+- `--codex-farm-workspace-root PATH`: optional codex-farm workspace root.
+- `--codex-farm-pipeline-pass5-tags TEXT` (default `recipe.tags.v1`): pass-5 tags pipeline id for LLM second pass.
+- `--codex-farm-failure-mode TEXT` (default `fallback`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - `--import-batch-id TEXT`: batch filter for DB selection.
 - `--source TEXT`: source filter for DB selection.
 - `--limit INTEGER`: max recipes in batch mode (defaults to `100` internally when omitted).
@@ -822,12 +908,20 @@ Options:
 CLI-relevant environment variables:
 
 - `C3IMP_LIMIT`: used by interactive mode callback. If set to an integer, interactive import uses it as `stage --limit`.
-- `C3IMP_EPUB_EXTRACTOR`: EPUB extractor switch (`unstructured`, `beautifulsoup`, `markdown`, or `markitdown`) read at runtime by the EPUB importer.
+- `C3IMP_EPUB_EXTRACTOR`: EPUB extractor switch read at runtime by the EPUB importer (default-enabled: `unstructured`, `beautifulsoup`; `markdown`/`markitdown` require `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`).
 - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`: unstructured HTML parser version (`v1` or `v2`) for EPUB extraction.
 - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`: bool toggle for Unstructured `skip_headers_and_footers` on EPUB HTML.
 - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`: EPUB HTML preprocess mode before Unstructured (`none`, `br_split_v1`, `semantic_v1`).
+- `C3IMP_EPUBCHECK_JAR`: optional EPUBCheck jar path used by `cookimport epub validate` when `--jar` is omitted.
 - `C3IMP_STANDALONE_ANALYSIS_WORKERS`: worker count for EPUB/PDF standalone knowledge-block analysis (`>=1`, default `4`).
+- `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS`: unlocks `markdown`/`markitdown` EPUB extractors across stage/prediction/debug command paths when set truthy (`1|true|yes|on`).
+- `COOKIMPORT_ALLOW_CODEX_FARM`: policy gate for all-method codex-farm permutations (`1` required to enable once policy unlocks).
+- `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS`: include optional markdown-based extractors in all-method permutations when set to `1`.
 - `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER`: canonical-text matcher selection (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`, plus future added modes). Legacy `auto` is accepted as alias to `fallback`.
+- `COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS`: optional profiler threshold for benchmark evaluation stage (`>=0`; enables profile artifact capture when eval runtime meets threshold).
+- `COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N`: optional `pstats` top-N row count for benchmark evaluation profiling output (default `40`).
+- `COOKIMPORT_CODEX_CMD`: default Codex CLI command used by prelabel flows when `--codex-cmd` is omitted.
+- `COOKIMPORT_CODEX_MODEL`: default Codex model used by prelabel flows when `--codex-model` is omitted.
 - `LABEL_STUDIO_URL`: default Label Studio URL when `--label-studio-url` is omitted.
 - `LABEL_STUDIO_API_KEY`: default Label Studio API key when `--label-studio-api-key` is omitted.
 - `COOKIMPORT_DATABASE_URL`: DB URL fallback for `tag-catalog export`, `tag-recipes debug-signals`, and `tag-recipes apply`.
@@ -840,7 +934,9 @@ Precedence notes:
 
 - For Label Studio creds: CLI flags win over environment variables.
 - For interactive Label Studio import/export creds: environment variables win over saved `cookimport.json` credentials.
-- For EPUB extractor/options: explicit stage/benchmark flags or interactive per-run Run Settings selection write `C3IMP_EPUB_EXTRACTOR` plus `C3IMP_EPUB_UNSTRUCTURED_*` vars for that run.
+- For prelabel Codex settings: `--codex-cmd`/`--codex-model`/`--codex-thinking-effort` win for that run; env vars are defaults.
+- For EPUB extractor/options: explicit stage/benchmark flags or interactive per-run Run Settings selection write `C3IMP_EPUB_EXTRACTOR` plus `C3IMP_EPUB_UNSTRUCTURED_*` vars for that run; markdown extractors still require `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`.
+- For all-method markdown extractors and codex-farm unlock: env vars gate whether optional permutations are included at all.
 - For benchmark sequence matcher: `--sequence-matcher` (or interactive `benchmark_sequence_matcher`) wins for that run and temporarily sets `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER` around evaluation.
 - For tag DB URL: `--db-url` wins; env var is fallback.
 
@@ -1005,53 +1101,20 @@ Where this is used today:
 - Label Studio freeform prelabel worker loops (`task X/Y` + segment ranges).
 - Label Studio split-conversion worker loops (`job X/Y`).
 
-## Merged Understanding (2026-02-25 EPUB race retirement)
+## 2026-02-27 Merged Understandings: CLI Docs Drift and Prune Rules
 
-### 2026-02-25_18.53.25 EPUB race retired from CLI surfaces
+Merged source notes:
+- `docs/understandings/2026-02-27_19.45.20-cli-docs-stale-feature-prune.md`
+- `docs/understandings/2026-02-27_19.51.12-cli-readme-command-surface-reconciliation.md`
 
-Merged source:
-- `docs/understandings/2026-02-25_18.53.25-epub-race-retirement.md`
+Current-contract additions:
+- Top-level command drift has been low; the higher-risk drift is option-level coverage inside existing commands.
+- Keep benchmark docs synchronized with active `bench` options/subcommands (`speed-discover`, `speed-run`, `speed-compare`, `eval-stage`) and `labelstudio-benchmark` prediction/eval split options.
+- Keep tagging CLI option docs synchronized for codex-farm pass5 paths (`tag-recipes suggest|apply --llm ...`).
 
-Current CLI contract:
-- Interactive main menu no longer includes an EPUB race action.
-- Direct `cookimport epub race` command is removed.
-- EPUB debug remains deterministic-only:
-  - `inspect`
-  - `dump`
-  - `unpack`
-  - `blocks`
-  - `candidates`
-  - `validate`
+Known stale surfaces that should stay retired:
+- `cookimport epub race` command family.
+- `labelstudio-benchmark --chunk-level` option.
 
-Anti-loop note:
-- If someone asks for race mode, treat it as retired behavior; do not reintroduce it via hidden flags or legacy aliases.
-
-## Merged Task Spec (2026-02-25 docs/tasks archival batch)
-
-### 2026-02-25_18.55.20 remove-epub-race-cli
-
-Merged source:
-- `docs/tasks/2026-02-25_18.55.20-remove-epub-race-cli.md`
-
-Durable CLI contract:
-- Interactive main menu must not include `EPUB debug: race extractors on one file`.
-- Direct `cookimport epub race` must remain unregistered.
-- Keep deterministic EPUB debug commands only: `inspect`, `dump`, `unpack`, `blocks`, `candidates`, `validate`.
-
-Cross-surface cleanup captured by task:
-- Remove race-only backend modules:
-  - `cookimport/parsing/epub_auto_select.py`
-  - `cookimport/parsing/extraction_quality.py`
-- Remove race compatibility fields from runtime/report/history/dashboard surfaces:
-  - `epubAutoSelection`
-  - `epubAutoSelectedScore`
-  - `epub_auto_selected_score`
-
-Verification evidence preserved from task:
-- Focused CLI tests: `14 passed, 2 warnings`.
-- Targeted regression run: `3 passed, 94 deselected, 2 warnings`.
-- Focused analytics + CLI regression run: `60 passed, 2 warnings`.
-- Combined analytics + CLI + Label Studio regression run: `149 passed, 7 warnings`.
-
-Rollback note from task:
-- Restore `_interactive_epub_race(...)` in `cookimport/cli.py` and `@epub_app.command("race")` in `cookimport/epubdebug/cli.py` only if product direction explicitly reverses.
+Anti-loop rule:
+- Validate CLI docs by command signatures and options (Typer registration), not by command-name list alone.

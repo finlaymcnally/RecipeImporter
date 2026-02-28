@@ -14,18 +14,6 @@ This log is the anti-loop record for staging: what changed, why, what worked, an
 
 ## Chronology: What Was Documented/Tried Before
 
-This section preserves the historical task notes that were previously in `05-staging_readme.md`.
-
-### Baseline staging section doc (non-timestamped, prior summary)
-
-Contained initial map of:
-
-- code locations,
-- output surfaces,
-- links to contract/naming notes.
-
-Status now: superseded by the readme, but key map retained and expanded there.
-
 ### 2026-02-12_10.25.47 format naming conventions
 
 Decision captured:
@@ -34,7 +22,7 @@ Decision captured:
 - Do not describe intermediate format as `RecipeSage`.
 - `RecipeDraftV1` remains internal term.
 
-Status now: still correct and reflected in current CLI help text (`cookimport/cli.py:322`, `cookimport/cli.py:1515`).
+Status now: still correct and reflected in current stage CLI help text and stage command output layout docs.
 
 ### 2026-02-12_10.41.48 staging contract alignment
 
@@ -51,7 +39,7 @@ Key decisions/actions captured:
 
 Recorded evidence at that time:
 
-- `pytest -q tests/test_draft_v1_lowercase.py tests/test_draft_v1_variants.py tests/test_ingredient_parser.py tests/test_draft_v1_staging_alignment.py`
+- `pytest -q tests/staging/test_draft_v1_lowercase.py tests/staging/test_draft_v1_variants.py tests/parsing/test_ingredient_parser.py tests/staging/test_draft_v1_staging_alignment.py`
 - Result recorded: `35 passed`.
 - Cross-repo schema validation cases recorded as passing for:
   - `salt, to taste`
@@ -66,14 +54,12 @@ Critical invariant note captured:
 
 - Cookbook staging tolerates unresolved IDs if placeholders are non-empty and unresolved unit IDs are `null`.
 - But quantity invariants are strict:
-  - `exact`/`approximate` require `input_qty > 0`
+  - non-linked `exact`/`approximate` require `input_qty > 0`
 - `unquantified` must have null/omitted quantity+unit
 
 Status now: these edge-case rules are still actively normalized in `draft_v1.py`.
 
 ### 2026-02-15_22.10.59 staging output contract flow map
-
-Source note: this section was merged into the log; the original standalone doc is no longer present in `docs/`.
 
 Preserved outcomes:
 - Single-file stage flow (`cli_worker`) and split-job merge flow (`cli.py`) both converge on the same writer functions for intermediate/final/tips/topic/chunks/report outputs.
@@ -83,16 +69,12 @@ Preserved outcomes:
 
 ### 2026-02-15_22.48.59 report metadata flow consistency
 
-Source note: this section was merged into the log; the original standalone doc is no longer present in `docs/`.
-
 Preserved rule:
 - Single-file report writes happen in `cli_worker.stage_one_file`.
 - Split EPUB/PDF report writes happen in `cli._merge_split_jobs`.
 - Metadata fields that downstream tooling depends on (notably `importerName` and `runConfig`) must be set in both paths or split runs will silently drift.
 
 ### 2026-02-15_22.59.48 split-merge bottleneck diagnosis from real run data
-
-Source note: this section was merged into the log; the original standalone doc is no longer present in `docs/`.
 
 Preserved diagnosis:
 - Long "idle" periods after worker completion can be real merge output work, not a deadlock.
@@ -105,8 +87,6 @@ Anti-loop note:
 
 ### 2026-02-15_22.59.30 split-merge visibility and topic hash cache
 
-Source note: this section was merged into the log; the original task note is no longer present in `docs/`.
-
 Problem captured:
 - Large split EPUB/PDF runs could look hung after workers completed because merge stayed under a generic MainProcess label while doing long post-merge writes.
 - Topic-candidate writing repeatedly hashed the same source file, inflating merge-time write cost on knowledge-heavy inputs.
@@ -117,9 +97,9 @@ Decisions/actions captured:
 
 Task-spec evidence preserved:
 - Fail-before command recorded:
-  - `. .venv/bin/activate && pytest -q tests/test_tip_writer.py::test_write_topic_candidates_hashes_source_file_once tests/test_split_merge_status.py::test_merge_split_jobs_reports_main_process_phases`
+  - `. .venv/bin/activate && pytest -q tests/staging/test_tip_writer.py::test_write_topic_candidates_hashes_source_file_once tests/staging/test_split_merge_status.py::test_merge_split_jobs_reports_main_process_phases`
 - Pass-after command recorded:
-  - `. .venv/bin/activate && pytest -q tests/test_tip_writer.py tests/test_split_merge_status.py`
+  - `. .venv/bin/activate && pytest -q tests/staging/test_tip_writer.py tests/staging/test_split_merge_status.py`
 - Recorded pass-after result: `3 passed`.
 
 Constraints that should remain:
@@ -159,14 +139,12 @@ These are the loops we should avoid repeating.
 
 ### 2026-02-20_12.46.28 staging contract alignment edge cases
 
-Source note: this section was merged into the log; the original standalone doc is no longer present in `docs/`.
-
 Preserved rules:
 - Cookbook staging schema allows `source=null` but rejects empty-string source values; normalize blank source to `null`.
 - Linked-recipe ingredient lines require stricter normalization:
   - blank `linked_recipe_id` must become `null`,
-  - `input_qty` for recipe-line multipliers must stay within `> 0` and `<= 100`,
-  - `input_unit_id` should stay `null` for these rows.
+  - positive `input_qty` values are capped at `100` (missing/non-positive values normalize to `null`),
+  - `input_unit_id` and `ingredient_id` should stay `null` for these rows.
 
 Anti-loop note:
 - "Looks valid locally" is not enough for staging alignment; enforce these normalizations in `draft_v1.py` before output writes to avoid downstream contract parser failures.
@@ -193,3 +171,38 @@ Verification anchor preserved:
 
 Anti-loop note:
 - Avoid reordering report-before-raw-merge for convenience; it reintroduces silent stats drift that looks like analytics/dashboard bugs later.
+
+### 2026-02-27_19.53.48 staging docs completeness audit (code-to-doc map refresh)
+
+Problem captured:
+- Staging docs covered core writers/merge flow but missed active runtime surfaces now relied on by tests/tooling:
+  - `run_manifest.json` stage artifact contract,
+  - explicit `cookimport/staging/stage_block_predictions.py` behavior,
+  - split-merge block-index offset + merged `full_text.json` alignment details.
+
+Decisions/actions captured:
+- Promote `run_manifest.json` to first-class staging output contract (with code pointers to `_write_stage_run_manifest` + `runs/manifest.py`).
+- Document stage-block label resolution behavior (text matching + structural fallback + deterministic conflict priority).
+- Expand split-merge flow notes to include block-offset normalization and archive-aware stage-block prediction write.
+- Add `tests/staging/test_run_manifest_parity.py` to staging guardrail list.
+
+Anti-loop note:
+- If a staging-output change modifies artifact paths or per-run metadata, update both docs and run-manifest parity tests in the same change to avoid silent drift between stage and benchmark/pred-run tooling.
+
+### 2026-02-27_19.47.49 staging docs prune current contracts
+
+Problem captured:
+- Staging docs had stale test paths and outdated behavioral wording.
+
+Durable decisions:
+- Keep split-merge status/raw-artifact merge chronology and active invariants.
+- Retire stale path/line references after test modularization.
+- Keep docs wording aligned to actual `_sanitize_staging_line()` behavior for linked recipe quantity fields.
+
+### 2026-02-27_19.53.48 provenance note
+
+Source understanding merged:
+- `docs/understandings/2026-02-27_19.53.48-staging-doc-code-coverage-refresh.md`
+
+Current status:
+- Run manifest, stage-block builder semantics, and split-merge block-offset coverage are retained in this log and `05-staging_readme.md`.

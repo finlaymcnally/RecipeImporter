@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from cookimport.epub_extractor_names import epub_extractor_enabled_choices
+
 
 class Tunable(BaseModel):
     """A single tunable parameter."""
@@ -54,7 +56,15 @@ KNOB_REGISTRY: list[Tunable] = [
 
 def list_knobs() -> list[Tunable]:
     """Return all registered tunable knobs."""
-    return list(KNOB_REGISTRY)
+    knobs: list[Tunable] = []
+    for knob in KNOB_REGISTRY:
+        if knob.name == "epub_extractor":
+            knobs.append(
+                knob.model_copy(update={"choices": epub_extractor_enabled_choices()})
+            )
+        else:
+            knobs.append(knob)
+    return knobs
 
 
 def load_config(path: Path | None) -> dict[str, Any]:
@@ -67,7 +77,7 @@ def load_config(path: Path | None) -> dict[str, Any]:
 def effective_knobs(config: dict[str, Any] | None) -> dict[str, Any]:
     """Merge user config over registry defaults. Returns effective values."""
     result: dict[str, Any] = {}
-    for knob in KNOB_REGISTRY:
+    for knob in list_knobs():
         result[knob.name] = knob.default
     if config:
         for key, value in config.items():
@@ -78,7 +88,7 @@ def effective_knobs(config: dict[str, Any] | None) -> dict[str, Any]:
 def validate_knobs(config: dict[str, Any]) -> list[str]:
     """Validate knob values against registry bounds. Returns list of errors."""
     errors: list[str] = []
-    registry_map = {k.name: k for k in KNOB_REGISTRY}
+    registry_map = {k.name: k for k in list_knobs()}
     for key, value in config.items():
         knob = registry_map.get(key)
         if knob is None:

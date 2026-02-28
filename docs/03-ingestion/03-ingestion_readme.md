@@ -18,6 +18,7 @@ Ingestion is the stage that converts source files into `ConversionResult` payloa
 - `recipes` (`RecipeCandidate`)
 - `tips` and `tip_candidates`
 - `topic_candidates`
+- `chunks`
 - `non_recipe_blocks` (block-first formats)
 - `raw_artifacts`
 - `report`
@@ -32,8 +33,12 @@ Primary folders:
 ## Where The Code Lives
 
 Core orchestration:
-- `cookimport/cli.py` (job planning, worker dispatch, split merge, report write, perf history append)
+- `cookimport/cli.py` (job planning, worker dispatch, split merge, run telemetry, report/perf history writes)
 - `cookimport/cli_worker.py` (per-file and per-split worker execution)
+
+Run-setting normalization and policy locks:
+- `cookimport/config/run_settings.py`
+- `cookimport/epub_extractor_names.py`
 
 Split planning and ID reassignment:
 - `cookimport/staging/pdf_jobs.py`
@@ -47,15 +52,29 @@ Importer registry + importers:
 - `cookimport/plugins/paprika.py`
 - `cookimport/plugins/recipesage.py`
 
+EPUB extractor backends and adapters:
+- `cookimport/parsing/epub_extractors.py`
+- `cookimport/parsing/unstructured_adapter.py`
+- `cookimport/parsing/markitdown_adapter.py`
+- `cookimport/parsing/markdown_blocks.py`
+- `cookimport/parsing/epub_html_normalize.py`
+- `cookimport/parsing/epub_postprocess.py`
+- `cookimport/parsing/epub_health.py`
+
 Shared ingestion parsing primitives:
 - `cookimport/parsing/cleaning.py`
 - `cookimport/parsing/signals.py`
 - `cookimport/parsing/patterns.py`
-- `cookimport/parsing/unstructured_adapter.py`
 - `cookimport/parsing/block_roles.py`
+- `cookimport/parsing/tips.py`
+- `cookimport/parsing/atoms.py`
+- `cookimport/parsing/chunks.py`
+- `cookimport/parsing/tables.py`
+- `cookimport/parsing/sections.py`
 
 Writers + output structure:
 - `cookimport/staging/writer.py`
+- `cookimport/staging/stage_block_predictions.py`
 
 Models/contracts:
 - `cookimport/core/models.py`
@@ -74,9 +93,11 @@ OCR:
   - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
 - Creates run output directory using timestamp format `%Y-%m-%d_%H.%M.%S`.
 - Builds `base_mapping` once and always passes it to workers.
-- Normalizes optional LLM recipe settings (`llm_recipe_pipeline`, `codex_farm_cmd`, `codex_farm_root`, `codex_farm_workspace_root`, `codex_farm_pipeline_pass1/2/3`, `codex_farm_context_blocks`, `codex_farm_failure_mode`) into `RunSettings` and threads them into workers/merge.
+- Builds `RunSettings` and `runConfig` (workers/split knobs, EPUB extractor + unstructured knobs, OCR, table extraction, LLM settings, mapping/overrides paths, and markdown sidecar setting).
+- `RunSettings.from_dict(...)` keeps recipe codex-farm parsing policy-locked off by forcing `llm_recipe_pipeline=off` when non-off values appear in payloads.
 - Plans jobs with `_plan_jobs(...)`.
 - Executes with `ProcessPoolExecutor`; on `PermissionError`, falls back to serial execution.
+- Writes run heartbeat telemetry to `<run_out>/processing_timeseries.jsonl` while stage is active.
 
 Important detail:
 - Because `base_mapping` is always passed, worker `_run_import(...)` usually does not call `importer.inspect(...)` in non-split conversion path. Inspection is still used during split planning.
@@ -92,6 +113,7 @@ Per file:
 - EPUB split considered when:
   - suffix is `.epub`
   - `epub_split_workers > 1`
+  - selected extractor is not `markitdown`
   - `epub_spine_items_per_job > 0`
   - inspect returns spine count
 - Otherwise one non-split `JobSpec`.
@@ -107,9 +129,10 @@ Non-split file:
 - `stage_one_file(...)`
 - Runs importer conversion
 - Applies optional `--limit` to recipes and tips
-- If `llm_recipe_pipeline != off`, runs the 3-pass codex-farm orchestrator before chunking/writes and captures `report.llmCodexFarm`
+- Code still contains a `llm_recipe_pipeline != off` codex-farm branch before chunking/writes, but current CLI/run-settings normalization keeps this path disabled (`off`).
+- Optionally extracts non-recipe tables (`--table-extraction on`) before chunk generation.
 - Builds chunks from `non_recipe_blocks` or topic fallback
-- Writes intermediate/final/tips/topics/chunks/raw/report
+- Writes intermediate/final outputs plus sections, tips, topic candidates, optional chunks/tables, raw artifacts, stage-block predictions, and report
 
 Split job:
 - `stage_pdf_job(...)` or `stage_epub_job(...)`
@@ -128,11 +151,12 @@ Split job:
   - Concatenates recipes/tip candidates/topic candidates/non-recipe blocks
   - Reassigns recipe IDs globally (single sequence) via `reassign_recipe_ids(...)`
   - Rebuilds merged `raw/<importer>/<source_hash>/full_text.json` from split-job `full_text` artifacts and rebases block indices
-  - If `llm_recipe_pipeline != off`, runs the same 3-pass codex-farm orchestrator on the merged result before chunking/writes
+  - Code still contains a merged-result codex-farm recipe branch for `llm_recipe_pipeline != off`, but current CLI/run-settings normalization keeps this path disabled (`off`)
   - Re-partitions tips from merged `tip_candidates`
+  - Optionally extracts non-recipe tables from merged block stream when `table_extraction=on`
   - Rebuilds chunks once from merged non-recipe/topic data
   - Emits phase-by-phase main-process status updates (merge payloads, IDs, chunk build, write phases, raw merge)
-  - Writes normal outputs once
+  - Writes intermediate/final outputs plus sections, tips, topic candidates, optional chunks/tables, stage-block predictions, and report
   - Moves raw artifacts from `.job_parts/.../raw` into run `raw/...`
   - Removes `.job_parts/<workbook_slug>` on successful merge
 
@@ -209,8 +233,9 @@ Behavior highlights:
 
 Extractor modes:
 - Default: `unstructured`
-- Alternates: `beautifulsoup`, `markdown`, `markitdown`
-- Runtime no longer exposes an EPUB extractor auto-race mode; extraction uses explicit backend selection only.
+- Default alternate: `beautifulsoup`
+- Optional alternates (policy-locked off by default): `markdown`, `markitdown` (set `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1` to temporarily re-enable)
+- Runtime uses explicit extractor backend selection only.
 - Control path:
   - CLI: `--epub-extractor`
   - Env: `C3IMP_EPUB_EXTRACTOR`
@@ -305,7 +330,7 @@ Quick selection guidance:
 - Use `beautifulsoup` when simpler HTML-tag parsing behavior is preferred.
 - Use `markdown` when per-spine HTML conversion plus deterministic markdown parsing yields cleaner block boundaries.
 - Use `markitdown` when source XHTML is noisy and markdown normalization yields better block boundaries.
-- Stage/prediction runtime requires explicit extractor choices; debug-only auto-selection tooling is intentionally out-of-band.
+- Stage/prediction runtime requires explicit extractor choices.
 
 ### PDF (`cookimport/plugins/pdf.py`)
 
@@ -366,6 +391,11 @@ Behavior highlights:
   - ingredient/instruction likelihood
 - `patterns.py` holds shared regexes for quantities/units/time/yield.
 - EPUB extraction health metrics are computed in `cookimport/parsing/epub_health.py` and written as raw artifact `epub_extraction_health.json`; warning keys are appended to report warnings when thresholds trip.
+- `tips.py` mines candidate-anchored tips plus standalone-topic tips and partitions into `general` / `recipe_specific` / `not_tip`.
+- `atoms.py` splits standalone non-recipe text containers into atomic lines for standalone tip/topic analysis.
+- `chunks.py` builds `KnowledgeChunk` records from non-recipe blocks (or topic fallback), preserving table runs via `table_id`.
+- `tables.py` detects/annotates table rows in non-recipe blocks and emits `ExtractedTable` payloads.
+- `sections.py` groups ingredient and instruction lines into sectioned artifacts used by writer section outputs.
 
 Unstructured adapter traceability fields per block:
 - `unstructured_element_id`
@@ -391,14 +421,20 @@ Block role labels (`block_roles.py`):
 For a run at `data/output/<timestamp>/`:
 - `intermediate drafts/<workbook_slug>/r{index}.jsonld`
 - `final drafts/<workbook_slug>/r{index}.json`
-- `tips/<workbook_slug>/...`
+- `sections/<workbook_slug>/r{index}.sections.json` (+ optional `sections.md`)
+- `tips/<workbook_slug>/...` (includes `topic_candidates.json` / optional `topic_candidates.md`)
 - `chunks/<workbook_slug>/...` (when generated)
+- `tables/<workbook_slug>/tables.jsonl` (+ optional `tables.md` when table extraction is enabled)
 - `raw/<importer>/<source_hash>/<location_id>.<ext>`
+- `.bench/<workbook_slug>/stage_block_predictions.json`
 - `<workbook_slug>.excel_import_report.json`
+- `processing_timeseries.jsonl`
 
 Reporting/perf:
-- Report has `runTimestamp`, `importerName`, timing, warnings/errors, sample stats.
+- Report has `runTimestamp`, `importerName`, optional `epubBackend`, timing, warnings/errors, sample stats.
 - Report now includes `runConfig` for run-level knobs (including `epub_extractor`, unstructured parser/preprocess flags, worker counts, OCR settings, split sizes, and optional mapping/overrides paths).
+- Report includes `runConfigHash` and `runConfigSummary` for reproducibility and history grouping.
+- Report includes `llmCodexFarm` status payload (recipe pipeline stays policy-locked `off` unless code policy changes).
 - Report can include `outputStats` (counts/bytes/largest files by category).
 - Stage appends per-file summary rows into:
   - `data/.history/performance_history.csv`
@@ -416,6 +452,7 @@ Stage CLI options (key ones):
 - `--epub-split-workers`
 - `--pdf-pages-per-job`
 - `--epub-spine-items-per-job`
+- `--write-markdown/--no-write-markdown`
 - `--ocr-device`
 - `--ocr-batch-size`
 - `--mapping`
@@ -424,10 +461,18 @@ Stage CLI options (key ones):
 - `--epub-unstructured-html-parser-version`
 - `--epub-unstructured-skip-headers-footers`
 - `--epub-unstructured-preprocess-mode`
+- `--table-extraction`
+- `--llm-recipe-pipeline` (policy-locked to `off` by run-settings normalization)
+- `--llm-knowledge-pipeline`
+- `--llm-tags-pipeline`
 
 Overrides and mapping:
 - Mapping model supports `parsingOverrides` alias (`parsing_overrides` field in code).
 - Override file resolution can use sidecars like `*.overrides.yaml` / `*.overrides.json`.
+
+Extractor policy and compatibility normalization:
+- `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1` is required to allow `markdown` / `markitdown` extractor selection in CLI policy-checked flows.
+- `RunSettings.from_dict(...)` converts legacy extractor aliases (`auto -> unstructured`, `legacy -> beautifulsoup`) for compatibility payloads.
 
 ## What We Know Is Bad / Risky
 
@@ -454,16 +499,20 @@ Overrides and mapping:
 ## Test Coverage Pointers
 
 Files most relevant to ingestion behavior:
-- `tests/test_pdf_job_merge.py`
-- `tests/test_epub_job_merge.py`
-- `tests/test_pdf_importer.py`
-- `tests/test_epub_importer.py`
-- `tests/test_text_importer.py`
-- `tests/test_excel_importer.py`
-- `tests/test_paprika_importer.py`
-- `tests/test_paprika_merge.py`
-- `tests/test_recipesage_importer.py`
-- `tests/test_unstructured_adapter.py` (29 tests)
+- `tests/ingestion/test_pdf_job_merge.py`
+- `tests/ingestion/test_epub_job_merge.py`
+- `tests/ingestion/test_pdf_importer.py`
+- `tests/ingestion/test_epub_importer.py`
+- `tests/ingestion/test_text_importer.py`
+- `tests/ingestion/test_excel_importer.py`
+- `tests/ingestion/test_paprika_importer.py`
+- `tests/ingestion/test_paprika_merge.py`
+- `tests/ingestion/test_recipesage_importer.py`
+- `tests/ingestion/test_unstructured_adapter.py`
+- `tests/parsing/test_chunks.py`
+- `tests/parsing/test_tables.py`
+- `tests/staging/test_section_outputs.py`
+- `tests/staging/test_stage_block_predictions.py`
 
 When changing split/merge logic, update at least the split merge tests plus importer-specific tests.
 
@@ -500,168 +549,18 @@ If working in this area, keep these invariants:
 - Preserve raw artifact traceability and avoid silent data loss during merge moves.
 - Treat `.job_parts` cleanup behavior as diagnostic signal, not noise.
 
-## EPUB Extractor Wiring Addendum (Merged 2026-02-19/2026-02-20 understandings)
+## 2026-02-27 to 2026-02-28 Merged Understandings: Ingestion Docs Contract
 
-### Shared postprocess and health join points
+Merged source notes:
+- `docs/understandings/2026-02-27_19.50.48-ingestion-docs-code-coverage-audit.md`
+- `docs/understandings/2026-02-27_19.53.12-markdown-epub-extractors-policy-lock-scope.md`
+- `docs/understandings/2026-02-28_00.45.23-ingestion-doc-retirement-audit.md`
 
-- `_extract_docpack(...)` in `cookimport/plugins/epub.py` is the extractor join point.
-- `beautifulsoup`, `unstructured`, and `markdown` backends run shared cleanup (`postprocess_epub_blocks(...)`) before signal enrichment.
-- `markitdown` intentionally skips shared HTML postprocess and only gets normal signal enrichment.
-- Conversion-level health is attached in `EpubImporter.convert(...)`:
-  - writes raw artifact `epub_extraction_health.json`,
-  - appends stable warning keys into `ConversionReport.warnings`.
+Current-contract additions:
+- Ingestion output-contract docs must include `sections/`, optional `tables/`, `.bench/<workbook>/stage_block_predictions.json`, and `processing_timeseries.jsonl` in addition to draft/tip/chunk/raw/report artifacts.
+- EPUB extractor policy lock is enforced at multiple layers (command normalization, run-settings coercion, and interactive/UI choice surfaces), not just one parser branch.
+- Temporary unlock path for markdown extractors remains `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`.
+- `epub_extractor=auto` is retired runtime behavior; only compatibility migration remains in settings normalization.
 
-### Spine metadata contract
-
-- Spine metadata contract uses typed records (`EpubSpineItem(path, media_type, item_id, properties)`) rather than tuple slots.
-- This keeps nav/TOC skip behavior aligned between ebooklib and zip-fallback spine readers.
-
-### Extractor selection + env scope
-
-- Stage and benchmark prediction generation now require an explicit EPUB extractor (`unstructured|beautifulsoup|markdown|markitdown`).
-- Stage/prediction workers receive that selected backend directly (no per-file auto-resolution branch).
-- Prediction-generation helper flows should apply `C3IMP_EPUB_*` overrides in scoped contexts and restore previous env values after conversion to avoid run/test leakage.
-- EPUB extractor race selection is retired from current CLI/runtime flows.
-
-## Merged Task Specs (2026-02-22 spinner visibility)
-
-### 2026-02-22_14.08.34 elapsed ticker + post-candidate progress phases
-
-Long-running conversion phases after candidate extraction can look frozen if callback text never changes.
-Current contract from the spinner visibility pass:
-
-- Shared callback-driven status wrappers append elapsed-time suffixes (for example `(17s)`) when a phase message stays unchanged past threshold.
-- The elapsed ticker contract is shared across CLI wrappers used by Label Studio import/decorate and benchmark flows.
-- Importer callbacks now continue after `candidate X/Y` with explicit post-candidate phase updates in EPUB/PDF flows (for example knowledge-block analysis and finalization steps).
-- Standalone knowledge-block analysis in EPUB/PDF now emits `Analyzing standalone knowledge blocks... task X/Y` and processes standalone topic containers with bounded parallelism (`C3IMP_STANDALONE_ANALYSIS_WORKERS`, default `4`).
-
-Operational boundary:
-
-- These are visibility-only progress message changes; extraction semantics and output artifact contracts are unchanged.
-
-## Merged Understanding Notes (2026-02-22 batch)
-
-### Importer fixture gaps and inspect() exception-path caveat
-
-Durable notes:
-- Paprika and RecipeSage tests that rely on fixture files under `docs/template/examples/...` can fail before meaningful assertions when those fixtures are absent.
-- `WorkbookInspection` is strict about allowed fields; injecting unexpected fields (for example `warnings=[...]`) from exception paths can raise validation errors and hide the original inspect failure.
-- `RecipeSageImporter.convert()` missing-file handling is sensitive to where file hashing happens; hash-before-`try` causes immediate exceptions instead of report-level error capture.
-
-### Split-merge full-text reconstruction before codex-farm
-
-Durable notes:
-- Split merge reconstructs one merged `raw/<importer>/<source_hash>/full_text.json` from per-job raw artifacts.
-- Merge rebases block indices by cumulative prior-job block counts and applies matching offsets to recipe/tip/topic location fields.
-- This is required before codex-farm pass1 so context windows (`blocks_before` / `blocks_candidate` / `blocks_after`) operate in one absolute coordinate system.
-
-### Spinner liveness after candidate loops
-
-Durable notes:
-- If importer callbacks stop after `candidate N/N`, CLI spinners appear frozen even while work continues.
-- Keep fixes dual-path: importer runtime should emit post-candidate phase callbacks; CLI wrappers should add elapsed suffixes when text is unchanged.
-
-## Merged Understandings Batch (2026-02-23 cleanup)
-
-### 2026-02-22_23.46.43 standalone knowledge-analysis parallelism
-
-Merged source:
-- `docs/understandings/2026-02-22_23.46.43-standalone-knowledge-analysis-parallelism.md`
-
-Durable ingestion/runtime contract:
-- The long "Analyzing standalone knowledge blocks..." phase was a serial container loop in EPUB/PDF importers.
-- Safe parallelization boundary is per standalone topic container after chunking; containers are independent units.
-- Output ordering remains deterministic by sorting merged results back to original container index before final merge.
-- Progress messages for this phase should include `task X/Y` (including initial `0/Y`) so shared spinner ETA remains meaningful.
-- Worker count remains bounded by `C3IMP_STANDALONE_ANALYSIS_WORKERS` (default `4`, minimum `1`).
-
-## Merged Task Spec (2026-02-22_23.46.51)
-
-### Parallel standalone knowledge-block analysis (EPUB/PDF)
-
-Task source:
-- `docs/tasks/2026-02-22_23.46.51 - parallelize-standalone-knowledge-analysis.md`
-
-Current contract:
-- Standalone topic-container analysis in EPUB/PDF importers runs with bounded container-level parallelism.
-- Progress for this phase uses `task X/Y` counters so shared CLI spinner ETA remains meaningful.
-- Output remains deterministic by merging worker-local results back in source container order.
-
-Controls and bounds:
-- `C3IMP_STANDALONE_ANALYSIS_WORKERS` controls concurrency (default `4`, minimum `1`).
-- Worker logic should use local buffers and merge after completion; avoid direct shared-list mutation.
-
-## Merged Understanding (2026-02-24 cleanup)
-
-### 2026-02-23_22.45.22 EPUB extractor auto mode removed from runtime
-
-Merged source:
-- `docs/understandings/2026-02-23_22.45.22-epub-extractor-auto-removed.md`
-
-Durable ingestion contract:
-- Stage and prediction-generation runtime paths require explicit EPUB extractor selection (`unstructured|beautifulsoup|markdown|markitdown`).
-- `epub_extractor=auto` is a rejected runtime value in CLI/prediction validators.
-- Legacy saved run settings carrying `epub_extractor=auto` are migrated to `unstructured` with warning during settings load.
-- Deterministic auto-selector utilities remain available for extractor-debug/race workflows only, not normal stage/benchmark execution.
-
-## Merged Task Specs (2026-02-24 docs/tasks archival batch)
-
-### 2026-02-23_22.37.46 + 2026-02-23_22.47.23 remove runtime `epub_extractor=auto`
-
-Task sources:
-- `docs/tasks/2026-02-23_22.37.46-remove-epub-auto-mode.md`
-- `docs/tasks/2026-02-23_22.47.23-remove-epub-auto-extractor.md`
-
-Current runtime contract (code + task verification aligned):
-- Stage and prediction-generation validators reject `epub_extractor=auto`.
-- Runtime keeps explicit extractor modes only: `unstructured|beautifulsoup|markdown|markitdown`.
-- Run-config compatibility fields stay stable (`epub_extractor_requested`, `epub_extractor_effective`) and are equal for new runs.
-- All-method variant generation and benchmark knobs no longer include `auto` permutations.
-- Legacy saved run settings still load through migration (`auto -> unstructured`) with warning.
-- EPUB extractor race selection remains out of current runtime/CLI contracts.
-
-Implementation/testing notes worth preserving:
-- CLI tests should not rely on invalid-choice text always appearing in `stdout`; Typer error output can be stream-dependent in test harnesses.
-- Recorded focused validation from task run:
-  - `source .venv/bin/activate && pytest tests/llm/test_run_settings.py tests/labelstudio/test_labelstudio_ingest_parallel.py tests/labelstudio/test_labelstudio_benchmark_helpers.py tests/cli/test_cli_output_structure.py`
-  - Result captured in task docs: `86 passed, 7 warnings`.
-- Recorded CLI help evidence: `cookimport stage --help` showed explicit choices only (no `auto`).
-
-## Merged Understandings Batch (2026-02-25 extractor variants + canonical naming)
-
-### 2026-02-25_17.57.34 EPUB extractor variants and unstructured-only knobs
-
-Merged source:
-- `docs/understandings/epub-extractor-variants-unstructured-knobs.md`
-
-Durable operator contract:
-- Exactly one extractor runs per import: `unstructured`, `beautifulsoup`, `markdown`, or `markitdown`.
-- `parser` / `skiphf` / `pre` knobs only affect `unstructured`.
-- All-method slugs containing `parser`, `skiphf`, or `pre` represent unstructured-only variants.
-- Split compatibility is extractor-dependent:
-  - `unstructured`, `beautifulsoup`, and `markdown` support spine-range split jobs.
-  - `markitdown` is whole-book only.
-- `semantic_v1` currently aliases `br_split_v1`; keep both labels stable for historical benchmark comparability.
-
-Anti-loop notes:
-- Do not try to tune `parser` / `skiphf` / `pre` to improve `beautifulsoup` / `markdown` / `markitdown` runs; those knobs are no-ops there.
-- If non-unstructured runs appear to differ only by those knobs, treat it as config/reporting drift before changing extractor code.
-
-### 2026-02-25_18.05.02 `beautifulsoup` canonical-name contract
-
-Merged source:
-- `docs/understandings/2026-02-25_18.05.02-epub-extractor-beautifulsoup-canonical-name.md`
-
-Durable runtime contract:
-- `beautifulsoup` is the only canonical extractor token for the BeautifulSoup backend.
-- Normalization must happen before validation in shared helper `cookimport/epub_extractor_names.py`.
-- Keep these call sites aligned to canonical values:
-  - `cookimport/config/run_settings.py`
-  - `cookimport/cli.py`
-  - `cookimport/epubdebug/cli.py`
-  - `cookimport/labelstudio/ingest.py`
-  - `cookimport/plugins/epub.py`
-
-Anti-loop notes:
-- Mixed alias handling causes extractor slugs/history rows/dashboard groups/tests to split one backend into multiple names.
-- If benchmark analytics or fixtures show both `bs4`-style aliases and `beautifulsoup`, fix canonical normalization drift first.
+Known bad loop:
+- Do not diagnose extractor behavior from one command path only; verify normalization in CLI + Label Studio ingest + `RunSettings.from_dict(...)` together.

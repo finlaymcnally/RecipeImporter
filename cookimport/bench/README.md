@@ -18,5 +18,5 @@ Current scoring contract:
 - canonical-text eval outputs include `aligned_prediction_blocks.jsonl` so alignment mappings can be compared directly across matcher implementations.
 - Deterministic speed regression tooling lives in:
   - `speed_suite.py` (`bench speed-discover` target discovery from pulled gold exports)
-  - `speed_runner.py` (`bench speed-run` repeated stage/benchmark timing samples)
+  - `speed_runner.py` (`bench speed-run` repeated stage/benchmark timing samples, including optional `benchmark_all_method_multi_source`)
   - `speed_compare.py` (`bench speed-compare` baseline-vs-candidate regression gating)

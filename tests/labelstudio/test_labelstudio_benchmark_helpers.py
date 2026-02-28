@@ -23,6 +23,113 @@ from cookimport.core.progress_messages import (
 )
 
 
+def _write_fake_all_method_prediction_phase_artifacts(
+    *,
+    kwargs: dict[str, object],
+    source_file: Path,
+    extractor: str,
+    signature_seed: str | None = None,
+    prediction_seconds: float = 0.0,
+) -> None:
+    eval_output_dir = kwargs["eval_output_dir"]
+    assert isinstance(eval_output_dir, Path)
+    eval_output_dir.mkdir(parents=True, exist_ok=True)
+
+    run_config_hash = f"hash-{extractor}"
+    run_config_summary = f"epub_extractor={extractor}"
+    record_text = signature_seed or extractor
+    predictions_out = kwargs.get("predictions_out")
+    if isinstance(predictions_out, Path):
+        write_prediction_records(
+            predictions_out,
+            [
+                make_prediction_record(
+                    example_id=f"all-method:{source_file.name}:{record_text}:0",
+                    example_index=0,
+                    prediction={
+                        "schema_kind": "stage-block.v1",
+                        "block_index": 0,
+                        "pred_label": "RECIPE_TITLE",
+                        "block_text": f"pred::{record_text}",
+                        "block_features": {"extractor": extractor},
+                    },
+                    predict_meta={
+                        "source_file": str(source_file),
+                        "source_hash": f"source-{source_file.stem}",
+                        "workbook_slug": source_file.stem,
+                        "run_config_hash": run_config_hash,
+                        "run_config_summary": run_config_summary,
+                        "timing": {"prediction_seconds": prediction_seconds},
+                    },
+                )
+            ],
+        )
+
+    pred_run = eval_output_dir / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(source_file),
+                "source_hash": f"source-{source_file.stem}",
+                "run_config_hash": run_config_hash,
+                "run_config_summary": run_config_summary,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (eval_output_dir / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_config": {
+                    "execution_mode": str(kwargs.get("execution_mode") or "predict-only"),
+                    "predict_only": True,
+                },
+                "artifacts": {
+                    "timing": {
+                        "total_seconds": prediction_seconds,
+                        "prediction_seconds": prediction_seconds,
+                        "evaluation_seconds": 0.0,
+                    }
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_fake_all_method_eval_artifacts(
+    *,
+    eval_output_dir: Path,
+    score: float,
+    total_seconds: float | None = None,
+) -> None:
+    eval_output_dir.mkdir(parents=True, exist_ok=True)
+    report: dict[str, object] = {
+        "precision": score,
+        "recall": score,
+        "f1": score,
+        "practical_precision": score,
+        "practical_recall": score,
+        "practical_f1": score,
+    }
+    if total_seconds is not None:
+        report["timing"] = {
+            "total_seconds": float(total_seconds),
+            "prediction_seconds": 0.0,
+            "evaluation_seconds": float(total_seconds),
+        }
+    (eval_output_dir / "eval_report.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
+
+
 def test_format_status_progress_message_appends_elapsed_after_threshold() -> None:
     assert (
         cli._format_status_progress_message(
@@ -3877,6 +3984,14 @@ def test_labelstudio_benchmark_rejects_invalid_epub_extractor() -> None:
         cli.labelstudio_benchmark(epub_extractor="invalid")
 
 
+def test_labelstudio_benchmark_rejects_policy_locked_markdown_extractor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", raising=False)
+    with pytest.raises(cli.typer.Exit):
+        cli.labelstudio_benchmark(epub_extractor="markdown")
+
+
 def test_build_all_method_variants_epub_expected_count() -> None:
     base_settings = cli.RunSettings.from_dict({}, warn_context="test")
     variants = cli._build_all_method_variants(
@@ -3891,7 +4006,10 @@ def test_build_all_method_variants_epub_expected_count() -> None:
     assert not any("extractor_markitdown" in variant.slug for variant in variants)
 
 
-def test_build_all_method_variants_epub_includes_markdown_when_enabled() -> None:
+def test_build_all_method_variants_epub_includes_markdown_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
     base_settings = cli.RunSettings.from_dict({}, warn_context="test")
     variants = cli._build_all_method_variants(
         base_settings=base_settings,
@@ -3931,6 +4049,17 @@ def test_resolve_all_method_codex_choice_remains_disabled(
     assert include_effective_unlocked is False
     assert warning_unlocked is not None
     assert "policy-locked OFF" in warning_unlocked
+
+
+def test_resolve_all_method_markdown_extractors_requires_policy_unlock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(cli.ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV, "1")
+    monkeypatch.delenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", raising=False)
+    assert cli._resolve_all_method_markdown_extractors_choice() is False
+
+    monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
+    assert cli._resolve_all_method_markdown_extractors_choice() is True
 
 
 def test_resolve_all_method_scheduler_limits_defaults_raise_split_slots_to_four() -> None:
@@ -4324,42 +4453,26 @@ def test_run_all_method_benchmark_resource_guard_caps_split_workers(
     captured_workers: list[tuple[int, int, int]] = []
 
     def fake_labelstudio_benchmark(**kwargs):
-        captured_workers.append(
-            (
-                int(kwargs.get("workers") or 0),
-                int(kwargs.get("pdf_split_workers") or 0),
-                int(kwargs.get("epub_split_workers") or 0),
-            )
-        )
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
-        eval_output_dir.mkdir(parents=True, exist_ok=True)
-        report = {
-            "precision": 0.7,
-            "recall": 0.7,
-            "f1": 0.7,
-            "practical_precision": 0.7,
-            "practical_recall": 0.7,
-            "practical_f1": 0.7,
-        }
-        (eval_output_dir / "eval_report.json").write_text(
-            json.dumps(report, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
-        pred_run = eval_output_dir / "prediction-run"
-        pred_run.mkdir(parents=True, exist_ok=True)
-        (pred_run / "manifest.json").write_text(
-            json.dumps(
-                {
-                    "source_file": str(source_file),
-                    "run_config_hash": "hash-unstructured",
-                    "run_config_summary": "epub_extractor=unstructured",
-                },
-                indent=2,
-                sort_keys=True,
-            ),
-            encoding="utf-8",
+        extractor = str(kwargs.get("epub_extractor") or "unstructured")
+        if str(kwargs.get("execution_mode") or "") == "predict-only":
+            captured_workers.append(
+                (
+                    int(kwargs.get("workers") or 0),
+                    int(kwargs.get("pdf_split_workers") or 0),
+                    int(kwargs.get("epub_split_workers") or 0),
+                )
+            )
+            _write_fake_all_method_prediction_phase_artifacts(
+                kwargs=kwargs,
+                source_file=source_file,
+                extractor=extractor,
+            )
+            return
+        _write_fake_all_method_eval_artifacts(
+            eval_output_dir=eval_output_dir,
+            score=0.7,
         )
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
@@ -4394,6 +4507,7 @@ def test_run_all_method_benchmark_resource_guard_caps_split_workers(
 def test_run_all_method_benchmark_writes_ranked_summary(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
     base_settings = cli.RunSettings.from_dict({}, warn_context="test")
     markdown_settings = cli.RunSettings.from_dict(
         {
@@ -4425,10 +4539,8 @@ def test_run_all_method_benchmark_writes_ranked_summary(
     def fake_labelstudio_benchmark(**kwargs):
         progress_callback = cli._BENCHMARK_PROGRESS_CALLBACK.get()
         assert callable(progress_callback)
-        assert kwargs.get("eval_mode") == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
-        eval_output_dir.mkdir(parents=True, exist_ok=True)
         processed_output_dir = kwargs["processed_output_dir"]
         assert isinstance(processed_output_dir, Path)
         captured_processed_dirs.append(processed_output_dir)
@@ -4436,39 +4548,19 @@ def test_run_all_method_benchmark_writes_ranked_summary(
         assert isinstance(alignment_cache_dir, Path)
         captured_alignment_cache_dirs.append(alignment_cache_dir)
         extractor = str(kwargs.get("epub_extractor") or "")
+        if str(kwargs.get("execution_mode") or "") == "predict-only":
+            _write_fake_all_method_prediction_phase_artifacts(
+                kwargs=kwargs,
+                source_file=source_file,
+                extractor=extractor or "unstructured",
+            )
+            return
         f1 = 0.82 if extractor == "markdown" else 0.40
         total_seconds = 8.0 if extractor == "markdown" else 5.0
-        report = {
-            "precision": f1,
-            "recall": f1,
-            "f1": f1,
-            "practical_precision": f1,
-            "practical_recall": f1,
-            "practical_f1": f1,
-            "timing": {
-                "total_seconds": total_seconds,
-                "prediction_seconds": total_seconds - 1.2,
-                "evaluation_seconds": 1.2,
-            },
-        }
-        (eval_output_dir / "eval_report.json").write_text(
-            json.dumps(report, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
-        pred_run = eval_output_dir / "prediction-run"
-        pred_run.mkdir(parents=True, exist_ok=True)
-        (pred_run / "manifest.json").write_text(
-            json.dumps(
-                {
-                    "source_file": str(source_file),
-                    "run_config_hash": f"hash-{extractor}",
-                    "run_config_summary": f"epub_extractor={extractor}",
-                },
-                indent=2,
-                sort_keys=True,
-            ),
-            encoding="utf-8",
+        _write_fake_all_method_eval_artifacts(
+            eval_output_dir=eval_output_dir,
+            score=f1,
+            total_seconds=total_seconds,
         )
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
@@ -4509,6 +4601,7 @@ def test_run_all_method_benchmark_writes_ranked_summary(
 def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_order(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
     base_settings = cli.RunSettings.from_dict({}, warn_context="test")
     base_payload = base_settings.to_run_config_dict()
     extractors = ("unstructured", "beautifulsoup", "markdown", "markitdown")
@@ -4556,36 +4649,18 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
             extractor = str(kwargs.get("epub_extractor") or "")
             eval_output_dir = kwargs["eval_output_dir"]
             assert isinstance(eval_output_dir, Path)
-            eval_output_dir.mkdir(parents=True, exist_ok=True)
-
-            time.sleep(delays[extractor])
+            if str(kwargs.get("execution_mode") or "") == "predict-only":
+                time.sleep(delays[extractor])
+                _write_fake_all_method_prediction_phase_artifacts(
+                    kwargs=kwargs,
+                    source_file=source_file,
+                    extractor=extractor,
+                )
+                return
             f1 = scores[extractor]
-            report = {
-                "precision": f1,
-                "recall": f1,
-                "f1": f1,
-                "practical_precision": f1,
-                "practical_recall": f1,
-                "practical_f1": f1,
-            }
-            (eval_output_dir / "eval_report.json").write_text(
-                json.dumps(report, indent=2, sort_keys=True),
-                encoding="utf-8",
-            )
-            (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
-            pred_run = eval_output_dir / "prediction-run"
-            pred_run.mkdir(parents=True, exist_ok=True)
-            (pred_run / "manifest.json").write_text(
-                json.dumps(
-                    {
-                        "source_file": str(source_file),
-                        "run_config_hash": f"hash-{extractor}",
-                        "run_config_summary": f"epub_extractor={extractor}",
-                    },
-                    indent=2,
-                    sort_keys=True,
-                ),
-                encoding="utf-8",
+            _write_fake_all_method_eval_artifacts(
+                eval_output_dir=eval_output_dir,
+                score=f1,
             )
         finally:
             with state_lock:
@@ -4630,6 +4705,7 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
 def test_run_all_method_benchmark_marks_timeout_and_finishes_report(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
     base_settings = cli.RunSettings.from_dict({}, warn_context="test")
     base_payload = base_settings.to_run_config_dict()
     variants = [
@@ -4659,38 +4735,21 @@ def test_run_all_method_benchmark_marks_timeout_and_finishes_report(
         extractor = str(kwargs.get("epub_extractor") or "")
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
-        eval_output_dir.mkdir(parents=True, exist_ok=True)
-        if extractor == "unstructured":
-            time.sleep(1.35)
-        else:
-            time.sleep(0.02)
+        if str(kwargs.get("execution_mode") or "") == "predict-only":
+            if extractor == "unstructured":
+                time.sleep(1.35)
+            else:
+                time.sleep(0.02)
+            _write_fake_all_method_prediction_phase_artifacts(
+                kwargs=kwargs,
+                source_file=source_file,
+                extractor=extractor,
+            )
+            return
         score = 0.9 if extractor == "markdown" else 0.2
-        report = {
-            "precision": score,
-            "recall": score,
-            "f1": score,
-            "practical_precision": score,
-            "practical_recall": score,
-            "practical_f1": score,
-        }
-        (eval_output_dir / "eval_report.json").write_text(
-            json.dumps(report, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
-        pred_run = eval_output_dir / "prediction-run"
-        pred_run.mkdir(parents=True, exist_ok=True)
-        (pred_run / "manifest.json").write_text(
-            json.dumps(
-                {
-                    "source_file": str(source_file),
-                    "run_config_hash": f"hash-{extractor}",
-                    "run_config_summary": f"epub_extractor={extractor}",
-                },
-                indent=2,
-                sort_keys=True,
-            ),
-            encoding="utf-8",
+        _write_fake_all_method_eval_artifacts(
+            eval_output_dir=eval_output_dir,
+            score=score,
         )
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
@@ -4723,6 +4782,7 @@ def test_run_all_method_benchmark_marks_timeout_and_finishes_report(
 def test_run_all_method_benchmark_retries_only_failed_configs(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
     base_settings = cli.RunSettings.from_dict({}, warn_context="test")
     base_payload = base_settings.to_run_config_dict()
     variants = [
@@ -4760,44 +4820,32 @@ def test_run_all_method_benchmark_retries_only_failed_configs(
 
     def fake_labelstudio_benchmark(**kwargs):
         extractor = str(kwargs.get("epub_extractor") or "")
-        call_counts[extractor] = call_counts.get(extractor, 0) + 1
-        if extractor == "beautifulsoup" and call_counts[extractor] == 1:
+        if str(kwargs.get("execution_mode") or "") == "predict-only":
+            call_counts[extractor] = call_counts.get(extractor, 0) + 1
+        if (
+            str(kwargs.get("execution_mode") or "") == "predict-only"
+            and extractor == "beautifulsoup"
+            and call_counts[extractor] == 1
+        ):
             raise RuntimeError("synthetic transient failure")
 
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
-        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        if str(kwargs.get("execution_mode") or "") == "predict-only":
+            _write_fake_all_method_prediction_phase_artifacts(
+                kwargs=kwargs,
+                source_file=source_file,
+                extractor=extractor,
+            )
+            return
         score = {
             "unstructured": 0.5,
             "beautifulsoup": 0.75,
             "markdown": 0.9,
         }[extractor]
-        report = {
-            "precision": score,
-            "recall": score,
-            "f1": score,
-            "practical_precision": score,
-            "practical_recall": score,
-            "practical_f1": score,
-        }
-        (eval_output_dir / "eval_report.json").write_text(
-            json.dumps(report, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
-        pred_run = eval_output_dir / "prediction-run"
-        pred_run.mkdir(parents=True, exist_ok=True)
-        (pred_run / "manifest.json").write_text(
-            json.dumps(
-                {
-                    "source_file": str(source_file),
-                    "run_config_hash": f"hash-{extractor}",
-                    "run_config_summary": f"epub_extractor={extractor}",
-                },
-                indent=2,
-                sort_keys=True,
-            ),
-            encoding="utf-8",
+        _write_fake_all_method_eval_artifacts(
+            eval_output_dir=eval_output_dir,
+            score=score,
         )
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
@@ -4858,59 +4906,42 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
 
     def fake_labelstudio_benchmark(**kwargs):
         callback = cli._BENCHMARK_SCHEDULER_EVENT_CALLBACK.get()
-        if callback is not None:
-            callback({"event": "prep_started"})
-            time.sleep(phase_profile["prep"])
-            callback({"event": "prep_finished"})
-            callback({"event": "split_wait_started"})
-            time.sleep(phase_profile["split_wait"])
-            split_gate.acquire()
-            try:
-                callback({"event": "split_wait_finished"})
-                callback({"event": "split_active_started"})
-                time.sleep(phase_profile["split_active"])
-                callback({"event": "split_active_finished"})
-            finally:
-                split_gate.release()
-            callback({"event": "post_started"})
-            time.sleep(phase_profile["post"])
-            callback({"event": "post_finished"})
-            callback({"event": "evaluate_started"})
-            time.sleep(phase_profile["evaluate"])
-            callback({"event": "evaluate_finished"})
-
+        extractor = str(kwargs.get("epub_extractor") or "unstructured")
+        if str(kwargs.get("execution_mode") or "") == "predict-only":
+            if callback is not None:
+                callback({"event": "prep_started"})
+                time.sleep(phase_profile["prep"])
+                callback({"event": "prep_finished"})
+                callback({"event": "split_wait_started"})
+                time.sleep(phase_profile["split_wait"])
+                split_gate.acquire()
+                try:
+                    callback({"event": "split_wait_finished"})
+                    callback({"event": "split_active_started"})
+                    time.sleep(phase_profile["split_active"])
+                    callback({"event": "split_active_finished"})
+                finally:
+                    split_gate.release()
+                callback({"event": "post_started"})
+                time.sleep(phase_profile["post"])
+                callback({"event": "post_finished"})
+                callback({"event": "evaluate_started"})
+                time.sleep(phase_profile["evaluate"])
+                callback({"event": "evaluate_finished"})
+            _write_fake_all_method_prediction_phase_artifacts(
+                kwargs=kwargs,
+                source_file=source_file,
+                extractor=extractor,
+            )
+            return
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
-        eval_output_dir.mkdir(parents=True, exist_ok=True)
         config_parts = eval_output_dir.name.split("_", 2)
         config_index = int(config_parts[1]) if len(config_parts) > 1 else 0
         score = 0.5 + (config_index * 0.01)
-        report = {
-            "precision": score,
-            "recall": score,
-            "f1": score,
-            "practical_precision": score,
-            "practical_recall": score,
-            "practical_f1": score,
-        }
-        (eval_output_dir / "eval_report.json").write_text(
-            json.dumps(report, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
-        pred_run = eval_output_dir / "prediction-run"
-        pred_run.mkdir(parents=True, exist_ok=True)
-        (pred_run / "manifest.json").write_text(
-            json.dumps(
-                {
-                    "source_file": str(source_file),
-                    "run_config_hash": f"hash-{config_index:03d}",
-                    "run_config_summary": f"config={config_index}",
-                },
-                indent=2,
-                sort_keys=True,
-            ),
-            encoding="utf-8",
+        _write_fake_all_method_eval_artifacts(
+            eval_output_dir=eval_output_dir,
+            score=score,
         )
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
@@ -5083,6 +5114,7 @@ def test_run_all_method_benchmark_writes_scheduler_timeseries(
 def test_run_all_method_benchmark_falls_back_to_serial_when_executor_unavailable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
     base_settings = cli.RunSettings.from_dict({}, warn_context="test")
     base_payload = base_settings.to_run_config_dict()
     variants = [

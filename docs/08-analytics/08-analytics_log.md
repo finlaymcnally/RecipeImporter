@@ -8,785 +8,165 @@ read_when:
 
 # 08 Analytics Log
 
-This is the analytics history/attempt log. Keep `08-analytics_readme.md` for current behavior docs, and use this file to avoid repeating prior implementation paths.
-Section numbers below intentionally preserve the source README numbering for provenance.
+Historical log for analytics decisions that still map to active code paths.
 
-## 5) Historical timeline and prior attempts (preserved)
+This file was pruned to remove branches tied to retired dashboard surfaces.
+Use `08-analytics_readme.md` for current behavior.
 
-This section intentionally keeps prior context to avoid repeating cycles.
+## 1) Timeline (active-relevance only)
 
-### 2026-02-01 performance strategy + implementation push
+### 2026-02-01 performance observability + parallel staging foundation
 
-Sources merged here:
-- prior `SPEED_UP.md` (ExecPlan + implementation log)
-- prior `resource_usage_report.md` (resource bottleneck analysis + recommendations)
-
-What was proposed:
-
-1. Add runtime observability first (timing fields/checkpoints).
-2. Add explicit OCR device control (`auto|cpu|cuda|mps`).
-3. Add OCR batching (`--ocr-batch-size`).
-4. Add warm-model path (`--warm-models`).
-5. Add multi-process staging.
-6. Add tests/docs around this.
-
-What code now confirms as implemented:
-
-- CLI options for OCR device, OCR batch size, warming, workers, and split-worker controls exist in `stage` command.
-- Per-file `timing` and checkpoint data are written into conversion reports.
-- Parallel processing and split-job merge flows are active.
-- Stats dashboard + analytics tests exist (`tests/test_stats_dashboard.py`).
-
-What to retain from old analysis even if wording is stale:
-
-- RAM is still the limiting factor as worker count rises.
-- OCR acceleration can shift bottlenecks from OCR to parsing/writing.
-- Batch-size and worker-count tuning should be empirical per machine/input mix.
-
-What became outdated in older docs:
-
-- Claim that staging is sequential/single-threaded is no longer true.
-- Claim that OCR device handling is entirely unmanaged is no longer true.
-
-### 2026-02-12 metrics observability map
-
-Source merged here:
-- prior `2026-02-12_11.31.47-metrics-observability-map.md`
-
-Status:
-
-- The three-surface metrics map (per-run report, history CSV, Label Studio eval artifacts) is still accurate.
-- Split merge timing note (`timing.checkpoints.merge_seconds`) is still accurate.
-
-### 2026-02-15_22.07.37 analytics metrics flow and mismatch map
-
-Merged source file:
-- `2026-02-15_22.07.37-analytics-metrics-flow-and-mismatches.md` (formerly in `docs/understandings`)
-
-Preserved findings:
-- Stage writes per-file reports at `<run_root>/<slug>.excel_import_report.json`, then derives perf summary rows and appends history CSV.
-- Stats dashboard primarily reads `data/output/.history/performance_history.csv`, then supplements/falls back to report JSON scan.
-- That investigation identified two mismatches that were later fixed:
-  - `perf_report.resolve_run_dir()` now accepts both hyphen-style legacy folders and underscore/dot stage folders.
-  - Stage history append now targets `history_path(<actual_stage_output_root>)`, not `history_path(DEFAULT_OUTPUT)`.
-
-### 2026-02-15_23.17.17 file:// dashboard data-loading fallback
-
-Merged source file:
-- `2026-02-15_23.17.17-stats-dashboard-file-scheme-fetch-fallback.md` (formerly in `docs/understandings`)
-
-Problem captured:
-- Browser local-file mode (`file://`) can block JS `fetch("assets/dashboard_data.json")`, making dashboard appear broken even when artifacts were written correctly.
-
-Decision captured:
-- Keep writing `assets/dashboard_data.json` for normal hosting/inspection.
-- Also embed the same JSON payload inline in `index.html`.
-- Dashboard JS should read inline JSON first, then fall back to fetch only when inline payload is missing/invalid.
-
-### 2026-02-15_23.36.55 benchmark metadata merge by artifact directory
-
-Merged source file:
-- `2026-02-15_23.36.55-benchmark-dashboard-metadata-flow.md` (formerly in `docs/understandings`)
-
-Problem captured:
-- Benchmark enrichment metadata (`manifest.json`, `coverage.json`) can live under `<eval_dir>/prediction-run/`, not only eval root.
-- CSV and JSON benchmark rows can describe the same eval run with timestamp differences, creating duplicate rows when merged by timestamp.
-
-Decision captured:
-- Probe both eval root and `prediction-run/` for benchmark enrichment.
-- Merge CSV + JSON benchmark rows by eval artifact directory and fill missing fields instead of appending duplicates.
-
-### 2026-02-15_23.50.42 throughput view split into run/date + file-trend perspectives
-
-Merged source:
-- `docs/tasks/2026-02-15_23.50.42 - dashboard-throughput-run-and-file-views.md`
-
-Problem captured:
-- Existing throughput section made it hard to answer both run-over-run trend questions and per-file trend questions.
-
-Decision captured:
-- Keep run/date view (`Recent Runs` table + trend) and add a file-focused trend/table view for one selected file over time.
-- Scope explicitly kept renderer-only (no collector/schema changes for this step).
-
-Task verification/evidence preserved:
-- `. .venv/bin/activate && pytest -q tests/test_stats_dashboard.py`
-- recorded result: `24 passed`.
-
-### 2026-02-15_23.51.02 throughput organization rule clarified
-
-Merged source file:
-- `2026-02-15_23.51.02-dashboard-throughput-run-vs-file-organization.md` (formerly in `docs/understandings`)
-
-Durable rule:
-- Throughput should continue exposing both views backed by the same stage records:
-  - run/date timeline across all records (newest-first table sorting),
-  - single-file trend over time grouped by `StageRecord.file_name` (chronological trend order).
-
-### 2026-02-16_00.10.16 mixed timestamp sort fix
-
-Merged source:
-- `docs/tasks/2026-02-16_00.10.16 - fix-dashboard-benchmark-time-sort.md`
-- `2026-02-16_00.10.16-dashboard-mixed-timestamp-sort-order.md` (formerly in `docs/understandings`)
-
-Problem captured:
-- Lexicographic sort broke ordering when datasets mixed `YYYY-MM-DDTHH:MM:SS` and `YYYY-MM-DD_HH.MM.SS`.
-
-Decision captured:
-- Use parsed timestamp ordering in both collector (latest timestamp selection + sort keys) and renderer JS (recent benchmark/run tables).
-- Keep unparseable rows visible and place them last where possible.
-
-Task verification/evidence preserved:
-- `. .venv/bin/activate && pytest -q tests/test_stats_dashboard.py` with mixed-format timestamp regressions (task records `26 passed`).
-- `cookimport stats-dashboard` run also recorded as successful artifact regeneration.
-
-### 2026-02-16_00.13.03 per-file history lists experiment (later superseded)
-
-Merged source:
-- `docs/tasks/2026-02-16_00.13.03 - dashboard-per-file-import-history-lists.md`
-- `2026-02-16_00.12.54-dashboard-throughput-per-file-history-lists.md` (formerly in `docs/understandings`)
-
-What was tried:
-- Replaced selected-file trend control with always-visible `Per-File History Lists` (one table per file).
-
-Why this matters historically:
-- This was a real implemented direction (with tests passing), but it was later judged too heavy and replaced.
-
-Task verification/evidence preserved:
-- task records `pytest -q tests/test_stats_dashboard.py` passing (`26 passed`).
-
-### 2026-02-16_00.19.42 stage/import run-config context added to throughput tables
-
-Merged source:
-- `docs/tasks/2026-02-16_00.19.42 - dashboard-import-run-config-columns.md`
-- `2026-02-16_00.19.42-stage-run-config-flow-into-dashboard.md` (formerly in `docs/understandings`)
-
-Problem captured:
-- Benchmark rows showed run-config summaries, stage/import rows did not.
-
-Decision captured:
-- Persist stage `runConfig` into CSV (`run_config_json`) during history writes.
-- Collect into stage records and render `Importer` + `Run Config` columns in run/date and file-trend tables.
-- Reuse benchmark-style summary key ordering/formatting for consistency.
-
-Task verification/evidence preserved:
-- task records `pytest -q tests/test_stats_dashboard.py` passing (`27 passed`).
-
-### 2026-02-16_00.25.07 selector-based file trend restored (reversal of 00.13.03)
-
-Merged source:
-- `docs/tasks/2026-02-16_00.25.07 - dashboard-file-trend-selector-restore.md`
-- `2026-02-16_00.25.07-dashboard-file-trend-selector-preferred.md` (formerly in `docs/understandings`)
-
-Reason for reversal:
-- always-visible per-file list layout was considered visually heavy and slower to scan.
-
-Final decision captured:
-- Restore single dropdown-driven file trend UI.
-- Keep run-config columns/summaries introduced at `00.19.42`.
-
-Task verification/evidence preserved:
-- task records `pytest -q tests/test_stats_dashboard.py` passing (`27 passed`).
+Still-relevant outcomes:
+- Timing/checkpoint data became first-class in conversion reports.
+- Stage flow gained worker/split controls and parallel processing defaults.
+- Analytics surfaces (report -> CSV -> dashboard) became stable enough for regression testing.
 
 Anti-loop note:
-- Per-file card/list layout is a known attempted branch; do not reintroduce it without a clear UX reason.
+- Old notes assuming sequential staging are obsolete.
 
-### 2026-02-16_00.26.20 pytest temp benchmark artifact filtering
+### 2026-02-15 file:// dashboard loading fallback
 
-Merged source:
-- `docs/tasks/2026-02-16_00.26.20 - dashboard-ignore-pytest-benchmark-artifacts.md`
-- `2026-02-16_00.26.20-dashboard-ignore-pytest-benchmark-artifacts.md` (formerly in `docs/understandings`)
+Problem solved:
+- Browser local-file mode could block `fetch("assets/dashboard_data.json")`.
 
-Problem captured:
-- `Recent Benchmarks` could include local pytest temp rows (for example `pytest-46/test_.../eval`), polluting user-facing history.
+Durable fix:
+- `index.html` embeds inline dashboard JSON.
+- JS loads inline first, then falls back to fetch.
 
-Decision captured:
-- Add narrow pytest-path detector in benchmark collectors and skip matching temp artifact rows in both CSV and JSON collection paths.
+### 2026-02-15 benchmark metadata merge by artifact directory
 
-Task verification/evidence preserved:
-- targeted filter test: `1 passed, 27 deselected`.
-- full suite after change: `28 passed`.
+Problem solved:
+- Benchmark metadata can live in both eval root and `prediction-run/`.
+- Timestamp-only merge caused duplicates.
 
-### 2026-02-16_10.37.22 report-path run-config backfill for historical stage rows
+Durable fix:
+- Merge benchmark records by artifact path identity.
+- Probe both eval root and `prediction-run/` for enrichment files.
 
-Merged source:
-- `docs/tasks/2026-02-16_10.37.22 - dashboard-stage-run-config-backfill-from-report-path.md`
-- `2026-02-16_10.37.22-stage-run-config-csv-backfill-rule.md` (formerly in `docs/understandings`)
+### 2026-02-16 mixed timestamp sorting support
 
-Problem captured:
-- Older CSV rows often have empty `run_config_json`, leaving new Run Config columns blank.
+Problem solved:
+- Datasets mixed folder-style timestamps and ISO strings.
 
-Decision captured:
-- Collector precedence:
-  - use CSV `run_config_json` when present,
-  - else best-effort read row `report_path` JSON and load `runConfig`.
-- Keep fallback read-only and non-fatal when report files are missing.
+Durable fix:
+- Collector and renderer sort by parsed timestamps, not raw lexical order.
+- Unparseable values remain visible and sort last where applicable.
 
-Task verification/evidence preserved:
-- task records `pytest -q tests/test_stats_dashboard.py` passing (`29 passed`).
+### 2026-02-16 benchmark artifact hygiene + recipe-count reliability
 
-### 2026-02-16_10.43.02 stale-row warning for missing report references
+Still-relevant decisions:
+- Ignore pytest temp benchmark artifact paths in dashboard collection.
+- Persist benchmark `recipes` across benchmark append paths.
+- Provide `benchmark-csv-backfill` for historical rows missing `recipes` / `report_path` / `file_name`.
 
-Merged source:
-- `docs/tasks/2026-02-16_10.43.02 - dashboard-stale-run-config-warning.md`
-- `2026-02-16_10.43.02-dashboard-stale-row-warning-rule.md` (formerly in `docs/understandings`)
+### 2026-02-16 run-config propagation into analytics surfaces
 
-Problem captured:
-- Some rows had neither CSV config nor resolvable report path, and silently rendered as `-`.
+Still-relevant contract:
+- Keep `run_config_hash`, `run_config_summary`, and `run_config_json` in CSV for stage and benchmark rows.
+- Collector can fall back to report/manifest reads when CSV run-config context is missing.
 
-Decision captured:
-- Add `StageRecord.run_config_warning`.
-- Mark rows as stale when `report_path` is referenced but missing.
-- Keep stale rows visible and render explicit warning text in Run Config cell.
+### 2026-02-16 history-root alignment
 
-Task verification/evidence preserved:
-- task records `pytest -q tests/test_stats_dashboard.py` passing (`31 passed`).
+Still-relevant contract:
+- History CSV path is derived from output root via helper (`history_csv_for_output`).
+- Effective location is `<output_root parent>/.history/performance_history.csv`.
 
-### 2026-02-16_10.51.07 consolidated rule: CSV-first run-config + report fallback + stale warning
+### 2026-02-23 baseline static dashboard contract
 
-Merged source:
-- `docs/tasks/2026-02-16_10.51.07 - csv-robust-stage-run-config-and-stale-warning.md`
-- `2026-02-16_10.51.07-stage-run-config-stale-warning-metadata.md` (formerly in `docs/understandings`)
+Still-relevant decisions:
+- Keep dashboard static/offline and collector read-only.
+- Keep category separation to avoid accidental double-counting.
+- Do not mutate run artifacts during dashboard generation.
 
-Final durable rule from the `10.37 -> 10.43 -> 10.51` sequence:
-1. Primary: use CSV `run_config_json`.
-2. Fallback: parse `report_path` JSON `runConfig` when primary is empty and report still exists.
-3. If both unavailable and report reference is stale: keep row and render warning (`[warn] missing report (stale row)`).
+### 2026-02-24 all-method standalone pages and hierarchy
 
-Task verification/evidence preserved:
-- task records `pytest -q tests/test_stats_dashboard.py` passing (`31 passed`).
+Still-relevant outcomes:
+- All-method pages moved under `all-method-benchmark/` subfolder.
+- Hierarchy became explicit: run index -> run summary -> per-book detail.
+- Run-level aggregation groups by `run_config_hash` when present (slug/name fallback for older rows).
+- All-method run index is always generated even when run count is zero.
 
-### 2026-02-16_10.56.36 benchmark recipe counts vs span metrics
+### 2026-02-24 all-method chart semantics
 
-Merged source file:
-- `2026-02-16_10.56.36-benchmark-dashboard-recipe-count-vs-span-metrics.md` (formerly in `docs/understandings`)
+Still-relevant outcomes:
+- Run/detail pages include summary tables, metric bars, and radar charts.
+- Score metrics render on fixed `0..100%` axes.
+- Recipes metric is normalized as `% identified` against `gold_recipe_headers`.
 
-Problem captured:
-- Users were reading `Gold`/`Matched` columns in `Recent Benchmarks` as recipe totals; those are span-eval counts.
+### 2026-02-24 dashboard refresh after history writes
 
-Decision captured:
-- Keep span metrics (`Gold`, `Matched`) as the scoring surface.
-- Add benchmark `Recipes` column sourced from CSV `recipes` and backfilled from `processed_report_path` (`totalRecipes`) when needed.
+Still-relevant outcomes:
+- CSV appenders trigger best-effort dashboard refresh.
+- All-method internal benchmark flows batch refresh to avoid excessive or conflicting writes.
+- Refresh inference depends on canonical history CSV path shape.
 
-Anti-loop note:
-- Perfect span scores do not imply perfect recipe-level parity in staged cookbook outputs; these are related but different contracts.
+### 2026-02-25 main dashboard index scope reduction
 
-### 2026-02-16_11.33.17 benchmark recipes blank due to CSV append-path gaps
-
-Merged source file:
-- `2026-02-16_11.33.17-benchmark-recipes-blank-csv-path-gaps.md` (formerly in `docs/understandings`)
-
-Problem captured:
-- `Recent Benchmarks` reads from benchmark `recipes`, but only one command path initially persisted recipe counts consistently.
-- `labelstudio-eval` and `bench run` could leave `recipes` blank even for new rows.
-
-Final rule:
-- Persist benchmark `recipes` in CSV for every benchmark CLI entrypoint (`labelstudio-benchmark`, `labelstudio-eval`, `bench run`).
-- Use prediction-run manifest `recipe_count` first.
-- Fall back to `processed_report_path` -> `totalRecipes` when manifest recipe count is unavailable.
-
-### 2026-02-16_11.41.26 benchmark CSV backfill manifest resolution details
-
-Merged source file:
-- `2026-02-16_11.41.26-benchmark-csv-backfill-manifest-resolution.md` (formerly in `docs/understandings`)
-
-Preserved recovery precedence/details:
-- Resolve benchmark artifacts from CSV row `run_dir`.
-- For single eval runs, check `run_dir/prediction-run/manifest.json` first (and `run_dir/manifest.json` fallback).
-- For bench-suite runs, recover totals by summing `run_dir/per_item/*/pred_run/manifest.json` `recipe_count`.
-- `recipes` precedence:
-  1. manifest `recipe_count`
-  2. fallback `processed_report_path` -> report `totalRecipes`
-- Backfill scope remains limited to missing `recipes`, `report_path`, and `file_name`.
-
-### 2026-02-16_12.09.36 run-settings propagation into analytics/dashboard
-
-Merged source file:
-- `2026-02-16_12.09.36-run-settings-config-propagation.md` (formerly in `docs/understandings`)
-
-Durable analytics contract:
-- `run_config_hash`, `run_config_summary`, and `run_config_json` must be persisted to history CSV for stage and benchmark rows.
-- Dashboard collector prefers CSV hash/summary/json and only falls back to report/manifest reads when CSV context is missing.
-- Dashboard renderer should keep stale-row signaling when legacy report references are missing.
-- Run-setting canonical source remains `cookimport/config/run_settings.py`, but analytics consumers must treat CSV as primary runtime history surface.
-
-### 2026-02-16_12.30.45 history-root alignment and mixed timestamp run-dir resolution
-
-Merged source file:
-- `2026-02-16_12.30.45-run-manifest-semantics-and-history-root.md` (formerly in `docs/understandings`)
-
-Analytics-relevant outcomes:
-- Stage CSV appends to `<stage --out>/.history/performance_history.csv`.
-- Benchmark CSV appends to `<processed_output_dir>/.history/performance_history.csv`.
-- `perf_report.resolve_run_dir()` supports both timestamp folder styles:
-  - `YYYY-MM-DD_HH.MM.SS`
-  - `YYYY-MM-DD-HH-MM-SS`
-- This preserves auto-latest behavior across mixed historical output folders.
-
-
-## 10) Consolidation provenance
-
-This README replaced and merged:
-
-- `docs/08-analytics/08-analytics_README.md`
-- `docs/08-analytics/2026-02-12_11.31.47-metrics-observability-map.md`
-- `docs/08-analytics/SPEED_UP.md`
-- `docs/08-analytics/resource_usage_report.md`
-
-Intentional preservation policy used during merge:
-- Keep implementation history and failed/stale assumptions in “Historical timeline” and “Known bad”.
-- Prefer code-verified current behavior when old docs conflict.
-
-### 2026-02-20_14.40.00 EPUB auto report/analytics wiring map
-
-Merged source file:
-- `docs/understandings/2026-02-20_14.40.00-epub-auto-report-analytics-wiring.md`
-
-Preserved cross-layer contract:
-1. Stage orchestration resolves `auto` and forwards effective extractor metadata into worker/split-merge write paths.
-2. Report writers must emit `epubAutoSelection` and `epubAutoSelectedScore`.
-3. CSV history must persist `epub_extractor_requested`, `epub_extractor_effective`, and `epub_auto_selected_score`.
-4. Dashboard schema/collector/render should map and display those explicit fields directly.
+Still-relevant UI contract:
+- Main dashboard index focuses on:
+  - `All-Method Benchmark Runs`
+  - `Diagnostics (Latest Benchmark)`
+  - `Previous Runs`
 
 Anti-loop note:
-- Writing auto metadata only to raw artifacts is incomplete; if one of these layers is skipped, users see extractor state in some analytics surfaces but not others.
+- Throughput/filter/KPI-era main-index documentation is historical only and not active UI behavior.
 
-## 2026-02-23 docs/tasks archival merge batch (analytics)
+### 2026-02-27 processing telemetry plumbing boundaries
 
-### 2026-02-12 lifetime stats dashboard baseline (`docs/tasks/I1.1-STATS-DASH.md`)
-
-Problem captured:
-- Throughput and benchmark trends were scattered across raw files, making regressions hard to inspect quickly.
-
-Major decisions preserved:
-- Build a static offline dashboard with zero runtime network dependencies.
-- Keep collectors read-only and focused on compact metric surfaces (CSV + eval/report JSON), not full output rescans by default.
-- Separate run categories to avoid inflated counts from mixed stage/labelstudio/benchmark artifact roots.
+Still-relevant architecture note:
+- Telemetry has two surfaces:
+  - shared wrapper path (`_run_with_progress_status(...)`)
+  - stage-local progress path in `stage(...)`
 
 Anti-loop note:
-- Dashboard generation should not mutate run artifacts; if a proposed change writes outside `--out-dir`, treat it as contract drift.
+- Wrapper-only telemetry changes do not automatically affect stage telemetry artifacts.
 
-### 2026-02-23_12.29.17 dashboard JS newline escaping regression
+### 2026-02-27 benchmark timing telemetry foundations
 
-Merged source:
-- `docs/understandings/2026-02-23_12.29.17-dashboard-js-newline-escape.md`
+Still-relevant outcome:
+- Benchmark timing fields were added as additive CSV/report metadata.
+- `collect_all_method_timing_summary(...)` exists as helper foundation.
 
-Problem captured:
-- `dashboard_render.py` JS template strings can accidentally emit a raw newline inside a quoted JS string when Python uses `"\n"` instead of `"\\n"`.
-- Symptom is severe but non-obvious: generated dashboard opens but renders blank because `dashboard.js` fails to parse.
+### 2026-02-28 benchmark CSV append ownership + refresh wiring
 
-Decision preserved:
-- Keep explicit double escaping for run-config tooltip newline joins in `runConfigCell`.
-- Treat this as a renderer-template correctness issue, not a data-collection issue.
-
-Anti-loop note:
-- If dashboard content is blank, inspect generated `dashboard.js` parse validity before reworking collector/schema code.
-
-## 2026-02-24 archival merge batch from `docs/understandings` (analytics)
-
-### 2026-02-23_16.13.59 all-method page grouping discovery
-
-Merged source:
-- `docs/understandings/2026-02-23_16.13.59-dashboard-all-method-page-grouping.md`
-
-Preserved findings:
-- Grouping can stay CSV-first by clustering benchmark rows with artifact paths containing `all-method-benchmark/<source_slug>/config_*`.
-- Stable detail page naming uses `<run_timestamp>__<source_slug>`.
-- Root all-method page should exist in the same static site root as `index.html`.
-
-### 2026-02-23_22.06.13 all-method root page always-generated contract
-
-Merged source:
-- `docs/understandings/2026-02-23_22.06.13-dashboard-all-method-root-page-contract.md`
-
-Preserved rule:
-- `all-method-benchmark.html` must always be generated, even when grouped runs are currently empty.
-- Detail pages remain sibling files at dashboard root, not hidden in subfolders.
-
-### 2026-02-23_22.15.18 recursive eval report scan requirement
-
-Merged source:
-- `docs/understandings/2026-02-23_22.15.18-dashboard-benchmark-recursive-eval-scan.md`
-
-Preserved rule:
-- Benchmark collector must recurse under golden roots for nested `config_*/eval_report.json` outputs.
-- Exclusions for `prediction-run` and pytest temp artifact paths remain necessary to keep history clean.
-
-### 2026-02-23_22.21.16 detail summary stats + bar charts
-
-Merged source:
-- `docs/understandings/2026-02-23_22.21.16-all-method-detail-summary-bars.md`
-
-Preserved rendering rule:
-- Detail pages should show quick-scan summary stats and per-metric run bars before the ranked config table.
-
-### 2026-02-23_22.26.07 explicit configuration-dimension columns
-
-Merged source:
-- `docs/understandings/2026-02-23_22.26.07-all-method-dimension-columns.md`
-
-Preserved rendering rule:
-- Ranked detail rows keep explicit columns for extractor/parser/skiphf/preprocess values.
-- Source for values is run config first, config-slug parsing fallback second.
-
-### 2026-02-24_00.40.56 run-level all-method hierarchy layer
-
-Merged source:
-- `docs/understandings/2026-02-24_00.40.56-all-method-run-level-dashboard-hierarchy.md`
-
-Preserved contract:
-- Dashboard now has run-level summary pages above per-book detail pages.
-- Run summary aggregation key is `run_config_hash` with slug fallback for older rows.
-
-Anti-loop note for this batch:
-- If all-method pages disappear, check collector recursion + path grouping + always-write root-page behavior before changing renderer layout.
-
-## 2026-02-24 docs/tasks archival merge batch (analytics ExecPlans)
-
-### 2026-02-24_00.36.38 run-level all-method dashboard aggregation
-
-Merged source:
-- `docs/tasks/2026-02-24_00.36.38-all-method-run-level-dashboard-aggregation.md`
-
-Problem captured:
-- Per-book all-method rows made mega-run interpretation noisy; operators needed one run-level view of config winners across books.
-
-Decisions preserved:
-- Keep existing per-book detail pages intact and add a run-detail layer above them.
-- Aggregate config rows by `run_config_hash` when present (config-name fallback for legacy rows).
-- Rank run-level configs by breadth first (`books`), then practical/strict means, wins, and strict tie-break metrics.
-
-Implementation boundary preserved:
-- Change was renderer-only over existing CSV-backed benchmark records; no dashboard schema/collector rewrite required.
-
-Evidence preserved:
-- Task records:
-  - `pytest tests/analytics/test_stats_dashboard.py -k all_method` -> `3 passed, 37 deselected, 2 warnings`,
-  - full dashboard suite -> `40 passed, 2 warnings`.
-
-### 2026-02-24_08.30.36 benchmark timing telemetry + analyzer foundations
-
-Merged source:
-- `docs/tasks/2026-02-24_08.30.36-benchmark-timing-telemetry-and-runtime-analyzer-foundation.md`
-
-Problem captured:
-- Quality metrics were available, but benchmark runtime attribution was weak (blank timing columns and missing report timing in benchmark-produced artifacts).
-
-Decisions preserved:
-- Ship timing as additive fields in existing artifacts/CSV instead of a new telemetry store.
-- Keep benchmark ranking semantics unchanged; timing is observational metadata only.
-- Reuse stage timing columns for compatibility and add benchmark-specific timing columns for eval/orchestration phases.
-- Add helper foundations for future analysis (`collect_all_method_timing_summary(...)`) but defer new analyzer CLI command.
-- Treat processed report timing update as best-effort/non-fatal to avoid benchmark hard failures.
-
-Important discovery preserved:
-- Fast/mocked runs can under-report `total_seconds` unless totals are floored against known subphase sums; tests now guard this.
-
-Evidence preserved:
-- Task records targeted suite:
-  - `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py tests/analytics/test_perf_report.py tests/analytics/test_stats_dashboard.py` -> `111 passed`.
-- Task records smoke suite:
-  - `pytest -m smoke` -> `36 passed`.
-
-Anti-loop note for this batch:
-- If timing columns are blank, verify prediction/report timing propagation before changing CSV schema; append precedence already handles explicit timing first and processed-report fallback second.
-
-## 2026-02-24_14.20.21 to 2026-02-24_22.29.33 archival merge batch from `docs/understandings` (analytics)
-
-### 2026-02-24_14.20.21 all-method dashboard subfolder output pathing
-
-Preserved findings:
-- All-method pages are emitted by `dashboard_render.py` and can be relocated without collector/schema changes.
-- Relocation requires coordinated updates to output paths, index links, and per-page relative nav/style paths.
-
-### 2026-02-24_14.21.59 run-summary chart reuse from config aggregates
-
-Preserved findings:
-- Run-summary pages already had config aggregate metrics needed for per-config bars.
-- Existing detail-page chart CSS classes were reusable, so this stayed renderer-only.
-
-### 2026-02-24_14.25.28 refresh-batching boundary in all-method benchmark
-
-Preserved findings:
-- Per-config benchmark calls in all-method mode caused repeated dashboard rewrites when refresh was not suppressed.
-- Durable fix shape is suppress per-config refresh in internal calls and refresh once after source-level completion.
-- Per-source all-method benchmark rows are appended under source-specific processed-output history roots, not necessarily one global history root.
-
-### 2026-02-24_14.28.22 dashboard table collapse ownership
-
-Preserved findings:
-- Run table rows are fully JS-rendered (`dashboard.js`), so collapse state must live in JS state and survive rerenders.
-- Renderer template sources (`dashboard_render.py`) are the only durable location for collapse behavior changes.
-- Prior binary hide/show behavior (0 preview rows when collapsed) was explicitly identified as a readability pain point.
-
-### 2026-02-24_14.31.37 all-method radar/web chart addition path
-
-Preserved findings:
-- Radar charts were derived from existing per-page metric arrays with inline SVG; no JS dependency add was required.
-- Mixed metric types required per-axis normalization for radar geometry, with raw values retained in chart cards.
-
-### 2026-02-24_14.36.55 fixed score-axis scaling
-
-Preserved findings:
-- Ratio score metrics should be fixed to `0..1` axes to preserve absolute quality comparison across configs.
-- Local-max scaling was identified as misleading because it visually saturated weaker configs.
-
-### 2026-02-24_14.49.43 recipes denominator correction
-
-Preserved findings:
-- `gold_total` in freeform eval is span-level and not valid for recipe-count normalization.
-- Recipes percentage denominator should come from `recipe_counts.gold_recipe_headers` with fallback support where required.
-
-### 2026-02-24_20.49.47 run-summary cookbook-average charts
-
-Preserved findings:
-- Cookbook-level averages were computed directly from existing grouped run records; no collector/schema migration required.
-- Cookbook recipes metric remained aligned to `% identified` (`_recipes_identified_ratio(...)`) rather than raw counts.
-
-### 2026-02-24_20.57.19 dashboard readability baseline audit
-
-Preserved findings:
-- Dense tables, weak hierarchy, and outlier-flattened throughput charts were documented as scan-speed bottlenecks.
-- Mobile table compression/overflow was captured as a persistent readability risk for current layout density.
-
-### 2026-02-24_21.16.27 renderer-template UX refactor contract
-
-Preserved findings:
-- Main dashboard UX changes were safest when preserving stable section IDs used by existing JS render entrypoints.
-- All-method static pages could gain navigation/density improvements via native HTML (`<nav>`, `<details>`) and shared CSS without adding page-specific JS runtime.
-
-### 2026-02-24_21.48.23 per-label `RECIPE_TITLE` strict-zero interpretation
-
-Preserved findings:
-- Strict per-label zeros can appear with nonzero recipe detection due to wide predicted ranges vs narrow gold spans.
-- In the captured run, high practical overlap and nonzero any-overlap coverage coexisted with strict-zero due to IoU thresholds never being met.
+Still-relevant outcomes:
+- Benchmark CSV rows are appended by multiple CLI entrypoints (`labelstudio-eval`, `labelstudio-benchmark`, `bench run`), not only `perf-report`/`stage`.
+- Best-effort dashboard refresh is centralized in `_refresh_dashboard_after_history_write(...)` and targets the same history-root dashboard folder when path inference is canonical.
 
 Anti-loop note:
-- Do not treat strict-zero per-label rows as automatic "no extraction" failure without width/overlap diagnostics.
+- If `performance_history.csv` is written at a non-canonical custom path, automatic refresh may be skipped by design; run `cookimport stats-dashboard` explicitly in that case.
 
-### 2026-02-24_22.29.33 dashboard metrics cheat-sheet
+### 2026-02-28 collector compatibility + all-method output hygiene
 
-Preserved findings:
-- Snapshot cards are filter-scoped aggregates, not global constants.
-- Throughput and benchmark fields were explicitly separated to prevent recurring confusion between speed and quality surfaces.
+Still-relevant outcomes:
+- Dashboard collector compatibility now includes a legacy history lookup fallback (`<output_root>/.history/performance_history.csv`) when canonical history path is absent.
+- Renderer clears stale legacy all-method root pages before writing the current `all-method-benchmark/` hierarchy.
 
-## 2026-02-24_22.44.09 archival merge batch from `docs/tasks` (analytics)
+### 2026-02-27_19.34.01 docs-task retirement target mapping
 
-### 2026-02-24_14.20.21 all-method pages moved under dedicated subfolder
+Durable decision:
+- Benchmark runtime/scheduler/matcher closeouts belong in `docs/07-bench`; cross-flow telemetry plumbing ownership belongs in `docs/08-analytics`.
 
-Merged source:
-- `docs/tasks/2026-02-24_14.20.21-dashboard-all-method-pages-subfolder.md`
-
-Problem captured:
-- All-method generated pages cluttered dashboard root.
-
-Decision/outcome preserved:
-- Move all-method outputs to `data/.history/dashboard/all-method-benchmark/`.
-- Keep run/detail filenames stable; change placement + relative links only.
-- Keep collector grouping contract unchanged (`all-method-benchmark/<source_slug>/config_*`, CSV-first).
-
-Evidence preserved:
-- `pytest tests/analytics/test_stats_dashboard.py -k all_method` -> `3 passed, 38 deselected`.
-- full dashboard suite -> `41 passed`.
-
-### 2026-02-24_14.22.37 run-summary bar charts added
-
-Merged source:
-- `docs/tasks/2026-02-24_14.22.37-all-method-run-summary-graphs.md`
+### 2026-02-27_19.46.24 analytics doc prune active-vs-retired surfaces
 
 Problem captured:
-- Run-summary pages had tables only while per-book pages had quick-scan charts.
+- Analytics docs still mixed active dashboard surface with retired throughput/filter/KPI branches.
 
-Decision/outcome preserved:
-- Add run-summary metric bar charts + compact summary stats.
-- Reuse existing `metric-bar-*` chart styling and `config_aggregates` means (renderer-only change).
+Durable decisions:
+- Keep tested main-index contract (`All-Method Benchmark Runs`, `Diagnostics`, `Previous Runs`).
+- Keep retired main-index branches demoted to historical notes only.
 
-Evidence preserved:
-- `pytest tests/analytics/test_stats_dashboard.py -k all_method_standalone_pages` -> `1 passed, 40 deselected`.
-- full dashboard suite -> `41 passed`.
+### 2026-02-27_19.52.19 removed-feature prune map
 
-### 2026-02-24_14.28.22 collapsible run-list controls
+Durable decision:
+- Removed-feature chronology should be retained only where it prevents loops, not as active contract text.
 
-Merged source:
-- `docs/tasks/2026-02-24_14.28.22-dashboard-collapsible-run-lists.md`
+### 2026-02-27_19.52.27 analytics docs code-surface gap audit
 
 Problem captured:
-- Long run tables forced heavy scrolling.
+- Analytics docs under-described CLI/paths ownership and history-write entrypoints.
 
-Decision/outcome preserved:
-- Collapse behavior implemented in JS table helpers (not static HTML rows).
-- Global `Show all` / `Collapse all` controls apply across run tables.
-- Preview-row defaults centralized in `TABLE_COLLAPSE_DEFAULT_ROWS`.
-
-Evidence preserved:
-- targeted collapse/run-view regression selection -> `4 passed, 38 deselected`.
-- `cookimport stats-dashboard` regenerated artifacts successfully.
-
-### 2026-02-24_14.28.44 all-method radar/web charts
-
-Merged source:
-- `docs/tasks/2026-02-24_14.28.44-all-method-web-radar-charts.md`
-
-Problem captured:
-- No combined per-config metric web view on all-method pages.
-
-Decision/outcome preserved:
-- Add radar/web charts on run-summary and per-book detail pages.
-- Keep implementation static server-rendered HTML/SVG.
-- Normalize per-axis for mixed metric types.
-
-Evidence preserved:
-- standalone page regression -> `1 passed, 40 deselected`.
-- full dashboard suite -> `41 passed`.
-
-### 2026-02-24_14.28.56 auto dashboard refresh after history writes
-
-Merged source:
-- `docs/tasks/2026-02-24_14.28.56-auto-dashboard-refresh-on-history-writes.md`
-
-Problem captured:
-- `stats-dashboard` required manual rerun after CSV append flows.
-
-Decision/outcome preserved:
-- Successful CSV append paths trigger best-effort dashboard refresh.
-- Dry-run backfill does not refresh.
-- All-method internal append paths batch refresh to avoid concurrent dashboard writer collisions.
-- Custom `--history-csv` refresh root inference uses history-parent fallback behavior.
-
-Evidence preserved:
-- combined benchmark backfill + benchmark-helper selection -> `7 passed, 60 deselected`.
-
-### 2026-02-24_14.36.31 fixed score-axis semantics (0-100%)
-
-Merged source:
-- `docs/tasks/2026-02-24_14.36.31-all-method-score-axis-100pct.md`
-
-Problem captured:
-- Local-max scaling made weaker score rows look saturated.
-
-Decision/outcome preserved:
-- Score ratios remain absolute (`1.0 == 100%`) in bars/radar.
-- Recipes kept separate from score-axis semantics.
-
-Evidence preserved:
-- standalone page regression -> `1 passed, 41 deselected`.
-- full dashboard suite -> `42 passed`.
-
-### 2026-02-24_14.49.43 recipes normalized by gold recipe headers
-
-Merged source:
-- `docs/tasks/2026-02-24_14.49.43-all-method-recipes-vs-gold-percent.md`
-
-Problem captured:
-- Recipes bars/radars used raw/local-max counts rather than `% identified` vs gold recipe totals.
-
-Decision/outcome preserved:
-- Use `recipes / gold_recipe_headers` semantics.
-- Store/marshal `gold_recipe_headers` through benchmark CSV/dashboard records.
-- `gold_total` is span-level and not a valid recipe denominator.
-- Clamp recipes percent to 100% for chart scaling consistency.
-
-Evidence preserved:
-- dashboard suite -> `42 passed`.
-- perf report suite -> `5 passed`.
-- benchmark CSV backfill suite -> `2 passed`.
-
-### 2026-02-24_15.17.13 per-cookbook run-summary graph sections
-
-Merged source:
-- `docs/tasks/2026-02-24_15.17.13-all-method-run-summary-per-cookbook-graphs.md`
-
-Problem captured:
-- Run-summary lacked per-cookbook graph layer.
-
-Decision/outcome preserved:
-- Add per-cookbook average bar + radar sections below per-config sections.
-- Cookbook values are cross-config averages (not winner-only rows).
-- Cookbook recipes metric stays `% identified` aligned to gold recipe totals.
-
-Evidence preserved:
-- standalone page regression -> `1 passed, 41 deselected`.
-- full dashboard suite -> `42 passed`.
-
-### 2026-02-24_20.57.19 readability/information-density dashboard redesign
-
-Merged source:
-- `docs/tasks/2026-02-24_20.57.19-dashboard-readability-information-density-refresh.md`
-
-Problem captured:
-- Existing hierarchy/tables/charts were high-density but slow to scan, especially with outlier throughput distortion and mobile width pressure.
-
-Decision/outcome preserved:
-- Keep redesign renderer-first and static (no architecture migration).
-- Keep CSV/collector/schema contracts unchanged.
-- Landed improvements include KPI-first hierarchy, outlier-aware throughput display modes, shared-axis strict precision/recall charting, preview-row table behavior, and all-method quick-nav/collapsible section compression.
-
-Evidence preserved:
-- `pytest -q tests/analytics/test_stats_dashboard.py` passed.
-- `cookimport stats-dashboard` regeneration passed.
-
-Anti-loop note for this merge batch:
-- For all-method/dashboard regressions, prefer checking renderer pathing/scaling/collapse and refresh batching contracts before editing collector schema; this batch was predominantly renderer/flow-contract work with explicit tests proving that boundary.
-
-## 2026-02-25 understanding merge batch (race metadata removal)
-
-### 2026-02-25_19.11.36 race compatibility field retirement across report/history/dashboard
-
-Merged source:
-- `docs/understandings/2026-02-25_19.11.36-epub-race-compat-fields-removed.md`
-
-Problem captured:
-- Race compatibility metadata was still present across multiple analytics surfaces after race feature retirement.
-
-Decision/outcome preserved:
-- Removed runtime-model fields `epubAutoSelection` and `epubAutoSelectedScore`.
-- Removed Label Studio manifest keys `epub_auto_selection` and `epub_auto_selected_score`.
-- Removed CSV/dashboard schema support for `epub_auto_selected_score`.
-- Collector/renderer now rely on explicit extractor-requested/effective metadata only.
-
-Anti-loop note:
-- Do not reintroduce race score fields to fix historical dashboards; migrate old readers or backfill scripts to the current extractor field set.
-
-## 2026-02-27 understanding merge batch (analytics telemetry plumbing)
-
-### 2026-02-27_18.19.11 processing telemetry plumbing surfaces
-
-Merged source:
-- `docs/understandings/2026-02-27_18.19.11-processing-telemetry-plumbing-surfaces.md`
-
-Problem captured:
-- Attempts to add unified processing telemetry can miss stage flows because stage does not run through the shared spinner wrapper.
-
-Decision/outcome preserved:
-- Treat telemetry plumbing as two explicit surfaces:
-  - shared wrapper path: `_run_with_progress_status(...)` (Label Studio wrappers + benchmark wrappers + bench run/sweep),
-  - stage-local path: rich progress/job-loop emission in `stage(...)`.
-
-Anti-loop note:
-- If telemetry appears in bench/import but not stage (or vice versa), verify which surface was modified before changing collector/dashboard logic.
-
-## 2026-02-27 docs/tasks archival merge batch (processing telemetry)
-
-### 2026-02-27_18.18.54 processing timeseries across stage/import/bench wrappers
-
-Merged source:
-- `docs/tasks/2026-02-27_18.18.54-processing-timeseries-all-processing-flows.md`
-
-Problem captured:
-- Scheduler telemetry existed for all-method source scheduling, but most processing wrappers had no persisted run-local status timeline with host CPU samples.
-
-Decision/outcome preserved:
-- Added shared processing-timeseries writer and CPU sampling helper for spinner-wrapper flows in `cookimport/cli.py`.
-- Added stage telemetry artifact emission (`processing_timeseries.jsonl`) and manifest discoverability wiring.
-- Wired wrapper telemetry persistence through `_run_with_progress_status(... telemetry_path=...)` for benchmark/import/bench wrappers.
-- Kept spinner text/status contract unchanged; telemetry writes are additive.
-
-Evidence preserved from task:
-- Targeted benchmark helper slice passed:
-  - `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k 'run_with_progress_status_writes_processing_timeseries or writes_scheduler_timeseries or smart_scheduler_improves_heavy_slot_utilization'`
-- Stage output-structure coverage passed:
-  - `pytest tests/cli/test_cli_output_structure.py -k stage_output_structure`
-- Task notes include new assertion/test anchor:
-  - `test_run_with_progress_status_writes_processing_timeseries`
-
-Anti-loop note:
-- “Processing telemetry everywhere” still requires touching both shared wrapper plumbing and stage-local progress loop surfaces.
+Durable decisions:
+- Keep command ownership mapping explicit for benchmark/history writes.
+- Keep legacy history-path fallback and all-method output-hygiene behavior documented.

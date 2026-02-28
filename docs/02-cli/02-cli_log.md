@@ -142,27 +142,6 @@ Required checklist when adding a new processing-pipeline option:
 
 Task-spec files were previously kept under `docs/tasks/` and are now merged here so interactive CLI behavior changes, constraints, and verification evidence stay in one place.
 
-### 2026-02-15_21.28.04 - remove-interactive-inspect-menu
-
-Source task file:
-- `docs/tasks/2026-02-15_21.28.04 - remove-interactive-inspect-menu.md`
-
-Problem captured:
-- Interactive main menu offered `Inspect`, but this path was not useful for the cleanup pass and created docs/menu drift.
-
-Behavior contract preserved:
-- Interactive main menu no longer includes `inspect`.
-- Direct command `cookimport inspect PATH` remains available.
-- CLI docs reflect the menu removal (and no standalone interactive inspect flow).
-
-Verification and evidence preserved:
-- Regression test: `test_interactive_main_menu_does_not_offer_inspect` in `tests/test_labelstudio_benchmark_helpers.py`.
-- Task record states fail-before (menu still included `inspect`) and pass-after once the interactive inspect branch was removed from `cookimport/cli.py`.
-
-Constraints and rollback notes:
-- Keep non-interactive inspect tooling intact.
-- Rollback path was to restore the interactive inspect branch and update docs/tests in the same change.
-
 ### 2026-02-15_21.35.54 - interactive-labelstudio-import-auto-overwrite
 
 Source task file:
@@ -211,20 +190,6 @@ Constraints and rollback notes:
 - Preserve back-navigation semantics (`BACK_ACTION`).
 - Rollback path was restoring manual-only project-name prompt in interactive export.
 
-### 2026-02-20_13.20.47 interactive EPUB race routing contract
-
-Merged source file:
-- `docs/understandings/2026-02-20_13.20.47-interactive-epub-race-routing.md`
-
-Preserved rules:
-- Keep EPUB race as a main-menu action (not Settings).
-- Show it only when top-level `data/input` discovery finds at least one `.epub`.
-- Reuse existing command behavior (`race_epub_extractors(...)`) instead of cloning scoring/report code in interactive mode.
-- Interactive prompt scope should remain menu concerns only (file/output/candidates/overwrite), then return to main menu regardless of success/failure.
-
-Anti-loop note:
-- If interactive race behavior drifts from `cookimport epub race`, route interactive branch back to the shared command function instead of patching two separate implementations.
-
 ### 2026-02-16_14.31.00 - EPUB debug CLI
 
 Source task file:
@@ -254,56 +219,6 @@ Constraints and anti-loop notes:
 
 Rollback path preserved:
 - Remove `cookimport/epubdebug/` module + root CLI wiring and associated tests/docs if debug CLI must be fully reverted.
-
-### 2026-02-20_13.21.49 - interactive EPUB race menu
-
-Source task file:
-- `docs/tasks/2026-02-20_13.21.49 - interactive-epub-race-menu.md`
-
-Problem captured:
-- `cookimport epub race` existed, but interactive mode had no in-menu route to run it.
-
-Behavior contract preserved:
-- Add top-level interactive menu action for EPUB race when top-level `data/input` has `.epub` files.
-- Prompt for file/output/candidates in interactive flow.
-- Reuse shared `race_epub_extractors(...)` behavior instead of cloning logic.
-- Return to main menu after execution.
-
-Verification and evidence preserved:
-- Recorded command:
-  - `source .venv/bin/activate && pytest -q tests/test_labelstudio_benchmark_helpers.py tests/test_c3imp_interactive_menu.py`
-- Recorded result: `37 passed`.
-
-Constraints and anti-loop notes:
-- Keep race visibility scoped to top-level EPUB discovery behavior used by interactive mode.
-- Do not fork race scoring/report code inside interactive path.
-
-Rollback path preserved:
-- Remove `_interactive_epub_race(...)` and corresponding menu branch + tests/docs.
-
-### 2026-02-22_10.14.15 - interactive EPUB race default output root
-
-Source task file:
-- `docs/tasks/2026-02-22_10.14.15 - epub-race-default-output-root.md`
-
-Problem captured:
-- Interactive race defaulted to `/tmp/epub-race/<book>`, which was easy to lose and hard to find.
-
-Behavior contract preserved:
-- Interactive race default output root moved to:
-  - `data/output/EPUBextractorRace/<book_stem>`
-- Prompt/custom output/candidate/overwrite behavior otherwise unchanged.
-
-Verification and evidence preserved:
-- Recorded command:
-  - `source .venv/bin/activate && pytest -q tests/test_labelstudio_benchmark_helpers.py -k interactive_epub_race`
-- Recorded result: `1 passed, 33 deselected`.
-
-Constraint preserved:
-- Scope change to interactive default only; direct `cookimport epub race --out` semantics unchanged.
-
-Rollback path preserved:
-- Restore previous interactive default root (`/tmp/epub-race/<book_stem>`) and revert related docs/test assertions.
 
 ## 2026-02-23 docs/tasks archival merge batch (CLI)
 
@@ -447,48 +362,38 @@ Decision preserved:
 Anti-loop note:
 - If a stage normalizer crashes with type/attribute errors from `OptionInfo`, audit direct caller argument forwarding and default unwrapping before touching parsing/staging logic.
 
-## 2026-02-25 understanding merge batch (EPUB race retirement)
-
-### 2026-02-25_18.53.25 EPUB race removed from interactive and direct CLI paths
-
-Merged source:
-- `docs/understandings/2026-02-25_18.53.25-epub-race-retirement.md`
+## 2026-02-27_19.51.12 CLI README command-surface reconciliation
 
 Problem captured:
-- EPUB race mode stayed visible in CLI surfaces after extractor-selection strategy moved away from race behavior.
+- `docs/02-cli/02-cli_README.md` had drift against current command signatures in `cookimport/cli.py` + `cookimport/tagging/cli.py`, especially around benchmark speed tooling and newer option flags.
 
-Decision/outcome preserved:
-- Removed interactive menu action `epub_race` from `cookimport/cli.py`.
-- Removed `cookimport epub race` subcommand from `cookimport/epubdebug/cli.py`.
-- Kept deterministic EPUB debug surfaces (`inspect`, `dump`, `unpack`, `blocks`, `candidates`, `validate`).
-- Synced CLI docs/tests so race is explicitly retired.
+Code-verified findings:
+- Missing command-reference coverage: `bench speed-discover`, `bench speed-run`, `bench speed-compare`, `bench eval-stage`.
+- Missing option coverage on existing commands: `labelstudio-import` (`--codex-model`, reasoning-effort aliases, codex-farm flags), `labelstudio-benchmark` (`--execution-mode`, `--predictions-{in,out}`), and `bench run` write-toggle overrides.
+- Tagging command option drift: `tag-recipes suggest` and `tag-recipes apply` codex-farm options were not listed.
+- Command-surface list omission: `cookimport debug-epub-extract` absent from top-level command bullets.
+- Stale option in docs: `labelstudio-benchmark --chunk-level` no longer exists.
+- Environment variable list missed active CLI envs (`C3IMP_EPUBCHECK_JAR`, `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS`, `COOKIMPORT_ALLOW_CODEX_FARM`, `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS`, benchmark eval profile env vars, and Codex model/cmd env vars).
+
+Durable rule:
+- For CLI doc updates, validate command/option coverage against Typer registration (`app` + mounted sub-typers) before finalizing README edits; avoid relying on historical option lists.
+
+### 2026-02-27_19.45.20 CLI docs stale-feature prune
+
+Problem captured:
+- CLI docs retained removed EPUB race content and had stale benchmark command summaries.
+
+Durable decisions:
+- Keep retired EPUB race material removed from active CLI docs.
+- Keep bench subcommand list and option coverage refreshed from `cookimport/cli.py` signatures.
 
 Anti-loop note:
-- If future work needs extractor comparison, route it through benchmark/all-method flows, not revived race command paths.
+- If docs and CLI behavior diverge, audit option-level signature drift first.
 
-## 2026-02-25 docs/tasks archival merge batch (CLI)
+### 2026-02-27_19.51.12 provenance note
 
-### 2026-02-25_18.55.20 remove-epub-race-cli
+Source understanding merged:
+- `docs/understandings/2026-02-27_19.51.12-cli-readme-command-surface-reconciliation.md`
 
-Merged source:
-- `docs/tasks/2026-02-25_18.55.20-remove-epub-race-cli.md`
-
-Problem captured:
-- EPUB race still appeared in both interactive and direct CLI surfaces even though the workflow was retired.
-
-Decision/outcome preserved:
-- Removed interactive main-menu race action.
-- Removed `cookimport epub race` subcommand registration.
-- Deleted race-only backend scorer modules (`epub_auto_select.py`, `extraction_quality.py`).
-- Removed race compatibility fields from report/manifest/history/dashboard contracts (`epubAutoSelection`, `epubAutoSelectedScore`, `epub_auto_selected_score`).
-- Kept deterministic EPUB debug commands (`inspect|dump|unpack|blocks|candidates|validate`).
-
-Verification evidence preserved from task:
-- `pytest tests/cli/test_c3imp_interactive_menu.py tests/cli/test_epub_debug_cli.py` -> `14 passed, 2 warnings`.
-- `pytest ... -k "epub_race or interactive_main_menu_does_not_offer_inspect"` -> `3 passed, 94 deselected, 2 warnings`.
-- `pytest tests/analytics/test_perf_report.py tests/analytics/test_stats_dashboard.py` -> `60 passed, 2 warnings`.
-- Combined analytics + CLI + Label Studio regression run -> `149 passed, 7 warnings`.
-
-Rollback path preserved from task:
-- Restore `_interactive_epub_race(...)` branch in `cookimport/cli.py`.
-- Restore `@epub_app.command("race")` in `cookimport/epubdebug/cli.py`.
+Current status:
+- Its findings are retained in this log and reflected in `02-cli_README.md`; source file is retired from `docs/understandings`.

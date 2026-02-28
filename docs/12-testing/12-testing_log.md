@@ -10,80 +10,94 @@ read_when:
 Read `docs/12-testing/12-testing_README.md` first for current behavior.
 Use this log for historical decisions, verification evidence, and anti-loop notes.
 
-## 2026-02-22_22 to 2026-02-22_23 docs/tasks merge batch
+## Current Verification Snapshot (2026-02-27_19.50)
 
-### 2026-02-22_22.58.41 - modular low-noise tests (`docs/tasks/2026-02-22_22.58.41 - modular-low-noise-tests.md`)
+Repository checks rerun against current code:
+
+- `. .venv/bin/activate && pytest -m smoke`
+  - `39 passed, 662 deselected, 2 warnings in 2.59s`
+- `. .venv/bin/activate && pytest -m "ingestion and not slow" --collect-only`
+  - `41/701 tests collected (660 deselected) in 2.16s`
+- `. .venv/bin/activate && pytest tests/labelstudio -m "labelstudio and not slow" --collect-only`
+  - `8/193 tests collected (185 deselected) in 2.06s`
+
+Current contract confirmation:
+
+- Marker assignment and smoke/slow slices are still centralized in `tests/conftest.py`.
+- `_FILE_MARKERS` currently covers all `74/74` `test_*.py` filenames; no unmapped files were found.
+- Fallback behavior remains: unmapped test filenames would receive marker `core`.
+- Compact output is still enforced from `pytest_configure(...)` even when callers pass `-o addopts=''`.
+- Verbose opt-out is still only `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`.
+- Domain folders remain the primary layout, with one intentional root-level cross-domain module: `tests/test_eval_freeform_practical_metrics.py`.
+- Support data surfaces under tests remain active: `tests/fixtures/*` and `tests/tagging_gold/*`.
+- Shared path helper constants in `tests/paths.py` remain active (`REPO_ROOT`, `FIXTURES_DIR`, `TAGGING_GOLD_DIR`, `DOCS_EXAMPLES_DIR`).
+
+## Durable History (Still Relevant)
+
+### 2026-02-22_22.58.41 - modular low-noise tests
 
 Problem captured:
 - Test runs were easy to over-scope and output-heavy for AI-driven workflows.
 
-Decisions preserved:
-- Centralize marker grouping in `tests/conftest.py`.
-- Establish low-noise pytest defaults in repo config.
-- Provide small smoke lane and concise failure hints to relevant domain logs.
+Decisions still active:
+- Centralized marker grouping in `tests/conftest.py`.
+- Low-noise pytest defaults in `pytest.ini`.
+- Concise failure hints pointing to domain logs.
 
-Evidence preserved from task:
-- `. .venv/bin/activate && pip install -e .[dev]` completed.
-- `pytest -m smoke` -> `33 passed, 485 deselected, 2 warnings in 2.72s`.
-- `pytest -m "ingestion and not slow" --collect-only` -> `46/517 tests collected`.
-- `pytest -m "labelstudio and not slow" --collect-only` -> `11/517 tests collected`.
-- `pytest tests/test_paprika_importer.py` remained compact and printed `log: docs/03-ingestion/03-ingestion_log.md`.
+Anti-loop note:
+- Keep marker logic centralized; avoid per-file marker churn.
 
-Anti-loop notes:
-- Keep marker logic centralized; avoid manual per-file marker churn.
-- Keep debug verbosity opt-in (`-vv` etc.) instead of raising default noise.
-
-### 2026-02-22_23.06.30 - tests folder domain reorg (`docs/tasks/2026-02-22_23.06.30 - tests-folder-domain-reorg.md`)
+### 2026-02-22_23.06.30 - tests folder domain reorg
 
 Problem captured:
 - Flat `tests/` root made focused runs and navigation noisy.
 
-Decisions preserved:
-- Move tests into domain subfolders.
-- Keep discovery/marker behavior stable after moves.
-- Use shared `tests/paths.py` helpers so path-sensitive tests do not break with deeper file nesting.
+Decisions still active:
+- Domain subfolders under `tests/` are the required layout.
+- Shared `tests/paths.py` remains the path-stability helper for nested tests.
 
-Evidence preserved from task:
-- `pytest -m smoke` -> `33 passed, 485 deselected, 2 warnings in 2.59s`.
-- `pytest tests/parsing -m "parsing and not slow" --collect-only` -> `138 tests collected`.
-- `pytest tests/ingestion -m "ingestion and not slow" --collect-only` -> `40/97 tests collected (57 deselected)`.
-- Targeted path-sensitive checks in ingestion/tagging/llm/cli test modules passed.
+Anti-loop note:
+- If path-sensitive tests regress after moves, verify `tests/paths.py` usage before changing test logic.
 
-Anti-loop notes:
-- If post-move path issues appear, check `tests/paths.py` imports before changing test logic.
-
-### 2026-02-22_23.24.59 - trim test output noise (`docs/tasks/2026-02-22_23.24.59 - trim-test-output-noise.md`)
+### 2026-02-22_23.24.59 - trim test output noise
 
 Problem captured:
-- Remaining non-informational formatting and success-path prints still bloated output.
+- Non-informational formatting and success-path prints bloated output.
 
-Decisions preserved:
+Decisions still active:
 - Suppress pass/skip glyph output via `pytest_report_teststatus(...)`.
-- Use `console_output_style = classic` to remove progress-bar row.
-- Remove success-path `print(...)` noise from test modules.
+- Keep `console_output_style = classic` for compact terminal output.
+- Keep success-path `print(...)` out of normal test modules.
 
-Evidence preserved from task:
-- `pytest -m smoke` -> `33 passed, 489 deselected, 2 warnings in 2.08s` (no dot flood).
-- `pytest tests/core/test_phase1_manual.py tests/tagging/test_tagging.py` -> `23 passed, 2 warnings in 1.24s`.
-- `rg -n "print\\(" tests` left only manual helper script and docs references.
+Guardrail:
+- Assertion strings that validate product status/progress contracts are intentional and should not be removed as noise.
 
-Important guardrail preserved:
-- Keep assertion strings that validate product status-message contracts; those are not noise.
-
-### 2026-02-22_23.35.12 - enforce compact output on addopts override (`docs/tasks/2026-02-22_23.35.12 - enforce-compact-pytest-output-on-overrides.md`)
+### 2026-02-22_23.35.12 - enforce compact output on addopts override
 
 Problem captured:
-- `pytest -o addopts='' -vv ...` bypassed compact defaults and reintroduced high-noise output.
+- `pytest -o addopts='' -vv ...` bypassed compact defaults.
 
-Decisions preserved:
-- Enforce compact terminal settings in `pytest_configure(...)` independent of `addopts` defaults.
+Decisions still active:
+- Enforce compact terminal settings in `pytest_configure(...)` independent of `addopts`.
 - Keep explicit opt-out via `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`.
 
-Evidence preserved from task:
-- Without env opt-out, override command stayed compact.
-- With `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`, full verbose output returned intentionally.
-- `pytest tests/labelstudio` remained green after guard introduction.
+Anti-loop note:
+- If full verbosity is needed, use the env opt-out instead of weakening compact defaults.
 
-Anti-loop notes:
-- This behavior is intentionally opinionated for token efficiency; do not soften by accident when adjusting conftest hooks.
-- If users need full verbosity, point them to the env opt-out instead of removing compact enforcement.
+### 2026-02-27_19.44.54 testing docs pruning current contracts
+
+Problem captured:
+- Testing docs retained stale task-link references and old flat-path examples.
+
+Durable decisions:
+- Keep low-noise pytest and marker-centralization history.
+- Remove stale path/count evidence that no longer helps operate current layout.
+
+### 2026-02-27_19.50.34 testing docs code-coverage audit
+
+Problem captured:
+- Testing docs under-described active support surfaces and fallback marker behavior.
+
+Durable decisions:
+- Keep root-level cross-domain module, support asset folders, and `tests/paths.py` constants documented.
+- Keep explicit marker fallback (`core`) and full filename-coverage contract documented.

@@ -40,12 +40,16 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 - `cookimport/staging/writer.py`
   - Writes intermediate/final outputs, section artifacts, tips, topic candidates, chunks, raw artifacts, and report JSON.
   - Generates/stabilizes IDs where needed.
+- `cookimport/staging/stage_block_predictions.py`
+  - Builds deterministic block-level benchmark evidence labels (`stage_block_predictions.v1`) from staged recipes + archive blocks + knowledge hints.
 - `cookimport/staging/pdf_jobs.py`
   - Split-job helpers: range planning and post-merge recipe/tip ID reassignment by source order.
 - `cookimport/cli_worker.py`
   - Main single-file stage flow uses writer functions.
 - `cookimport/cli.py`
-  - Multi-job merge flow for split PDF/EPUB runs; writes merged outputs and merges per-job raw artifacts.
+  - Multi-job merge flow for split PDF/EPUB runs; offsets split block provenance, writes merged outputs, merges per-job raw artifacts, and emits run-level manifest/index artifacts.
+- `cookimport/runs/manifest.py`
+  - Defines/stores `run_manifest.json` written by stage/pred-run flows for source identity + artifact indexing.
 - `cookimport/labelstudio/ingest.py`
   - Reuses same writer flow for processed output snapshots used in LS workflows.
 
@@ -88,15 +92,27 @@ Per workbook (slugified file stem):
 - `raw/llm/<workbook_slug>/pass5_tags/in/*.json` + `out/*.json` + `pass5_tags_manifest.json` (if pass5 tags pipeline is enabled)
 - `<workbook_slug>.excel_import_report.json` at run root
 - `processing_timeseries.jsonl` at run root (stage status snapshots + CPU utilization samples)
+- `run_manifest.json` at run root (source identity + artifact index for this stage run)
+
+Outside run root (`data/output/.history/`):
+
+- `performance_history.csv` is appended after stage runs when perf summary generation succeeds.
 
 Code pointers (prefer these over line numbers, which drift often):
 
 - `cookimport/cli_worker.py` (`stage_one_file`) and `cookimport/cli.py` (`_merge_split_jobs`) assemble per-run output dirs and invoke staging writers.
-- `cookimport/staging/writer.py` (`write_intermediate_outputs`, `write_draft_outputs`, `write_section_outputs`, `write_tip_outputs`, `write_topic_candidate_outputs`, `write_chunk_outputs`, `write_table_outputs`, `write_raw_artifacts`, `write_report`) implements the file layout above.
+- `cookimport/staging/writer.py` (`write_intermediate_outputs`, `write_draft_outputs`, `write_section_outputs`, `write_tip_outputs`, `write_topic_candidate_outputs`, `write_chunk_outputs`, `write_table_outputs`, `write_raw_artifacts`, `write_stage_block_predictions`, `write_report`) implements the file layout above.
+- `cookimport/cli.py` (`_write_knowledge_index_best_effort`, `_write_stage_run_manifest`) and `cookimport/tagging/orchestrator.py` (`run_stage_tagging_pass`) add run-level index/manifest artifacts.
 
 Stage-block `KNOWLEDGE` label contract:
 - `stage_block_predictions.json` prefers pass4 snippet evidence when available.
 - If pass4 knowledge harvesting is off (or snippets are absent), `KNOWLEDGE` labeling falls back to deterministic chunk-lane mapping so benchmark evidence stays complete.
+
+Stage-block label resolution contract:
+- `stage_block_predictions.py` labels blocks from recipe-local text matches (title, ingredients, instructions, notes, variant/yield/time lines).
+- If ingredient/instruction exact/fuzzy matching misses, it falls back to extracted archive `block_role` hints (`ingredient_line`, `instruction_line`).
+- Multi-label conflicts resolve by fixed priority (`RECIPE_VARIANT` > `RECIPE_TITLE` > `YIELD_LINE` > `TIME_LINE` > `INGREDIENT_LINE` > `RECIPE_NOTES` > `INSTRUCTION_LINE` > `KNOWLEDGE`).
+- If a block has both `KNOWLEDGE` and recipe-local labels, recipe-local label wins.
 
 ## Intermediate JSON-LD Section Behavior
 
@@ -150,13 +166,15 @@ Code pointer:
 Current enforced behavior:
 
 - `section_header` lines are dropped from output lines.
-- Allowed output `quantity_kind`: `exact`, `approximate`, `unquantified`.
-- `exact`/`approximate` lines require positive `input_qty`; otherwise they are downgraded to `unquantified`.
-- `unquantified` lines must have `input_qty = null` and `input_unit_id = null`.
+- Non-linked output lines allow only `quantity_kind` values `exact`, `approximate`, or `unquantified`.
+- Non-linked `exact`/`approximate` lines require positive `input_qty`; otherwise they are downgraded to `unquantified`.
+- Non-linked `unquantified` lines must have `input_qty = null` and `input_unit_id = null`.
 - Blank `linked_recipe_id` values are cleared so lines do not violate one-of reference rules.
-- Recipe-line multipliers (`linked_recipe_id` + `input_qty`) are capped at `100` to satisfy Cookbook staging validation.
+- Linked-recipe lines force `ingredient_id = null` and `input_unit_id = null`.
+- Linked-recipe multipliers keep positive `input_qty` values and cap them at `100`; missing/non-positive values normalize to `null`.
+- Linked-recipe lines normalize invalid/missing `quantity_kind` values to `exact`.
 - For unresolved units, `input_unit_id` is always set to `null` (raw unit text retained in `raw_unit_text`).
-- For unresolved ingredients, `ingredient_id` must be non-empty string; fallback uses `raw_ingredient_text`, then `raw_text`, then sentinel `__missing_ingredient__`.
+- For unresolved non-linked ingredients, `ingredient_id` must be non-empty string; fallback uses `raw_ingredient_text`, then `raw_text`, then sentinel `__missing_ingredient__`.
 
 Code pointer:
 
@@ -183,11 +201,13 @@ When PDFs/EPUBs are split into jobs, merge flow:
 
 1. Collects all job results.
 2. Sorts jobs by start range.
-3. Reassigns recipe IDs in source order (`start_spine` first, then `start_page`, then `start_block`).
-4. Updates tip references (`source_recipe_id`, provenance IDs) via remap.
-5. Writes merged outputs through standard writer functions.
-6. Moves raw artifacts from temporary `.job_parts/<workbook_slug>/job_{i}/raw/...` into final `raw/...` path.
-7. Writes report JSON after raw merge so `outputStats` includes moved raw artifacts (plus merged `raw/.../full_text.json`) without a post-write directory scan.
+3. When split jobs include `full_text` raw artifacts, builds merged `raw/.../full_text.json` block payload and offsets per-job block indices in recipe/tip/topic/non-recipe provenance to global coordinates.
+4. Reassigns recipe IDs in source order (`start_spine` first, then `start_page`, then `start_block`).
+5. Updates tip references (`source_recipe_id`, provenance IDs) via remap.
+6. Writes merged outputs through standard writer functions.
+7. Writes stage-block predictions using merged archive blocks so block labels align with global block indices.
+8. Moves raw artifacts from temporary `.job_parts/<workbook_slug>/job_{i}/raw/...` into final `raw/...` path.
+9. Writes report JSON after raw merge so `outputStats` includes moved raw artifacts (plus merged `raw/.../full_text.json`) without a post-write directory scan.
 
 ### Split-merge outputStats invariants (merged 2026-02-27)
 
@@ -211,23 +231,31 @@ Code pointers:
 - `cookimport/cli.py` (`_merge_split_jobs`, `_merge_raw_artifacts`)
 - `cookimport/staging/pdf_jobs.py` (`reassign_recipe_ids`)
 
+## Run manifest contract
+
+`run_manifest.json` is a required stage-run index written after stage outputs finish.
+
+- Includes source identity (`path`, optional `source_hash`, detected `importer_name`).
+- Includes run config snapshot used for the run.
+- Includes artifact pointers for reports, stage-block predictions, knowledge/tag indexes, and processing telemetry when present.
+- Used by parity tests and downstream tooling to compare stage and pred-run provenance/config.
+
+Code pointers:
+- `cookimport/cli.py` (`_write_stage_run_manifest`, `_write_run_manifest_best_effort`)
+- `cookimport/runs/manifest.py` (`RunManifest`, `write_run_manifest`)
+
 ## Current limitations / things we know are not great yet
 
-1. Duplicate ingredient text can be undercounted in unassigned detection
-- `recipe_candidate_to_draft_v1()` tracks assigned ingredients by `raw_ingredient_text` set membership.
-- If duplicate lines share same text, one assignment can make another appear assigned.
-- Code pointer: `cookimport/staging/draft_v1.py` (unassigned ingredient detection after step assignment).
-
-2. Lowercasing is lossy by design
+1. Lowercasing is lossy by design
 - Improves normalization but may remove intentional capitalization in ingredient text fields.
 - This is currently tested behavior, not an accidental bug.
 
-3. Split-job raw artifact filename collisions are auto-prefixed
+2. Split-job raw artifact filename collisions are auto-prefixed
 - Merge may rename colliding files with `job_{index}_...` prefixes.
 - Good for loss avoidance, but file names can differ run-to-run when collisions happen.
 - Code pointers: `cookimport/cli.py` (`_merge_raw_artifacts`, `_prefix_collision`).
 
-4. Timestamp output folder granularity is seconds
+3. Timestamp output folder granularity is seconds
 - Two invocations in the same second could collide on output directory name.
 - Current behavior uses `%Y-%m-%d_%H.%M.%S`.
 - Code pointer: `cookimport/cli.py` (run root timestamp uses `%Y-%m-%d_%H.%M.%S` in multiple stage entrypoints).
@@ -236,14 +264,18 @@ Code pointers:
 
 Core tests to keep green when touching staging:
 
-- `tests/test_cli_output_structure.py`
-- `tests/test_draft_v1_staging_alignment.py`
-- `tests/test_draft_v1_lowercase.py`
-- `tests/test_draft_v1_variants.py`
-- `tests/test_tip_writer.py`
-- `tests/test_source_field.py`
-- `tests/test_pdf_job_merge.py`
-- `tests/test_epub_job_merge.py`
+- `tests/cli/test_cli_output_structure.py`
+- `tests/staging/test_draft_v1_staging_alignment.py`
+- `tests/staging/test_draft_v1_lowercase.py`
+- `tests/staging/test_draft_v1_variants.py`
+- `tests/staging/test_tip_writer.py`
+- `tests/staging/test_split_merge_status.py`
+- `tests/staging/test_section_outputs.py`
+- `tests/staging/test_stage_block_predictions.py`
+- `tests/staging/test_run_manifest_parity.py`
+- `tests/parsing/test_source_field.py`
+- `tests/ingestion/test_pdf_job_merge.py`
+- `tests/ingestion/test_epub_job_merge.py`
 
 ## Practical “change checklist” for future work
 
@@ -255,6 +287,7 @@ When editing staging behavior, confirm:
 4. Split-job merge still preserves deterministic order and tip references.
 5. Tips/topic candidates/chunks/raw/report outputs still land in expected paths.
 6. Output stats reporting remains attached to report (`outputStats`) when files are written.
+7. `run_manifest.json` still captures source identity + artifact paths for this run.
 
 ## Related docs
 
@@ -269,7 +302,20 @@ These invariants are easy to miss because outputs can look structurally valid wh
 - `source` must be `null` when blank; empty string is rejected.
 - For linked-recipe ingredient lines:
   - blank `linked_recipe_id` must normalize to `null`,
-  - `input_qty` must remain `> 0` and `<= 100`,
-  - `input_unit_id` should remain `null`.
+  - positive `input_qty` values are capped at `100` (missing/non-positive values normalize to `null`),
+  - `input_unit_id` and `ingredient_id` should remain `null`.
 
 Treat these as mandatory shaping rules in `recipe_candidate_to_draft_v1(...)`, not optional cleanup.
+
+## 2026-02-27 Merged Understandings: Staging Docs Contract Refresh
+
+Merged source notes:
+- `docs/understandings/2026-02-27_19.47.49-staging-doc-prune-current-contracts.md`
+- `docs/understandings/2026-02-27_19.53.48-staging-doc-code-coverage-refresh.md`
+
+Current-contract additions:
+- Stage docs must include `run_manifest.json` as a required stage artifact.
+- Stage-block documentation should cover builder behavior in `cookimport/staging/stage_block_predictions.py` (text matching, fallback roles, deterministic conflict priority), not only artifact paths.
+- Split-merge docs should explicitly include block-index offset handling and merged `raw/.../full_text.json` normalization so Label Studio alignment remains valid.
+- Ingredient-under-count limitation text was retired: current draft conversion tracks unassigned ingredients by `ingredient_index` from assignment debug data.
+- Linked-recipe quantity docs should reflect current sanitize behavior: positive values are capped at `100`, missing/non-positive values normalize to `null`.

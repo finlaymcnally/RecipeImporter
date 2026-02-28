@@ -24,6 +24,9 @@ Main entry point: `data/.history/dashboard/index.html`.
 
 `<output_root parent>/.history/performance_history.csv` (default `<output_root>` is `data/output`)
 
+Collector compatibility fallback:
+- If canonical history CSV is missing, collector also probes legacy `<output_root>/.history/performance_history.csv`.
+
 This CSV is populated by:
 
 - `cookimport stage` (auto-appends stage/import rows at the end of a run)
@@ -85,6 +88,7 @@ Notes:
 - Collectors are read-only. They do not modify the source metrics in `data/output` or `data/golden`.
 - Benchmark rows pointing at pytest temp eval paths (for example `.../pytest-46/test_foo0/eval`) are ignored so local `pytest` runs do not appear in `Previous Runs`.
 - All-method standalone pages are built from benchmark CSV rows (`run_dir` / `artifact_dir`) grouped by paths containing `all-method-benchmark/<source_slug>/config_*` (CSV-first; no extra dashboard-only metric store). The hierarchy is run index -> run summary -> per-book detail, and all pages are written under `data/.history/dashboard/all-method-benchmark/`. The run index page is always written, even when there are zero runs.
+- Before writing all-method pages, renderer removes stale legacy root pages (`all-method-benchmark.html`, old top-level detail pages) so only the subfolder hierarchy remains.
 
 ## Index layout
 
@@ -138,6 +142,7 @@ Useful options:
 - `--output-root <path>`: source root for staged output metrics
 - `--golden-root <path>`: source root for benchmark metrics
 - `--out-dir <path>`: where dashboard files are written
+- `--open`: open generated dashboard in browser
 - `--since-days N`: include only recent runs
 - `--scan-reports`: force scan of `*.excel_import_report.json` in addition to CSV
 

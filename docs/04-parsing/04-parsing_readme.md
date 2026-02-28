@@ -33,6 +33,7 @@ Historical architecture versions, builds, and fix attempts now live in `docs/04-
 
 Core modules:
 
+- `cookimport/parsing/__init__.py` (public parsing utility exports)
 - `cookimport/parsing/ingredients.py`
 - `cookimport/parsing/instruction_parser.py`
 - `cookimport/parsing/step_ingredients.py`
@@ -47,12 +48,31 @@ Core modules:
 - `cookimport/parsing/block_roles.py`
 - `cookimport/parsing/markdown_blocks.py`
 - `cookimport/parsing/epub_extractors.py`
+- `cookimport/parsing/epub_html_normalize.py`
+- `cookimport/parsing/unstructured_adapter.py`
+- `cookimport/parsing/markitdown_adapter.py`
+- `cookimport/parsing/epub_postprocess.py`
+- `cookimport/parsing/epub_health.py`
+- `cookimport/parsing/patterns.py`
+- `cookimport/parsing/spacy_support.py`
+
+Parsing-adjacent module (not in current stage recipe-path runtime):
+
+- `cookimport/parsing/classifier.py` (heuristic line classifier used by tagging tests)
 
 Major call sites:
 
 - Recipe draft conversion: `cookimport/staging/draft_v1.py`
 - EPUB segmentation + standalone tip/topic extraction: `cookimport/plugins/epub.py`
-- PDF/text/excel importers also feed tips/topics/chunks via shared parsing modules
+- PDF importer tip/topic extraction + block signal enrichment: `cookimport/plugins/pdf.py`
+- Text importer tip/topic extraction + block signal enrichment: `cookimport/plugins/text.py`
+- Excel importer recipe-level tip extraction: `cookimport/plugins/excel.py`
+- Stage/bench orchestration of tip/chunk/table passes: `cookimport/cli.py`, `cookimport/cli_worker.py`
+- Label Studio ingest chunk/table/tip orchestration: `cookimport/labelstudio/ingest.py`
+- EPUB debug CLI diagnostics path: `cookimport/epubdebug/cli.py`
+- JSON-LD section shaping (`HowToSection`, ingredient section metadata): `cookimport/staging/jsonld.py`
+- Candidate confidence scoring using parsing signals: `cookimport/core/scoring.py`
+- Pass4 knowledge-job bundle construction from parser chunks: `cookimport/llm/codex_farm_knowledge_jobs.py`
 - Output writing: `cookimport/staging/writer.py`
 
 ## End-to-End Data Flow (Current)
@@ -79,6 +99,8 @@ Major call sites:
 3. CLI/ingest path computes chunks:
    - Preferred: `chunks_from_non_recipe_blocks(non_recipe_blocks)`
    - Fallback: `chunks_from_topic_candidates(topic_candidates)`
+   - Table-aware enrichment and artifact writing are driven by `extract_and_annotate_tables(...)` in CLI + Label Studio ingest paths
+   - Pass4 knowledge job builders also consume parser chunks (`cookimport/llm/codex_farm_knowledge_jobs.py`)
 4. Writer emits:
    - tips
    - topic candidates
@@ -113,7 +135,7 @@ Major call sites:
 
 ### Tests to read
 
-- `tests/test_ingredient_parser.py`
+- `tests/parsing/test_ingredient_parser.py`
 
 ## Instruction Metadata Parsing (`cookimport/parsing/instruction_parser.py`)
 
@@ -141,7 +163,7 @@ Major call sites:
 
 ### Tests to read
 
-- `tests/test_instruction_parser.py`
+- `tests/parsing/test_instruction_parser.py`
 
 ## Step-Ingredient Linking (`cookimport/parsing/step_ingredients.py`)
 
@@ -226,13 +248,25 @@ Recipe boundary detection directly controls which text reaches parsing/linking/t
   - `For the X`
   - short `For X`
 
+### Extraction backend plumbing that affects parsing inputs
+
+- `cookimport/parsing/epub_extractors.py` defines the `beautifulsoup` / `unstructured` / `markdown` backend adapters.
+- `cookimport/parsing/markitdown_adapter.py` handles the `markitdown` backend conversion (`EPUB -> markdown`), then `cookimport/parsing/markdown_blocks.py` converts markdown to deterministic `Block` objects.
+- `cookimport/parsing/epub_html_normalize.py` pre-normalizes XHTML before unstructured partitioning.
+- `cookimport/parsing/unstructured_adapter.py` maps unstructured elements to deterministic blocks + diagnostics metadata.
+- `cookimport/parsing/epub_postprocess.py` and `cookimport/parsing/epub_health.py` are shared guardrails after HTML-based extraction.
+
 ### Known historical fix
 
 This was added to stop false recipe splits where component headers like `For the Frangipane` were treated as new recipe starts.
 
 ### Tests to read
 
-- `tests/test_epub_importer.py`
+- `tests/ingestion/test_epub_importer.py`
+- `tests/ingestion/test_epub_extraction_quickwins.py`
+- `tests/parsing/test_epub_html_normalize.py`
+- `tests/ingestion/test_unstructured_adapter.py`
+- `tests/parsing/test_markdown_blocks.py`
 
 ## Tip Candidate Extraction (`cookimport/parsing/tips.py`)
 
@@ -279,9 +313,9 @@ Gates include:
 
 ### Tests to read
 
-- `tests/test_tip_extraction.py`
-- `tests/test_tip_recipe_notes.py`
-- `tests/test_tip_writer.py`
+- `tests/parsing/test_tip_extraction.py`
+- `tests/parsing/test_tip_recipe_notes.py`
+- `tests/staging/test_tip_writer.py`
 
 ## Atomization (`cookimport/parsing/atoms.py`)
 
@@ -297,7 +331,7 @@ Gates include:
 
 ### Tests to read
 
-- `tests/test_atoms.py`
+- `tests/core/test_atoms.py`
 
 ## Knowledge Chunking (`cookimport/parsing/chunks.py`)
 
@@ -368,6 +402,8 @@ Current effective lanes:
 - Lightweight block classifier: ingredient likelihood, instruction likelihood, headers, yield/time flags.
 - Supports `ParsingOverrides` for headers, verbs, units.
 - Optional spaCy enrichment gated by env var (`COOKIMPORT_SPACY`) or override.
+- Regex/header/unit/verb primitives are defined in `cookimport/parsing/patterns.py`.
+- spaCy loading + POS feature extraction live in `cookimport/parsing/spacy_support.py`.
 
 ### Caveat
 
@@ -393,6 +429,16 @@ Heuristics are intentionally simple; downstream logic should not assume high-pre
 
 Mojibake replacements are heuristic and can be lossy in edge encodings.
 
+## Heuristic Classifier (Parsing-Adjacent) (`cookimport/parsing/classifier.py`)
+
+- Provides standalone line-level `ingredient`/`instruction`/`other` classification helpers.
+- This module is currently test-scoped and not on the default stage recipe conversion path.
+- Useful when debugging/iterating on heuristic classifier behavior outside draft-v1 assignment.
+
+### Tests to read
+
+- `tests/tagging/test_classifier.py`
+
 ## Output Artifacts and Paths
 
 Timestamp root uses `YYYY-MM-DD_HH.MM.SS`.
@@ -412,12 +458,18 @@ Under a run output folder:
 1. If progress stalls or repeats, read `docs/04-parsing/04-parsing_log.md` first.
 2. For step linking, inspect `debug=True` output (`candidates`, `assignments`, group/all-ingredients annotations).
 3. Verify with focused tests:
-   - `tests/test_step_ingredient_linking.py`
-   - `tests/test_ingredient_parser.py`
-   - `tests/test_instruction_parser.py`
-   - `tests/test_tip_extraction.py`
-   - `tests/test_chunks.py`
-   - `tests/test_epub_importer.py`
+   - `tests/parsing/test_step_ingredient_linking.py`
+   - `tests/parsing/test_ingredient_parser.py`
+   - `tests/parsing/test_instruction_parser.py`
+   - `tests/parsing/test_tip_extraction.py`
+   - `tests/parsing/test_chunks.py`
+   - `tests/parsing/test_tables.py`
+   - `tests/parsing/test_cleaning_epub.py`
+   - `tests/parsing/test_epub_html_normalize.py`
+   - `tests/parsing/test_markdown_blocks.py`
+   - `tests/ingestion/test_epub_importer.py`
+   - `tests/ingestion/test_epub_extraction_quickwins.py`
+   - `tests/ingestion/test_unstructured_adapter.py`
 4. Run end-to-end spot check through `cookimport.cli stage` and inspect generated `tips.md` and `chunks.md`.
 5. Keep deterministic behavior as default; new ML/LLM options should remain opt-in with deterministic fallback preserved.
 
@@ -428,28 +480,6 @@ Under a run output folder:
 - Tip scope drift: `cookimport/parsing/tips.py`
 - Lane drift and chunk boundary shifts: `cookimport/parsing/chunks.py`
 - Output formatting/selection confusion: `cookimport/staging/writer.py`
-
-## Merged Task Specs (2026-02-19 quick wins)
-
-### 2026-02-19_14.22.11 EPUB common-issues quick wins
-
-Durable parsing-side contract from the quick-win pass:
-
-- Shared EPUB text normalization now handles high-frequency extraction noise classes:
-  - soft hyphen and zero-width cleanup,
-  - Unicode fraction and punctuation normalization,
-  - whitespace stability needed for ingredient/segment heuristics.
-- Shared postprocess pass is used after extractor block generation to reduce structural noise:
-  - BR-collapsed block splitting into deterministic line blocks,
-  - bullet-prefix stripping,
-  - nav/TOC and obvious pagebreak noise suppression.
-- EPUB extraction health metrics/warnings (`epub_*`) are generated and persisted as diagnostics for downstream triage.
-
-Decision boundaries that should stay explicit:
-
-- Shared postprocess/health pass is intentionally focused on HTML-style extractor outputs (`legacy`, `unstructured`, `markdown`).
-- `markitdown` remains intentionally outside this exact postprocess path and should not be silently forced through incompatible cleanup logic.
-- Debug extraction tooling should keep parity by calling the same postprocess stage used in importer flow.
 
 ## Merged Task Specs (Feb 2026 archival)
 
@@ -478,9 +508,6 @@ Known-bad loops to avoid:
 
 ### 2026-02-25_16.39.07 chunk consolidation absolute-adjacency + table guard
 
-Merged source:
-- `docs/understandings/2026-02-25_16.39.07-chunk-consolidation-absolute-adjacency-and-table-guard.md`
-
 Durable parsing contract:
 - `KnowledgeChunk.block_ids` remain sequence-relative (pass4 bundle builders depend on this).
 - Adjacency checks for same-topic consolidation use `provenance.absolute_block_range` (inclusive rule: `left_end + 1 == right_start`).
@@ -492,9 +519,6 @@ Anti-loop note:
 - Do not reinterpret `block_ids` as absolute source indices to "fix" adjacency; that breaks pass4 index mapping contracts.
 
 ### 2026-02-25_16.42.42 section-aware step linking + duplicate-safe ingredient identity
-
-Merged source:
-- `docs/understandings/2026-02-25_16.42.42-step-linking-section-context-and-duplicate-indexing.md`
 
 Durable parsing contract:
 - Section context inputs are optional in `assign_ingredient_lines_to_steps(...)`:
@@ -509,12 +533,9 @@ Durable parsing contract:
 Anti-loop note:
 - Text-equality identity for ingredient lines is insufficient when duplicate lines are intentional; keep index-based internal identity through assignment.
 
-## Merged Task Specs (2026-02-25 docs/tasks archival batch)
+## Merged Parsing Contracts (2026-02-25 archival batch)
 
 ### 2026-02-25_16.24.52 deterministic table extraction + table-aware chunking + pass4 hints
-
-Merged source:
-- `docs/tasks/knowledge-tables.md`
 
 Durable parsing contract:
 - Deterministic table extraction lives in `cookimport/parsing/tables.py`:
@@ -530,9 +551,6 @@ Known caveat preserved:
 
 ### 2026-02-25_16.39.01 adjacent same-topic chunk consolidation
 
-Merged source:
-- `docs/tasks/combine-knowledge-chunks.md`
-
 Durable parsing contract:
 - Consolidation is adjacent-only and deterministic left-to-right; no reordering/non-adjacent merges.
 - True adjacency is checked with absolute source ranges (`provenance.absolute_block_range`), not filtered-list adjacency.
@@ -544,9 +562,6 @@ Durable parsing contract:
 
 ### 2026-02-25_16.45.50 multi-component recipe sections and section-aware step linking
 
-Merged source:
-- `docs/tasks/Sub-grouping-recipe-steps.md`
-
 Durable parsing contract:
 - `cookimport/parsing/sections.py` is the section extraction boundary for ingredient + instruction headers.
 - Step-linking uses section context for near-tie resolution and fallback-pass scoping when multiple sections exist.
@@ -555,19 +570,14 @@ Durable parsing contract:
 Cross-boundary note:
 - Final cookbook3 output remains schema-stable; section structure is exposed through additive staging surfaces (`sections/...` artifacts and intermediate JSON-LD `HowToSection`).
 
-## Merged Understanding (2026-02-25 EPUB race backend removal boundary)
+## 2026-02-27 Merged Understandings: Parsing Docs Retirement and Coverage
 
-### 2026-02-25_19.00.12 parser-side race backend retirement
+Merged source notes:
+- `docs/understandings/2026-02-27_19.46.23-parsing-docs-stale-content-retirement.md`
+- `docs/understandings/2026-02-27_19.50.31-parsing-doc-module-callsite-coverage-audit.md`
 
-Merged source:
-- `docs/understandings/2026-02-25_19.00.12-epub-race-backend-removal-boundary.md`
-
-Durable parsing/runtime contract:
-- Race backend modules are retired:
-  - `cookimport/parsing/epub_auto_select.py`
-  - `cookimport/parsing/extraction_quality.py`
-- Race-only ingestion tests are retired with those modules.
-- Parsing/runtime surfaces should no longer emit race compatibility score fields consumed by reports/analytics.
-
-Anti-loop note:
-- Do not patch extraction regressions by re-adding race scorer modules; current extractor behavior is driven by explicit run settings and benchmark comparison flows.
+Current-contract additions:
+- Keep historical notes only for still-live parser features (unstructured tuning, postprocess/health, section-aware linking, chunk/table integration).
+- Keep removed race-backend and dead task-path references retired.
+- Parsing docs should explicitly include helper modules (`markitdown_adapter.py`, `patterns.py`, `spacy_support.py`) and cross-boundary call sites (`plugins/*`, CLI worker paths, Label Studio ingest, staging/jsonld, scoring).
+- `cookimport/parsing/classifier.py` is parsing-adjacent but currently test-scoped for tagging tests, not default stage recipe runtime.

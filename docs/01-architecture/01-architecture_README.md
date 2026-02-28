@@ -12,11 +12,15 @@ This is the source of truth for current architecture behavior under `docs/01-arc
 For architecture versions, build/fix-attempt history, and anti-loop notes, read `docs/01-architecture/01-architecture_log.md`.
 
 Code verification references:
+- `pyproject.toml`
 - `cookimport/cli.py`
 - `cookimport/cli_worker.py`
+- `cookimport/paths.py`
+- `cookimport/runs/manifest.py`
 - `cookimport/staging/writer.py`
 - `cookimport/staging/pdf_jobs.py`
 - `cookimport/labelstudio/ingest.py`
+- `cookimport/labelstudio/export.py`
 - `cookimport/plugins/base.py`
 - `cookimport/plugins/registry.py`
 - `cookimport/core/reporting.py`
@@ -92,18 +96,29 @@ Defaults in `cookimport/cli.py`:
 - `DEFAULT_INPUT = data/input`
 - `DEFAULT_OUTPUT = data/output`
 - `DEFAULT_GOLDEN = data/golden`
+- `DEFAULT_GOLDEN_SENT_TO_LABELSTUDIO = data/golden/sent-to-labelstudio`
+- `DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO = data/golden/pulled-from-labelstudio`
+- `DEFAULT_GOLDEN_BENCHMARK = data/golden/benchmark-vs-golden`
+- `DEFAULT_HISTORY = data/.history`
+- `DEFAULT_BENCH_SUITES = data/golden/bench/suites`
+- `DEFAULT_BENCH_RUNS = data/golden/bench/runs`
+- `DEFAULT_BENCH_SPEED_ROOT = data/golden/bench/speed`
+- `DEFAULT_BENCH_SPEED_SUITES = data/golden/bench/speed/suites`
+- `DEFAULT_BENCH_SPEED_RUNS = data/golden/bench/speed/runs`
+- `DEFAULT_BENCH_SPEED_COMPARISONS = data/golden/bench/speed/comparisons`
 
 Command defaults:
 - `stage --out` default: `data/output`
 - `inspect --out` default: `data/output`
-- `labelstudio-import --output-dir` default: `data/golden`
-- `labelstudio-export --output-dir` default: `data/golden`
-- `labelstudio-benchmark --output-dir` default: `data/golden`
+- `labelstudio-import --output-dir` default: `data/golden/sent-to-labelstudio`
+- `labelstudio-export --output-dir` default: `data/golden/pulled-from-labelstudio`
+- `labelstudio-benchmark --output-dir` default: `data/golden/benchmark-vs-golden`
 - `labelstudio-benchmark --processed-output-dir` default: `data/output`
+- `stats-dashboard --out-dir` default: `data/.history/dashboard`
 
 Interactive defaults:
 - settings `output_dir` defaults to `data/output` and drives interactive stage target.
-- interactive Label Studio import/export/benchmark paths are driven with `DEFAULT_GOLDEN`.
+- interactive Label Studio import/export/benchmark paths resolve to workflow-specific golden roots under `DEFAULT_GOLDEN`.
 
 ## Timestamp Convention (critical)
 
@@ -122,13 +137,20 @@ For `cookimport stage`, each run uses a timestamped root:
 
 - `<out>/<timestamp>/intermediate drafts/<workbook_slug>/r{index}.jsonld`
 - `<out>/<timestamp>/final drafts/<workbook_slug>/r{index}.json`
+- `<out>/<timestamp>/sections/<workbook_slug>/r{index}.sections.json` (+ `sections.md` when `--write-markdown`)
 - `<out>/<timestamp>/tips/<workbook_slug>/t{index}.json`
 - `<out>/<timestamp>/tips/<workbook_slug>/tips.md`
-- `<out>/<timestamp>/tips/<workbook_slug>/topic_candidates.json`
-- `<out>/<timestamp>/tips/<workbook_slug>/topic_candidates.md`
-- `<out>/<timestamp>/chunks/<workbook_slug>/c{index}.json` (+ `chunks.md` when chunks exist)
+- `<out>/<timestamp>/tips/<workbook_slug>/topic_candidates.json` (+ `topic_candidates.md` when topic candidates exist and `--write-markdown`)
+- `<out>/<timestamp>/chunks/<workbook_slug>/c{index}.json` (+ `chunks.md` when chunks exist and `--write-markdown`)
+- `<out>/<timestamp>/tables/<workbook_slug>/tables.jsonl` (+ `tables.md` when `--table-extraction on` and `--write-markdown`)
+- `<out>/<timestamp>/.bench/<workbook_slug>/stage_block_predictions.json`
 - `<out>/<timestamp>/raw/<importer>/<source_hash>/<location_id>.<ext>`
 - `<out>/<timestamp>/<workbook_slug>.excel_import_report.json`
+- `<out>/<timestamp>/run_manifest.json`
+
+Optional stage lanes:
+- `<out>/<timestamp>/knowledge/<workbook_slug>/...` and `<out>/<timestamp>/knowledge/knowledge_index.json` when knowledge-pass artifacts exist
+- `<out>/<timestamp>/tags/<workbook_slug>/...` and `<out>/<timestamp>/tags/tags_index.json` when tags-pass artifacts exist
 
 Important clarification:
 - report file is written at run root, not in a stage `reports/` subfolder.
@@ -136,19 +158,22 @@ Important clarification:
 References:
 - writers and paths: `cookimport/staging/writer.py`
 - stage orchestration: `cookimport/cli.py`, `cookimport/cli_worker.py`
+- run-manifest schema/write: `cookimport/runs/manifest.py`
 
 ## ID and Provenance Rules
 
-Active namespace is `urn:recipeimport` (not `urn:cookimport`).
+Stage recipe/tip/topic IDs use the `urn:recipeimport:*` namespace.
 
 Examples from current code:
 - recipe IDs via helper: `urn:recipeimport:{source_type}:{source_hash}:{location_id}`
 - writer-generated fallback recipe IDs for Excel-like flow: `urn:recipeimport:excel:{file_hash}:{sheet_slug}:r{row_index}`
 - tip/topic IDs similarly use `urn:recipeimport:tip:*` and `urn:recipeimport:topic:*`
+- Label Studio freeform-span export IDs still use `urn:cookimport:freeform_span:*` (legacy scope-local identifier format).
 
 References:
 - ID helper: `cookimport/core/reporting.py`
 - writer ID assignment: `cookimport/staging/writer.py`
+- freeform span export IDs: `cookimport/labelstudio/export.py`
 
 ## Split-Job Architecture
 
@@ -157,6 +182,7 @@ Stage split jobs (`cookimport stage`):
 - each worker parses a subset
 - split workers write temporary raw artifacts to:
   - `<out>/<timestamp>/.job_parts/<workbook_slug>/job_<index>/raw/...`
+- split merge rebuilds merged `full_text.json` blocks under `<out>/<timestamp>/raw/<importer>/<source_hash>/full_text.json` when per-job full-text blocks exist
 - merge step combines logical results, reassigns recipe IDs globally, writes final outputs once, then merges raw files into `<out>/<timestamp>/raw/...`
 - `.job_parts` is cleaned after successful merge
 
@@ -171,35 +197,44 @@ References:
 
 ## Label Studio Artifact Contract
 
-`labelstudio-import` run root:
+`labelstudio-import` / `generate_pred_run_artifacts` run root:
 - `<output_dir>/<timestamp>/labelstudio/<book_slug>/`
 
 Core artifacts:
 - `extracted_archive.json`
 - `extracted_text.txt`
-- `label_studio_tasks.jsonl`
 - `coverage.json`
 - `manifest.json`
-- `project.json`
+- `run_manifest.json`
+- `label_studio_tasks.jsonl` (optional in offline prediction runs when `--no-write-labelstudio-tasks`; required in upload mode)
+- `project.json` (upload/import mode only)
+- `stage_block_predictions.json` (present when copied from processed stage output)
+- `prelabel_report.json`, `prelabel_errors.jsonl`, `prelabel_prompt_log.md` (when prelabeling is enabled)
 
 Behavioral constraints:
 - write operations are gated (`--allow-labelstudio-write` required in non-interactive commands)
-- benchmark command (`labelstudio-benchmark`) is upload-first in CLI mode; it generates/imports prediction tasks before scoring
+- prediction-run generation (`generate_pred_run_artifacts`) is first-class offline behavior and does not require Label Studio credentials
+- benchmark command (`labelstudio-benchmark`) is prediction-first by default; in CLI mode it uploads by default unless `--no-upload`
+- benchmark can run evaluate-only with `--predictions-in`, or prediction-only with `--execution-mode predict-only`
 - benchmark co-locates prediction run under eval output as `prediction-run/`
 
 References:
 - commands + guards + benchmark flow: `cookimport/cli.py`
-- import/task generation/upload/artifacts: `cookimport/labelstudio/ingest.py`
+- import/task generation/upload artifacts: `cookimport/labelstudio/ingest.py`
+- export run manifest wiring: `cookimport/labelstudio/export.py`
 
 ## Run Manifest And History Root Contract
 
 `run_manifest.json` is the cross-command traceability join point for run roots generated by:
 - `stage`
+- `generate_pred_run_artifacts` (`run_kind=bench_pred_run` by default)
 - `labelstudio-import`
 - `labelstudio-export`
 - `labelstudio-eval`
 - `labelstudio-benchmark`
-- bench prediction/eval/suite flows
+
+Current non-emitter clarification:
+- `cookimport bench run/sweep/speed-*` flows write benchmark artifacts and history telemetry, but do not currently write `run_manifest.json`.
 
 Manifest responsibilities:
 - source identity (`path`, `source_hash`)
@@ -207,8 +242,11 @@ Manifest responsibilities:
 - key artifact pointers needed to trace stage/prediction/eval relationships without reading internals
 
 History-root rule:
-- stage history writes append to `<stage --out>/.history/performance_history.csv`
-- benchmark history writes append to `<processed_output_dir>/.history/performance_history.csv`
+- stage history writes append to `<stage --out parent>/.history/performance_history.csv`
+- benchmark history writes append to `<processed_output_dir parent>/.history/performance_history.csv`
+
+Path helper rule:
+- canonical helper is `history_csv_for_output(output_root)` in `cookimport/paths.py`; `cookimport.analytics.perf_report.history_path(...)` delegates to that helper.
 
 Timestamp compatibility rule:
 - tooling that resolves latest runs must support both timestamp folder styles:
@@ -255,14 +293,14 @@ Current architecture is still deterministic-first:
   - `cookimport/analytics/CONVENTIONS.md`
   - `tests/CONVENTIONS.md`
 - When adding a new durable rule, document it in the nearest code-local `CONVENTIONS.md` first; only add pointers in docs when discoverability needs to change.
-- Discovery-note convention (from retired `docs/understandings`): keep notes focused to one discovery, use timestamped filenames, and merge durable outcomes into the owning stage README to avoid split sources of truth.
-- Task-spec convention (from retired `docs/tasks`): preserve task contract details (problem statement, acceptance criteria, verification command(s), evidence, constraints/gotchas, rollback notes) in the owning stage README rather than leaving them in a separate task folder.
+- Discovery-note convention: keep notes focused to one discovery, use timestamped filenames, and merge durable outcomes into the owning stage README to avoid split sources of truth.
+- Task-spec convention: keep durable contract details in owning stage READMEs even when task execution notes live in `docs/tasks/`.
 - Timestamped task-doc naming pattern to preserve chronology remains: `YYYY-MM-DD_HH.MM.SS - short-title.md`.
 
 ## Change Checklist (safe architecture edits)
 
 1. Update code and docs atomically
-- At minimum: update this file plus the relevant section readmes (`docs/03-ingestion/03-ingestion_README.md`, `docs/04-parsing/04-parsing_README.md`, `docs/06-label-studio/06-label-studio_README.md`, `docs/05-staging/05-staging_README.md`).
+- At minimum: update this file plus the relevant section readmes (`docs/03-ingestion/03-ingestion_readme.md`, `docs/04-parsing/04-parsing_readme.md`, `docs/06-label-studio/06-label-studio_README.md`, `docs/05-staging/05-staging_readme.md`).
 
 2. For output path or timestamp changes
 - check stage (`cookimport/cli.py`)
@@ -289,74 +327,29 @@ Keep these flowchart/runtime invariants aligned:
 - `cookimport stage` and `run_labelstudio_import(...)` share the same importer conversion branching model (including split planning and merge behavior). The README flowchart should not imply two different file-type conversion engines.
 - PDF split only activates when all are true: `pdf_split_workers > 1`, `pdf_pages_per_job > 0`, and inspection yields more than one range.
 - EPUB split eligibility depends on the effective extractor:
-  - `unstructured` / `legacy` / `markdown` support spine-range split jobs.
+  - `unstructured` / `beautifulsoup` / `markdown` support spine-range split jobs.
   - `markitdown` is whole-book only and does not split by spine.
   - stage/benchmark flows require explicit extractor choice; there is no auto-resolution branch.
 - Freeform Label Studio prelabeling has two behavior-changing permutations that should stay visible in flow docs:
   - upload mode: `annotations` vs `predictions`
-  - granularity: `span` (actual freeform) vs `block` (legacy block mode)
+  - granularity: `span` (actual freeform) vs `block` (block-based mode)
 
 Anti-loop note:
 - If flowcharts and runtime behavior diverge, update this file and the README chart in the same change so future debugging does not branch on stale docs.
 
-## Merged Understandings Batch (2026-02-23 cleanup)
+## 2026-02-27 Merged Understandings: Coverage and Cleanup
 
-### Cross-cutting pytest low-noise output contract
+Merged source notes:
+- `docs/understandings/2026-02-27_19.46.01-architecture-doc-cleanup-current-path-contracts.md`
+- `docs/understandings/2026-02-27_19.52.07-architecture-doc-coverage-audit.md`
+- `docs/understandings/2026-02-27_19.52.19-docs-removed-feature-prune-map.md`
 
-Merged sources:
-- `docs/understandings/2026-02-22_23.25.11-pytest-progress-glyph-suppression.md`
-- `docs/understandings/2026-02-22_23.35.37-pytest-addopts-override-noise-gap.md`
+Current-contract additions:
+- Label Studio defaults are workflow-specific roots: `data/golden/sent-to-labelstudio`, `data/golden/pulled-from-labelstudio`, and `data/golden/benchmark-vs-golden`.
+- Stage and Label Studio docs must include full run-root artifact contracts, including `run_manifest.json`, `sections/`, `.bench/stage_block_predictions.json`, and optional `tables/`, `knowledge/`, and `tags/` outputs where applicable.
+- `run_manifest.json` scope is intentionally narrower than some older docs implied: stage + Label Studio prediction/import/export/eval/benchmark flows emit manifests; `bench run/sweep/speed-*` currently do not.
+- Legacy removed features (EPUB race, Label Studio decorate mode, legacy scope execution branches) should be kept only as retired-context notes, not active behavior docs.
 
-Durable rules:
-- `pytest.ini` quiet flags alone are not sufficient under pytest 9; compact output relies on both:
-  - `console_output_style = classic`
-  - glyph suppression in `tests/conftest.py:pytest_report_teststatus(...)`
-- Compact mode should remain enforced in `tests/conftest.py:pytest_configure(...)` (`no_header`, `no_summary`, warnings suppression, verbose clamp) so `-o addopts=''` does not re-enable noisy separators by accident.
-- Intentional verbose debugging remains opt-in via `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`.
-
-## Merged Understanding (2026-02-24 cleanup)
-
-### 2026-02-23_23.14.20 data layout: golden workflow buckets + shared history root
-
-Merged source:
-- `docs/understandings/2026-02-23_23.14.20-data-layout-golden-history-buckets.md`
-
-Durable cross-cutting layout contract:
-- Golden workflow artifacts are separated by intent:
-  - `data/golden/sent-to-labelstudio` (task generation/import runs),
-  - `data/golden/pulled-from-labelstudio` (label exports),
-  - `data/golden/benchmark-vs-golden` (benchmark/eval runs).
-- Shared history root is `data/.history`:
-  - dashboard default output: `data/.history/dashboard`,
-  - canonical history CSV: `data/.history/performance_history.csv`.
-- Compatibility behavior should remain tolerant while older artifacts exist:
-  - dashboard collector may fallback to legacy `data/output/.history/performance_history.csv`,
-  - last-run settings loaders may fallback to legacy `<output_dir>/.history/last_run_settings_*.json`.
-
-## Merged Task Spec (2026-02-24 docs/tasks archival batch)
-
-### 2026-02-23_23.14.20 data-layout implementation addendum
-
-Task source:
-- `docs/tasks/2026-02-23_23.14.20-data-layout-golden-history-refactor.md`
-
-Architecture details to preserve:
-- Central path derivation moved into `cookimport/paths.py` so commands do not hardcode divergent golden/history roots.
-- CLI defaults/routing were aligned together for:
-  - `labelstudio-import --output-dir`,
-  - `labelstudio-export --output-dir`,
-  - `labelstudio-benchmark --output-dir`,
-  - `stats-dashboard --out-dir`.
-- Golden roots now encode workflow intent:
-  - `data/golden/sent-to-labelstudio`,
-  - `data/golden/pulled-from-labelstudio`,
-  - `data/golden/benchmark-vs-golden`.
-- Shared analytics/history root moved to `data/.history` with legacy read fallback for migration safety.
-
-Implementation caveats preserved:
-- Interactive tests monkeypatch `DEFAULT_GOLDEN`; routing must derive subpaths dynamically from that root rather than import-time frozen constants.
-- Dashboard/collector code must keep legacy `data/output/.history` fallback while historical artifacts remain.
-
-Recorded validation from task:
-- `source .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py tests/analytics/test_stats_dashboard.py tests/cli/test_cli_output_structure.py tests/llm/test_run_settings.py tests/analytics/test_benchmark_csv_backfill_cli.py`
-- Result captured: `112 passed, 7 warnings in 5.75s`.
+Known bad loops to avoid:
+- Do not treat `stage()` docstrings as the full output contract.
+- Do not keep removed-feature chronology as if it is still executable runtime behavior.

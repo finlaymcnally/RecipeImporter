@@ -19,9 +19,13 @@ Note on historical files:
 - Several earlier architecture notes were consolidated into `docs/01-architecture/01-architecture_README.md` and this log, and the original standalone files were deleted. If you need to recover them, use git history or `docs/2026-02-22_14.21.10_recipeimport-docs-summary.md`.
 
 Key outcomes that remain relevant:
-- stage outputs default under `data/output` and Label Studio/bench defaults under `data/golden`
+- stage outputs default under `data/output`
+- Label Studio defaults are workflow-specific under `data/golden/*`:
+  - `sent-to-labelstudio`, `pulled-from-labelstudio`, `benchmark-vs-golden`
+- history CSV root resolves from the output root parent (`<output_root parent>/.history`), which is `data/.history` for default stage output
 - timestamp folder format is `YYYY-MM-DD_HH.MM.SS` (dot-separated time)
 - stage report JSON is written at the run root (not a `reports/` subfolder)
+- stage run-root artifacts include more than drafts/tips/chunks/raw/report; current writer flow also emits `sections`, `.bench/stage_block_predictions.json`, optional `tables`, optional `knowledge`/`tags`, and `run_manifest.json`
 - Label Studio split merge must rebase block indices to keep eval alignment
 - `run_manifest.json` is the cross-command traceability join point
 
@@ -39,7 +43,7 @@ Key outcomes that remain relevant:
 
 3. URN namespace naming drift
 - Older architecture examples used `urn:cookimport:*`.
-- Code currently emits `urn:recipeimport:*`.
+- Stage recipe/tip/topic IDs currently emit `urn:recipeimport:*`; Label Studio freeform-span export IDs remain `urn:cookimport:freeform_span:*`.
 - Any downstream parser/indexer should key off real emitted IDs, not old examples.
 
 4. Split-job merge correctness depends on index rebasing
@@ -47,12 +51,17 @@ Key outcomes that remain relevant:
 - If block indices are not rebased during merge, eval alignment breaks silently.
 
 5. Benchmark command expectations
-- `labelstudio-benchmark` is not eval-only in CLI mode; it performs prediction import/upload first.
-- interactive benchmark has an eval-only branch if you already have a prediction run.
+- `labelstudio-benchmark` is not eval-only by default in CLI mode; prediction generation happens unless you explicitly pass `--predictions-in`.
+- upload is optional (`--no-upload`) and prediction + eval still run in fully offline mode.
 
 6. CLI code has duplicate dead-return tail in stage command
 - there is a second unreachable `typer.secho(...); return out` tail after the first return in `stage()` (`cookimport/cli.py`).
 - harmless at runtime but easy to misread during maintenance.
+
+7. `stage()` docstring is intentionally shorter than actual writer contract
+- `cookimport/cli.py` stage docstring lists only core draft/tip/report paths.
+- Actual runtime writes additional lanes (`sections`, `.bench/stage_block_predictions`, optional tables, and run manifest wiring).
+- For contract truth, use `staging/writer.py` + architecture README, not the short command docstring alone.
 
 ## Prior Attempt Ledger (with status)
 
@@ -60,7 +69,7 @@ From earlier consolidated architecture notes:
 
 - Attempt: remove root `staging/` default outputs.
   - Status: appears landed and active.
-  - Evidence: CLI defaults route stage/inspect to `data/output`; Label Studio artifacts default to `data/golden`.
+  - Evidence: CLI defaults route stage/inspect to `data/output`; Label Studio import/export/benchmark defaults route to `data/golden/sent-to-labelstudio`, `data/golden/pulled-from-labelstudio`, and `data/golden/benchmark-vs-golden`.
 
 - Attempt: unify timestamp folder format to a colon-separated time format.
   - Status: not reflected in current code paths.
@@ -72,69 +81,34 @@ From earlier consolidated architecture notes:
 If you are reconciling flowcharts vs runtime behavior, use:
 - `docs/01-architecture/01-architecture_README.md` -> "Flowchart Branching Contracts"
 
-## 2026-02-23 archival merge batch from `docs/understandings` (cross-cutting test-output rules)
+## 2026-02-27 merged understanding ledger (architecture + cross-doc pruning)
 
-### 2026-02-22_23.25.11 pytest progress glyph suppression
-
-Merged source:
-- `docs/understandings/2026-02-22_23.25.11-pytest-progress-glyph-suppression.md`
-
-Preserved rule:
-- Pytest 9 compact output requires both classic console style and `pytest_report_teststatus(...)` shortletter suppression; either control alone can still leave noisy progress lines.
-
-### 2026-02-22_23.35.37 pytest addopts-override noise gap
-
-Merged source:
-- `docs/understandings/2026-02-22_23.35.37-pytest-addopts-override-noise-gap.md`
-
-Preserved rule:
-- Users can bypass `pytest.ini` quiet defaults with `-o addopts=''`; `tests/conftest.py:pytest_configure(...)` should keep compact defaults enforced unless `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` is explicitly set.
-
-Anti-loop note:
-- If separator/bannner noise returns, verify `tests/conftest.py` hook behavior before editing marker/test-output docs.
-
-## 2026-02-24 archival merge batch from `docs/understandings` (architecture)
-
-### 2026-02-23_23.14.20 golden/history path bucket refactor
-
-Merged source:
-- `docs/understandings/2026-02-23_23.14.20-data-layout-golden-history-buckets.md`
+### 2026-02-27_19.46.01 architecture doc cleanup current path contracts
 
 Problem captured:
-- Label Studio task-generation, label-export, and benchmark-eval artifacts shared overlapping roots, while long-term history lived under stage output roots, causing operator confusion and cross-workflow path drift.
+- Architecture docs had stale path/default claims.
 
-Preserved decisions:
-- Separate golden roots by workflow (`sent-to-labelstudio`, `pulled-from-labelstudio`, `benchmark-vs-golden`).
-- Move shared history root to `data/.history` for cross-command analytics/dashboard consistency.
-- Keep fallback reads for legacy history/settings paths during migration window.
+Durable decisions:
+- Keep Label Studio command defaults documented per workflow root under `data/golden/*`.
+- Keep history CSV contract documented as `<output_root parent>/.history/performance_history.csv`.
+- Keep extractor list current (`unstructured`, `beautifulsoup`, `markdown`, `markitdown`) and remove stale `legacy` mentions.
 
-Anti-loop note:
-- Path-contract changes must update CLI defaults, collectors, and docs together; partial updates recreate "missing artifact" confusion loops.
-
-## 2026-02-24 docs/tasks archival merge batch (architecture)
-
-### 2026-02-23_23.14.20 data layout refactor task record
-
-Merged source:
-- `docs/tasks/2026-02-23_23.14.20-data-layout-golden-history-refactor.md`
+### 2026-02-27_19.52.07 architecture doc coverage audit
 
 Problem captured:
-- Golden artifacts for import/export/benchmark were mixed under one root, and cross-run history lived under output-specific roots, causing path drift across CLI, dashboard, and settings loaders.
+- Architecture docs under-described stage and Label Studio artifact surfaces.
 
-Decisions preserved:
-- Keep one canonical golden root constant (`DEFAULT_GOLDEN`) but route operational defaults to workflow-specific subfolders.
-- Make `data/.history` canonical for shared history/dashboard outputs.
-- Keep compatibility fallback reads for legacy history/settings paths during migration.
+Durable decisions:
+- Document stage run-root artifacts beyond draft/tip/report (`sections`, `.bench/stage_block_predictions.json`, optional `tables`, optional `knowledge`/`tags`, `run_manifest.json`).
+- Document Label Studio prediction/import optional artifacts (`label_studio_tasks.jsonl` in offline mode, optional copied `stage_block_predictions.json`, prelabel report/error/prompt-log files).
+- Keep explicit note that `run_manifest` emission is stage/Label Studio scoped, not universal to every benchmark command.
 
-Serious implementation pitfalls already encountered:
-- Using import-time frozen golden subfolder constants broke tests that monkeypatch `DEFAULT_GOLDEN`; dynamic derivation fixed this.
-- Dashboard/history collectors initially missed rows when only legacy `output/.history` existed; fallback reads were required for migration period.
+### 2026-02-27_19.52.19 docs removed-feature prune map
 
-Evidence preserved from task:
-- Targeted validation run recorded as `112 passed, 7 warnings`.
-- On-disk migration recorded:
-  - `data/output/.history -> data/.history`,
-  - golden artifacts moved into `sent-to-labelstudio`, `pulled-from-labelstudio`, `benchmark-vs-golden`.
+Problem captured:
+- Large docs had historical branches for removed runtime features that were creating debugging loops.
 
-Anti-loop note:
-- Do not split path-contract work across multiple PRs without synchronized CLI defaults + collector fallbacks + docs updates; partial migrations repeatedly recreated "artifact not found" debugging loops.
+Durable decisions:
+- Keep compatibility/rejection behavior only where runtime still enforces it.
+- Treat EPUB race fields, Label Studio decorate mode, and legacy runtime scope execution branches as retired history.
+- Prefer concise retired-feature notes over long archival execution narratives.

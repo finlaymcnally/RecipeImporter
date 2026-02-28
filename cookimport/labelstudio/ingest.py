@@ -14,8 +14,10 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from cookimport.epub_extractor_names import (
+    EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
     EPUB_EXTRACTOR_CANONICAL_SET,
     epub_extractor_choices_for_help,
+    is_policy_locked_epub_extractor_name,
     normalize_epub_extractor_name,
 )
 from cookimport.config.run_settings import (
@@ -237,6 +239,11 @@ def _normalize_epub_extractor(value: str) -> str:
         raise ValueError(
             "Invalid epub_extractor. "
             f"Expected one of: {epub_extractor_choices_for_help()}."
+        )
+    if is_policy_locked_epub_extractor_name(normalized):
+        raise ValueError(
+            f"epub_extractor {normalized!r} is policy-locked off for now "
+            f"(set {EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV}=1 to temporarily re-enable)."
         )
     return normalized
 

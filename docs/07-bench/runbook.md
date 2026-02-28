@@ -136,6 +136,17 @@ cookimport bench speed-run \
   --max-targets 1
 ```
 
+Optional: run the all-method multi-source scenario (exercises source scheduling/sharding/tail-pair):
+
+```bash
+cookimport bench speed-run \
+  --suite data/golden/bench/speed/suites/pulled_from_labelstudio.json \
+  --scenarios benchmark_all_method_multi_source \
+  --warmups 0 \
+  --repeats 1 \
+  --max-targets 3
+```
+
 Compare baseline vs candidate and fail on regression:
 
 ```bash

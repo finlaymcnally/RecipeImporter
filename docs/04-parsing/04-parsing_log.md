@@ -103,6 +103,31 @@ Important caveat:
 - Unstructured HTML parser `v2` expects `body.Document`/`div.Page` style structure.
 - Adapter now applies a compatibility shim for `v2` inputs by wrapping/marking body when needed before calling `partition_html`.
 
+### 2026-02-27_19.50.31: parsing docs module/call-site coverage parity audit
+
+Problem captured:
+- `04-parsing_readme.md` had partial file-path coverage (core behavior was documented, but several active helper modules and cross-boundary call sites were implicit or missing).
+
+Decision/outcome preserved:
+- Expanded module inventory to include active helper modules that shape parsing behavior:
+  - `cookimport/parsing/markitdown_adapter.py`
+  - `cookimport/parsing/patterns.py`
+  - `cookimport/parsing/spacy_support.py`
+  - plus explicit top-level listing of `epub_html_normalize.py`, `unstructured_adapter.py`, `epub_postprocess.py`, `epub_health.py`.
+- Expanded call-site inventory so parsing entrypoints are explicit in docs:
+  - `cookimport/plugins/pdf.py`, `cookimport/plugins/text.py`, `cookimport/plugins/excel.py`
+  - `cookimport/cli.py`, `cookimport/cli_worker.py`, `cookimport/labelstudio/ingest.py`
+  - `cookimport/epubdebug/cli.py`, `cookimport/staging/jsonld.py`, `cookimport/core/scoring.py`
+  - `cookimport/llm/codex_farm_knowledge_jobs.py`.
+- Documented `cookimport/parsing/classifier.py` as parsing-adjacent/test-scoped (not default stage recipe-path runtime), so it is not mistaken for an active stage dependency.
+
+Anti-loop note:
+- When reconciling parsing docs coverage, compare:
+  1) `cookimport/parsing/*.py` file inventory,
+  2) repo-wide `from cookimport.parsing ...` import call sites,
+  3) README module + call-site lists.
+  This prevents repeated "docs look complete but missed helper module" loops.
+
 ## Things We Know Are Bad (Do Not Re-discover)
 
 - Text-based ingredient identity can collide when identical ingredient strings appear multiple times intentionally.
@@ -126,8 +151,8 @@ Behavior contract preserved:
 
 Verification and evidence preserved:
 - Recorded command set includes:
-  - `pytest -q tests/test_cleaning_epub.py tests/test_epub_extraction_quickwins.py tests/test_epub_importer.py tests/test_epub_debug_cli.py tests/test_epub_debug_extract_cli.py`
-  - `pytest -q tests/test_unstructured_adapter.py tests/test_cli_output_structure.py tests/test_epub_job_merge.py`
+  - `pytest -q tests/parsing/test_cleaning_epub.py tests/ingestion/test_epub_extraction_quickwins.py tests/ingestion/test_epub_importer.py tests/cli/test_epub_debug_cli.py tests/cli/test_epub_debug_extract_cli.py`
+  - `pytest -q tests/ingestion/test_unstructured_adapter.py tests/cli/test_cli_output_structure.py tests/ingestion/test_epub_job_merge.py`
 - Recorded results:
   - targeted suite `33 passed`,
   - additional affected suites `34 passed`.
@@ -170,9 +195,6 @@ Serious failed-path summary:
 
 ### 2026-02-25_16.39.07 chunk consolidation absolute-range contract
 
-Merged source:
-- `docs/understandings/2026-02-25_16.39.07-chunk-consolidation-absolute-adjacency-and-table-guard.md`
-
 Problem captured:
 - Consolidation needed absolute adjacency checks for source ordering without breaking pass4's relative chunk index contract.
 
@@ -186,9 +208,6 @@ Anti-loop note:
 
 ### 2026-02-25_16.42.42 section-aware step-linking and duplicate identity safety
 
-Merged source:
-- `docs/understandings/2026-02-25_16.42.42-step-linking-section-context-and-duplicate-indexing.md`
-
 Problem captured:
 - Repeated ingredient names and multi-section recipes could map ingredients to wrong steps under text-only identity and global fallback passes.
 
@@ -200,12 +219,9 @@ Decision/outcome preserved:
 Anti-loop note:
 - Do not downgrade assignment identity to text-only matching; it reintroduces duplicate-line collisions.
 
-## 2026-02-25 docs/tasks archival merge batch (parsing)
+## 2026-02-25 archival merge batch (parsing)
 
 ### 2026-02-25_16.24.52 knowledge-table extraction rollout
-
-Merged source:
-- `docs/tasks/knowledge-tables.md`
 
 Problem captured:
 - Cookbook knowledge tables were flattening into prose-like blocks, making deterministic export and pass4 extraction unreliable.
@@ -234,9 +250,6 @@ Anti-loop note:
 
 ### 2026-02-25_16.39.01 adjacent same-topic chunk consolidation
 
-Merged source:
-- `docs/tasks/combine-knowledge-chunks.md`
-
 Problem captured:
 - Adjacent knowledge chunks under one topic were fragmented, reducing chunk review quality and increasing pass4 work on near-duplicate neighbors.
 
@@ -258,9 +271,6 @@ Anti-loop notes:
 
 ### 2026-02-25_16.45.50 multi-component recipe sections + section-aware linking
 
-Merged source:
-- `docs/tasks/Sub-grouping-recipe-steps.md`
-
 Problem captured:
 - Multi-component recipe headers (`For the meat`, `For the gravy`, etc.) needed structural handling for better step linking and auditable outputs.
 
@@ -278,25 +288,20 @@ Shipped outcomes:
 Anti-loop note:
 - If repeated ingredient names collapse to one step in multi-section recipes, check index-based identity flow before retuning alias scoring heuristics.
 
-## 2026-02-25 understanding merge batch (EPUB race backend removal)
-
-### 2026-02-25_19.00.12 parser/scorer race backend purge + contract cleanup
-
-Merged source:
-- `docs/understandings/2026-02-25_19.00.12-epub-race-backend-removal-boundary.md`
+### 2026-02-27_19.46.23 parsing docs stale-content retirement
 
 Problem captured:
-- Race-era parser/scorer modules and compatibility fields were still part of runtime/report assumptions.
+- Parsing docs mixed active runtime context with removed feature/task archive material.
 
-Decision/outcome preserved:
-- Removed race-specific parser modules:
-  - `cookimport/parsing/epub_auto_select.py`
-  - `cookimport/parsing/extraction_quality.py`
-- Removed race-only ingestion tests tied to those modules.
-- Removed race compatibility fields from runtime/report/analytics-facing contracts:
-  - `epubAutoSelection`
-  - `epubAutoSelectedScore`
-  - `epub_auto_selected_score`
+Durable decisions:
+- Keep chronology tied to still-active parser/runtime behavior.
+- Retire removed race-backend history and dead source-doc links.
+- Keep test-path references aligned to current domain test layout (`tests/parsing`, `tests/ingestion`, `tests/staging`, `tests/core`).
 
-Anti-loop note:
-- Treat any references to race compatibility scoring fields as stale schema debt, not missing feature wiring.
+### 2026-02-27_19.50.31 provenance note
+
+Source understanding merged:
+- `docs/understandings/2026-02-27_19.50.31-parsing-doc-module-callsite-coverage-audit.md`
+
+Current status:
+- Runtime helper-module and callsite coverage findings are retained in this log and reflected in `04-parsing_readme.md`.

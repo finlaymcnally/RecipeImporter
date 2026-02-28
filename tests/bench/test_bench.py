@@ -346,10 +346,10 @@ def test_build_pred_run_for_source_passes_epub_extractor(monkeypatch: pytest.Mon
     build_pred_run_for_source(
         source,
         out_dir,
-        config={"epub_extractor": "markdown"},
+        config={"epub_extractor": "beautifulsoup"},
     )
 
-    assert captured["epub_extractor"] == "markdown"
+    assert captured["epub_extractor"] == "beautifulsoup"
 
 
 def test_bench_run_direct_write_flags_override_config(

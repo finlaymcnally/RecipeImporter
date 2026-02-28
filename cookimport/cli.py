@@ -53,7 +53,11 @@ from cookimport.config.run_settings import (
 )
 from cookimport.epub_extractor_names import (
     EPUB_EXTRACTOR_CANONICAL_SET,
+    EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
+    epub_extractor_enabled_choices,
     epub_extractor_choices_for_help,
+    is_policy_locked_epub_extractor_name,
+    markdown_epub_extractors_enabled,
     normalize_epub_extractor_name,
 )
 from cookimport.core.mapping_io import load_mapping_config, save_mapping_config
@@ -229,6 +233,10 @@ ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_SETTING_KEY = "all_method_source_shard_min_
 ALL_METHOD_WING_BACKLOG_SETTING_KEY = "all_method_wing_backlog_target"
 ALL_METHOD_SMART_SCHEDULER_SETTING_KEY = "all_method_smart_scheduler"
 ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV = "COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT"
+ALL_METHOD_EVAL_SIGNATURE_SCHEMA_VERSION = "all_method_eval_signature.v1"
+ALL_METHOD_EVAL_SIGNATURE_RESULT_CACHE_SCHEMA_VERSION = (
+    "all_method_eval_signature_result.v1"
+)
 ALL_METHOD_SCHEDULER_POLL_SECONDS = 0.15
 ALL_METHOD_SCHEDULER_TIMESERIES_HEARTBEAT_SECONDS = 1.0
 ALL_METHOD_SCHEDULER_TIMESERIES_FILENAME = "scheduler_timeseries.jsonl"
@@ -737,6 +745,25 @@ def _load_settings() -> Dict[str, Any]:
                         key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
                         fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
                     )
+                raw_extractor = normalize_epub_extractor_name(
+                    merged.get("epub_extractor", "unstructured")
+                )
+                normalized_extractor = _coerce_configured_epub_extractor(raw_extractor)
+                if raw_extractor != normalized_extractor:
+                    if is_policy_locked_epub_extractor_name(raw_extractor):
+                        logger.warning(
+                            "Forcing epub_extractor=unstructured in cookimport.json because "
+                            "markdown extractors are policy-locked off. Set %s=1 to "
+                            "temporarily re-enable markdown extractors.",
+                            EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
+                        )
+                    else:
+                        logger.warning(
+                            "Forcing epub_extractor=unstructured in cookimport.json because "
+                            "stored value %r is not supported.",
+                            raw_extractor,
+                        )
+                merged["epub_extractor"] = normalized_extractor
                 return merged
             return defaults
     except Exception:
@@ -952,9 +979,25 @@ def _all_method_default_parallel_sources_from_cpu() -> int:
     return max(1, min(ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT, cpu_scaled))
 
 
+def _coerce_configured_epub_extractor(value: Any) -> str:
+    normalized = normalize_epub_extractor_name(value or "unstructured")
+    if normalized not in EPUB_EXTRACTOR_CANONICAL_SET:
+        return "unstructured"
+    if is_policy_locked_epub_extractor_name(normalized):
+        return "unstructured"
+    return normalized
+
+
 def _settings_menu(current_settings: Dict[str, Any]) -> None:
     """Run the settings configuration menu."""
     while True:
+        enabled_epub_extractors = epub_extractor_enabled_choices()
+        enabled_epub_extractors_display = "/".join(enabled_epub_extractors)
+        current_epub_extractor = _coerce_configured_epub_extractor(
+            current_settings.get("epub_extractor", "unstructured")
+        )
+        current_settings["epub_extractor"] = current_epub_extractor
+
         # Refresh values in display
         choice = _menu_select(
             "Settings Configuration",
@@ -1072,7 +1115,10 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     value=ALL_METHOD_SMART_SCHEDULER_SETTING_KEY,
                 ),
                 questionary.Choice(
-                    f"EPUB Extractor: {current_settings.get('epub_extractor', 'unstructured')} - unstructured/beautifulsoup/markdown/markitdown",
+                    (
+                        f"EPUB Extractor: {current_epub_extractor} - "
+                        f"{enabled_epub_extractors_display}"
+                    ),
                     value="epub_extractor",
                 ),
                 questionary.Choice(
@@ -1371,12 +1417,12 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
         elif choice == "epub_extractor":
             val = _menu_select(
                 "Select EPUB extraction engine:",
-                choices=["unstructured", "beautifulsoup", "markdown", "markitdown"],
-                default=current_settings.get("epub_extractor", "unstructured"),
+                choices=list(enabled_epub_extractors),
+                default=current_epub_extractor,
                 menu_help=(
                     "Unstructured uses semantic HTML partitioning for richer block extraction. "
-                    "BeautifulSoup uses tag-based parsing. Markdown converts spine HTML into markdown first. "
-                    "MarkItDown is retained as a whole-book markdown mode."
+                    "BeautifulSoup uses tag-based parsing. "
+                    f"Markdown extractors are policy-locked off unless {EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV}=1."
                 ),
             )
             if val and val != BACK_ACTION:
@@ -1611,18 +1657,30 @@ def _interactive_all_method_benchmark(
         typer.secho(
             (
                 "All method includes markdown + markitdown extractor variants "
-                f"(enabled via {ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV}=1)."
+                f"(enabled via {EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV}=1 and "
+                f"{ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV}=1)."
             ),
             fg=typer.colors.YELLOW,
         )
     else:
-        typer.secho(
-            (
-                "All method excludes markdown + markitdown extractor variants by default. "
-                f"Set {ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV}=1 to include them."
-            ),
-            fg=typer.colors.BRIGHT_BLACK,
-        )
+        if markdown_epub_extractors_enabled():
+            typer.secho(
+                (
+                    "All method excludes markdown + markitdown extractor variants by default. "
+                    f"Set {ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV}=1 to include them."
+                ),
+                fg=typer.colors.BRIGHT_BLACK,
+            )
+        else:
+            typer.secho(
+                (
+                    "Markdown + markitdown extractors are policy-locked off. "
+                    f"Set {EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV}=1 to temporarily re-enable "
+                    "them, then set "
+                    f"{ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV}=1 to include them in all method."
+                ),
+                fg=typer.colors.BRIGHT_BLACK,
+            )
 
     if scope_all_matched:
         typer.secho(
@@ -2566,8 +2624,9 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 menu_help=(
                     "Single offline mode runs one local prediction + eval against freeform gold "
                     "without Label Studio upload. All method benchmark runs many offline "
-                    "permutations with one summary report. By default, all method excludes "
-                    "markdown/markitdown extractors; set "
+                    "permutations with one summary report. Markdown extractors are policy-locked "
+                    f"off unless {EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV}=1. If unlocked, all method "
+                    "still excludes markdown/markitdown by default; set "
                     f"{ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV}=1 to include them."
                 ),
                 choices=[
@@ -2878,6 +2937,11 @@ def _normalize_epub_extractor(value: str) -> str:
         _fail(
             f"Invalid EPUB extractor: {value!r}. "
             f"Expected one of: {epub_extractor_choices_for_help()}."
+        )
+    if is_policy_locked_epub_extractor_name(normalized):
+        _fail(
+            f"EPUB extractor {normalized!r} is policy-locked off for now "
+            f"(set {EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV}=1 to temporarily re-enable)."
         )
     return normalized
 
@@ -5983,9 +6047,8 @@ def _resolve_all_method_codex_choice(include_codex_farm: bool) -> tuple[bool, st
 
 
 def _resolve_all_method_markdown_extractors_choice() -> bool:
-    return (
-        os.getenv(ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV, "").strip() == "1"
-    )
+    requested = os.getenv(ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV, "").strip() == "1"
+    return requested and markdown_epub_extractors_enabled()
 
 
 def _report_metric(value: Any) -> float:
@@ -6421,7 +6484,200 @@ def _all_method_failed_row(
     return row
 
 
-def _run_all_method_config_once(
+def _stable_json_sha256(payload: Any) -> str:
+    canonical = json.dumps(
+        _json_safe(payload),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _all_method_eval_signature_prediction_rows(
+    *,
+    prediction_record_path: Path,
+) -> list[dict[str, Any]]:
+    prediction_records = list(read_prediction_records(prediction_record_path))
+    if not prediction_records:
+        raise ValueError(f"Prediction record file is empty: {prediction_record_path}")
+    signature_rows: list[dict[str, Any]] = []
+    for record in prediction_records:
+        signature_rows.append(
+            {
+                "example_index": int(record.example_index),
+                "prediction": _json_safe(record.prediction),
+            }
+        )
+    signature_rows.sort(
+        key=lambda row: (
+            int(row.get("example_index", 0)),
+            _stable_json_sha256(row.get("prediction", {})),
+        )
+    )
+    return signature_rows
+
+
+def _all_method_gold_fingerprint(gold_spans_path: Path) -> dict[str, Any]:
+    fingerprint: dict[str, Any] = {"gold_spans_path": str(gold_spans_path)}
+    if gold_spans_path.exists() and gold_spans_path.is_file():
+        try:
+            fingerprint["gold_spans_sha256"] = compute_file_hash(gold_spans_path)
+        except Exception:  # noqa: BLE001
+            fingerprint["gold_spans_sha256"] = None
+
+    gold_export_root = gold_spans_path.parent
+    for artifact_name in (
+        "canonical_text.txt",
+        "canonical_span_labels.jsonl",
+        "canonical_manifest.json",
+    ):
+        artifact_path = gold_export_root / artifact_name
+        if not artifact_path.exists() or not artifact_path.is_file():
+            continue
+        key = f"{artifact_name.replace('.', '_')}_sha256"
+        try:
+            fingerprint[key] = compute_file_hash(artifact_path)
+        except Exception:  # noqa: BLE001
+            fingerprint[key] = None
+    return fingerprint
+
+
+def _build_all_method_eval_signature(
+    *,
+    gold_spans_path: Path,
+    prediction_record_path: Path,
+    eval_mode: str,
+    sequence_matcher: str,
+    schema_version: str = ALL_METHOD_EVAL_SIGNATURE_SCHEMA_VERSION,
+) -> str:
+    signature_payload = {
+        "schema_version": str(schema_version or ALL_METHOD_EVAL_SIGNATURE_SCHEMA_VERSION),
+        "eval_mode": str(eval_mode or BENCHMARK_EVAL_MODE_CANONICAL_TEXT),
+        "sequence_matcher": str(sequence_matcher or "fallback"),
+        "gold_fingerprint": _all_method_gold_fingerprint(gold_spans_path),
+        "prediction_rows": _all_method_eval_signature_prediction_rows(
+            prediction_record_path=prediction_record_path
+        ),
+    }
+    return _stable_json_sha256(signature_payload)
+
+
+def _group_all_method_rows_by_eval_signature(
+    rows: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    grouped_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        eval_signature = str(row.get("eval_signature") or "").strip()
+        if not eval_signature:
+            continue
+        grouped_rows[eval_signature].append(row)
+    for eval_signature in list(grouped_rows):
+        grouped_rows[eval_signature].sort(
+            key=lambda row: _report_count(row.get("config_index"))
+        )
+    return dict(grouped_rows)
+
+
+def _resolve_all_method_eval_signature_cache_dir(
+    *,
+    root_output_dir: Path,
+    alignment_cache_dir: Path | None,
+) -> Path:
+    if alignment_cache_dir is None:
+        return root_output_dir / ".cache" / "eval_signature_results"
+
+    resolved_alignment_dir = alignment_cache_dir.expanduser()
+    if resolved_alignment_dir.name == "canonical_alignment":
+        return resolved_alignment_dir.parent / "eval_signature_results"
+    if resolved_alignment_dir.parent.name == "canonical_alignment":
+        return (
+            resolved_alignment_dir.parent.parent
+            / "eval_signature_results"
+            / resolved_alignment_dir.name
+        )
+    return resolved_alignment_dir.parent / "eval_signature_results"
+
+
+def _load_all_method_eval_signature_cache_entry(
+    *,
+    cache_path: Path,
+    expected_signature: str,
+) -> dict[str, Any] | None:
+    if not cache_path.exists() or not cache_path.is_file():
+        return None
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(payload, dict):
+        return None
+    schema_version = str(payload.get("schema_version") or "").strip()
+    if schema_version != ALL_METHOD_EVAL_SIGNATURE_RESULT_CACHE_SCHEMA_VERSION:
+        return None
+    cached_signature = str(payload.get("eval_signature") or "").strip()
+    if cached_signature != str(expected_signature):
+        return None
+    report_payload = payload.get("report")
+    if not isinstance(report_payload, dict):
+        return None
+    return payload
+
+
+def _write_all_method_eval_signature_cache_entry(
+    *,
+    cache_path: Path,
+    payload: dict[str, Any],
+) -> None:
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = cache_path.with_suffix(
+        f"{cache_path.suffix}.tmp-{os.getpid()}-{time.monotonic_ns()}"
+    )
+    tmp_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    tmp_path.replace(cache_path)
+
+
+def _materialize_all_method_cached_eval_outputs(
+    *,
+    eval_output_dir: Path,
+    report_payload: dict[str, Any],
+    report_md_text: str | None,
+) -> tuple[Path, Path]:
+    eval_output_dir.mkdir(parents=True, exist_ok=True)
+    report_json_path = eval_output_dir / "eval_report.json"
+    report_md_path = eval_output_dir / "eval_report.md"
+    report_json_path.write_text(
+        json.dumps(report_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    rendered_md = str(report_md_text or "").strip()
+    if not rendered_md:
+        rendered_md = (
+            "# Benchmark Eval Report (Cached)\n\n"
+            "Evaluation report reused from all-method signature cache."
+        )
+    report_md_path.write_text(rendered_md, encoding="utf-8")
+    return report_json_path, report_md_path
+
+
+def _resolve_all_method_prediction_record_path(
+    *,
+    root_output_dir: Path,
+    row: dict[str, Any],
+) -> Path | None:
+    raw_value = str(row.get("prediction_record_jsonl") or "").strip()
+    if not raw_value:
+        return None
+    candidate = Path(raw_value)
+    if not candidate.is_absolute():
+        candidate = root_output_dir / candidate
+    return candidate
+
+
+def _run_all_method_prediction_once(
     *,
     gold_spans_path: Path,
     source_file: Path,
@@ -6445,10 +6701,13 @@ def _run_all_method_config_once(
     eval_output_dir = root_output_dir / config_dir_name
     scratch_output_dir = scratch_root / config_dir_name
     processed_output_dir = processed_output_root / config_dir_name
+    prediction_record_path = eval_output_dir / "prediction-records.jsonl"
     if eval_output_dir.exists():
         shutil.rmtree(eval_output_dir)
     if scratch_output_dir.exists():
         shutil.rmtree(scratch_output_dir)
+    if processed_output_dir.exists():
+        shutil.rmtree(processed_output_dir)
 
     split_slots = max(1, _report_count(max_concurrent_split_phases))
     split_status_label = format_task_counter(
@@ -6551,6 +6810,8 @@ def _run_all_method_config_once(
                         output_dir=scratch_output_dir,
                         processed_output_dir=processed_output_dir,
                         eval_output_dir=eval_output_dir,
+                        execution_mode=BENCHMARK_EXECUTION_MODE_PREDICT_ONLY,
+                        predictions_out=prediction_record_path,
                         eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
                         sequence_matcher=variant.run_settings.benchmark_sequence_matcher,
                         overlap_threshold=overlap_threshold,
@@ -6595,46 +6856,91 @@ def _run_all_method_config_once(
             elapsed_seconds=max(0.0, time.monotonic() - config_started),
         )
 
-    report_json_path = eval_output_dir / "eval_report.json"
-    if not report_json_path.exists():
+    if not prediction_record_path.exists():
         _emit_scheduler_event(
             "config_finished",
             status="failed",
-            error=f"Missing eval_report.json in {eval_output_dir}",
+            error=f"Missing prediction-records.jsonl in {eval_output_dir}",
         )
         return _all_method_failed_row(
             config_index=config_index,
             config_dir_name=config_dir_name,
             variant=variant,
-            error=f"Missing eval_report.json in {eval_output_dir}",
+            error=f"Missing prediction-records.jsonl in {eval_output_dir}",
             elapsed_seconds=max(0.0, time.monotonic() - config_started),
         )
-
     try:
-        report = json.loads(report_json_path.read_text(encoding="utf-8"))
+        prediction_records = list(read_prediction_records(prediction_record_path))
     except Exception as exc:  # noqa: BLE001
         _emit_scheduler_event(
             "config_finished",
             status="failed",
-            error=f"Failed to parse eval report for {config_dir_name}: {exc}",
+            error=f"Failed to parse prediction records for {config_dir_name}: {exc}",
         )
         return _all_method_failed_row(
             config_index=config_index,
             config_dir_name=config_dir_name,
             variant=variant,
-            error=f"Failed to parse eval report for {config_dir_name}: {exc}",
+            error=f"Failed to parse prediction records for {config_dir_name}: {exc}",
+            elapsed_seconds=max(0.0, time.monotonic() - config_started),
+        )
+    if not prediction_records:
+        _emit_scheduler_event(
+            "config_finished",
+            status="failed",
+            error=f"Prediction records are empty for {config_dir_name}",
+        )
+        return _all_method_failed_row(
+            config_index=config_index,
+            config_dir_name=config_dir_name,
+            variant=variant,
+            error=f"Prediction records are empty for {config_dir_name}",
             elapsed_seconds=max(0.0, time.monotonic() - config_started),
         )
 
     config_wall_seconds = max(0.0, time.monotonic() - config_started)
-    report_timing = _normalize_timing_payload(report.get("timing"))
+    report_timing: dict[str, Any] = {}
+    run_manifest_path = eval_output_dir / "run_manifest.json"
+    if run_manifest_path.exists() and run_manifest_path.is_file():
+        try:
+            run_manifest_payload = json.loads(run_manifest_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            run_manifest_payload = {}
+        if isinstance(run_manifest_payload, dict):
+            artifacts_payload = run_manifest_payload.get("artifacts")
+            if isinstance(artifacts_payload, dict):
+                report_timing = _normalize_timing_payload(artifacts_payload.get("timing"))
+
+    # Test doubles often still write eval_report timing even in predict-only mode.
+    if not report_timing:
+        report_json_path = eval_output_dir / "eval_report.json"
+        if report_json_path.exists() and report_json_path.is_file():
+            try:
+                report_payload = json.loads(report_json_path.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                report_payload = {}
+            if isinstance(report_payload, dict):
+                report_timing = _normalize_timing_payload(report_payload.get("timing"))
+
+    prediction_phase_seconds = _report_optional_metric(
+        report_timing.get("prediction_seconds")
+    )
     report_total_seconds = _report_optional_metric(report_timing.get("total_seconds"))
+    if prediction_phase_seconds is None and report_total_seconds is not None:
+        prediction_phase_seconds = report_total_seconds
+    if prediction_phase_seconds is None:
+        prediction_phase_seconds = config_wall_seconds
     config_timing = _timing_with_updates(
         report_timing,
+        prediction_seconds=prediction_phase_seconds,
+        evaluation_seconds=0.0,
         total_seconds=(
             report_total_seconds if report_total_seconds is not None else config_wall_seconds
         ),
-        checkpoints={"all_method_config_wall_seconds": config_wall_seconds},
+        checkpoints={
+            "all_method_prediction_wall_seconds": config_wall_seconds,
+            "all_method_config_wall_seconds": config_wall_seconds,
+        },
     )
 
     pred_context = _load_pred_run_recipe_context(eval_output_dir / "prediction-run")
@@ -6647,17 +6953,11 @@ def _run_all_method_config_once(
         "run_config_hash": pred_context.run_config_hash or variant.run_settings.stable_hash(),
         "run_config_summary": pred_context.run_config_summary
         or variant.run_settings.summary(),
-        "precision": _report_metric(report.get("precision")),
-        "recall": _report_metric(report.get("recall")),
-        "f1": _report_metric(report.get("f1")),
-        "practical_precision": _report_metric(report.get("practical_precision")),
-        "practical_recall": _report_metric(report.get("practical_recall")),
-        "practical_f1": _report_metric(report.get("practical_f1")),
-        "eval_report_json": _path_for_manifest(root_output_dir, report_json_path),
-        "eval_report_md": _path_for_manifest(
+        "prediction_record_jsonl": _path_for_manifest(
             root_output_dir,
-            eval_output_dir / "eval_report.md",
+            prediction_record_path,
         ),
+        "benchmark_sequence_matcher": variant.run_settings.benchmark_sequence_matcher,
         "duration_seconds": config_wall_seconds,
         "timing": config_timing,
         "dimensions": dict(variant.dimensions),
@@ -6668,6 +6968,165 @@ def _run_all_method_config_once(
         duration_seconds=config_wall_seconds,
     )
     return row
+
+
+def _run_all_method_evaluate_prediction_record_once(
+    *,
+    gold_spans_path: Path,
+    source_file: Path,
+    prediction_record_path: Path,
+    eval_output_dir: Path,
+    processed_output_dir: Path,
+    sequence_matcher: str,
+    epub_extractor: str | None,
+    overlap_threshold: float,
+    force_source_match: bool,
+    alignment_cache_dir: Path | None,
+    progress_callback: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    evaluation_started = time.monotonic()
+
+    def _discard_progress(_message: str) -> None:
+        return
+
+    benchmark_progress_callback = progress_callback or _discard_progress
+    scratch_output_dir = eval_output_dir / ".scratch-eval-only"
+    if scratch_output_dir.exists():
+        shutil.rmtree(scratch_output_dir)
+    for artifact_name in ("eval_report.json", "eval_report.md"):
+        artifact_path = eval_output_dir / artifact_name
+        if artifact_path.exists():
+            artifact_path.unlink()
+
+    try:
+        with _benchmark_progress_overrides(
+            progress_callback=benchmark_progress_callback,
+            suppress_summary=True,
+            suppress_spinner=True,
+        ):
+            labelstudio_benchmark(
+                gold_spans=gold_spans_path,
+                source_file=source_file,
+                output_dir=scratch_output_dir,
+                processed_output_dir=processed_output_dir,
+                eval_output_dir=eval_output_dir,
+                eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+                sequence_matcher=sequence_matcher,
+                epub_extractor=(epub_extractor or "unstructured"),
+                overlap_threshold=overlap_threshold,
+                force_source_match=force_source_match,
+                no_upload=True,
+                predictions_in=prediction_record_path,
+                alignment_cache_dir=alignment_cache_dir,
+            )
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "failed",
+            "error": str(exc),
+            "duration_seconds": max(0.0, time.monotonic() - evaluation_started),
+        }
+
+    report_json_path = eval_output_dir / "eval_report.json"
+    if not report_json_path.exists() or not report_json_path.is_file():
+        return {
+            "status": "failed",
+            "error": f"Missing eval_report.json in {eval_output_dir}",
+            "duration_seconds": max(0.0, time.monotonic() - evaluation_started),
+        }
+    try:
+        report_payload = json.loads(report_json_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "failed",
+            "error": f"Failed to parse eval report in {eval_output_dir}: {exc}",
+            "duration_seconds": max(0.0, time.monotonic() - evaluation_started),
+        }
+    if not isinstance(report_payload, dict):
+        return {
+            "status": "failed",
+            "error": f"Eval report payload is invalid in {eval_output_dir}",
+            "duration_seconds": max(0.0, time.monotonic() - evaluation_started),
+        }
+
+    evaluation_wall_seconds = max(0.0, time.monotonic() - evaluation_started)
+    report_timing = _normalize_timing_payload(report_payload.get("timing"))
+    report_total_seconds = _report_optional_metric(report_timing.get("total_seconds"))
+    normalized_timing = _timing_with_updates(
+        report_timing,
+        total_seconds=(
+            report_total_seconds
+            if report_total_seconds is not None
+            else evaluation_wall_seconds
+        ),
+        checkpoints={"all_method_eval_wall_seconds": evaluation_wall_seconds},
+    )
+    report_payload["timing"] = normalized_timing
+    report_json_path.write_text(
+        json.dumps(report_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    report_md_path = eval_output_dir / "eval_report.md"
+    report_md_text = (
+        report_md_path.read_text(encoding="utf-8")
+        if report_md_path.exists() and report_md_path.is_file()
+        else ""
+    )
+    return {
+        "status": "ok",
+        "error": "",
+        "precision": _report_metric(report_payload.get("precision")),
+        "recall": _report_metric(report_payload.get("recall")),
+        "f1": _report_metric(report_payload.get("f1")),
+        "practical_precision": _report_metric(report_payload.get("practical_precision")),
+        "practical_recall": _report_metric(report_payload.get("practical_recall")),
+        "practical_f1": _report_metric(report_payload.get("practical_f1")),
+        "timing": normalized_timing,
+        "report": report_payload,
+        "report_md_text": report_md_text,
+        "eval_report_json_path": report_json_path,
+        "eval_report_md_path": report_md_path,
+        "duration_seconds": evaluation_wall_seconds,
+    }
+
+
+def _run_all_method_config_once(
+    *,
+    gold_spans_path: Path,
+    source_file: Path,
+    variant: AllMethodVariant,
+    config_index: int,
+    total_variants: int,
+    root_output_dir: Path,
+    scratch_root: Path,
+    processed_output_root: Path,
+    overlap_threshold: float,
+    force_source_match: bool,
+    max_concurrent_split_phases: int,
+    split_phase_gate_dir: Path,
+    scheduler_events_dir: Path,
+    alignment_cache_dir: Path | None,
+    split_worker_cap_per_config: int | None = None,
+    progress_callback: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    # Compatibility wrapper retained for any direct callers.
+    return _run_all_method_prediction_once(
+        gold_spans_path=gold_spans_path,
+        source_file=source_file,
+        variant=variant,
+        config_index=config_index,
+        total_variants=total_variants,
+        root_output_dir=root_output_dir,
+        scratch_root=scratch_root,
+        processed_output_root=processed_output_root,
+        overlap_threshold=overlap_threshold,
+        force_source_match=force_source_match,
+        max_concurrent_split_phases=max_concurrent_split_phases,
+        split_phase_gate_dir=split_phase_gate_dir,
+        scheduler_events_dir=scheduler_events_dir,
+        alignment_cache_dir=alignment_cache_dir,
+        split_worker_cap_per_config=split_worker_cap_per_config,
+        progress_callback=progress_callback,
+    )
 
 
 def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
@@ -6681,6 +7140,16 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
         f"- Total configurations: {report_payload.get('variant_count', 0)}",
         f"- Successful configurations: {report_payload.get('successful_variants', 0)}",
         f"- Failed configurations: {report_payload.get('failed_variants', 0)}",
+        (
+            "- Evaluation signatures unique / runs executed: "
+            f"{_report_count(report_payload.get('evaluation_signatures_unique'))}/"
+            f"{_report_count(report_payload.get('evaluation_runs_executed'))}"
+        ),
+        (
+            "- Evaluation results reused in-run/cross-run: "
+            f"{_report_count(report_payload.get('evaluation_results_reused_in_run'))}/"
+            f"{_report_count(report_payload.get('evaluation_results_reused_cross_run'))}"
+        ),
         (
             "- Failed-config retries requested/executed/recovered: "
             f"{_report_count(report_payload.get('retry_failed_configs_requested'))}/"
@@ -6861,9 +7330,11 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
             continue
         rank_value = row.get("rank")
         rank_prefix = f"{rank_value}. " if rank_value is not None else ""
+        eval_source = str(row.get("evaluation_result_source") or "").strip()
         row_timing = _normalize_timing_payload(row.get("timing"))
         row_seconds = _report_optional_metric(row_timing.get("total_seconds"))
         timing_suffix = f", time={row_seconds:.2f}s" if row_seconds is not None else ""
+        eval_source_suffix = f", eval_source={eval_source}" if eval_source else ""
         lines.append(
             (
                 f"- {rank_prefix}{config_dir} "
@@ -6871,7 +7342,7 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
                 f"recall={_report_metric(row.get('recall')):.3f}, "
                 f"f1={_report_metric(row.get('f1')):.3f}, "
                 f"practical_f1={_report_metric(row.get('practical_f1')):.3f}"
-                f"{timing_suffix}) "
+                f"{timing_suffix}{eval_source_suffix}) "
                 f"[hash={row.get('run_config_hash', '')}]"
             )
         )
@@ -6909,6 +7380,16 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
         f"- Planned config runs: {report_payload.get('total_config_runs_planned', 0)}",
         f"- Completed config runs: {report_payload.get('total_config_runs_completed', 0)}",
         f"- Successful config runs: {report_payload.get('total_config_runs_successful', 0)}",
+        (
+            "- Evaluation signatures unique / runs executed: "
+            f"{_report_count(report_payload.get('evaluation_signatures_unique'))}/"
+            f"{_report_count(report_payload.get('evaluation_runs_executed'))}"
+        ),
+        (
+            "- Evaluation results reused in-run/cross-run: "
+            f"{_report_count(report_payload.get('evaluation_results_reused_in_run'))}/"
+            f"{_report_count(report_payload.get('evaluation_results_reused_cross_run'))}"
+        ),
         (
             "- Config timeout / failed-config retry limit: "
             f"{('off' if report_payload.get('config_timeout_seconds') is None else str(_report_count(report_payload.get('config_timeout_seconds'))) + 's')}/"
@@ -7300,6 +7781,10 @@ def _run_all_method_benchmark_multi_source(
             "variant_count_planned": len(plan.variants),
             "variant_count_completed": 0,
             "variant_count_successful": 0,
+            "evaluation_signatures_unique": 0,
+            "evaluation_runs_executed": 0,
+            "evaluation_results_reused_in_run": 0,
+            "evaluation_results_reused_cross_run": 0,
             "winner_metrics": {},
             "timing_summary": {},
             "scheduler": {},
@@ -7446,6 +7931,18 @@ def _run_all_method_benchmark_multi_source(
                 "variant_count_planned": len(plan.variants),
                 "variant_count_completed": successful_variants + failed_variants,
                 "variant_count_successful": successful_variants,
+                "evaluation_signatures_unique": _report_count(
+                    report_payload.get("evaluation_signatures_unique")
+                ),
+                "evaluation_runs_executed": _report_count(
+                    report_payload.get("evaluation_runs_executed")
+                ),
+                "evaluation_results_reused_in_run": _report_count(
+                    report_payload.get("evaluation_results_reused_in_run")
+                ),
+                "evaluation_results_reused_cross_run": _report_count(
+                    report_payload.get("evaluation_results_reused_cross_run")
+                ),
                 "winner_metrics": winner_metrics,
                 "timing_summary": normalized_source_timing,
                 "scheduler": normalized_source_scheduler,
@@ -7801,6 +8298,10 @@ def _run_all_method_benchmark_multi_source(
         variant_count_planned = 0
         variant_count_completed = 0
         variant_count_successful = 0
+        evaluation_signatures_unique = 0
+        evaluation_runs_executed = 0
+        evaluation_results_reused_in_run = 0
+        evaluation_results_reused_cross_run = 0
         source_estimated_seconds = 0.0
         estimate_basis_tokens: set[str] = set()
         best_winner_metrics: dict[str, float] = {}
@@ -7825,6 +8326,18 @@ def _run_all_method_benchmark_multi_source(
             variant_count_planned += _report_count(row.get("variant_count_planned"))
             variant_count_completed += _report_count(row.get("variant_count_completed"))
             variant_count_successful += _report_count(row.get("variant_count_successful"))
+            evaluation_signatures_unique += _report_count(
+                row.get("evaluation_signatures_unique")
+            )
+            evaluation_runs_executed += _report_count(
+                row.get("evaluation_runs_executed")
+            )
+            evaluation_results_reused_in_run += _report_count(
+                row.get("evaluation_results_reused_in_run")
+            )
+            evaluation_results_reused_cross_run += _report_count(
+                row.get("evaluation_results_reused_cross_run")
+            )
             source_estimated_seconds += _report_metric(row.get("source_estimated_seconds"))
             estimate_basis = str(row.get("source_estimate_basis") or "").strip()
             if estimate_basis:
@@ -7909,6 +8422,18 @@ def _run_all_method_benchmark_multi_source(
                     "variant_count_successful": _report_count(
                         row.get("variant_count_successful")
                     ),
+                    "evaluation_signatures_unique": _report_count(
+                        row.get("evaluation_signatures_unique")
+                    ),
+                    "evaluation_runs_executed": _report_count(
+                        row.get("evaluation_runs_executed")
+                    ),
+                    "evaluation_results_reused_in_run": _report_count(
+                        row.get("evaluation_results_reused_in_run")
+                    ),
+                    "evaluation_results_reused_cross_run": _report_count(
+                        row.get("evaluation_results_reused_cross_run")
+                    ),
                     "report_path": report_path,
                     "report_json_path": report_json_path,
                     "error": str(row.get("error") or ""),
@@ -7958,6 +8483,10 @@ def _run_all_method_benchmark_multi_source(
             "variant_count_planned": variant_count_planned,
             "variant_count_completed": variant_count_completed,
             "variant_count_successful": variant_count_successful,
+            "evaluation_signatures_unique": evaluation_signatures_unique,
+            "evaluation_runs_executed": evaluation_runs_executed,
+            "evaluation_results_reused_in_run": evaluation_results_reused_in_run,
+            "evaluation_results_reused_cross_run": evaluation_results_reused_cross_run,
             "winner_metrics": best_winner_metrics,
             "timing_summary": aggregate_timing_summary,
             "scheduler": aggregate_scheduler,
@@ -7982,6 +8511,20 @@ def _run_all_method_benchmark_multi_source(
     )
     total_successful_config_runs = sum(
         _report_count(row.get("variant_count_successful")) for row in source_rows
+    )
+    total_evaluation_signatures_unique = sum(
+        _report_count(row.get("evaluation_signatures_unique")) for row in source_rows
+    )
+    total_evaluation_runs_executed = sum(
+        _report_count(row.get("evaluation_runs_executed")) for row in source_rows
+    )
+    total_evaluation_results_reused_in_run = sum(
+        _report_count(row.get("evaluation_results_reused_in_run"))
+        for row in source_rows
+    )
+    total_evaluation_results_reused_cross_run = sum(
+        _report_count(row.get("evaluation_results_reused_cross_run"))
+        for row in source_rows
     )
     run_wall_seconds = max(0.0, time.monotonic() - run_started)
 
@@ -8207,6 +8750,10 @@ def _run_all_method_benchmark_multi_source(
         "total_config_runs_planned": total_planned_config_runs,
         "total_config_runs_completed": total_completed_config_runs,
         "total_config_runs_successful": total_successful_config_runs,
+        "evaluation_signatures_unique": total_evaluation_signatures_unique,
+        "evaluation_runs_executed": total_evaluation_runs_executed,
+        "evaluation_results_reused_in_run": total_evaluation_results_reused_in_run,
+        "evaluation_results_reused_cross_run": total_evaluation_results_reused_cross_run,
         "successful_source_count": successful_source_count,
         "failed_source_count": total_targets - successful_source_count,
         "config_timeout_seconds": effective_config_timeout_seconds,
@@ -9003,7 +9550,7 @@ def _run_all_method_benchmark(
                 dashboard.set_task(message)
                 _notify_progress_callback(progress_callback, dashboard.render())
 
-            row = _run_all_method_config_once(
+            row = _run_all_method_prediction_once(
                 gold_spans_path=gold_spans_path,
                 source_file=source_file,
                 variant=variant,
@@ -9140,7 +9687,7 @@ def _run_all_method_benchmark(
 
             try:
                 future = executor.submit(
-                    _run_all_method_config_once,
+                    _run_all_method_prediction_once,
                     gold_spans_path=gold_spans_path,
                     source_file=source_file,
                     variant=variant,
@@ -9420,8 +9967,299 @@ def _run_all_method_benchmark(
     scheduler_summary["retry_passes_executed"] = retry_passes_executed
     scheduler_summary["retry_recovered_configs"] = retry_recovered_configs
 
-    successful_rows = [row for row in variant_rows if row.get("status") == "ok"]
-    failed_rows = [row for row in variant_rows if row.get("status") != "ok"]
+    variant_rows = _latest_rows_by_config(variant_rows)
+    prediction_success_rows = [
+        dict(row)
+        for row in variant_rows
+        if str(row.get("status") or "").strip().lower() == "ok"
+    ]
+    failed_rows: list[dict[str, Any]] = [
+        dict(row)
+        for row in variant_rows
+        if str(row.get("status") or "").strip().lower() != "ok"
+    ]
+
+    successful_rows: list[dict[str, Any]] = []
+    signature_candidate_rows: list[dict[str, Any]] = []
+    evaluation_signatures_unique = 0
+    evaluation_runs_executed = 0
+    evaluation_results_reused_in_run = 0
+    evaluation_results_reused_cross_run = 0
+    eval_signature_cache_dir = _resolve_all_method_eval_signature_cache_dir(
+        root_output_dir=root_output_dir,
+        alignment_cache_dir=canonical_alignment_cache_dir,
+    )
+
+    for row in prediction_success_rows:
+        prediction_record_path = _resolve_all_method_prediction_record_path(
+            root_output_dir=root_output_dir,
+            row=row,
+        )
+        if (
+            prediction_record_path is None
+            or not prediction_record_path.exists()
+            or not prediction_record_path.is_file()
+        ):
+            failed_row = dict(row)
+            failed_row["status"] = "failed"
+            failed_row["error"] = "Prediction record path is missing for signature build."
+            failed_row["evaluation_result_source"] = "failed"
+            failed_rows.append(failed_row)
+            continue
+        sequence_matcher = str(row.get("benchmark_sequence_matcher") or "").strip() or "fallback"
+        try:
+            eval_signature = _build_all_method_eval_signature(
+                gold_spans_path=gold_spans_path,
+                prediction_record_path=prediction_record_path,
+                eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+                sequence_matcher=sequence_matcher,
+            )
+        except Exception as exc:  # noqa: BLE001
+            failed_row = dict(row)
+            failed_row["status"] = "failed"
+            failed_row["error"] = f"Failed to build evaluation signature: {exc}"
+            failed_row["evaluation_result_source"] = "failed"
+            failed_rows.append(failed_row)
+            continue
+        row["eval_signature"] = eval_signature
+        row["benchmark_sequence_matcher"] = sequence_matcher
+        signature_candidate_rows.append(row)
+
+    grouped_by_signature = _group_all_method_rows_by_eval_signature(signature_candidate_rows)
+    evaluation_signatures_unique = len(grouped_by_signature)
+    grouped_items = sorted(
+        grouped_by_signature.items(),
+        key=lambda item: min(_report_count(row.get("config_index")) for row in item[1]),
+    )
+    for signature_index, (eval_signature, group_rows) in enumerate(grouped_items, start=1):
+        if not group_rows:
+            continue
+        ordered_group = sorted(
+            group_rows,
+            key=lambda row: _report_count(row.get("config_index")),
+        )
+        representative_row = ordered_group[0]
+        representative_config_dir = str(representative_row.get("config_dir") or "").strip()
+        if not representative_config_dir:
+            for row in ordered_group:
+                failed_row = dict(row)
+                failed_row["status"] = "failed"
+                failed_row["error"] = "Representative config directory is missing."
+                failed_row["evaluation_result_source"] = "failed"
+                failed_rows.append(failed_row)
+            continue
+        representative_eval_output_dir = root_output_dir / representative_config_dir
+        representative_processed_output_dir = processed_output_root / representative_config_dir
+        representative_prediction_record = _resolve_all_method_prediction_record_path(
+            root_output_dir=root_output_dir,
+            row=representative_row,
+        )
+        if representative_prediction_record is None:
+            for row in ordered_group:
+                failed_row = dict(row)
+                failed_row["status"] = "failed"
+                failed_row["error"] = "Representative prediction record is missing."
+                failed_row["evaluation_result_source"] = "failed"
+                failed_rows.append(failed_row)
+            continue
+        sequence_matcher = str(representative_row.get("benchmark_sequence_matcher") or "").strip()
+        if not sequence_matcher:
+            sequence_matcher = "fallback"
+
+        cache_path = eval_signature_cache_dir / f"{eval_signature}.json"
+        cache_entry = _load_all_method_eval_signature_cache_entry(
+            cache_path=cache_path,
+            expected_signature=eval_signature,
+        )
+
+        evaluation_result_source_for_group = "executed"
+        evaluation_summary: dict[str, Any]
+        if cache_entry is not None:
+            cached_report = cache_entry.get("report")
+            if not isinstance(cached_report, dict):
+                cached_report = {}
+            cached_md = str(cache_entry.get("report_md") or "")
+            eval_report_json_path, eval_report_md_path = (
+                _materialize_all_method_cached_eval_outputs(
+                    eval_output_dir=representative_eval_output_dir,
+                    report_payload=cached_report,
+                    report_md_text=cached_md,
+                )
+            )
+            evaluation_summary = {
+                "status": "ok",
+                "error": "",
+                "precision": _report_metric(cached_report.get("precision")),
+                "recall": _report_metric(cached_report.get("recall")),
+                "f1": _report_metric(cached_report.get("f1")),
+                "practical_precision": _report_metric(
+                    cached_report.get("practical_precision")
+                ),
+                "practical_recall": _report_metric(cached_report.get("practical_recall")),
+                "practical_f1": _report_metric(cached_report.get("practical_f1")),
+                "timing": _normalize_timing_payload(cached_report.get("timing")),
+                "report": cached_report,
+                "report_md_text": cached_md,
+                "eval_report_json_path": eval_report_json_path,
+                "eval_report_md_path": eval_report_md_path,
+                "duration_seconds": 0.0,
+            }
+            evaluation_result_source_for_group = "reused_cross_run"
+            evaluation_results_reused_cross_run += len(ordered_group)
+        else:
+            _emit_status(
+                (
+                    "Evaluating signature "
+                    f"{signature_index}/{max(1, evaluation_signatures_unique)} "
+                    f"(group size {len(ordered_group)})."
+                ),
+                color=typer.colors.CYAN,
+            )
+            evaluation_summary = _run_all_method_evaluate_prediction_record_once(
+                gold_spans_path=gold_spans_path,
+                source_file=source_file,
+                prediction_record_path=representative_prediction_record,
+                eval_output_dir=representative_eval_output_dir,
+                processed_output_dir=representative_processed_output_dir,
+                sequence_matcher=sequence_matcher,
+                epub_extractor=str(
+                    representative_row.get("dimensions", {}).get("epub_extractor")
+                    if isinstance(representative_row.get("dimensions"), dict)
+                    else ""
+                )
+                or None,
+                overlap_threshold=overlap_threshold,
+                force_source_match=force_source_match,
+                alignment_cache_dir=canonical_alignment_cache_dir,
+                progress_callback=None,
+            )
+            if str(evaluation_summary.get("status") or "").strip().lower() == "ok":
+                evaluation_runs_executed += 1
+                if len(ordered_group) > 1:
+                    evaluation_results_reused_in_run += len(ordered_group) - 1
+                cached_payload = {
+                    "schema_version": ALL_METHOD_EVAL_SIGNATURE_RESULT_CACHE_SCHEMA_VERSION,
+                    "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+                    "eval_signature": eval_signature,
+                    "eval_mode": BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+                    "sequence_matcher": sequence_matcher,
+                    "source_file": str(source_file),
+                    "gold_spans_path": str(gold_spans_path),
+                    "report": evaluation_summary.get("report"),
+                    "report_md": evaluation_summary.get("report_md_text"),
+                }
+                try:
+                    _write_all_method_eval_signature_cache_entry(
+                        cache_path=cache_path,
+                        payload=cached_payload,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Ignoring eval-signature cache write failure for %s: %s",
+                        cache_path,
+                        exc,
+                    )
+
+        if str(evaluation_summary.get("status") or "").strip().lower() != "ok":
+            error_text = str(evaluation_summary.get("error") or "Evaluation failed.")
+            for row in ordered_group:
+                failed_row = dict(row)
+                failed_row["status"] = "failed"
+                failed_row["error"] = error_text
+                failed_row["evaluation_result_source"] = "failed"
+                failed_row["evaluation_representative_config_dir"] = representative_config_dir
+                failed_row["eval_signature"] = eval_signature
+                failed_rows.append(failed_row)
+            continue
+
+        summary_timing = _normalize_timing_payload(evaluation_summary.get("timing"))
+        summary_evaluation_seconds = _report_optional_metric(
+            summary_timing.get("evaluation_seconds")
+        )
+        if summary_evaluation_seconds is None:
+            summary_evaluation_seconds = _report_optional_metric(
+                summary_timing.get("total_seconds")
+            )
+        if summary_evaluation_seconds is None:
+            summary_evaluation_seconds = _report_optional_metric(
+                evaluation_summary.get("duration_seconds")
+            )
+        if summary_evaluation_seconds is None:
+            summary_evaluation_seconds = 0.0
+
+        summary_eval_wall_seconds = max(
+            0.0,
+            _report_metric(evaluation_summary.get("duration_seconds")),
+        )
+        summary_report_json_path = Path(str(evaluation_summary.get("eval_report_json_path") or ""))
+        summary_report_md_path = Path(str(evaluation_summary.get("eval_report_md_path") or ""))
+
+        for row in ordered_group:
+            result_row = dict(row)
+            is_representative = (
+                _report_count(result_row.get("config_index"))
+                == _report_count(representative_row.get("config_index"))
+            )
+            row_result_source = "executed"
+            if evaluation_result_source_for_group == "reused_cross_run":
+                row_result_source = "reused_cross_run"
+            elif not is_representative:
+                row_result_source = "reused_in_run"
+
+            row_timing = _normalize_timing_payload(result_row.get("timing"))
+            prediction_total_seconds = _report_optional_metric(row_timing.get("total_seconds"))
+            if prediction_total_seconds is None:
+                prediction_total_seconds = _report_optional_metric(
+                    result_row.get("duration_seconds")
+                )
+            if prediction_total_seconds is None:
+                prediction_total_seconds = 0.0
+
+            row_eval_seconds = summary_evaluation_seconds if row_result_source == "executed" else 0.0
+            row_eval_wall = summary_eval_wall_seconds if row_result_source == "executed" else 0.0
+            row_total_seconds = max(0.0, prediction_total_seconds + row_eval_seconds)
+            row_timing = _timing_with_updates(
+                row_timing,
+                evaluation_seconds=row_eval_seconds,
+                total_seconds=row_total_seconds,
+                checkpoints={
+                    "all_method_eval_wall_seconds": row_eval_wall,
+                    "all_method_eval_reused_in_run": (
+                        1.0 if row_result_source == "reused_in_run" else 0.0
+                    ),
+                    "all_method_eval_reused_cross_run": (
+                        1.0 if row_result_source == "reused_cross_run" else 0.0
+                    ),
+                },
+            )
+
+            result_row["status"] = "ok"
+            result_row["error"] = ""
+            result_row["precision"] = _report_metric(evaluation_summary.get("precision"))
+            result_row["recall"] = _report_metric(evaluation_summary.get("recall"))
+            result_row["f1"] = _report_metric(evaluation_summary.get("f1"))
+            result_row["practical_precision"] = _report_metric(
+                evaluation_summary.get("practical_precision")
+            )
+            result_row["practical_recall"] = _report_metric(
+                evaluation_summary.get("practical_recall")
+            )
+            result_row["practical_f1"] = _report_metric(evaluation_summary.get("practical_f1"))
+            result_row["eval_signature"] = eval_signature
+            result_row["evaluation_result_source"] = row_result_source
+            result_row["evaluation_representative_config_dir"] = representative_config_dir
+            result_row["duration_seconds"] = row_total_seconds
+            result_row["timing"] = row_timing
+            result_row["eval_report_json"] = _path_for_manifest(
+                root_output_dir,
+                summary_report_json_path,
+            )
+            result_row["eval_report_md"] = _path_for_manifest(
+                root_output_dir,
+                summary_report_md_path,
+            )
+            successful_rows.append(result_row)
+
     failed_rows.sort(key=lambda row: _report_count(row.get("config_index")))
     successful_rows.sort(
         key=lambda row: (
@@ -9475,6 +10313,11 @@ def _run_all_method_benchmark(
         "variant_count": total_variants,
         "successful_variants": len(successful_rows),
         "failed_variants": len(failed_rows),
+        "evaluation_signatures_unique": evaluation_signatures_unique,
+        "evaluation_runs_executed": evaluation_runs_executed,
+        "evaluation_results_reused_in_run": evaluation_results_reused_in_run,
+        "evaluation_results_reused_cross_run": evaluation_results_reused_cross_run,
+        "evaluation_signature_cache_dir": str(eval_signature_cache_dir),
         "retry_failed_configs_requested": effective_retry_failed_configs,
         "retry_passes_executed": retry_passes_executed,
         "retry_recovered_configs": retry_recovered_configs,
@@ -10627,7 +11470,8 @@ def stage(
         help=(
             "EPUB extraction engine: unstructured (semantic), beautifulsoup "
             "(BeautifulSoup), markdown (HTML->Markdown), or markitdown (whole-book "
-            "EPUB->markdown mode)."
+            "EPUB->markdown mode). Markdown extractors are policy-locked off unless "
+            f"{EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV}=1."
         ),
     ),
     epub_unstructured_html_parser_version: str = typer.Option(
@@ -12730,7 +13574,8 @@ def labelstudio_benchmark(
         help=(
             "EPUB extraction engine: unstructured (semantic), beautifulsoup "
             "(BeautifulSoup), markdown (HTML->Markdown), or markitdown (whole-book "
-            "EPUB->markdown mode)."
+            "EPUB->markdown mode). Markdown extractors are policy-locked off unless "
+            f"{EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV}=1."
         ),
     )] = "unstructured",
     epub_unstructured_html_parser_version: Annotated[str, typer.Option(
@@ -13818,7 +14663,7 @@ def bench_speed_run(
         help=(
             "Comma-separated scenario list. "
             "Allowed: stage_import, benchmark_canonical_legacy, "
-            "benchmark_canonical_pipelined."
+            "benchmark_canonical_pipelined, benchmark_all_method_multi_source."
         ),
     ),
     warmups: int = typer.Option(

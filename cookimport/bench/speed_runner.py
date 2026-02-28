@@ -22,6 +22,11 @@ class SpeedScenario(str, Enum):
     STAGE_IMPORT = "stage_import"
     BENCHMARK_CANONICAL_LEGACY = "benchmark_canonical_legacy"
     BENCHMARK_CANONICAL_PIPELINED = "benchmark_canonical_pipelined"
+    BENCHMARK_ALL_METHOD_MULTI_SOURCE = "benchmark_all_method_multi_source"
+
+
+SPEED_SUITE_ALL_MATCHED_TARGET_ID = "__all_matched__"
+_SPEED_SUITE_ALL_MATCHED_TARGET_DIR = "_all_matched"
 
 
 ProgressCallback = Callable[[str], None]
@@ -66,7 +71,15 @@ def run_speed_suite(
     )
 
     sample_rows: list[dict[str, Any]] = []
-    total_tasks = len(selected_targets) * len(scenarios) * (warmups + repeats)
+    scenario_work_items: list[tuple[SpeedScenario, SpeedTarget | None]] = []
+    for scenario in scenarios:
+        if _scenario_runs_once_per_suite(scenario):
+            scenario_work_items.append((scenario, None))
+            continue
+        for target in selected_targets:
+            scenario_work_items.append((scenario, target))
+
+    total_tasks = len(scenario_work_items) * (warmups + repeats)
     completed_tasks = 0
 
     def _notify(message: str) -> None:
@@ -74,74 +87,112 @@ def run_speed_suite(
             return
         progress_callback(message)
 
-    for target in selected_targets:
-        target_source = resolve_repo_path(target.source_file, repo_root=REPO_ROOT)
-        target_gold = resolve_repo_path(target.gold_spans_path, repo_root=REPO_ROOT)
+    for scenario, scenario_target in scenario_work_items:
+        target_id = (
+            SPEED_SUITE_ALL_MATCHED_TARGET_ID
+            if scenario_target is None
+            else scenario_target.target_id
+        )
+        source_file_for_row = (
+            None if scenario_target is None else scenario_target.source_file
+        )
+        gold_spans_for_row = (
+            None if scenario_target is None else scenario_target.gold_spans_path
+        )
+        target_source = (
+            None
+            if scenario_target is None
+            else resolve_repo_path(scenario_target.source_file, repo_root=REPO_ROOT)
+        )
+        target_gold = (
+            None
+            if scenario_target is None
+            else resolve_repo_path(scenario_target.gold_spans_path, repo_root=REPO_ROOT)
+        )
 
-        for scenario in scenarios:
-            for phase, phase_index in _iter_sample_phases(warmups=warmups, repeats=repeats):
-                completed_tasks += 1
-                task_prefix = format_task_counter(
-                    "Speed suite",
-                    completed_tasks,
-                    total_tasks,
-                    noun="task",
-                )
-                _notify(
-                    f"{task_prefix} [{target.target_id}] {scenario.value} "
-                    f"{phase} {phase_index}..."
-                )
+        for phase, phase_index in _iter_sample_phases(warmups=warmups, repeats=repeats):
+            completed_tasks += 1
+            task_prefix = format_task_counter(
+                "Speed suite",
+                completed_tasks,
+                total_tasks,
+                noun="task",
+            )
+            _notify(
+                f"{task_prefix} [{target_id}] {scenario.value} "
+                f"{phase} {phase_index}..."
+            )
 
-                sample_dir = (
-                    run_root
-                    / "scenario_runs"
-                    / target.target_id
-                    / scenario.value
-                    / f"{phase}_{phase_index:02d}"
+            sample_dir = (
+                run_root
+                / "scenario_runs"
+                / (
+                    _SPEED_SUITE_ALL_MATCHED_TARGET_DIR
+                    if scenario_target is None
+                    else scenario_target.target_id
                 )
-                sample_dir.mkdir(parents=True, exist_ok=True)
+                / scenario.value
+                / f"{phase}_{phase_index:02d}"
+            )
+            sample_dir.mkdir(parents=True, exist_ok=True)
 
-                sample_started = time.monotonic()
-                if scenario == SpeedScenario.STAGE_IMPORT:
-                    metrics = _run_stage_import_sample(
-                        source_file=target_source,
-                        sample_dir=sample_dir,
+            sample_started = time.monotonic()
+            if scenario == SpeedScenario.STAGE_IMPORT:
+                if target_source is None:
+                    raise ValueError("stage_import scenario requires a concrete target.")
+                metrics = _run_stage_import_sample(
+                    source_file=target_source,
+                    sample_dir=sample_dir,
+                )
+            elif scenario == SpeedScenario.BENCHMARK_CANONICAL_LEGACY:
+                if target_source is None or target_gold is None:
+                    raise ValueError(
+                        "benchmark_canonical_legacy scenario requires a concrete target."
                     )
-                elif scenario == SpeedScenario.BENCHMARK_CANONICAL_LEGACY:
-                    metrics = _run_benchmark_sample(
-                        source_file=target_source,
-                        gold_spans_path=target_gold,
-                        sample_dir=sample_dir,
-                        execution_mode="legacy",
-                        sequence_matcher=sequence_matcher,
-                    )
-                elif scenario == SpeedScenario.BENCHMARK_CANONICAL_PIPELINED:
-                    metrics = _run_benchmark_sample(
-                        source_file=target_source,
-                        gold_spans_path=target_gold,
-                        sample_dir=sample_dir,
-                        execution_mode="pipelined",
-                        sequence_matcher=sequence_matcher,
-                    )
-                else:
-                    raise ValueError(f"Unsupported speed scenario: {scenario}")
-
-                wall_seconds = max(0.0, time.monotonic() - sample_started)
-                timing_payload = metrics.pop("timing", {})
-                sample_rows.append(
-                    {
-                        "target_id": target.target_id,
-                        "source_file": target.source_file,
-                        "gold_spans_path": target.gold_spans_path,
-                        "scenario": scenario.value,
-                        "phase": phase,
-                        "phase_index": phase_index,
-                        "wall_seconds": float(wall_seconds),
-                        "timing": timing_payload,
-                        "metrics": metrics,
-                        "sample_dir": _relative_to_run_root(sample_dir, run_root),
-                    }
+                metrics = _run_benchmark_sample(
+                    source_file=target_source,
+                    gold_spans_path=target_gold,
+                    sample_dir=sample_dir,
+                    execution_mode="legacy",
+                    sequence_matcher=sequence_matcher,
                 )
+            elif scenario == SpeedScenario.BENCHMARK_CANONICAL_PIPELINED:
+                if target_source is None or target_gold is None:
+                    raise ValueError(
+                        "benchmark_canonical_pipelined scenario requires a concrete target."
+                    )
+                metrics = _run_benchmark_sample(
+                    source_file=target_source,
+                    gold_spans_path=target_gold,
+                    sample_dir=sample_dir,
+                    execution_mode="pipelined",
+                    sequence_matcher=sequence_matcher,
+                )
+            elif scenario == SpeedScenario.BENCHMARK_ALL_METHOD_MULTI_SOURCE:
+                metrics = _run_all_method_multi_source_sample(
+                    targets=selected_targets,
+                    sample_dir=sample_dir,
+                    sequence_matcher=sequence_matcher,
+                )
+            else:
+                raise ValueError(f"Unsupported speed scenario: {scenario}")
+
+            wall_seconds = max(0.0, time.monotonic() - sample_started)
+            timing_payload = metrics.pop("timing", {})
+            sample_rows.append(
+                {
+                    "target_id": target_id,
+                    "source_file": source_file_for_row,
+                    "gold_spans_path": gold_spans_for_row,
+                    "scenario": scenario.value,
+                    "phase": phase,
+                    "phase_index": phase_index,
+                    "wall_seconds": float(wall_seconds),
+                    "timing": timing_payload,
+                    "metrics": metrics,
+                    "sample_dir": _relative_to_run_root(sample_dir, run_root),
+                }
+            )
 
     _write_samples_jsonl(run_root / "samples.jsonl", sample_rows)
     summary_payload = _build_summary_payload(
@@ -218,6 +269,10 @@ def parse_speed_scenarios(raw_value: str) -> list[SpeedScenario]:
     if not selected:
         raise ValueError("No speed scenarios selected.")
     return selected
+
+
+def _scenario_runs_once_per_suite(scenario: SpeedScenario) -> bool:
+    return scenario == SpeedScenario.BENCHMARK_ALL_METHOD_MULTI_SOURCE
 
 
 def _iter_sample_phases(*, warmups: int, repeats: int) -> Iterable[tuple[str, int]]:
@@ -307,6 +362,104 @@ def _run_benchmark_sample(
         "writing_seconds": _coerce_float(timing_payload.get("writing_seconds")),
         "eval_output_dir": _path_for_payload(eval_output_dir),
         "eval_report_path": _path_for_payload(eval_report_path),
+        "timing": timing_payload,
+    }
+
+
+def _run_all_method_multi_source_sample(
+    *,
+    targets: list[SpeedTarget],
+    sample_dir: Path,
+    sequence_matcher: str,
+) -> dict[str, Any]:
+    import cookimport.cli as cli
+
+    if not targets:
+        raise ValueError("All-method speed scenario requires at least one target.")
+
+    resolved_targets: list[cli.AllMethodTarget] = []
+    for target in targets:
+        source_file = resolve_repo_path(target.source_file, repo_root=REPO_ROOT)
+        gold_spans_path = resolve_repo_path(target.gold_spans_path, repo_root=REPO_ROOT)
+        resolved_targets.append(
+            cli.AllMethodTarget(
+                gold_spans_path=gold_spans_path,
+                source_file=source_file,
+                source_file_name=source_file.name,
+                gold_display=target.target_id,
+            )
+        )
+
+    run_settings = cli.RunSettings.from_dict(
+        {
+            "benchmark_sequence_matcher": sequence_matcher,
+            "llm_recipe_pipeline": "off",
+        },
+        warn_context="speed suite all-method scenario",
+    )
+    target_variants = cli._build_all_method_target_variants(
+        targets=resolved_targets,
+        base_settings=run_settings,
+        include_codex_farm=False,
+        include_markdown_extractors=False,
+    )
+
+    eval_output_dir = sample_dir / "eval_output"
+    processed_output_dir = sample_dir / "processed_output"
+    eval_output_dir.mkdir(parents=True, exist_ok=True)
+    processed_output_dir.mkdir(parents=True, exist_ok=True)
+    all_method_root = eval_output_dir / "all-method-benchmark"
+    all_method_processed_root = processed_output_dir / "all-method-benchmark"
+
+    with _suppress_cli_output():
+        with cli._benchmark_progress_overrides(
+            progress_callback=None,
+            suppress_summary=True,
+            suppress_spinner=True,
+        ):
+            report_md_path = cli._run_all_method_benchmark_multi_source(
+                target_variants=target_variants,
+                unmatched_targets=[],
+                include_codex_farm_requested=False,
+                include_codex_farm_effective=False,
+                root_output_dir=all_method_root,
+                processed_output_root=all_method_processed_root,
+                overlap_threshold=0.5,
+                force_source_match=False,
+            )
+
+    report_json_path = report_md_path.with_suffix(".json")
+    if not report_json_path.exists() or not report_json_path.is_file():
+        raise FileNotFoundError(f"Missing all-method report: {report_json_path}")
+
+    report_payload = _load_json_dict(report_json_path)
+    timing_payload_raw = report_payload.get("timing_summary")
+    timing_payload = (
+        dict(timing_payload_raw) if isinstance(timing_payload_raw, dict) else {}
+    )
+    total_seconds = _coerce_float(timing_payload.get("run_wall_seconds"))
+    if total_seconds is None:
+        total_seconds = _coerce_float(timing_payload.get("source_total_seconds"))
+
+    return {
+        "total_seconds": total_seconds,
+        "source_total_seconds": _coerce_float(timing_payload.get("source_total_seconds")),
+        "config_total_seconds": _coerce_float(timing_payload.get("config_total_seconds")),
+        "source_schedule_strategy": str(
+            report_payload.get("source_schedule_strategy") or ""
+        ),
+        "source_job_count_planned": _coerce_float(
+            report_payload.get("source_job_count_planned")
+        ),
+        "source_parallelism_effective": _coerce_float(
+            report_payload.get("source_parallelism_effective")
+        ),
+        "matched_target_count": _coerce_float(report_payload.get("matched_target_count")),
+        "successful_source_count": _coerce_float(
+            report_payload.get("successful_source_count")
+        ),
+        "eval_output_dir": _path_for_payload(all_method_root),
+        "report_json_path": _path_for_payload(report_json_path),
         "timing": timing_payload,
     }
 

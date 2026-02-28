@@ -39,7 +39,7 @@ Established and still true:
 - Deterministic role assignment exists and is covered by unit tests.
 
 Do not re-litigate unless objective evidence appears:
-- “Need to revert default to legacy parser globally.”
+- "Need to change the default extractor globally without evidence."
 - Current default was chosen to retain richer semantic signals and traceability.
 
 ### 2026-02-15: Prior ingestion README consolidation
@@ -69,7 +69,6 @@ Preserved operational details:
 Preserved contract:
 - `epub_extractor` remains the single run-setting knob across stage and benchmark prediction generation.
 - `markitdown` is whole-book EPUB conversion and cannot honor spine-range split jobs.
-- `auto` is resolved once before worker launch to a concrete backend; workers should only see effective backends.
 - Split-planner parity must be maintained in both planners together:
   - `cookimport/cli.py:_plan_jobs(...)`
   - `cookimport/labelstudio/ingest.py:_plan_parallel_convert_jobs(...)`
@@ -103,44 +102,12 @@ Debugging evidence worth preserving:
 
 Preserved contract:
 - `cookimport/plugins/epub.py:_extract_docpack(...)` is the shared join point where extractor-specific block extraction converges before downstream segmentation.
-- Shared EPUB postprocess (`postprocess_epub_blocks`) applies to `legacy`/`unstructured`/`markdown`; `markitdown` intentionally bypasses this cleanup path.
+- Shared EPUB postprocess (`postprocess_epub_blocks`) applies to `beautifulsoup`/`unstructured`/`markdown`; `markitdown` intentionally bypasses this cleanup path.
 - EPUB extraction health is computed from final blocks and persisted as `epub_extraction_health.json`; warning keys are promoted into `ConversionReport.warnings`.
 - Spine metadata now uses typed `EpubSpineItem` records so zip-fallback and ebooklib flows apply the same nav/TOC skip logic.
 
 Anti-loop note:
 - Do not duplicate cleanup logic per extractor backend; keep common cleanup centralized in the shared join point.
-
-### 2026-02-19_14.55.51: auto extractor resolution + scoped env overrides
-
-Preserved rule:
-- Resolve `auto` once per EPUB in parent orchestration, then pass effective backend (`legacy|unstructured|markdown`) explicitly to worker jobs.
-- Persist requested/effective selection rationale for reproducibility (`epub_extractor_auto.json` and run-config/report surfaces).
-- Prediction generation must scope and restore `C3IMP_EPUB_*` env vars to prevent cross-run/test drift.
-
-Rejected path:
-- Setting extractor env vars globally without restoration causes later runs/tests to inherit stale settings and produce inconsistent behavior.
-
-### 2026-02-20_12.31.31: direct-probe importer-init rule
-
-Preserved discovery:
-- Auto-selection probe path uses direct `_extract_docpack(...)` calls and does not execute `convert(...)`.
-- Runtime fields consumed by `_extract_docpack(...)` (for example `_overrides`) must be initialized in `EpubImporter.__init__`.
-
-Concrete regression captured:
-- `stage --epub-extractor auto` failed on real runs with missing `_overrides`.
-- Fix was to initialize `self._overrides = None` in importer constructor.
-- Regression test anchor:
-  - `tests/test_epub_auto_select.py::test_select_epub_extractor_auto_real_importer_supports_direct_probe`
-
-### Undated historical reference (pre-2026-02-23 runtime auto removal)
-
-Historical baseline preserved for archaeology:
-- Extractor modes are mutually exclusive (`unstructured`, `legacy`, `markdown`, `auto`, `markitdown`) and feed one downstream segmentation pipeline.
-- `markitdown` remains whole-book only (no spine-range split support).
-- `auto` uses deterministic sampled-spine scoring and persists rationale artifacts for auditability.
-
-Supersession note:
-- Runtime stage/prediction paths now follow the explicit-only extractor contract documented in the 2026-02-23 entries below; this historical baseline is not the current runtime selector surface.
 
 ### 2026-02-22_14.08.34 - elapsed spinner ticker + post-candidate importer progress
 
@@ -149,7 +116,7 @@ Problem captured:
 
 Behavior contract preserved:
 - Callback-driven CLI status wrappers append elapsed seconds when phase text remains unchanged long enough.
-- Shared wrapper usage was expanded across Label Studio import/decorate, benchmark import, and bench run/sweep flows.
+- Shared wrapper usage was expanded across Label Studio import flows, benchmark import, and bench run/sweep flows.
 - EPUB and PDF converters emit explicit post-candidate callbacks before finalization so visible progress continues past extraction counters.
 
 Verification and evidence preserved:
@@ -232,58 +199,6 @@ Anti-loop notes:
 - Do not append from worker threads into shared output arrays directly.
 - If order drift appears, inspect post-merge container-index sort before touching extraction heuristics.
 
-## 2026-02-24 archival merge batch from `docs/understandings` (ingestion)
-
-### 2026-02-23_22.45.22 explicit-only EPUB extractor runtime contract
-
-Merged source:
-- `docs/understandings/2026-02-23_22.45.22-epub-extractor-auto-removed.md`
-
-Preserved decisions:
-- Remove `auto` from stage/prediction runtime selector surface; runtime now requires explicit backend selection.
-- Keep compatibility migration for legacy settings (`auto` -> `unstructured` with warning) so older saved configs do not hard fail silently.
-- Keep deterministic auto-selection logic only for explicit debug/race tooling paths.
-
-Anti-loop note:
-- Do not reintroduce runtime `auto` unless extractor-selection semantics, manifest fields, and tests are updated as one contract change.
-
-## 2026-02-24 docs/tasks archival merge batch (ingestion extractor contract)
-
-### 2026-02-23_22.37.46 remove EPUB extractor auto mode from runtime paths
-
-Merged source:
-- `docs/tasks/2026-02-23_22.37.46-remove-epub-auto-mode.md`
-
-Problem captured:
-- Runtime `epub_extractor=auto` made stage/prediction behavior indirect and harder to reason about versus explicit backend selection.
-
-Decisions preserved:
-- Remove `auto` from runtime validation surfaces (`run_settings`, CLI normalization, prediction ingestion normalization).
-- Keep debug/race utilities (`select_epub_extractor_auto(...)`) available outside runtime stage/prediction paths.
-- Keep historical analytics/report compatibility keys (`epub_extractor_requested`, `epub_extractor_effective`) but make values equal for new runs.
-- Add legacy settings migration in `RunSettings.from_dict(...)` so stored `auto` values coerce to `unstructured` with warning.
-
-Evidence preserved:
-- Focused suite recorded in task: `86 passed, 7 warnings`.
-- `stage --help` evidence recorded in task shows explicit extractor choices only.
-
-### 2026-02-23_22.47.23 follow-up task spec/evidence capture for auto removal
-
-Merged source:
-- `docs/tasks/2026-02-23_22.47.23-remove-epub-auto-extractor.md`
-
-Preserved acceptance framing:
-- Validators reject runtime `auto`.
-- All-method permutations remove `auto`.
-- Legacy settings migration remains in place.
-
-Implementation gotcha preserved:
-- CLI invalid-choice assertions should not rely solely on `stdout` text; Typer runner output stream behavior can hide expected text in that channel.
-
-Anti-loop notes:
-- Do not "fix" explicit-only runtime by reintroducing `auto` into variant builders or CLI help text without updating run-settings migration, docs, and benchmark tests together.
-- Do not remove debug auto-selector internals while runtime auto stays disabled; those internals still support extractor diagnostics workflows.
-
 ## 2026-02-25 understanding merge batch (EPUB extractor variants + canonical naming)
 
 ### 2026-02-25_17.57.34 extractor variants and unstructured-only knob contract
@@ -315,7 +230,50 @@ Problem captured:
 Decision/outcome preserved:
 - Canonical token is `beautifulsoup` only.
 - Normalization occurs centrally in `cookimport/epub_extractor_names.py` before validation.
-- Runtime/config/debug/ingest call sites must stay aligned (`run_settings`, CLI, epubdebug CLI, Label Studio ingest, EPUB plugin, auto-select helper).
+- Runtime/config/debug/ingest call sites must stay aligned (`run_settings`, CLI, epubdebug CLI, Label Studio ingest, EPUB plugin).
 
 Anti-loop note:
 - If one backend appears under multiple names in analytics/benchmark history, treat canonical-name drift as the primary fix target.
+
+### 2026-02-27_19.50.48: ingestion docs completeness audit (readme + nearby code)
+
+Scope of audit:
+- Cross-checked `docs/03-ingestion/03-ingestion_readme.md` against active ingestion runtime paths in `cookimport/cli.py`, `cookimport/cli_worker.py`, `cookimport/staging/writer.py`, importer modules, and parsing helpers.
+
+Decisions applied:
+- Expanded README module map to include active run-settings normalization/policy modules, EPUB backend modules, tips/atoms/chunks/tables/sections helpers, and stage-block prediction writer module.
+- Updated output-contract section to include active artifacts that were missing from docs:
+  - `sections/<workbook>/...`
+  - `tables/<workbook>/...`
+  - `.bench/<workbook>/stage_block_predictions.json`
+  - `processing_timeseries.jsonl`
+- Updated worker/merge flow descriptions to include optional table extraction and stage-block prediction writes.
+- Updated ingestion test-path pointers to current `tests/ingestion`, `tests/parsing`, and `tests/staging` locations.
+
+Anti-loop note:
+- For future ingestion doc audits, diff README claims against these code hubs first:
+  - `cookimport/cli.py`
+  - `cookimport/cli_worker.py`
+  - `cookimport/staging/writer.py`
+  - `cookimport/plugins/epub.py`
+  - `cookimport/plugins/pdf.py`
+  - `cookimport/parsing/{tips.py,chunks.py,tables.py}`
+
+### 2026-02-27_19.53.12 markdown/markitdown policy-lock scope
+
+Problem captured:
+- Enforcing extractor policy in only one command path left other runtime paths able to reintroduce locked extractors.
+
+Durable decisions:
+- Enforce extractor lock at command normalization + run-settings coercion + UI/knob surfaces.
+- Keep one explicit temporary unlock env (`COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`) instead of per-surface exceptions.
+
+### 2026-02-28_00.45.23 ingestion doc retirement audit
+
+Problem captured:
+- Ingestion docs still carried repeated archival text around retired extractor-auto behavior.
+
+Durable decisions:
+- Keep only active-runtime contracts in `03-ingestion_readme.md`.
+- Keep extractor-auto as compatibility migration context only.
+- Preserve active markitdown whole-book and split-merge ordering rules.

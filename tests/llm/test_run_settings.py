@@ -59,7 +59,8 @@ def test_run_settings_forces_recipe_codex_farm_pipeline_off() -> None:
     assert settings.llm_recipe_pipeline.value == "off"
 
 
-def test_run_settings_ui_specs_cover_all_editable_fields() -> None:
+def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
+    monkeypatch.delenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", raising=False)
     specs = run_settings_ui_specs()
     by_name = {spec.name for spec in specs}
     expected = {
@@ -72,6 +73,8 @@ def test_run_settings_ui_specs_cover_all_editable_fields() -> None:
     assert llm_recipe_spec.choices == ("off",)
     llm_tags_spec = next(spec for spec in specs if spec.name == "llm_tags_pipeline")
     assert llm_tags_spec.choices == ("off", "codex-farm-tags-v1")
+    epub_extractor_spec = next(spec for spec in specs if spec.name == "epub_extractor")
+    assert epub_extractor_spec.choices == ("unstructured", "beautifulsoup")
 
 
 def test_last_run_store_round_trip_and_corrupt_recovery(tmp_path) -> None:
@@ -125,3 +128,16 @@ def test_run_settings_migrates_legacy_extractor_to_beautifulsoup() -> None:
     settings = RunSettings.from_dict({"epub_extractor": "legacy"}, warn_context="test")
 
     assert settings.epub_extractor.value == "beautifulsoup"
+
+
+def test_run_settings_forces_markdown_extractors_off_by_default() -> None:
+    settings = RunSettings.from_dict({"epub_extractor": "markdown"}, warn_context="test")
+
+    assert settings.epub_extractor.value == "unstructured"
+
+
+def test_run_settings_allows_markdown_extractors_when_policy_enabled(monkeypatch) -> None:
+    monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
+    settings = RunSettings.from_dict({"epub_extractor": "markitdown"}, warn_context="test")
+
+    assert settings.epub_extractor.value == "markitdown"

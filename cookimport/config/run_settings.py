@@ -12,7 +12,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from cookimport.bench.sequence_matcher_select import supported_sequence_matcher_modes
 from cookimport.epub_extractor_names import (
+    EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
     EPUB_EXTRACTOR_CANONICAL_SET,
+    epub_extractor_enabled_choices,
+    is_policy_locked_epub_extractor_name,
     normalize_epub_extractor_name,
 )
 
@@ -220,7 +223,9 @@ class RunSettings(BaseModel):
             label="EPUB Extractor",
             order=60,
             description=(
-                "EPUB extraction engine (unstructured, beautifulsoup, markdown, or markitdown)."
+                "EPUB extraction engine (default choices: unstructured, beautifulsoup). "
+                "Markdown extractors are policy-locked off unless "
+                f"{EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV}=1."
             ),
         ),
     )
@@ -482,6 +487,14 @@ class RunSettings(BaseModel):
             return value
         normalized = normalize_epub_extractor_name(value)
         if normalized in EPUB_EXTRACTOR_CANONICAL_SET:
+            if is_policy_locked_epub_extractor_name(normalized):
+                logger.warning(
+                    "Forcing epub_extractor=unstructured because %r is policy-locked off. "
+                    "Set %s=1 to temporarily re-enable markdown extractors.",
+                    normalized,
+                    EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
+                )
+                return EpubExtractor.unstructured.value
             return normalized
         return value
 
@@ -559,6 +572,15 @@ class RunSettings(BaseModel):
                     warn_context,
                 )
                 data["epub_extractor"] = EpubExtractor.beautifulsoup.value
+            elif is_policy_locked_epub_extractor_name(normalized_epub_extractor):
+                logger.warning(
+                    "Forcing epub_extractor=unstructured in %s because %r is policy-locked off. "
+                    "Set %s=1 to temporarily re-enable markdown extractors.",
+                    warn_context,
+                    normalized_epub_extractor,
+                    EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
+                )
+                data["epub_extractor"] = EpubExtractor.unstructured.value
             elif normalized_epub_extractor == "beautifulsoup":
                 data["epub_extractor"] = EpubExtractor.beautifulsoup.value
         return cls.model_validate(data)
@@ -647,6 +669,8 @@ def run_settings_ui_specs() -> list[RunSettingUiSpec]:
             choices = tuple(str(member.value) for member in annotation)
             if field_name == "llm_recipe_pipeline":
                 choices = (LlmRecipePipeline.off.value,)
+            elif field_name == "epub_extractor":
+                choices = epub_extractor_enabled_choices()
         elif field_name == "benchmark_sequence_matcher":
             value_kind = "enum"
             choices = tuple(str(mode) for mode in supported_sequence_matcher_modes())

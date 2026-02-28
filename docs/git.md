@@ -4,11 +4,11 @@ read_when:
   - do not read
 ---
 
-git add . && git commit -m "Implement speed regression suite and enhance all-method scheduler.
+git add . && git commit -m "feat: policy-lock markdown extractors; add multi-source speed benchmarks; sync docs"
 
-- Implement speed regression suite (discover/run/compare).
-- Enhance all-method scheduler with source sharding and tail-pairing.
-- Share canonical alignment cache across all-method sources.
-- Refactor sequence matcher 'auto' to 'fallback' chain.
-- Retire completed tasks and understandings.
-- Update performance regression documentation in AGENTS.md."
+- Implement policy locking for markdown EPUB extractors via environment toggle.
+- Add multi-source timing support to speed benchmark runner.
+- Dynamically filter extractor options in knobs and CLI configuration UI.
+- Consolidate distributed documentation understandings into centralized logs.
+- Retire obsolete task and understanding files from docs directory.
+- Expand test coverage for extractor policies and benchmark timing scenarios.

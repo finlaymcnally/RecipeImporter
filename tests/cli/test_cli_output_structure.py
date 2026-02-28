@@ -240,6 +240,7 @@ def test_stage_markitdown_epub_writes_backend_and_markdown_artifact(tmp_path, mo
     source_file = fixtures_dir / "sample.epub"
     if not source_file.exists():
         pytest.skip("sample.epub not found")
+    monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
 
     monkeypatch.setattr(
         "cookimport.plugins.epub.convert_path_to_markdown",
@@ -289,11 +290,12 @@ def test_stage_markitdown_epub_writes_backend_and_markdown_artifact(tmp_path, mo
     assert markdown_artifacts
 
 
-def test_stage_markdown_epub_writes_backend_and_diagnostics(tmp_path):
+def test_stage_markdown_epub_writes_backend_and_diagnostics(tmp_path, monkeypatch):
     fixtures_dir = TESTS_FIXTURES_DIR
     source_file = fixtures_dir / "sample.epub"
     if not source_file.exists():
         pytest.skip("sample.epub not found")
+    monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
 
     output_dir = tmp_path / "output"
     result = runner.invoke(
@@ -332,6 +334,26 @@ def test_stage_markdown_epub_writes_backend_and_diagnostics(tmp_path):
 
     markdown_diag = list((timestamp_dir / "raw" / "epub").glob("**/markdown_blocks.jsonl"))
     assert markdown_diag
+
+
+def test_stage_rejects_policy_locked_markdown_extractor(tmp_path, monkeypatch):
+    monkeypatch.delenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", raising=False)
+    source_file = TESTS_FIXTURES_DIR / "simple_text.txt"
+    output_dir = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "stage",
+            str(source_file),
+            "--out",
+            str(output_dir),
+            "--epub-extractor",
+            "markdown",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "policy-locked off for now" in result.output
 
 
 def test_stage_rejects_auto_epub_extractor(tmp_path):
