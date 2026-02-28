@@ -51,6 +51,20 @@ KNOB_REGISTRY: list[Tunable] = [
         choices=("unstructured", "beautifulsoup", "markdown", "markitdown"),
         description="EPUB extractor backend used during prediction-run generation.",
     ),
+    Tunable(
+        name="instruction_step_segmentation_policy",
+        kind="str",
+        default="auto",
+        choices=("off", "auto", "always"),
+        description="Fallback instruction-step segmentation policy for staged steps.",
+    ),
+    Tunable(
+        name="instruction_step_segmenter",
+        kind="str",
+        default="heuristic_v1",
+        choices=("heuristic_v1", "pysbd_v1"),
+        description="Instruction-step segmenter backend used when segmentation is enabled.",
+    ),
 ]
 
 

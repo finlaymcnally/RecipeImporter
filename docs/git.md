@@ -4,11 +4,14 @@ read_when:
   - do not read
 ---
 
-git add . && git commit -m "feat: policy-lock markdown extractors; add multi-source speed benchmarks; sync docs"
+### Recent Changes Summary
+- Updated Priority 1-8 plans to reflect current implementation and audit status.
+- Implemented `QualitySuite` with segmentation metrics and quality benchmarking.
+- Added `WebSchema` plugin with `schema.org` ingestion and section detection.
+- Refined `SpeedSuite` with parity drift mapping and runtime consistency checks.
+- Integrated recipe notes extraction from description fields in stage block predictions.
+- Standardized `run_settings` and `eval_signature` for consistent benchmarking.
+- Documented 40+ architectural "understandings" across parsing, bench, and staging.
 
-- Implement policy locking for markdown EPUB extractors via environment toggle.
-- Add multi-source timing support to speed benchmark runner.
-- Dynamically filter extractor options in knobs and CLI configuration UI.
-- Consolidate distributed documentation understandings into centralized logs.
-- Retire obsolete task and understanding files from docs directory.
-- Expand test coverage for extractor policies and benchmark timing scenarios.
+### Copy/Paste Git Commands
+git add . && git commit -m "feat: implement QualitySuite, WebSchema plugin, and core benchmark refinements; update Priority 1-8 plans and architectural documentation"

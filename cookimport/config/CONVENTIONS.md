@@ -5,8 +5,10 @@ Run-settings contracts for `cookimport/config/` and all call sites that consume 
 ## Run Settings Source of Truth
 
 - `cookimport/config/run_settings.py` is the canonical definition of per-run knobs (`RunSettings`), UI metadata, summary rendering, and stable hash generation.
+- `cookimport/config/run_settings_adapters.py` is the canonical mapping from `RunSettings` to `stage(...)` / `labelstudio_benchmark(...)` kwargs; avoid duplicating field-by-field mapping in CLI or speed-suite callers.
 - When a run-setting value changes split capability (for example `epub_extractor=markitdown`), update both split planners (`cookimport/cli.py:_plan_jobs`, `cookimport/labelstudio/ingest.py:_plan_parallel_convert_jobs`) and `compute_effective_workers(...)` together.
 - EPUB unstructured tuning knobs (`epub_unstructured_html_parser_version`, `epub_unstructured_skip_headers_footers`, `epub_unstructured_preprocess_mode`) are part of canonical run settings and must propagate in both stage and benchmark prediction paths; do not wire them only in one flow.
+- Ingredient parser knobs (`ingredient_text_fix_backend`, `ingredient_pre_normalize_mode`, `ingredient_packaging_mode`, `ingredient_parser_backend`, `ingredient_unit_canonicalizer`, `ingredient_missing_unit_policy`) must propagate through stage and benchmark prediction-generation imports and be consumed by draft conversion (`cookimport/staging/draft_v1.py` -> `cookimport/parsing/ingredients.py`).
 - EPUB extractor auto mode is removed from stage/prediction flows; accepted choices are explicit only: `unstructured`, `beautifulsoup`, `markdown`, `markitdown`.
 - Stored run-settings migration must coerce older `epub_extractor=auto` payloads to `unstructured` and `epub_extractor=legacy` payloads to `beautifulsoup` with warnings so older snapshots stay loadable.
 - Run-config persistence still includes both `epub_extractor_requested` and `epub_extractor_effective`; in current explicit-choice mode they should match for new runs.

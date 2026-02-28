@@ -179,17 +179,29 @@ def test_evaluate_stage_blocks_writes_reports_and_debug_artifacts(tmp_path: Path
     assert report["macro_f1_excluding_other"] == pytest.approx(2 / 3)
     assert report["worst_label_recall"]["label"] == "INGREDIENT_LINE"
     assert report["worst_label_recall"]["recall"] == pytest.approx(0.0)
+    segmentation = report.get("segmentation")
+    assert isinstance(segmentation, dict)
+    assert segmentation["label_projection"] == "core_structural_v1"
+    assert segmentation["boundary_tolerance_blocks"] == 0
+    assert segmentation["boundaries"]["overall_micro"]["tp"] == 2
+    assert segmentation["boundaries"]["overall_micro"]["fn"] == 2
+    assert segmentation["error_taxonomy"]["bucket_counts"]["ingredient_errors"] == 1
+    assert segmentation["error_taxonomy"]["bucket_counts"]["boundary_errors"] == 2
     telemetry = report.get("evaluation_telemetry")
     assert isinstance(telemetry, dict)
     assert telemetry["total_seconds"] >= 0.0
     assert telemetry["subphases"]["load_gold_seconds"] >= 0.0
     assert telemetry["subphases"]["load_prediction_seconds"] >= 0.0
     assert telemetry["work_units"]["prediction_block_count"] == pytest.approx(4.0)
+    assert telemetry["work_units"]["segmentation_false_positive_boundary_count"] == pytest.approx(0.0)
+    assert telemetry["work_units"]["segmentation_missed_boundary_count"] == pytest.approx(2.0)
 
     assert (out_dir / "eval_report.json").exists()
     assert (out_dir / "eval_report.md").exists()
     assert (out_dir / "missed_gold_blocks.jsonl").exists()
     assert (out_dir / "wrong_label_blocks.jsonl").exists()
+    assert (out_dir / "missed_gold_boundaries.jsonl").exists()
+    assert (out_dir / "false_positive_boundaries.jsonl").exists()
     assert (out_dir / "missed_gold_spans.jsonl").exists()
     assert (out_dir / "false_positive_preds.jsonl").exists()
 
@@ -203,6 +215,13 @@ def test_evaluate_stage_blocks_writes_reports_and_debug_artifacts(tmp_path: Path
     assert missed_rows[0]["gold_label"] == "INGREDIENT_LINE"
     assert missed_rows[0]["gold_labels"] == ["INGREDIENT_LINE"]
     assert missed_rows[0]["pred_label"] == "OTHER"
+
+    missed_boundary_rows = [
+        json.loads(line)
+        for line in (out_dir / "missed_gold_boundaries.jsonl").read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert len(missed_boundary_rows) == 2
 
 
 def test_evaluate_stage_blocks_allows_multilabel_gold_blocks(tmp_path: Path) -> None:
@@ -517,6 +536,138 @@ def test_evaluate_stage_blocks_warns_on_nonfatal_blockization_mismatch(
     assert diagnostics["blockization"][0]["warning"] == "gold_prediction_blockization_mismatch"
 
 
+def test_evaluate_stage_blocks_boundary_tolerance_affects_segmentation_metrics(
+    tmp_path: Path,
+) -> None:
+    gold_path = tmp_path / "freeform_span_labels.jsonl"
+    _write_jsonl(
+        gold_path,
+        [
+            {"span_id": "s0", "label": "RECIPE_TITLE", "touched_block_indices": [0]},
+            {"span_id": "s1", "label": "INGREDIENT_LINE", "touched_block_indices": [1]},
+            {"span_id": "s2", "label": "OTHER", "touched_block_indices": [2]},
+        ],
+    )
+
+    stage_path = tmp_path / "stage_block_predictions.json"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "abc123",
+                "block_count": 3,
+                "block_labels": {
+                    "0": "RECIPE_TITLE",
+                    "1": "OTHER",
+                    "2": "INGREDIENT_LINE",
+                },
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    extracted_archive_path = tmp_path / "extracted_archive.json"
+    extracted_archive_path.write_text(
+        json.dumps(
+            [
+                {"index": 0, "text": "Simple Soup"},
+                {"index": 1, "text": "1 cup stock"},
+                {"index": 2, "text": "Optional garnish"},
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    strict_result = evaluate_stage_blocks(
+        gold_freeform_jsonl=gold_path,
+        stage_predictions_json=stage_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=tmp_path / "eval-strict",
+        boundary_tolerance_blocks=0,
+    )
+    tolerant_result = evaluate_stage_blocks(
+        gold_freeform_jsonl=gold_path,
+        stage_predictions_json=stage_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=tmp_path / "eval-tolerant",
+        boundary_tolerance_blocks=1,
+    )
+
+    strict_boundaries = strict_result["report"]["segmentation"]["boundaries"]
+    tolerant_boundaries = tolerant_result["report"]["segmentation"]["boundaries"]
+
+    assert strict_boundaries["ingredient_start"]["tp"] == 0
+    assert strict_boundaries["ingredient_start"]["fp"] == 1
+    assert strict_boundaries["ingredient_start"]["fn"] == 1
+    assert tolerant_boundaries["ingredient_start"]["tp"] == 1
+    assert tolerant_boundaries["ingredient_start"]["fp"] == 0
+    assert tolerant_boundaries["ingredient_start"]["fn"] == 0
+    assert strict_boundaries["overall_micro"]["f1"] == pytest.approx(0.0)
+    assert tolerant_boundaries["overall_micro"]["f1"] == pytest.approx(1.0)
+
+
+def test_evaluate_stage_blocks_optional_segeval_metrics_require_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import cookimport.bench.segeval_adapter as segeval_adapter
+
+    gold_path = tmp_path / "freeform_span_labels.jsonl"
+    _write_jsonl(
+        gold_path,
+        [
+            {"span_id": "s0", "label": "RECIPE_TITLE", "touched_block_indices": [0]},
+            {"span_id": "s1", "label": "OTHER", "touched_block_indices": [1]},
+        ],
+    )
+
+    stage_path = tmp_path / "stage_block_predictions.json"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "abc123",
+                "block_count": 2,
+                "block_labels": {"0": "RECIPE_TITLE", "1": "OTHER"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    extracted_archive_path = tmp_path / "extracted_archive.json"
+    extracted_archive_path.write_text(
+        json.dumps(
+            [
+                {"index": 0, "text": "Simple Soup"},
+                {"index": 1, "text": "Page footer"},
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    def _raise_missing_dependency(_module_name: str):
+        raise ModuleNotFoundError("No module named 'segeval'")
+
+    monkeypatch.setattr(segeval_adapter.importlib, "import_module", _raise_missing_dependency)
+
+    with pytest.raises(ValueError, match="Install optional segmentation metrics dependency"):
+        evaluate_stage_blocks(
+            gold_freeform_jsonl=gold_path,
+            stage_predictions_json=stage_path,
+            extracted_blocks_json=extracted_archive_path,
+            out_dir=tmp_path / "eval",
+            segmentation_metrics="boundary_f1,pk",
+        )
+
+
 def test_evaluate_canonical_text_scores_lines_across_different_blockization(
     tmp_path: Path,
 ) -> None:
@@ -598,22 +749,12 @@ def test_evaluate_canonical_text_scores_lines_across_different_blockization(
     assert telemetry["subphases"]["load_gold_seconds"] >= 0.0
     assert telemetry["subphases"]["load_prediction_seconds"] >= 0.0
     assert telemetry["subphases"]["alignment_seconds"] >= 0.0
-    assert telemetry["alignment_sequence_matcher_impl"] in {
-        "stdlib",
-        "cydifflib",
-        "cdifflib",
-        "dmp",
-    }
-    assert telemetry["alignment_sequence_matcher_mode"] in {
-        "stdlib",
-        "cydifflib",
-        "cdifflib",
-        "dmp",
-    }
+    assert telemetry["alignment_sequence_matcher_impl"] == "dmp"
+    assert telemetry["alignment_sequence_matcher_mode"] == "dmp"
     assert telemetry["alignment_sequence_matcher_mode"] == telemetry[
         "alignment_sequence_matcher_impl"
     ]
-    assert telemetry["alignment_sequence_matcher_requested_mode"] == "fallback"
+    assert telemetry["alignment_sequence_matcher_requested_mode"] == "dmp"
     assert telemetry["work_units"]["prediction_block_count"] == pytest.approx(2.0)
     assert (out_dir / "unmatched_pred_blocks.jsonl").read_text(encoding="utf-8").strip() == ""
 

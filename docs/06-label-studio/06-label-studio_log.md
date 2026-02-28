@@ -96,3 +96,41 @@ Durable decisions:
 - Include missing runtime modules and benchmark dependencies in README code maps.
 - Document prediction-record replay/generation contracts and canonical-text extra diagnostics.
 - Keep manifest and analytics-history side effects visible in command contract docs.
+
+## 2026-02-28 migrated understanding ledger
+
+Chronological migration from `docs/understandings`; source files were removed after this merge.
+
+### 2026-02-27_20.13.08 labelstudio unlabeled text fallback
+
+Source: `docs/understandings/2026-02-27_20.13.08-labelstudio-unlabeled-text-fallback.md`
+Summary: Pulled Label Studio freeform exports only contain explicit spans; unlabeled regions are treated as OTHER during benchmark evaluation.
+
+Details preserved:
+
+
+# Label Studio Unlabeled Text Fallback
+
+Discovery:
+
+- `labelstudio-export` writes only explicit annotation spans to `exports/freeform_span_labels.jsonl`; unlabeled regions are not emitted as rows.
+- In stage-block evaluation, predicted blocks missing a gold row are defaulted to gold label `OTHER`.
+- In canonical-text evaluation, lines with no overlapping gold span are also defaulted to `OTHER` by default (`strict_empty_gold_to_other=True`).
+
+### 2026-02-27_20.15.35 labelstudio overlap multilabel behavior
+
+Source: `docs/understandings/2026-02-27_20.15.35-labelstudio-overlap-multilabel-behavior.md`
+Summary: Overlapping Label Studio spans are preserved in export; stage/canonical eval treat overlapping coverage as multi-label gold sets.
+
+Details preserved:
+
+
+# Label Studio Overlap Multi-Label Behavior
+
+Discovery:
+
+- Export keeps every explicit span row; it does not flatten overlaps into one row.
+- A single span crossing multiple blocks maps to all touched block indices.
+- Stage-block evaluation collapses gold to per-block label sets; a prediction is counted correct if it matches any label in that block's set.
+- Per-label precision/recall still penalize the non-chosen labels on multi-labeled blocks, so overall accuracy can look better than per-label/macro F1.
+

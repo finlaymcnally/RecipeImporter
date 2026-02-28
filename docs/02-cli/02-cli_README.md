@@ -118,6 +118,7 @@ Config keys and defaults:
 - `all_method_source_shard_threshold_seconds` (default `1200`)
 - `all_method_source_shard_max_parts` (default `3`)
 - `all_method_source_shard_min_variants` (default `6`)
+- `all_method_scheduler_scope` (default `global`)
 - `all_method_max_inflight_pipelines` (default `4`)
 - `all_method_max_split_phase_slots` (default `4`)
 - `all_method_max_eval_tail_pipelines` (default follows split slots)
@@ -125,12 +126,39 @@ Config keys and defaults:
 - `all_method_retry_failed_configs` (default `1`; `0` disables retries)
 - `all_method_wing_backlog_target` (default follows split slots)
 - `all_method_smart_scheduler` (default `true`)
-- `benchmark_sequence_matcher` (default `fallback`; matcher fallback-chain selection for canonical-text eval)
+- `benchmark_sequence_matcher` (default `dmp`; canonical-text matcher for benchmark/eval runs)
 - `epub_extractor` (default `unstructured`)
 - `epub_unstructured_html_parser_version` (default `v1`)
 - `epub_unstructured_skip_headers_footers` (default `false`)
 - `epub_unstructured_preprocess_mode` (default `br_split_v1`)
 - `table_extraction` (default `off`)
+- `section_detector_backend` (default `legacy`)
+- `multi_recipe_splitter` (default `legacy`)
+- `multi_recipe_trace` (default `false`)
+- `multi_recipe_min_ingredient_lines` (default `1`)
+- `multi_recipe_min_instruction_lines` (default `1`)
+- `multi_recipe_for_the_guardrail` (default `true`)
+- `instruction_step_segmentation_policy` (default `auto`)
+- `instruction_step_segmenter` (default `heuristic_v1`)
+- `web_schema_extractor` (default `builtin_jsonld`)
+- `web_schema_normalizer` (default `simple`)
+- `web_html_text_extractor` (default `bs4`)
+- `web_schema_policy` (default `prefer_schema`)
+- `web_schema_min_confidence` (default `0.75`)
+- `web_schema_min_ingredients` (default `2`)
+- `web_schema_min_instruction_steps` (default `1`)
+- `ingredient_text_fix_backend` (default `none`)
+- `ingredient_pre_normalize_mode` (default `legacy`)
+- `ingredient_packaging_mode` (default `off`)
+- `ingredient_parser_backend` (default `ingredient_parser_nlp`)
+- `ingredient_unit_canonicalizer` (default `legacy`)
+- `ingredient_missing_unit_policy` (default `null`)
+- `recipe_scorer_backend` (default `heuristic_v1`)
+- `recipe_score_gold_min` (default `0.75`)
+- `recipe_score_silver_min` (default `0.55`)
+- `recipe_score_bronze_min` (default `0.35`)
+- `recipe_score_min_ingredient_lines` (default `1`)
+- `recipe_score_min_instruction_lines` (default `1`)
 - `ocr_device` (default `auto`)
 - `ocr_batch_size` (default `1`)
 - `output_dir` (default `data/output`)
@@ -161,15 +189,22 @@ What each setting affects:
 - `all_method_max_parallel_sources`: all-matched source-level concurrency cap (how many books run at once).
 - `all_method_source_scheduling`: source job order strategy (`discovery` legacy FIFO or `tail_pair` heavy/light interleave).
 - `all_method_source_shard_threshold_seconds`, `all_method_source_shard_max_parts`, `all_method_source_shard_min_variants`: heavy-source sharding controls for all-matched runs (split one source’s variant set into multiple schedulable jobs).
-- `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_max_eval_tail_pipelines`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`: per-source config scheduler controls (inflight cap, split-heavy slots, evaluate-tail cap, prewarm runway, smart/fixed admission mode; smart mode grants extra inflight primarily when evaluate-phase work is active, bounded by eval-tail cap).
+- `all_method_scheduler_scope`: all-method all-matched scheduler implementation (`global` uses one run-wide config queue + run-wide eval-signature dedupe; `legacy` keeps per-source config schedulers).
+- `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_max_eval_tail_pipelines`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`: all-method config scheduler controls (inflight cap, split-heavy slots, evaluate-tail cap, prewarm runway, smart/fixed admission mode; in `global` scope these apply to one run-wide scheduler, while in `legacy` scope they apply per source).
 - `all_method_config_timeout_seconds`, `all_method_retry_failed_configs`: all-method safety controls (per-config timeout and failed-config retry passes).
 - all-method canonical alignment cache root is resolved per run and shared across timestamps (default under `data/golden/benchmark-vs-golden/.cache/canonical_alignment`; override via `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`).
-- `benchmark_sequence_matcher`: canonical-text alignment matcher mode for benchmark/eval flows (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`, and future added modes); `fallback` order is `cydifflib -> cdifflib -> dmp -> multilayer -> stdlib`.
+- `benchmark_sequence_matcher`: canonical-text alignment matcher mode for benchmark/eval flows (`dmp` only; non-`dmp` values are invalid). Loading `cookimport.json` coerces unsupported legacy values back to `dmp`.
 - `epub_extractor`: runtime extractor choice via `C3IMP_EPUB_EXTRACTOR` (default-enabled choices: `unstructured`, `beautifulsoup`; `markdown`/`markitdown` are policy-locked off unless `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`).
 - `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
 - `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
 - `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none`, `br_split_v1`, or `semantic_v1` alias).
 - `table_extraction`: deterministic non-recipe table detection/export (`tables.jsonl`, `tables.md`) and table-aware chunking behavior.
+- `section_detector_backend`: section detector selection (`legacy|shared_v1`) used by stage and benchmark prediction generation for Text/Excel/EPUB/PDF importer section extraction.
+- `multi_recipe_splitter`, `multi_recipe_trace`, `multi_recipe_min_*`, `multi_recipe_for_the_guardrail`: shared deterministic multi-recipe split controls used by Text/EPUB/PDF importer conversion in stage and benchmark prediction generation (`legacy|off|rules_v1` backend selection plus optional split trace artifact and coverage/guardrail thresholds).
+- `instruction_step_segmentation_policy`, `instruction_step_segmenter`: deterministic fallback instruction-step segmentation controls shared by stage and benchmark prediction generation (`off|auto|always`, `heuristic_v1|pysbd_v1`).
+- `web_schema_extractor`, `web_schema_normalizer`, `web_html_text_extractor`, `web_schema_policy`, `web_schema_min_*`: deterministic local HTML/JSON schema ingestion controls for `webschema` importer (schema backend, normalization mode, fallback text extractor, schema-vs-fallback policy, and confidence/min-line thresholds).
+- `ingredient_text_fix_backend`, `ingredient_pre_normalize_mode`, `ingredient_packaging_mode`, `ingredient_parser_backend`, `ingredient_unit_canonicalizer`, `ingredient_missing_unit_policy`: ingredient parser normalization/backend/unit-policy controls used by stage and benchmark prediction-generation imports.
+- `recipe_scorer_backend`, `recipe_score_*`: deterministic recipe-likeness scoring and tier gating thresholds/minimum line hints used by all importer families.
 - `ocr_device`, `ocr_batch_size`: OCR path for PDFs.
 - `output_dir`: interactive `stage` target output root.
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
@@ -201,7 +236,7 @@ Developer note:
    - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`
    - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`
    - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
-4. Calls `stage(...)` using the full selected run settings payload (workers/OCR/extractor + LLM/codex-farm knobs).
+4. Calls `stage(...)` using the full selected run settings payload (workers/OCR/extractor + section/ingredient parser controls + LLM/codex-farm knobs).
 5. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_import.json` after a successful run.
 6. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
 7. Prints `Outputs written to: <run_folder>`.
@@ -367,7 +402,7 @@ Top-level command groups:
 - `cookimport perf-report`
 - `cookimport benchmark-csv-backfill`
 - `cookimport stats-dashboard`
-- `cookimport bench <validate|speed-discover|speed-run|speed-compare|eval-stage|run|sweep|knobs>`
+- `cookimport bench <validate|speed-discover|speed-run|speed-compare|quality-discover|quality-run|quality-compare|eval-stage|run|sweep|knobs>`
 - `cookimport tag-catalog export`
 - `cookimport tag-recipes <debug-signals|suggest|apply>`
 
@@ -421,6 +456,25 @@ Options:
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
 - `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
 - `--table-extraction TEXT` (default `off`): `off|on` deterministic table detection/export and table-aware chunking.
+- `--recipe-scorer-backend TEXT` (default `heuristic_v1`): recipe-likeness scorer backend.
+- `--recipe-score-gold-min FLOAT` (default `0.75`): minimum score for `gold` tier.
+- `--recipe-score-silver-min FLOAT` (default `0.55`): minimum score for `silver` tier.
+- `--recipe-score-bronze-min FLOAT` (default `0.35`): minimum score for `bronze` tier.
+- `--recipe-score-min-ingredient-lines INTEGER>=0` (default `1`): soft minimum ingredient line hint for scoring/gating.
+- `--recipe-score-min-instruction-lines INTEGER>=0` (default `1`): soft minimum instruction line hint for scoring/gating.
+- `--section-detector-backend TEXT` (default `legacy`): `legacy|shared_v1`; controls importer section extraction backend.
+- `--multi-recipe-splitter TEXT` (default `legacy`): `legacy|off|rules_v1`; controls shared multi-recipe candidate split backend for Text/EPUB/PDF importers.
+- `--multi-recipe-trace / --no-multi-recipe-trace` (default disabled): write `multi_recipe_split_trace` raw artifact from shared splitter when enabled.
+- `--multi-recipe-min-ingredient-lines INTEGER>=0` (default `1`): minimum ingredient-signal lines per side for `rules_v1` split acceptance.
+- `--multi-recipe-min-instruction-lines INTEGER>=0` (default `1`): minimum instruction-signal lines per side for `rules_v1` split acceptance.
+- `--multi-recipe-for-the-guardrail / --no-multi-recipe-for-the-guardrail` (default enabled): enable section-detector-backed `For the X` false-boundary guard in shared splitter.
+- `--web-schema-extractor TEXT` (default `builtin_jsonld`): `builtin_jsonld|extruct|scrape_schema_recipe|recipe_scrapers|ensemble_v1`.
+- `--web-schema-normalizer TEXT` (default `simple`): `simple|pyld`.
+- `--web-html-text-extractor TEXT` (default `bs4`): `bs4|trafilatura|readability_lxml|justext|boilerpy3|ensemble_v1`.
+- `--web-schema-policy TEXT` (default `prefer_schema`): `prefer_schema|schema_only|heuristic_only`.
+- `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
+- `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
+- `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
 - `--llm-recipe-pipeline TEXT` (default `off`): policy-locked `off` (recipe codex-farm parsing correction is currently disabled).
 - `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-farm-knowledge-v1`.
 - `--llm-tags-pipeline TEXT` (default `off`): `off|codex-farm-tags-v1`.
@@ -672,6 +726,7 @@ Behavior note:
 - Benchmark CSV append now receives that timing payload and records benchmark runtime columns in `performance_history.csv`.
 - Single benchmark runs auto-refresh dashboard artifacts after CSV append.
 - All-method benchmark internals suppress per-config refresh and refresh once per source batch.
+- All-method evaluate-only replay failures now preserve the underlying `_fail(...)` message in report rows instead of opaque `error: "1"` exit-code strings.
 
 Options:
 
@@ -683,7 +738,7 @@ Options:
 - `--overlap-threshold FLOAT 0..1` (default `0.5`): match threshold.
 - `--force-source-match` (default `false`): ignore source identity checks while matching.
 - `--eval-mode TEXT` (default `stage-blocks`): `stage-blocks|canonical-text`.
-- `--sequence-matcher TEXT` (default `fallback`): canonical-text matcher mode (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`, plus future added modes).
+- `--sequence-matcher TEXT` (default `dmp`): canonical-text matcher mode (`dmp` only).
 - `--execution-mode TEXT` (default `legacy`): `legacy|pipelined|predict-only`.
 - `--predictions-out PATH`: optional JSONL output for prediction-stage records (for later evaluate-only runs).
 - `--predictions-in PATH`: optional JSONL input to run evaluate-only without generating predictions.
@@ -705,6 +760,25 @@ Options:
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
 - `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
+- `--recipe-scorer-backend TEXT` (default `heuristic_v1`): recipe-likeness scorer backend.
+- `--recipe-score-gold-min FLOAT` (default `0.75`): minimum score for `gold` tier.
+- `--recipe-score-silver-min FLOAT` (default `0.55`): minimum score for `silver` tier.
+- `--recipe-score-bronze-min FLOAT` (default `0.35`): minimum score for `bronze` tier.
+- `--recipe-score-min-ingredient-lines INTEGER>=0` (default `1`): soft minimum ingredient line hint for scoring/gating.
+- `--recipe-score-min-instruction-lines INTEGER>=0` (default `1`): soft minimum instruction line hint for scoring/gating.
+- `--section-detector-backend TEXT` (default `legacy`): `legacy|shared_v1`; controls importer section extraction backend for prediction generation.
+- `--multi-recipe-splitter TEXT` (default `legacy`): `legacy|off|rules_v1`; controls shared multi-recipe candidate split backend for Text/EPUB/PDF prediction imports.
+- `--multi-recipe-trace / --no-multi-recipe-trace` (default disabled): write `multi_recipe_split_trace` raw artifact from shared splitter when enabled.
+- `--multi-recipe-min-ingredient-lines INTEGER>=0` (default `1`): minimum ingredient-signal lines per side for `rules_v1` split acceptance.
+- `--multi-recipe-min-instruction-lines INTEGER>=0` (default `1`): minimum instruction-signal lines per side for `rules_v1` split acceptance.
+- `--multi-recipe-for-the-guardrail / --no-multi-recipe-for-the-guardrail` (default enabled): enable section-detector-backed `For the X` false-boundary guard in shared splitter.
+- `--web-schema-extractor TEXT` (default `builtin_jsonld`): `builtin_jsonld|extruct|scrape_schema_recipe|recipe_scrapers|ensemble_v1`.
+- `--web-schema-normalizer TEXT` (default `simple`): `simple|pyld`.
+- `--web-html-text-extractor TEXT` (default `bs4`): `bs4|trafilatura|readability_lxml|justext|boilerpy3|ensemble_v1`.
+- `--web-schema-policy TEXT` (default `prefer_schema`): `prefer_schema|schema_only|heuristic_only`.
+- `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
+- `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
+- `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
 - `--llm-recipe-pipeline TEXT` (default `off`): policy-locked `off` (recipe codex-farm parsing correction is currently disabled).
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm during prediction generation.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
@@ -760,7 +834,8 @@ Options:
 - `--warmups INTEGER>=0` (default `1`): warmup samples per target+scenario (excluded from medians).
 - `--repeats INTEGER>=1` (default `2`): measured samples per target+scenario.
 - `--max-targets INTEGER>=1`: optional cap on number of targets from the suite.
-- `--sequence-matcher TEXT` (default `fallback`): canonical-text matcher mode used by benchmark scenarios.
+- `--run-settings-file PATH`: optional JSON payload in `RunSettings` shape for deterministic speed-run settings.
+- `--sequence-matcher TEXT`: optional canonical-text matcher override for benchmark scenarios (when omitted, uses `benchmark_sequence_matcher` from effective run settings).
 
 ### `cookimport bench speed-compare`
 
@@ -774,6 +849,52 @@ Options:
 - `--regression-pct FLOAT>=0` (default `5.0`): percent threshold for regression detection (used with absolute floor).
 - `--absolute-seconds-floor FLOAT>=0` (default `0.5`): minimum absolute seconds increase required to mark regression.
 - `--fail-on-regression / --no-fail-on-regression` (default disabled): exit non-zero when verdict is `FAIL`.
+- `--allow-settings-mismatch / --no-allow-settings-mismatch` (default disabled): allow timing verdicts when baseline/candidate `run_settings_hash` differ.
+
+### `cookimport bench quality-discover`
+
+Builds a deterministic representative quality-suite manifest by matching pulled freeform gold exports to importable source files and selecting stratified targets.
+
+Options:
+
+- `--gold-root PATH` (default `data/golden/pulled-from-labelstudio`): root containing pulled gold export folders.
+- `--input-root PATH` (default `data/input`): root containing source files for import runs.
+- `--out PATH` (default `data/golden/bench/quality/suites/pulled_representative.json`): destination for generated quality-suite JSON.
+- `--max-targets INTEGER>=1`: optional cap for representative selection.
+- `--seed INTEGER` (default `42`): deterministic selection seed stored in suite metadata.
+
+### `cookimport bench quality-run`
+
+Runs sequential all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`).
+
+Status behavior:
+
+- Spinner updates include `task X/Y` counters per experiment.
+- Spinner telemetry is persisted under `<out_dir>/.history/processing_timeseries/<timestamp>__bench_quality_run__<suite>.jsonl`.
+
+Options:
+
+- `--suite PATH` (required): path to quality suite JSON (typically from `bench quality-discover`).
+- `--experiments-file PATH` (required): JSON experiment definitions.
+- `--out-dir PATH` (default `data/golden/bench/quality/runs`): output root for timestamped quality runs.
+- `--base-run-settings-file PATH`: optional base `RunSettings` JSON payload used by all experiments. When omitted, uses `experiments.base_run_settings_file` or `cookimport.json`.
+
+### `cookimport bench quality-compare`
+
+Compares selected baseline and candidate experiments from two quality runs and emits a timestamped comparison report.
+
+Options:
+
+- `--baseline PATH` (required): baseline quality run directory (`summary.json` required).
+- `--candidate PATH` (required): candidate quality run directory (`summary.json` required).
+- `--out-dir PATH` (default `data/golden/bench/quality/comparisons`): output root for comparison reports.
+- `--baseline-experiment-id TEXT`: optional baseline experiment selector (default resolver: `baseline` id, else exactly one successful experiment).
+- `--candidate-experiment-id TEXT`: optional candidate experiment selector (default resolver: `candidate` id, else exactly one successful experiment).
+- `--strict-f1-drop-max FLOAT>=0` (default `0.005`): max strict F1 drop before verdict FAIL.
+- `--practical-f1-drop-max FLOAT>=0` (default `0.005`): max practical F1 drop before verdict FAIL.
+- `--source-success-rate-drop-max FLOAT>=0` (default `0.0`): max source success-rate drop before verdict FAIL.
+- `--fail-on-regression / --no-fail-on-regression` (default disabled): exit non-zero when verdict is `FAIL`.
+- `--allow-settings-mismatch / --no-allow-settings-mismatch` (default disabled): allow quality verdicts when baseline/candidate `run_settings_hash` differ.
 
 ### `cookimport bench eval-stage`
 
@@ -786,6 +907,9 @@ Options:
 - `--workbook-slug TEXT`: workbook folder under `.bench` (required when multiple workbooks exist).
 - `--extracted-archive PATH`: explicit extracted archive JSON path (otherwise auto-resolves unique `raw/**/full_text.json`).
 - `--out-dir PATH`: output directory for eval artifacts (defaults to `data/golden/benchmark-vs-golden/<timestamp>`).
+- `--label-projection TEXT` (default `core_structural_v1`): segmentation label projection for boundary diagnostics.
+- `--boundary-tolerance-blocks INTEGER>=0` (default `0`): tolerance window used when matching gold/pred boundaries.
+- `--segmentation-metrics TEXT` (default `boundary_f1`): comma-separated segmentation metrics (`boundary_f1`, optional `pk`, `windowdiff`, `boundary_similarity` when `segeval` is installed).
 
 ### `cookimport bench run`
 
@@ -803,7 +927,7 @@ Options:
 - `--out-dir PATH` (default `data/golden/bench/runs`): run output root.
 - `--baseline PATH`: prior run directory for deltas.
 - `--config PATH`: knob config JSON file.
-- `--sequence-matcher TEXT` (default `fallback`): canonical-text matcher mode (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`, plus future added modes).
+- `--sequence-matcher TEXT` (default `dmp`): canonical-text matcher mode (`dmp` only).
 - `--write-markdown / --no-write-markdown`: optional override for benchmark prediction markdown sidecar writes (when omitted, keep config/default behavior).
 - `--write-labelstudio-tasks / --no-write-labelstudio-tasks`: optional override for benchmark prediction task JSONL writes (when omitted, keep config/default behavior).
 
@@ -824,7 +948,7 @@ Options:
 - `--budget INTEGER>=1` (default `25`): max configurations to evaluate.
 - `--seed INTEGER` (default `42`): RNG seed.
 - `--objective TEXT` (default `coverage`): objective name (`coverage` or `precision`).
-- `--sequence-matcher TEXT` (default `fallback`): canonical-text matcher mode (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`, plus future added modes).
+- `--sequence-matcher TEXT` (default `dmp`): canonical-text matcher mode (`dmp` only).
 
 ### `cookimport bench knobs`
 
@@ -917,7 +1041,7 @@ CLI-relevant environment variables:
 - `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS`: unlocks `markdown`/`markitdown` EPUB extractors across stage/prediction/debug command paths when set truthy (`1|true|yes|on`).
 - `COOKIMPORT_ALLOW_CODEX_FARM`: policy gate for all-method codex-farm permutations (`1` required to enable once policy unlocks).
 - `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS`: include optional markdown-based extractors in all-method permutations when set to `1`.
-- `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER`: canonical-text matcher selection (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`, plus future added modes). Legacy `auto` is accepted as alias to `fallback`.
+- `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER`: canonical-text matcher selection (`dmp` only; non-`dmp` values are invalid).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS`: optional profiler threshold for benchmark evaluation stage (`>=0`; enables profile artifact capture when eval runtime meets threshold).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N`: optional `pstats` top-N row count for benchmark evaluation profiling output (default `40`).
 - `COOKIMPORT_CODEX_CMD`: default Codex CLI command used by prelabel flows when `--codex-cmd` is omitted.
@@ -1109,7 +1233,7 @@ Merged source notes:
 
 Current-contract additions:
 - Top-level command drift has been low; the higher-risk drift is option-level coverage inside existing commands.
-- Keep benchmark docs synchronized with active `bench` options/subcommands (`speed-discover`, `speed-run`, `speed-compare`, `eval-stage`) and `labelstudio-benchmark` prediction/eval split options.
+- Keep benchmark docs synchronized with active `bench` options/subcommands (`speed-discover`, `speed-run`, `speed-compare`, `quality-discover`, `quality-run`, `quality-compare`, `eval-stage`) and `labelstudio-benchmark` prediction/eval split options.
 - Keep tagging CLI option docs synchronized for codex-farm pass5 paths (`tag-recipes suggest|apply --llm ...`).
 
 Known stale surfaces that should stay retired:
@@ -1118,3 +1242,12 @@ Known stale surfaces that should stay retired:
 
 Anti-loop rule:
 - Validate CLI docs by command signatures and options (Typer registration), not by command-name list alone.
+
+## 2026-02-28 migrated understandings digest
+
+This section consolidates discoveries migrated from `docs/understandings` into this domain folder.
+
+### 2026-02-27_20.38.15 load settings sequence matcher coercion
+- Source: `docs/understandings/2026-02-27_20.38.15-load-settings-sequence-matcher-coercion.md`
+- Summary: "Legacy cookimport.json matcher values are now rejected at load time; benchmark sequence matcher must be dmp."
+

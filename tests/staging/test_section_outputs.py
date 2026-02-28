@@ -31,6 +31,23 @@ def _candidate() -> RecipeCandidate:
     )
 
 
+def _segmented_candidate() -> RecipeCandidate:
+    return RecipeCandidate(
+        name="Segmented Sections",
+        recipeIngredient=[
+            "For the meat:",
+            "1 lb beef",
+            "For the gravy:",
+            "2 tbsp flour",
+        ],
+        recipeInstructions=[
+            "For the meat:\nSeason the meat with salt. Brown the beef. Rest 5 minutes.",
+            "For the gravy:\nWhisk flour into drippings. Cook 2 minutes. Add stock and simmer.",
+        ],
+        provenance={"@id": "urn:recipe:test:segmented"},
+    )
+
+
 
 def test_jsonld_uses_howto_sections_and_ingredient_section_metadata() -> None:
     payload = recipe_candidate_to_jsonld(_candidate())
@@ -64,6 +81,44 @@ def test_write_section_outputs_writes_json_and_markdown(tmp_path: Path) -> None:
     summary = section_md.read_text(encoding="utf-8")
     assert "For the meat" in summary
     assert "For the gravy" in summary
+
+
+def test_instruction_segmentation_keeps_jsonld_and_sections_aligned(tmp_path: Path) -> None:
+    options = {
+        "instruction_step_segmentation_policy": "always",
+        "instruction_step_segmenter": "heuristic_v1",
+    }
+    candidate = _segmented_candidate()
+
+    payload = recipe_candidate_to_jsonld(
+        candidate,
+        instruction_step_options=options,
+    )
+    instructions = payload["recipeInstructions"]
+    assert instructions[0]["@type"] == "HowToSection"
+    assert len(instructions[0]["itemListElement"]) >= 3
+
+    write_section_outputs(
+        tmp_path,
+        "segmented",
+        [candidate],
+        instruction_step_options=options,
+    )
+    section_json = tmp_path / "sections" / "segmented" / "r0.sections.json"
+    section_payload = json.loads(section_json.read_text(encoding="utf-8"))
+    section_steps_by_key = {
+        section["key"]: section.get("steps", [])
+        for section in section_payload["sections"]
+    }
+    jsonld_steps_by_key = {
+        section["name"].split()[-1].lower(): [
+            step["text"] for step in section["itemListElement"]
+        ]
+        for section in instructions
+    }
+
+    assert section_steps_by_key["meat"] == jsonld_steps_by_key["meat"]
+    assert section_steps_by_key["gravy"] == jsonld_steps_by_key["gravy"]
 
 
 def test_write_section_outputs_can_skip_markdown(tmp_path: Path) -> None:

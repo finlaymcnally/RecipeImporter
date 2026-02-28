@@ -249,3 +249,387 @@ Durable findings:
 Anti-loop summary:
 - Distinguish retry/eval tail from deadlock before changing scheduler logic.
 - Treat matcher fallback ordering and cache-lock behavior as first-line diagnostics for canonical-text slowness.
+
+## 2026-02-28 migrated understanding ledger
+
+Chronological migration from `docs/understandings`; source files were removed after this merge.
+
+### 2026-02-27_20.00.30 speed suite all method scenario scope
+
+Source: `docs/understandings/2026-02-27_20.00.30-speed-suite-all-method-scenario-scope.md`
+Summary: SpeedSuite originally exercised only stage-import and single-source canonical benchmark paths; multi-source all-method scheduling needed a suite-level scenario.
+
+Details preserved:
+
+
+# Speed Suite All-Method Scenario Scope
+
+Discovery:
+
+- `cookimport/bench/speed_runner.py` previously modeled every scenario as target-scoped (`target x scenario x phase`), so it only called:
+  - `_run_stage_import_sample(...)`
+  - `_run_benchmark_sample(...)` (single-source `labelstudio_benchmark`)
+- That shape did not execute `_run_all_method_benchmark_multi_source(...)`, which is where source scheduling (`tail_pair`), source sharding, and source-level parallel dispatch live.
+
+Implementation direction:
+
+- Add a suite-level speed scenario (`benchmark_all_method_multi_source`) that runs once per sample-phase using all selected targets.
+- Keep existing target-scoped scenarios unchanged.
+- Emit synthetic target id `__all_matched__` (folder `_all_matched`) so summary grouping remains deterministic.
+
+### 2026-02-27_20.04.16 speedsuite all method target matching single contract
+
+Source: `docs/understandings/2026-02-27_20.04.16-speedsuite-all-method-target-matching-single-contract.md`
+Summary: All-method matched-target discovery had drifted from SpeedSuite discovery; both now share speed_suite.match_gold_exports_to_inputs.
+
+Details preserved:
+
+
+# SpeedSuite + All-Method Target Matching Contract
+
+Discovery:
+
+- `cookimport/cli.py:_resolve_all_method_targets(...)` had an inlined matcher flow that duplicated SpeedSuite logic.
+- The duplicate path had already diverged from `cookimport/bench/speed_suite.py` behavior (notably source-hint fallback details).
+
+Resolution:
+
+- `_resolve_all_method_targets(...)` now delegates matching to `cookimport.bench.speed_suite.match_gold_exports_to_inputs(...)`.
+- The CLI path still supplies `cli._list_importable_files(DEFAULT_INPUT)` so interactive tests can keep controlling importable-file fixtures.
+
+Impact:
+
+- One matcher contract now feeds both SpeedSuite and all-method matched-target selection, reducing maintenance drift risk.
+
+### 2026-02-27_20.07.10 all method eval signature cache and provenance
+
+Source: `docs/understandings/2026-02-27_20.07.10-all-method-eval-signature-cache-and-provenance.md`
+Summary: All-method now runs predict-only per config, then evaluates once per unique signature and reuses/materializes results.
+
+Details preserved:
+
+
+# All-Method Eval Signature Cache And Provenance
+
+Key flow now:
+
+- Phase A runs each config with `execution_mode=predict-only` and writes `prediction-records.jsonl`.
+- Phase B computes `eval_signature` from prediction payload + gold fingerprints + evaluator settings.
+- One representative config per signature runs evaluate-only (`predictions_in=...`), then duplicates reuse that result.
+
+Cache behavior:
+
+- Cache entries are written to `.../.cache/eval_signature_results/<source_group_key>/<eval_signature>.json` when a signature is executed.
+- On cache hit, the run skips evaluate-only and materializes `eval_report.json` + `eval_report.md` into the representative config directory.
+
+Per-config provenance fields:
+
+- `eval_signature`
+- `evaluation_result_source`: `executed`, `reused_in_run`, or `reused_cross_run`
+- `evaluation_representative_config_dir`
+
+### 2026-02-27_20.09.09 recipe notes variant zero pred in canonical benchmark
+
+Source: `docs/understandings/2026-02-27_20.09.09-recipe-notes-variant-zero-pred-in-canonical-benchmark.md`
+Summary: In 2026-02-27_17.54.41 canonical all-method runs, RECIPE_NOTES had zero predictions because stage evidence sources notes only from recipe comments, which were absent; RECIPE_VARIANT was also zero for amatteroftaste because no variant-prefixed instruction text was extracted.
+
+Details preserved:
+
+
+# RECIPE_NOTES / RECIPE_VARIANT Zero-Pred Discovery
+
+Discovery:
+
+- The dashboard row for `2026-02-27_17.54.41` comes from:
+  - `data/golden/benchmark-vs-golden/2026-02-27_17.54.41/all-method-benchmark/amatteroftastecutdown/config_001_682eb9140f50_extractor_unstructured__parser_v1__skiphf_false__pre_none/eval_report.json`
+- Matching stage evidence for that record shows:
+  - `label_blocks.RECIPE_NOTES = 0`
+  - `label_blocks.RECIPE_VARIANT = 0`
+  - `label_blocks.KNOWLEDGE = 565`
+  - file: `.../prediction-run/stage_block_predictions.json`
+
+Code-path findings:
+
+- Stage builder emits `RECIPE_NOTES` only from `_note_texts(recipe)`.
+- `_note_texts(recipe)` only reads `recipe.comments` text/name.
+- In this benchmark run, intermediate recipe drafts had zero non-empty `comment` fields, so `RECIPE_NOTES` could not be emitted.
+- `RECIPE_VARIANT` is derived from instruction lines matching `variations?/variants?` patterns.
+- For `amatteroftastecutdown` config_001, no extracted instruction line matched that prefix, so `RECIPE_VARIANT` stayed zero.
+
+Scope check for this all-method run:
+
+- Across all 91 config/source evaluations under `2026-02-27_17.54.41`, `RECIPE_NOTES` predictions were zero in every `prediction-run/stage_block_predictions.json`.
+
+### 2026-02-27_20.09.48 speedsuite runtime parity drift map
+
+Source: `docs/understandings/2026-02-27_20.09.48-speedsuite-runtime-parity-drift-map.md`
+Summary: SpeedSuite runs production entrypoints but still had duplicated run-settings-to-kwargs mapping across interactive and speed paths.
+
+Details preserved:
+
+
+# SpeedSuite Runtime Parity Drift Map
+
+Discovery:
+
+- SpeedSuite already executes real runtime entrypoints (`stage`, `labelstudio_benchmark`, all-method runner internals).
+- Remaining drift risk is in duplicated kwargs assembly from `RunSettings`.
+
+Where duplication exists:
+
+- `cookimport/cli.py` interactive import builds `common_args` manually.
+- `cookimport/cli.py` interactive single-offline benchmark builds `benchmark_kwargs` manually.
+- `cookimport/bench/speed_runner.py` scenarios build runtime kwargs manually.
+
+Implication:
+
+- New run settings can silently propagate to one path and not the others.
+- Speed comparisons can look valid while runtime knobs differ, unless settings identity is persisted and compared.
+
+### 2026-02-27_20.43.12 quality suite reuse points
+
+Source: `docs/understandings/2026-02-27_20.43.12-quality-suite-reuse-points.md`
+Summary: QualitySuite can reuse speed-suite matching and all-method benchmark orchestration without adding new scoring engines.
+
+Details preserved:
+
+
+# QualitySuite Reuse Points
+
+QualitySuite should reuse two stable contracts that already exist. Target matching can reuse `cookimport.bench.speed_suite.match_gold_exports_to_inputs`, which already handles the source-hint fallback chain and unmatched diagnostics. Quality evaluation can reuse `cookimport.cli._run_all_method_benchmark_multi_source`, which already executes canonical all-method variants, tracks scheduler telemetry, and writes per-source quality-rich report payloads.
+
+The biggest gap is not scoring logic but workflow packaging for iterative tuning: deterministic representative target selection, experiment definition, and baseline-vs-candidate quality comparison with clear PASS/FAIL gating.
+
+### 2026-02-27_20.49.27 quality suite plan gap audit
+
+Source: `docs/understandings/2026-02-27_20.49.27-quality-suite-plan-gap-audit.md`
+Summary: QualitySuite planning gap audit: practical metric aggregation, strict patch validation, and sharded-source aggregation rules were the critical missing contracts.
+
+Details preserved:
+
+
+# QualitySuite Plan Gap Audit
+
+The initial QualitySuite plan had three high-risk ambiguities. First, multi-source all-method reports only expose strict winner metrics in `sources[*].winner_metrics`, so practical metrics must be read from per-source `all_method_benchmark_report.json` winner rows to support strict+practical gating. Second, `RunSettings.from_dict` ignores unknown keys, so experiment patches need an explicit unknown-key failure path to prevent silent typo bugs. Third, source sharding can emit multiple rows for one logical source, so summary aggregation must collapse by `source_group_key` instead of averaging raw rows.
+
+### 2026-02-27_20.56.29 all method multi source scheduling vs global queue
+
+Source: `docs/understandings/2026-02-27_20.56.29-all-method-multi-source-scheduling-vs-global-queue.md`
+Summary: All-method bulk runs currently interleave at source-job level, but config scheduling/eval dedupe is per-source rather than one global mega-queue.
+
+Details preserved:
+
+
+# All-Method Multi-Source Scheduling Vs Global Queue
+
+Observed current behavior in `cookimport/cli.py`:
+
+- Bulk mode first builds `source_job_plans` (`_plan_all_method_source_jobs`) and dispatches those with a source-level thread pool in `_run_all_method_benchmark_multi_source`.
+- Source-job order defaults to `tail_pair` (heavy/light alternating by estimated source cost), with optional source sharding when estimated source cost exceeds threshold.
+- Each source job runs `_run_all_method_benchmark` independently with its own config queue/process pool and its own split-phase gate directory (`<source_root>/.split_phase_slots`).
+- Inside one source job, execution is 2-phase:
+  1. Run all configs in `predict-only` mode.
+  2. Build eval signatures and run canonical evaluate-only once per unique signature, then reuse for duplicates.
+- Eval-signature reuse and cache directories are scoped by source group key (`.../eval_signature_results/<source_group_key>/...`), so dedupe/cache sharing is not global across different source groups.
+
+Implication:
+
+- This is intelligent per-source scheduling + cross-source source-job interleaving, but not a single global mega-queue over all `(source, config)` units.
+- A true mega-run scheduler would need a global work queue/admission policy shared across all source jobs (including global signature grouping/caching decisions if desired).
+
+### 2026-02-27_20.56.32 all method source cap via cookimport setting
+
+Source: `docs/understandings/2026-02-27_20.56.32-all-method-source-cap-via-cookimport-setting.md`
+Summary: All-method multi-source concurrency is hard-capped by cookimport.json all_method_max_parallel_sources when set.
+
+Details preserved:
+
+
+In `_interactive_all_method_benchmark`, the all-method run forwards `all_method_max_parallel_sources` from `cookimport.json` into `_run_all_method_benchmark_multi_source`.
+
+If that setting is present and valid, `_resolve_all_method_source_parallelism(...)` uses it as the cap, even when CPU-based defaults are higher.
+
+Practical effect: with `all_method_max_parallel_sources = 2`, the scheduler can run at most two source jobs at once, which can leave CPU underutilized on larger hosts (for example 16 cores).
+
+### 2026-02-27_21.00.19 og plan build status audit
+
+Source: `docs/understandings/2026-02-27_21.00.19-og-plan-build-status-audit.md`
+Summary: Audit result: the three OG plans for speed suite, all-method tail throughput, and eval-signature dedupe are implemented and covered by targeted tests.
+
+Details preserved:
+
+
+# OG Plan Build Status Audit
+
+- Scope audited:
+  - `docs/plans/OGplan/2026-02-27_18.51.16-speed-regression-benchmark-suite-from-pulled-goldens.md`
+  - `docs/plans/OGplan/2026-02-27_18.55.29-all-method-tail-throughput-plan.md`
+  - `docs/plans/OGplan/2026-02-27_19.45.53-all-method-eval-signature-dedupe.md`
+- Result: all three are implemented in current code paths and exercised by focused tests.
+- Verified by:
+  - Code surface checks in `cookimport/bench/speed_*`, `cookimport/cli.py`, and benchmark docs.
+  - Focused pytest slices run in `.venv`:
+    - `tests/bench/test_speed_suite_discovery.py`
+    - `tests/bench/test_speed_suite_runner.py`
+    - `tests/bench/test_speed_suite_compare.py`
+    - `tests/bench/test_bench.py -k "speed_discover or speed_run or speed_compare"`
+    - `tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "tail_pair or shard or planner or source_parallelism or multi_source_parallel_cap_and_ordering"`
+    - `tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "all_method or predict_only or predictions_in"`
+    - `tests/bench/test_prediction_records.py tests/bench/test_canonical_alignment_cache.py`
+
+### 2026-02-27_21.00.53 priority plans vs per label metric shape
+
+Source: `docs/understandings/2026-02-27_21.00.53-priority-plans-vs-per-label-metric-shape.md`
+Summary: Quick mapping from Priority 1-8 plan ideas to current per-label benchmark error shape.
+
+Details preserved:
+
+
+# Priority Plans vs Per-Label Metric Shape
+
+For the 2026-02-27 multi-source all-method run, the per-label pattern is structurally dominated by:
+
+- Overprediction (low precision) on `RECIPE_NOTES`, `RECIPE_VARIANT`, `RECIPE_TITLE`, and `INGREDIENT_LINE`.
+- Underprediction (low recall, high precision) on `YIELD_LINE` and `TIME_LINE`.
+- Mixed structural confusion on `INSTRUCTION_LINE`, `KNOWLEDGE`, and `OTHER`.
+
+Most likely high-leverage priorities for these symptoms:
+
+1. Priority 2 (shared section detection across importers): direct structural classification improvement for ingredient/instruction/notes/variant/title-like boundaries.
+2. Priority 3 (multi-recipe splitting): should reduce title/boundary-related confusion and cross-recipe bleed that can inflate false positives.
+3. Priority 6 (time/yield upgrades): specifically targets low-recall `TIME_LINE`/`YIELD_LINE` behavior.
+4. Priority 5 (fallback step segmentation): likely second-order boost for instruction and section clarity when importers hand off giant instruction paragraphs.
+
+Lower direct leverage on block-label metrics:
+
+- Priority 8: mostly measurement and diagnostics (high value for tuning loops, but does not directly improve predictions by itself).
+- Priority 4: ingredient *line parsing* quality after extraction, likely limited impact on `INGREDIENT_LINE` label assignment itself.
+- Priority 7: high value for HTML/JSON schema sources, limited impact for EPUB-dominated runs unless source mix changes.
+- Priority 1: candidate gating can reduce gross false positives but is less targeted to per-block label confusion than Priority 2/3/6.
+
+### 2026-02-27_21.01.55 hix all method eval exit 1 lost error
+
+Source: `docs/understandings/2026-02-27_21.01.55-hix-all-method-eval-exit-1-lost-error.md`
+Summary: All-method Hix source failure with error `\"1\"` is a wrapped Typer exit that drops the underlying pre-eval message.
+
+Details preserved:
+
+
+# Hix all-method failed variant (`error: "1"`)
+
+- In run `data/golden/benchmark-vs-golden/2026-02-27_20.50.38`, `hix_written` completed prediction but was marked failed at evaluation aggregation (`successful=0`, `failed=1`, `evaluation_runs_executed=0`).
+- The stored failure text `\"1\"` comes from catching `typer.Exit(1)` in `_run_all_method_evaluate_prediction_record_once` and serializing `str(exc)`.
+- `labelstudio_benchmark` only raises `typer.Exit(1)` via `_fail(...)`; in this evaluate-only path that means a pre-eval validation guard failed (for example prediction-record input load/validation) before normal eval artifact writes.
+- Evidence from this run: no eval-side replay directory under the failed config (`.prediction-record-replay` absent), matching an early exit before normal evaluate-only reconstruction.
+- Re-running the same evaluate-only call against the saved `prediction-records.jsonl` now succeeds, so this looks transient/non-deterministic rather than a stable scorer bug.
+
+
+### 2026-02-27_21.08.11 quality suite shard aggregation and settings guard
+
+Source: `docs/understandings/2026-02-27_21.08.11-quality-suite-shard-aggregation-and-settings-guard.md`
+Summary: QualitySuite quality-run must source practical metrics from per-source winner reports and enforce strict run_settings_patch key validation before RunSettings normalization.
+
+Details preserved:
+
+
+# QualitySuite Shard Aggregation And Settings Guard
+
+All-method multi-source report rows only carry strict `winner_metrics` in top-level `sources[*]`. Practical metrics used for quality gating must therefore be read from per-source `all_method_benchmark_report.json` `winner_by_f1` payloads. For sharded sources, `quality-run` should inspect every shard report path in `report_json_paths`, choose the shard winner with highest strict F1, and use that shard's strict+practical metrics for one source-group row in macro aggregation.
+
+`RunSettings.from_dict(...)` intentionally ignores unknown keys, so QualitySuite experiment payloads need a strict pre-validation gate on `run_settings_patch` keys (`RunSettings.model_fields`) before normalization. This prevents typoed patch keys from silently no-oping and contaminating baseline/candidate comparisons.
+
+### 2026-02-27_21.29.02 all method scheduler scope dispatch and legacy payload fix
+
+Source: `docs/understandings/2026-02-27_21.29.02-all-method-scheduler-scope-dispatch-and-legacy-payload-fix.md`
+Summary: Global scheduler default changed multi-source test behavior; legacy combined payload also needed an explicit failed-config counter.
+
+Details preserved:
+
+
+# All-Method Scheduler Scope Dispatch And Legacy Payload Fix
+
+Key implementation discoveries while shipping the global mega-run scheduler:
+
+- `_run_all_method_benchmark_multi_source(...)` now defaults to `scheduler_scope=global`.
+- Existing tests that monkeypatch `_run_all_method_benchmark(...)` were implicitly testing legacy dispatch and started executing real benchmark code until `scheduler_scope=legacy` was passed explicitly.
+- Legacy combined report payload writes additive `global_queue_*` counters for contract parity; this path must compute `total_failed_config_runs` before payload render.
+
+Fixes applied:
+
+- Added explicit `scheduler_scope=cli.ALL_METHOD_SCHEDULER_SCOPE_LEGACY` in legacy-oriented helper tests.
+- Added wrapper dispatch tests that prove default -> global helper and explicit legacy -> legacy helper.
+- Fixed `_run_all_method_benchmark_multi_source_legacy(...)` to compute `total_failed_config_runs` before report payload construction.
+
+### 2026-02-27_22.25.29 priority8 current eval surface audit
+
+Source: `docs/understandings/2026-02-27_22.25.29-priority8-current-eval-surface-audit.md`
+Summary: Priority 8 audit: stage-block evaluator is classification-only today; segmentation metrics are still pending and should extend existing bench eval surfaces.
+
+Details preserved:
+
+
+# Priority 8 Current Eval Surface Audit
+
+- `cookimport/bench/eval_stage_blocks.py` currently reports block-label classification metrics and mismatch artifacts only; it does not emit a `segmentation` section or taxonomy buckets.
+- `cookimport/cli.py` already has `cookimport bench eval-stage` as the offline stage-block evaluator entrypoint, so Priority 8 should extend this surface first instead of introducing redundant command paths.
+- `stage_block_predictions.v1` in current code expects a `block_labels` map (plus optional `block_count` completeness check), not a `predictions` list payload.
+- `labelstudio-benchmark` now supports both `stage-blocks` and `canonical-text`, and modern benchmark loops heavily use canonical-text; Priority 8 must stay additive and not disturb that split.
+- `pyproject.toml` has no `segeval` extra yet (`db`, `benchaccel`, `dev`, `epubdebug` only), so optional backend wiring is still future work.
+- Before this update, `docs/plans/priority-8.md` was identical to `docs/plans/OGplan/priority-8.md`, which left the active plan stale.
+
+### 2026-02-27_22.47.26 priority8 segmentation implementation shape
+
+Source: `docs/understandings/2026-02-27_22.47.26-priority8-segmentation-implementation-shape.md`
+Summary: Priority 8 implementation shape: additive segmentation metrics/taxonomy live inside stage-block eval with optional segeval extras.
+
+Details preserved:
+
+
+# Priority 8 Segmentation Implementation Shape
+
+- `cookimport/bench/eval_stage_blocks.py` now computes classification metrics first, then additive segmentation diagnostics in the same run.
+- Structural projection is fixed to `core_structural_v1` (`RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, everything else -> `OTHER`) and boundary tolerance is configurable.
+- Boundary diagnostics now include two JSONL artifacts: `missed_gold_boundaries.jsonl` and `false_positive_boundaries.jsonl`.
+- Optional metrics (`pk`, `windowdiff`, `boundary_similarity`) are lazy-loaded through `cookimport/bench/segeval_adapter.py`; requesting them without dependency installation raises clear install guidance.
+- `cookimport bench eval-stage` now exposes `--label-projection`, `--boundary-tolerance-blocks`, and `--segmentation-metrics`; bench suite paths rely on evaluator defaults and still receive the additive segmentation payload.
+
+### 2026-02-28_01.24.58 speed suite run settings adapter parity
+
+Source: `docs/understandings/2026-02-28_01.24.58-speed-suite-run-settings-adapter-parity.md`
+Summary: SpeedSuite parity is primarily about sharing one RunSettings->kwargs adapter layer and carrying effective settings identity into speed artifacts/compare.
+
+Details preserved:
+
+
+# SpeedSuite Run-Settings Adapter Parity
+
+Discovery:
+
+- Runtime drift was caused by duplicated kwargs assembly, not by separate execution engines. Interactive import, interactive single-offline benchmark, and speed scenarios all needed one shared mapping layer.
+- The practical contract is: build effective `RunSettings` once for speed-run, pass that object through every scenario call, write `run_settings_hash` in speed artifacts, and make compare fail by default when hashes differ.
+
+Implication:
+
+- New run-setting fields now have one adapter surface to update (`cookimport/config/run_settings_adapters.py`) instead of per-caller dict edits.
+- Baseline/candidate speed verdicts are now guarded against accidental settings drift unless the operator explicitly opts in with `--allow-settings-mismatch`.
+
+### 2026-02-28_03.05.00 sequence matcher locked to dmp
+
+Source: `docs/understandings/2026-02-28_03.05.00-sequence-matcher-locked-to-dmp.md`
+Summary: Canonical benchmark alignment now accepts only DMP matcher mode; fallback/stdlib/cydifflib/cdifflib/multilayer modes are archived and rejected.
+
+Details preserved:
+
+
+# Sequence Matcher Locked To DMP
+
+Discovery:
+
+- Sequence matcher selection drift came from supporting many modes in selector/config/docs/tests while production speed evidence favored DMP.
+- The stable contract is now strict: default to `dmp`, reject non-`dmp`, and error if `fast-diff-match-patch` is unavailable.
+
+Implication:
+
+- Benchmark run settings, CLI overrides, and canonical-eval telemetry now consistently report `dmp` as requested/effective mode.
+- Older configs/tests/docs that reference `fallback` or other matcher modes must be treated as historical and migrated.
+

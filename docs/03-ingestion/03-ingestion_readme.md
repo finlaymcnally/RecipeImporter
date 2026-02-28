@@ -71,6 +71,7 @@ Shared ingestion parsing primitives:
 - `cookimport/parsing/chunks.py`
 - `cookimport/parsing/tables.py`
 - `cookimport/parsing/sections.py`
+- `cookimport/parsing/multi_recipe_splitter.py`
 
 Writers + output structure:
 - `cookimport/staging/writer.py`
@@ -93,7 +94,7 @@ OCR:
   - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
 - Creates run output directory using timestamp format `%Y-%m-%d_%H.%M.%S`.
 - Builds `base_mapping` once and always passes it to workers.
-- Builds `RunSettings` and `runConfig` (workers/split knobs, EPUB extractor + unstructured knobs, OCR, table extraction, LLM settings, mapping/overrides paths, and markdown sidecar setting).
+- Builds `RunSettings` and `runConfig` (workers/split knobs, EPUB extractor + unstructured knobs, OCR, table extraction, section + multi-recipe backends, LLM settings, mapping/overrides paths, and markdown sidecar setting).
 - `RunSettings.from_dict(...)` keeps recipe codex-farm parsing policy-locked off by forcing `llm_recipe_pipeline=off` when non-off values appear in payloads.
 - Plans jobs with `_plan_jobs(...)`.
 - Executes with `ProcessPoolExecutor`; on `PermissionError`, falls back to serial execution.
@@ -197,6 +198,8 @@ From code and historical notes:
 
 Convergence point:
 - All importers return `ConversionResult`.
+- Importers now score each candidate with deterministic recipe-likeness (`heuristic_v1`) and map tier to gate action (`keep_full`, `keep_partial`, `reject`).
+- Rejected candidates are preserved as `nonRecipeBlocks` so downstream tip/topic/chunk extraction keeps that source text.
 - Final recipe normalization converges in `write_draft_outputs(...)` where `recipe_candidate_to_draft_v1(...)` runs shared parsing/linking transforms.
 - Knowledge chunking happens after conversion from `non_recipe_blocks` (or topic fallback).
 
@@ -208,6 +211,7 @@ Convergence point:
 - Text (`.txt`, `.md`) and DOCX (`.docx`): `cookimport/plugins/text.py`
 - Paprika (`.paprikarecipes`, and directory merge mode): `cookimport/plugins/paprika.py`
 - RecipeSage (`.json` with expected structure): `cookimport/plugins/recipesage.py`
+- Web Schema (`.html`, `.htm`, `.jsonld`, and schema-like `.json`): `cookimport/plugins/webschema.py`
 
 Not implemented as dedicated importers today:
 - Image files (`.png`, `.jpg`) are not directly detected by current importers.
@@ -267,6 +271,7 @@ Markdown-specific behavior:
 Candidate segmentation:
 - Yield-driven anchors and title backtracking heuristics
 - Produces candidate provenance with `start_spine` / `end_spine` when available
+- Optional shared post-candidate split pass (`multi_recipe_splitter=rules_v1`) can split one detected candidate span into multiple recipe spans and adds `provenance.multi_recipe` metadata on split children.
 
 Unstructured-specific behavior:
 - Normalizes spine XHTML via `normalize_epub_html_for_unstructured(...)` before partitioning.
@@ -345,6 +350,7 @@ Extraction path:
 Candidate and provenance behavior:
 - Candidate IDs initially `urn:recipeimport:pdf:<hash>:c<i>` before global merge rewrite (split case)
 - Provenance location includes `start_page`, `end_page`, `start_block`, `end_block`
+- Optional shared post-candidate split pass (`multi_recipe_splitter=rules_v1`) can split one detected candidate span into multiple recipe spans and adds `provenance.multi_recipe` metadata on split children.
 - Raw artifacts include:
   - `full_text` extracted block dump
   - per-candidate block dumps (`locationId` like `c<i>`)
@@ -361,7 +367,9 @@ Supported formats:
 
 Behavior highlights:
 - Markdown/YAML frontmatter handling
-- Multi-recipe splitting by headings, yield markers, numbered titles, delimiter lines
+- `multi_recipe_splitter=legacy`: historical text-local multi-recipe splitting by headings, yield markers, numbered titles, delimiter lines
+- `multi_recipe_splitter=off`: disables text multi-recipe splitting and keeps one candidate span
+- `multi_recipe_splitter=rules_v1`: uses shared deterministic splitter (`cookimport/parsing/multi_recipe_splitter.py`) with section-detector-aware `For the X` guardrails
 - Section extraction (`Ingredients`, `Instructions`, `Notes`) from text blobs
 - DOCX table parsing with header alias detection (header row inferred in first rows)
 
@@ -379,6 +387,18 @@ Behavior highlights:
 - Validates each recipe through `RecipeCandidate`
 - Adds provenance and stable IDs where missing
 - Stores full export as raw artifact (`full_export`)
+
+### Web Schema (`cookimport/plugins/webschema.py`)
+
+Behavior highlights:
+- Schema-first importer for local web-origin files (`.html/.htm/.jsonld` and guarded schema-like `.json`).
+- Claims `.json` only when schema recipe objects exist and RecipeSage export shape is not detected.
+- Uses run-setting-controlled schema lane and fallback lane:
+  - `web_schema_policy`: `prefer_schema`, `schema_only`, `heuristic_only`
+  - `web_schema_extractor`, `web_schema_normalizer`
+  - `web_html_text_extractor` for deterministic fallback text extraction
+  - `web_schema_min_confidence`, `web_schema_min_ingredients`, `web_schema_min_instruction_steps`
+- Emits raw artifacts under `raw/webschema/<source_hash>/...` including `schema_extracted`, optional `schema_accepted`, optional `fallback_text`, and source HTML copy.
 
 ## Shared Parsing Components Used During Ingestion
 
@@ -426,13 +446,15 @@ For a run at `data/output/<timestamp>/`:
 - `chunks/<workbook_slug>/...` (when generated)
 - `tables/<workbook_slug>/tables.jsonl` (+ optional `tables.md` when table extraction is enabled)
 - `raw/<importer>/<source_hash>/<location_id>.<ext>`
+  - includes `recipe_scoring_debug.jsonl` (one deterministic decision row per candidate) when candidate scoring runs
 - `.bench/<workbook_slug>/stage_block_predictions.json`
 - `<workbook_slug>.excel_import_report.json`
 - `processing_timeseries.jsonl`
 
 Reporting/perf:
 - Report has `runTimestamp`, `importerName`, optional `epubBackend`, timing, warnings/errors, sample stats.
-- Report now includes `runConfig` for run-level knobs (including `epub_extractor`, unstructured parser/preprocess flags, worker counts, OCR settings, split sizes, and optional mapping/overrides paths).
+- Report includes `recipeLikeness` summary payload (backend/version, thresholds, tier counts, score stats, rejected count).
+- Report now includes `runConfig` for run-level knobs (including `epub_extractor`, unstructured parser/preprocess flags, `multi_recipe_*` splitter settings, worker counts, OCR settings, split sizes, and optional mapping/overrides paths).
 - Report includes `runConfigHash` and `runConfigSummary` for reproducibility and history grouping.
 - Report includes `llmCodexFarm` status payload (recipe pipeline stays policy-locked `off` unless code policy changes).
 - Report can include `outputStats` (counts/bytes/largest files by category).
@@ -462,9 +484,20 @@ Stage CLI options (key ones):
 - `--epub-unstructured-skip-headers-footers`
 - `--epub-unstructured-preprocess-mode`
 - `--table-extraction`
+- `--recipe-scorer-backend`
+- `--recipe-score-gold-min`
+- `--recipe-score-silver-min`
+- `--recipe-score-bronze-min`
+- `--recipe-score-min-ingredient-lines`
+- `--recipe-score-min-instruction-lines`
 - `--llm-recipe-pipeline` (policy-locked to `off` by run-settings normalization)
 - `--llm-knowledge-pipeline`
 - `--llm-tags-pipeline`
+- `--multi-recipe-splitter`
+- `--multi-recipe-trace/--no-multi-recipe-trace`
+- `--multi-recipe-min-ingredient-lines`
+- `--multi-recipe-min-instruction-lines`
+- `--multi-recipe-for-the-guardrail/--no-multi-recipe-for-the-guardrail`
 
 Overrides and mapping:
 - Mapping model supports `parsingOverrides` alias (`parsing_overrides` field in code).
@@ -564,3 +597,40 @@ Current-contract additions:
 
 Known bad loop:
 - Do not diagnose extractor behavior from one command path only; verify normalization in CLI + Label Studio ingest + `RunSettings.from_dict(...)` together.
+
+## 2026-02-28 migrated understandings digest
+
+This section consolidates discoveries migrated from `docs/understandings` into this domain folder.
+
+### 2026-02-27_21.19.47 priority 1 plan rebuild context
+- Source: `docs/understandings/2026-02-27_21.19.47-priority-1-plan-rebuild-context.md`
+- Summary: Priority-1 plan rebuild context: active plan duplicated OG archive and referenced a missing source doc.
+
+### 2026-02-27_22.03.50 priority1 fixtures and default gate parity
+- Source: `docs/understandings/2026-02-27_22.03.50-priority1-fixtures-and-default-gate-parity.md`
+- Summary: Priority-1 discovery: stabilize importer tests with local fixtures and keep recipe gate defaults aligned across stage/pred-run.
+
+### 2026-02-27_22.14.51 priority2 current section detection and wiring map
+- Source: `docs/understandings/2026-02-27_22.14.51-priority2-current-section-detection-and-wiring-map.md`
+- Summary: Priority-2 discovery: section grouping is shared downstream, but importer extraction and run-setting wiring are still fragmented.
+
+### 2026-02-27_22.25.43 priority3 current state audit
+- Source: `docs/understandings/2026-02-27_22.25.43-priority3-current-state-audit.md`
+- Summary: Priority 3 audit: multi-recipe splitting is still importer-local heuristics; shared splitter wiring has not landed yet.
+
+### 2026-02-27_22.27.41 priority7 current runtime gap map
+- Source: `docs/understandings/2026-02-27_22.27.41-priority7-current-runtime-gap-map.md`
+- Summary: Priority-7 audit: webschema lane is not implemented; importer selection is score-based with no stage pipeline flag.
+
+### 2026-02-27_22.37.24 priority3 shared splitter wiring map
+- Source: `docs/understandings/2026-02-27_22.37.24-priority3-shared-splitter-wiring-map.md`
+- Summary: Priority 3 refresh discovery: shared section detection is live, but multi-recipe splitting is still importer-local and unwired in run settings.
+
+### 2026-02-27_22.52.17 priority7 webschema detection and variant guardrails
+- Source: `docs/understandings/2026-02-27_22.52.17-priority7-webschema-detection-and-variant-guardrails.md`
+- Summary: Priority-7 implementation detail: keep RecipeSage precedence for .json while expanding webschema all-method variants only for webschema-capable inputs.
+
+### 2026-02-27_23.20.08 priority3 rules v1 coverage signal thresholds
+- Source: `docs/understandings/2026-02-27_23.20.08-priority3-rules-v1-coverage-signal-thresholds.md`
+- Summary: Priority-3 splitter discovery: rules_v1 coverage thresholds must count section-header signals, not only content-like lines, to avoid rejecting valid short recipe splits.
+

@@ -1,580 +1,408 @@
-# ExecPlan: Priority 7 — Structured-first lane (Schema.org Recipe) for HTML/JSON inputs
-
-This ExecPlan implements **Priority 7** from BIG PICTURE UPGRADES: add a **structured-first “schema lane”** (Schema.org Recipe) for **HTML files saved from the web** and **JSON files containing schema-like Recipe objects**, with a **heuristic fallback** when schema is absent/weak. This is explicitly described as the “inverse mapping” of your existing `RecipeCandidate -> schema.org Recipe JSON-LD` staging converter (`cookimport/staging/jsonld.py`).
-
-It must also incorporate **all tools/libraries mentioned in BIG PICTURE UPGRADES.md that relate to Priority 7**, and each such tool must be implemented as a **new selectable option** (not a replacement), since you benchmark permutations:
-- Schema extraction / structured ingestion options: **extruct**, **scrape-schema-recipe**, **pyld**, **recipe-scrapers**
-- HTML boilerplate removal / text extraction options (fallback lane): **trafilatura**, **readability-lxml**, optionally **jusText**, **BoilerPy3**
-- ISO-8601 Schema.org duration parsing: **isodate**
-
 ---
+summary: "ExecPlan for Priority 7: deterministic schema-first ingestion for local HTML/JSON recipe files with heuristic fallback."
+read_when:
+  - "When adding a dedicated HTML/JSON schema-first importer"
+  - "When wiring web-schema run settings through stage and benchmark paths"
+  - "When validating importer selection and fallback behavior for .html/.htm/.jsonld/.json"
+---
+
+# Build Priority 7: Deterministic Schema-First Local HTML/JSON Ingestion
+
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository includes `docs/PLANS.md` at the repository root. This plan must be maintained in accordance with that file.
+
 
 ## Purpose / Big Picture
 
-### Why this exists
-Your current architecture already supports “two-lane” ingestion in spirit (structured vs heuristic), and has a convergence point (`ConversionResult` + staging writer) that makes adding a new importer lane low-risk.
 
-However, you are explicitly missing a **structured-first lane for web-ish Schema.org Recipe**; your docs state **web scraping isn’t implemented** and HTML recipe support is missing.
+After this change, `cookimport stage` can ingest local web-origin recipe files (`.html`, `.htm`, `.jsonld`, and schema-like `.json`) through a dedicated schema-first importer.
 
-Priority 7’s intended logic is:
-1) detect Schema.org Recipe objects in HTML/JSON
-2) if high confidence, create `RecipeCandidate` directly from schema fields
-3) validate via recipe-likeness gates
-4) otherwise fallback to heuristic segmentation
+User-visible behavior:
 
-This ExecPlan implements exactly that (and keeps every new extraction tool as an option for benchmarking).
+1. Schema-rich inputs produce `RecipeCandidate` records from structured data first.
+2. Schema-poor HTML inputs still attempt deterministic fallback extraction from visible text.
+3. Reports clearly state when schema was used versus fallback and which extraction backend ran.
+4. No AI/LLM parsing is introduced. Recipe codex-farm parsing remains policy-locked off.
 
-### What “done” looks like
-- A new importer pipeline (recommended name: `WEBSCHEMA`) is available and/or auto-selected for `.html/.htm/.jsonld` and schema-like `.json`.
-- Stage runs produce standard outputs under `data/output/<timestamp>/...`, including `intermediate drafts/...`, `final drafts/...`, and `raw/<importer>/<source_hash>/...` for debugging.
-- For HTML with embedded schema recipe(s), the importer creates one or more `RecipeCandidate`s from schema with minimal/no heuristic guessing.
-- For HTML without schema, the importer falls back to a deterministic HTML-to-text extraction method (selectable: trafilatura/readability/jusText/BoilerPy3/bs4 baseline) and then deterministic section heuristics (ingredients/instructions) to build `RecipeCandidate`.
-- All new third-party tools are implemented behind **configurable strategy enums**, enabling benchmarking permutations.
+You can verify the feature by staging local fixture files and confirming `importerName` is `webschema` in the report JSON, then checking raw artifacts under `raw/webschema/<source_hash>/...`.
 
----
 
 ## Progress
 
-- [x] (2026-02-25 America/Toronto) Wrote initial ExecPlan for Priority 7 structured-first lane.
-- [ ] Add optional dependency extras for schema/html extraction tools.
-- [ ] Add RunSettings + CLI + env-var plumbing for WEBSCHEMA knobs.
-- [ ] Implement schema recipe detection + normalization + confidence scoring.
-- [ ] Implement schema→RecipeCandidate mapping (inverse of staging/jsonld).
-- [ ] Implement HTML schema extraction strategies (builtin JSON-LD, extruct, scrape-schema-recipe, recipe-scrapers; optional pyld normalize).
-- [ ] Implement HTML boilerplate removal/text extraction strategies (trafilatura, readability-lxml, jusText, BoilerPy3; baseline bs4).
-- [ ] Implement `WEBSCHEMA` importer: detect/inspect/convert, raw artifacts, report fields, fallback lane.
-- [ ] Tests + fixtures for schema lane and fallback lane.
-- [ ] Update support matrix/docs and (optional) benchmark permutation wiring.
 
----
+- [x] (2026-02-27_22.26.32) Ran docs discovery (`npm run docs:list`) and reviewed required docs (`docs/AGENTS.md`, `docs/PLANS.md`, `docs/03-ingestion/03-ingestion_readme.md`, `docs/02-cli/02-cli_README.md`).
+- [x] (2026-02-27_22.26.32) Audited current code surfaces for importer registration, detection, run settings, CLI wiring, and benchmark variant dimensions.
+- [x] (2026-02-27_22.26.32) Rebuilt `docs/plans/priority-7.md` so it matches current code contracts (no stale `--pipeline WEBSCHEMA` flow, no missing-source citations, and explicit current gaps).
+- [x] (2026-02-27_22.52.17) Milestones 0-2: added deterministic fixtures/tests and implemented `schemaorg_ingest`, `html_schema_extract`, `html_text_extract`, and shared `text_section_extract` module.
+- [x] (2026-02-27_22.52.17) Milestones 3-4: implemented `webschema` importer, wired registry imports (`cli` + `cli_worker`), added webschema run settings, stage/benchmark CLI flags, adapters, and bounded all-method variant expansion.
+- [x] (2026-02-27_22.54.14) Milestone 5: added importer/parsing/run-settings/all-method tests, updated ingestion/CLI/bench docs, staged fixture smoke runs, and wrote understanding note `docs/understandings/2026-02-27_22.52.17-priority7-webschema-detection-and-variant-guardrails.md`.
+
 
 ## Surprises & Discoveries
 
-- None yet. (Update this section while implementing.)
 
----
+- Observation: Active and archived Priority 7 plans were effectively the same stale draft.
+  Evidence: `docs/plans/priority-7.md` and `docs/plans/OGplan/priority-7.md` carried identical old structure and placeholder citation markers.
+
+- Observation: The old plan referenced `BIG PICTURE UPGRADES.md`, which is not present in this repository.
+  Evidence: repository search does not contain that file.
+
+- Observation: Stage/import runtime does not support selecting an importer via `--pipeline`.
+  Evidence: `cookimport/cli.py:stage(...)` has no importer-selection flag; importer selection is score-based via `registry.best_importer_for_path(...)` in `cookimport/cli_worker.py`.
+
+- Observation: There is currently no dedicated web/html importer and no webschema run-setting fields.
+  Evidence: registered importers are `text`, `excel`, `epub`, `pdf`, `paprika`, and `recipesage`; `RunSettings` only contains EPUB/scoring/LLM/table knobs.
+
+- Observation: A narrow schema-like path already exists inside Paprika HTML handling.
+  Evidence: `cookimport/plugins/paprika.py` reads embedded JSON-LD from Paprika export HTML and falls back to deterministic DOM extraction.
+
+- Observation: all-method webschema expansion needed `.json` content inspection guardrails, not extension-only logic.
+  Evidence: RecipeSage exports are also `.json`; extension-only branching would incorrectly expand webschema policy variants for RecipeSage inputs.
+
+- Observation: Stage smoke runs surface existing worker warning noise for non-RunSettings keys in run config.
+  Evidence: `stage` logs “Ignoring unknown stage run config keys: epub_extractor_effective, epub_extractor_requested, write_markdown” from `RunSettings.from_dict(...)` in worker path.
+
 
 ## Decision Log
 
-- (2026-02-25) Implement Priority 7 as a **new importer plugin** (`WEBSCHEMA`) instead of branching Text importer. Rationale: keeps benchmarking clean (distinct pipeline id), avoids regression risk in existing Text importer, and matches existing “Importer families” model (Structured-import-first lane).
-- (2026-02-25) Expose every new third-party capability as a **strategy option**, never replacing existing behavior. Rationale: user benchmarks permutations; priority 7 requires multiple tools to coexist.
-- (2026-02-25) Provide a `web_schema_policy` knob: `prefer_schema` (default), `schema_only`, `heuristic_only`. Rationale: makes benchmarking and debugging schema-vs-fallback deterministic and reproducible.
-- (2026-02-25) Use `isodate` as the default ISO-8601 duration parser when installed; keep a tiny built-in fallback parser (limited) for testability/minimal install. Rationale: BIG PICTURE UPGRADES explicitly recommends isodate for schema durations.
 
----
+- Decision: Keep Priority 7 deterministic and local-file-only.
+  Rationale: aligns with project policy (no AI parsing for import) and current ingestion model.
+  Date/Author: 2026-02-27_22.26.32 / Codex GPT-5
+
+- Decision: Implement Priority 7 as a new importer plugin (`webschema`) instead of extending existing importers.
+  Rationale: keeps detection/reporting/benchmark comparisons explicit and lowers regression risk for existing importer families.
+  Date/Author: 2026-02-27_22.26.32 / Codex GPT-5
+
+- Decision: Use `RunSettings` as the canonical knob surface for webschema behavior; do not add new env-var-only controls.
+  Rationale: current architecture already passes `run_settings` into every importer convert call, and run-config hash/reporting depend on that path.
+  Date/Author: 2026-02-27_22.26.32 / Codex GPT-5
+
+- Decision: Keep `.json` detection conservative to avoid stealing RecipeSage exports.
+  Rationale: RecipeSage already claims `.json` when export structure is present; Priority 7 should only claim schema-like JSON that does not match RecipeSage shape.
+  Date/Author: 2026-02-27_22.26.32 / Codex GPT-5
+
+- Decision: Treat all-method matrix expansion for webschema as additive and guarded.
+  Rationale: current all-method matrix is EPUB-centric; unbounded cross-product growth would inflate runtime and hide signal.
+  Date/Author: 2026-02-27_22.26.32 / Codex GPT-5
+
+- Decision: Expand all-method webschema permutations only across `web_schema_policy` for webschema-capable sources.
+  Rationale: this gives schema-vs-fallback behavioral comparison without requiring optional extractor dependencies or creating large cross-product runs.
+  Date/Author: 2026-02-27_22.52.17 / Codex GPT-5
+
 
 ## Outcomes & Retrospective
 
-(Leave blank until implementation completes.)
 
-- Intended measurable outcome: +1 supported “web-ish” source class (HTML/JSON-LD), with high precision when schema exists, and deterministic fallback when it doesn’t.
-- Intended operational outcome: more raw artifacts for debugging schema extraction and fallback extraction.
+Implemented.
 
----
+Delivered outcome:
+
+- Stage imports local HTML/JSON schema recipes through dedicated `webschema` importer with deterministic schema-first + fallback behavior.
+- Reports/raw artifacts now expose webschema knobs and lane evidence (`schema_extracted`, optional `schema_accepted`, optional `fallback_text`).
+- RecipeSage `.json` routing remains intact via guarded webschema JSON detection.
+- All-method variants stay stable for non-web sources; webschema-capable sources expand only across `web_schema_policy`.
+- Targeted tests and two stage smoke runs validated schema lane and fallback lane behavior.
+
 
 ## Context and Orientation
 
-### Current architecture constraints we must respect
-- Importers are selected via **score-based registry** (`best_importer_for_path`) and implement:
-  - `detect(path) -> float`
-  - `inspect(path) -> WorkbookInspection`
-  - `convert(path, mapping, progress_callback) -> ConversionResult`
-- All importers converge through `ConversionResult`, and final recipe shaping happens in staging (`cookimport/staging/draft_v1.py`), then writing via `cookimport/staging/writer.py`.
-- Existing importer families:
-  - Block-first: EPUB/PDF
-  - Recipe-record-first: Text/Excel
-  - Structured-import-first: Paprika/RecipeSage
-- Web scraping is not currently supported; we are not adding network fetching. We ingest **local HTML/JSON files** only.
 
-### Priority 7’s required behavior (source of truth)
-BIG PICTURE UPGRADES defines Priority 7 as:
-- ingest HTML saved from the web or JSON files with schema-like Recipe objects
-- detect schema Recipe objects (JSON-LD/microdata extracted into dicts)
-- if confidence high, map schema fields directly (ingredients/instructions/yield/time)
-- validate with recipe-likeness gates
-- fallback to heuristic segmentation if schema absent/weak
+### Current importer runtime
 
-### Tooling we must incorporate as options (source of truth)
-If we ingest HTML-ish sources, BIG PICTURE UPGRADES recommends:
-- `extruct`, `scrape-schema-recipe`, `pyld`, `recipe-scrapers`
-- `trafilatura`, `readability-lxml`, optionally `jusText`, `BoilerPy3`
-and recommends `isodate` for Schema.org ISO-8601 durations.
+Importer selection is score-based (`cookimport/plugins/registry.py`, `cookimport/cli_worker.py:_run_import`).
 
----
+Currently registered importers (import side-effect imports in `cookimport/cli.py` and `cookimport/cli_worker.py`):
+
+- `text`: `.txt`, `.md`, `.markdown`, `.docx`
+- `excel`: `.xlsx`, `.xlsm`
+- `epub`: `.epub`
+- `pdf`: `.pdf`
+- `paprika`: `.paprikarecipes` and Paprika export directories
+- `recipesage`: `.json` with RecipeSage-specific export shape
+- `webschema`: `.html`, `.htm`, `.jsonld`, and schema-like `.json` (guarded so RecipeSage exports stay on `recipesage`)
+
+### Current run-settings and CLI surfaces
+
+Canonical run settings are in `cookimport/config/run_settings.py`, propagated via:
+
+- `cookimport/config/run_settings_adapters.py`
+- `cookimport/cli.py:stage(...)`
+- `cookimport/cli.py:labelstudio_benchmark(...)`
+- `cookimport/cli_worker.py` and `cookimport/labelstudio/ingest.py`
+
+Webschema run settings are now present in `RunSettings` and CLI surfaces:
+
+- `web_schema_extractor`
+- `web_schema_normalizer`
+- `web_html_text_extractor`
+- `web_schema_policy`
+- `web_schema_min_confidence`
+- `web_schema_min_ingredients`
+- `web_schema_min_instruction_steps`
+
+### Current benchmark permutations
+
+`cookimport/cli.py:_build_all_method_variants(...)` now expands:
+
+- EPUB extractor dimensions for `.epub` sources (existing behavior),
+- webschema policy dimensions for webschema-capable sources (`.html`, `.htm`, `.jsonld`, and schema-like `.json`),
+- single variant for other non-EPUB source types.
+
+### Existing relevant building blocks
+
+- `RecipeCandidate` already matches schema.org-like fields (`recipeIngredient`, `recipeInstructions`, `recipeYield`, `prepTime`, `cookTime`, `totalTime`) in `cookimport/core/models.py`.
+- Recipe-likeness scoring/gating is already integrated in all importer families via `score_recipe_likeness(...)` and `recipe_gate_action(...)`.
+- Text/Excel include deterministic section-header fallback extraction (`_extract_sections_from_blob`) that can be shared or factored.
+- Paprika importer already demonstrates local HTML + embedded JSON-LD handling patterns.
+
 
 ## Plan of Work
 
-### Milestone 0 — Wire dependencies + run settings (benchmarkable knobs)
 
-Goal: make every new library available as an *optional dependency* and every new feature as a *selectable run setting*.
+### Milestone 0: Baseline and guardrails
 
-Deliverables:
-- New extra dependency group(s) in `pyproject.toml` (recommended: `webschema`)
-- `RunSettings` updated with WEBSCHEMA knobs
-- CLI flags (stage + benchmark flows) updated
-- Env-var propagation consistent with existing patterns (EPUB uses `C3IMP_*`)
+Capture current behavior before new importer wiring.
 
-Proposed new RunSettings fields (names chosen to be stable + explicit):
-- `web_schema_extractor: Literal["builtin_jsonld", "extruct", "scrape_schema_recipe", "recipe_scrapers", "ensemble_v1"]`
-- `web_jsonld_normalizer: Literal["simple", "pyld"]`
-- `web_html_text_extractor: Literal["bs4", "trafilatura", "readability_lxml", "justext", "boilerpy3", "ensemble_v1"]`
-- `web_schema_policy: Literal["prefer_schema", "schema_only", "heuristic_only"]`
-- `web_schema_min_confidence: float` (default: 0.75)
-- (optional) `web_schema_min_ingredients: int` (default: 2)
-- (optional) `web_schema_min_instruction_steps: int` (default: 1)
+Work:
 
-Proposed env vars (mirroring EPUB patterns):
-- `C3IMP_WEB_SCHEMA_EXTRACTOR`
-- `C3IMP_WEB_JSONLD_NORMALIZER`
-- `C3IMP_WEB_HTML_TEXT_EXTRACTOR`
-- `C3IMP_WEB_SCHEMA_POLICY`
-- `C3IMP_WEB_SCHEMA_MIN_CONFIDENCE`
-- `C3IMP_WEB_SCHEMA_MIN_INGREDIENTS`
-- `C3IMP_WEB_SCHEMA_MIN_INSTRUCTION_STEPS`
+1. Add baseline tests asserting no importer currently claims `.html`/`.jsonld`.
+2. Add fixture files for target formats under `tests/fixtures/webschema/`.
+3. Record a baseline stage run on an HTML fixture to prove current failure/no-importer behavior.
 
-### Milestone 1 — Implement schema recipe model + confidence gates + mapping
+Acceptance:
 
-Goal: implement the core of Priority 7 independent of HTML extraction:
-- detect Recipe objects in parsed JSON (JSON-LD-ish)
-- normalize shapes (handle `@graph`, lists, nested dicts)
-- compute confidence score
-- map schema Recipe to `RecipeCandidate` (inverse of staging/jsonld)
+- Baseline test evidence is recorded in `Progress`.
+- Fixture set exists and is deterministic.
 
-Deliverables:
-- New module: `cookimport/parsing/schemaorg_ingest.py`
-- Unit tests for normalization + instruction flattening + mapping
-- A small, deterministic schema confidence score function usable by all extractors
+### Milestone 1: Schema ingestion primitives
 
-### Milestone 2 — Implement HTML schema extraction strategies and HTML→text fallback strategies
+Implement schema-only parsing/mapping independent of HTML extractor choices.
 
-Goal: add multiple schema extractors (each as a selectable option) and multiple text extractors (each as a selectable option).
+Work:
 
-Deliverables:
-- New module: `cookimport/parsing/html_schema_extract.py`
-- New module: `cookimport/parsing/html_text_extract.py`
-- Optional `ensemble_v1` mode(s) that runs multiple installed extractors and selects the best output by the same confidence scoring (explicitly chosen; not “auto” hidden).
+1. Add `cookimport/parsing/schemaorg_ingest.py` with deterministic helpers:
+   - collect schema recipe objects from nested dict/list/`@graph` payloads,
+   - flatten instruction forms (`string`, `HowToStep`, `HowToSection`),
+   - compute schema confidence/reasons,
+   - map schema recipe object to `RecipeCandidate`.
+2. Add duration parser helper with optional `isodate` backend and deterministic fallback.
+3. Add unit tests for object collection, instruction flattening, and mapping.
 
-### Milestone 3 — Implement the `WEBSCHEMA` importer plugin + registry integration
+Acceptance:
 
-Goal: implement a new importer plugin that plugs into the existing conversion/staging/writer flow.
+- Unit tests pass for representative JSON-LD graph and list shapes.
+- Mapping outputs valid `RecipeCandidate` objects without importer context.
 
-Deliverables:
-- New plugin: `cookimport/plugins/webschema.py` (or similarly named)
-- Registry update so `.html/.htm/.jsonld` auto-select WEBSCHEMA
-- Safe `.json` detection (avoid clobbering RecipeSage importer)
-- Raw artifacts + report fields for debugging and benchmarking
-- Tests that do not require optional deps (use builtin_jsonld + bs4 baseline in default CI)
+### Milestone 2: HTML extraction + fallback modules
 
-### Milestone 4 — Optional: benchmark/dash dimension wiring
+Implement selectable schema extractors and text extraction fallback.
 
-Goal: make it easy to compare runs by extractor choices.
+Work:
 
-Deliverables (optional, but recommended given benchmarking intent):
-- Add requested/effective WEBSCHEMA knobs into run report summary fields used by performance history and dashboard.
-- If there is an “all-method permutation set” for offline benchmarking, add WEBSCHEMA dimensions similarly to EPUB extractor dimensions (explicit columns). (Docs mention interactive all-method permutations exist.):contentReference[oaicite:23]{index=23}
+1. Add `cookimport/parsing/html_schema_extract.py`:
+   - baseline embedded JSON-LD script extraction,
+   - optional backends (`extruct`, `scrape-schema-recipe`, `recipe-scrapers`),
+   - optional JSON-LD normalization mode (`simple` vs `pyld`),
+   - deterministic extractor selection and confidence ranking.
+2. Add `cookimport/parsing/html_text_extract.py`:
+   - baseline BeautifulSoup text extraction,
+   - optional extractor backends (`trafilatura`, `readability-lxml`, `justext`, `boilerpy3`),
+   - deterministic text quality scoring for fallback selection.
+3. Factor shared section fallback helper from existing text/excel implementation into a reusable parsing helper.
 
----
+Acceptance:
+
+- Schema extraction and fallback extraction can be exercised directly via unit tests.
+- Missing optional dependencies fail with clear install guidance.
+
+### Milestone 3: New importer plugin (`webschema`)
+
+Add the importer and integrate with registry selection.
+
+Work:
+
+1. Add `cookimport/plugins/webschema.py` with:
+   - `detect(...)` scoring for `.html/.htm/.jsonld` and guarded `.json`.
+   - `inspect(...)` contract-compliant `WorkbookInspection` response.
+   - `convert(...)` schema-first flow plus fallback lane and raw artifacts.
+2. Register importer in runtime import side-effect paths:
+   - `cookimport/cli.py`
+   - `cookimport/cli_worker.py`
+3. Ensure report fields include extractor policy/counters and recipe-likeness summary integration remains intact.
+
+Acceptance:
+
+- `.html` and `.jsonld` choose `webschema` via `registry.best_importer_for_path(...)`.
+- `.json` RecipeSage exports still choose `recipesage`.
+
+### Milestone 4: Run-settings, CLI, adapters, and benchmark wiring
+
+Expose webschema knobs through existing configuration surfaces.
+
+Work:
+
+1. Extend `RunSettings` and `build_run_settings(...)` with additive webschema fields (extractor policy, normalizer choice, fallback extractor choice, thresholds).
+2. Add stage and benchmark CLI options that map to the same `RunSettings` fields.
+3. Extend `build_stage_call_kwargs_from_run_settings(...)` and `build_benchmark_call_kwargs_from_run_settings(...)`.
+4. Add webschema dimensions to all-method variant generation only for applicable source extensions (`.html`, `.htm`, `.jsonld`, schema-like `.json`).
+
+Acceptance:
+
+- New settings appear in run-config hash/summary and report payloads.
+- Defaults preserve current behavior for non-webschema inputs.
+
+### Milestone 5: Tests, docs, and acceptance evidence
+
+Finalize with deterministic coverage and documentation updates.
+
+Work:
+
+1. Add ingestion tests for schema lane, fallback lane, and detection conflicts.
+2. Add run-settings tests for defaults, UI exposure, hash/summary stability, and adapter propagation.
+3. Update docs:
+   - `docs/03-ingestion/03-ingestion_readme.md` support matrix and importer details.
+   - `docs/02-cli/02-cli_README.md` stage/benchmark option docs.
+4. Capture one stage run evidence folder and record paths in this plan.
+
+Acceptance:
+
+- Focused pytest slice passes.
+- Docs and plan reflect final behavior.
+
 
 ## Concrete Steps
 
-### 0) Create a working branch and run baseline tests
-1. Create branch:
-   - `git checkout -b feat/webschema-priority7`
-2. Run baseline tests (or at least `pytest -q`) to ensure clean start.
 
-### 1) Add optional dependencies as a new extra group
-1. Edit `pyproject.toml`:
-   - Add an extra group, recommended name: `webschema`
-   - Add packages:
-     - `extruct`
-     - `scrape-schema-recipe`
-     - `pyld`
-     - `recipe-scrapers`
-     - `trafilatura`
-     - `readability-lxml`
-     - `justext`
-     - `boilerpy3`
-     - `isodate`
-   - Keep them *optional* so base installs remain lean.
-2. Validate install:
-   - `pip install -e ".[dev,webschema]"` (or the repo’s standard dev install command):contentReference[oaicite:24]{index=24}
-3. Add a minimal “missing optional dependency” error helper (if one does not exist):
-   - e.g., `cookimport/util/optional_deps.py` with:
-     - `require_optional(dep_name: str, extra_name: str) -> None` that raises a friendly exception:
-       “Install with `pip install -e '.[webschema]'` or choose a different extractor”.
+Run from repository root (`/home/mcnal/projects/recipeimport`) with project virtual environment active.
 
-### 2) Add RunSettings knobs + CLI flags + env-var propagation
-1. Edit `cookimport/config/run_settings.py`:
-   - Add the WEBSCHEMA fields under `RunSettings`.
-   - Add UI metadata if your interactive UI relies on `ui_*` / enumerations.
-2. Edit config defaults file(s):
-   - Update `cookimport.json` defaults (or equivalent) so new fields exist with explicit defaults.
-3. Edit CLI:
-   - In `cookimport/cli.py` (stage and benchmark commands):
-     - Add flags:
-       - `--web-schema-extractor`
-       - `--web-jsonld-normalizer`
-       - `--web-html-text-extractor`
-       - `--web-schema-policy`
-       - `--web-schema-min-confidence`
-       - optional thresholds flags
-4. Propagate settings to env vars before worker pools spawn (same pattern as EPUB):
-   - Set the `C3IMP_WEB_*` env vars from run settings inside the stage orchestration layer.
-   - Ensure values are persisted into run reports (runConfig snapshot) for benchmarking.
+Executed verification commands:
 
-Validation:
-- Running `cookimport stage --help` shows new flags.
-- A dry run with no WEBSCHEMA input still works (new knobs are inert unless importer is used).
+    source .venv/bin/activate
+    pip install -e '.[dev]'
 
-### 3) Implement schema normalization + confidence scoring + mapping
-Create `cookimport/parsing/schemaorg_ingest.py` with the following stable interfaces.
+    source .venv/bin/activate
+    pytest -q tests/parsing/test_schemaorg_ingest.py tests/ingestion/test_webschema_importer.py tests/llm/test_run_settings.py tests/cli/test_run_settings_adapters.py
 
-#### 3.1 Data types / interfaces
-- `SchemaRecipeCandidate` (dataclass or pydantic model) representing:
-  - `raw: dict` (original schema object)
-  - `confidence: float`
-  - `reasons: list[str]` (for report/debug)
-- Core functions:
-  - `def collect_schemaorg_recipe_objects(data: object) -> list[dict]:`
-    - Traverses nested dict/list structures (including `@graph`) and returns dicts that “look like” schema recipe.
-  - `def schema_recipe_confidence(recipe_obj: dict, *, min_ingredients: int, min_steps: int) -> tuple[float, list[str]]:`
-    - Score in [0,1] using deterministic signals:
-      - has `recipeIngredient` list length >= min_ingredients
-      - has non-empty instructions after flatten
-      - has `name` (title)
-      - (optional) has times/yield
-    - Return both score and reasons.
-  - `def flatten_schema_recipe_instructions(recipe_obj: dict) -> list[str]:`
-    - Handle:
-      - string instructions
-      - list of strings
-      - `HowToStep` objects (`{"@type":"HowToStep","text":...}`)
-      - `HowToSection` objects with nested steps
-    - Output should be a list of step strings (no empty strings).
-  - `def schema_recipe_to_recipe_candidate(recipe_obj: dict, *, source_path: str, source_hash: str, recipe_index: int) -> RecipeCandidate:`
-    - Map:
-      - title: `name`
-      - ingredients: `recipeIngredient`
-      - instructions: flattened instructions
-      - yield/time: `recipeYield`, `prepTime`, `cookTime`, `totalTime` (store as candidate metadata if RecipeCandidate lacks explicit fields)
-    - Preserve provenance:
-      - stable candidate id includes source_hash + recipe_index
-      - store original schema object in raw artifacts (and optionally candidate metadata)
+    source .venv/bin/activate
+    pytest -q tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "build_all_method_variants_epub_expected_count or build_all_method_variants_epub_includes_markdown_when_enabled or build_all_method_variants_non_epub_single_variant or build_all_method_variants_html_webschema_policy_matrix or build_all_method_variants_non_schema_json_single_variant or build_all_method_variants_schema_json_webschema_policy_matrix" tests/ingestion/test_text_importer.py::test_text_blob_section_extraction_keeps_for_component_headers tests/ingestion/test_excel_importer.py::test_excel_blob_section_extraction_keeps_for_component_headers
 
-#### 3.2 Duration parsing (isodate)
-- Implement `parse_schema_duration_to_seconds(duration_value) -> Optional[int]`
-  - If `isodate` is installed, use it.
-  - If not installed, implement a small fallback that supports only common `PT#H#M#S` and `P#DT#H#M#S` patterns.
-- Rationale: BIG PICTURE UPGRADES recommends `isodate` specifically for Schema.org durations (prepTime/cookTime/totalTime).
+Smoke stage runs:
 
-#### 3.3 JSON-LD normalization (pyld option)
-- Implement `normalize_jsonld(data: object, mode: Literal["simple","pyld"]) -> object`
-  - `simple`:
-    - if dict has `@graph`, return `@graph` list (and keep top-level keys if needed)
-    - if list, return list
-  - `pyld`:
-    - optional path: expand/flatten using pyld and a strict, offline document loader:
-      - allow only `http(s)://schema.org` contexts without network
-      - if unknown contexts, skip or fallback to simple normalization (but record in report)
-- This keeps `pyld` as a benchmarkable option and improves robustness for `@graph`/context variants.
+    source .venv/bin/activate
+    cookimport stage tests/fixtures/webschema/html_with_jsonld.html --out /tmp/p7-smoke-a --workers 1 --pdf-split-workers 1 --epub-split-workers 1 --no-write-markdown
+    cookimport stage tests/fixtures/webschema/html_without_schema.html --out /tmp/p7-smoke-b --workers 1 --pdf-split-workers 1 --epub-split-workers 1 --no-write-markdown
 
-Tests:
-- Add tests for:
-  - `flatten_schema_recipe_instructions` for HowToStep/HowToSection
-  - `collect_schemaorg_recipe_objects` finds recipe in `@graph`
-  - `schema_recipe_confidence` thresholds work
-  - `parse_schema_duration_to_seconds("PT20M") == 1200` (if isodate present; fallback acceptable with same result)
+Evidence checks:
 
-### 4) Implement HTML schema extraction strategies
-Create `cookimport/parsing/html_schema_extract.py`.
+    rg -n '"importerName"|"totalRecipes"|"web_schema_policy"|"web_schema_extractor"' /tmp/p7-smoke-a/2026-02-27_22.53.26/html_with_jsonld.excel_import_report.json
+    rg -n '"importerName"|"totalRecipes"|"web_schema_policy"|"web_schema_extractor"' /tmp/p7-smoke-b/2026-02-27_22.53.39/html_without_schema.excel_import_report.json
+    find /tmp/p7-smoke-a/2026-02-27_22.53.26/raw/webschema -maxdepth 3 -type f | sort
+    find /tmp/p7-smoke-b/2026-02-27_22.53.39/raw/webschema -maxdepth 3 -type f | sort
 
-Stable interface:
-- `def extract_schema_recipes_from_html(html: str, *, base_url: Optional[str], extractor: WebSchemaExtractor, normalizer: JsonLdNormalizer, thresholds: Thresholds) -> list[SchemaRecipeCandidate]:`
-
-Implementation requirements:
-- `builtin_jsonld` strategy:
-  - Parse `<script type="application/ld+json">...</script>` blocks
-  - JSON parse each, normalize, collect recipe objects, score confidence
-- `extruct` strategy (option):
-  - Use extruct to extract JSON-LD/microdata/RDFa into dicts, then normalize+collect recipe objects, score confidence
-- `scrape_schema_recipe` strategy (option):
-  - Use scrape-schema-recipe to extract schema recipe objects; then normalize+collect recipe objects, score confidence
-- `recipe_scrapers` strategy (option):
-  - Use recipe-scrapers as an alternate structured extraction (site-specific or schema-assisted).
-  - Map its extracted fields into a schema-like dict (or directly into RecipeCandidate mapping layer).
-  - Treat as a separate extractor option for benchmarking
-- `ensemble_v1` strategy (option):
-  - Run all installed schema extractors in a deterministic order:
-    1) scrape-schema-recipe
-    2) extruct
-    3) builtin_jsonld
-    4) recipe-scrapers
-  - Choose the set of recipe candidates with:
-    - max count of “accepted” candidates above min confidence
-    - tie-breaker: highest average confidence
-  - Record “effective extractor” in report (requested vs used).
-
-Also add:
-- `def extract_canonical_url(html: str) -> Optional[str]`:
-  - parse `<link rel="canonical">` and/or `<meta property="og:url">`
-  - used as `base_url` and to help recipe-scrapers choose the right scraper
-
-### 5) Implement HTML→text extraction strategies for fallback
-Create `cookimport/parsing/html_text_extract.py`.
-
-Stable interface:
-- `def extract_main_text_from_html(html: str, *, extractor: WebHtmlTextExtractor) -> tuple[str, dict]:`
-  - returns (text, metadata)
-  - metadata includes which extractor ran, word/line counts, etc.
-
-Implement these options as separate strategies (all benchmarkable):
-- `bs4` (baseline, minimal dependencies):
-  - BeautifulSoup get_text with newline separators; strip/normalize whitespace
-- `trafilatura` (option)
-- `readability_lxml` (option)
-- `justext` (option)
-- `boilerpy3` (option)
-- `ensemble_v1` (option):
-  - run all installed extractors, choose best by heuristic “recipe-likeness proxy” score:
-    - contains “Ingredients” and “Instructions/Directions/Method”
-    - number of non-empty lines
-    - penalize extremely short results
-  - record requested vs effective in report
-
-Note: This is the fallback lane. Priority 7 explicitly requires fallback when schema absent/weak.
-
-### 6) Implement heuristic section extraction (fallback lane)
-Because staging expects importers to provide `RecipeCandidate` objects with explicit ingredient/instruction lines (staging focuses on parsing/linking, not section discovery), implement a minimal section extractor inside the WEBSCHEMA importer module or in a helper module.
-
-Preferred approach (reuse existing shared heuristics, minimal duplication):
-- Find the section detection logic already used by `cookimport/plugins/text.py` and factor it into a shared helper:
-  - new helper module suggestion: `cookimport/parsing/text_section_extract.py`
-  - or add a new function in `cookimport/parsing/sections.py` that is line-oriented.
-- Requirements:
-  - Input: list[str] lines
-  - Output: `(title: Optional[str], ingredients: list[str], instructions: list[str], notes: list[str])`
-- Keep it deterministic and conservative:
-  - Only accept candidate as “valid recipe” if both ingredients and instructions meet minimum line counts.
-  - If one section present and the other absent, return a “partial” candidate (with a low confidence score stored in metadata) rather than inventing data.
-
-This keeps faith with Priority 7’s “validate with recipe-likeness gates” requirement, even before Priority 1’s global scoring system is implemented.
-
-### 7) Implement the WEBSCHEMA importer plugin
-Create `cookimport/plugins/webschema.py`.
-
-#### 7.1 Pipeline id + detection
-- Pipeline id string: `WEBSCHEMA`
-- `detect(path) -> float`:
-  - `.html/.htm` => 0.95
-  - `.jsonld` => 0.95
-  - `.json` => sniff file:
-    - parse json, return 0.80 only if it contains `@context` referencing schema.org (or a schema-like Recipe object)
-    - otherwise 0.0 (so RecipeSage importer still wins for its `.json` exports)
-  - else 0.0
-
-#### 7.2 inspect(path)
-- Return a minimal `WorkbookInspection` that:
-  - declares a single “sheet”/unit-like entry representing the file
-  - includes file size, guessed type (html/json), and any fast-detected metadata
-- IMPORTANT: do not add unsupported top-level fields (there is a known sharp edge: `WorkbookInspection` doesn’t accept a `warnings` field).
-
-#### 7.3 convert(path, mapping, progress_callback) -> ConversionResult
-High-level algorithm (matches Priority 7):
-1) Read file contents.
-2) If HTML:
-   - determine base_url via canonical url helper
-   - run schema extraction using configured `web_schema_extractor` + configured normalizer
-3) If JSON:
-   - parse JSON, normalize, collect schema recipe objects
-4) Score candidates, filter by `web_schema_min_confidence` (and min line thresholds).
-5) Apply `web_schema_policy`:
-   - `heuristic_only`: ignore schema results, go directly to fallback
-   - `schema_only`: if no accepted schema recipes, return ConversionResult with zero recipes + error in report (or raise a controlled exception handled by stage)
-   - `prefer_schema`: if accepted schema recipes exist, produce them; else fallback
-
-6) If schema accepted:
-   - produce one RecipeCandidate per schema recipe object via mapping function
-   - generate tip_candidates from each recipe (use existing `extract_tip_candidates_from_candidate` helper if that’s the standard)
-   - raw artifacts:
-     - `raw/webschema/<source_hash>/schema_extracted.json` (all candidates + confidences)
-     - optionally `raw/.../schema_accepted.json` (accepted only)
-     - optionally `raw/.../source.html` (copy of input html, if input was html)
-   - report:
-     - requested/effective extractor
-     - number of schema recipes found / accepted
-     - confidence distribution summary
-
-7) If fallback:
-   - HTML: run configured html-text extractor; store raw artifact `text_extracted.txt` (or `.md`)
-   - run heuristic section extraction to get ingredients/instructions
-   - create a single RecipeCandidate (or multiple, if your heuristic sectioning already supports multi-recipe)
-   - if still cannot extract a plausible recipe, return 0 recipes but keep extracted text as raw artifact and report “no recipe found”; (do not hallucinate)
-   - tip/topic candidates:
-     - from candidate if any
-     - if no candidate, leave empty
-
-Return a fully populated ConversionResult consistent with other importers:
-- `recipes`
-- `tip_candidates`, `topic_candidates` as appropriate
-- `non_recipe_blocks` likely empty for this importer
-- `raw_artifacts` for debugging
-- `report` with run config + extractor info
-
-This aligns with the “structured-import-first” family model and the shared writer/staging pipeline.
-
-### 8) Register importer in the registry
-- Edit `cookimport/plugins/registry.py`:
-  - add `WebSchemaImporter` to the importer list
-  - ensure ordering doesn’t matter (score-based selection should pick it)
-- Add a small regression test:
-  - `.html` path selects WEBSCHEMA
-  - `.json` RecipeSage export still selects RecipeSage importer
-
-### 9) Add fixtures + unit tests
-Add fixture files under test fixtures directory (follow existing test conventions):
-- `fixtures/webschema/html_with_jsonld.html`
-  - Minimal HTML with `<script type="application/ld+json">` containing a Recipe
-- `fixtures/webschema/html_without_schema_but_clear_sections.html`
-  - Ingredients and Instructions headings in body text
-- `fixtures/webschema/recipe_jsonld_graph.json`
-  - JSON-LD with `@graph` and a Recipe node
-
-Tests to add:
-- `test_schemaorg_ingest_flatten_instructions`
-- `test_schemaorg_ingest_collects_recipe_from_graph`
-- `test_webschema_importer_schema_lane_builtin_jsonld`
-  - run with env vars set to builtin_jsonld + simple normalizer
-- `test_webschema_importer_fallback_lane_bs4`
-  - run with `web_schema_policy=schema_only` should fail when schema absent
-  - run with `prefer_schema` should fallback and produce candidate if sections exist
-- Optional tests gated by `pytest.importorskip`:
-  - extruct strategy
-  - scrape-schema-recipe strategy
-  - trafilatura/readability/jusText/BoilerPy3 extractors
-  - pyld normalizer
-
-### 10) Update docs/support matrix (small but important)
-- Update ingestion docs (where format support matrix is listed) to include:
-  - HTML (`.html/.htm`) via `cookimport/plugins/webschema.py`
-  - JSON-LD (`.jsonld`) and schema-like JSON via the same importer
-- Ensure docs clearly state:
-  - This is local file ingestion only (no network)
-  - Schema-first is preferred and higher precision
-
-### 11) Optional: benchmark permutation wiring
-If you have a fixed “all-method” permutation runner:
-- Add WEBSCHEMA strategy dimensions for:
-  - schema extractor
-  - html text extractor
-  - jsonld normalizer
-  - schema policy
-- Ensure those appear as explicit dimension columns in summary tables (like EPUB extractor columns). (Docs mention “fixed extractor/tuning permutation set” exists.):contentReference[oaicite:40]{index=40}
-
----
 
 ## Validation and Acceptance
 
-### Functional acceptance tests (manual)
-1) Schema lane (HTML):
-   - `cookimport stage path/to/recipe.html --pipeline WEBSCHEMA --web-schema-extractor builtin_jsonld`
-   - Expect:
-     - `data/output/<ts>/intermediate drafts/<workbook>/r0.jsonld` exists
-     - `r0.jsonld` has title/ingredients/instructions that match schema content
-     - `raw/webschema/<source_hash>/schema_extracted.json` exists
 
-2) Schema lane (JSON-LD file):
-   - `cookimport stage path/to/recipe.jsonld --pipeline WEBSCHEMA`
-   - Same expectations.
+Functional acceptance:
 
-3) Fallback lane:
-   - Use HTML fixture without schema:
-     - `cookimport stage path/to/no_schema.html --pipeline WEBSCHEMA --web-html-text-extractor bs4 --web-schema-policy prefer_schema`
-   - Expect:
-     - at least one recipe if headings exist
-     - `raw/webschema/<source_hash>/text_extracted.txt` exists
+1. Schema lane:
+   - Input: HTML fixture with valid schema.org Recipe JSON-LD.
+   - Expect: report `importerName == "webschema"`, `totalRecipes >= 1`, and schema extraction raw artifact exists.
 
-4) Policy correctness:
-   - `--web-schema-policy schema_only` + no schema:
-     - run should produce zero recipes and clearly report why (or fail with friendly error)
-   - `--web-schema-policy heuristic_only` + schema present:
-     - run should ignore schema and use fallback (for benchmarking)
+2. Fallback lane:
+   - Input: HTML fixture with no schema but clear ingredient/instruction headers.
+   - Expect: report still `importerName == "webschema"`; recipes generated via fallback.
 
-### Automated acceptance tests
-- `pytest -q` passes.
-- Optional dependency tests pass when running with `.[webschema]`.
+3. Policy behavior:
+   - `schema_only` and no schema -> zero recipes with explicit warning/error.
+   - `heuristic_only` and schema present -> fallback path used and reported.
 
----
+4. Conflict behavior:
+   - RecipeSage `.json` fixture remains routed to `recipesage` importer.
+
+Automated acceptance:
+
+- `pytest -q` on targeted new tests and touched existing tests.
+- Existing ingestion importer tests continue passing.
+
 
 ## Idempotence and Recovery
 
-- All new extractors must be deterministic over file contents (no network, no time-based behavior).
-- All raw artifacts written should be namespaced under:
-  - `raw/webschema/<source_hash>/...`
-  - and use stable filenames (`schema_extracted.json`, `text_extracted.txt`, etc.)
-- If a run fails mid-way:
-  - rerunning `cookimport stage` should produce a new timestamped run root; no prior output dirs are mutated by default (existing stage behavior).
-- Optional deps:
-  - If a configured extractor’s dependency is missing, fail fast with a clear message and do not silently fall back unless the extractor is `ensemble_v1` (explicitly chosen).
 
----
+- All extraction logic must be deterministic and local-only (no HTTP fetches).
+- Re-running stage creates a new timestamped output folder; prior runs remain intact.
+- Optional backend selection without installed dependency must fail fast with actionable message (extra name and install command).
+- Raw artifacts must stay namespaced under `raw/webschema/<source_hash>/...` with stable file names.
+
 
 ## Artifacts and Notes
 
-### New/changed files (expected)
-- `cookimport/plugins/webschema.py` (new)
+
+Planned new/changed files:
+
 - `cookimport/parsing/schemaorg_ingest.py` (new)
 - `cookimport/parsing/html_schema_extract.py` (new)
 - `cookimport/parsing/html_text_extract.py` (new)
-- `cookimport/config/run_settings.py` (modified)
-- `cookimport/cli.py` (modified: flags + env propagation)
-- `cookimport/plugins/registry.py` (modified: add importer)
-- `tests/test_webschema_importer.py` (new)
-- `tests/test_schemaorg_ingest.py` (new)
+- `cookimport/parsing/text_section_extract.py` (new shared fallback helper)
+- `cookimport/plugins/webschema.py` (new)
+- `cookimport/cli.py` (stage/benchmark flags and all-method variant wiring)
+- `cookimport/cli_worker.py` (import side-effect registration)
+- `cookimport/config/run_settings.py` (new webschema fields and summary order)
+- `cookimport/config/run_settings_adapters.py` (new kwargs propagation)
+- `pyproject.toml` (new `webschema` optional extra)
+- `tests/ingestion/test_webschema_importer.py` (new)
+- `tests/parsing/test_schemaorg_ingest.py` (new)
 - `tests/fixtures/webschema/*` (new)
-- `pyproject.toml` (modified: add `webschema` extra)
+- `docs/03-ingestion/03-ingestion_readme.md` (update support matrix)
+- `docs/02-cli/02-cli_README.md` (update stage/benchmark options)
 
-### Raw artifacts
-At minimum, when WEBSCHEMA runs:
+Expected raw artifacts at runtime:
+
 - `raw/webschema/<source_hash>/schema_extracted.json`
-- `raw/webschema/<source_hash>/schema_accepted.json` (optional but recommended)
-- `raw/webschema/<source_hash>/text_extracted.txt` (fallback lane)
-- `raw/webschema/<source_hash>/source.html` (optional copy for debugging)
+- `raw/webschema/<source_hash>/schema_accepted.json` (optional)
+- `raw/webschema/<source_hash>/fallback_text.txt` (when fallback used)
+- `raw/webschema/<source_hash>/source.html` (optional debug copy)
 
----
 
 ## Interfaces and Dependencies
 
-### Importer interface (must match existing contract)
-- `detect(path: str) -> float`
-- `inspect(path: str) -> WorkbookInspection`
-- `convert(path: str, mapping: MappingSpec, progress_callback: Callable[..., None]) -> ConversionResult`
 
-### Proposed stable internal interfaces
-In `cookimport/parsing/schemaorg_ingest.py`:
-- `collect_schemaorg_recipe_objects(data: object) -> list[dict]`
-- `flatten_schema_recipe_instructions(recipe_obj: dict) -> list[str]`
-- `schema_recipe_confidence(recipe_obj: dict, *, min_ingredients: int, min_steps: int) -> tuple[float, list[str]]`
-- `schema_recipe_to_recipe_candidate(recipe_obj: dict, *, source_path: str, source_hash: str, recipe_index: int) -> RecipeCandidate`
-- `parse_schema_duration_to_seconds(value: object) -> Optional[int]` (isodate-backed)
+Importer contract (existing):
 
-In `cookimport/parsing/html_schema_extract.py`:
-- `extract_canonical_url(html: str) -> Optional[str]`
-- `extract_schema_recipes_from_html(html: str, *, base_url: Optional[str], extractor: str, normalizer: str, thresholds: Thresholds) -> list[SchemaRecipeCandidate]`
+- `detect(path: Path) -> float`
+- `inspect(path: Path) -> WorkbookInspection`
+- `convert(path: Path, mapping: MappingConfig | None, progress_callback: Callable[[str], None] | None, run_settings: RunSettings | None) -> ConversionResult`
 
-In `cookimport/parsing/html_text_extract.py`:
-- `extract_main_text_from_html(html: str, *, extractor: str) -> tuple[str, dict]`
+Planned parsing interfaces:
 
-### Third-party libs and how they’re used (as options)
-- `extruct`: schema metadata extraction (JSON-LD/microdata/RDFa)
-- `scrape-schema-recipe`: schema.org Recipe extraction helper
-- `pyld`: optional JSON-LD normalization for robust `@graph`/context handling
-- `recipe-scrapers`: alternate structured extraction (site-specific)
-- `isodate`: parse Schema.org ISO-8601 durations for prep/cook/total times
-- `trafilatura`: boilerplate removal text extractor (fallback lane)
-- `readability-lxml`: boilerplate removal via readability algorithm (fallback lane)
-- `jusText`: optional boilerplate removal (fallback lane)
-- `BoilerPy3`: optional boilerplate removal (fallback lane)
+- `cookimport/parsing/schemaorg_ingest.py`
+  - `collect_schemaorg_recipe_objects(data: object) -> list[dict[str, Any]]`
+  - `flatten_schema_recipe_instructions(recipe_obj: dict[str, Any]) -> list[str]`
+  - `schema_recipe_confidence(...) -> tuple[float, list[str]]`
+  - `schema_recipe_to_candidate(...) -> RecipeCandidate`
 
----
+- `cookimport/parsing/html_schema_extract.py`
+  - `extract_schema_recipes_from_html(...) -> list[dict[str, Any]]`
 
-Change note (2026-02-25): Initial ExecPlan created for Priority 7 implementation, focusing on adding a WEBSCHEMA structured-first importer lane with schema extraction options + deterministic fallback.
+- `cookimport/parsing/html_text_extract.py`
+  - `extract_main_text_from_html(...) -> tuple[str, dict[str, Any]]`
+
+Optional dependencies (all selectable, none mandatory for baseline):
+
+- `extruct`
+- `scrape-schema-recipe`
+- `pyld`
+- `recipe-scrapers`
+- `trafilatura`
+- `readability-lxml`
+- `justext`
+- `boilerpy3`
+- `isodate`
+
+
+Change note (2026-02-27_22.26.32): Rewrote this plan to reflect actual current runtime contracts and gaps. Removed stale assumptions (missing source file references, nonexistent `--pipeline WEBSCHEMA` flow), added front matter, and aligned milestones with current importer/run-settings architecture.
+Change note (2026-02-27_22.54.14): Updated plan sections to completed state after implementation, added concrete evidence commands/paths from executed tests and smoke runs, and documented the final webschema design guardrails.
+Change note (2026-02-27_22.56.49): Removed stale context sentence claiming webschema settings were absent so the “Current run-settings and CLI surfaces” section matches the implemented state.

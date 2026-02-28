@@ -14,16 +14,26 @@ from cookimport.core.models import (
 from cookimport.staging.stage_block_predictions import build_stage_block_predictions
 
 
-def _build_result() -> ConversionResult:
-    recipe = RecipeCandidate(
-        name="Simple Soup",
-        recipeIngredient=["1 cup stock", "Salt"],
-        recipeInstructions=["Heat stock.", "Variations: add herbs.", "Serve."],
-        recipeYield="Serves 2",
-        prepTime="PT10M",
-        comment=[{"text": "Chef's note: taste first."}],
-        provenance={"location": {"start_block": 0, "end_block": 7}},
-    )
+def _build_result(
+    *,
+    comment_text: str | None = "Chef's note: taste first.",
+    description: str | None = None,
+    note_block_text: str = "Chef's note: taste first.",
+) -> ConversionResult:
+    recipe_payload: dict[str, object] = {
+        "name": "Simple Soup",
+        "recipeIngredient": ["1 cup stock", "Salt"],
+        "recipeInstructions": ["Heat stock.", "Variations: add herbs.", "Serve."],
+        "recipeYield": "Serves 2",
+        "prepTime": "PT10M",
+        "provenance": {"location": {"start_block": 0, "end_block": 7}},
+    }
+    if comment_text is not None:
+        recipe_payload["comment"] = [{"text": comment_text}]
+    if description is not None:
+        recipe_payload["description"] = description
+
+    recipe = RecipeCandidate(**recipe_payload)
 
     raw = RawArtifact(
         importer="text",
@@ -39,7 +49,7 @@ def _build_result() -> ConversionResult:
                 {"index": 4, "text": "Salt", "features": {"block_role": "ingredient_line"}},
                 {"index": 5, "text": "Heat stock.", "features": {"block_role": "instruction_line"}},
                 {"index": 6, "text": "Variations: add herbs.", "features": {"block_role": "instruction_line"}},
-                {"index": 7, "text": "Chef's note: taste first."},
+                {"index": 7, "text": note_block_text},
                 {"index": 8, "text": "Use clean tools for food safety."},
             ],
             "block_count": 9,
@@ -123,3 +133,16 @@ def test_build_stage_block_predictions_falls_back_to_chunk_lane_knowledge() -> N
 
     assert payload["block_labels"]["8"] == "KNOWLEDGE"
     assert 8 in payload["label_blocks"]["KNOWLEDGE"]
+
+
+def test_build_stage_block_predictions_marks_notes_from_description_only() -> None:
+    result = _build_result(
+        comment_text=None,
+        description="Why this recipe works\nKeep the heat low to avoid curdling.",
+        note_block_text="Keep the heat low to avoid curdling.",
+    )
+
+    payload = build_stage_block_predictions(result, "simple")
+
+    assert payload["block_labels"]["7"] == "RECIPE_NOTES"
+    assert 7 in payload["label_blocks"]["RECIPE_NOTES"]

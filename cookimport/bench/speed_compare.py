@@ -22,9 +22,21 @@ def compare_speed_runs(
     candidate_run_dir: Path,
     *,
     thresholds: SpeedThresholds,
+    allow_settings_mismatch: bool = False,
 ) -> dict[str, Any]:
     baseline_summary = load_speed_run_summary(baseline_run_dir)
     candidate_summary = load_speed_run_summary(candidate_run_dir)
+    baseline_run_settings_hash = _coerce_text(
+        baseline_summary.get("run_settings_hash")
+    )
+    candidate_run_settings_hash = _coerce_text(
+        candidate_summary.get("run_settings_hash")
+    )
+    settings_match = (
+        baseline_run_settings_hash is not None
+        and candidate_run_settings_hash is not None
+        and baseline_run_settings_hash == candidate_run_settings_hash
+    )
 
     baseline_rows = _index_summary_rows(baseline_summary)
     candidate_rows = _index_summary_rows(candidate_summary)
@@ -106,12 +118,20 @@ def compare_speed_runs(
         for value in (_select_row_seconds(row) for row in candidate_rows.values())
         if value is not None
     ]
-    verdict = "FAIL" if regression_count > 0 else "PASS"
+    settings_mismatch = not settings_match
+    settings_mismatch_forced_fail = settings_mismatch and not allow_settings_mismatch
+    verdict = "PASS"
+    if regression_count > 0 or settings_mismatch_forced_fail:
+        verdict = "FAIL"
     return {
         "schema_version": 1,
         "generated_at": dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S"),
         "baseline_run_dir": str(baseline_run_dir),
         "candidate_run_dir": str(candidate_run_dir),
+        "allow_settings_mismatch": bool(allow_settings_mismatch),
+        "baseline_run_settings_hash": baseline_run_settings_hash,
+        "candidate_run_settings_hash": candidate_run_settings_hash,
+        "settings_match": settings_match,
         "thresholds": thresholds.model_dump(),
         "baseline_suite_name": baseline_summary.get("suite_name"),
         "candidate_suite_name": candidate_summary.get("suite_name"),
@@ -124,6 +144,8 @@ def compare_speed_runs(
             "regression_count": regression_count,
             "improved_count": improved_count,
             "flat_count": flat_count,
+            "settings_match": settings_match,
+            "settings_mismatch_forced_fail": settings_mismatch_forced_fail,
             "baseline_median_seconds": (
                 float(statistics.median(baseline_distribution))
                 if baseline_distribution
@@ -157,9 +179,30 @@ def format_speed_compare_report(payload: dict[str, Any]) -> str:
         "- Absolute seconds floor: "
         f"{payload.get('thresholds', {}).get('absolute_seconds_floor')}",
         "",
+        "## Run Settings Parity",
+        "",
+        "- Baseline run settings hash: "
+        f"{payload.get('baseline_run_settings_hash') or 'missing'}",
+        "- Candidate run settings hash: "
+        f"{payload.get('candidate_run_settings_hash') or 'missing'}",
+        f"- Settings match: {payload.get('settings_match')}",
+        f"- Allow settings mismatch: {payload.get('allow_settings_mismatch')}",
+        "",
         "## Pair Results",
         "",
     ]
+    if not bool(payload.get("settings_match")):
+        if bool(payload.get("allow_settings_mismatch")):
+            lines.append(
+                "- Settings mismatch detected; timing verdict allowed because "
+                "--allow-settings-mismatch is enabled."
+            )
+        else:
+            lines.append(
+                "- Settings mismatch detected; verdict is FAIL unless "
+                "--allow-settings-mismatch is enabled."
+            )
+        lines.append("")
     for row in payload.get("rows", []):
         lines.append(
             "- "
@@ -233,6 +276,15 @@ def _coerce_float(value: Any) -> float | None:
     if numeric < 0:
         return 0.0
     return numeric
+
+
+def _coerce_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text
 
 
 def _render_seconds(value: Any) -> str:

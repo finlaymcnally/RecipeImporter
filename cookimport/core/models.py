@@ -109,6 +109,39 @@ class AggregateRating(BaseModel):
         return value
 
 
+class RecipeLikenessTier(str, Enum):
+    gold = "gold"
+    silver = "silver"
+    bronze = "bronze"
+    reject = "reject"
+
+
+RecipeLikenessFeatureValue = float | int | bool | str
+
+
+class RecipeLikenessResult(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    score: float = Field(ge=0.0, le=1.0)
+    tier: RecipeLikenessTier
+    backend: str
+    version: str
+    features: dict[str, RecipeLikenessFeatureValue] = Field(default_factory=dict)
+    reasons: list[str] = Field(default_factory=list)
+
+    @field_validator("backend", "version", mode="before")
+    @classmethod
+    def _normalize_backend_fields(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        return _normalize_text(str(value))
+
+    @field_validator("reasons", mode="before")
+    @classmethod
+    def _normalize_reason_list(cls, value: Any) -> list[str]:
+        return _normalize_list(value)
+
+
 InstructionItem = str | HowToStep
 
 
@@ -150,6 +183,7 @@ class RecipeCandidate(BaseModel):
     source: str | None = None
     provenance: dict[str, Any] = Field(default_factory=dict)
     confidence: float | None = None
+    recipe_likeness: RecipeLikenessResult | None = Field(default=None, alias="recipeLikeness")
 
     @field_validator(
         "source",
@@ -545,6 +579,7 @@ class ConversionReport(BaseModel):
     run_config_hash: str | None = Field(default=None, alias="runConfigHash")
     run_config_summary: str | None = Field(default=None, alias="runConfigSummary")
     llm_codex_farm: dict[str, Any] | None = Field(default=None, alias="llmCodexFarm")
+    recipe_likeness: dict[str, Any] | None = Field(default=None, alias="recipeLikeness")
 
 
 class RecipeDraftStep(BaseModel):

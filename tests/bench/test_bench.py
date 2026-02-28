@@ -14,6 +14,10 @@ from cookimport.bench.report import aggregate_metrics, format_suite_report_md
 from cookimport.bench.trace import TraceCollector
 from cookimport.bench.speed_runner import SpeedScenario
 from cookimport.bench.speed_suite import SpeedSuite as BenchSpeedSuite, SpeedTarget
+from cookimport.bench.quality_suite import (
+    QualitySuite as BenchQualitySuite,
+    QualityTarget as BenchQualityTarget,
+)
 from cookimport.bench.knobs import (
     Tunable,
     effective_knobs,
@@ -286,12 +290,16 @@ def test_list_knobs():
     names = {k.name for k in knobs}
     assert "segment_blocks" in names
     assert "epub_extractor" in names
+    assert "instruction_step_segmentation_policy" in names
+    assert "instruction_step_segmenter" in names
 
 
 def test_effective_knobs_defaults():
     eff = effective_knobs(None)
     assert "segment_blocks" in eff
     assert eff["segment_blocks"] == 40
+    assert eff["instruction_step_segmentation_policy"] == "auto"
+    assert eff["instruction_step_segmenter"] == "heuristic_v1"
 
 
 def test_effective_knobs_override():
@@ -312,6 +320,12 @@ def test_validate_knobs_valid():
 
 def test_validate_knobs_rejects_invalid_epub_extractor():
     errors = validate_knobs({"epub_extractor": "not-a-real-backend"})
+    assert errors
+    assert "allowed values" in errors[0]
+
+
+def test_validate_knobs_rejects_invalid_instruction_segmentation_policy():
+    errors = validate_knobs({"instruction_step_segmentation_policy": "bad-policy"})
     assert errors
     assert "allowed values" in errors[0]
 
@@ -346,10 +360,16 @@ def test_build_pred_run_for_source_passes_epub_extractor(monkeypatch: pytest.Mon
     build_pred_run_for_source(
         source,
         out_dir,
-        config={"epub_extractor": "beautifulsoup"},
+        config={
+            "epub_extractor": "beautifulsoup",
+            "instruction_step_segmentation_policy": "always",
+            "instruction_step_segmenter": "heuristic_v1",
+        },
     )
 
     assert captured["epub_extractor"] == "beautifulsoup"
+    assert captured["instruction_step_segmentation_policy"] == "always"
+    assert captured["instruction_step_segmenter"] == "heuristic_v1"
 
 
 def test_bench_run_direct_write_flags_override_config(
@@ -498,6 +518,7 @@ def test_bench_speed_run_wires_runner(
         "cookimport.bench.speed_runner.parse_speed_scenarios",
         lambda _raw: [SpeedScenario.STAGE_IMPORT],
     )
+    monkeypatch.setattr("cookimport.cli._load_settings", lambda: {})
     monkeypatch.setattr(
         "cookimport.cli._run_with_progress_status",
         lambda *, run, **_kwargs: run(lambda _message: None),
@@ -511,7 +532,7 @@ def test_bench_speed_run_wires_runner(
         warmups,
         repeats,
         max_targets,
-        sequence_matcher,
+        run_settings,
         progress_callback,
     ):
         _ = progress_callback
@@ -521,7 +542,7 @@ def test_bench_speed_run_wires_runner(
         captured["warmups"] = warmups
         captured["repeats"] = repeats
         captured["max_targets"] = max_targets
-        captured["sequence_matcher"] = sequence_matcher
+        captured["run_settings"] = run_settings
         return run_root
 
     monkeypatch.setattr(
@@ -537,7 +558,7 @@ def test_bench_speed_run_wires_runner(
         warmups=1,
         repeats=2,
         max_targets=1,
-        sequence_matcher="fallback",
+        sequence_matcher="dmp",
     )
 
     assert captured["suite"] == loaded_suite
@@ -545,9 +566,107 @@ def test_bench_speed_run_wires_runner(
     assert captured["warmups"] == 1
     assert captured["repeats"] == 2
     assert captured["max_targets"] == 1
-    assert captured["sequence_matcher"] == cli._normalize_benchmark_sequence_matcher_mode(
-        "fallback"
+    assert isinstance(captured["run_settings"], cli.RunSettings)
+    assert captured["run_settings"].benchmark_sequence_matcher == "dmp"
+
+
+def test_bench_speed_run_loads_run_settings_file_and_applies_matcher_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "alpha.epub"
+    source_file.write_text("epub", encoding="utf-8")
+    gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text('{"source_file":"alpha.epub"}\n', encoding="utf-8")
+
+    loaded_suite = BenchSpeedSuite(
+        name="speed_suite",
+        generated_at="2026-02-28_12.00.00",
+        gold_root=str((tmp_path / "gold").resolve()),
+        input_root=str(tmp_path.resolve()),
+        targets=[
+            SpeedTarget(
+                target_id="alpha",
+                source_file=str(source_file.resolve()),
+                gold_spans_path=str(gold_spans.resolve()),
+            )
+        ],
+        unmatched=[],
     )
+    suite_path = tmp_path / "suite.json"
+    suite_path.write_text("{}", encoding="utf-8")
+    run_settings_file = tmp_path / "run_settings.json"
+    run_settings_file.write_text(
+        json.dumps(
+            {
+                "workers": 3,
+                "benchmark_sequence_matcher": "not-dmp",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    run_root = tmp_path / "runs" / "2026-02-28_12.00.00"
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "report.md").write_text("", encoding="utf-8")
+    (run_root / "summary.json").write_text("{}", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "cookimport.bench.speed_suite.load_speed_suite",
+        lambda _suite_path: loaded_suite,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.speed_suite.validate_speed_suite",
+        lambda _suite, repo_root: [],
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.speed_runner.parse_speed_scenarios",
+        lambda _raw: [SpeedScenario.STAGE_IMPORT],
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._run_with_progress_status",
+        lambda *, run, **_kwargs: run(lambda _message: None),
+    )
+    monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
+
+    def _fake_run_speed_suite(
+        suite,
+        out_dir,
+        *,
+        scenarios,
+        warmups,
+        repeats,
+        max_targets,
+        run_settings,
+        progress_callback,
+    ):
+        _ = (suite, out_dir, scenarios, warmups, repeats, max_targets, progress_callback)
+        captured["run_settings"] = run_settings
+        return run_root
+
+    monkeypatch.setattr(
+        "cookimport.bench.speed_runner.run_speed_suite",
+        _fake_run_speed_suite,
+    )
+
+    cli.bench_speed_run(
+        suite=suite_path,
+        out_dir=tmp_path / "runs",
+        scenarios="stage_import",
+        warmups=1,
+        repeats=2,
+        max_targets=1,
+        run_settings_file=run_settings_file,
+        sequence_matcher="dmp",
+    )
+
+    run_settings = captured["run_settings"]
+    assert isinstance(run_settings, cli.RunSettings)
+    assert run_settings.workers == 3
+    assert run_settings.benchmark_sequence_matcher == "dmp"
 
 
 def test_bench_speed_compare_fail_on_regression_exits(
@@ -590,6 +709,273 @@ def test_bench_speed_compare_fail_on_regression_exits(
         )
 
     assert excinfo.value.exit_code == 1
+
+
+def test_bench_speed_compare_forwards_allow_settings_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    baseline.mkdir(parents=True, exist_ok=True)
+    candidate.mkdir(parents=True, exist_ok=True)
+
+    captured: dict[str, object] = {}
+
+    def _fake_compare_speed_runs(**kwargs):
+        captured.update(kwargs)
+        return {
+            "thresholds": {
+                "regression_pct": 5.0,
+                "absolute_seconds_floor": 0.5,
+            },
+            "rows": [],
+            "missing_in_baseline": [],
+            "missing_in_candidate": [],
+            "overall": {"verdict": "PASS"},
+        }
+
+    monkeypatch.setattr(
+        "cookimport.bench.speed_compare.compare_speed_runs",
+        _fake_compare_speed_runs,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.speed_compare.format_speed_compare_report",
+        lambda _payload: "report",
+    )
+    monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
+
+    cli.bench_speed_compare(
+        baseline=baseline,
+        candidate=candidate,
+        out_dir=tmp_path / "comparisons",
+        regression_pct=5.0,
+        absolute_seconds_floor=0.5,
+        fail_on_regression=False,
+        allow_settings_mismatch=True,
+    )
+
+    assert captured["allow_settings_mismatch"] is True
+
+
+def test_bench_quality_discover_writes_suite(tmp_path: Path) -> None:
+    input_root = tmp_path / "input"
+    input_root.mkdir(parents=True, exist_ok=True)
+    (input_root / "alpha.epub").write_text("epub", encoding="utf-8")
+
+    gold_root = tmp_path / "gold"
+    exports = gold_root / "alpha" / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    (exports / "freeform_span_labels.jsonl").write_text(
+        '{"source_file":"alpha.epub","label":"OTHER"}\n',
+        encoding="utf-8",
+    )
+    (exports / "canonical_text.txt").write_text("abc", encoding="utf-8")
+
+    suite_out = tmp_path / "quality_suite.json"
+    cli.bench_quality_discover(
+        gold_root=gold_root,
+        input_root=input_root,
+        out=suite_out,
+        max_targets=1,
+        seed=42,
+    )
+
+    payload = json.loads(suite_out.read_text(encoding="utf-8"))
+    assert payload["targets"]
+    assert payload["selected_target_ids"]
+    assert payload["selection"]["algorithm_version"] == "quality_representative_v1"
+
+
+def test_bench_quality_run_wires_runner(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "alpha.epub"
+    source_file.write_text("epub", encoding="utf-8")
+    gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text('{"source_file":"alpha.epub"}\n', encoding="utf-8")
+
+    loaded_suite = BenchQualitySuite(
+        name="quality_suite",
+        generated_at="2026-02-28_12.00.00",
+        gold_root=str((tmp_path / "gold").resolve()),
+        input_root=str(tmp_path.resolve()),
+        seed=42,
+        max_targets=1,
+        selection={
+            "algorithm_version": "quality_representative_v1",
+            "seed": 42,
+            "max_targets": 1,
+            "matched_count": 1,
+            "strata_counts": {"small:sparse": 1},
+        },
+        targets=[
+            BenchQualityTarget(
+                target_id="alpha",
+                source_file=str(source_file.resolve()),
+                gold_spans_path=str(gold_spans.resolve()),
+                source_hint="alpha.epub",
+                canonical_text_chars=3,
+                gold_span_rows=1,
+                label_count=1,
+                size_bucket="small",
+                label_bucket="sparse",
+            )
+        ],
+        selected_target_ids=["alpha"],
+        unmatched=[],
+    )
+    suite_path = tmp_path / "suite.json"
+    suite_path.write_text("{}", encoding="utf-8")
+    experiments_file = tmp_path / "experiments.json"
+    experiments_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "experiments": [{"id": "baseline", "run_settings_patch": {}}],
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    base_settings_file = tmp_path / "base_settings.json"
+    base_settings_file.write_text("{}", encoding="utf-8")
+    run_root = tmp_path / "runs" / "2026-02-28_12.00.00"
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "report.md").write_text("", encoding="utf-8")
+    (run_root / "summary.json").write_text("{}", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_suite.load_quality_suite",
+        lambda _suite_path: loaded_suite,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.quality_suite.validate_quality_suite",
+        lambda _suite, repo_root: [],
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._run_with_progress_status",
+        lambda *, run, **_kwargs: run(lambda _message: None),
+    )
+
+    def _fake_run_quality_suite(
+        suite,
+        out_dir,
+        *,
+        experiments_file,
+        base_run_settings_file,
+        progress_callback,
+    ):
+        _ = progress_callback
+        captured["suite"] = suite
+        captured["out_dir"] = out_dir
+        captured["experiments_file"] = experiments_file
+        captured["base_run_settings_file"] = base_run_settings_file
+        return run_root
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner.run_quality_suite",
+        _fake_run_quality_suite,
+    )
+    monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
+
+    cli.bench_quality_run(
+        suite=suite_path,
+        experiments_file=experiments_file,
+        out_dir=tmp_path / "runs",
+        base_run_settings_file=base_settings_file,
+    )
+
+    assert captured["suite"] == loaded_suite
+    assert captured["experiments_file"] == experiments_file
+    assert captured["base_run_settings_file"] == base_settings_file
+
+
+def test_bench_quality_compare_fail_on_regression_exits(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    baseline.mkdir(parents=True, exist_ok=True)
+    candidate.mkdir(parents=True, exist_ok=True)
+    out_dir = tmp_path / "comparisons"
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_compare.compare_quality_runs",
+        lambda **_kwargs: {
+            "metric_deltas": {},
+            "overall": {"verdict": "FAIL", "reasons": ["regression"]},
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.quality_compare.format_quality_compare_report",
+        lambda _payload: "report",
+    )
+    monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(typer.Exit) as excinfo:
+        cli.bench_quality_compare(
+            baseline=baseline,
+            candidate=candidate,
+            out_dir=out_dir,
+            strict_f1_drop_max=0.005,
+            practical_f1_drop_max=0.005,
+            source_success_rate_drop_max=0.0,
+            fail_on_regression=True,
+        )
+
+    assert excinfo.value.exit_code == 1
+
+
+def test_bench_quality_compare_forwards_selection_and_mismatch_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    baseline.mkdir(parents=True, exist_ok=True)
+    candidate.mkdir(parents=True, exist_ok=True)
+
+    captured: dict[str, object] = {}
+
+    def _fake_compare_quality_runs(**kwargs):
+        captured.update(kwargs)
+        return {
+            "metric_deltas": {},
+            "overall": {"verdict": "PASS", "reasons": []},
+        }
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_compare.compare_quality_runs",
+        _fake_compare_quality_runs,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.quality_compare.format_quality_compare_report",
+        lambda _payload: "report",
+    )
+    monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
+
+    cli.bench_quality_compare(
+        baseline=baseline,
+        candidate=candidate,
+        out_dir=tmp_path / "comparisons",
+        baseline_experiment_id="baseline",
+        candidate_experiment_id="candidate",
+        strict_f1_drop_max=0.005,
+        practical_f1_drop_max=0.005,
+        source_success_rate_drop_max=0.0,
+        fail_on_regression=False,
+        allow_settings_mismatch=True,
+    )
+
+    assert captured["baseline_experiment_id"] == "baseline"
+    assert captured["candidate_experiment_id"] == "candidate"
+    assert captured["allow_settings_mismatch"] is True
 
 
 # ---------------------------------------------------------------------------

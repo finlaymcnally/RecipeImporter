@@ -4,6 +4,14 @@ from cookimport.core.models import RecipeCandidate
 from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
 
 
+def _first_ingredient_line(draft: dict) -> dict:
+    for step in draft["steps"]:
+        ingredient_lines = step.get("ingredient_lines", [])
+        if ingredient_lines:
+            return ingredient_lines[0]
+    raise AssertionError("Draft did not contain any ingredient lines.")
+
+
 def test_variants_extracted_from_instructions():
     candidate = RecipeCandidate(
         name="Test Recipe",
@@ -88,3 +96,50 @@ def test_multiblock_variants_with_multiple_bullets():
     step_texts = [step["instruction"] for step in draft["steps"]]
     # Prep step is added for unassigned ingredients (lettuce, tomato not mentioned in instruction)
     assert step_texts == ["Gather and prepare ingredients.", "Toss ingredients together."]
+
+
+def test_ingredient_parser_options_override_missing_unit_policy():
+    candidate = RecipeCandidate(
+        name="Onion Soup",
+        ingredients=["2 onions"],
+        instructions=["Chop the onions."],
+    )
+
+    default_draft = recipe_candidate_to_draft_v1(candidate)
+    assert _first_ingredient_line(default_draft)["raw_unit_text"] is None
+
+    legacy_draft = recipe_candidate_to_draft_v1(
+        candidate,
+        ingredient_parser_options={"ingredient_missing_unit_policy": "legacy_medium"},
+    )
+    assert _first_ingredient_line(legacy_draft)["raw_unit_text"] == "medium"
+
+
+def test_instruction_step_segmentation_options_split_long_blob():
+    candidate = RecipeCandidate(
+        name="Long Instructions",
+        ingredients=[],
+        instructions=[
+            "Whisk flour and sugar together until smooth. Add milk and stir constantly. "
+            "Simmer for 10 minutes, then finish with butter.",
+        ],
+    )
+
+    baseline_draft = recipe_candidate_to_draft_v1(
+        candidate,
+        instruction_step_options={"instruction_step_segmentation_policy": "off"},
+    )
+    segmented_draft = recipe_candidate_to_draft_v1(
+        candidate,
+        instruction_step_options={
+            "instruction_step_segmentation_policy": "always",
+            "instruction_step_segmenter": "heuristic_v1",
+        },
+    )
+
+    assert len(baseline_draft["steps"]) == 1
+    assert len(segmented_draft["steps"]) >= 3
+    assert any(
+        step["instruction"].startswith("Add milk")
+        for step in segmented_draft["steps"]
+    )

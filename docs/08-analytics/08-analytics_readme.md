@@ -155,6 +155,7 @@ Benchmark scan details:
 - Supports `--since-days` filtering and optional report scan (`--scan-reports`).
 - Supports `--open` to launch the generated `index.html` in browser.
 - Prints collector warnings (first 10) when malformed/partial inputs are detected.
+- `Per-Label Breakdown` aggregates per-label totals across the latest all-method benchmark run timestamp (fallback: latest benchmark run timestamp when no all-method rows exist), not just one eval file row.
 - Main page is intentionally narrow in scope:
   - `All-Method Benchmark Runs`
   - `Diagnostics (Latest Benchmark)`
@@ -238,3 +239,12 @@ Current-contract additions:
 
 Anti-loop rule:
 - If analytics docs and UI disagree, verify tests (`tests/analytics/test_stats_dashboard.py`) and current collector/render code before restoring retired UI branches.
+
+## 2026-02-28 migrated understandings digest
+
+This section consolidates discoveries migrated from `docs/understandings` into this domain folder.
+
+### 2026-02-27_20.24.21 dashboard per label latest run aggregation
+- Source: `docs/understandings/2026-02-27_20.24.21-dashboard-per-label-latest-run-aggregation.md`
+- Summary: Stats dashboard per-label card now aggregates per-label totals across all records in the latest all-method run timestamp (fallback to latest benchmark timestamp if no all-method rows exist).
+

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import importlib.util
 import json
-from difflib import SequenceMatcher as StdlibSequenceMatcher
 from pathlib import Path
 
 import pytest
 
 import cookimport.bench.eval_canonical_text as canonical_eval
+import cookimport.bench.sequence_matcher_select as sequence_matcher_select
 from cookimport.bench.eval_canonical_text import evaluate_canonical_text
 from cookimport.bench.sequence_matcher_select import (
     SEQUENCE_MATCHER_ENV,
@@ -30,16 +29,6 @@ def _matching_blocks_as_tuples(matcher: object) -> list[tuple[int, int, int]]:
         for match in matcher.get_matching_blocks()  # type: ignore[attr-defined]
         if int(match.size) > 0
     ]
-
-
-def _accelerated_selection_or_skip(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "fallback")
-    selection = select_sequence_matcher()
-    if selection.implementation == "stdlib":
-        pytest.skip("Accelerated matcher unavailable in this environment.")
-    return selection
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
@@ -157,131 +146,51 @@ _TRICKY_TEXT_PAIRS: list[tuple[str, str]] = [
 ]
 
 
-def test_sequence_matcher_selector_forced_stdlib(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "stdlib")
-    selection = get_sequence_matcher_selection()
-    assert selection.implementation == "stdlib"
-    assert selection.forced_mode == "stdlib"
-    assert selection.version
-
-
-def test_sequence_matcher_selector_forced_multilayer(
+def test_sequence_matcher_selector_defaults_to_dmp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "multilayer")
+    monkeypatch.delenv(SEQUENCE_MATCHER_ENV, raising=False)
     selection = get_sequence_matcher_selection()
-    assert selection.implementation == "multilayer"
-    assert selection.forced_mode == "multilayer"
+    assert selection.implementation == "dmp"
+    assert selection.forced_mode == "dmp"
 
 
-def test_sequence_matcher_selector_legacy_auto_alias_uses_fallback_chain(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "auto")
-    selection = get_sequence_matcher_selection()
-    assert selection.forced_mode is None
-    assert selection.implementation in {
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "fallback",
         "stdlib",
         "cydifflib",
         "cdifflib",
-        "dmp",
         "multilayer",
-    }
-
-
-def test_sequence_matcher_selector_invalid_mode_errors(
+        "auto",
+        "not-a-mode",
+    ],
+)
+def test_sequence_matcher_selector_rejects_archived_modes(
     monkeypatch: pytest.MonkeyPatch,
+    mode: str,
 ) -> None:
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "not-a-mode")
+    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, mode)
     with pytest.raises(ValueError, match=SEQUENCE_MATCHER_ENV):
         select_sequence_matcher()
 
 
-def test_sequence_matcher_selector_forced_missing_mode_errors(
+def test_sequence_matcher_selector_forced_missing_dmp_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    forced_mode: str | None = None
-    for mode_name, module_name in (
-        ("cydifflib", "cydifflib"),
-        ("cdifflib", "cdifflib"),
-        ("dmp", "fast_diff_match_patch"),
-    ):
-        if importlib.util.find_spec(module_name) is None:
-            forced_mode = mode_name
-            break
-    if forced_mode is None:
-        pytest.skip("No missing accelerated matcher dependency available to test.")
-
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, forced_mode)
-    with pytest.raises(RuntimeError, match=forced_mode):
+    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "dmp")
+    monkeypatch.setattr(sequence_matcher_select, "_try_dmp", lambda **_kwargs: None)
+    with pytest.raises(RuntimeError, match="fast-diff-match-patch"):
         select_sequence_matcher()
 
 
 @pytest.mark.parametrize(("prediction_text", "canonical_text"), _TRICKY_TEXT_PAIRS)
-def test_sequence_matcher_opcodes_and_matching_blocks_match_stdlib_when_accelerated_available(
+def test_dmp_matching_blocks_are_monotonic_and_equal_substrings(
     monkeypatch: pytest.MonkeyPatch,
     prediction_text: str,
     canonical_text: str,
 ) -> None:
-    selection = _accelerated_selection_or_skip(monkeypatch)
-    if selection.implementation == "dmp":
-        pytest.skip("dmp is not a strict drop-in opcode/matching-block parity backend.")
-    stdlib_matcher = StdlibSequenceMatcher(
-        None,
-        prediction_text,
-        canonical_text,
-        autojunk=False,
-    )
-    accelerated_matcher = selection.matcher_class(
-        None,
-        prediction_text,
-        canonical_text,
-        autojunk=False,
-    )
-    assert accelerated_matcher.get_opcodes() == stdlib_matcher.get_opcodes()
-    assert _matching_blocks_as_tuples(accelerated_matcher) == _matching_blocks_as_tuples(
-        stdlib_matcher
-    )
-
-
-@pytest.mark.parametrize(("prediction_text", "canonical_text"), _TRICKY_TEXT_PAIRS)
-def test_multilayer_opcodes_and_matching_blocks_match_stdlib(
-    monkeypatch: pytest.MonkeyPatch,
-    prediction_text: str,
-    canonical_text: str,
-) -> None:
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "multilayer")
-    selection = select_sequence_matcher()
-    assert selection.implementation == "multilayer"
-
-    stdlib_matcher = StdlibSequenceMatcher(
-        None,
-        prediction_text,
-        canonical_text,
-        autojunk=False,
-    )
-    multilayer_matcher = selection.matcher_class(
-        None,
-        prediction_text,
-        canonical_text,
-        autojunk=False,
-    )
-
-    assert multilayer_matcher.get_opcodes() == stdlib_matcher.get_opcodes()
-    assert _matching_blocks_as_tuples(multilayer_matcher) == _matching_blocks_as_tuples(
-        stdlib_matcher
-    )
-
-
-@pytest.mark.parametrize(("prediction_text", "canonical_text"), _TRICKY_TEXT_PAIRS)
-def test_dmp_matching_blocks_are_monotonic_and_equal_substrings_when_available(
-    monkeypatch: pytest.MonkeyPatch,
-    prediction_text: str,
-    canonical_text: str,
-) -> None:
-    if importlib.util.find_spec("fast_diff_match_patch") is None:
-        pytest.skip("fast-diff-match-patch is unavailable in this environment.")
-
     monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "dmp")
     selection = select_sequence_matcher()
     matcher = selection.matcher_class(
@@ -318,12 +227,9 @@ def test_dmp_matching_blocks_are_monotonic_and_equal_substrings_when_available(
         previous_b_end = b_start + size
 
 
-def test_sequence_matcher_selector_forced_dmp_reports_runtime_options_when_available(
+def test_sequence_matcher_selector_forced_dmp_reports_runtime_options(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    if importlib.util.find_spec("fast_diff_match_patch") is None:
-        pytest.skip("fast-diff-match-patch is unavailable in this environment.")
-
     monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "dmp")
     monkeypatch.setenv("COOKIMPORT_DMP_CLEANUP", "No")
     monkeypatch.setenv("COOKIMPORT_DMP_CHECKLINES", "0")
@@ -337,7 +243,7 @@ def test_sequence_matcher_selector_forced_dmp_reports_runtime_options_when_avail
     assert selection.extra_telemetry.get("alignment_dmp_timelimit") == pytest.approx(0.0)
 
 
-def test_canonical_eval_stdlib_and_fallback_modes_have_equal_scoring_outputs(
+def test_canonical_eval_uses_dmp_and_reports_dmp_telemetry(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -345,92 +251,11 @@ def test_canonical_eval_stdlib_and_fallback_modes_have_equal_scoring_outputs(
         _write_minimal_canonical_fixture(tmp_path)
     )
     monkeypatch.setenv(canonical_eval._ALIGNMENT_STRATEGY_ENV, "legacy")
-
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "stdlib")
-    reset_sequence_matcher_selection_cache()
-    stdlib_result = evaluate_canonical_text(
-        gold_export_root=gold_export_root,
-        stage_predictions_json=stage_predictions_path,
-        extracted_blocks_json=extracted_archive_path,
-        out_dir=tmp_path / "stdlib",
-    )
-
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "fallback")
-    reset_sequence_matcher_selection_cache()
-    fallback_result = evaluate_canonical_text(
-        gold_export_root=gold_export_root,
-        stage_predictions_json=stage_predictions_path,
-        extracted_blocks_json=extracted_archive_path,
-        out_dir=tmp_path / "fallback",
-    )
-
-    stdlib_report = stdlib_result["report"]
-    fallback_report = fallback_result["report"]
-    assert stdlib_report["overall_line_accuracy"] == pytest.approx(
-        fallback_report["overall_line_accuracy"]
-    )
-    assert stdlib_report["macro_f1_excluding_other"] == pytest.approx(
-        fallback_report["macro_f1_excluding_other"]
-    )
-    assert stdlib_report["wrong_label_blocks"] == fallback_report["wrong_label_blocks"]
-    assert stdlib_report["missed_gold_blocks"] == fallback_report["missed_gold_blocks"]
-    assert stdlib_report["alignment"] == fallback_report["alignment"]
-
-    stdlib_aligned_bytes = Path(
-        stdlib_report["artifacts"]["aligned_prediction_blocks_jsonl"]
-    ).read_bytes()
-    fallback_aligned_bytes = Path(
-        fallback_report["artifacts"]["aligned_prediction_blocks_jsonl"]
-    ).read_bytes()
-    assert stdlib_aligned_bytes == fallback_aligned_bytes
-
-    stdlib_telemetry = stdlib_report["evaluation_telemetry"]
-    fallback_telemetry = fallback_report["evaluation_telemetry"]
-    assert stdlib_telemetry["alignment_sequence_matcher_impl"] == "stdlib"
-    assert stdlib_telemetry["alignment_sequence_matcher_mode"] == "stdlib"
-    assert stdlib_telemetry["alignment_sequence_matcher_requested_mode"] == "stdlib"
-    assert fallback_telemetry["alignment_sequence_matcher_impl"] in {
-        "stdlib",
-        "cydifflib",
-        "cdifflib",
-        "dmp",
-        "multilayer",
-    }
-    assert fallback_telemetry["alignment_sequence_matcher_mode"] == fallback_telemetry[
-        "alignment_sequence_matcher_impl"
-    ]
-    assert fallback_telemetry["alignment_sequence_matcher_requested_mode"] == "fallback"
-    if fallback_telemetry["alignment_sequence_matcher_impl"] == "dmp":
-        assert fallback_telemetry["alignment_dmp_cleanup"] == "No"
-        assert fallback_telemetry["alignment_dmp_checklines"] in {True, False}
-        assert fallback_telemetry["alignment_dmp_timelimit"] >= 0.0
-
-
-def test_canonical_eval_stdlib_and_dmp_modes_have_equal_scoring_outputs_when_available(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    if importlib.util.find_spec("fast_diff_match_patch") is None:
-        pytest.skip("fast-diff-match-patch is unavailable in this environment.")
-
-    gold_export_root, stage_predictions_path, extracted_archive_path = (
-        _write_minimal_canonical_fixture(tmp_path)
-    )
-    monkeypatch.setenv(canonical_eval._ALIGNMENT_STRATEGY_ENV, "legacy")
-
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "stdlib")
-    reset_sequence_matcher_selection_cache()
-    stdlib_result = evaluate_canonical_text(
-        gold_export_root=gold_export_root,
-        stage_predictions_json=stage_predictions_path,
-        extracted_blocks_json=extracted_archive_path,
-        out_dir=tmp_path / "stdlib",
-    )
-
     monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "dmp")
     monkeypatch.setenv("COOKIMPORT_DMP_CLEANUP", "No")
+    monkeypatch.setenv("COOKIMPORT_DMP_CHECKLINES", "0")
     monkeypatch.setenv("COOKIMPORT_DMP_TIMELIMIT", "0")
-    reset_sequence_matcher_selection_cache()
+
     dmp_result = evaluate_canonical_text(
         gold_export_root=gold_export_root,
         stage_predictions_json=stage_predictions_path,
@@ -438,79 +263,23 @@ def test_canonical_eval_stdlib_and_dmp_modes_have_equal_scoring_outputs_when_ava
         out_dir=tmp_path / "dmp",
     )
 
-    stdlib_report = stdlib_result["report"]
     dmp_report = dmp_result["report"]
-    assert stdlib_report["overall_line_accuracy"] == pytest.approx(
-        dmp_report["overall_line_accuracy"]
+    assert dmp_report["overall_line_accuracy"] == pytest.approx(1.0)
+    assert dmp_report["macro_f1_excluding_other"] == pytest.approx(1.0)
+    telemetry = dmp_report["evaluation_telemetry"]
+    assert telemetry["alignment_sequence_matcher_impl"] == "dmp"
+    assert telemetry["alignment_sequence_matcher_mode"] == "dmp"
+    assert telemetry["alignment_sequence_matcher_requested_mode"] == "dmp"
+    assert telemetry["alignment_dmp_cleanup"] == "No"
+    assert telemetry["alignment_dmp_checklines"] is False
+    assert telemetry["alignment_dmp_timelimit"] == pytest.approx(0.0)
+
+
+def test_matching_blocks_tuple_helper_drops_terminal_zero_block() -> None:
+    matcher = sequence_matcher_select.SequenceMatcher(
+        None,
+        "abc",
+        "abc",
+        autojunk=False,
     )
-    assert stdlib_report["macro_f1_excluding_other"] == pytest.approx(
-        dmp_report["macro_f1_excluding_other"]
-    )
-    assert stdlib_report["wrong_label_blocks"] == dmp_report["wrong_label_blocks"]
-    assert stdlib_report["missed_gold_blocks"] == dmp_report["missed_gold_blocks"]
-    assert stdlib_report["alignment"] == dmp_report["alignment"]
-
-    stdlib_telemetry = stdlib_report["evaluation_telemetry"]
-    dmp_telemetry = dmp_report["evaluation_telemetry"]
-    assert stdlib_telemetry["alignment_sequence_matcher_impl"] == "stdlib"
-    assert dmp_telemetry["alignment_sequence_matcher_impl"] == "dmp"
-    assert dmp_telemetry["alignment_sequence_matcher_mode"] == "dmp"
-    assert dmp_telemetry["alignment_sequence_matcher_requested_mode"] == "dmp"
-    assert dmp_telemetry["alignment_dmp_cleanup"] == "No"
-    assert dmp_telemetry["alignment_dmp_timelimit"] == pytest.approx(0.0)
-
-
-def test_canonical_eval_stdlib_and_multilayer_modes_have_equal_scoring_outputs(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    gold_export_root, stage_predictions_path, extracted_archive_path = (
-        _write_minimal_canonical_fixture(tmp_path)
-    )
-    monkeypatch.setenv(canonical_eval._ALIGNMENT_STRATEGY_ENV, "legacy")
-
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "stdlib")
-    reset_sequence_matcher_selection_cache()
-    stdlib_result = evaluate_canonical_text(
-        gold_export_root=gold_export_root,
-        stage_predictions_json=stage_predictions_path,
-        extracted_blocks_json=extracted_archive_path,
-        out_dir=tmp_path / "stdlib",
-    )
-
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "multilayer")
-    reset_sequence_matcher_selection_cache()
-    multilayer_result = evaluate_canonical_text(
-        gold_export_root=gold_export_root,
-        stage_predictions_json=stage_predictions_path,
-        extracted_blocks_json=extracted_archive_path,
-        out_dir=tmp_path / "multilayer",
-    )
-
-    stdlib_report = stdlib_result["report"]
-    multilayer_report = multilayer_result["report"]
-    assert stdlib_report["overall_line_accuracy"] == pytest.approx(
-        multilayer_report["overall_line_accuracy"]
-    )
-    assert stdlib_report["macro_f1_excluding_other"] == pytest.approx(
-        multilayer_report["macro_f1_excluding_other"]
-    )
-    assert stdlib_report["wrong_label_blocks"] == multilayer_report["wrong_label_blocks"]
-    assert stdlib_report["missed_gold_blocks"] == multilayer_report["missed_gold_blocks"]
-    assert stdlib_report["alignment"] == multilayer_report["alignment"]
-
-    stdlib_aligned_bytes = Path(
-        stdlib_report["artifacts"]["aligned_prediction_blocks_jsonl"]
-    ).read_bytes()
-    multilayer_aligned_bytes = Path(
-        multilayer_report["artifacts"]["aligned_prediction_blocks_jsonl"]
-    ).read_bytes()
-    assert stdlib_aligned_bytes == multilayer_aligned_bytes
-
-    stdlib_telemetry = stdlib_report["evaluation_telemetry"]
-    multilayer_telemetry = multilayer_report["evaluation_telemetry"]
-    assert stdlib_telemetry["alignment_sequence_matcher_impl"] == "stdlib"
-    assert stdlib_telemetry["alignment_sequence_matcher_mode"] == "stdlib"
-    assert multilayer_telemetry["alignment_sequence_matcher_impl"] == "multilayer"
-    assert multilayer_telemetry["alignment_sequence_matcher_mode"] == "multilayer"
-    assert multilayer_telemetry["alignment_sequence_matcher_requested_mode"] == "multilayer"
+    assert _matching_blocks_as_tuples(matcher) == [(0, 0, 3)]

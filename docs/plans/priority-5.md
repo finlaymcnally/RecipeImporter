@@ -1,442 +1,378 @@
-# ExecPlan: Priority 5 — Deterministic fallback step segmentation (pluggable backends)
+---
+summary: "ExecPlan for Priority 5: deterministic fallback instruction-step segmentation wired through stage and benchmark run settings."
+read_when:
+  - "When implementing instruction step fallback segmentation for long instruction blobs"
+  - "When adding run settings/CLI/bench wiring for instruction segmentation policy/backend"
+  - "When debugging mismatch between final draft steps, JSON-LD recipeInstructions, and sections artifacts"
+---
 
-References (inputs for this plan):
-- ExecPlan format rules: PLANS.md :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
-- Feature requirements + priority mapping: BIG PICTURE UPGRADES.md :contentReference[oaicite:2]{index=2}:contentReference[oaicite:4]{index=4}:contentReference[oaicite:5]{index=5}
-- Current program docs (staging + bench + artifacts): 2026-02-25_18.22.10_recipeimport-docs-summary.md :contentReference[oaicite:6]{index=6}:contentReference[oaicite:7]{index=7}:contentReference[oaicite:8]{index=8}:contentReference[oaicite:9]{index=9}:contentReference[oaicite:12]{index=12}
+# Build Priority 5: Deterministic Fallback Instruction-Step Segmentation
 
-## Purpose and Big Picture
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Implement **Priority 5: Step segmentation fallback**: add a deterministic, staging-time “safety net” that can split overly-long instruction blocks into usable steps when an importer provides only 1–2 huge paragraphs, while preserving instruction section headers like “For the frosting:” as headers. This reduces downstream failure modes (time/temp extraction, ingredient-step linking, section awareness) without depending on importer block boundaries alone. 
+This repository includes `docs/PLANS.md` at the repository root. This plan must be maintained in accordance with that file.
 
-Key requirements from Priority 5:
-- Trigger fallback when instruction blocks look “suspicious” (single long paragraph, many sentences/verbs, newline-heavy).
-- Deterministic heuristic pipeline:
-  - Split on explicit numbering/bullets/newlines.
-  - If still too long, split into sentences.
-  - Merge tiny fragments back.
-  - Preserve subheaders like “For the frosting:” as section headers.
-- Placement: preferred importer-side, but acceptable as a **staging-side safety net** in `recipe_candidate_to_draft_v1`.
-- Incorporate all related libraries/tools mentioned for this priority as selectable options:
-  - **pySBD** (rule-based sentence boundary detection) — priority mapping explicitly calls it out for Priority 5.:contentReference[oaicite:17]{index=17}
-  - Optional boundary-proposer libraries (secondary for Priority 5): **NLTK TextTilingTokenizer**, **ruptures**, **textsplit**, **DeepTiling** — incorporate as additional selectable segmenter backends for benchmarking permutations.:contentReference[oaicite:18]{index=18}
+## Purpose / Big Picture
 
-Non-goals (explicitly out of scope for Priority 5 unless discovered necessary during wiring):
-- Changing how recipes are detected/segmented from block streams (that’s other priorities).
-- Changing cookbook3 schema shape. (We only change how we derive the list of instruction steps within the existing shape.)
+After this change, stage conversion will recover useful step boundaries when importer output contains one or two oversized instruction blobs. The segmentation will be deterministic and applied consistently across final draft output, intermediate JSON-LD, and section artifacts.
+
+User-visible outcomes are:
+
+1. `final drafts/.../r*.json` gets practical step lines instead of giant instruction paragraphs.
+2. `intermediate drafts/.../r*.jsonld` continues emitting section-aware `HowToSection` when appropriate, but from the same effective segmented lines used by draft shaping.
+3. `sections/.../r*.sections.json` and `sections.md` no longer drift from draft/JSON-LD instruction boundaries.
+4. Behavior is reproducible and tunable through explicit run settings (`off|auto|always`) without any LLM parsing path.
+
+This priority stays deterministic only. Recipe codex-farm parsing remains policy-locked `off`.
 
 ## Progress
 
-- [ ] 2026-02-25: Create step segmentation module (heuristic_v1 + policy logic).
-- [ ] 2026-02-25: Wire new RunSettings fields + CLI + interactive editor + bench knobs plumbing.
-- [ ] 2026-02-25: Integrate step segmentation safety net into staging conversions (draft_v1, and also JSON-LD for intermediate parity).
-- [ ] 2026-02-25: Add optional backends (pySBD + NLTK TextTilingTokenizer + ruptures + textsplit + DeepTiling adapter).
-- [ ] 2026-02-25: Add unit + integration tests and run an end-to-end stage validation using staging artifacts.
+- [x] (2026-02-27_22.24.59) Ran docs discovery via `npm run docs:list` and read required docs (`docs/PLANS.md`, `docs/AGENTS.md`, `docs/04-parsing/04-parsing_readme.md`, `docs/05-staging/05-staging_readme.md`, `docs/02-cli/02-cli_README.md`, `docs/07-bench/07-bench_README.md`).
+- [x] (2026-02-27_22.24.59) Audited current code paths: `cookimport/staging/draft_v1.py`, `cookimport/staging/jsonld.py`, `cookimport/staging/writer.py`, `cookimport/config/run_settings.py`, `cookimport/config/run_settings_adapters.py`, `cookimport/cli.py`, `cookimport/labelstudio/ingest.py`, and `cookimport/bench/knobs.py`.
+- [x] (2026-02-27_22.24.59) Rebuilt `docs/plans/priority-5.md` as a current ExecPlan aligned to existing repository contracts.
+- [x] (2026-02-27_22.27.26) Externalized discovery notes to `docs/understandings/2026-02-27_22.27.26-priority5-current-step-segmentation-status.md`.
+- [x] (2026-02-27_22.38.32) Re-audited live code/docs after Priority 4 wiring landed; confirmed Priority 5 runtime remains unimplemented and wiring points are still valid.
+- [x] (2026-02-27_22.38.32) Baseline test slice still passes in `.venv`: `pytest -q tests/staging/test_draft_v1_variants.py tests/staging/test_section_outputs.py tests/parsing/test_recipe_sections.py` (`PASS: priority5 baseline test slice`).
+- [x] (2026-02-27_22.38.32) Added refreshed audit note to `docs/understandings/2026-02-27_22.38.32-priority5-wiring-refresh-audit.md`.
+- [x] (2026-02-27_23.19.34) Milestone 0 complete: baseline behavior was captured by existing staging tests and preserved in plan evidence.
+- [x] (2026-02-27_23.19.34) Milestone 1 complete: added canonical run settings fields + CLI normalization/options + adapter propagation for instruction segmentation policy/backend.
+- [x] (2026-02-27_23.19.34) Milestone 2 complete: implemented `cookimport/parsing/step_segmentation.py` with `off|auto|always`, `heuristic_v1`, optional `pysbd_v1`, header preservation, and sanity fallback.
+- [x] (2026-02-27_23.19.34) Milestone 3 complete: staged draft/jsonld/sections now consume one shared effective instruction-shaping path via run-config options.
+- [x] (2026-02-27_23.19.34) Milestone 4 complete: benchmark knobs + pred-run pass-through + benchmark run-config payloads now include instruction segmentation fields.
+- [x] (2026-02-27_23.19.34) Milestone 5 complete: added/updated parser, staging, run-settings, adapter, and bench tests; updated parsing/staging/CLI/bench docs and module README notes.
+- [x] (2026-02-27_23.19.34) Validation slice passed in `.venv`: `python -m pytest -q tests/parsing/test_step_segmentation.py tests/staging/test_draft_v1_variants.py tests/staging/test_section_outputs.py tests/llm/test_run_settings.py tests/cli/test_run_settings_adapters.py tests/bench/test_bench.py`.
+- [x] (2026-02-27_23.21.17) Finalized this ExecPlan to implemented-state documentation: removed stale pre-implementation assertions, aligned orientation/workflow sections to shipped behavior, and recorded final revision rationale.
 
-## Surprises and Discoveries
+## Surprises & Discoveries
 
-- (Fill in during implementation)
-- Potential gotcha: intermediate JSON-LD already has instruction section behavior (removes instruction section headers from step text and emits `HowToSection` when multiple sections are detected). This makes preserving and isolating headers during segmentation extra important for “intermediate parity.”:contentReference[oaicite:19]{index=19}
+- Observation: Initial sentence splitting was too conservative for medium-length multi-sentence lines and failed Priority-5 test expectations.
+  Evidence: first implementation failed `tests/parsing/test_step_segmentation.py` (`auto` trigger false-negative + no split after section header), then passed after lowering auto single-line threshold and enabling splitting when multiple sentence delimiters are present.
+
+- Observation: Tiny-fragment merge logic can accidentally attach numbered step markers (`2.`, `3.`) to prior sentences if sentence splitting runs on numbered fragments.
+  Evidence: failing test showed output `\"1. Mix flour and water. 2.\"`; fixed by treating numbered-step fragments as atomic in heuristic sentence splitting.
+
+- Observation: Matching step boundaries across final draft, intermediate JSON-LD, and sections required one writer-level instruction-shaping flow rather than three local copies.
+  Evidence: parity checks in `tests/staging/test_section_outputs.py` passed only after `write_draft_outputs(...)`, `write_intermediate_outputs(...)`, and `write_section_outputs(...)` all consumed shared effective instruction shaping.
+
+- Observation: JSON-LD backward compatibility needed a conditional serializer path.
+  Evidence: `cookimport/staging/jsonld.py` keeps legacy `HowToStep` object emission when segmentation does not trigger, while segmented runs emit segmented step strings and preserve section grouping behavior.
 
 ## Decision Log
 
-- 2026-02-25: Implement fallback segmentation primarily as a **staging-side safety net** (shared across importers), per Priority 5 guidance.
-- 2026-02-25: Add **two explicit run-config knobs**:
-  1) policy (`off|auto|always`) and
-  2) backend (`heuristic_v1|pysbd_v1|nltk_texttiling_v1|ruptures_v1|textsplit_v1|deeptiling_v1`),
-  so existing behavior is preserved as an option (`off`) and every new library backend becomes a benchmarkable permutation.
-- 2026-02-25: Default policy will be **auto** (so Priority 5 actually provides a safety net), but `off` will be first-class for regressions + benchmarking.
-- 2026-02-25: Keep the default backend deterministic and dependency-free (`heuristic_v1`), and gate optional backends behind optional dependencies; selecting an unavailable backend must fail fast with a clear “install extra X” style error.
+- Decision: Implement Priority 5 as a staging safety net (not importer-specific extraction logic).
+  Rationale: Keeps behavior centralized and consistent across all importer families that feed `RecipeCandidate.instructions`.
+  Date/Author: 2026-02-27_22.24.59 / Codex GPT-5
 
-## Outcomes and Retrospective
+- Decision: Default policy is `auto`, with explicit `off` and `always` modes.
+  Rationale: `auto` provides practical benefit by default; `off` preserves a deterministic rollback path; `always` provides deterministic stress-testing.
+  Date/Author: 2026-02-27_22.24.59 / Codex GPT-5
 
-Expected outcomes:
-- Staged recipes that currently contain 1–2 massive instruction paragraphs produce a cleaner `steps[]` list, improving parse quality.
-- Instruction section headers survive segmentation as distinct header boundaries, improving `sections.py` extraction and section-aware step-ingredient linking.
-- New segmenter backend options are surfaced through RunSettings and `cookimport bench knobs`, enabling automated permutation benchmarking.:contentReference[oaicite:24]{index=24}
+- Decision: Ship `heuristic_v1` as required backend and keep `pysbd_v1` optional.
+  Rationale: Core behavior must remain dependency-light and deterministic; pySBD can be an additive sentence-splitting option without making base runtime heavier.
+  Date/Author: 2026-02-27_22.24.59 / Codex GPT-5
 
-Retrospective prompts (fill after landing):
-- Did `auto` trigger too often or too rarely?
-- Which backends produce stable improvements on your benchmark harness?
-- Are there recurring false splits around abbreviations, temperatures, fractions, or parenthetical clauses?
+- Decision: Keep heavy secondary backends (TextTiling/ruptures/textsplit/DeepTiling) out of core Priority-5 delivery.
+  Rationale: They add maintenance/dependency burden and are not needed to deliver deterministic fallback splitting now.
+  Date/Author: 2026-02-27_22.24.59 / Codex GPT-5
 
----
+- Decision: Apply identical effective instruction shaping to draft-v1, intermediate JSON-LD, and section artifacts.
+  Rationale: Prevents cross-artifact drift where one output shows split steps and another keeps giant blobs.
+  Date/Author: 2026-02-27_22.24.59 / Codex GPT-5
+
+- Decision: Keep Priority-5 settings in canonical `RunSettings`/adapter surfaces instead of ad-hoc-only CLI kwargs.
+  Rationale: Maintains interactive, stage, pred-run, speed-suite, and quality-suite settings parity.
+  Date/Author: 2026-02-27_22.38.32 / Codex GPT-5
+
+- Decision: Preserve existing JSON-LD `HowToStep` object serialization only when fallback segmentation is not active; when segmentation is active, serialize segmented strings directly.
+  Rationale: Prevents metadata drift in no-segmentation paths while allowing deterministic segmented step boundaries when Priority-5 policy triggers.
+  Date/Author: 2026-02-27_23.19.34 / Codex GPT-5
+
+## Outcomes & Retrospective
+
+Completed.
+
+- Stage outputs now support deterministic fallback instruction segmentation (`off|auto|always`) with backend selection (`heuristic_v1|pysbd_v1`).
+- Final draft, intermediate JSON-LD, and section artifacts now use one effective instruction-shaping contract, reducing cross-artifact boundary drift.
+- Run settings, stage CLI, benchmark CLI, run-setting adapters, pred-run builder, and bench knobs now all carry these settings end-to-end.
+- Coverage now includes parser-level segmentation behavior, staging parity behavior, run-settings/UI choices, adapter propagation, and bench knob/pred-run wiring.
+
+Remaining follow-up outside this plan:
+
+- Optional real-world tuning for `should_fallback_segment(...)` thresholds if new regression fixtures show over/under-splitting.
 
 ## Context and Orientation
 
-Where this belongs in your current program:
+Priority 5 is implemented. Instruction shaping now runs through one deterministic segmentation helper plus one shared staging integration path.
 
-- Staging conversion logic lives in:
-  - `cookimport/staging/jsonld.py` (intermediate schema.org JSON-LD)
-  - `cookimport/staging/draft_v1.py` (final cookbook3 output shape; internal `RecipeDraftV1`)
-  - `cookimport/staging/writer.py` (writes intermediate/final outputs + section artifacts):contentReference[oaicite:25]{index=25}
-- Section extraction already exists and is deterministic-first:
-  - `cookimport/parsing/sections.py` extracts ingredient + instruction headers; conservative heuristics.
-  - Step-ingredient linking uses optional section context to bias matches.
-- Output artifacts you’ll use to validate:
-  - `final drafts/<workbook_slug>/r{index}.json`
-  - `intermediate drafts/<workbook_slug>/r{index}.jsonld`
-  - `sections/<workbook_slug>/r{index}.sections.json` and `sections.md`
-  - plus other run outputs at `data/output/<timestamp>/...`:contentReference[oaicite:27]{index=27}
+- `cookimport/staging/draft_v1.py`
+  - Accepts `instruction_step_options`.
+  - Applies fallback segmentation before variant split and section extraction.
+  - Preserves existing `parse_instruction(...)` behavior after effective step boundaries are formed.
 
-Wiring expectations:
-- New run-config knobs must be wired across surfaces (RunSettings, CLI stage, interactive editor, bench knobs, etc.). There is an explicit “pipeline-option wiring checklist” to follow.
+- `cookimport/staging/jsonld.py`
+  - Accepts `instruction_step_options`.
+  - Applies fallback segmentation before section grouping.
+  - Preserves legacy `HowToStep` serialization when segmentation is inactive.
 
----
+- `cookimport/staging/writer.py`
+  - Provides the shared effective instruction-shaping path used by draft, JSON-LD, and section outputs.
+  - Threads `instruction_step_options` through `write_draft_outputs(...)`, `write_intermediate_outputs(...)`, and `write_section_outputs(...)`.
 
-## Plan of Work
+Priority-5 parsing and settings surfaces:
 
-### Milestone 1 — Baseline deterministic fallback step segmenter (no new deps)
-Deliver the Priority 5 heuristic pipeline as `heuristic_v1` and integrate it into staging conversion paths behind a `policy` knob.
+- Canonical settings model: `cookimport/config/run_settings.py`
+- Interactive editor metadata: `run_settings_ui_specs()` in same file; rendered by `cookimport/cli_ui/toggle_editor.py`
+- Stage/prediction adapters: `cookimport/config/run_settings_adapters.py`
+- Segmentation engine: `cookimport/parsing/step_segmentation.py`
+- Stage CLI entrypoint: `cookimport/cli.py::stage(...)`
+- Benchmark/prediction generation entrypoints:
+  - `cookimport/cli.py::labelstudio_benchmark(...)`
+  - `cookimport/labelstudio/ingest.py::generate_pred_run_artifacts(...)`
+  - `cookimport/bench/pred_run.py::build_pred_run_for_source(...)`
+- Sweep knobs registry: `cookimport/bench/knobs.py`
 
-### Milestone 2 — Add pySBD as a sentence splitter option
-Add `pysbd_v1` backend for sentence splitting (Priority 5 recommended library) while preserving `heuristic_v1` behavior as a baseline option.:contentReference[oaicite:29]{index=29}
+Current adjacent test coverage:
 
-### Milestone 3 — Add optional boundary-proposer backends as benchmarkable options
-Add selectable backends wrapping:
-- NLTK TextTilingTokenizer
-- ruptures
-- textsplit
-- DeepTiling
-These are explicitly mapped as “Priority 5 (secondary)” options and must exist as additional backends rather than replacing `heuristic_v1`.:contentReference[oaicite:30]{index=30}
+- `tests/parsing/test_step_segmentation.py`
+- `tests/staging/test_draft_v1_variants.py`
+- `tests/staging/test_section_outputs.py`
+- `tests/llm/test_run_settings.py`
+- `tests/cli/test_run_settings_adapters.py`
+- `tests/bench/test_bench.py`
 
-### Milestone 4 — Validation: tests + stage run + bench knob surfacing
-Add unit tests and do an end-to-end stage run on a synthetic “single paragraph instructions” sample; confirm artifacts.
+Important current-state overlap with other priorities:
 
----
+- Priority 4 ingredient parser settings are already live in `RunSettings` and CLI/pred-run adapters.
+- Priority 5 now follows the same settings wiring pattern and avoids one-off paths.
+
+## Plan of Work (Implemented)
+
+### Milestone 0: Baseline behavior capture
+
+Captured a before-state showing unsplit long-blob instruction behavior.
+
+Work:
+
+1. Add a minimal fixture or inline candidate test case where instructions are one long paragraph with multiple actions and one `For the sauce:` header line.
+2. Confirm current behavior leaves the paragraph unsplit in draft output.
+3. Record baseline evidence in `Progress` with exact test command and output path.
+
+Acceptance:
+
+- Baseline test demonstrates unsplit long instruction behavior.
+- Baseline artifact path is recorded.
+
+### Milestone 1: Run settings and CLI wiring
+
+Added explicit policy/backend controls in the same style as existing deterministic run settings.
+
+Work:
+
+1. In `cookimport/config/run_settings.py`, add enums and fields:
+   - `instruction_step_segmentation_policy`: `off|auto|always` (default `auto`)
+   - `instruction_step_segmenter`: `heuristic_v1|pysbd_v1` (default `heuristic_v1`)
+2. Add both fields to `_SUMMARY_ORDER` so they appear in summary/hash artifacts.
+3. Extend `build_run_settings(...)` signature and payload mapping for these fields.
+4. Extend stage CLI options in `cookimport/cli.py::stage(...)` and include normalized values in the `build_run_settings(...)` call.
+5. Extend benchmark/prediction CLI options in `cookimport/cli.py::labelstudio_benchmark(...)` and pass-through to `generate_pred_run_artifacts(...)`.
+6. Extend adapter pass-through in `cookimport/config/run_settings_adapters.py` for both stage and benchmark adapter helpers.
+
+Acceptance:
+
+- New fields appear in `RunSettings().to_run_config_dict()` and `RunSettings().summary()`.
+- Interactive run settings editor automatically shows both fields (via `run_settings_ui_specs()`).
+- Stage and benchmark run manifests include the selected values.
+
+### Milestone 2: Deterministic segmentation module
+
+Introduced one shared parsing helper that performs fallback segmentation deterministically.
+
+Work:
+
+1. Add `cookimport/parsing/step_segmentation.py` with public entrypoint:
+   - `segment_instruction_steps(instructions: list[str], policy: str, backend: str) -> list[str]`
+2. Add helper `should_fallback_segment(instructions: list[str]) -> bool` used by `policy=auto`.
+3. Implement `heuristic_v1` pipeline:
+   - Normalize whitespace/newlines.
+   - Split explicit list markers first (newline bullets/numbering).
+   - Preserve section-header-like lines as standalone boundaries.
+   - Split oversized fragments into sentences.
+   - Merge tiny non-header fragments into neighbors.
+   - Apply sanity cap (for example 80 steps) and fall back to original input if exceeded.
+4. Implement `pysbd_v1` as optional sentence splitter backend only when `pysbd` is installed.
+5. Make unavailable backend selection fail fast with a clear install hint.
+
+Acceptance:
+
+- Deterministic outputs for fixed input text and settings.
+- `policy=off` returns original boundaries unchanged.
+- `policy=auto` only triggers on suspicious long-blob patterns.
+
+### Milestone 3: Staging integration and artifact parity
+
+Applied the same effective instruction text list in all stage conversion surfaces.
+
+Work:
+
+1. Update `cookimport/staging/draft_v1.py` to segment effective instruction lines before section extraction and `parse_instruction(...)` when policy triggers.
+2. Update `cookimport/staging/jsonld.py` to apply the same segmentation policy before section extraction/grouping.
+3. Update `cookimport/staging/writer.py::write_section_outputs(...)` to use the same effective instruction shaping path so section artifacts do not drift from draft/jsonld behavior.
+4. Thread run settings into writer conversion calls:
+   - `write_intermediate_outputs(...)`
+   - `write_draft_outputs(...)`
+   - `write_section_outputs(...)`
+5. Update call sites in:
+   - `cookimport/cli_worker.py`
+   - `cookimport/cli.py` split-merge path
+   - `cookimport/labelstudio/ingest.py`
+
+Acceptance:
+
+- Long instruction blob cases produce matching effective boundaries in final draft, intermediate JSON-LD, and section artifacts.
+- Existing variant extraction and fallback-step behavior stay intact.
+
+### Milestone 4: Benchmark knob and pred-run wiring
+
+Exposed the new settings in benchmark tuning surfaces.
+
+Work:
+
+1. Add knobs in `cookimport/bench/knobs.py`:
+   - `instruction_step_segmentation_policy` (str choices)
+   - `instruction_step_segmenter` (str choices)
+2. Extend `cookimport/bench/pred_run.py::build_pred_run_for_source(...)` to pass these values into `generate_pred_run_artifacts(...)`.
+3. Ensure benchmark config validation accepts only declared choices.
+4. Ensure `cookimport bench knobs` output lists the new knobs.
+
+Acceptance:
+
+- `cookimport bench knobs` shows both new knobs.
+- Benchmark runs can set these values through knob config and they appear in run config artifacts.
+
+### Milestone 5: Tests and docs updates
+
+Added focused tests and aligned docs with delivered behavior.
+
+Work:
+
+1. Add parser tests in `tests/parsing/test_step_segmentation.py` for:
+   - long paragraph split in `always`
+   - `auto` trigger/no-trigger cases
+   - numbering/bullet/newline splitting
+   - section header boundary preservation
+   - tiny-fragment merge behavior
+2. Update/add staging tests:
+   - draft conversion behavior for fallback segmentation
+   - JSON-LD `HowToSection` behavior with segmented inputs
+   - section artifact parity with effective segmented instructions
+3. Update run-settings and bench tests:
+   - `tests/llm/test_run_settings.py`
+   - `tests/bench/test_bench.py`
+4. Update docs as behavior lands:
+   - `docs/04-parsing/04-parsing_readme.md`
+   - `docs/05-staging/05-staging_readme.md`
+   - `docs/02-cli/02-cli_README.md` (new options)
+
+Acceptance:
+
+- New tests pass in `.venv`.
+- Docs match delivered runtime behavior and option names.
 
 ## Concrete Steps
 
-### 1) Define configuration knobs (RunSettings + CLI + interactive editor + bench knobs)
+Run from repo root:
 
-1.1 Add RunSettings fields (config surface)
-- Edit: `cookimport/config/run_settings.py`
-- Add fields (names can be adjusted to match conventions, but keep them stable + JSON-serializable):
-  - `instruction_step_segmentation_policy: Literal["off","auto","always"] = "auto"`
-  - `instruction_step_segmenter: Literal["heuristic_v1","pysbd_v1","nltk_texttiling_v1","ruptures_v1","textsplit_v1","deeptiling_v1"] = "heuristic_v1"`
-- Ensure:
-  - both fields appear in `RunSettingsSummary`
-  - both fields are included in config hashing / summary ordering (whatever your existing pattern is) so they impact benchmark permutations.
-  - no non-pickle-safe objects are stored in RunSettings (strings only).
+    cd /home/mcnal/projects/recipeimport
+    source .venv/bin/activate
+    PIP_CACHE_DIR=/tmp/.pip-cache python -m pip install -e '.[dev]'
 
-1.2 Wire stage CLI flags
-- Edit: `cookimport/cli.py` stage command.
-- Add two new flags (Typer options):
-  - `--instruction-step-segmentation-policy {off,auto,always}`
-  - `--instruction-step-segmenter {heuristic_v1,pysbd_v1,nltk_texttiling_v1,ruptures_v1,textsplit_v1,deeptiling_v1}`
-- Ensure these flags flow into the RunSettings passed down into worker staging, matching the repo’s “option wiring checklist.”
+Baseline checks (before edits):
 
-1.3 Wire interactive editor
-- Edit: `cookimport/cli_ui/run_settings_flow.py` and `cookimport/cli_ui/toggle_editor.py`
-- Add entries so the interactive editor can select:
-  - policy
-  - backend
-- Follow the same patterns as other categorical knobs (e.g., table_extraction, epub_extractor, llm_* pipeline toggles).
+    python -m pytest -q tests/staging/test_draft_v1_variants.py tests/staging/test_section_outputs.py tests/parsing/test_recipe_sections.py
 
-1.4 Wire Label Studio benchmark / prediction-run path
-- If `labelstudio-benchmark` reuses the same writer flow for processed outputs (it does), ensure the RunSettings passed to the processed-output staging path includes the two new knobs.:contentReference[oaicite:32]{index=32}
+Baseline proof marker from this refresh:
 
-1.5 Wire bench knobs
-- Edit: `cookimport/bench/knobs.py` (or wherever `cookimport bench knobs` draws from; follow existing structure).
-- Add:
-  - categorical knob for `instruction_step_segmentation_policy`
-  - categorical knob for `instruction_step_segmenter`
-- Ensure `cookimport bench knobs` lists them (defaults + descriptions), and sweeps can choose values. Bench docs emphasize knobs are the tunable parameters and `cookimport bench knobs` enumerates them.:contentReference[oaicite:34]{index=34}
+    PASS: priority5 baseline test slice
 
-Implementation detail: for segmenter backend options, strongly prefer making “availability” explicit:
-- If backend dependency is not installed, either:
-  - remove the backend from the available list at runtime (better for `bench sweep`), or
-  - keep it but fail fast with a clear error if selected.
-Given you want benchmarking permutations, the first approach is nicer: the knob’s domain can be “installed backends only.”
+Focused validation command used for implementation verification:
 
-### 2) Implement the step segmentation module (deterministic heuristic_v1)
+    python -m pytest -q tests/parsing/test_step_segmentation.py tests/staging/test_draft_v1_variants.py tests/staging/test_section_outputs.py tests/llm/test_run_settings.py tests/cli/test_run_settings_adapters.py tests/bench/test_bench.py
 
-2.1 Create a new parsing module
-- New file: `cookimport/parsing/step_segmentation.py` (or `step_segmenter.py`, consistent with naming)
-- Public API suggestion:
-  - `segment_instruction_steps(instructions: list[str], *, policy: str, backend: str) -> list[str]`
-  - plus small helper:
-    - `should_fallback_segment(instructions: list[str]) -> bool`
-- Keep it deterministic and dependency-light by default.
+Stage evidence run (after implementation):
 
-2.2 Implement `should_fallback_segment(...)` (auto trigger)
-Per Priority 5, “suspicious” includes: single long paragraph, many sentences/verbs, newline-heavy.
-Implement deterministic proxies:
-- suspicious if:
-  - `len(instructions) == 1` and char length > N (e.g., 350–500 chars), OR
-  - `len(instructions) <= 2` and sentence-ish punctuation count >= 4, OR
-  - any block contains many newlines (e.g., `\n` count >= 3), OR
-  - a block contains multiple explicit numbering markers (e.g., “1.” … “2.” …).
-- not suspicious if:
-  - `len(instructions) >= 4` and median length is small (already step-like), unless there is explicit “1. 2. 3.” inside a single block.
+    cookimport stage tests/fixtures/sectioned_components_recipe.txt --out /tmp/priority5-evidence --workers 1 --pdf-split-workers 1 --epub-split-workers 1 --no-write-markdown
 
-2.3 Implement the heuristic splitting pipeline (heuristic_v1)
-Must match Priority 5 heuristic steps.
+Optional long-blob stress case (after adding fixture):
 
-Algorithm (deterministic):
-1) Normalize:
-- normalize whitespace/newlines (`\r\n` → `\n`), trim, collapse excessive blank lines.
-
-2) Split on explicit numbering/bullets/newlines:
-- Split by newlines into candidate lines.
-- Within each line (and within long paragraphs), split on:
-  - leading list markers: `1.`, `1)`, `1:`, `(1)`, `-`, `•`, `*`
-  - inline numbering sequences like `... 1. Do X 2. Do Y ...` (only when it clearly matches list markers, not decimals).
-- Strip the marker tokens from the resulting step text (optional but usually desirable: the ordered list already implies step index).
-
-3) Preserve subheaders (“For the frosting:”)
-- Identify header-like fragments and keep them as their own boundaries. Requirements explicitly call out these lines.
-- Header detection heuristic:
-  - ends with `:` and is short (e.g., <= 60 chars OR <= 8 words), and
-  - does not look like a normal sentence (no trailing period), and
-  - optional: starts with `For` / `For the` / title-cased / all-caps
-- Mark these fragments as “hard boundaries”: never merge them into neighbors.
-
-4) If still too long: split into sentences
-- For any fragment that is still “too long” (e.g., > 300 chars OR has >= 3 sentences):
-  - run a sentence-split step (backend-specific; default is a simple deterministic regex sentence splitter).
-  - keep sentences as separate candidate steps (but allow later merging).
-
-5) Merge tiny fragments back
-- Merge fragments that are too short to stand alone (e.g., < 20 chars and no ending punctuation), into adjacent non-header steps.
-- Never merge into/from header steps (headers stay isolated).
-- Also apply post-processing:
-  - drop empty fragments
-  - collapse whitespace
-  - cap max steps to a sanity limit (e.g., 80). If exceeded, fall back to the unsplit input for safety.
-
-2.4 Backend abstraction
-Implement a small internal interface:
-- `SentenceSplitter` for the “split into sentences” phase:
-  - `regex_sentence_v1` (built-in)
-  - `pysbd_v1` (uses pySBD)
-- `BoundaryProposer` (optional) for “secondary segmentation”:
-  - `nltk_texttiling_v1`
-  - `ruptures_v1`
-  - `textsplit_v1`
-  - `deeptiling_v1`
-
-Then define how these backends plug in:
-- `heuristic_v1` is the overall pipeline.
-- The `instruction_step_segmenter` setting selects which backend is used for the “if still too long” phase:
-  - `heuristic_v1` → regex sentence splitter
-  - `pysbd_v1` → pySBD sentence splitter
-  - others → treat as boundary proposers operating on sentence units (recommended), then join sentences inside each proposed segment.
-
-This keeps the Priority 5 pipeline consistent while still allowing different segmentation “brains” as options.
-
-### 3) Integrate into staging conversions (draft_v1 + JSON-LD parity)
-
-Priority 5 explicitly allows staging-side safety net in `recipe_candidate_to_draft_v1` (before `parse_instruction`).
-
-3.1 Draft conversion integration
-- Edit: `cookimport/staging/draft_v1.py`
-- In `recipe_candidate_to_draft_v1`:
-  - Before the loop that calls `parse_instruction` over `candidate.instructions`,
-    compute `effective_instructions` using the new segmenter:
-      - if policy == `off`: use `candidate.instructions` unchanged
-      - if policy == `always`: segment always
-      - if policy == `auto`: segment only if `should_fallback_segment(...)` is True
-  - Use `effective_instructions` for parsing steps.
-- Keep the existing behavior as an option (`off`) to satisfy “new options, not replacements.”
-
-3.2 Intermediate JSON-LD integration (recommended for parity)
-Why: Intermediate JSON-LD has explicit instruction section behavior: it removes instruction section headers from step text and emits structured sections when multiple are found.:contentReference[oaicite:39]{index=39}
-If segmentation isolates headers better, JSON-LD sections improve too.
-- Edit: `cookimport/staging/jsonld.py`
-- Apply the same `effective_instructions` decision before emitting `recipeInstructions` / section grouping logic.
-
-3.3 Ensure sections extraction + step-ingredient linking benefit
-- Confirm `cookimport/parsing/sections.py` still operates correctly and benefits from better-separated headers; it uses conservative heuristics and feeds section context into step-ingredient linking.
-- No schema changes required; just better inputs.
-
-### 4) Add optional library backends (benchmarkable options)
-
-All of these are mentioned as related to this priority and must appear as selectable options (even if “experimental”).:contentReference[oaicite:41]{index=41}:contentReference[oaicite:42]{index=42}
-
-4.1 pySBD sentence splitting backend (pysbd_v1)
-- Dependency: pySBD (pip package commonly `pysbd`).
-- Implement `sentence_split_pysbd(text) -> list[str]`.
-- Use it only when `instruction_step_segmenter == "pysbd_v1"`.
-- This is the primary recommended library addition for Priority 5.:contentReference[oaicite:43]{index=43}
-
-4.2 NLTK TextTilingTokenizer backend (nltk_texttiling_v1)
-- Dependency: NLTK; backend should:
-  - take a long fragment
-  - segment it into “tiles”
-  - then within each tile apply the same bullet/number cleanup and (optionally) sentence splitting to yield steps.
-- Keep deterministic; handle missing corpora gracefully (either bundle minimal tokenization or provide a clear error when required NLTK resources are absent).
-
-4.3 ruptures backend (ruptures_v1)
-- Dependency: ruptures.
-- Backend design (deterministic, no embeddings required):
-  - sentence-split the fragment
-  - create a deterministic feature vector per sentence (e.g., stable hashed bag-of-words into fixed dimension)
-  - run a deterministic change point algorithm (e.g., BinSeg / PELT) to propose boundaries
-  - group sentences into step segments
-- Add a minimal “target segments” heuristic so it doesn’t return trivial “one segment”.
-
-4.4 textsplit backend (textsplit_v1)
-- Dependency: textsplit.
-- Backend design that avoids needing external embeddings:
-  - sentence-split
-  - build a deterministic “docmat” matrix from stable hashed bag-of-words sentence vectors
-  - call textsplit greedy/optimal segmentation to choose boundaries
-  - emit grouped sentences as steps
-- Avoid any internal random penalty search; choose `max_splits` deterministically (e.g., based on sentence count and target average sentences per step).
-
-4.5 DeepTiling backend (deeptiling_v1)
-- Dependency: a DeepTiling implementation (this is likely heavier and may involve neural embeddings).
-- Implement as an adapter backend:
-  - If DeepTiling lib/model is installed and configured, run it to propose boundaries on sentence units.
-  - Otherwise, fail fast with a clear “install + configure deeptiling backend” message.
-- Since it’s a secondary option for Priority 5, it can be labeled “experimental” in knob descriptions, but it must remain selectable for your benchmarking harness.:contentReference[oaicite:44]{index=44}
-
-4.6 Dependency management approach
-- Add these libraries as optional dependencies (extras), so base deterministic runs remain lightweight:
-  - base install supports `heuristic_v1`
-  - installing extras unlocks additional backends
-- Ensure selecting an unavailable backend yields a clear error message that points to the right extra.
-
-### 5) Tests
-
-5.1 Unit tests for segmentation logic
-- New tests file: `tests/test_step_segmentation.py` (or similar).
-- Include test cases mirroring Priority 5 heuristics:
-  1) Long single paragraph becomes multiple steps in `always` mode.
-  2) `auto` mode triggers on long paragraph but does NOT trigger for already step-split input.
-  3) Splits on numbering/bullets/newlines.
-  4) “For the frosting:” preserved as a standalone header step and not merged.
-  5) Tiny fragments merged back (e.g., “until smooth” merges to neighbor).
-  6) Safety cap: insane splits fall back (max steps).
-- Ensure deterministic outputs (no randomness).
-
-5.2 Integration test for staging conversion
-- Add/extend a test that constructs a minimal `RecipeCandidate` with:
-  - `instructions = ["For the sauce:\n1. Mix ... 2. Simmer ..."]` or a single paragraph with embedded markers
-- Run `recipe_candidate_to_draft_v1` with run settings:
-  - policy `always` and `heuristic_v1`
-- Assert that produced draft has expected number/order of steps and that header handling matches expectations.
-
-5.3 Optional-backend tests
-- For each optional backend:
-  - If dependency is installed in CI: assert it runs and produces non-empty steps.
-  - If dependency is not installed: assert selecting it yields a predictable error with a clear message.
-This keeps the backends benchmarkable without forcing heavy deps in every environment.
-
-### 6) Docs updates (minimal but important)
-
-6.1 Parsing docs
-- Update relevant parsing documentation to note:
-  - new run settings
-  - auto-trigger logic
-  - backends and the fact they are options (not replacements)
-  - relationship to sections extraction and JSON-LD instruction sections.
-
-6.2 Bench docs (optional but helpful)
-- Add a short note where knobs are enumerated that the step segmentation knobs exist and are categorical options.
-
----
+    cookimport stage data/input/priority5_long_instructions.txt --out /tmp/priority5-evidence --workers 1 --pdf-split-workers 1 --epub-split-workers 1 --instruction-step-segmentation-policy always --instruction-step-segmenter heuristic_v1
 
 ## Validation and Acceptance
 
-Acceptance criteria (must all be true):
+Acceptance criteria:
 
-A) Feature correctness (Priority 5)
-- With policy `auto`, a recipe with `instructions=["<very long paragraph with many sentences>"]` yields multiple steps and not a single giant step.
-- It splits on numbering/bullets/newlines first, then sentences as needed, and merges tiny fragments back.
-- A subheader like “For the frosting:” remains a distinct boundary and is not swallowed into step text.
-
-B) No-regression configurability
-- With policy `off`, staged outputs match prior behavior for step boundaries (or differ only where clearly intended).
-- Every new backend is an explicit option; none silently replaces the old path.
-
-C) Staging artifacts show the improvement
-Run a local stage with a known “bad segmentation” input and inspect artifacts:
-- `data/output/<ts>/final drafts/<workbook_slug>/r0.json` (step count/contents)
-- `data/output/<ts>/intermediate drafts/<workbook_slug>/r0.jsonld` (instruction sections when present)
-- `data/output/<ts>/sections/<workbook_slug>/r0.sections.json` and `sections.md` (headers recognized)
-These file locations are part of the canonical output layout.:contentReference[oaicite:48]{index=48}
-
-Concrete validation recipe (synthetic):
-1. Create a scratch text input under `data/input/stepseg_scratch.txt` with a single recipe whose instructions are one paragraph plus a “For the frosting:” header.
-2. Run (from repo root):
-   - source .venv/bin/activate
-   - cookimport stage data/input/stepseg_scratch.txt \
-       --instruction-step-segmentation-policy always \
-       --instruction-step-segmenter heuristic_v1
-3. Verify `final drafts/.../r0.json` has multiple steps and preserves the header as its own step boundary.
-
-D) Bench knob surfacing
-- `cookimport bench knobs` lists the two new knobs with defaults and descriptions.:contentReference[oaicite:49]{index=49}
-- A sweep can include these knobs (even if your current benchmark scoring doesn’t directly measure step boundaries, it must still be permutation-valid).
-
----
+1. `policy=off` preserves old step boundaries exactly.
+2. `policy=auto` splits suspicious long blobs but leaves already step-like recipes unchanged.
+3. Section headers (`For the X:` style) remain section boundaries and are not merged into neighboring sentences.
+4. Draft output, intermediate JSON-LD output, and section artifacts use consistent effective step boundaries.
+5. Run manifests/reports include segmentation policy/backend in run config payloads.
+6. `cookimport bench knobs` exposes both new knobs and benchmark config can set them.
 
 ## Idempotence and Recovery
 
 Idempotence:
-- Deterministic default backend (`heuristic_v1`) must be stable across runs for identical inputs and identical run settings.
-- Optional backends must be deterministic given fixed settings; if any backend requires randomness, set explicit seeds and/or avoid randomized search.
 
-Recovery / rollback:
-- If segmentation causes regressions for a source:
-  - set policy to `off` (restores importer boundaries)
-  - or keep policy `auto` but pick a different backend
-- For failed optional dependency:
-  - selecting that backend must fail fast with actionable “install extra” guidance; the system should not silently fall back to another backend (to preserve benchmark purity).
+- The default backend (`heuristic_v1`) must be fully deterministic for the same input and run settings.
+- `policy=off` is a strict no-op path for segmentation.
 
----
+Recovery:
 
-## Artifacts and Notes (what will change)
+- If segmentation behavior regresses a source, rerun with `--instruction-step-segmentation-policy off`.
+- If optional backend dependency is missing, use `heuristic_v1` immediately and keep the run deterministic.
 
-New/updated files (expected):
-- NEW: `cookimport/parsing/step_segmentation.py` (core implementation)
-- UPDATED:
-  - `cookimport/staging/draft_v1.py` (apply safety net before `parse_instruction`)
-  - `cookimport/staging/jsonld.py` (apply same effective instructions before section behavior):contentReference[oaicite:51]{index=51}
-  - `cookimport/config/run_settings.py` (new knobs)
-  - `cookimport/cli.py` (new flags)
-  - `cookimport/cli_ui/run_settings_flow.py`, `cookimport/cli_ui/toggle_editor.py` (interactive exposure)
-  - `cookimport/bench/knobs.py` (knob registry)
-- NEW tests:
-  - `tests/test_step_segmentation.py`
-  - plus integration tests near existing staging/draft conversion tests (pick the repo’s conventions).
+## Artifacts and Notes
 
-Optional dependencies (expected additions):
-- pySBD (Priority 5 recommended):contentReference[oaicite:53]{index=53}
-- NLTK TextTilingTokenizer / ruptures / textsplit / DeepTiling (Priority 5 secondary options):contentReference[oaicite:54]{index=54}
+Implemented code changes:
 
----
+- New file: `cookimport/parsing/step_segmentation.py`
+- Updated:
+  - `cookimport/config/run_settings.py`
+  - `cookimport/config/run_settings_adapters.py`
+  - `cookimport/cli.py`
+  - `cookimport/staging/draft_v1.py`
+  - `cookimport/staging/jsonld.py`
+  - `cookimport/staging/writer.py`
+  - `cookimport/cli_worker.py`
+  - `cookimport/labelstudio/ingest.py`
+  - `cookimport/bench/knobs.py`
+  - `cookimport/bench/pred_run.py`
+
+Implemented tests:
+
+- New: `tests/parsing/test_step_segmentation.py`
+- Updated:
+  - `tests/staging/test_section_outputs.py`
+  - `tests/llm/test_run_settings.py`
+  - `tests/bench/test_bench.py`
+  - plus any staging conversion tests impacted by instruction boundary changes.
 
 ## Interfaces and Dependencies
 
-User-facing configuration interface:
-- Stage CLI:
+New/updated external interfaces:
+
+- Stage CLI options:
   - `--instruction-step-segmentation-policy off|auto|always`
-  - `--instruction-step-segmenter heuristic_v1|pysbd_v1|nltk_texttiling_v1|ruptures_v1|textsplit_v1|deeptiling_v1`
-- Interactive editor:
-  - same two knobs with dropdown choices
-- Bench knobs:
-  - same two knobs visible via `cookimport bench knobs` and usable in sweeps/configs.:contentReference[oaicite:55]{index=55}
+  - `--instruction-step-segmenter heuristic_v1|pysbd_v1`
+- Benchmark/prediction generation options mirror the same names/choices.
+- Run settings fields use the same canonical keys for stage, benchmark, and saved last-run settings.
 
-Dependency boundaries:
-- Base deterministic behavior (heuristic_v1) must work with no new third-party deps.
-- Optional backends must be isolated behind conditional imports (import only when selected).
-- Ensure stage worker multiprocessing remains stable: instantiate backend objects inside worker codepaths, not in global module scope, and don’t store them in RunSettings (pickle safety).
+Dependencies:
 
-Implementation dependency notes:
-- `sections.py` is conservative and used by step-ingredient linking; better segmentation should improve section header recognition and section-aware matching, but do not loosen section heuristics as part of this priority. 
+- Required: none beyond current deterministic runtime for `heuristic_v1`.
+- Optional: `pysbd` only for `pysbd_v1` backend.
+- No LLM-based parsing/cleaning is introduced.
 
----
+## Revision Notes
 
-## Plan Checklist (wiring anti-regression)
-
-Follow the repo’s pipeline-option wiring checklist when adding knobs:
-- Add to RunSettings
-- Add CLI flags in stage
-- Add to interactive settings editor
-- Ensure propagation into Label Studio benchmark/prediction generation path
-- Ensure bench knobs listing/sweep support
-- Ensure run-config summary/hash includes it
-This checklist is explicitly documented and should be treated as mandatory wiring hygiene.
+- 2026-02-27_22.24.59 (Codex GPT-5): Rewrote this ExecPlan from a stale pre-implementation draft to a current, code-verified plan.
+- 2026-02-27_22.38.32 (Codex GPT-5): Refreshed this ExecPlan after a second full code/docs audit, added baseline test evidence, documented the current benchmark knob surface, and linked a new Priority-5 wiring audit note under `docs/understandings/`.
+- 2026-02-27_23.21.17 (Codex GPT-5): Converted this file to a true post-implementation record by removing contradictory pre-implementation observations, updating orientation to the shipped architecture, and syncing validation/workstream wording with the completed Priority-5 delivery.

@@ -51,7 +51,7 @@ def _write_fake_all_method_prediction_phase_artifacts(
                         "block_index": 0,
                         "pred_label": "RECIPE_TITLE",
                         "block_text": f"pred::{record_text}",
-                        "block_features": {"extractor": extractor},
+                        "block_features": {"signature_seed": record_text},
                     },
                     predict_meta={
                         "source_file": str(source_file),
@@ -1876,6 +1876,11 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_offline_
     monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
     monkeypatch.setattr(cli, "_load_settings", lambda: {})
+    monkeypatch.setattr(
+        cli,
+        "choose_run_settings",
+        lambda **kwargs: kwargs["global_defaults"],
+    )
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
     monkeypatch.setattr(
         cli,
@@ -3552,11 +3557,11 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
             eval_output_dir=eval_root,
             no_upload=True,
             eval_mode="canonical-text",
-            sequence_matcher="stdlib",
+            sequence_matcher="dmp",
         )
 
     assert captured_eval["gold_export_root"] == gold_spans.parent
-    assert captured_eval["sequence_matcher_env"] == "stdlib"
+    assert captured_eval["sequence_matcher_env"] == "dmp"
     assert captured_csv["eval_scope"] == "canonical-text"
     timing = captured_csv.get("timing")
     assert isinstance(timing, dict)
@@ -3580,7 +3585,7 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
     assert evaluate_finished_events[-1]["gold_load_seconds"] == pytest.approx(0.34)
     run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
     assert run_manifest["run_config"]["eval_mode"] == "canonical-text"
-    assert run_manifest["run_config"]["sequence_matcher"] == "stdlib"
+    assert run_manifest["run_config"]["sequence_matcher"] == "dmp"
 
 
 def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
@@ -3973,9 +3978,21 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
         eval_output_dir=tmp_path / "eval",
         allow_labelstudio_write=True,
         epub_extractor="beautifulsoup",
+        section_detector_backend="shared_v1",
+        multi_recipe_splitter="rules_v1",
+        multi_recipe_trace=True,
+        multi_recipe_min_ingredient_lines=2,
+        multi_recipe_min_instruction_lines=2,
+        multi_recipe_for_the_guardrail=False,
     )
 
     assert captured["runtime_epub_extractor"] == "beautifulsoup"
+    assert captured["section_detector_backend"] == "shared_v1"
+    assert captured["multi_recipe_splitter"] == "rules_v1"
+    assert captured["multi_recipe_trace"] is True
+    assert captured["multi_recipe_min_ingredient_lines"] == 2
+    assert captured["multi_recipe_min_instruction_lines"] == 2
+    assert captured["multi_recipe_for_the_guardrail"] is False
     assert os.environ.get("C3IMP_EPUB_EXTRACTOR") == "unstructured"
 
 
@@ -4032,6 +4049,87 @@ def test_build_all_method_variants_non_epub_single_variant() -> None:
     )
     assert len(variants) == 1
     assert variants[0].dimensions["source_extension"] == ".pdf"
+
+
+def test_build_all_method_variants_include_multi_recipe_dimension_when_non_legacy() -> None:
+    base_settings = cli.RunSettings.from_dict(
+        {"multi_recipe_splitter": "rules_v1"},
+        warn_context="test",
+    )
+    variants = cli._build_all_method_variants(
+        base_settings=base_settings,
+        source_file=Path("book.pdf"),
+        include_codex_farm=False,
+    )
+
+    assert len(variants) == 1
+    assert variants[0].dimensions["multi_recipe_splitter"] == "rules_v1"
+    assert "__multi_recipe_rules_v1" in variants[0].slug
+
+
+def test_build_all_method_variants_html_webschema_policy_matrix() -> None:
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variants = cli._build_all_method_variants(
+        base_settings=base_settings,
+        source_file=Path("page.html"),
+        include_codex_farm=False,
+    )
+
+    assert len(variants) == 3
+    assert {variant.dimensions["web_schema_policy"] for variant in variants} == {
+        "prefer_schema",
+        "schema_only",
+        "heuristic_only",
+    }
+
+
+def test_build_all_method_variants_non_schema_json_single_variant(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "payload.json"
+    source.write_text('{"kind":"not-a-recipe"}', encoding="utf-8")
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+
+    variants = cli._build_all_method_variants(
+        base_settings=base_settings,
+        source_file=source,
+        include_codex_farm=False,
+    )
+
+    assert len(variants) == 1
+    assert variants[0].dimensions["source_extension"] == ".json"
+
+
+def test_build_all_method_variants_schema_json_webschema_policy_matrix(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "schema.json"
+    source.write_text(
+        json.dumps(
+            {
+                "@context": "https://schema.org",
+                "@type": "Recipe",
+                "name": "Toast",
+                "recipeIngredient": ["1 slice bread"],
+                "recipeInstructions": ["Toast bread."],
+            }
+        ),
+        encoding="utf-8",
+    )
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+
+    variants = cli._build_all_method_variants(
+        base_settings=base_settings,
+        source_file=source,
+        include_codex_farm=False,
+    )
+
+    assert len(variants) == 3
+    assert {variant.dimensions["web_schema_policy"] for variant in variants} == {
+        "prefer_schema",
+        "schema_only",
+        "heuristic_only",
+    }
 
 
 def test_resolve_all_method_codex_choice_remains_disabled(
@@ -4426,6 +4524,343 @@ def test_resolve_all_method_split_worker_cap_uses_cpu_and_memory(
     assert guard["split_worker_cap_per_config"] == 1
 
 
+def test_build_all_method_eval_signature_is_stable_for_same_payload(tmp_path: Path) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_export_root = tmp_path / "gold" / "exports"
+    gold_export_root.mkdir(parents=True, exist_ok=True)
+    gold_spans = gold_export_root / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    (gold_export_root / "canonical_text.txt").write_text("Title", encoding="utf-8")
+    (gold_export_root / "canonical_span_labels.jsonl").write_text("{}\n", encoding="utf-8")
+    (gold_export_root / "canonical_manifest.json").write_text("{}", encoding="utf-8")
+
+    predictions_path = tmp_path / "prediction-records.jsonl"
+    write_prediction_records(
+        predictions_path,
+        [
+            make_prediction_record(
+                example_id="sig:stable:0",
+                example_index=0,
+                prediction={
+                    "schema_kind": "stage-block.v1",
+                    "block_index": 0,
+                    "pred_label": "RECIPE_TITLE",
+                    "block_text": "Title",
+                    "block_features": {},
+                },
+                predict_meta={
+                    "source_file": str(source_file),
+                    "source_hash": "hash-1",
+                    "workbook_slug": "book",
+                },
+            )
+        ],
+    )
+
+    signature_a = cli._build_all_method_eval_signature(
+        gold_spans_path=gold_spans,
+        prediction_record_path=predictions_path,
+        eval_mode=cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        sequence_matcher="dmp",
+    )
+    signature_b = cli._build_all_method_eval_signature(
+        gold_spans_path=gold_spans,
+        prediction_record_path=predictions_path,
+        eval_mode=cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        sequence_matcher="dmp",
+    )
+
+    assert signature_a == signature_b
+
+
+def test_build_all_method_eval_signature_changes_when_inputs_change(tmp_path: Path) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_export_root = tmp_path / "gold" / "exports"
+    gold_export_root.mkdir(parents=True, exist_ok=True)
+    gold_spans = gold_export_root / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    (gold_export_root / "canonical_text.txt").write_text("Title", encoding="utf-8")
+    (gold_export_root / "canonical_span_labels.jsonl").write_text("{}\n", encoding="utf-8")
+    (gold_export_root / "canonical_manifest.json").write_text("{}", encoding="utf-8")
+
+    predictions_a = tmp_path / "prediction-a.jsonl"
+    predictions_b = tmp_path / "prediction-b.jsonl"
+    write_prediction_records(
+        predictions_a,
+        [
+            make_prediction_record(
+                example_id="sig:a:0",
+                example_index=0,
+                prediction={
+                    "schema_kind": "stage-block.v1",
+                    "block_index": 0,
+                    "pred_label": "RECIPE_TITLE",
+                    "block_text": "Title A",
+                    "block_features": {},
+                },
+                predict_meta={"source_file": str(source_file), "source_hash": "hash-1"},
+            )
+        ],
+    )
+    write_prediction_records(
+        predictions_b,
+        [
+            make_prediction_record(
+                example_id="sig:b:0",
+                example_index=0,
+                prediction={
+                    "schema_kind": "stage-block.v1",
+                    "block_index": 0,
+                    "pred_label": "RECIPE_TITLE",
+                    "block_text": "Title B",
+                    "block_features": {},
+                },
+                predict_meta={"source_file": str(source_file), "source_hash": "hash-1"},
+            )
+        ],
+    )
+
+    base_signature = cli._build_all_method_eval_signature(
+        gold_spans_path=gold_spans,
+        prediction_record_path=predictions_a,
+        eval_mode=cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        sequence_matcher="dmp",
+    )
+    changed_prediction_signature = cli._build_all_method_eval_signature(
+        gold_spans_path=gold_spans,
+        prediction_record_path=predictions_b,
+        eval_mode=cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        sequence_matcher="dmp",
+    )
+    gold_spans.write_text('{"changed":true}\n', encoding="utf-8")
+    changed_gold_signature = cli._build_all_method_eval_signature(
+        gold_spans_path=gold_spans,
+        prediction_record_path=predictions_a,
+        eval_mode=cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        sequence_matcher="dmp",
+    )
+
+    assert base_signature != changed_prediction_signature
+    assert base_signature != changed_gold_signature
+
+
+def test_run_all_method_evaluate_prediction_record_once_preserves_fail_message(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    expected_error = "Unable to load prediction record from /tmp/preds.jsonl: malformed record"
+
+    def fake_labelstudio_benchmark(**_kwargs):
+        cli._fail(expected_error)
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    summary = cli._run_all_method_evaluate_prediction_record_once(
+        gold_spans_path=tmp_path / "gold.jsonl",
+        source_file=tmp_path / "book.epub",
+        prediction_record_path=tmp_path / "predictions.jsonl",
+        eval_output_dir=tmp_path / "eval",
+        processed_output_dir=tmp_path / "processed",
+        sequence_matcher="dmp",
+        epub_extractor="unstructured",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        alignment_cache_dir=None,
+    )
+
+    assert summary["status"] == "failed"
+    assert summary["error"] == expected_error
+    assert summary["error"] != "1"
+
+
+def test_run_all_method_benchmark_dedupes_eval_by_signature(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_payload = base_settings.to_run_config_dict()
+    extractors = ("unstructured", "beautifulsoup", "markdown")
+    variants = [
+        cli.AllMethodVariant(
+            slug=f"extractor_{extractor}",
+            run_settings=cli.RunSettings.from_dict(
+                {**base_payload, "epub_extractor": extractor},
+                warn_context="test",
+            ),
+            dimensions={"epub_extractor": extractor},
+        )
+        for extractor in extractors
+    ]
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_export_root = tmp_path / "gold" / "exports"
+    gold_export_root.mkdir(parents=True, exist_ok=True)
+    gold_spans = gold_export_root / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    (gold_export_root / "canonical_text.txt").write_text("Title", encoding="utf-8")
+    (gold_export_root / "canonical_span_labels.jsonl").write_text("{}\n", encoding="utf-8")
+    (gold_export_root / "canonical_manifest.json").write_text("{}", encoding="utf-8")
+
+    signature_seed_by_extractor = {
+        "unstructured": "shared",
+        "beautifulsoup": "shared",
+        "markdown": "unique",
+    }
+    score_by_extractor = {
+        "unstructured": 0.55,
+        "beautifulsoup": 0.33,
+        "markdown": 0.88,
+    }
+    eval_calls: list[str] = []
+
+    def fake_labelstudio_benchmark(**kwargs):
+        extractor = str(kwargs.get("epub_extractor") or "unstructured")
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        if str(kwargs.get("execution_mode") or "") == "predict-only":
+            _write_fake_all_method_prediction_phase_artifacts(
+                kwargs=kwargs,
+                source_file=source_file,
+                extractor=extractor,
+                signature_seed=signature_seed_by_extractor[extractor],
+            )
+            return
+        eval_calls.append(extractor)
+        _write_fake_all_method_eval_artifacts(
+            eval_output_dir=eval_output_dir,
+            score=score_by_extractor[extractor],
+            total_seconds=2.0,
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+
+    report_md_path = cli._run_all_method_benchmark(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variants=variants,
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method",
+        processed_output_root=tmp_path / "processed-output",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_inflight_pipelines=3,
+        max_concurrent_split_phases=2,
+    )
+
+    payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
+    assert payload["evaluation_signatures_unique"] == 2
+    assert payload["evaluation_runs_executed"] == 2
+    assert payload["evaluation_results_reused_in_run"] == 1
+    assert payload["evaluation_results_reused_cross_run"] == 0
+    assert len(eval_calls) == 2
+
+    rows_by_slug = {
+        row.get("slug"): row
+        for row in payload["variants"]
+        if row.get("status") == "ok"
+    }
+    shared_rep = rows_by_slug["extractor_unstructured"]
+    shared_dup = rows_by_slug["extractor_beautifulsoup"]
+    assert shared_rep["evaluation_result_source"] == "executed"
+    assert shared_dup["evaluation_result_source"] == "reused_in_run"
+    assert shared_rep["eval_signature"] == shared_dup["eval_signature"]
+    assert shared_rep["f1"] == pytest.approx(shared_dup["f1"])
+
+
+def test_run_all_method_benchmark_reuses_signature_cache_across_runs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variants = [
+        cli.AllMethodVariant(
+            slug="extractor_unstructured",
+            run_settings=settings,
+            dimensions={"epub_extractor": "unstructured"},
+        )
+    ]
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_export_root = tmp_path / "gold" / "exports"
+    gold_export_root.mkdir(parents=True, exist_ok=True)
+    gold_spans = gold_export_root / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    (gold_export_root / "canonical_text.txt").write_text("Title", encoding="utf-8")
+    (gold_export_root / "canonical_span_labels.jsonl").write_text("{}\n", encoding="utf-8")
+    (gold_export_root / "canonical_manifest.json").write_text("{}", encoding="utf-8")
+
+    eval_call_count = 0
+
+    def fake_labelstudio_benchmark(**kwargs):
+        nonlocal eval_call_count
+        extractor = str(kwargs.get("epub_extractor") or "unstructured")
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        if str(kwargs.get("execution_mode") or "") == "predict-only":
+            _write_fake_all_method_prediction_phase_artifacts(
+                kwargs=kwargs,
+                source_file=source_file,
+                extractor=extractor,
+                signature_seed="shared",
+            )
+            return
+        eval_call_count += 1
+        _write_fake_all_method_eval_artifacts(
+            eval_output_dir=eval_output_dir,
+            score=0.77,
+            total_seconds=1.5,
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+
+    shared_alignment_cache_dir = (
+        tmp_path / "shared-cache" / "canonical_alignment" / "book_source"
+    )
+
+    first_report_md = cli._run_all_method_benchmark(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variants=variants,
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method-run-1",
+        processed_output_root=tmp_path / "processed-1",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        canonical_alignment_cache_dir_override=shared_alignment_cache_dir,
+    )
+    first_payload = json.loads(first_report_md.with_suffix(".json").read_text(encoding="utf-8"))
+    assert first_payload["evaluation_runs_executed"] == 1
+    assert first_payload["evaluation_results_reused_cross_run"] == 0
+
+    second_report_md = cli._run_all_method_benchmark(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variants=variants,
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method-run-2",
+        processed_output_root=tmp_path / "processed-2",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        canonical_alignment_cache_dir_override=shared_alignment_cache_dir,
+    )
+    second_payload = json.loads(second_report_md.with_suffix(".json").read_text(encoding="utf-8"))
+
+    assert eval_call_count == 1
+    assert second_payload["evaluation_runs_executed"] == 0
+    assert second_payload["evaluation_results_reused_cross_run"] == 1
+    cache_root = tmp_path / "shared-cache" / "eval_signature_results" / "book_source"
+    assert cache_root.exists()
+    assert list(cache_root.glob("*.json"))
+
+
 def test_run_all_method_benchmark_resource_guard_caps_split_workers(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -4643,13 +5078,12 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
             active_count += 1
             max_active = max(max_active, active_count)
         try:
-            assert cli._BENCHMARK_SPLIT_PHASE_SLOTS.get() == 2
-            assert cli._BENCHMARK_SPLIT_PHASE_GATE_DIR.get()
-
             extractor = str(kwargs.get("epub_extractor") or "")
             eval_output_dir = kwargs["eval_output_dir"]
             assert isinstance(eval_output_dir, Path)
             if str(kwargs.get("execution_mode") or "") == "predict-only":
+                assert cli._BENCHMARK_SPLIT_PHASE_SLOTS.get() == 2
+                assert cli._BENCHMARK_SPLIT_PHASE_GATE_DIR.get()
                 time.sleep(delays[extractor])
                 _write_fake_all_method_prediction_phase_artifacts(
                     kwargs=kwargs,
@@ -5018,51 +5452,34 @@ def test_run_all_method_benchmark_writes_scheduler_timeseries(
 
     def fake_labelstudio_benchmark(**kwargs):
         callback = cli._BENCHMARK_SCHEDULER_EVENT_CALLBACK.get()
-        if callback is not None:
-            callback({"event": "prep_started"})
-            time.sleep(0.03)
-            callback({"event": "split_wait_started"})
-            time.sleep(0.03)
-            callback({"event": "split_wait_finished"})
-            callback({"event": "split_active_started"})
-            time.sleep(0.03)
-            callback({"event": "split_active_finished"})
-            callback({"event": "post_started"})
-            time.sleep(0.03)
-            callback({"event": "post_finished"})
-            callback({"event": "evaluate_started"})
-            time.sleep(0.03)
-            callback({"event": "evaluate_finished"})
-
+        extractor = str(kwargs.get("epub_extractor") or "unstructured")
+        if str(kwargs.get("execution_mode") or "") == "predict-only":
+            if callback is not None:
+                callback({"event": "prep_started"})
+                time.sleep(0.03)
+                callback({"event": "split_wait_started"})
+                time.sleep(0.03)
+                callback({"event": "split_wait_finished"})
+                callback({"event": "split_active_started"})
+                time.sleep(0.03)
+                callback({"event": "split_active_finished"})
+                callback({"event": "post_started"})
+                time.sleep(0.03)
+                callback({"event": "post_finished"})
+                callback({"event": "evaluate_started"})
+                time.sleep(0.03)
+                callback({"event": "evaluate_finished"})
+            _write_fake_all_method_prediction_phase_artifacts(
+                kwargs=kwargs,
+                source_file=source_file,
+                extractor=extractor,
+            )
+            return
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
-        eval_output_dir.mkdir(parents=True, exist_ok=True)
-        report = {
-            "precision": 0.7,
-            "recall": 0.7,
-            "f1": 0.7,
-            "practical_precision": 0.7,
-            "practical_recall": 0.7,
-            "practical_f1": 0.7,
-        }
-        (eval_output_dir / "eval_report.json").write_text(
-            json.dumps(report, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
-        pred_run = eval_output_dir / "prediction-run"
-        pred_run.mkdir(parents=True, exist_ok=True)
-        (pred_run / "manifest.json").write_text(
-            json.dumps(
-                {
-                    "source_file": str(source_file),
-                    "run_config_hash": "hash-v",
-                    "run_config_summary": "config=v",
-                },
-                indent=2,
-                sort_keys=True,
-            ),
-            encoding="utf-8",
+        _write_fake_all_method_eval_artifacts(
+            eval_output_dir=eval_output_dir,
+            score=0.7,
         )
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
@@ -5150,37 +5567,20 @@ def test_run_all_method_benchmark_falls_back_to_serial_when_executor_unavailable
 
     def fake_labelstudio_benchmark(**kwargs):
         nonlocal call_count
-        call_count += 1
         extractor = str(kwargs.get("epub_extractor") or "")
+        if str(kwargs.get("execution_mode") or "") == "predict-only":
+            call_count += 1
+            _write_fake_all_method_prediction_phase_artifacts(
+                kwargs=kwargs,
+                source_file=source_file,
+                extractor=extractor,
+            )
+            return
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
-        eval_output_dir.mkdir(parents=True, exist_ok=True)
-        report = {
-            "precision": 0.7,
-            "recall": 0.7,
-            "f1": 0.7,
-            "practical_precision": 0.7,
-            "practical_recall": 0.7,
-            "practical_f1": 0.7,
-        }
-        (eval_output_dir / "eval_report.json").write_text(
-            json.dumps(report, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
-        pred_run = eval_output_dir / "prediction-run"
-        pred_run.mkdir(parents=True, exist_ok=True)
-        (pred_run / "manifest.json").write_text(
-            json.dumps(
-                {
-                    "source_file": str(source_file),
-                    "run_config_hash": f"hash-{extractor}",
-                    "run_config_summary": f"epub_extractor={extractor}",
-                },
-                indent=2,
-                sort_keys=True,
-            ),
-            encoding="utf-8",
+        _write_fake_all_method_eval_artifacts(
+            eval_output_dir=eval_output_dir,
+            score=0.7,
         )
 
     messages: list[str] = []
@@ -5301,6 +5701,7 @@ def test_run_all_method_benchmark_multi_source_writes_combined_summary_with_fail
         processed_output_root=tmp_path / "processed-root",
         overlap_threshold=0.5,
         force_source_match=False,
+        scheduler_scope=cli.ALL_METHOD_SCHEDULER_SCOPE_LEGACY,
     )
 
     payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
@@ -5392,6 +5793,7 @@ def test_run_all_method_benchmark_multi_source_forwards_dashboard_snapshots_with
         force_source_match=False,
         progress_callback=emitted_messages.append,
         dashboard=dashboard,
+        scheduler_scope=cli.ALL_METHOD_SCHEDULER_SCOPE_LEGACY,
     )
 
     assert any(message.startswith("overall source ") for message in emitted_messages)
@@ -5487,6 +5889,7 @@ def test_run_all_method_benchmark_multi_source_rerenders_partial_dashboard_snaps
         force_source_match=False,
         progress_callback=emitted_messages.append,
         dashboard=dashboard,
+        scheduler_scope=cli.ALL_METHOD_SCHEDULER_SCOPE_LEGACY,
     )
 
     dashboard_messages = [
@@ -5620,6 +6023,7 @@ def test_run_all_method_benchmark_multi_source_parallel_cap_and_ordering(
         overlap_threshold=0.5,
         force_source_match=False,
         max_parallel_sources=2,
+        scheduler_scope=cli.ALL_METHOD_SCHEDULER_SCOPE_LEGACY,
     )
 
     payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
@@ -5736,6 +6140,7 @@ def test_run_all_method_benchmark_multi_source_shards_source_and_reuses_cache_ov
         source_shard_threshold_seconds=1000.0,
         source_shard_max_parts=3,
         source_shard_min_variants=2,
+        scheduler_scope=cli.ALL_METHOD_SCHEDULER_SCOPE_LEGACY,
     )
 
     assert len(cache_overrides) == 3
@@ -5848,10 +6253,128 @@ def test_run_all_method_benchmark_multi_source_batches_dashboard_refresh_when_pa
         overlap_threshold=0.5,
         force_source_match=False,
         max_parallel_sources=2,
+        scheduler_scope=cli.ALL_METHOD_SCHEDULER_SCOPE_LEGACY,
     )
 
     assert per_source_refresh_values == [False, False]
     assert len(batch_refresh_calls) == 1
+
+
+def test_run_all_method_benchmark_multi_source_defaults_to_global_scheduler_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("x", encoding="utf-8")
+    gold = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold.parent.mkdir(parents=True, exist_ok=True)
+    gold.write_text("{}\n", encoding="utf-8")
+    target_variants = [
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold,
+                source_file=source,
+                source_file_name=source.name,
+                gold_display="gold",
+            ),
+            [
+                cli.AllMethodVariant(
+                    slug="extractor_unstructured",
+                    run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+                    dimensions={"epub_extractor": "unstructured"},
+                )
+            ],
+        )
+    ]
+
+    expected_report_path = tmp_path / "global.md"
+    captured: dict[str, object] = {}
+
+    def fake_global_queue(**kwargs):
+        captured.update(kwargs)
+        return expected_report_path
+
+    monkeypatch.setattr(cli, "_run_all_method_benchmark_global_queue", fake_global_queue)
+    monkeypatch.setattr(
+        cli,
+        "_run_all_method_benchmark_multi_source_legacy",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Default scheduler scope should dispatch to global queue.")
+        ),
+    )
+
+    report_md_path = cli._run_all_method_benchmark_multi_source(
+        target_variants=target_variants,
+        unmatched_targets=[],
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method-root",
+        processed_output_root=tmp_path / "processed-root",
+        overlap_threshold=0.5,
+        force_source_match=False,
+    )
+
+    assert report_md_path == expected_report_path
+    assert captured["target_variants"] == target_variants
+
+
+def test_run_all_method_benchmark_multi_source_dispatches_legacy_scheduler_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("x", encoding="utf-8")
+    gold = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold.parent.mkdir(parents=True, exist_ok=True)
+    gold.write_text("{}\n", encoding="utf-8")
+    target_variants = [
+        (
+            cli.AllMethodTarget(
+                gold_spans_path=gold,
+                source_file=source,
+                source_file_name=source.name,
+                gold_display="gold",
+            ),
+            [
+                cli.AllMethodVariant(
+                    slug="extractor_unstructured",
+                    run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+                    dimensions={"epub_extractor": "unstructured"},
+                )
+            ],
+        )
+    ]
+
+    expected_report_path = tmp_path / "legacy.md"
+    captured: dict[str, object] = {}
+
+    def fake_legacy(**kwargs):
+        captured.update(kwargs)
+        return expected_report_path
+
+    monkeypatch.setattr(cli, "_run_all_method_benchmark_multi_source_legacy", fake_legacy)
+    monkeypatch.setattr(
+        cli,
+        "_run_all_method_benchmark_global_queue",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Legacy scheduler scope should not dispatch to global queue.")
+        ),
+    )
+
+    report_md_path = cli._run_all_method_benchmark_multi_source(
+        target_variants=target_variants,
+        unmatched_targets=[],
+        include_codex_farm_requested=False,
+        include_codex_farm_effective=False,
+        root_output_dir=tmp_path / "all-method-root",
+        processed_output_root=tmp_path / "processed-root",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        scheduler_scope=cli.ALL_METHOD_SCHEDULER_SCOPE_LEGACY,
+    )
+
+    assert report_md_path == expected_report_path
+    assert captured["target_variants"] == target_variants
 
 
 def test_interactive_all_method_benchmark_uses_timestamped_output_root(

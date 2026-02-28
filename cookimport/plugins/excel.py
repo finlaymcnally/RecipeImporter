@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from openpyxl import load_workbook
 from openpyxl.utils.cell import range_boundaries
@@ -22,12 +23,21 @@ from cookimport.core.models import (
     WorkbookInspection,
 )
 from cookimport.core.reporting import compute_file_hash
-from cookimport.core.scoring import score_recipe_candidate
+from cookimport.core.scoring import (
+    build_recipe_scoring_debug_row,
+    recipe_gate_action,
+    score_recipe_likeness,
+    summarize_recipe_likeness,
+)
+from cookimport.parsing.text_section_extract import extract_sections_from_text_blob
 from cookimport.parsing.tips import (
     extract_tip_candidates_from_candidate,
     partition_tip_candidates,
 )
 from cookimport.plugins import registry
+
+if TYPE_CHECKING:
+    from cookimport.config.run_settings import RunSettings
 
 _HEADER_ALIASES = {
     "name": ["name", "title", "recipe", "recipe name"],
@@ -42,12 +52,6 @@ _HEADER_ALIASES = {
 _SECTION_INGREDIENTS = ("ingredient", "ingredients", "ing")
 _SECTION_INSTRUCTIONS = ("instruction", "instructions", "direction", "directions", "method", "step", "steps")
 _SECTION_NOTES = ("note", "notes", "tip", "tips")
-
-# Regex for detecting section headers in text blobs (e.g., "Ingredients:", "INSTRUCTIONS", "Notes")
-_SECTION_HEADER_RE = re.compile(
-    r"^\s*(ingredients?|instructions?|directions?|method|steps?|preparation|notes?|tips?)\s*:?\s*$",
-    re.IGNORECASE,
-)
 
 _ALIAS_LOOKUP: dict[str, str] = {}
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -126,6 +130,7 @@ class ExcelImporter:
         path: Path,
         mapping: MappingConfig | None,
         progress_callback: Callable[[str], None] | None = None,
+        run_settings: RunSettings | None = None,
     ) -> ConversionResult:
         if mapping is None:
             if progress_callback:
@@ -144,6 +149,10 @@ class ExcelImporter:
         report = ConversionReport(mappingUsed=mapping)
         recipes: list[RecipeCandidate] = []
         raw_artifacts: list[RawArtifact] = []
+        non_recipe_blocks: list[dict[str, Any]] = []
+        recipe_likeness_results = []
+        recipe_scoring_debug_rows: list[dict[str, Any]] = []
+        rejected_candidate_count = 0
         file_hash = compute_file_hash(path)
         overrides = mapping.parsing_overrides if mapping else None
         try:
@@ -204,10 +213,8 @@ class ExcelImporter:
                     sheet_recipes
                 )
 
-            for recipe in recipes:
-                if recipe.confidence is None:
-                    recipe.confidence = score_recipe_candidate(recipe)
-
+            accepted_recipes: list[RecipeCandidate] = []
+            for index, recipe in enumerate(recipes):
                 if not recipe.identifier:
                     provenance = recipe.provenance or {}
                     sheet_name = str(provenance.get("sheet") or "sheet")
@@ -217,6 +224,59 @@ class ExcelImporter:
                     recipe.identifier = recipe_id
                     provenance.setdefault("@id", recipe_id)
                     recipe.provenance = provenance
+
+                likeness = score_recipe_likeness(recipe, settings=run_settings)
+                gate_action = recipe_gate_action(likeness, settings=run_settings)
+                recipe.recipe_likeness = likeness
+                recipe.confidence = likeness.score
+                recipe_likeness_results.append(likeness)
+
+                provenance = recipe.provenance or {}
+                location = {
+                    "sheet": provenance.get("sheet"),
+                    "row_index": provenance.get("row_index"),
+                    "chunk_index": index,
+                }
+                recipe_scoring_debug_rows.append(
+                    build_recipe_scoring_debug_row(
+                        candidate=recipe,
+                        result=likeness,
+                        gate_action=gate_action,
+                        candidate_index=index,
+                        location=location,
+                        importer="excel",
+                        source_hash=file_hash,
+                    )
+                )
+
+                if gate_action == "reject":
+                    rejected_candidate_count += 1
+                    rejected_text = "\n".join(
+                        [
+                            recipe.name,
+                            "Ingredients:",
+                            *recipe.ingredients,
+                            "Instructions:",
+                            *[str(step) for step in recipe.instructions],
+                        ]
+                    ).strip()
+                    if rejected_text:
+                        non_recipe_blocks.append(
+                            {
+                                "index": len(non_recipe_blocks),
+                                "text": rejected_text,
+                                "location": location,
+                                "features": {
+                                    "source": "rejected_recipe_candidate",
+                                    "gate_action": gate_action,
+                                    "score": likeness.score,
+                                    "tier": likeness.tier.value,
+                                },
+                            }
+                        )
+                    continue
+
+                accepted_recipes.append(recipe)
 
                 provenance = recipe.provenance or {}
                 original_row = provenance.get("original_row")
@@ -235,6 +295,23 @@ class ExcelImporter:
                             },
                         )
                     )
+
+            recipes = accepted_recipes
+
+            if recipe_scoring_debug_rows:
+                raw_artifacts.append(
+                    RawArtifact(
+                        importer="excel",
+                        sourceHash=file_hash,
+                        locationId="recipe_scoring_debug",
+                        extension="jsonl",
+                        content="\n".join(
+                            json.dumps(row, sort_keys=True)
+                            for row in recipe_scoring_debug_rows
+                        ),
+                        metadata={"artifact_type": "recipe_scoring_debug"},
+                    )
+                )
 
             extracted_rows: list[dict[str, Any]] = []
             for artifact in raw_artifacts:
@@ -277,6 +354,17 @@ class ExcelImporter:
             report.total_general_tips = len(tips)
             report.total_recipe_specific_tips = len(recipe_specific)
             report.total_not_tips = len(not_tips)
+            report.recipe_likeness = summarize_recipe_likeness(
+                recipe_likeness_results,
+                rejected_candidate_count,
+                settings=run_settings,
+            )
+            report.per_sheet_counts = {}
+            for recipe in recipes:
+                sheet_name = str((recipe.provenance or {}).get("sheet") or "sheet")
+                report.per_sheet_counts[sheet_name] = report.per_sheet_counts.get(
+                    sheet_name, 0
+                ) + 1
             report.samples = [
                 {"name": recipe.name, "sheet": recipe.provenance.get("sheet")}
                 for recipe in recipes[:3]
@@ -287,6 +375,7 @@ class ExcelImporter:
                 recipes=recipes,
                 tips=tips,
                 tipCandidates=tip_candidates,
+                nonRecipeBlocks=non_recipe_blocks,
                 rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem,
@@ -620,65 +709,12 @@ def _extract_sections_from_blob(
     text: str,
     mapping: MappingConfig | None,
 ) -> dict[str, list[str]]:
-    """
-    Parse a text blob containing section headers into ingredients/instructions/notes.
-
-    Detects headers like:
-    - "Ingredients", "INGREDIENTS", "Ingredients:"
-    - "Instructions", "Directions", "Method", "Steps"
-    - "Notes", "NOTES", "Tips"
-
-    Returns dict with keys: 'ingredients', 'instructions', 'notes'
-    If no section headers found, returns empty dict (caller should fall back).
-    """
-    normalized = _normalize_text(str(text))
-    lines = normalized.split("\n")
-
-    sections: dict[str, list[str]] = {
-        "ingredients": [],
-        "instructions": [],
-        "notes": [],
-    }
-    current_section: str | None = None
-    found_any_header = False
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-
-        # Check if this line is a section header
-        match = _SECTION_HEADER_RE.match(stripped)
-        if match:
-            header = match.group(1).lower()
-            found_any_header = True
-            # Map header to section key
-            if header in ("ingredient", "ingredients"):
-                current_section = "ingredients"
-            elif header in ("instruction", "instructions", "direction", "directions", "method", "step", "steps", "preparation"):
-                current_section = "instructions"
-            elif header in ("note", "notes", "tip", "tips"):
-                current_section = "notes"
-            continue
-
-        # Accumulate line under current section
-        if current_section:
-            if current_section == "ingredients":
-                normalized_line = _normalize_ingredient_line(stripped)
-                if normalized_line:
-                    sections["ingredients"].append(normalized_line)
-            elif current_section == "instructions":
-                normalized_line = _normalize_instruction_line(stripped)
-                if normalized_line:
-                    sections["instructions"].append(normalized_line)
-            elif current_section == "notes":
-                sections["notes"].append(stripped)
-
-    # If no headers were found, return empty dict to signal fallback
-    if not found_any_header:
-        return {}
-
-    return sections
+    _ = mapping
+    return extract_sections_from_text_blob(
+        text,
+        ingredient_line_normalizer=_normalize_ingredient_line,
+        instruction_line_normalizer=_normalize_instruction_line,
+    )
 
 
 def _normalize_tags(value: Any) -> list[str]:

@@ -51,6 +51,10 @@ from cookimport.config.run_settings import (
     build_run_settings,
     compute_effective_workers,
 )
+from cookimport.config.run_settings_adapters import (
+    build_benchmark_call_kwargs_from_run_settings,
+    build_stage_call_kwargs_from_run_settings,
+)
 from cookimport.epub_extractor_names import (
     EPUB_EXTRACTOR_CANONICAL_SET,
     EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
@@ -69,6 +73,7 @@ from cookimport.core.progress_messages import (
 )
 from cookimport.core.overrides_io import load_parsing_overrides
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
+from cookimport.core.scoring import summarize_recipe_likeness
 from cookimport.core.slug import slugify_name
 from cookimport.core.timing import TimingStats, measure
 from cookimport.bench.eval_canonical_text import (
@@ -120,8 +125,17 @@ from cookimport.labelstudio.prelabel import (
 from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_knowledge_harvest
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
+from cookimport.parsing.schemaorg_ingest import collect_schemaorg_recipe_objects
 from cookimport.plugins import registry
-from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
+from cookimport.plugins import (
+    excel,
+    text,
+    epub,
+    pdf,
+    recipesage,
+    paprika,
+    webschema,
+)  # noqa: F401
 from cookimport.runs import RunManifest, RunSource, write_run_manifest
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
 from cookimport.parsing.tables import ExtractedTable, extract_and_annotate_tables
@@ -183,6 +197,10 @@ DEFAULT_BENCH_SPEED_ROOT = DEFAULT_GOLDEN / "bench" / "speed"
 DEFAULT_BENCH_SPEED_SUITES = DEFAULT_BENCH_SPEED_ROOT / "suites"
 DEFAULT_BENCH_SPEED_RUNS = DEFAULT_BENCH_SPEED_ROOT / "runs"
 DEFAULT_BENCH_SPEED_COMPARISONS = DEFAULT_BENCH_SPEED_ROOT / "comparisons"
+DEFAULT_BENCH_QUALITY_ROOT = DEFAULT_GOLDEN / "bench" / "quality"
+DEFAULT_BENCH_QUALITY_SUITES = DEFAULT_BENCH_QUALITY_ROOT / "suites"
+DEFAULT_BENCH_QUALITY_RUNS = DEFAULT_BENCH_QUALITY_ROOT / "runs"
+DEFAULT_BENCH_QUALITY_COMPARISONS = DEFAULT_BENCH_QUALITY_ROOT / "comparisons"
 DEFAULT_CONFIG_PATH = REPO_ROOT / "cookimport.json"
 BACK_ACTION = "__back__"
 DEFAULT_PRELABEL_TIMEOUT_SECONDS = 300
@@ -203,12 +221,16 @@ ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV = (
 ALL_METHOD_UNSTRUCTURED_HTML_PARSER_VERSIONS = ("v1", "v2")
 ALL_METHOD_UNSTRUCTURED_SKIP_HEADERS_FOOTERS = (False, True)
 ALL_METHOD_UNSTRUCTURED_PREPROCESS_MODES = ("none", "br_split_v1", "semantic_v1")
+ALL_METHOD_WEBSCHEMA_POLICIES = ("prefer_schema", "schema_only", "heuristic_only")
 ALL_METHOD_MAX_INFLIGHT_DEFAULT = 4
 ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT = 4
 ALL_METHOD_MAX_EVAL_TAIL_DEFAULT = 4
 ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT = 900
 ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT = 1
 ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT = 4
+ALL_METHOD_SCHEDULER_SCOPE_GLOBAL = "global"
+ALL_METHOD_SCHEDULER_SCOPE_LEGACY = "legacy"
+ALL_METHOD_SCHEDULER_SCOPE_DEFAULT = ALL_METHOD_SCHEDULER_SCOPE_GLOBAL
 ALL_METHOD_SOURCE_SCHEDULING_DISCOVERY = "discovery"
 ALL_METHOD_SOURCE_SCHEDULING_TAIL_PAIR = "tail_pair"
 ALL_METHOD_SOURCE_SCHEDULING_DEFAULT = ALL_METHOD_SOURCE_SCHEDULING_TAIL_PAIR
@@ -224,6 +246,7 @@ ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY = "all_method_max_eval_tail_pipelines"
 ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY = "all_method_config_timeout_seconds"
 ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY = "all_method_retry_failed_configs"
 ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY = "all_method_max_parallel_sources"
+ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY = "all_method_scheduler_scope"
 ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY = "all_method_source_scheduling"
 ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_SETTING_KEY = (
     "all_method_source_shard_threshold_seconds"
@@ -248,12 +271,7 @@ BENCHMARK_EXECUTION_MODE_LEGACY = "legacy"
 BENCHMARK_EXECUTION_MODE_PIPELINED = "pipelined"
 BENCHMARK_EXECUTION_MODE_PREDICT_ONLY = "predict-only"
 BENCHMARK_SEQUENCE_MATCHER_DISPLAY_NAMES: dict[str, str] = {
-    "fallback": "Fallback",
-    "stdlib": "Stdlib",
-    "cydifflib": "CyDifflib",
-    "cdifflib": "CDifflib",
     "dmp": "DMP",
-    "multilayer": "MultiLayer",
 }
 OUTPUT_STATS_CATEGORY_RAW = "rawArtifacts"
 BENCHMARK_EVAL_PROFILE_MIN_SECONDS_ENV = "COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS"
@@ -334,6 +352,10 @@ _BENCHMARK_SCHEDULER_EVENT_CALLBACK: ContextVar[
     Callable[[dict[str, Any]], None] | None
 ] = ContextVar(
     "_BENCHMARK_SCHEDULER_EVENT_CALLBACK",
+    default=None,
+)
+_LAST_FAIL_MESSAGE: ContextVar[str | None] = ContextVar(
+    "_LAST_FAIL_MESSAGE",
     default=None,
 )
 
@@ -692,6 +714,7 @@ def _load_settings() -> Dict[str, Any]:
         "pdf_split_workers": 7,
         "epub_split_workers": 7,
         ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY: source_parallel_default,
+        ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY: ALL_METHOD_SCHEDULER_SCOPE_DEFAULT,
         ALL_METHOD_MAX_INFLIGHT_SETTING_KEY: ALL_METHOD_MAX_INFLIGHT_DEFAULT,
         ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY: ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
         ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY: ALL_METHOD_MAX_EVAL_TAIL_DEFAULT,
@@ -712,7 +735,7 @@ def _load_settings() -> Dict[str, Any]:
         "epub_unstructured_html_parser_version": "v1",
         "epub_unstructured_skip_headers_footers": False,
         "epub_unstructured_preprocess_mode": "br_split_v1",
-        "benchmark_sequence_matcher": "fallback",
+        "benchmark_sequence_matcher": "dmp",
         "ocr_device": "auto",
         "ocr_batch_size": 1,
         "pdf_pages_per_job": 50,
@@ -731,41 +754,6 @@ def _load_settings() -> Dict[str, Any]:
     try:
         with open(DEFAULT_CONFIG_PATH, "r") as f:
             loaded = json.load(f)
-            if isinstance(loaded, dict):
-                merged = {**defaults, **loaded}
-                if ALL_METHOD_WING_BACKLOG_SETTING_KEY not in loaded:
-                    merged[ALL_METHOD_WING_BACKLOG_SETTING_KEY] = _resolve_positive_int_setting(
-                        merged,
-                        key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
-                        fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
-                    )
-                if ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY not in loaded:
-                    merged[ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY] = _resolve_positive_int_setting(
-                        merged,
-                        key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
-                        fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
-                    )
-                raw_extractor = normalize_epub_extractor_name(
-                    merged.get("epub_extractor", "unstructured")
-                )
-                normalized_extractor = _coerce_configured_epub_extractor(raw_extractor)
-                if raw_extractor != normalized_extractor:
-                    if is_policy_locked_epub_extractor_name(raw_extractor):
-                        logger.warning(
-                            "Forcing epub_extractor=unstructured in cookimport.json because "
-                            "markdown extractors are policy-locked off. Set %s=1 to "
-                            "temporarily re-enable markdown extractors.",
-                            EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
-                        )
-                    else:
-                        logger.warning(
-                            "Forcing epub_extractor=unstructured in cookimport.json because "
-                            "stored value %r is not supported.",
-                            raw_extractor,
-                        )
-                merged["epub_extractor"] = normalized_extractor
-                return merged
-            return defaults
     except Exception:
         defaults[ALL_METHOD_WING_BACKLOG_SETTING_KEY] = defaults[
             ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY
@@ -774,6 +762,56 @@ def _load_settings() -> Dict[str, Any]:
             ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY
         ]
         return defaults
+    if isinstance(loaded, dict):
+        merged = {**defaults, **loaded}
+        if ALL_METHOD_WING_BACKLOG_SETTING_KEY not in loaded:
+            merged[ALL_METHOD_WING_BACKLOG_SETTING_KEY] = _resolve_positive_int_setting(
+                merged,
+                key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
+                fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
+            )
+        if ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY not in loaded:
+            merged[ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY] = _resolve_positive_int_setting(
+                merged,
+                key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
+                fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
+            )
+        raw_extractor = normalize_epub_extractor_name(
+            merged.get("epub_extractor", "unstructured")
+        )
+        normalized_extractor = _coerce_configured_epub_extractor(raw_extractor)
+        if raw_extractor != normalized_extractor:
+            if is_policy_locked_epub_extractor_name(raw_extractor):
+                logger.warning(
+                    "Forcing epub_extractor=unstructured in cookimport.json because "
+                    "markdown extractors are policy-locked off. Set %s=1 to "
+                    "temporarily re-enable markdown extractors.",
+                    EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
+                )
+            else:
+                logger.warning(
+                    "Forcing epub_extractor=unstructured in cookimport.json because "
+                    "stored value %r is not supported.",
+                    raw_extractor,
+                )
+        merged["epub_extractor"] = normalized_extractor
+        merged[ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY] = (
+            _normalize_all_method_scheduler_scope(
+                merged.get(ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY)
+            )
+        )
+        normalized_sequence_matcher = str(
+            merged.get("benchmark_sequence_matcher", "dmp") or "dmp"
+        ).strip().lower()
+        if normalized_sequence_matcher not in supported_sequence_matcher_modes():
+            supported = ", ".join(supported_sequence_matcher_modes())
+            raise ValueError(
+                "Invalid cookimport.json benchmark_sequence_matcher value "
+                f"{normalized_sequence_matcher!r}. Expected one of: {supported}."
+            )
+        merged["benchmark_sequence_matcher"] = normalized_sequence_matcher
+        return merged
+    return defaults
 
 
 def _save_settings(settings: Dict[str, Any]) -> None:
@@ -870,6 +908,16 @@ def _normalize_all_method_source_scheduling(value: Any) -> str:
     }:
         return normalized
     return ALL_METHOD_SOURCE_SCHEDULING_DEFAULT
+
+
+def _normalize_all_method_scheduler_scope(value: Any) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {
+        ALL_METHOD_SCHEDULER_SCOPE_GLOBAL,
+        ALL_METHOD_SCHEDULER_SCOPE_LEGACY,
+    }:
+        return normalized
+    return ALL_METHOD_SCHEDULER_SCOPE_DEFAULT
 
 
 def _resolve_interactive_labelstudio_settings(
@@ -1028,6 +1076,14 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 ),
                 questionary.Choice(
                     (
+                        "All-Method Scheduler Scope: "
+                        f"{_normalize_all_method_scheduler_scope(current_settings.get(ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY))} "
+                        "- global mega queue or legacy per-source schedulers"
+                    ),
+                    value=ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY,
+                ),
+                questionary.Choice(
+                    (
                         "All-Method Source Scheduling: "
                         f"{_normalize_all_method_source_scheduling(current_settings.get(ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY))} "
                         "- discovery (legacy) or tail_pair (heavy/light interleave)"
@@ -1145,7 +1201,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 questionary.Choice(
                     (
                         "Benchmark Sequence Matcher: "
-                        f"{_benchmark_sequence_matcher_display_name(str(current_settings.get('benchmark_sequence_matcher', 'fallback')))} "
+                        f"{_benchmark_sequence_matcher_display_name(str(current_settings.get('benchmark_sequence_matcher', 'dmp')))} "
                         f"- {', '.join(_benchmark_sequence_matcher_display_name(mode) for mode in _benchmark_sequence_matcher_modes())}"
                     ),
                     value="benchmark_sequence_matcher",
@@ -1223,6 +1279,34 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
             parsed = _coerce_positive_int(val)
             if parsed is not None:
                 current_settings[ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY] = parsed
+                _save_settings(current_settings)
+
+        elif choice == ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY:
+            current_scope = _normalize_all_method_scheduler_scope(
+                current_settings.get(ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY)
+            )
+            val = _menu_select(
+                "Select all-method scheduler scope:",
+                choices=[
+                    questionary.Choice(
+                        "global - one global config queue across all matched sources",
+                        value=ALL_METHOD_SCHEDULER_SCOPE_GLOBAL,
+                    ),
+                    questionary.Choice(
+                        "legacy - one independent config scheduler per source",
+                        value=ALL_METHOD_SCHEDULER_SCOPE_LEGACY,
+                    ),
+                ],
+                default=current_scope,
+                menu_help=(
+                    "global shares split slots and eval-signature dedupe across the full "
+                    "all-matched run. legacy retains prior per-source scheduling behavior."
+                ),
+            )
+            if val and val != BACK_ACTION:
+                current_settings[ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY] = (
+                    _normalize_all_method_scheduler_scope(val)
+                )
                 _save_settings(current_settings)
 
         elif choice == ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY:
@@ -1479,7 +1563,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
         elif choice == "benchmark_sequence_matcher":
             supported_modes = _benchmark_sequence_matcher_modes()
             current_mode = _normalize_benchmark_sequence_matcher_mode(
-                str(current_settings.get("benchmark_sequence_matcher", "fallback"))
+                str(current_settings.get("benchmark_sequence_matcher", "dmp"))
             )
             mode_choices = [
                 questionary.Choice(
@@ -1494,8 +1578,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 default=current_mode,
                 menu_help=(
                     "This controls canonical-text matcher selection for benchmark/eval runs. "
-                    "Fallback tries CyDifflib -> CDifflib -> DMP -> MultiLayer -> Stdlib. "
-                    "Pick an explicit mode to force one implementation."
+                    "Only dmp is supported."
                 ),
             )
             if val and val != BACK_ACTION:
@@ -1572,6 +1655,7 @@ def _interactive_all_method_benchmark(
     max_eval_tail_pipelines: int | None = None,
     config_timeout_seconds: int | None = None,
     retry_failed_configs: int | None = None,
+    scheduler_scope: str | None = None,
     source_scheduling: str | None = None,
     source_shard_threshold_seconds: float | None = None,
     source_shard_max_parts: int | None = None,
@@ -1816,6 +1900,7 @@ def _interactive_all_method_benchmark(
     resolved_retry_failed_configs = _resolve_all_method_retry_failed_configs(
         retry_failed_configs
     )
+    resolved_scheduler_scope = _normalize_all_method_scheduler_scope(scheduler_scope)
     resolved_source_scheduling = _normalize_all_method_source_scheduling(
         source_scheduling
     )
@@ -1840,6 +1925,7 @@ def _interactive_all_method_benchmark(
     typer.secho(
         (
             "Scheduler: "
+            f"scope={resolved_scheduler_scope}, "
             f"source parallel={source_parallelism_effective} "
             f"(configured {source_parallelism_configured}, "
             f"default {_all_method_default_parallel_sources_from_cpu()}), "
@@ -1935,6 +2021,7 @@ def _interactive_all_method_benchmark(
                 source_shard_min_variants=resolved_source_shard_min_variants,
                 wing_backlog_target=resolved_wing_backlog_target,
                 smart_scheduler=resolved_smart_scheduler,
+                scheduler_scope=resolved_scheduler_scope,
                 canonical_alignment_cache_root=all_method_canonical_cache_root,
             ),
         )
@@ -2168,52 +2255,14 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 preprocess_mode=selected_run_settings.epub_unstructured_preprocess_mode.value,
             )
 
-            common_args = {
-                "out": output_folder,
-                "mapping": None,
-                "overrides": None,
-                "limit": limit,
-                "workers": selected_run_settings.workers,
-                "pdf_split_workers": selected_run_settings.pdf_split_workers,
-                "epub_split_workers": selected_run_settings.epub_split_workers,
-                "epub_extractor": selected_run_settings.epub_extractor.value,
-                "epub_unstructured_html_parser_version": (
-                    selected_run_settings.epub_unstructured_html_parser_version.value
-                ),
-                "epub_unstructured_skip_headers_footers": (
-                    selected_run_settings.epub_unstructured_skip_headers_footers
-                ),
-                "epub_unstructured_preprocess_mode": (
-                    selected_run_settings.epub_unstructured_preprocess_mode.value
-                ),
-                "table_extraction": selected_run_settings.table_extraction.value,
-                "ocr_device": selected_run_settings.ocr_device.value,
-                "ocr_batch_size": selected_run_settings.ocr_batch_size,
-                "pdf_pages_per_job": selected_run_settings.pdf_pages_per_job,
-                "epub_spine_items_per_job": selected_run_settings.epub_spine_items_per_job,
-                "warm_models": selected_run_settings.warm_models,
-                "llm_recipe_pipeline": selected_run_settings.llm_recipe_pipeline.value,
-                "llm_knowledge_pipeline": selected_run_settings.llm_knowledge_pipeline.value,
-                "llm_tags_pipeline": selected_run_settings.llm_tags_pipeline.value,
-                "codex_farm_cmd": selected_run_settings.codex_farm_cmd,
-                "codex_farm_root": selected_run_settings.codex_farm_root,
-                "codex_farm_workspace_root": selected_run_settings.codex_farm_workspace_root,
-                "codex_farm_pipeline_pass1": selected_run_settings.codex_farm_pipeline_pass1,
-                "codex_farm_pipeline_pass2": selected_run_settings.codex_farm_pipeline_pass2,
-                "codex_farm_pipeline_pass3": selected_run_settings.codex_farm_pipeline_pass3,
-                "codex_farm_pipeline_pass4_knowledge": (
-                    selected_run_settings.codex_farm_pipeline_pass4_knowledge
-                ),
-                "codex_farm_pipeline_pass5_tags": (
-                    selected_run_settings.codex_farm_pipeline_pass5_tags
-                ),
-                "codex_farm_context_blocks": selected_run_settings.codex_farm_context_blocks,
-                "codex_farm_knowledge_context_blocks": (
-                    selected_run_settings.codex_farm_knowledge_context_blocks
-                ),
-                "tag_catalog_json": selected_run_settings.tag_catalog_json,
-                "codex_farm_failure_mode": selected_run_settings.codex_farm_failure_mode.value,
-            }
+            common_args = build_stage_call_kwargs_from_run_settings(
+                selected_run_settings,
+                out=output_folder,
+                mapping=None,
+                overrides=None,
+                limit=limit,
+                write_markdown=True,
+            )
 
             if selection == "all":
                 run_folder = stage(path=input_folder, **common_args)
@@ -2666,43 +2715,19 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     fg=typer.colors.CYAN,
                 )
 
-                benchmark_kwargs = dict(
+                benchmark_kwargs = build_benchmark_call_kwargs_from_run_settings(
+                    selected_benchmark_settings,
                     output_dir=_golden_benchmark_root(),
                     eval_output_dir=benchmark_eval_output,
                     eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
-                    sequence_matcher=selected_benchmark_settings.benchmark_sequence_matcher,
-                    epub_extractor=selected_benchmark_settings.epub_extractor.value,
-                    epub_unstructured_html_parser_version=(
-                        selected_benchmark_settings.epub_unstructured_html_parser_version.value
-                    ),
-                    epub_unstructured_skip_headers_footers=(
-                        selected_benchmark_settings.epub_unstructured_skip_headers_footers
-                    ),
-                    epub_unstructured_preprocess_mode=(
-                        selected_benchmark_settings.epub_unstructured_preprocess_mode.value
-                    ),
-                    ocr_device=selected_benchmark_settings.ocr_device.value,
-                    ocr_batch_size=selected_benchmark_settings.ocr_batch_size,
-                    warm_models=selected_benchmark_settings.warm_models,
-                    workers=selected_benchmark_settings.workers,
-                    pdf_split_workers=selected_benchmark_settings.pdf_split_workers,
-                    epub_split_workers=selected_benchmark_settings.epub_split_workers,
-                    pdf_pages_per_job=selected_benchmark_settings.pdf_pages_per_job,
-                    epub_spine_items_per_job=selected_benchmark_settings.epub_spine_items_per_job,
-                    llm_recipe_pipeline=selected_benchmark_settings.llm_recipe_pipeline.value,
-                    codex_farm_cmd=selected_benchmark_settings.codex_farm_cmd,
-                    codex_farm_root=selected_benchmark_settings.codex_farm_root,
-                    codex_farm_workspace_root=selected_benchmark_settings.codex_farm_workspace_root,
-                    codex_farm_pipeline_pass1=selected_benchmark_settings.codex_farm_pipeline_pass1,
-                    codex_farm_pipeline_pass2=selected_benchmark_settings.codex_farm_pipeline_pass2,
-                    codex_farm_pipeline_pass3=selected_benchmark_settings.codex_farm_pipeline_pass3,
-                    codex_farm_context_blocks=selected_benchmark_settings.codex_farm_context_blocks,
-                    codex_farm_failure_mode=selected_benchmark_settings.codex_farm_failure_mode.value,
+                    execution_mode=BENCHMARK_EXECUTION_MODE_LEGACY,
+                    no_upload=True,
+                    write_markdown=True,
+                    write_label_studio_tasks=True,
                 )
 
                 labelstudio_benchmark(
                     **benchmark_kwargs,
-                    no_upload=True,
                 )
                 save_last_run_settings(
                     "benchmark", output_folder, selected_benchmark_settings
@@ -2725,6 +2750,9 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 )
                 all_method_retry_failed_configs = _coerce_non_negative_int(
                     settings.get(ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY)
+                )
+                all_method_scheduler_scope = _normalize_all_method_scheduler_scope(
+                    settings.get(ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY)
                 )
                 all_method_source_scheduling = _normalize_all_method_source_scheduling(
                     settings.get(ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY)
@@ -2755,6 +2783,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     max_eval_tail_pipelines=all_method_max_eval_tail,
                     config_timeout_seconds=all_method_config_timeout_seconds,
                     retry_failed_configs=all_method_retry_failed_configs,
+                    scheduler_scope=all_method_scheduler_scope,
                     source_scheduling=all_method_source_scheduling,
                     source_shard_threshold_seconds=all_method_source_shard_threshold_seconds,
                     source_shard_max_parts=all_method_source_shard_max_parts,
@@ -2780,6 +2809,7 @@ def main(ctx: typer.Context) -> None:
 
 
 def _fail(message: str) -> None:
+    _LAST_FAIL_MESSAGE.set(message)
     typer.secho(message, err=True, fg=typer.colors.RED)
     raise typer.Exit(1)
 
@@ -2986,6 +3016,179 @@ def _normalize_table_extraction(value: str) -> str:
     return normalized
 
 
+def _normalize_section_detector_backend(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"legacy", "shared_v1"}:
+        return normalized
+    _fail(
+        f"Invalid section detector backend: {value!r}. "
+        "Expected one of: legacy, shared_v1."
+    )
+    return "legacy"
+
+
+def _normalize_multi_recipe_splitter(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"legacy", "off", "rules_v1"}:
+        return normalized
+    _fail(
+        f"Invalid multi-recipe splitter backend: {value!r}. "
+        "Expected one of: legacy, off, rules_v1."
+    )
+    return "legacy"
+
+
+def _normalize_instruction_step_segmentation_policy(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"off", "auto", "always"}:
+        return normalized
+    _fail(
+        f"Invalid instruction step segmentation policy: {value!r}. "
+        "Expected one of: off, auto, always."
+    )
+    return "auto"
+
+
+def _normalize_instruction_step_segmenter(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"heuristic_v1", "pysbd_v1"}:
+        return normalized
+    _fail(
+        f"Invalid instruction step segmenter: {value!r}. "
+        "Expected one of: heuristic_v1, pysbd_v1."
+    )
+    return "heuristic_v1"
+
+
+def _normalize_web_schema_extractor(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    allowed = {
+        "builtin_jsonld",
+        "extruct",
+        "scrape_schema_recipe",
+        "recipe_scrapers",
+        "ensemble_v1",
+    }
+    if normalized in allowed:
+        return normalized
+    _fail(
+        f"Invalid web schema extractor: {value!r}. "
+        "Expected one of: builtin_jsonld, extruct, scrape_schema_recipe, recipe_scrapers, ensemble_v1."
+    )
+    return "builtin_jsonld"
+
+
+def _normalize_web_schema_normalizer(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"simple", "pyld"}:
+        return normalized
+    _fail(
+        f"Invalid web schema normalizer: {value!r}. "
+        "Expected one of: simple, pyld."
+    )
+    return "simple"
+
+
+def _normalize_web_html_text_extractor(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    allowed = {
+        "bs4",
+        "trafilatura",
+        "readability_lxml",
+        "justext",
+        "boilerpy3",
+        "ensemble_v1",
+    }
+    if normalized in allowed:
+        return normalized
+    _fail(
+        f"Invalid web HTML text extractor: {value!r}. "
+        "Expected one of: bs4, trafilatura, readability_lxml, justext, boilerpy3, ensemble_v1."
+    )
+    return "bs4"
+
+
+def _normalize_web_schema_policy(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"prefer_schema", "schema_only", "heuristic_only"}:
+        return normalized
+    _fail(
+        f"Invalid web schema policy: {value!r}. "
+        "Expected one of: prefer_schema, schema_only, heuristic_only."
+    )
+    return "prefer_schema"
+
+
+def _normalize_ingredient_text_fix_backend(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"none", "ftfy"}:
+        return normalized
+    _fail(
+        f"Invalid ingredient text fix backend: {value!r}. "
+        "Expected one of: none, ftfy."
+    )
+    return "none"
+
+
+def _normalize_ingredient_pre_normalize_mode(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"legacy", "aggressive_v1"}:
+        return normalized
+    _fail(
+        f"Invalid ingredient pre-normalize mode: {value!r}. "
+        "Expected one of: legacy, aggressive_v1."
+    )
+    return "legacy"
+
+
+def _normalize_ingredient_packaging_mode(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"off", "regex_v1"}:
+        return normalized
+    _fail(
+        f"Invalid ingredient packaging mode: {value!r}. "
+        "Expected one of: off, regex_v1."
+    )
+    return "off"
+
+
+def _normalize_ingredient_parser_backend(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {
+        "ingredient_parser_nlp",
+        "quantulum3_regex",
+        "hybrid_nlp_then_quantulum3",
+    }:
+        return normalized
+    _fail(
+        f"Invalid ingredient parser backend: {value!r}. "
+        "Expected one of: ingredient_parser_nlp, quantulum3_regex, hybrid_nlp_then_quantulum3."
+    )
+    return "ingredient_parser_nlp"
+
+
+def _normalize_ingredient_unit_canonicalizer(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"legacy", "pint"}:
+        return normalized
+    _fail(
+        f"Invalid ingredient unit canonicalizer: {value!r}. "
+        "Expected one of: legacy, pint."
+    )
+    return "legacy"
+
+
+def _normalize_ingredient_missing_unit_policy(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"legacy_medium", "null", "each"}:
+        return normalized
+    _fail(
+        f"Invalid ingredient missing unit policy: {value!r}. "
+        "Expected one of: legacy_medium, null, each."
+    )
+    return "null"
+
+
 def _normalize_llm_recipe_pipeline(value: str) -> str:
     normalized = value.strip().lower()
     if normalized != "off":
@@ -3074,15 +3277,11 @@ def _benchmark_sequence_matcher_modes() -> tuple[str, ...]:
 
 def _benchmark_sequence_matcher_display_name(mode: str) -> str:
     normalized = str(mode or "").strip().lower()
-    if normalized == "auto":
-        normalized = "fallback"
-    return BENCHMARK_SEQUENCE_MATCHER_DISPLAY_NAMES.get(normalized, normalized or "fallback")
+    return BENCHMARK_SEQUENCE_MATCHER_DISPLAY_NAMES.get(normalized, normalized or "dmp")
 
 
 def _normalize_benchmark_sequence_matcher_mode(value: str) -> str:
-    normalized = str(value or "fallback").strip().lower()
-    if normalized == "auto":
-        normalized = "fallback"
+    normalized = str(value or "dmp").strip().lower()
     supported = _benchmark_sequence_matcher_modes()
     if normalized in supported:
         return normalized
@@ -3090,7 +3289,7 @@ def _normalize_benchmark_sequence_matcher_mode(value: str) -> str:
         f"Invalid benchmark sequence matcher mode: {value!r}. "
         f"Expected one of: {', '.join(supported)}."
     )
-    return "fallback"
+    return "dmp"
 
 
 def _parse_csv_labels(value: str) -> set[str]:
@@ -4275,6 +4474,27 @@ class _AllMethodSourceJobPlan:
     estimate_basis: str
 
 
+@dataclass(frozen=True)
+class _AllMethodGlobalWorkItem:
+    global_dispatch_index: int
+    source_position: int
+    source_group_key: str
+    source_slug: str
+    source_file: Path
+    source_file_name: str
+    gold_spans_path: Path
+    source_root: Path
+    source_processed_root: Path
+    canonical_alignment_cache_dir: Path
+    config_index: int
+    config_total: int
+    source_shard_index: int
+    source_shard_total: int
+    source_estimated_seconds: float
+    source_estimate_basis: str
+    variant: AllMethodVariant
+
+
 def _canonical_text_chars_for_all_method_target(target: AllMethodTarget) -> int:
     canonical_text_path = target.gold_spans_path.parent / "canonical_text.txt"
     if not canonical_text_path.exists() or not canonical_text_path.is_file():
@@ -4511,6 +4731,74 @@ def _plan_all_method_source_jobs(
     if resolved_strategy == ALL_METHOD_SOURCE_SCHEDULING_TAIL_PAIR:
         return _tail_pair_all_method_source_jobs(plans)
     return list(plans)
+
+
+def _plan_all_method_global_work_items(
+    *,
+    target_variants: list[tuple[AllMethodTarget, list[AllMethodVariant]]],
+    scheduling_strategy: str,
+    shard_threshold_seconds: float,
+    shard_max_parts: int,
+    shard_min_variants: int,
+    root_output_dir: Path,
+    processed_output_root: Path,
+    canonical_alignment_cache_root: Path,
+) -> list[_AllMethodGlobalWorkItem]:
+    source_job_plans = _plan_all_method_source_jobs(
+        target_variants=target_variants,
+        scheduling_strategy=scheduling_strategy,
+        shard_threshold_seconds=shard_threshold_seconds,
+        shard_max_parts=shard_max_parts,
+        shard_min_variants=shard_min_variants,
+    )
+    source_target_by_position: dict[int, AllMethodTarget] = {
+        source_position: target
+        for source_position, (target, _variants) in enumerate(target_variants)
+    }
+    source_config_totals: dict[int, int] = {
+        source_position: len(variants)
+        for source_position, (_target, variants) in enumerate(target_variants)
+    }
+    source_next_config_index: dict[int, int] = defaultdict(int)
+    resolved_cache_root = canonical_alignment_cache_root.expanduser()
+
+    work_items: list[_AllMethodGlobalWorkItem] = []
+    global_dispatch_index = 0
+    for plan in source_job_plans:
+        source_target = source_target_by_position[plan.source_position]
+        source_root = root_output_dir / plan.source_group_key
+        source_processed_root = processed_output_root / plan.source_group_key
+        canonical_alignment_cache_dir = resolved_cache_root / plan.source_group_key
+        source_config_total = max(
+            0,
+            _report_count(source_config_totals.get(plan.source_position)),
+        )
+        for variant in plan.variants:
+            global_dispatch_index += 1
+            source_config_index = source_next_config_index[plan.source_position] + 1
+            source_next_config_index[plan.source_position] = source_config_index
+            work_items.append(
+                _AllMethodGlobalWorkItem(
+                    global_dispatch_index=global_dispatch_index,
+                    source_position=plan.source_position,
+                    source_group_key=plan.source_group_key,
+                    source_slug=plan.source_slug,
+                    source_file=plan.source_file,
+                    source_file_name=source_target.source_file_name,
+                    gold_spans_path=plan.gold_spans_path,
+                    source_root=source_root,
+                    source_processed_root=source_processed_root,
+                    canonical_alignment_cache_dir=canonical_alignment_cache_dir,
+                    config_index=source_config_index,
+                    config_total=source_config_total,
+                    source_shard_index=plan.shard_index,
+                    source_shard_total=plan.shard_total,
+                    source_estimated_seconds=plan.estimated_seconds,
+                    source_estimate_basis=plan.estimate_basis,
+                    variant=variant,
+                )
+            )
+    return work_items
 
 
 @dataclass
@@ -5741,61 +6029,55 @@ def _display_prediction_run_path(path: Path, output_dir: Path) -> str:
 def _resolve_all_method_targets(
     output_dir: Path,
 ) -> tuple[list[AllMethodTarget], list[AllMethodUnmatchedGold]]:
+    from cookimport.bench.speed_suite import (
+        match_gold_exports_to_inputs,
+        resolve_repo_path,
+    )
+
     candidates = _discover_freeform_gold_exports(output_dir)
-    importable_by_name = {
-        path.name: path
-        for path in _list_importable_files(DEFAULT_INPUT)
-    }
+    matched_rows, unmatched_rows = match_gold_exports_to_inputs(
+        candidates,
+        input_root=DEFAULT_INPUT,
+        gold_root=output_dir,
+        importable_files=_list_importable_files(DEFAULT_INPUT),
+    )
 
-    matched_targets: list[AllMethodTarget] = []
+    matched_targets = [
+        AllMethodTarget(
+            gold_spans_path=resolve_repo_path(
+                row.gold_spans_path, repo_root=REPO_ROOT
+            ),
+            source_file=resolve_repo_path(row.source_file, repo_root=REPO_ROOT),
+            source_file_name=Path(row.source_file).name,
+            gold_display=_display_gold_export_path(
+                resolve_repo_path(row.gold_spans_path, repo_root=REPO_ROOT),
+                output_dir,
+            ),
+        )
+        for row in matched_rows
+    ]
+
     unmatched_targets: list[AllMethodUnmatchedGold] = []
-
-    for gold_spans_path in candidates:
-        gold_display = _display_gold_export_path(gold_spans_path, output_dir)
-        if not gold_spans_path.exists() or not gold_spans_path.is_file():
-            unmatched_targets.append(
-                AllMethodUnmatchedGold(
-                    gold_spans_path=gold_spans_path,
-                    reason="Gold spans file is missing.",
-                    source_hint=None,
-                    gold_display=gold_display,
-                )
-            )
+    for row in unmatched_rows:
+        gold_spans_raw = str(row.get("gold_spans_path") or "").strip()
+        if not gold_spans_raw:
             continue
-
-        source_hint = _load_source_hint_from_gold_export(gold_spans_path)
-        if source_hint is None:
-            unmatched_targets.append(
-                AllMethodUnmatchedGold(
-                    gold_spans_path=gold_spans_path,
-                    reason=(
-                        "Missing source hint in manifest, freeform_span_labels.jsonl, "
-                        "and freeform_segment_manifest.jsonl."
-                    ),
-                    source_hint=None,
-                    gold_display=gold_display,
-                )
-            )
-            continue
-
-        source_file = importable_by_name.get(source_hint)
-        if source_file is None:
-            unmatched_targets.append(
-                AllMethodUnmatchedGold(
-                    gold_spans_path=gold_spans_path,
-                    reason=f"No importable file named `{source_hint}` in {DEFAULT_INPUT}.",
-                    source_hint=source_hint,
-                    gold_display=gold_display,
-                )
-            )
-            continue
-
-        matched_targets.append(
-            AllMethodTarget(
+        gold_spans_path = resolve_repo_path(gold_spans_raw, repo_root=REPO_ROOT)
+        source_hint_raw = row.get("source_hint")
+        source_hint = (
+            str(source_hint_raw).strip() if source_hint_raw is not None else None
+        )
+        if source_hint == "":
+            source_hint = None
+        unmatched_targets.append(
+            AllMethodUnmatchedGold(
                 gold_spans_path=gold_spans_path,
-                source_file=source_file,
-                source_file_name=source_file.name,
-                gold_display=gold_display,
+                reason=str(row.get("reason") or "Unmatched gold export."),
+                source_hint=source_hint,
+                gold_display=str(
+                    row.get("gold_display")
+                    or _display_gold_export_path(gold_spans_path, output_dir)
+                ),
             )
         )
 
@@ -5906,6 +6188,31 @@ def _all_method_variant_token(value: str | bool) -> str:
     return token or "na"
 
 
+def _all_method_is_schema_like_json_source(source_file: Path) -> bool:
+    try:
+        if not source_file.exists() or not source_file.is_file():
+            return False
+        with source_file.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except Exception:
+        return False
+
+    if isinstance(payload, dict):
+        recipes = payload.get("recipes")
+        if isinstance(recipes, list) and recipes:
+            recipe_like = 0
+            for item in recipes:
+                if not isinstance(item, dict):
+                    continue
+                item_type = str(item.get("@type") or "").lower()
+                if "recipe" in item_type:
+                    recipe_like += 1
+            if recipe_like > 0:
+                return False
+
+    return bool(collect_schemaorg_recipe_objects(payload))
+
+
 def _build_all_method_variants(
     *,
     base_settings: RunSettings,
@@ -5917,21 +6224,78 @@ def _build_all_method_variants(
     base_payload = base_settings.to_run_config_dict()
     variants: list[AllMethodVariant] = []
     source_ext = source_file.suffix.lower()
+    section_backend = str(base_payload.get("section_detector_backend", "legacy"))
+    multi_recipe_splitter = str(base_payload.get("multi_recipe_splitter", "legacy"))
+    section_dimension: dict[str, Any] = {}
+    section_slug_suffix = ""
+    if section_backend != "legacy":
+        section_dimension["section_detector_backend"] = section_backend
+        section_slug_suffix = (
+            "__section_"
+            + _all_method_variant_token(section_backend)
+        )
+    multi_recipe_dimension: dict[str, Any] = {}
+    multi_recipe_slug_suffix = ""
+    if multi_recipe_splitter != "legacy":
+        multi_recipe_dimension["multi_recipe_splitter"] = multi_recipe_splitter
+        multi_recipe_slug_suffix = (
+            "__multi_recipe_"
+            + _all_method_variant_token(multi_recipe_splitter)
+        )
 
-    if source_ext != ".epub":
+    webschema_source = source_ext in {".html", ".htm", ".jsonld"} or (
+        source_ext == ".json" and _all_method_is_schema_like_json_source(source_file)
+    )
+    if source_ext != ".epub" and not webschema_source:
         run_settings = RunSettings.from_dict(
             dict(base_payload),
             warn_context="all-method variant",
         )
         variants.append(
             AllMethodVariant(
-                slug=f"source_{_all_method_variant_token(source_ext.lstrip('.') or 'unknown')}",
+                slug=(
+                    f"source_{_all_method_variant_token(source_ext.lstrip('.') or 'unknown')}"
+                    f"{section_slug_suffix}{multi_recipe_slug_suffix}"
+                ),
                 run_settings=run_settings,
                 dimensions={
                     "source_extension": source_ext or "none",
+                    **section_dimension,
+                    **multi_recipe_dimension,
                 },
             )
         )
+        return variants
+
+    if webschema_source:
+        dedupe_hashes: set[str] = set()
+        for schema_policy in ALL_METHOD_WEBSCHEMA_POLICIES:
+            payload = dict(base_payload)
+            payload["web_schema_policy"] = schema_policy
+            run_settings = RunSettings.from_dict(
+                payload,
+                warn_context="all-method variant",
+            )
+            stable_hash = run_settings.stable_hash()
+            if stable_hash in dedupe_hashes:
+                continue
+            dedupe_hashes.add(stable_hash)
+            variants.append(
+                AllMethodVariant(
+                    slug=(
+                        f"source_{_all_method_variant_token(source_ext.lstrip('.') or 'unknown')}"
+                        f"__webschema_policy_{_all_method_variant_token(schema_policy)}"
+                        f"{section_slug_suffix}{multi_recipe_slug_suffix}"
+                    ),
+                    run_settings=run_settings,
+                    dimensions={
+                        "source_extension": source_ext or "none",
+                        "web_schema_policy": schema_policy,
+                        **section_dimension,
+                        **multi_recipe_dimension,
+                    },
+                )
+            )
         return variants
 
     extractors = ALL_METHOD_EPUB_EXTRACTORS_DEFAULT
@@ -5973,6 +6337,7 @@ def _build_all_method_variants(
                             f"__parser_{_all_method_variant_token(parser_version)}"
                             f"__skiphf_{_all_method_variant_token(skip_headers_footers)}"
                             f"__pre_{_all_method_variant_token(preprocess_mode)}"
+                            f"{section_slug_suffix}{multi_recipe_slug_suffix}"
                         ),
                         run_settings=run_settings,
                         dimensions={
@@ -5980,6 +6345,8 @@ def _build_all_method_variants(
                             "epub_unstructured_html_parser_version": parser_version,
                             "epub_unstructured_skip_headers_footers": skip_headers_footers,
                             "epub_unstructured_preprocess_mode": preprocess_mode,
+                            **section_dimension,
+                            **multi_recipe_dimension,
                         },
                     )
                 )
@@ -5997,10 +6364,15 @@ def _build_all_method_variants(
         dedupe_hashes.add(stable_hash)
         variants.append(
             AllMethodVariant(
-                slug=f"extractor_{_all_method_variant_token(extractor)}",
+                slug=(
+                    f"extractor_{_all_method_variant_token(extractor)}"
+                    f"{section_slug_suffix}{multi_recipe_slug_suffix}"
+                ),
                 run_settings=run_settings,
                 dimensions={
                     "epub_extractor": extractor,
+                    **section_dimension,
+                    **multi_recipe_dimension,
                 },
             )
         )
@@ -6554,7 +6926,7 @@ def _build_all_method_eval_signature(
     signature_payload = {
         "schema_version": str(schema_version or ALL_METHOD_EVAL_SIGNATURE_SCHEMA_VERSION),
         "eval_mode": str(eval_mode or BENCHMARK_EVAL_MODE_CANONICAL_TEXT),
-        "sequence_matcher": str(sequence_matcher or "fallback"),
+        "sequence_matcher": str(sequence_matcher or "dmp"),
         "gold_fingerprint": _all_method_gold_fingerprint(gold_spans_path),
         "prediction_rows": _all_method_eval_signature_prediction_rows(
             prediction_record_path=prediction_record_path
@@ -6835,6 +7207,15 @@ def _run_all_method_prediction_once(
                         epub_unstructured_preprocess_mode=(
                             variant.run_settings.epub_unstructured_preprocess_mode.value
                         ),
+                        section_detector_backend=(
+                            variant.run_settings.section_detector_backend.value
+                        ),
+                        instruction_step_segmentation_policy=(
+                            variant.run_settings.instruction_step_segmentation_policy.value
+                        ),
+                        instruction_step_segmenter=(
+                            variant.run_settings.instruction_step_segmenter.value
+                        ),
                         llm_recipe_pipeline=variant.run_settings.llm_recipe_pipeline.value,
                         codex_farm_cmd=variant.run_settings.codex_farm_cmd,
                         codex_farm_root=variant.run_settings.codex_farm_root,
@@ -6998,6 +7379,7 @@ def _run_all_method_evaluate_prediction_record_once(
         if artifact_path.exists():
             artifact_path.unlink()
 
+    fail_message_token = _LAST_FAIL_MESSAGE.set(None)
     try:
         with _benchmark_progress_overrides(
             progress_callback=benchmark_progress_callback,
@@ -7019,12 +7401,27 @@ def _run_all_method_evaluate_prediction_record_once(
                 predictions_in=prediction_record_path,
                 alignment_cache_dir=alignment_cache_dir,
             )
+    except typer.Exit as exc:
+        exit_code = getattr(exc, "exit_code", 1)
+        failure_message = _LAST_FAIL_MESSAGE.get()
+        error_message = (
+            failure_message
+            if failure_message
+            else f"labelstudio_benchmark exited with code {exit_code}"
+        )
+        return {
+            "status": "failed",
+            "error": error_message,
+            "duration_seconds": max(0.0, time.monotonic() - evaluation_started),
+        }
     except Exception as exc:  # noqa: BLE001
         return {
             "status": "failed",
             "error": str(exc),
             "duration_seconds": max(0.0, time.monotonic() - evaluation_started),
         }
+    finally:
+        _LAST_FAIL_MESSAGE.reset(fail_message_token)
 
     report_json_path = eval_output_dir / "eval_report.json"
     if not report_json_path.exists() or not report_json_path.is_file():
@@ -7137,6 +7534,7 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
         f"- Source file: {report_payload.get('source_file', '')}",
         f"- Gold spans: {report_payload.get('gold_spans_path', '')}",
         f"- Eval mode: {report_payload.get('eval_mode', BENCHMARK_EVAL_MODE_CANONICAL_TEXT)}",
+        f"- Scheduler scope: {report_payload.get('scheduler_scope', 'legacy_per_source')}",
         f"- Total configurations: {report_payload.get('variant_count', 0)}",
         f"- Successful configurations: {report_payload.get('successful_variants', 0)}",
         f"- Failed configurations: {report_payload.get('failed_variants', 0)}",
@@ -7356,6 +7754,7 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
         "",
         f"- Created at: {report_payload.get('created_at', '')}",
         f"- Eval mode: {report_payload.get('eval_mode', BENCHMARK_EVAL_MODE_CANONICAL_TEXT)}",
+        f"- Scheduler scope: {report_payload.get('scheduler_scope', 'legacy_per_source')}",
         f"- Matched targets: {report_payload.get('matched_target_count', 0)}",
         f"- Unmatched targets: {report_payload.get('unmatched_target_count', 0)}",
         (
@@ -7380,6 +7779,12 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
         f"- Planned config runs: {report_payload.get('total_config_runs_planned', 0)}",
         f"- Completed config runs: {report_payload.get('total_config_runs_completed', 0)}",
         f"- Successful config runs: {report_payload.get('total_config_runs_successful', 0)}",
+        (
+            "- Global queue planned/completed/failed configs: "
+            f"{_report_count(report_payload.get('global_queue_planned_configs'))}/"
+            f"{_report_count(report_payload.get('global_queue_completed_configs'))}/"
+            f"{_report_count(report_payload.get('global_queue_failed_configs'))}"
+        ),
         (
             "- Evaluation signatures unique / runs executed: "
             f"{_report_count(report_payload.get('evaluation_signatures_unique'))}/"
@@ -7585,7 +7990,1966 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
     return "\n".join(lines)
 
 
+def _write_all_method_source_reports_from_global_rows(
+    *,
+    target_variants: list[tuple[AllMethodTarget, list[AllMethodVariant]]],
+    source_job_plans: list[_AllMethodSourceJobPlan],
+    root_output_dir: Path,
+    processed_output_root: Path,
+    successful_rows: list[dict[str, Any]],
+    failed_rows: list[dict[str, Any]],
+    include_codex_farm_requested: bool,
+    include_codex_farm_effective: bool,
+    eval_signature_cache_dir: Path,
+    scheduler_summary: dict[str, Any],
+    retry_failed_configs_requested: int,
+    retry_passes_executed: int,
+    retry_recovered_configs: int,
+) -> list[dict[str, Any]]:
+    grouped_rows: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in successful_rows + failed_rows:
+        grouped_rows[_report_count(row.get("source_position"))].append(dict(row))
+
+    source_plans_by_position: dict[int, list[_AllMethodSourceJobPlan]] = defaultdict(list)
+    for plan in source_job_plans:
+        source_plans_by_position[plan.source_position].append(plan)
+
+    source_rows: list[dict[str, Any]] = []
+    for source_position, (target, variants) in enumerate(target_variants):
+        plan_rows = sorted(
+            source_plans_by_position.get(source_position, []),
+            key=lambda plan: (plan.shard_index, plan.source_slug),
+        )
+        source_group_key = (
+            plan_rows[0].source_group_key
+            if plan_rows
+            else slugify_name(target.source_file.stem)
+        )
+        source_rows_for_position = sorted(
+            grouped_rows.get(source_position, []),
+            key=lambda row: _report_count(
+                row.get("source_config_index", row.get("config_index"))
+            ),
+        )
+        cleaned_rows: list[dict[str, Any]] = []
+        for row in source_rows_for_position:
+            cleaned = {
+                key: value
+                for key, value in row.items()
+                if not str(key).startswith("_")
+            }
+            cleaned_rows.append(cleaned)
+
+        successful_source_rows = [
+            row
+            for row in cleaned_rows
+            if str(row.get("status") or "").strip().lower() == "ok"
+        ]
+        failed_source_rows = [
+            row
+            for row in cleaned_rows
+            if str(row.get("status") or "").strip().lower() != "ok"
+        ]
+        successful_source_rows.sort(
+            key=lambda row: (
+                _report_metric(row.get("f1")),
+                _report_metric(row.get("practical_f1")),
+                _report_metric(row.get("precision")),
+                _report_metric(row.get("recall")),
+            ),
+            reverse=True,
+        )
+        for rank, row in enumerate(successful_source_rows, start=1):
+            row["rank"] = rank
+        final_rows = successful_source_rows + failed_source_rows
+
+        evaluation_signatures_unique = len(
+            {
+                str(row.get("eval_signature") or "").strip()
+                for row in successful_source_rows
+                if str(row.get("eval_signature") or "").strip()
+            }
+        )
+        evaluation_runs_executed = sum(
+            1
+            for row in successful_source_rows
+            if str(row.get("evaluation_result_source") or "").strip().lower()
+            == "executed"
+        )
+        evaluation_results_reused_in_run = sum(
+            1
+            for row in successful_source_rows
+            if str(row.get("evaluation_result_source") or "").strip().lower()
+            == "reused_in_run"
+        )
+        evaluation_results_reused_cross_run = sum(
+            1
+            for row in successful_source_rows
+            if str(row.get("evaluation_result_source") or "").strip().lower()
+            == "reused_cross_run"
+        )
+
+        successful_timing: list[tuple[dict[str, Any], float]] = []
+        for row in successful_source_rows:
+            row_timing = _normalize_timing_payload(row.get("timing"))
+            row_total_seconds = _report_optional_metric(row_timing.get("total_seconds"))
+            if row_total_seconds is None:
+                row_total_seconds = _report_optional_metric(row.get("duration_seconds"))
+            if row_total_seconds is None:
+                continue
+            row["timing"] = _timing_with_updates(row_timing, total_seconds=row_total_seconds)
+            successful_timing.append((row, row_total_seconds))
+
+        total_config_seconds = sum(seconds for _row, seconds in successful_timing)
+        average_config_seconds = (
+            total_config_seconds / len(successful_timing) if successful_timing else None
+        )
+        median_config_seconds = _median_metric(
+            [seconds for _row, seconds in successful_timing]
+        )
+        slowest_config_row = (
+            max(successful_timing, key=lambda item: item[1])[0]
+            if successful_timing
+            else None
+        )
+        slowest_config_seconds = (
+            max(seconds for _row, seconds in successful_timing)
+            if successful_timing
+            else None
+        )
+
+        source_wall_seconds = _report_metric(
+            sum(
+                _report_optional_metric(
+                    _normalize_timing_payload(row.get("timing")).get(
+                        "all_method_prediction_wall_seconds"
+                    )
+                )
+                or 0.0
+                for row in final_rows
+            )
+        )
+        if source_wall_seconds <= 0.0:
+            source_wall_seconds = total_config_seconds
+
+        winner = successful_source_rows[0] if successful_source_rows else None
+        report_payload: dict[str, Any] = {
+            "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+            "source_file": str(target.source_file),
+            "gold_spans_path": str(target.gold_spans_path),
+            "eval_mode": BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+            "variant_count": len(variants),
+            "successful_variants": len(successful_source_rows),
+            "failed_variants": len(failed_source_rows),
+            "evaluation_signatures_unique": evaluation_signatures_unique,
+            "evaluation_runs_executed": evaluation_runs_executed,
+            "evaluation_results_reused_in_run": evaluation_results_reused_in_run,
+            "evaluation_results_reused_cross_run": evaluation_results_reused_cross_run,
+            "evaluation_signature_cache_dir": str(eval_signature_cache_dir),
+            "retry_failed_configs_requested": retry_failed_configs_requested,
+            "retry_passes_executed": retry_passes_executed,
+            "retry_recovered_configs": retry_recovered_configs,
+            "include_codex_farm_requested": include_codex_farm_requested,
+            "include_codex_farm_effective": include_codex_farm_effective,
+            "timing_summary": {
+                "source_wall_seconds": source_wall_seconds,
+                "config_total_seconds": total_config_seconds,
+                "config_average_seconds": average_config_seconds,
+                "config_median_seconds": median_config_seconds,
+                "slowest_config_dir": (
+                    str(slowest_config_row.get("config_dir"))
+                    if isinstance(slowest_config_row, dict)
+                    else None
+                ),
+                "slowest_config_seconds": slowest_config_seconds,
+            },
+            "scheduler": dict(scheduler_summary),
+            "variants": final_rows,
+            "winner_by_f1": winner,
+            "scheduler_scope": "global_config_queue",
+        }
+
+        source_root = root_output_dir / source_group_key
+        source_root.mkdir(parents=True, exist_ok=True)
+        report_json_path = source_root / "all_method_benchmark_report.json"
+        report_json_path.write_text(
+            json.dumps(report_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        report_md_path = source_root / "all_method_benchmark_report.md"
+        report_md_path.write_text(
+            _render_all_method_report_md(report_payload),
+            encoding="utf-8",
+        )
+
+        source_shard_payload = [
+            {
+                "status": "ok",
+                "source_slug": plan.source_slug,
+                "source_shard_index": plan.shard_index + 1,
+                "source_shard_total": max(1, _report_count(plan.shard_total)),
+                "source_estimated_seconds": plan.estimated_seconds,
+                "source_estimate_basis": plan.estimate_basis,
+                "variant_count_planned": len(plan.variants),
+                "variant_count_completed": len(
+                    [
+                        row
+                        for row in cleaned_rows
+                        if _report_count(row.get("source_shard_index"))
+                        == (plan.shard_index + 1)
+                    ]
+                ),
+                "variant_count_successful": len(
+                    [
+                        row
+                        for row in successful_source_rows
+                        if _report_count(row.get("source_shard_index"))
+                        == (plan.shard_index + 1)
+                    ]
+                ),
+                "evaluation_signatures_unique": len(
+                    {
+                        str(row.get("eval_signature") or "").strip()
+                        for row in successful_source_rows
+                        if _report_count(row.get("source_shard_index"))
+                        == (plan.shard_index + 1)
+                        and str(row.get("eval_signature") or "").strip()
+                    }
+                ),
+                "evaluation_runs_executed": sum(
+                    1
+                    for row in successful_source_rows
+                    if _report_count(row.get("source_shard_index"))
+                    == (plan.shard_index + 1)
+                    and str(row.get("evaluation_result_source") or "").strip().lower()
+                    == "executed"
+                ),
+                "evaluation_results_reused_in_run": sum(
+                    1
+                    for row in successful_source_rows
+                    if _report_count(row.get("source_shard_index"))
+                    == (plan.shard_index + 1)
+                    and str(row.get("evaluation_result_source") or "").strip().lower()
+                    == "reused_in_run"
+                ),
+                "evaluation_results_reused_cross_run": sum(
+                    1
+                    for row in successful_source_rows
+                    if _report_count(row.get("source_shard_index"))
+                    == (plan.shard_index + 1)
+                    and str(row.get("evaluation_result_source") or "").strip().lower()
+                    == "reused_cross_run"
+                ),
+                "report_path": _path_for_manifest(root_output_dir, report_md_path) or "",
+                "report_json_path": _path_for_manifest(root_output_dir, report_json_path)
+                or "",
+                "error": "",
+                "timing_summary": {},
+            }
+            for plan in plan_rows
+        ]
+        error_messages = [
+            str(row.get("error") or "").strip() for row in failed_source_rows if str(row.get("error") or "").strip()
+        ]
+        winner_metrics = {}
+        if isinstance(winner, dict):
+            winner_metrics = {
+                "precision": _report_metric(winner.get("precision")),
+                "recall": _report_metric(winner.get("recall")),
+                "f1": _report_metric(winner.get("f1")),
+            }
+        source_rows.append(
+            {
+                "status": "ok" if not failed_source_rows else "failed",
+                "source_position": source_position,
+                "source_group_key": source_group_key,
+                "source_shard_index": 1,
+                "source_shard_total": max(1, len(plan_rows)),
+                "source_estimated_seconds": _report_metric(
+                    sum(float(plan.estimated_seconds) for plan in plan_rows)
+                ),
+                "source_estimate_basis": (
+                    "+".join(
+                        sorted(
+                            {
+                                str(plan.estimate_basis).strip()
+                                for plan in plan_rows
+                                if str(plan.estimate_basis).strip()
+                            }
+                        )
+                    )
+                    or "unknown"
+                ),
+                "source_file": str(target.source_file),
+                "source_file_name": target.source_file_name,
+                "gold_spans_path": str(target.gold_spans_path),
+                "gold_display": target.gold_display,
+                "source_slug": source_group_key,
+                "report_path": _path_for_manifest(root_output_dir, report_md_path) or "",
+                "report_json_path": _path_for_manifest(root_output_dir, report_json_path)
+                or "",
+                "report_paths": [_path_for_manifest(root_output_dir, report_md_path) or ""],
+                "report_json_paths": [
+                    _path_for_manifest(root_output_dir, report_json_path) or ""
+                ],
+                "variant_count_planned": len(variants),
+                "variant_count_completed": len(cleaned_rows),
+                "variant_count_successful": len(successful_source_rows),
+                "evaluation_signatures_unique": evaluation_signatures_unique,
+                "evaluation_runs_executed": evaluation_runs_executed,
+                "evaluation_results_reused_in_run": evaluation_results_reused_in_run,
+                "evaluation_results_reused_cross_run": evaluation_results_reused_cross_run,
+                "winner_metrics": winner_metrics,
+                "timing_summary": dict(report_payload.get("timing_summary") or {}),
+                "scheduler": dict(scheduler_summary),
+                "source_shards": source_shard_payload,
+                "error": " | ".join(error_messages),
+            }
+        )
+    _ = processed_output_root
+    return source_rows
+
+
+def _run_all_method_benchmark_global_queue(
+    *,
+    target_variants: list[tuple[AllMethodTarget, list[AllMethodVariant]]],
+    unmatched_targets: list[AllMethodUnmatchedGold],
+    include_codex_farm_requested: bool,
+    include_codex_farm_effective: bool,
+    root_output_dir: Path,
+    processed_output_root: Path,
+    overlap_threshold: float,
+    force_source_match: bool,
+    progress_callback: Callable[[str], None] | None = None,
+    dashboard: _AllMethodProgressDashboard | None = None,
+    max_parallel_sources: int | None = None,
+    max_inflight_pipelines: int | None = None,
+    max_concurrent_split_phases: int | None = None,
+    max_eval_tail_pipelines: int | None = None,
+    config_timeout_seconds: int | None = None,
+    retry_failed_configs: int | None = None,
+    source_scheduling: str | None = None,
+    source_shard_threshold_seconds: float | None = None,
+    source_shard_max_parts: int | None = None,
+    source_shard_min_variants: int | None = None,
+    wing_backlog_target: int | None = None,
+    smart_scheduler: bool = False,
+    canonical_alignment_cache_root: Path | None = None,
+) -> Path:
+    run_started = time.monotonic()
+    root_output_dir.mkdir(parents=True, exist_ok=True)
+    processed_output_root.mkdir(parents=True, exist_ok=True)
+
+    effective_config_timeout_seconds = _resolve_all_method_config_timeout_seconds(
+        config_timeout_seconds
+    )
+    effective_retry_failed_configs = _resolve_all_method_retry_failed_configs(
+        retry_failed_configs
+    )
+    resolved_source_scheduling = _normalize_all_method_source_scheduling(
+        source_scheduling
+    )
+    resolved_source_shard_threshold_seconds = (
+        _coerce_positive_float(source_shard_threshold_seconds)
+        or ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_DEFAULT
+    )
+    resolved_source_shard_max_parts = (
+        _coerce_positive_int(source_shard_max_parts)
+        or ALL_METHOD_SOURCE_SHARD_MAX_PARTS_DEFAULT
+    )
+    resolved_source_shard_min_variants = (
+        _coerce_positive_int(source_shard_min_variants)
+        or ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_DEFAULT
+    )
+    resolved_canonical_cache_root = (
+        canonical_alignment_cache_root.expanduser()
+        if canonical_alignment_cache_root is not None
+        else _resolve_all_method_canonical_alignment_cache_root(
+            root_output_dir=root_output_dir
+        )
+    )
+
+    total_targets = len(target_variants)
+    source_job_plans = _plan_all_method_source_jobs(
+        target_variants=target_variants,
+        scheduling_strategy=resolved_source_scheduling,
+        shard_threshold_seconds=resolved_source_shard_threshold_seconds,
+        shard_max_parts=resolved_source_shard_max_parts,
+        shard_min_variants=resolved_source_shard_min_variants,
+    )
+    work_items = _plan_all_method_global_work_items(
+        target_variants=target_variants,
+        scheduling_strategy=resolved_source_scheduling,
+        shard_threshold_seconds=resolved_source_shard_threshold_seconds,
+        shard_max_parts=resolved_source_shard_max_parts,
+        shard_min_variants=resolved_source_shard_min_variants,
+        root_output_dir=root_output_dir,
+        processed_output_root=processed_output_root,
+        canonical_alignment_cache_root=resolved_canonical_cache_root,
+    )
+    total_planned_config_runs = len(work_items)
+    source_parallelism_default = min(
+        _all_method_default_parallel_sources_from_cpu(),
+        max(1, total_targets),
+    )
+    requested_source_parallelism = _report_count(max_parallel_sources)
+    source_parallelism_configured = (
+        requested_source_parallelism
+        if requested_source_parallelism > 0
+        else source_parallelism_default
+    )
+    source_parallelism_effective = _resolve_all_method_source_parallelism(
+        total_sources=max(1, total_targets),
+        requested=max_parallel_sources,
+    )
+
+    scheduler_runtime = _resolve_all_method_scheduler_runtime(
+        total_variants=max(1, total_planned_config_runs),
+        max_inflight_pipelines=max_inflight_pipelines,
+        max_concurrent_split_phases=max_concurrent_split_phases,
+        max_eval_tail_pipelines=max_eval_tail_pipelines,
+        wing_backlog_target=wing_backlog_target,
+        smart_scheduler=smart_scheduler,
+        source_parallelism_effective=1,
+    )
+    configured_inflight_pipelines = scheduler_runtime.configured_inflight_pipelines
+    effective_split_phase_slots = scheduler_runtime.split_phase_slots
+    effective_wing_backlog_target = scheduler_runtime.wing_backlog_target
+    configured_eval_tail_headroom = scheduler_runtime.eval_tail_headroom_configured
+    effective_eval_tail_headroom = scheduler_runtime.eval_tail_headroom_effective
+    eval_tail_headroom_mode = scheduler_runtime.eval_tail_headroom_mode
+    effective_smart_scheduler = scheduler_runtime.smart_scheduler_enabled
+    max_active_during_eval = scheduler_runtime.max_active_during_eval
+    effective_inflight_pipelines = scheduler_runtime.effective_inflight_pipelines
+    scheduler_cpu_budget_per_source = scheduler_runtime.cpu_budget_per_source
+    scheduler_cpu_budget_total = scheduler_runtime.cpu_budget_total
+    split_worker_cap_per_config, split_worker_guard = _resolve_all_method_split_worker_cap(
+        split_phase_slots=effective_split_phase_slots,
+        source_parallelism_effective=1,
+    )
+
+    max_requested_split_workers = max(
+        [
+            max(
+                max(1, _report_count(item.variant.run_settings.workers)),
+                max(1, _report_count(item.variant.run_settings.pdf_split_workers)),
+                max(1, _report_count(item.variant.run_settings.epub_split_workers)),
+            )
+            for item in work_items
+        ],
+        default=1,
+    )
+
+    split_phase_gate_dir = root_output_dir / ".split_phase_slots"
+    split_phase_gate_dir.mkdir(parents=True, exist_ok=True)
+    scheduler_events_dir = root_output_dir / ".scheduler_events"
+    scheduler_timeseries_path = root_output_dir / ALL_METHOD_SCHEDULER_TIMESERIES_FILENAME
+    if scheduler_events_dir.exists():
+        shutil.rmtree(scheduler_events_dir)
+    scheduler_events_dir.mkdir(parents=True, exist_ok=True)
+    if scheduler_timeseries_path.exists():
+        scheduler_timeseries_path.unlink()
+
+    status_lock = threading.RLock()
+    source_totals: dict[int, int] = {
+        source_position: len(variants)
+        for source_position, (_target, variants) in enumerate(target_variants)
+    }
+    source_active: dict[int, int] = defaultdict(int)
+    source_completed: dict[int, int] = defaultdict(int)
+    source_failed_seen: dict[int, bool] = defaultdict(bool)
+
+    def _emit_status(
+        message: str,
+        *,
+        color: typer.colors = typer.colors.CYAN,
+    ) -> None:
+        cleaned = str(message or "").strip()
+        if not cleaned:
+            return
+        with status_lock:
+            if progress_callback is not None:
+                if dashboard is not None:
+                    dashboard.set_task(cleaned)
+                    _notify_progress_callback(progress_callback, dashboard.render())
+                else:
+                    _notify_progress_callback(progress_callback, cleaned)
+                return
+            typer.secho(cleaned, fg=color)
+
+    if split_worker_cap_per_config < max_requested_split_workers:
+        _emit_status(
+            (
+                "Resource guard capped split workers per active config to "
+                f"{split_worker_cap_per_config} "
+                f"(requested peak {max_requested_split_workers}; "
+                f"split slots {effective_split_phase_slots})."
+            ),
+            color=typer.colors.YELLOW,
+        )
+
+    scheduler_phase_by_config: dict[int, str] = {}
+    scheduler_event_offsets: dict[int, int] = {}
+    scheduler_last_tick = time.monotonic()
+    scheduler_capacity_seconds = 0.0
+    scheduler_busy_seconds = 0.0
+    scheduler_idle_gap_seconds = 0.0
+    scheduler_wing_area_seconds = 0.0
+    scheduler_max_wing_backlog = 0
+    scheduler_max_active_pipelines = 0
+    scheduler_max_eval_active = 0
+    scheduler_last_snapshot = ""
+    scheduler_timeseries_last_snapshot = ""
+    scheduler_timeseries_last_write_monotonic = run_started
+    scheduler_timeseries_rows_written = 0
+    scheduler_timeseries_heartbeat_seconds = max(
+        ALL_METHOD_SCHEDULER_TIMESERIES_HEARTBEAT_SECONDS,
+        ALL_METHOD_SCHEDULER_POLL_SECONDS,
+    )
+    scheduler_cpu_source = "proc_stat_linux"
+    scheduler_cpu_samples_collected = 0
+    scheduler_cpu_totals_last: tuple[int, int] | None = None
+
+    def _scheduler_event_path(config_index: int) -> Path:
+        return scheduler_events_dir / f"config_{config_index:03d}.jsonl"
+
+    def _read_linux_cpu_totals() -> tuple[int, int] | None:
+        try:
+            with Path("/proc/stat").open("r", encoding="utf-8") as handle:
+                first_line = handle.readline()
+        except OSError:
+            return None
+        line = str(first_line or "").strip()
+        if not line:
+            return None
+        parts = line.split()
+        if not parts or parts[0] != "cpu":
+            return None
+        values: list[int] = []
+        for token in parts[1:]:
+            try:
+                values.append(int(token))
+            except ValueError:
+                return None
+        if len(values) < 4:
+            return None
+        total = sum(values)
+        idle = values[3] + (values[4] if len(values) > 4 else 0)
+        return total, idle
+
+    def _sample_host_cpu_utilization_pct() -> float | None:
+        nonlocal scheduler_cpu_source
+        nonlocal scheduler_cpu_samples_collected
+        nonlocal scheduler_cpu_totals_last
+
+        current = _read_linux_cpu_totals()
+        if current is None:
+            scheduler_cpu_source = "unavailable"
+            scheduler_cpu_totals_last = None
+            return None
+        previous = scheduler_cpu_totals_last
+        scheduler_cpu_totals_last = current
+        if previous is None:
+            return None
+        total_delta = current[0] - previous[0]
+        idle_delta = current[1] - previous[1]
+        if total_delta <= 0:
+            return None
+        busy_delta = max(0, total_delta - max(0, idle_delta))
+        scheduler_cpu_samples_collected += 1
+        return max(0.0, min(100.0, (float(busy_delta) / float(total_delta)) * 100.0))
+
+    def _scheduler_phase_for_event(event_name: str) -> str | None:
+        event = str(event_name or "").strip()
+        if event in {"config_started", "prep_started"}:
+            return "prep"
+        if event == "split_wait_started":
+            return "split_wait"
+        if event == "split_active_started":
+            return "split_active"
+        if event in {"split_active_finished", "post_started"}:
+            return "post"
+        if event in {"post_finished", "evaluate_started"}:
+            return "evaluate"
+        if event in {"evaluate_finished", "config_finished"}:
+            return "done"
+        return None
+
+    def _poll_scheduler_events(active_indices: set[int]) -> None:
+        for active_index in sorted(active_indices):
+            event_path = _scheduler_event_path(active_index)
+            if not event_path.exists():
+                continue
+            offset = max(0, scheduler_event_offsets.get(active_index, 0))
+            with event_path.open("r", encoding="utf-8") as handle:
+                handle.seek(offset)
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        payload = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(payload, dict):
+                        continue
+                    phase = _scheduler_phase_for_event(str(payload.get("event") or ""))
+                    if phase is not None:
+                        scheduler_phase_by_config[active_index] = phase
+                scheduler_event_offsets[active_index] = handle.tell()
+
+    def _compute_scheduler_counts(active_indices: set[int]) -> dict[str, int]:
+        heavy_active = 0
+        split_wait = 0
+        prep_active = 0
+        post_active = 0
+        evaluate_active = 0
+        for active_index in active_indices:
+            phase = scheduler_phase_by_config.get(active_index, "prep")
+            if phase == "split_active":
+                heavy_active += 1
+            elif phase == "split_wait":
+                split_wait += 1
+            elif phase == "post":
+                post_active += 1
+            elif phase == "evaluate":
+                evaluate_active += 1
+            elif phase == "done":
+                continue
+            else:
+                prep_active += 1
+        wing_backlog = split_wait + prep_active
+        return {
+            "heavy_active": heavy_active,
+            "split_wait": split_wait,
+            "prep_active": prep_active,
+            "post_active": post_active,
+            "evaluate_active": evaluate_active,
+            "wing_backlog": wing_backlog,
+            "active": len(active_indices),
+        }
+
+    def _tick_scheduler_metrics(*, active_indices: set[int], pending_count: int) -> dict[str, int]:
+        nonlocal scheduler_last_tick
+        nonlocal scheduler_capacity_seconds
+        nonlocal scheduler_busy_seconds
+        nonlocal scheduler_idle_gap_seconds
+        nonlocal scheduler_wing_area_seconds
+        nonlocal scheduler_max_wing_backlog
+        nonlocal scheduler_max_active_pipelines
+        nonlocal scheduler_max_eval_active
+
+        now = time.monotonic()
+        delta = max(0.0, now - scheduler_last_tick)
+        counts = _compute_scheduler_counts(active_indices)
+        scheduler_capacity_seconds += float(effective_split_phase_slots) * delta
+        scheduler_busy_seconds += float(
+            min(effective_split_phase_slots, counts["heavy_active"])
+        ) * delta
+        if pending_count > 0 and counts["heavy_active"] < effective_split_phase_slots:
+            scheduler_idle_gap_seconds += delta
+        scheduler_wing_area_seconds += float(counts["wing_backlog"]) * delta
+        scheduler_max_wing_backlog = max(scheduler_max_wing_backlog, counts["wing_backlog"])
+        scheduler_max_active_pipelines = max(
+            scheduler_max_active_pipelines,
+            counts["active"],
+        )
+        scheduler_max_eval_active = max(
+            scheduler_max_eval_active,
+            counts["evaluate_active"],
+        )
+        scheduler_last_tick = now
+        return counts
+
+    def _scheduler_snapshot(*, counts: dict[str, int], pending_count: int) -> str:
+        return (
+            f"scheduler heavy {counts['heavy_active']}/{effective_split_phase_slots} "
+            f"| wing {counts['wing_backlog']} "
+            f"| eval {counts['evaluate_active']} "
+            f"| active {counts['active']} | pending {max(0, pending_count)}"
+        )
+
+    def _write_scheduler_timeseries_row(
+        *,
+        counts: dict[str, int],
+        pending_count: int,
+        force: bool = False,
+    ) -> None:
+        nonlocal scheduler_timeseries_last_snapshot
+        nonlocal scheduler_timeseries_last_write_monotonic
+        nonlocal scheduler_timeseries_rows_written
+
+        pending_safe = max(0, pending_count)
+        snapshot = _scheduler_snapshot(counts=counts, pending_count=pending_safe)
+        now_monotonic = time.monotonic()
+        write_due = (
+            force
+            or snapshot != scheduler_timeseries_last_snapshot
+            or (
+                now_monotonic - scheduler_timeseries_last_write_monotonic
+                >= scheduler_timeseries_heartbeat_seconds
+            )
+        )
+        if not write_due:
+            return
+        row = {
+            "timestamp": dt.datetime.now(tz=dt.timezone.utc).isoformat(timespec="milliseconds"),
+            "monotonic_seconds": now_monotonic,
+            "elapsed_seconds": max(0.0, now_monotonic - run_started),
+            "snapshot": snapshot,
+            "heavy_active": _report_count(counts.get("heavy_active")),
+            "heavy_capacity": _report_count(effective_split_phase_slots),
+            "split_wait": _report_count(counts.get("split_wait")),
+            "prep_active": _report_count(counts.get("prep_active")),
+            "post_active": _report_count(counts.get("post_active")),
+            "evaluate_active": _report_count(counts.get("evaluate_active")),
+            "wing_backlog": _report_count(counts.get("wing_backlog")),
+            "active": _report_count(counts.get("active")),
+            "pending": pending_safe,
+            "cpu_utilization_pct": _sample_host_cpu_utilization_pct(),
+        }
+        try:
+            with scheduler_timeseries_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(row, sort_keys=True) + "\n")
+        except Exception:
+            return
+        scheduler_timeseries_last_snapshot = snapshot
+        scheduler_timeseries_last_write_monotonic = now_monotonic
+        scheduler_timeseries_rows_written += 1
+
+    def _emit_scheduler_snapshot(
+        *,
+        counts: dict[str, int],
+        pending_count: int,
+        force_timeseries: bool = False,
+    ) -> None:
+        nonlocal scheduler_last_snapshot
+        _write_scheduler_timeseries_row(
+            counts=counts,
+            pending_count=pending_count,
+            force=force_timeseries,
+        )
+        if progress_callback is None:
+            return
+        snapshot = _scheduler_snapshot(
+            counts=counts,
+            pending_count=max(0, pending_count),
+        )
+        if snapshot == scheduler_last_snapshot:
+            return
+        scheduler_last_snapshot = snapshot
+        _emit_status(snapshot, color=typer.colors.BRIGHT_BLACK)
+
+    item_by_global_index: dict[int, _AllMethodGlobalWorkItem] = {
+        item.global_dispatch_index: item for item in work_items
+    }
+    variant_rows: list[dict[str, Any]] = []
+
+    def _annotate_prediction_row(
+        *,
+        item: _AllMethodGlobalWorkItem,
+        row: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = dict(row)
+        payload["global_dispatch_index"] = item.global_dispatch_index
+        payload["source_position"] = item.source_position
+        payload["source_group_key"] = item.source_group_key
+        payload["source_slug"] = item.source_group_key
+        payload["source_file"] = str(item.source_file)
+        payload["source_file_name"] = item.source_file_name
+        payload["gold_spans_path"] = str(item.gold_spans_path)
+        payload["source_config_index"] = item.config_index
+        payload["source_config_total"] = item.config_total
+        payload["source_shard_index"] = item.source_shard_index + 1
+        payload["source_shard_total"] = max(1, _report_count(item.source_shard_total))
+        payload["source_estimated_seconds"] = item.source_estimated_seconds
+        payload["source_estimate_basis"] = item.source_estimate_basis
+        payload["_source_root"] = str(item.source_root)
+        payload["_source_processed_root"] = str(item.source_processed_root)
+        payload["_canonical_alignment_cache_dir"] = str(item.canonical_alignment_cache_dir)
+        return payload
+
+    def _latest_rows_by_dispatch(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        latest_by_index: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            dispatch_index = _report_count(
+                row.get("global_dispatch_index", row.get("config_index"))
+            )
+            latest_by_index[dispatch_index] = row
+        return [latest_by_index[index] for index in sorted(latest_by_index)]
+
+    def _mark_item_started(item: _AllMethodGlobalWorkItem, *, dashboard_tracking: bool) -> None:
+        if not dashboard_tracking or dashboard is None:
+            return
+        source_position = item.source_position
+        if source_active[source_position] <= 0:
+            dashboard.start_source(source_position)
+        source_active[source_position] += 1
+        dashboard.start_config(
+            source_index=source_position,
+            config_index=item.config_index,
+            config_total=max(1, item.config_total),
+            config_slug=item.variant.slug,
+        )
+
+    def _mark_item_finished(
+        item: _AllMethodGlobalWorkItem,
+        *,
+        success: bool,
+        dashboard_tracking: bool,
+    ) -> None:
+        source_position = item.source_position
+        source_active[source_position] = max(0, source_active[source_position] - 1)
+        source_completed[source_position] += 1
+        if not success:
+            source_failed_seen[source_position] = True
+        if not dashboard_tracking or dashboard is None:
+            return
+        dashboard.complete_config(
+            source_index=source_position,
+            success=success,
+            config_index=item.config_index,
+        )
+        expected_total = max(0, _report_count(source_totals.get(source_position)))
+        if (
+            expected_total > 0
+            and source_active[source_position] == 0
+            and source_completed[source_position] >= expected_total
+        ):
+            dashboard.finish_source(
+                source_position,
+                failed=bool(source_failed_seen[source_position]),
+            )
+
+    def _run_serial_items(
+        items: list[_AllMethodGlobalWorkItem],
+        *,
+        dashboard_tracking: bool = True,
+    ) -> None:
+        for item in items:
+            progress_label = format_task_counter(
+                "Running",
+                item.global_dispatch_index,
+                max(1, total_planned_config_runs),
+                noun="config",
+            )
+            _mark_item_started(item, dashboard_tracking=dashboard_tracking)
+            _emit_status(
+                f"{progress_label}: {item.variant.slug} [{item.source_file_name}]",
+                color=typer.colors.CYAN,
+            )
+
+            def _variant_progress(message: str) -> None:
+                if progress_callback is None:
+                    return
+                if dashboard is None:
+                    if parse_worker_activity(message) is not None:
+                        _notify_progress_callback(progress_callback, message)
+                        return
+                    _notify_progress_callback(
+                        progress_callback,
+                        f"{progress_label}: {item.variant.slug} [{item.source_file_name}] | {message}",
+                    )
+                    return
+                if parse_worker_activity(message) is not None:
+                    _notify_progress_callback(progress_callback, message)
+                    return
+                dashboard.set_task(message)
+                _notify_progress_callback(progress_callback, dashboard.render())
+
+            row = _run_all_method_prediction_once(
+                gold_spans_path=item.gold_spans_path,
+                source_file=item.source_file,
+                variant=item.variant,
+                config_index=item.global_dispatch_index,
+                total_variants=max(1, total_planned_config_runs),
+                root_output_dir=item.source_root,
+                scratch_root=item.source_root / ".scratch",
+                processed_output_root=item.source_processed_root,
+                overlap_threshold=overlap_threshold,
+                force_source_match=force_source_match,
+                max_concurrent_split_phases=effective_split_phase_slots,
+                split_phase_gate_dir=split_phase_gate_dir,
+                scheduler_events_dir=scheduler_events_dir,
+                alignment_cache_dir=item.canonical_alignment_cache_dir,
+                split_worker_cap_per_config=split_worker_cap_per_config,
+                progress_callback=_variant_progress if progress_callback else None,
+            )
+            row = _annotate_prediction_row(item=item, row=row)
+            variant_rows.append(row)
+
+            success = str(row.get("status") or "").strip().lower() == "ok"
+            _mark_item_finished(
+                item,
+                success=success,
+                dashboard_tracking=dashboard_tracking,
+            )
+            if success:
+                if progress_callback is not None:
+                    _emit_status(
+                        (
+                            "Completed "
+                            f"{format_task_counter('', item.global_dispatch_index, max(1, total_planned_config_runs), noun='config')}: "
+                            f"{item.variant.slug} [{item.source_file_name}]"
+                        )
+                    )
+            else:
+                _emit_status(
+                    (
+                        "Failed "
+                        f"{format_task_counter('', item.global_dispatch_index, max(1, total_planned_config_runs), noun='config')}: "
+                        f"{row.get('error', 'unknown error')}"
+                    ),
+                    color=typer.colors.RED,
+                )
+
+    def _run_parallel_items(
+        items: list[_AllMethodGlobalWorkItem],
+        *,
+        dashboard_tracking: bool = True,
+    ) -> None:
+        force_parallel_timeout = effective_config_timeout_seconds is not None
+        if (
+            len(items) <= 1 or effective_inflight_pipelines <= 1
+        ) and not force_parallel_timeout:
+            _run_serial_items(items, dashboard_tracking=dashboard_tracking)
+            return
+
+        pending_items = list(items)
+        futures: dict[Any, tuple[_AllMethodGlobalWorkItem, float]] = {}
+        worker_limit = min(effective_inflight_pipelines, max(1, len(items)))
+        scheduler_base_target = min(
+            max(1, total_planned_config_runs),
+            effective_split_phase_slots + effective_wing_backlog_target,
+        )
+        scheduler_smart_enabled = bool(effective_smart_scheduler)
+
+        try:
+            executor = ProcessPoolExecutor(max_workers=worker_limit)
+        except (PermissionError, OSError) as exc:
+            _emit_status(
+                f"Parallel executor unavailable ({exc}); falling back to serial mode.",
+                color=typer.colors.YELLOW,
+            )
+            _run_serial_items(items, dashboard_tracking=dashboard_tracking)
+            return
+
+        def _record_completion(
+            *,
+            item: _AllMethodGlobalWorkItem,
+            row: dict[str, Any],
+        ) -> None:
+            variant_rows.append(row)
+            success = str(row.get("status") or "").strip().lower() == "ok"
+            scheduler_phase_by_config.pop(item.global_dispatch_index, None)
+            scheduler_event_offsets.pop(item.global_dispatch_index, None)
+            _mark_item_finished(item, success=success, dashboard_tracking=dashboard_tracking)
+            if success:
+                if progress_callback is not None:
+                    _emit_status(
+                        (
+                            "Completed "
+                            f"{format_task_counter('', item.global_dispatch_index, max(1, total_planned_config_runs), noun='config')}: "
+                            f"{item.variant.slug} [{item.source_file_name}]"
+                        )
+                    )
+            else:
+                _emit_status(
+                    (
+                        "Failed "
+                        f"{format_task_counter('', item.global_dispatch_index, max(1, total_planned_config_runs), noun='config')}: "
+                        f"{row.get('error', 'unknown error')}"
+                    ),
+                    color=typer.colors.RED,
+                )
+
+        def _submit_next() -> bool:
+            if not pending_items:
+                return False
+            item = pending_items.pop(0)
+            progress_label = format_task_counter(
+                "Running",
+                item.global_dispatch_index,
+                max(1, total_planned_config_runs),
+                noun="config",
+            )
+            _mark_item_started(item, dashboard_tracking=dashboard_tracking)
+            _emit_status(
+                f"{progress_label}: {item.variant.slug} [{item.source_file_name}]",
+                color=typer.colors.CYAN,
+            )
+
+            try:
+                future = executor.submit(
+                    _run_all_method_prediction_once,
+                    gold_spans_path=item.gold_spans_path,
+                    source_file=item.source_file,
+                    variant=item.variant,
+                    config_index=item.global_dispatch_index,
+                    total_variants=max(1, total_planned_config_runs),
+                    root_output_dir=item.source_root,
+                    scratch_root=item.source_root / ".scratch",
+                    processed_output_root=item.source_processed_root,
+                    overlap_threshold=overlap_threshold,
+                    force_source_match=force_source_match,
+                    max_concurrent_split_phases=effective_split_phase_slots,
+                    split_phase_gate_dir=split_phase_gate_dir,
+                    scheduler_events_dir=scheduler_events_dir,
+                    alignment_cache_dir=item.canonical_alignment_cache_dir,
+                    split_worker_cap_per_config=split_worker_cap_per_config,
+                    progress_callback=None,
+                )
+            except Exception as exc:  # noqa: BLE001
+                row = _all_method_failed_row(
+                    config_index=item.global_dispatch_index,
+                    config_dir_name=_all_method_config_dir_name(
+                        item.global_dispatch_index,
+                        item.variant,
+                    ),
+                    variant=item.variant,
+                    error=f"Failed to submit benchmark config: {exc}",
+                )
+                _record_completion(item=item, row=_annotate_prediction_row(item=item, row=row))
+                return True
+
+            futures[future] = (item, time.monotonic())
+            scheduler_phase_by_config[item.global_dispatch_index] = "prep"
+            scheduler_event_offsets[item.global_dispatch_index] = 0
+            return True
+
+        try:
+            while pending_items or futures:
+                active_indices = {
+                    item.global_dispatch_index
+                    for item, _submitted in futures.values()
+                }
+                counts = _tick_scheduler_metrics(
+                    active_indices=active_indices,
+                    pending_count=len(pending_items),
+                )
+                if active_indices:
+                    try:
+                        _poll_scheduler_events(active_indices)
+                    except Exception:
+                        scheduler_smart_enabled = False
+                counts = _compute_scheduler_counts(
+                    {
+                        item.global_dispatch_index
+                        for item, _submitted in futures.values()
+                    }
+                )
+                if dashboard_tracking and dashboard is not None:
+                    for active_item, _submitted in futures.values():
+                        dashboard.set_config_phase(
+                            source_index=active_item.source_position,
+                            config_index=active_item.config_index,
+                            phase=scheduler_phase_by_config.get(
+                                active_item.global_dispatch_index,
+                                "prep",
+                            ),
+                        )
+                _emit_scheduler_snapshot(
+                    counts=counts,
+                    pending_count=len(pending_items),
+                )
+
+                while len(futures) < worker_limit and pending_items:
+                    if scheduler_smart_enabled:
+                        heavy_plus_wing = counts["heavy_active"] + counts["wing_backlog"]
+                        eval_tail_admission_open = (
+                            counts["evaluate_active"] > 0 and len(pending_items) > 0
+                        )
+                        smart_active_cap = (
+                            max_active_during_eval
+                            if eval_tail_admission_open
+                            else configured_inflight_pipelines
+                        )
+                        smart_active_cap = max(
+                            1,
+                            min(max(1, total_planned_config_runs), smart_active_cap),
+                        )
+                        guard_target = scheduler_base_target
+                        if eval_tail_admission_open:
+                            guard_target = min(
+                                scheduler_base_target,
+                                max_active_during_eval,
+                            )
+                        if counts["active"] >= smart_active_cap:
+                            break
+                        if (
+                            heavy_plus_wing >= guard_target
+                            and counts["active"] >= configured_inflight_pipelines
+                        ):
+                            break
+                    submitted = _submit_next()
+                    if not submitted:
+                        break
+                    counts = _compute_scheduler_counts(
+                        {
+                            item.global_dispatch_index
+                            for item, _submitted in futures.values()
+                        }
+                    )
+                    _emit_scheduler_snapshot(
+                        counts=counts,
+                        pending_count=len(pending_items),
+                    )
+
+                if not futures:
+                    if pending_items:
+                        time.sleep(ALL_METHOD_SCHEDULER_POLL_SECONDS)
+                    continue
+
+                done, _ = wait(
+                    list(futures.keys()),
+                    timeout=ALL_METHOD_SCHEDULER_POLL_SECONDS,
+                    return_when=FIRST_COMPLETED,
+                )
+                for done_future in done:
+                    item, _submitted = futures.pop(done_future)
+                    try:
+                        row = done_future.result()
+                    except Exception as exc:  # noqa: BLE001
+                        row = _all_method_failed_row(
+                            config_index=item.global_dispatch_index,
+                            config_dir_name=_all_method_config_dir_name(
+                                item.global_dispatch_index,
+                                item.variant,
+                            ),
+                            variant=item.variant,
+                            error=f"Benchmark config worker failed: {exc}",
+                        )
+                    _record_completion(
+                        item=item,
+                        row=_annotate_prediction_row(item=item, row=row),
+                    )
+
+                if effective_config_timeout_seconds is None:
+                    continue
+                timeout_threshold = float(max(1, effective_config_timeout_seconds))
+                now = time.monotonic()
+                timed_out: list[tuple[Any, _AllMethodGlobalWorkItem, float]] = []
+                for future, (item, submitted_at) in list(futures.items()):
+                    elapsed_seconds = max(0.0, now - submitted_at)
+                    if elapsed_seconds < timeout_threshold:
+                        continue
+                    timed_out.append((future, item, elapsed_seconds))
+                if not timed_out:
+                    continue
+
+                timed_out.sort(key=lambda item: item[1].global_dispatch_index)
+                for timed_out_future, item, elapsed_seconds in timed_out:
+                    futures.pop(timed_out_future, None)
+                    row = _all_method_failed_row(
+                        config_index=item.global_dispatch_index,
+                        config_dir_name=_all_method_config_dir_name(
+                            item.global_dispatch_index,
+                            item.variant,
+                        ),
+                        variant=item.variant,
+                        error=(
+                            f"Config timed out after {int(timeout_threshold)}s "
+                            f"(elapsed {elapsed_seconds:.1f}s)."
+                        ),
+                        elapsed_seconds=elapsed_seconds,
+                    )
+                    _record_completion(
+                        item=item,
+                        row=_annotate_prediction_row(item=item, row=row),
+                    )
+
+                if futures:
+                    requeued = sorted(
+                        [item for item, _submitted in futures.values()],
+                        key=lambda item: item.global_dispatch_index,
+                    )
+                    pending_items = requeued + pending_items
+                    futures.clear()
+                scheduler_smart_enabled = False
+                _emit_status(
+                    (
+                        "Config timeout reached for "
+                        f"{len(timed_out)} run(s); restarting worker pool."
+                    ),
+                    color=typer.colors.YELLOW,
+                )
+                shutdown_fn = getattr(executor, "shutdown", None)
+                if callable(shutdown_fn):
+                    try:
+                        shutdown_fn(wait=False, cancel_futures=True)
+                    except TypeError:
+                        shutdown_fn(wait=False)
+                try:
+                    executor = ProcessPoolExecutor(max_workers=worker_limit)
+                except (PermissionError, OSError) as exc:
+                    _emit_status(
+                        (
+                            "Parallel executor unavailable after timeout restart "
+                            f"({exc}); continuing in serial mode for remaining configs."
+                        ),
+                        color=typer.colors.YELLOW,
+                    )
+                    _run_serial_items(
+                        pending_items,
+                        dashboard_tracking=dashboard_tracking,
+                    )
+                    pending_items.clear()
+                    futures.clear()
+                    break
+        finally:
+            shutdown_fn = getattr(executor, "shutdown", None)
+            if callable(shutdown_fn):
+                try:
+                    shutdown_fn(wait=True, cancel_futures=False)
+                except TypeError:
+                    shutdown_fn(wait=True)
+
+    _run_parallel_items(work_items, dashboard_tracking=True)
+    variant_rows = _latest_rows_by_dispatch(variant_rows)
+    initial_failed_indices = [
+        _report_count(
+            row.get("global_dispatch_index", row.get("config_index"))
+        )
+        for row in variant_rows
+        if str(row.get("status") or "").strip().lower() != "ok"
+    ]
+    retry_passes_executed = 0
+    retry_recovered_configs = 0
+    if effective_retry_failed_configs > 0 and initial_failed_indices:
+        remaining_failed_indices = sorted(set(initial_failed_indices))
+        for retry_pass in range(1, effective_retry_failed_configs + 1):
+            if not remaining_failed_indices:
+                break
+            retry_items = [
+                item_by_global_index[index]
+                for index in remaining_failed_indices
+                if index in item_by_global_index
+            ]
+            if not retry_items:
+                break
+            retry_passes_executed += 1
+            _emit_status(
+                (
+                    f"Retry pass {retry_pass}/{effective_retry_failed_configs}: "
+                    f"rerunning {len(retry_items)} failed config(s)."
+                ),
+                color=typer.colors.YELLOW,
+            )
+            prior_failed = set(remaining_failed_indices)
+            _run_parallel_items(retry_items, dashboard_tracking=False)
+            variant_rows = _latest_rows_by_dispatch(variant_rows)
+            remaining_failed_indices = sorted(
+                {
+                    _report_count(
+                        row.get("global_dispatch_index", row.get("config_index"))
+                    )
+                    for row in variant_rows
+                    if str(row.get("status") or "").strip().lower() != "ok"
+                }
+            )
+            recovered_this_pass = len(prior_failed - set(remaining_failed_indices))
+            retry_recovered_configs += max(0, recovered_this_pass)
+            if recovered_this_pass > 0:
+                _emit_status(
+                    (
+                        f"Retry pass {retry_pass} recovered "
+                        f"{recovered_this_pass} config(s)."
+                    ),
+                    color=typer.colors.CYAN,
+                )
+
+    _tick_scheduler_metrics(active_indices=set(), pending_count=0)
+    _emit_scheduler_snapshot(
+        counts=_compute_scheduler_counts(set()),
+        pending_count=0,
+        force_timeseries=True,
+    )
+
+    scheduler_utilization_pct = (
+        (scheduler_busy_seconds / scheduler_capacity_seconds) * 100.0
+        if scheduler_capacity_seconds > 0
+        else 0.0
+    )
+    scheduler_avg_wing_backlog = (
+        scheduler_wing_area_seconds / scheduler_capacity_seconds
+        if scheduler_capacity_seconds > 0
+        else 0.0
+    )
+    scheduler_summary: dict[str, Any] = {
+        "mode": "smart" if bool(effective_smart_scheduler) else "fixed",
+        "source_count": max(1, total_targets),
+        "configured_inflight_pipelines": configured_inflight_pipelines,
+        "effective_inflight_pipelines": effective_inflight_pipelines,
+        "split_phase_slots": effective_split_phase_slots,
+        "wing_backlog_target": effective_wing_backlog_target,
+        "split_worker_cap_per_config": split_worker_cap_per_config,
+        "split_worker_cap_by_cpu": split_worker_guard.get("split_worker_cap_by_cpu"),
+        "split_worker_cap_by_memory": split_worker_guard.get("split_worker_cap_by_memory"),
+        "eval_tail_headroom_mode": eval_tail_headroom_mode,
+        "eval_tail_headroom_configured": configured_eval_tail_headroom,
+        "eval_tail_headroom_effective": effective_eval_tail_headroom,
+        "max_active_during_eval": max_active_during_eval,
+        "source_parallelism_effective": 1,
+        "cpu_budget_per_source": scheduler_cpu_budget_per_source,
+        "cpu_budget_total": scheduler_cpu_budget_total,
+        "max_eval_tail_pipelines": effective_eval_tail_headroom,
+        "smart_tail_buffer_slots": (
+            effective_eval_tail_headroom if bool(effective_smart_scheduler) else 0
+        ),
+        "smart_scheduler_enabled": bool(effective_smart_scheduler),
+        "config_timeout_seconds": effective_config_timeout_seconds,
+        "failed_retry_limit": effective_retry_failed_configs,
+        "retry_passes_executed": retry_passes_executed,
+        "retry_recovered_configs": retry_recovered_configs,
+        "heavy_slot_capacity_seconds": scheduler_capacity_seconds,
+        "heavy_slot_busy_seconds": scheduler_busy_seconds,
+        "heavy_slot_utilization_pct": scheduler_utilization_pct,
+        "avg_wing_backlog": scheduler_avg_wing_backlog,
+        "max_wing_backlog": scheduler_max_wing_backlog,
+        "idle_gap_seconds": scheduler_idle_gap_seconds,
+        "max_active_pipelines_observed": scheduler_max_active_pipelines,
+        "max_eval_active_observed": scheduler_max_eval_active,
+        "timeseries_path": str(scheduler_timeseries_path),
+        "timeseries_row_count": scheduler_timeseries_rows_written,
+        "timeseries_heartbeat_seconds": scheduler_timeseries_heartbeat_seconds,
+        "snapshot_poll_seconds": ALL_METHOD_SCHEDULER_POLL_SECONDS,
+        "cpu_utilization_source": scheduler_cpu_source,
+        "cpu_utilization_samples": scheduler_cpu_samples_collected,
+        "scheduler_scope": "global_config_queue",
+    }
+
+    variant_rows = _latest_rows_by_dispatch(variant_rows)
+    prediction_success_rows = [
+        dict(row)
+        for row in variant_rows
+        if str(row.get("status") or "").strip().lower() == "ok"
+    ]
+    failed_rows: list[dict[str, Any]] = [
+        dict(row)
+        for row in variant_rows
+        if str(row.get("status") or "").strip().lower() != "ok"
+    ]
+
+    successful_rows: list[dict[str, Any]] = []
+    signature_candidate_rows: list[dict[str, Any]] = []
+    evaluation_signatures_unique = 0
+    evaluation_runs_executed = 0
+    evaluation_results_reused_in_run = 0
+    evaluation_results_reused_cross_run = 0
+    eval_signature_cache_dir = _resolve_all_method_eval_signature_cache_dir(
+        root_output_dir=root_output_dir,
+        alignment_cache_dir=resolved_canonical_cache_root / "__global__",
+    )
+
+    for row in prediction_success_rows:
+        source_root_raw = str(row.get("_source_root") or "").strip()
+        if not source_root_raw:
+            failed_row = dict(row)
+            failed_row["status"] = "failed"
+            failed_row["error"] = "Source root is missing for signature build."
+            failed_row["evaluation_result_source"] = "failed"
+            failed_rows.append(failed_row)
+            continue
+        prediction_record_path = _resolve_all_method_prediction_record_path(
+            root_output_dir=Path(source_root_raw),
+            row=row,
+        )
+        if (
+            prediction_record_path is None
+            or not prediction_record_path.exists()
+            or not prediction_record_path.is_file()
+        ):
+            failed_row = dict(row)
+            failed_row["status"] = "failed"
+            failed_row["error"] = "Prediction record path is missing for signature build."
+            failed_row["evaluation_result_source"] = "failed"
+            failed_rows.append(failed_row)
+            continue
+        sequence_matcher = str(row.get("benchmark_sequence_matcher") or "").strip() or "dmp"
+        gold_spans_path = Path(str(row.get("gold_spans_path") or "").strip())
+        try:
+            eval_signature = _build_all_method_eval_signature(
+                gold_spans_path=gold_spans_path,
+                prediction_record_path=prediction_record_path,
+                eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+                sequence_matcher=sequence_matcher,
+            )
+        except Exception as exc:  # noqa: BLE001
+            failed_row = dict(row)
+            failed_row["status"] = "failed"
+            failed_row["error"] = f"Failed to build evaluation signature: {exc}"
+            failed_row["evaluation_result_source"] = "failed"
+            failed_rows.append(failed_row)
+            continue
+        row["eval_signature"] = eval_signature
+        row["benchmark_sequence_matcher"] = sequence_matcher
+        signature_candidate_rows.append(row)
+
+    grouped_by_signature = _group_all_method_rows_by_eval_signature(signature_candidate_rows)
+    evaluation_signatures_unique = len(grouped_by_signature)
+    grouped_items = sorted(
+        grouped_by_signature.items(),
+        key=lambda item: min(
+            _report_count(
+                row.get("global_dispatch_index", row.get("config_index"))
+            )
+            for row in item[1]
+        ),
+    )
+    for signature_index, (eval_signature, group_rows) in enumerate(grouped_items, start=1):
+        if not group_rows:
+            continue
+        ordered_group = sorted(
+            group_rows,
+            key=lambda row: _report_count(
+                row.get("global_dispatch_index", row.get("config_index"))
+            ),
+        )
+        representative_row = ordered_group[0]
+        representative_config_dir = str(representative_row.get("config_dir") or "").strip()
+        if not representative_config_dir:
+            for row in ordered_group:
+                failed_row = dict(row)
+                failed_row["status"] = "failed"
+                failed_row["error"] = "Representative config directory is missing."
+                failed_row["evaluation_result_source"] = "failed"
+                failed_rows.append(failed_row)
+            continue
+
+        source_root = Path(str(representative_row.get("_source_root") or ""))
+        source_processed_root = Path(
+            str(representative_row.get("_source_processed_root") or "")
+        )
+        canonical_alignment_cache_dir = Path(
+            str(representative_row.get("_canonical_alignment_cache_dir") or "")
+        )
+        representative_eval_output_dir = source_root / representative_config_dir
+        representative_processed_output_dir = source_processed_root / representative_config_dir
+        representative_prediction_record = _resolve_all_method_prediction_record_path(
+            root_output_dir=source_root,
+            row=representative_row,
+        )
+        if representative_prediction_record is None:
+            for row in ordered_group:
+                failed_row = dict(row)
+                failed_row["status"] = "failed"
+                failed_row["error"] = "Representative prediction record is missing."
+                failed_row["evaluation_result_source"] = "failed"
+                failed_rows.append(failed_row)
+            continue
+        sequence_matcher = str(representative_row.get("benchmark_sequence_matcher") or "").strip()
+        if not sequence_matcher:
+            sequence_matcher = "dmp"
+
+        cache_path = eval_signature_cache_dir / f"{eval_signature}.json"
+        cache_entry = _load_all_method_eval_signature_cache_entry(
+            cache_path=cache_path,
+            expected_signature=eval_signature,
+        )
+        evaluation_result_source_for_group = "executed"
+        evaluation_summary: dict[str, Any]
+        if cache_entry is not None:
+            cached_report = cache_entry.get("report")
+            if not isinstance(cached_report, dict):
+                cached_report = {}
+            cached_md = str(cache_entry.get("report_md") or "")
+            eval_report_json_path, eval_report_md_path = (
+                _materialize_all_method_cached_eval_outputs(
+                    eval_output_dir=representative_eval_output_dir,
+                    report_payload=cached_report,
+                    report_md_text=cached_md,
+                )
+            )
+            evaluation_summary = {
+                "status": "ok",
+                "error": "",
+                "precision": _report_metric(cached_report.get("precision")),
+                "recall": _report_metric(cached_report.get("recall")),
+                "f1": _report_metric(cached_report.get("f1")),
+                "practical_precision": _report_metric(
+                    cached_report.get("practical_precision")
+                ),
+                "practical_recall": _report_metric(cached_report.get("practical_recall")),
+                "practical_f1": _report_metric(cached_report.get("practical_f1")),
+                "timing": _normalize_timing_payload(cached_report.get("timing")),
+                "report": cached_report,
+                "report_md_text": cached_md,
+                "eval_report_json_path": eval_report_json_path,
+                "eval_report_md_path": eval_report_md_path,
+                "duration_seconds": 0.0,
+            }
+            evaluation_result_source_for_group = "reused_cross_run"
+            evaluation_results_reused_cross_run += len(ordered_group)
+        else:
+            _emit_status(
+                (
+                    "Evaluating signature "
+                    f"{signature_index}/{max(1, evaluation_signatures_unique)} "
+                    f"(group size {len(ordered_group)})."
+                ),
+                color=typer.colors.CYAN,
+            )
+            evaluation_summary = _run_all_method_evaluate_prediction_record_once(
+                gold_spans_path=Path(str(representative_row.get("gold_spans_path") or "")),
+                source_file=Path(str(representative_row.get("source_file") or "")),
+                prediction_record_path=representative_prediction_record,
+                eval_output_dir=representative_eval_output_dir,
+                processed_output_dir=representative_processed_output_dir,
+                sequence_matcher=sequence_matcher,
+                epub_extractor=str(
+                    representative_row.get("dimensions", {}).get("epub_extractor")
+                    if isinstance(representative_row.get("dimensions"), dict)
+                    else ""
+                )
+                or None,
+                overlap_threshold=overlap_threshold,
+                force_source_match=force_source_match,
+                alignment_cache_dir=canonical_alignment_cache_dir,
+                progress_callback=None,
+            )
+            if str(evaluation_summary.get("status") or "").strip().lower() == "ok":
+                evaluation_runs_executed += 1
+                if len(ordered_group) > 1:
+                    evaluation_results_reused_in_run += len(ordered_group) - 1
+                cached_payload = {
+                    "schema_version": ALL_METHOD_EVAL_SIGNATURE_RESULT_CACHE_SCHEMA_VERSION,
+                    "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+                    "eval_signature": eval_signature,
+                    "eval_mode": BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+                    "sequence_matcher": sequence_matcher,
+                    "source_file": str(representative_row.get("source_file") or ""),
+                    "gold_spans_path": str(representative_row.get("gold_spans_path") or ""),
+                    "report": evaluation_summary.get("report"),
+                    "report_md": evaluation_summary.get("report_md_text"),
+                }
+                try:
+                    _write_all_method_eval_signature_cache_entry(
+                        cache_path=cache_path,
+                        payload=cached_payload,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Ignoring eval-signature cache write failure for %s: %s",
+                        cache_path,
+                        exc,
+                    )
+
+        if str(evaluation_summary.get("status") or "").strip().lower() != "ok":
+            error_text = str(evaluation_summary.get("error") or "Evaluation failed.")
+            for row in ordered_group:
+                failed_row = dict(row)
+                failed_row["status"] = "failed"
+                failed_row["error"] = error_text
+                failed_row["evaluation_result_source"] = "failed"
+                failed_row["evaluation_representative_config_dir"] = representative_config_dir
+                failed_row["eval_signature"] = eval_signature
+                failed_rows.append(failed_row)
+            continue
+
+        summary_timing = _normalize_timing_payload(evaluation_summary.get("timing"))
+        summary_evaluation_seconds = _report_optional_metric(
+            summary_timing.get("evaluation_seconds")
+        )
+        if summary_evaluation_seconds is None:
+            summary_evaluation_seconds = _report_optional_metric(
+                summary_timing.get("total_seconds")
+            )
+        if summary_evaluation_seconds is None:
+            summary_evaluation_seconds = _report_optional_metric(
+                evaluation_summary.get("duration_seconds")
+            )
+        if summary_evaluation_seconds is None:
+            summary_evaluation_seconds = 0.0
+        summary_eval_wall_seconds = max(
+            0.0,
+            _report_metric(evaluation_summary.get("duration_seconds")),
+        )
+        summary_report_json_path = Path(str(evaluation_summary.get("eval_report_json_path") or ""))
+        summary_report_md_path = Path(str(evaluation_summary.get("eval_report_md_path") or ""))
+
+        for row in ordered_group:
+            result_row = dict(row)
+            is_representative = (
+                _report_count(
+                    result_row.get("global_dispatch_index", result_row.get("config_index"))
+                )
+                == _report_count(
+                    representative_row.get(
+                        "global_dispatch_index",
+                        representative_row.get("config_index"),
+                    )
+                )
+            )
+            row_result_source = "executed"
+            if evaluation_result_source_for_group == "reused_cross_run":
+                row_result_source = "reused_cross_run"
+            elif not is_representative:
+                row_result_source = "reused_in_run"
+
+            row_timing = _normalize_timing_payload(result_row.get("timing"))
+            prediction_total_seconds = _report_optional_metric(row_timing.get("total_seconds"))
+            if prediction_total_seconds is None:
+                prediction_total_seconds = _report_optional_metric(
+                    result_row.get("duration_seconds")
+                )
+            if prediction_total_seconds is None:
+                prediction_total_seconds = 0.0
+            row_eval_seconds = summary_evaluation_seconds if row_result_source == "executed" else 0.0
+            row_eval_wall = summary_eval_wall_seconds if row_result_source == "executed" else 0.0
+            row_total_seconds = max(0.0, prediction_total_seconds + row_eval_seconds)
+            row_timing = _timing_with_updates(
+                row_timing,
+                evaluation_seconds=row_eval_seconds,
+                total_seconds=row_total_seconds,
+                checkpoints={
+                    "all_method_eval_wall_seconds": row_eval_wall,
+                    "all_method_eval_reused_in_run": (
+                        1.0 if row_result_source == "reused_in_run" else 0.0
+                    ),
+                    "all_method_eval_reused_cross_run": (
+                        1.0 if row_result_source == "reused_cross_run" else 0.0
+                    ),
+                },
+            )
+
+            result_row["status"] = "ok"
+            result_row["error"] = ""
+            result_row["precision"] = _report_metric(evaluation_summary.get("precision"))
+            result_row["recall"] = _report_metric(evaluation_summary.get("recall"))
+            result_row["f1"] = _report_metric(evaluation_summary.get("f1"))
+            result_row["practical_precision"] = _report_metric(
+                evaluation_summary.get("practical_precision")
+            )
+            result_row["practical_recall"] = _report_metric(
+                evaluation_summary.get("practical_recall")
+            )
+            result_row["practical_f1"] = _report_metric(evaluation_summary.get("practical_f1"))
+            result_row["eval_signature"] = eval_signature
+            result_row["evaluation_result_source"] = row_result_source
+            result_row["evaluation_representative_config_dir"] = representative_config_dir
+            result_row["duration_seconds"] = row_total_seconds
+            result_row["timing"] = row_timing
+            result_row["eval_report_json"] = _path_for_manifest(
+                source_root,
+                summary_report_json_path,
+            )
+            result_row["eval_report_md"] = _path_for_manifest(
+                source_root,
+                summary_report_md_path,
+            )
+            successful_rows.append(result_row)
+
+    source_rows = _write_all_method_source_reports_from_global_rows(
+        target_variants=target_variants,
+        source_job_plans=source_job_plans,
+        root_output_dir=root_output_dir,
+        processed_output_root=processed_output_root,
+        successful_rows=successful_rows,
+        failed_rows=failed_rows,
+        include_codex_farm_requested=include_codex_farm_requested,
+        include_codex_farm_effective=include_codex_farm_effective,
+        eval_signature_cache_dir=eval_signature_cache_dir,
+        scheduler_summary=scheduler_summary,
+        retry_failed_configs_requested=effective_retry_failed_configs,
+        retry_passes_executed=retry_passes_executed,
+        retry_recovered_configs=retry_recovered_configs,
+    )
+
+    successful_source_count = sum(
+        1 for row in source_rows if str(row.get("status", "")).lower() == "ok"
+    )
+    total_completed_config_runs = sum(
+        _report_count(row.get("variant_count_completed")) for row in source_rows
+    )
+    total_successful_config_runs = sum(
+        _report_count(row.get("variant_count_successful")) for row in source_rows
+    )
+    total_failed_config_runs = max(
+        0,
+        total_completed_config_runs - total_successful_config_runs,
+    )
+    total_evaluation_signatures_unique = sum(
+        _report_count(row.get("evaluation_signatures_unique")) for row in source_rows
+    )
+    total_evaluation_runs_executed = sum(
+        _report_count(row.get("evaluation_runs_executed")) for row in source_rows
+    )
+    total_evaluation_results_reused_in_run = sum(
+        _report_count(row.get("evaluation_results_reused_in_run"))
+        for row in source_rows
+    )
+    total_evaluation_results_reused_cross_run = sum(
+        _report_count(row.get("evaluation_results_reused_cross_run"))
+        for row in source_rows
+    )
+    run_wall_seconds = max(0.0, time.monotonic() - run_started)
+
+    source_timing_values: list[tuple[dict[str, Any], float]] = []
+    config_total_seconds = 0.0
+    for row in source_rows:
+        timing_summary = row.get("timing_summary")
+        if not isinstance(timing_summary, dict):
+            continue
+        source_seconds = _report_optional_metric(
+            timing_summary.get("source_wall_seconds")
+        )
+        if source_seconds is not None:
+            source_timing_values.append((row, source_seconds))
+        config_seconds = _report_optional_metric(
+            timing_summary.get("config_total_seconds")
+        )
+        if config_seconds is not None:
+            config_total_seconds += config_seconds
+    source_total_seconds = sum(seconds for _row, seconds in source_timing_values)
+    source_average_seconds = (
+        source_total_seconds / len(source_timing_values) if source_timing_values else None
+    )
+    config_average_seconds = (
+        config_total_seconds / total_successful_config_runs
+        if total_successful_config_runs > 0
+        else None
+    )
+    slowest_source_row = (
+        max(source_timing_values, key=lambda item: item[1])[0]
+        if source_timing_values
+        else None
+    )
+    slowest_source_seconds = (
+        max(seconds for _row, seconds in source_timing_values)
+        if source_timing_values
+        else None
+    )
+    slowest_config_name: str | None = None
+    slowest_config_seconds: float | None = None
+    for row in source_rows:
+        timing_summary = row.get("timing_summary")
+        if not isinstance(timing_summary, dict):
+            continue
+        candidate_seconds = _report_optional_metric(
+            timing_summary.get("slowest_config_seconds")
+        )
+        if candidate_seconds is None:
+            continue
+        candidate_dir = str(timing_summary.get("slowest_config_dir") or "").strip()
+        if not candidate_dir:
+            continue
+        candidate_name = f"{row.get('source_slug', '')}/{candidate_dir}".strip("/")
+        if slowest_config_seconds is None or candidate_seconds > slowest_config_seconds:
+            slowest_config_seconds = candidate_seconds
+            slowest_config_name = candidate_name
+
+    report_payload: dict[str, Any] = {
+        "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "eval_mode": BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        "matched_target_count": total_targets,
+        "unmatched_target_count": len(unmatched_targets),
+        "scheduler_scope": "global_config_queue",
+        "source_schedule_strategy": resolved_source_scheduling,
+        "source_shard_threshold_seconds": resolved_source_shard_threshold_seconds,
+        "source_shard_max_parts": resolved_source_shard_max_parts,
+        "source_shard_min_variants": resolved_source_shard_min_variants,
+        "source_job_count_planned": len(source_job_plans),
+        "source_schedule_plan": [
+            {
+                "dispatch_index": dispatch_index + 1,
+                "source_position": plan.source_position + 1,
+                "source_group_key": plan.source_group_key,
+                "source_file": str(plan.source_file),
+                "source_file_name": plan.source_display_name,
+                "source_slug": plan.source_slug,
+                "source_shard_index": plan.shard_index + 1,
+                "source_shard_total": max(1, _report_count(plan.shard_total)),
+                "variant_count": len(plan.variants),
+                "estimated_seconds": plan.estimated_seconds,
+                "estimate_basis": plan.estimate_basis,
+            }
+            for dispatch_index, plan in enumerate(source_job_plans)
+        ],
+        "global_queue_schedule_plan": [
+            {
+                "dispatch_index": item.global_dispatch_index,
+                "source_position": item.source_position + 1,
+                "source_group_key": item.source_group_key,
+                "source_file": str(item.source_file),
+                "source_file_name": item.source_file_name,
+                "source_slug": item.source_slug,
+                "source_shard_index": item.source_shard_index + 1,
+                "source_shard_total": max(1, _report_count(item.source_shard_total)),
+                "source_config_index": item.config_index,
+                "source_config_total": item.config_total,
+                "variant_slug": item.variant.slug,
+                "estimated_seconds": item.source_estimated_seconds,
+                "estimate_basis": item.source_estimate_basis,
+            }
+            for item in work_items
+        ],
+        "source_parallelism_configured": source_parallelism_configured,
+        "source_parallelism_effective": source_parallelism_effective,
+        "total_config_runs_planned": total_planned_config_runs,
+        "total_config_runs_completed": total_completed_config_runs,
+        "total_config_runs_successful": total_successful_config_runs,
+        "global_queue_planned_configs": total_planned_config_runs,
+        "global_queue_completed_configs": total_completed_config_runs,
+        "global_queue_failed_configs": total_failed_config_runs,
+        "evaluation_signatures_unique": total_evaluation_signatures_unique,
+        "evaluation_runs_executed": total_evaluation_runs_executed,
+        "evaluation_results_reused_in_run": total_evaluation_results_reused_in_run,
+        "evaluation_results_reused_cross_run": total_evaluation_results_reused_cross_run,
+        "successful_source_count": successful_source_count,
+        "failed_source_count": total_targets - successful_source_count,
+        "config_timeout_seconds": effective_config_timeout_seconds,
+        "retry_failed_configs_requested": effective_retry_failed_configs,
+        "include_codex_farm_requested": include_codex_farm_requested,
+        "include_codex_farm_effective": include_codex_farm_effective,
+        "canonical_alignment_cache_root": str(resolved_canonical_cache_root),
+        "timing_summary": {
+            "run_wall_seconds": run_wall_seconds,
+            "source_total_seconds": source_total_seconds,
+            "source_average_seconds": source_average_seconds,
+            "config_total_seconds": config_total_seconds,
+            "config_average_seconds": config_average_seconds,
+            "slowest_source": (
+                str(slowest_source_row.get("source_file", ""))
+                if isinstance(slowest_source_row, dict)
+                else None
+            ),
+            "slowest_source_seconds": slowest_source_seconds,
+            "slowest_config": slowest_config_name,
+            "slowest_config_seconds": slowest_config_seconds,
+        },
+        "scheduler_summary": dict(scheduler_summary),
+        "sources": source_rows,
+        "unmatched": [
+            {
+                "gold_spans_path": str(unmatched.gold_spans_path),
+                "gold_display": unmatched.gold_display,
+                "reason": unmatched.reason,
+                "source_hint": unmatched.source_hint,
+            }
+            for unmatched in unmatched_targets
+        ],
+    }
+
+    history_csv_path = history_csv_for_output(
+        processed_output_root / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
+    )
+    _refresh_dashboard_after_history_write(
+        csv_path=history_csv_path,
+        reason="all-method benchmark global queue batch append",
+    )
+
+    report_json_path = root_output_dir / "all_method_benchmark_multi_source_report.json"
+    report_json_path.write_text(
+        json.dumps(report_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    report_md_path = root_output_dir / "all_method_benchmark_multi_source_report.md"
+    report_md_path.write_text(
+        _render_all_method_multi_source_report_md(report_payload),
+        encoding="utf-8",
+    )
+
+    completion_color = (
+        typer.colors.GREEN
+        if successful_source_count == total_targets
+        and total_successful_config_runs == total_planned_config_runs
+        else typer.colors.YELLOW
+    )
+    _emit_status(
+        (
+            "All method benchmark complete: "
+            f"sources {successful_source_count}/{total_targets}, "
+            f"configs {total_successful_config_runs}/{total_planned_config_runs}."
+        ),
+        color=completion_color,
+    )
+    if progress_callback is None:
+        typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
+    return report_md_path
+
+
 def _run_all_method_benchmark_multi_source(
+    *,
+    target_variants: list[tuple[AllMethodTarget, list[AllMethodVariant]]],
+    unmatched_targets: list[AllMethodUnmatchedGold],
+    include_codex_farm_requested: bool,
+    include_codex_farm_effective: bool,
+    root_output_dir: Path,
+    processed_output_root: Path,
+    overlap_threshold: float,
+    force_source_match: bool,
+    progress_callback: Callable[[str], None] | None = None,
+    dashboard: _AllMethodProgressDashboard | None = None,
+    max_parallel_sources: int | None = None,
+    max_inflight_pipelines: int | None = None,
+    max_concurrent_split_phases: int | None = None,
+    max_eval_tail_pipelines: int | None = None,
+    config_timeout_seconds: int | None = None,
+    retry_failed_configs: int | None = None,
+    scheduler_scope: str | None = None,
+    source_scheduling: str | None = None,
+    source_shard_threshold_seconds: float | None = None,
+    source_shard_max_parts: int | None = None,
+    source_shard_min_variants: int | None = None,
+    wing_backlog_target: int | None = None,
+    smart_scheduler: bool = False,
+    canonical_alignment_cache_root: Path | None = None,
+) -> Path:
+    resolved_scheduler_scope = _normalize_all_method_scheduler_scope(scheduler_scope)
+    if resolved_scheduler_scope == ALL_METHOD_SCHEDULER_SCOPE_LEGACY:
+        return _run_all_method_benchmark_multi_source_legacy(
+            target_variants=target_variants,
+            unmatched_targets=unmatched_targets,
+            include_codex_farm_requested=include_codex_farm_requested,
+            include_codex_farm_effective=include_codex_farm_effective,
+            root_output_dir=root_output_dir,
+            processed_output_root=processed_output_root,
+            overlap_threshold=overlap_threshold,
+            force_source_match=force_source_match,
+            progress_callback=progress_callback,
+            dashboard=dashboard,
+            max_parallel_sources=max_parallel_sources,
+            max_inflight_pipelines=max_inflight_pipelines,
+            max_concurrent_split_phases=max_concurrent_split_phases,
+            max_eval_tail_pipelines=max_eval_tail_pipelines,
+            config_timeout_seconds=config_timeout_seconds,
+            retry_failed_configs=retry_failed_configs,
+            source_scheduling=source_scheduling,
+            source_shard_threshold_seconds=source_shard_threshold_seconds,
+            source_shard_max_parts=source_shard_max_parts,
+            source_shard_min_variants=source_shard_min_variants,
+            wing_backlog_target=wing_backlog_target,
+            smart_scheduler=smart_scheduler,
+            canonical_alignment_cache_root=canonical_alignment_cache_root,
+        )
+    return _run_all_method_benchmark_global_queue(
+        target_variants=target_variants,
+        unmatched_targets=unmatched_targets,
+        include_codex_farm_requested=include_codex_farm_requested,
+        include_codex_farm_effective=include_codex_farm_effective,
+        root_output_dir=root_output_dir,
+        processed_output_root=processed_output_root,
+        overlap_threshold=overlap_threshold,
+        force_source_match=force_source_match,
+        progress_callback=progress_callback,
+        dashboard=dashboard,
+        max_parallel_sources=max_parallel_sources,
+        max_inflight_pipelines=max_inflight_pipelines,
+        max_concurrent_split_phases=max_concurrent_split_phases,
+        max_eval_tail_pipelines=max_eval_tail_pipelines,
+        config_timeout_seconds=config_timeout_seconds,
+        retry_failed_configs=retry_failed_configs,
+        source_scheduling=source_scheduling,
+        source_shard_threshold_seconds=source_shard_threshold_seconds,
+        source_shard_max_parts=source_shard_max_parts,
+        source_shard_min_variants=source_shard_min_variants,
+        wing_backlog_target=wing_backlog_target,
+        smart_scheduler=smart_scheduler,
+        canonical_alignment_cache_root=canonical_alignment_cache_root,
+    )
+
+
+def _run_all_method_benchmark_multi_source_legacy(
     *,
     target_variants: list[tuple[AllMethodTarget, list[AllMethodVariant]]],
     unmatched_targets: list[AllMethodUnmatchedGold],
@@ -8512,6 +10876,9 @@ def _run_all_method_benchmark_multi_source(
     total_successful_config_runs = sum(
         _report_count(row.get("variant_count_successful")) for row in source_rows
     )
+    total_failed_config_runs = max(
+        0, total_completed_config_runs - total_successful_config_runs
+    )
     total_evaluation_signatures_unique = sum(
         _report_count(row.get("evaluation_signatures_unique")) for row in source_rows
     )
@@ -8724,6 +11091,7 @@ def _run_all_method_benchmark_multi_source(
         "eval_mode": BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
         "matched_target_count": total_targets,
         "unmatched_target_count": len(unmatched_targets),
+        "scheduler_scope": "legacy_per_source",
         "source_schedule_strategy": resolved_source_scheduling,
         "source_shard_threshold_seconds": resolved_source_shard_threshold_seconds,
         "source_shard_max_parts": resolved_source_shard_max_parts,
@@ -8750,6 +11118,9 @@ def _run_all_method_benchmark_multi_source(
         "total_config_runs_planned": total_planned_config_runs,
         "total_config_runs_completed": total_completed_config_runs,
         "total_config_runs_successful": total_successful_config_runs,
+        "global_queue_planned_configs": total_planned_config_runs,
+        "global_queue_completed_configs": total_completed_config_runs,
+        "global_queue_failed_configs": total_failed_config_runs,
         "evaluation_signatures_unique": total_evaluation_signatures_unique,
         "evaluation_runs_executed": total_evaluation_runs_executed,
         "evaluation_results_reused_in_run": total_evaluation_results_reused_in_run,
@@ -10006,7 +12377,7 @@ def _run_all_method_benchmark(
             failed_row["evaluation_result_source"] = "failed"
             failed_rows.append(failed_row)
             continue
-        sequence_matcher = str(row.get("benchmark_sequence_matcher") or "").strip() or "fallback"
+        sequence_matcher = str(row.get("benchmark_sequence_matcher") or "").strip() or "dmp"
         try:
             eval_signature = _build_all_method_eval_signature(
                 gold_spans_path=gold_spans_path,
@@ -10064,7 +12435,7 @@ def _run_all_method_benchmark(
             continue
         sequence_matcher = str(representative_row.get("benchmark_sequence_matcher") or "").strip()
         if not sequence_matcher:
-            sequence_matcher = "fallback"
+            sequence_matcher = "dmp"
 
         cache_path = eval_signature_cache_dir / f"{eval_signature}.json"
         cache_entry = _load_all_method_eval_signature_cache_entry(
@@ -10310,6 +12681,7 @@ def _run_all_method_benchmark(
         "source_file": str(source_file),
         "gold_spans_path": str(gold_spans_path),
         "eval_mode": BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        "scheduler_scope": "legacy_per_source",
         "variant_count": total_variants,
         "successful_variants": len(successful_rows),
         "failed_variants": len(failed_rows),
@@ -11040,6 +13412,7 @@ def _merge_split_jobs(
     epub_backends: set[str] = set()
     standalone_block_total = 0
     standalone_topic_block_total = 0
+    split_rejected_candidate_count = 0
 
     for job in ordered_jobs:
         result = job.get("result")
@@ -11059,6 +13432,17 @@ def _merge_split_jobs(
         if result.report:
             standalone_block_total += result.report.total_standalone_blocks
             standalone_topic_block_total += result.report.total_standalone_topic_blocks
+            job_recipe_likeness = result.report.recipe_likeness
+            if isinstance(job_recipe_likeness, dict):
+                rejected_value = job_recipe_likeness.get("rejectedCandidateCount")
+                if rejected_value is None:
+                    counts_payload = job_recipe_likeness.get("counts")
+                    if isinstance(counts_payload, dict):
+                        rejected_value = counts_payload.get("reject")
+                try:
+                    split_rejected_candidate_count += max(0, int(rejected_value or 0))
+                except (TypeError, ValueError):
+                    pass
 
     _report_phase("Reassigning recipe IDs...")
     file_hash = compute_file_hash(file_path)
@@ -11216,6 +13600,24 @@ def _merge_split_jobs(
             llm_report["knowledge"] = dict(knowledge_apply.llm_report)
         report.llm_codex_farm = llm_report
 
+    recipe_likeness_results = [
+        candidate.recipe_likeness
+        for candidate in merged_result.recipes
+        if candidate.recipe_likeness is not None
+    ]
+    recipe_likeness_summary = summarize_recipe_likeness(
+        recipe_likeness_results,
+        split_rejected_candidate_count,
+        settings=run_settings,
+    )
+    counts_payload = recipe_likeness_summary.get("counts")
+    if isinstance(counts_payload, dict):
+        counts_payload["reject"] = split_rejected_candidate_count
+    recipe_likeness_summary["totalCandidates"] = (
+        len(recipe_likeness_results) + split_rejected_candidate_count
+    )
+    report.recipe_likeness = recipe_likeness_summary
+
     report.run_timestamp = run_dt.isoformat(timespec="seconds")
     enrich_report_with_stats(report, merged_result, file_path)
 
@@ -11232,6 +13634,7 @@ def _merge_split_jobs(
                 intermediate_dir,
                 output_stats=output_stats,
                 schemaorg_overrides_by_recipe_id=llm_schema_overrides,
+                instruction_step_options=run_config,
             )
         _report_phase("Writing final drafts...")
         with measure(merge_stats, "write_final_seconds"):
@@ -11240,6 +13643,8 @@ def _merge_split_jobs(
                 final_dir,
                 output_stats=output_stats,
                 draft_overrides_by_recipe_id=llm_draft_overrides,
+                ingredient_parser_options=run_config,
+                instruction_step_options=run_config,
             )
         _report_phase("Writing sections...")
         with measure(merge_stats, "write_sections_seconds"):
@@ -11249,6 +13654,7 @@ def _merge_split_jobs(
                 merged_result.recipes,
                 output_stats=output_stats,
                 write_markdown=write_markdown,
+                instruction_step_options=run_config,
             )
         _report_phase("Writing tips...")
         with measure(merge_stats, "write_tips_seconds"):
@@ -11494,6 +13900,164 @@ def stage(
         "--table-extraction",
         help="Deterministic table extraction mode: off or on.",
     ),
+    section_detector_backend: str = typer.Option(
+        "legacy",
+        "--section-detector-backend",
+        help="Section detector backend: legacy or shared_v1.",
+    ),
+    multi_recipe_splitter: str = typer.Option(
+        "legacy",
+        "--multi-recipe-splitter",
+        help="Shared multi-recipe splitter backend: legacy, off, or rules_v1.",
+    ),
+    multi_recipe_trace: bool = typer.Option(
+        False,
+        "--multi-recipe-trace/--no-multi-recipe-trace",
+        help="Write shared multi-recipe splitter trace artifacts.",
+    ),
+    multi_recipe_min_ingredient_lines: int = typer.Option(
+        1,
+        "--multi-recipe-min-ingredient-lines",
+        min=0,
+        help="Minimum ingredient-like lines required on each side of a split boundary.",
+    ),
+    multi_recipe_min_instruction_lines: int = typer.Option(
+        1,
+        "--multi-recipe-min-instruction-lines",
+        min=0,
+        help="Minimum instruction-like lines required on each side of a split boundary.",
+    ),
+    multi_recipe_for_the_guardrail: bool = typer.Option(
+        True,
+        "--multi-recipe-for-the-guardrail/--no-multi-recipe-for-the-guardrail",
+        help="Prevent boundaries on component headers like 'For the sauce'.",
+    ),
+    instruction_step_segmentation_policy: str = typer.Option(
+        "auto",
+        "--instruction-step-segmentation-policy",
+        help="Fallback instruction-step segmentation policy: off, auto, or always.",
+    ),
+    instruction_step_segmenter: str = typer.Option(
+        "heuristic_v1",
+        "--instruction-step-segmenter",
+        help="Instruction-step fallback segmenter backend: heuristic_v1 or pysbd_v1.",
+    ),
+    web_schema_extractor: str = typer.Option(
+        "builtin_jsonld",
+        "--web-schema-extractor",
+        help=(
+            "Schema extractor backend for HTML/JSON schema sources: "
+            "builtin_jsonld, extruct, scrape_schema_recipe, recipe_scrapers, ensemble_v1."
+        ),
+    ),
+    web_schema_normalizer: str = typer.Option(
+        "simple",
+        "--web-schema-normalizer",
+        help="Schema normalization mode: simple or pyld.",
+    ),
+    web_html_text_extractor: str = typer.Option(
+        "bs4",
+        "--web-html-text-extractor",
+        help=(
+            "Fallback HTML text extractor when schema is absent/disabled: "
+            "bs4, trafilatura, readability_lxml, justext, boilerpy3, ensemble_v1."
+        ),
+    ),
+    web_schema_policy: str = typer.Option(
+        "prefer_schema",
+        "--web-schema-policy",
+        help="Schema policy: prefer_schema, schema_only, or heuristic_only.",
+    ),
+    web_schema_min_confidence: float = typer.Option(
+        0.75,
+        "--web-schema-min-confidence",
+        min=0.0,
+        max=1.0,
+        help="Minimum schema confidence required before schema candidates are accepted.",
+    ),
+    web_schema_min_ingredients: int = typer.Option(
+        2,
+        "--web-schema-min-ingredients",
+        min=0,
+        help="Minimum ingredient lines used in schema confidence scoring.",
+    ),
+    web_schema_min_instruction_steps: int = typer.Option(
+        1,
+        "--web-schema-min-instruction-steps",
+        min=0,
+        help="Minimum instruction steps used in schema confidence scoring.",
+    ),
+    ingredient_text_fix_backend: str = typer.Option(
+        "none",
+        "--ingredient-text-fix-backend",
+        help="Ingredient text-fix backend: none or ftfy.",
+    ),
+    ingredient_pre_normalize_mode: str = typer.Option(
+        "legacy",
+        "--ingredient-pre-normalize-mode",
+        help="Ingredient pre-normalization mode: legacy or aggressive_v1.",
+    ),
+    ingredient_packaging_mode: str = typer.Option(
+        "off",
+        "--ingredient-packaging-mode",
+        help="Ingredient packaging extraction mode: off or regex_v1.",
+    ),
+    ingredient_parser_backend: str = typer.Option(
+        "ingredient_parser_nlp",
+        "--ingredient-parser-backend",
+        help=(
+            "Ingredient parser backend: ingredient_parser_nlp, "
+            "quantulum3_regex, or hybrid_nlp_then_quantulum3."
+        ),
+    ),
+    ingredient_unit_canonicalizer: str = typer.Option(
+        "legacy",
+        "--ingredient-unit-canonicalizer",
+        help="Ingredient unit canonicalizer: legacy or pint.",
+    ),
+    ingredient_missing_unit_policy: str = typer.Option(
+        "null",
+        "--ingredient-missing-unit-policy",
+        help="Policy when quantity has no unit: legacy_medium, null, or each.",
+    ),
+    recipe_scorer_backend: str = typer.Option(
+        "heuristic_v1",
+        "--recipe-scorer-backend",
+        help="Recipe-likeness scorer backend (default: heuristic_v1).",
+    ),
+    recipe_score_gold_min: float = typer.Option(
+        0.75,
+        "--recipe-score-gold-min",
+        min=0.0,
+        max=1.0,
+        help="Minimum recipe-likeness score for gold tier.",
+    ),
+    recipe_score_silver_min: float = typer.Option(
+        0.55,
+        "--recipe-score-silver-min",
+        min=0.0,
+        max=1.0,
+        help="Minimum recipe-likeness score for silver tier.",
+    ),
+    recipe_score_bronze_min: float = typer.Option(
+        0.35,
+        "--recipe-score-bronze-min",
+        min=0.0,
+        max=1.0,
+        help="Minimum recipe-likeness score for bronze tier (below is reject).",
+    ),
+    recipe_score_min_ingredient_lines: int = typer.Option(
+        1,
+        "--recipe-score-min-ingredient-lines",
+        min=0,
+        help="Soft minimum ingredient lines used by scoring/gating.",
+    ),
+    recipe_score_min_instruction_lines: int = typer.Option(
+        1,
+        "--recipe-score-min-instruction-lines",
+        min=0,
+        help="Soft minimum instruction lines used by scoring/gating.",
+    ),
     llm_recipe_pipeline: str = typer.Option(
         "off",
         "--llm-recipe-pipeline",
@@ -11610,6 +14174,61 @@ def stage(
         epub_unstructured_preprocess_mode
     )
     table_extraction = _unwrap_typer_option_default(table_extraction)
+    section_detector_backend = _unwrap_typer_option_default(section_detector_backend)
+    multi_recipe_splitter = _unwrap_typer_option_default(multi_recipe_splitter)
+    multi_recipe_trace = _unwrap_typer_option_default(multi_recipe_trace)
+    multi_recipe_min_ingredient_lines = _unwrap_typer_option_default(
+        multi_recipe_min_ingredient_lines
+    )
+    multi_recipe_min_instruction_lines = _unwrap_typer_option_default(
+        multi_recipe_min_instruction_lines
+    )
+    multi_recipe_for_the_guardrail = _unwrap_typer_option_default(
+        multi_recipe_for_the_guardrail
+    )
+    instruction_step_segmentation_policy = _unwrap_typer_option_default(
+        instruction_step_segmentation_policy
+    )
+    instruction_step_segmenter = _unwrap_typer_option_default(
+        instruction_step_segmenter
+    )
+    web_schema_extractor = _unwrap_typer_option_default(web_schema_extractor)
+    web_schema_normalizer = _unwrap_typer_option_default(web_schema_normalizer)
+    web_html_text_extractor = _unwrap_typer_option_default(web_html_text_extractor)
+    web_schema_policy = _unwrap_typer_option_default(web_schema_policy)
+    web_schema_min_confidence = _unwrap_typer_option_default(web_schema_min_confidence)
+    web_schema_min_ingredients = _unwrap_typer_option_default(web_schema_min_ingredients)
+    web_schema_min_instruction_steps = _unwrap_typer_option_default(
+        web_schema_min_instruction_steps
+    )
+    ingredient_text_fix_backend = _unwrap_typer_option_default(
+        ingredient_text_fix_backend
+    )
+    ingredient_pre_normalize_mode = _unwrap_typer_option_default(
+        ingredient_pre_normalize_mode
+    )
+    ingredient_packaging_mode = _unwrap_typer_option_default(
+        ingredient_packaging_mode
+    )
+    ingredient_parser_backend = _unwrap_typer_option_default(
+        ingredient_parser_backend
+    )
+    ingredient_unit_canonicalizer = _unwrap_typer_option_default(
+        ingredient_unit_canonicalizer
+    )
+    ingredient_missing_unit_policy = _unwrap_typer_option_default(
+        ingredient_missing_unit_policy
+    )
+    recipe_scorer_backend = _unwrap_typer_option_default(recipe_scorer_backend)
+    recipe_score_gold_min = _unwrap_typer_option_default(recipe_score_gold_min)
+    recipe_score_silver_min = _unwrap_typer_option_default(recipe_score_silver_min)
+    recipe_score_bronze_min = _unwrap_typer_option_default(recipe_score_bronze_min)
+    recipe_score_min_ingredient_lines = _unwrap_typer_option_default(
+        recipe_score_min_ingredient_lines
+    )
+    recipe_score_min_instruction_lines = _unwrap_typer_option_default(
+        recipe_score_min_instruction_lines
+    )
     llm_recipe_pipeline = _unwrap_typer_option_default(llm_recipe_pipeline)
     llm_knowledge_pipeline = _unwrap_typer_option_default(llm_knowledge_pipeline)
     llm_tags_pipeline = _unwrap_typer_option_default(llm_tags_pipeline)
@@ -11642,6 +14261,85 @@ def stage(
     selected_skip_headers_footers = bool(epub_unstructured_skip_headers_footers)
     selected_ocr_device = _normalize_ocr_device(ocr_device)
     selected_table_extraction = _normalize_table_extraction(table_extraction)
+    selected_section_detector_backend = _normalize_section_detector_backend(
+        section_detector_backend
+    )
+    selected_multi_recipe_splitter = _normalize_multi_recipe_splitter(
+        multi_recipe_splitter
+    )
+    selected_multi_recipe_trace = bool(multi_recipe_trace)
+    selected_multi_recipe_min_ingredient_lines = max(
+        0,
+        int(multi_recipe_min_ingredient_lines),
+    )
+    selected_multi_recipe_min_instruction_lines = max(
+        0,
+        int(multi_recipe_min_instruction_lines),
+    )
+    selected_multi_recipe_for_the_guardrail = bool(multi_recipe_for_the_guardrail)
+    selected_instruction_step_segmentation_policy = (
+        _normalize_instruction_step_segmentation_policy(
+            instruction_step_segmentation_policy
+        )
+    )
+    selected_instruction_step_segmenter = _normalize_instruction_step_segmenter(
+        instruction_step_segmenter
+    )
+    selected_web_schema_extractor = _normalize_web_schema_extractor(
+        web_schema_extractor
+    )
+    selected_web_schema_normalizer = _normalize_web_schema_normalizer(
+        web_schema_normalizer
+    )
+    selected_web_html_text_extractor = _normalize_web_html_text_extractor(
+        web_html_text_extractor
+    )
+    selected_web_schema_policy = _normalize_web_schema_policy(web_schema_policy)
+    selected_web_schema_min_confidence = max(
+        0.0,
+        min(1.0, float(web_schema_min_confidence)),
+    )
+    selected_web_schema_min_ingredients = max(0, int(web_schema_min_ingredients))
+    selected_web_schema_min_instruction_steps = max(
+        0,
+        int(web_schema_min_instruction_steps),
+    )
+    selected_ingredient_text_fix_backend = _normalize_ingredient_text_fix_backend(
+        ingredient_text_fix_backend
+    )
+    selected_ingredient_pre_normalize_mode = _normalize_ingredient_pre_normalize_mode(
+        ingredient_pre_normalize_mode
+    )
+    selected_ingredient_packaging_mode = _normalize_ingredient_packaging_mode(
+        ingredient_packaging_mode
+    )
+    selected_ingredient_parser_backend = _normalize_ingredient_parser_backend(
+        ingredient_parser_backend
+    )
+    selected_ingredient_unit_canonicalizer = _normalize_ingredient_unit_canonicalizer(
+        ingredient_unit_canonicalizer
+    )
+    selected_ingredient_missing_unit_policy = _normalize_ingredient_missing_unit_policy(
+        ingredient_missing_unit_policy
+    )
+    selected_recipe_scorer_backend = (
+        str(recipe_scorer_backend or "heuristic_v1").strip() or "heuristic_v1"
+    )
+    selected_recipe_score_gold_min = max(0.0, min(1.0, float(recipe_score_gold_min)))
+    selected_recipe_score_silver_min = max(
+        0.0, min(1.0, float(recipe_score_silver_min))
+    )
+    selected_recipe_score_bronze_min = max(
+        0.0, min(1.0, float(recipe_score_bronze_min))
+    )
+    selected_recipe_score_min_ingredient_lines = max(
+        0,
+        int(recipe_score_min_ingredient_lines),
+    )
+    selected_recipe_score_min_instruction_lines = max(
+        0,
+        int(recipe_score_min_instruction_lines),
+    )
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
     selected_llm_knowledge_pipeline = _normalize_llm_knowledge_pipeline(llm_knowledge_pipeline)
     selected_llm_tags_pipeline = _normalize_llm_tags_pipeline(llm_tags_pipeline)
@@ -11747,6 +14445,33 @@ def stage(
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,
         table_extraction=selected_table_extraction,
+        section_detector_backend=selected_section_detector_backend,
+        multi_recipe_splitter=selected_multi_recipe_splitter,
+        multi_recipe_trace=selected_multi_recipe_trace,
+        multi_recipe_min_ingredient_lines=selected_multi_recipe_min_ingredient_lines,
+        multi_recipe_min_instruction_lines=selected_multi_recipe_min_instruction_lines,
+        multi_recipe_for_the_guardrail=selected_multi_recipe_for_the_guardrail,
+        instruction_step_segmentation_policy=selected_instruction_step_segmentation_policy,
+        instruction_step_segmenter=selected_instruction_step_segmenter,
+        web_schema_extractor=selected_web_schema_extractor,
+        web_schema_normalizer=selected_web_schema_normalizer,
+        web_html_text_extractor=selected_web_html_text_extractor,
+        web_schema_policy=selected_web_schema_policy,
+        web_schema_min_confidence=selected_web_schema_min_confidence,
+        web_schema_min_ingredients=selected_web_schema_min_ingredients,
+        web_schema_min_instruction_steps=selected_web_schema_min_instruction_steps,
+        ingredient_text_fix_backend=selected_ingredient_text_fix_backend,
+        ingredient_pre_normalize_mode=selected_ingredient_pre_normalize_mode,
+        ingredient_packaging_mode=selected_ingredient_packaging_mode,
+        ingredient_parser_backend=selected_ingredient_parser_backend,
+        ingredient_unit_canonicalizer=selected_ingredient_unit_canonicalizer,
+        ingredient_missing_unit_policy=selected_ingredient_missing_unit_policy,
+        recipe_scorer_backend=selected_recipe_scorer_backend,
+        recipe_score_gold_min=selected_recipe_score_gold_min,
+        recipe_score_silver_min=selected_recipe_score_silver_min,
+        recipe_score_bronze_min=selected_recipe_score_bronze_min,
+        recipe_score_min_ingredient_lines=selected_recipe_score_min_ingredient_lines,
+        recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
         llm_recipe_pipeline=selected_llm_recipe_pipeline,
         llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
         llm_tags_pipeline=selected_llm_tags_pipeline,
@@ -13489,10 +16214,9 @@ def labelstudio_benchmark(
     sequence_matcher: Annotated[str, typer.Option(
         "--sequence-matcher",
         help=(
-            "Canonical-text SequenceMatcher mode: fallback, stdlib, "
-            "cydifflib, cdifflib, dmp, or other supported modes."
+            "Canonical-text SequenceMatcher mode (dmp only)."
         ),
-    )] = "fallback",
+    )] = "dmp",
     execution_mode: Annotated[str, typer.Option(
         "--execution-mode",
         help=(
@@ -13590,6 +16314,137 @@ def labelstudio_benchmark(
         "--epub-unstructured-preprocess-mode",
         help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1, semantic_v1.",
     )] = "br_split_v1",
+    section_detector_backend: Annotated[str, typer.Option(
+        "--section-detector-backend",
+        help="Section detector backend: legacy or shared_v1.",
+    )] = "legacy",
+    multi_recipe_splitter: Annotated[str, typer.Option(
+        "--multi-recipe-splitter",
+        help="Shared multi-recipe splitter backend: legacy, off, or rules_v1.",
+    )] = "legacy",
+    multi_recipe_trace: Annotated[bool, typer.Option(
+        "--multi-recipe-trace/--no-multi-recipe-trace",
+        help="Write shared multi-recipe splitter trace artifacts.",
+    )] = False,
+    multi_recipe_min_ingredient_lines: Annotated[int, typer.Option(
+        "--multi-recipe-min-ingredient-lines",
+        min=0,
+        help="Minimum ingredient-like lines required on each side of a split boundary.",
+    )] = 1,
+    multi_recipe_min_instruction_lines: Annotated[int, typer.Option(
+        "--multi-recipe-min-instruction-lines",
+        min=0,
+        help="Minimum instruction-like lines required on each side of a split boundary.",
+    )] = 1,
+    multi_recipe_for_the_guardrail: Annotated[bool, typer.Option(
+        "--multi-recipe-for-the-guardrail/--no-multi-recipe-for-the-guardrail",
+        help="Prevent boundaries on component headers like 'For the sauce'.",
+    )] = True,
+    instruction_step_segmentation_policy: Annotated[str, typer.Option(
+        "--instruction-step-segmentation-policy",
+        help="Fallback instruction-step segmentation policy: off, auto, or always.",
+    )] = "auto",
+    instruction_step_segmenter: Annotated[str, typer.Option(
+        "--instruction-step-segmenter",
+        help="Instruction-step fallback segmenter backend: heuristic_v1 or pysbd_v1.",
+    )] = "heuristic_v1",
+    web_schema_extractor: Annotated[str, typer.Option(
+        "--web-schema-extractor",
+        help=(
+            "Schema extractor backend for HTML/JSON schema sources: "
+            "builtin_jsonld, extruct, scrape_schema_recipe, recipe_scrapers, ensemble_v1."
+        ),
+    )] = "builtin_jsonld",
+    web_schema_normalizer: Annotated[str, typer.Option(
+        "--web-schema-normalizer",
+        help="Schema normalization mode: simple or pyld.",
+    )] = "simple",
+    web_html_text_extractor: Annotated[str, typer.Option(
+        "--web-html-text-extractor",
+        help=(
+            "Fallback HTML text extractor when schema is absent/disabled: "
+            "bs4, trafilatura, readability_lxml, justext, boilerpy3, ensemble_v1."
+        ),
+    )] = "bs4",
+    web_schema_policy: Annotated[str, typer.Option(
+        "--web-schema-policy",
+        help="Schema policy: prefer_schema, schema_only, or heuristic_only.",
+    )] = "prefer_schema",
+    web_schema_min_confidence: Annotated[float, typer.Option(
+        "--web-schema-min-confidence",
+        min=0.0,
+        max=1.0,
+        help="Minimum schema confidence required before schema candidates are accepted.",
+    )] = 0.75,
+    web_schema_min_ingredients: Annotated[int, typer.Option(
+        "--web-schema-min-ingredients",
+        min=0,
+        help="Minimum ingredient lines used in schema confidence scoring.",
+    )] = 2,
+    web_schema_min_instruction_steps: Annotated[int, typer.Option(
+        "--web-schema-min-instruction-steps",
+        min=0,
+        help="Minimum instruction steps used in schema confidence scoring.",
+    )] = 1,
+    ingredient_text_fix_backend: Annotated[str, typer.Option(
+        "--ingredient-text-fix-backend",
+        help="Ingredient text-fix backend: none or ftfy.",
+    )] = "none",
+    ingredient_pre_normalize_mode: Annotated[str, typer.Option(
+        "--ingredient-pre-normalize-mode",
+        help="Ingredient pre-normalization mode: legacy or aggressive_v1.",
+    )] = "legacy",
+    ingredient_packaging_mode: Annotated[str, typer.Option(
+        "--ingredient-packaging-mode",
+        help="Ingredient packaging extraction mode: off or regex_v1.",
+    )] = "off",
+    ingredient_parser_backend: Annotated[str, typer.Option(
+        "--ingredient-parser-backend",
+        help=(
+            "Ingredient parser backend: ingredient_parser_nlp, quantulum3_regex, "
+            "or hybrid_nlp_then_quantulum3."
+        ),
+    )] = "ingredient_parser_nlp",
+    ingredient_unit_canonicalizer: Annotated[str, typer.Option(
+        "--ingredient-unit-canonicalizer",
+        help="Ingredient unit canonicalizer: legacy or pint.",
+    )] = "legacy",
+    ingredient_missing_unit_policy: Annotated[str, typer.Option(
+        "--ingredient-missing-unit-policy",
+        help="Policy when quantity has no unit: legacy_medium, null, or each.",
+    )] = "null",
+    recipe_scorer_backend: Annotated[str, typer.Option(
+        "--recipe-scorer-backend",
+        help="Recipe-likeness scorer backend (default: heuristic_v1).",
+    )] = "heuristic_v1",
+    recipe_score_gold_min: Annotated[float, typer.Option(
+        "--recipe-score-gold-min",
+        min=0.0,
+        max=1.0,
+        help="Minimum recipe-likeness score for gold tier.",
+    )] = 0.75,
+    recipe_score_silver_min: Annotated[float, typer.Option(
+        "--recipe-score-silver-min",
+        min=0.0,
+        max=1.0,
+        help="Minimum recipe-likeness score for silver tier.",
+    )] = 0.55,
+    recipe_score_bronze_min: Annotated[float, typer.Option(
+        "--recipe-score-bronze-min",
+        min=0.0,
+        max=1.0,
+        help="Minimum recipe-likeness score for bronze tier (below is reject).",
+    )] = 0.35,
+    recipe_score_min_ingredient_lines: Annotated[int, typer.Option(
+        "--recipe-score-min-ingredient-lines",
+        min=0,
+        help="Soft minimum ingredient lines used by scoring/gating.",
+    )] = 1,
+    recipe_score_min_instruction_lines: Annotated[int, typer.Option(
+        "--recipe-score-min-instruction-lines",
+        min=0,
+        help="Soft minimum instruction lines used by scoring/gating.",
+    )] = 1,
     llm_recipe_pipeline: Annotated[str, typer.Option(
         "--llm-recipe-pipeline",
         help=(
@@ -13663,6 +16518,83 @@ def labelstudio_benchmark(
     )
     selected_skip_headers_footers = bool(epub_unstructured_skip_headers_footers)
     selected_ocr_device = _normalize_ocr_device(ocr_device)
+    selected_section_detector_backend = _normalize_section_detector_backend(
+        section_detector_backend
+    )
+    selected_multi_recipe_splitter = _normalize_multi_recipe_splitter(
+        multi_recipe_splitter
+    )
+    selected_multi_recipe_trace = bool(multi_recipe_trace)
+    selected_multi_recipe_min_ingredient_lines = max(
+        0, int(multi_recipe_min_ingredient_lines)
+    )
+    selected_multi_recipe_min_instruction_lines = max(
+        0, int(multi_recipe_min_instruction_lines)
+    )
+    selected_multi_recipe_for_the_guardrail = bool(
+        multi_recipe_for_the_guardrail
+    )
+    selected_instruction_step_segmentation_policy = (
+        _normalize_instruction_step_segmentation_policy(
+            instruction_step_segmentation_policy
+        )
+    )
+    selected_instruction_step_segmenter = _normalize_instruction_step_segmenter(
+        instruction_step_segmenter
+    )
+    selected_web_schema_extractor = _normalize_web_schema_extractor(
+        web_schema_extractor
+    )
+    selected_web_schema_normalizer = _normalize_web_schema_normalizer(
+        web_schema_normalizer
+    )
+    selected_web_html_text_extractor = _normalize_web_html_text_extractor(
+        web_html_text_extractor
+    )
+    selected_web_schema_policy = _normalize_web_schema_policy(web_schema_policy)
+    selected_web_schema_min_confidence = max(
+        0.0,
+        min(1.0, float(web_schema_min_confidence)),
+    )
+    selected_web_schema_min_ingredients = max(0, int(web_schema_min_ingredients))
+    selected_web_schema_min_instruction_steps = max(
+        0,
+        int(web_schema_min_instruction_steps),
+    )
+    selected_ingredient_text_fix_backend = _normalize_ingredient_text_fix_backend(
+        ingredient_text_fix_backend
+    )
+    selected_ingredient_pre_normalize_mode = _normalize_ingredient_pre_normalize_mode(
+        ingredient_pre_normalize_mode
+    )
+    selected_ingredient_packaging_mode = _normalize_ingredient_packaging_mode(
+        ingredient_packaging_mode
+    )
+    selected_ingredient_parser_backend = _normalize_ingredient_parser_backend(
+        ingredient_parser_backend
+    )
+    selected_ingredient_unit_canonicalizer = _normalize_ingredient_unit_canonicalizer(
+        ingredient_unit_canonicalizer
+    )
+    selected_ingredient_missing_unit_policy = _normalize_ingredient_missing_unit_policy(
+        ingredient_missing_unit_policy
+    )
+    selected_recipe_scorer_backend = (
+        str(recipe_scorer_backend or "heuristic_v1").strip() or "heuristic_v1"
+    )
+    selected_recipe_score_gold_min = max(0.0, min(1.0, float(recipe_score_gold_min)))
+    selected_recipe_score_silver_min = max(
+        0.0, min(1.0, float(recipe_score_silver_min))
+    )
+    selected_recipe_score_bronze_min = max(
+        0.0, min(1.0, float(recipe_score_bronze_min))
+    )
+    selected_recipe_score_min_ingredient_lines = max(
+        0, int(recipe_score_min_ingredient_lines)
+    )
+    selected_recipe_score_min_instruction_lines = max(
+        0, int(recipe_score_min_instruction_lines)
+    )
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
@@ -13783,6 +16715,41 @@ def labelstudio_benchmark(
                                 ocr_device=selected_ocr_device,
                                 ocr_batch_size=ocr_batch_size,
                                 warm_models=warm_models,
+                                section_detector_backend=selected_section_detector_backend,
+                                multi_recipe_splitter=selected_multi_recipe_splitter,
+                                multi_recipe_trace=selected_multi_recipe_trace,
+                                multi_recipe_min_ingredient_lines=(
+                                    selected_multi_recipe_min_ingredient_lines
+                                ),
+                                multi_recipe_min_instruction_lines=(
+                                    selected_multi_recipe_min_instruction_lines
+                                ),
+                                multi_recipe_for_the_guardrail=(
+                                    selected_multi_recipe_for_the_guardrail
+                                ),
+                                instruction_step_segmentation_policy=(
+                                    selected_instruction_step_segmentation_policy
+                                ),
+                                instruction_step_segmenter=selected_instruction_step_segmenter,
+                                web_schema_extractor=selected_web_schema_extractor,
+                                web_schema_normalizer=selected_web_schema_normalizer,
+                                web_html_text_extractor=selected_web_html_text_extractor,
+                                web_schema_policy=selected_web_schema_policy,
+                                web_schema_min_confidence=selected_web_schema_min_confidence,
+                                web_schema_min_ingredients=selected_web_schema_min_ingredients,
+                                web_schema_min_instruction_steps=selected_web_schema_min_instruction_steps,
+                                ingredient_text_fix_backend=selected_ingredient_text_fix_backend,
+                                ingredient_pre_normalize_mode=selected_ingredient_pre_normalize_mode,
+                                ingredient_packaging_mode=selected_ingredient_packaging_mode,
+                                ingredient_parser_backend=selected_ingredient_parser_backend,
+                                ingredient_unit_canonicalizer=selected_ingredient_unit_canonicalizer,
+                                ingredient_missing_unit_policy=selected_ingredient_missing_unit_policy,
+                                recipe_scorer_backend=selected_recipe_scorer_backend,
+                                recipe_score_gold_min=selected_recipe_score_gold_min,
+                                recipe_score_silver_min=selected_recipe_score_silver_min,
+                                recipe_score_bronze_min=selected_recipe_score_bronze_min,
+                                recipe_score_min_ingredient_lines=selected_recipe_score_min_ingredient_lines,
+                                recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
                                 llm_recipe_pipeline=selected_llm_recipe_pipeline,
                                 codex_farm_cmd=codex_farm_cmd,
                                 codex_farm_root=codex_farm_root,
@@ -13828,6 +16795,41 @@ def labelstudio_benchmark(
                             ocr_device=selected_ocr_device,
                             ocr_batch_size=ocr_batch_size,
                             warm_models=warm_models,
+                            section_detector_backend=selected_section_detector_backend,
+                            multi_recipe_splitter=selected_multi_recipe_splitter,
+                            multi_recipe_trace=selected_multi_recipe_trace,
+                            multi_recipe_min_ingredient_lines=(
+                                selected_multi_recipe_min_ingredient_lines
+                            ),
+                            multi_recipe_min_instruction_lines=(
+                                selected_multi_recipe_min_instruction_lines
+                            ),
+                            multi_recipe_for_the_guardrail=(
+                                selected_multi_recipe_for_the_guardrail
+                            ),
+                            instruction_step_segmentation_policy=(
+                                selected_instruction_step_segmentation_policy
+                            ),
+                            instruction_step_segmenter=selected_instruction_step_segmenter,
+                            web_schema_extractor=selected_web_schema_extractor,
+                            web_schema_normalizer=selected_web_schema_normalizer,
+                            web_html_text_extractor=selected_web_html_text_extractor,
+                            web_schema_policy=selected_web_schema_policy,
+                            web_schema_min_confidence=selected_web_schema_min_confidence,
+                            web_schema_min_ingredients=selected_web_schema_min_ingredients,
+                            web_schema_min_instruction_steps=selected_web_schema_min_instruction_steps,
+                            ingredient_text_fix_backend=selected_ingredient_text_fix_backend,
+                            ingredient_pre_normalize_mode=selected_ingredient_pre_normalize_mode,
+                            ingredient_packaging_mode=selected_ingredient_packaging_mode,
+                            ingredient_parser_backend=selected_ingredient_parser_backend,
+                            ingredient_unit_canonicalizer=selected_ingredient_unit_canonicalizer,
+                            ingredient_missing_unit_policy=selected_ingredient_missing_unit_policy,
+                            recipe_scorer_backend=selected_recipe_scorer_backend,
+                            recipe_score_gold_min=selected_recipe_score_gold_min,
+                            recipe_score_silver_min=selected_recipe_score_silver_min,
+                            recipe_score_bronze_min=selected_recipe_score_bronze_min,
+                            recipe_score_min_ingredient_lines=selected_recipe_score_min_ingredient_lines,
+                            recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
                             llm_recipe_pipeline=selected_llm_recipe_pipeline,
                             codex_farm_cmd=codex_farm_cmd,
                             codex_farm_root=codex_farm_root,
@@ -13998,6 +17000,35 @@ def labelstudio_benchmark(
             "epub_unstructured_preprocess_mode": selected_preprocess_mode,
             "ocr_device": selected_ocr_device,
             "ocr_batch_size": ocr_batch_size,
+            "section_detector_backend": selected_section_detector_backend,
+            "multi_recipe_splitter": selected_multi_recipe_splitter,
+            "multi_recipe_trace": selected_multi_recipe_trace,
+            "multi_recipe_min_ingredient_lines": selected_multi_recipe_min_ingredient_lines,
+            "multi_recipe_min_instruction_lines": selected_multi_recipe_min_instruction_lines,
+            "multi_recipe_for_the_guardrail": selected_multi_recipe_for_the_guardrail,
+            "instruction_step_segmentation_policy": (
+                selected_instruction_step_segmentation_policy
+            ),
+            "instruction_step_segmenter": selected_instruction_step_segmenter,
+            "web_schema_extractor": selected_web_schema_extractor,
+            "web_schema_normalizer": selected_web_schema_normalizer,
+            "web_html_text_extractor": selected_web_html_text_extractor,
+            "web_schema_policy": selected_web_schema_policy,
+            "web_schema_min_confidence": selected_web_schema_min_confidence,
+            "web_schema_min_ingredients": selected_web_schema_min_ingredients,
+            "web_schema_min_instruction_steps": selected_web_schema_min_instruction_steps,
+            "ingredient_text_fix_backend": selected_ingredient_text_fix_backend,
+            "ingredient_pre_normalize_mode": selected_ingredient_pre_normalize_mode,
+            "ingredient_packaging_mode": selected_ingredient_packaging_mode,
+            "ingredient_parser_backend": selected_ingredient_parser_backend,
+            "ingredient_unit_canonicalizer": selected_ingredient_unit_canonicalizer,
+            "ingredient_missing_unit_policy": selected_ingredient_missing_unit_policy,
+            "recipe_scorer_backend": selected_recipe_scorer_backend,
+            "recipe_score_gold_min": selected_recipe_score_gold_min,
+            "recipe_score_silver_min": selected_recipe_score_silver_min,
+            "recipe_score_bronze_min": selected_recipe_score_bronze_min,
+            "recipe_score_min_ingredient_lines": selected_recipe_score_min_ingredient_lines,
+            "recipe_score_min_instruction_lines": selected_recipe_score_min_instruction_lines,
             "workers": workers,
             "pdf_split_workers": pdf_split_workers,
             "epub_split_workers": epub_split_workers,
@@ -14383,6 +17414,35 @@ def labelstudio_benchmark(
         "epub_unstructured_preprocess_mode": selected_preprocess_mode,
         "ocr_device": selected_ocr_device,
         "ocr_batch_size": ocr_batch_size,
+        "section_detector_backend": selected_section_detector_backend,
+        "multi_recipe_splitter": selected_multi_recipe_splitter,
+        "multi_recipe_trace": selected_multi_recipe_trace,
+        "multi_recipe_min_ingredient_lines": selected_multi_recipe_min_ingredient_lines,
+        "multi_recipe_min_instruction_lines": selected_multi_recipe_min_instruction_lines,
+        "multi_recipe_for_the_guardrail": selected_multi_recipe_for_the_guardrail,
+        "instruction_step_segmentation_policy": (
+            selected_instruction_step_segmentation_policy
+        ),
+        "instruction_step_segmenter": selected_instruction_step_segmenter,
+        "web_schema_extractor": selected_web_schema_extractor,
+        "web_schema_normalizer": selected_web_schema_normalizer,
+        "web_html_text_extractor": selected_web_html_text_extractor,
+        "web_schema_policy": selected_web_schema_policy,
+        "web_schema_min_confidence": selected_web_schema_min_confidence,
+        "web_schema_min_ingredients": selected_web_schema_min_ingredients,
+        "web_schema_min_instruction_steps": selected_web_schema_min_instruction_steps,
+        "ingredient_text_fix_backend": selected_ingredient_text_fix_backend,
+        "ingredient_pre_normalize_mode": selected_ingredient_pre_normalize_mode,
+        "ingredient_packaging_mode": selected_ingredient_packaging_mode,
+        "ingredient_parser_backend": selected_ingredient_parser_backend,
+        "ingredient_unit_canonicalizer": selected_ingredient_unit_canonicalizer,
+        "ingredient_missing_unit_policy": selected_ingredient_missing_unit_policy,
+        "recipe_scorer_backend": selected_recipe_scorer_backend,
+        "recipe_score_gold_min": selected_recipe_score_gold_min,
+        "recipe_score_silver_min": selected_recipe_score_silver_min,
+        "recipe_score_bronze_min": selected_recipe_score_bronze_min,
+        "recipe_score_min_ingredient_lines": selected_recipe_score_min_ingredient_lines,
+        "recipe_score_min_instruction_lines": selected_recipe_score_min_instruction_lines,
         "workers": workers,
         "pdf_split_workers": pdf_split_workers,
         "epub_split_workers": epub_split_workers,
@@ -14684,12 +17744,21 @@ def bench_speed_run(
         min=1,
         help="Optional cap on number of targets from the suite.",
     ),
-    sequence_matcher: str = typer.Option(
-        "fallback",
+    run_settings_file: Path | None = typer.Option(
+        None,
+        "--run-settings-file",
+        help=(
+            "Optional JSON file with RunSettings-shaped payload used for this speed run. "
+            "When omitted, uses cookimport.json global settings."
+        ),
+    ),
+    sequence_matcher: str | None = typer.Option(
+        None,
         "--sequence-matcher",
         help=(
-            "Canonical-text SequenceMatcher mode for benchmark scenarios "
-            "(fallback, stdlib, cydifflib, cdifflib, dmp, ...)."
+            "Optional override for benchmark SequenceMatcher mode "
+            "(dmp only). "
+            "When omitted, uses run settings value."
         ),
     ),
 ) -> None:
@@ -14709,6 +17778,7 @@ def bench_speed_run(
     warmups = _unwrap_typer_option_default(warmups)
     repeats = _unwrap_typer_option_default(repeats)
     max_targets = _unwrap_typer_option_default(max_targets)
+    run_settings_file = _unwrap_typer_option_default(run_settings_file)
     sequence_matcher = _unwrap_typer_option_default(sequence_matcher)
 
     try:
@@ -14727,8 +17797,37 @@ def bench_speed_run(
         selected_scenarios = parse_speed_scenarios(scenarios)
     except ValueError as exc:
         _fail(str(exc))
-    selected_sequence_matcher = _normalize_benchmark_sequence_matcher_mode(
-        sequence_matcher
+
+    run_settings_payload: dict[str, Any]
+    if run_settings_file is not None:
+        if not run_settings_file.exists() or not run_settings_file.is_file():
+            _fail(f"Run settings file not found: {run_settings_file}")
+        try:
+            loaded_payload = json.loads(run_settings_file.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            _fail(f"Failed to read run settings file: {exc}")
+        if not isinstance(loaded_payload, dict):
+            _fail("Run settings file must contain a JSON object.")
+        run_settings_payload = dict(loaded_payload)
+        run_settings_context = "bench speed-run settings file"
+    else:
+        run_settings_payload = _load_settings()
+        run_settings_context = "bench speed-run global settings"
+
+    if sequence_matcher is not None:
+        selected_sequence_matcher = _normalize_benchmark_sequence_matcher_mode(
+            sequence_matcher
+        )
+        run_settings_payload["benchmark_sequence_matcher"] = selected_sequence_matcher
+
+    run_settings = RunSettings.from_dict(
+        run_settings_payload,
+        warn_context=run_settings_context,
+    )
+    typer.secho(
+        "Run settings: "
+        f"{run_settings.summary()} (hash {run_settings.short_hash()})",
+        fg=typer.colors.CYAN,
     )
 
     speed_run_timeseries_path = _processing_timeseries_history_path(
@@ -14748,7 +17847,7 @@ def bench_speed_run(
                 warmups=warmups,
                 repeats=repeats,
                 max_targets=max_targets,
-                sequence_matcher=selected_sequence_matcher,
+                run_settings=run_settings,
                 progress_callback=update_progress,
             ),
         )
@@ -14800,6 +17899,14 @@ def bench_speed_compare(
         "--fail-on-regression/--no-fail-on-regression",
         help="Return non-zero exit when comparison verdict is FAIL.",
     ),
+    allow_settings_mismatch: bool = typer.Option(
+        False,
+        "--allow-settings-mismatch/--no-allow-settings-mismatch",
+        help=(
+            "Allow PASS/FAIL timing verdicts even when baseline/candidate run settings "
+            "hashes differ."
+        ),
+    ),
 ) -> None:
     """Compare baseline and candidate speed runs and gate regressions."""
     from cookimport.bench.speed_compare import (
@@ -14807,6 +17914,14 @@ def bench_speed_compare(
         compare_speed_runs,
         format_speed_compare_report,
     )
+
+    baseline = _unwrap_typer_option_default(baseline)
+    candidate = _unwrap_typer_option_default(candidate)
+    out_dir = _unwrap_typer_option_default(out_dir)
+    regression_pct = _unwrap_typer_option_default(regression_pct)
+    absolute_seconds_floor = _unwrap_typer_option_default(absolute_seconds_floor)
+    fail_on_regression = _unwrap_typer_option_default(fail_on_regression)
+    allow_settings_mismatch = _unwrap_typer_option_default(allow_settings_mismatch)
 
     if not baseline.exists() or not baseline.is_dir():
         _fail(f"Baseline run directory not found: {baseline}")
@@ -14822,6 +17937,7 @@ def bench_speed_compare(
             baseline_run_dir=baseline,
             candidate_run_dir=candidate,
             thresholds=thresholds,
+            allow_settings_mismatch=allow_settings_mismatch,
         )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
@@ -14837,6 +17953,279 @@ def bench_speed_compare(
     )
     comparison_md_path.write_text(
         format_speed_compare_report(comparison),
+        encoding="utf-8",
+    )
+
+    verdict = str((comparison.get("overall") or {}).get("verdict") or "UNKNOWN").upper()
+    color = typer.colors.GREEN if verdict == "PASS" else typer.colors.RED
+    typer.secho("Comparison complete.", fg=typer.colors.GREEN)
+    typer.secho(f"Overall verdict: {verdict}", fg=color)
+    typer.secho(f"Report: {comparison_md_path}", fg=typer.colors.CYAN)
+    typer.secho(f"JSON: {comparison_json_path}", fg=typer.colors.CYAN)
+
+    if fail_on_regression and verdict == "FAIL":
+        raise typer.Exit(1)
+
+
+@bench_app.command("quality-discover")
+def bench_quality_discover(
+    gold_root: Path = typer.Option(
+        DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO,
+        "--gold-root",
+        help="Root folder containing pulled gold export folders.",
+    ),
+    input_root: Path = typer.Option(
+        DEFAULT_INPUT,
+        "--input-root",
+        help="Root folder containing source files used for import runs.",
+    ),
+    out: Path = typer.Option(
+        DEFAULT_BENCH_QUALITY_SUITES / "pulled_representative.json",
+        "--out",
+        help="Output path for the generated quality suite manifest.",
+    ),
+    max_targets: int | None = typer.Option(
+        None,
+        "--max-targets",
+        min=1,
+        help="Optional cap for representative target selection.",
+    ),
+    seed: int = typer.Option(
+        42,
+        "--seed",
+        help="Deterministic selection seed recorded in suite metadata.",
+    ),
+) -> None:
+    """Discover deterministic quality-suite targets from pulled gold exports."""
+    from cookimport.bench.quality_suite import (
+        discover_quality_suite,
+        write_quality_suite,
+    )
+
+    suite = discover_quality_suite(
+        gold_root=gold_root,
+        input_root=input_root,
+        max_targets=max_targets,
+        seed=seed,
+    )
+    write_quality_suite(out, suite)
+
+    typer.secho("Quality suite discovery complete.", fg=typer.colors.GREEN)
+    typer.secho(f"Suite: {out}", fg=typer.colors.CYAN)
+    typer.secho(f"Targets matched: {len(suite.targets)}", fg=typer.colors.CYAN)
+    typer.secho(
+        f"Targets selected: {len(suite.selected_target_ids)}",
+        fg=typer.colors.CYAN,
+    )
+    typer.secho(f"Targets unmatched: {len(suite.unmatched)}", fg=typer.colors.CYAN)
+    if suite.unmatched:
+        preview_rows = suite.unmatched[:5]
+        typer.secho("Unmatched preview:", fg=typer.colors.YELLOW)
+        for row in preview_rows:
+            gold_display = str(
+                row.get("gold_display") or row.get("gold_spans_path") or ""
+            )
+            reason = str(row.get("reason") or "unmatched")
+            typer.secho(f"  - {gold_display}: {reason}", fg=typer.colors.YELLOW)
+
+
+@bench_app.command("quality-run")
+def bench_quality_run(
+    suite: Path = typer.Option(
+        ...,
+        "--suite",
+        help="Path to a quality suite JSON generated by bench quality-discover.",
+    ),
+    experiments_file: Path = typer.Option(
+        ...,
+        "--experiments-file",
+        help="Path to JSON experiment definitions for this quality run.",
+    ),
+    out_dir: Path = typer.Option(
+        DEFAULT_BENCH_QUALITY_RUNS,
+        "--out-dir",
+        help="Output directory for timestamped quality suite runs.",
+    ),
+    base_run_settings_file: Path | None = typer.Option(
+        None,
+        "--base-run-settings-file",
+        help=(
+            "Optional JSON file with base RunSettings payload for all experiments. "
+            "When omitted, uses experiments.base_run_settings_file or cookimport.json."
+        ),
+    ),
+) -> None:
+    """Run sequential all-method quality experiments for a quality suite."""
+    from cookimport.bench.quality_runner import run_quality_suite
+    from cookimport.bench.quality_suite import (
+        load_quality_suite,
+        validate_quality_suite,
+    )
+
+    suite = _unwrap_typer_option_default(suite)
+    experiments_file = _unwrap_typer_option_default(experiments_file)
+    out_dir = _unwrap_typer_option_default(out_dir)
+    base_run_settings_file = _unwrap_typer_option_default(base_run_settings_file)
+
+    if not experiments_file.exists() or not experiments_file.is_file():
+        _fail(f"Experiments file not found: {experiments_file}")
+
+    try:
+        loaded_suite = load_quality_suite(suite)
+    except Exception as exc:  # noqa: BLE001
+        _fail(f"Failed to load quality suite: {exc}")
+
+    validation_errors = validate_quality_suite(loaded_suite, repo_root=REPO_ROOT)
+    if validation_errors:
+        typer.secho("Quality suite validation errors:", fg=typer.colors.RED)
+        for error in validation_errors:
+            typer.secho(f"  - {error}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    quality_run_timeseries_path = _processing_timeseries_history_path(
+        root=out_dir,
+        scope="bench_quality_run",
+        source_name=loaded_suite.name,
+    )
+    try:
+        quality_run_root = _run_with_progress_status(
+            initial_status="Running bench quality suite...",
+            progress_prefix="Bench quality",
+            telemetry_path=quality_run_timeseries_path,
+            run=lambda update_progress: run_quality_suite(
+                loaded_suite,
+                out_dir,
+                experiments_file=experiments_file,
+                base_run_settings_file=base_run_settings_file,
+                progress_callback=update_progress,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        _fail(str(exc))
+        return
+
+    typer.secho("Quality suite run complete.", fg=typer.colors.GREEN)
+    typer.secho(f"Run: {quality_run_root}", fg=typer.colors.CYAN)
+    typer.secho(f"Report: {quality_run_root / 'report.md'}", fg=typer.colors.CYAN)
+    typer.secho(f"Summary: {quality_run_root / 'summary.json'}", fg=typer.colors.CYAN)
+    typer.secho(
+        f"Processing telemetry: {quality_run_timeseries_path}",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+
+
+@bench_app.command("quality-compare")
+def bench_quality_compare(
+    baseline: Path = typer.Option(
+        ...,
+        "--baseline",
+        help="Baseline quality run directory (contains summary.json).",
+    ),
+    candidate: Path = typer.Option(
+        ...,
+        "--candidate",
+        help="Candidate quality run directory (contains summary.json).",
+    ),
+    out_dir: Path = typer.Option(
+        DEFAULT_BENCH_QUALITY_COMPARISONS,
+        "--out-dir",
+        help="Output directory for timestamped quality comparison reports.",
+    ),
+    baseline_experiment_id: str | None = typer.Option(
+        None,
+        "--baseline-experiment-id",
+        help="Optional experiment id to select in the baseline run.",
+    ),
+    candidate_experiment_id: str | None = typer.Option(
+        None,
+        "--candidate-experiment-id",
+        help="Optional experiment id to select in the candidate run.",
+    ),
+    strict_f1_drop_max: float = typer.Option(
+        0.005,
+        "--strict-f1-drop-max",
+        min=0.0,
+        help="Maximum allowed strict F1 drop before comparison FAIL.",
+    ),
+    practical_f1_drop_max: float = typer.Option(
+        0.005,
+        "--practical-f1-drop-max",
+        min=0.0,
+        help="Maximum allowed practical F1 drop before comparison FAIL.",
+    ),
+    source_success_rate_drop_max: float = typer.Option(
+        0.0,
+        "--source-success-rate-drop-max",
+        min=0.0,
+        help="Maximum allowed source-success-rate drop before comparison FAIL.",
+    ),
+    fail_on_regression: bool = typer.Option(
+        False,
+        "--fail-on-regression/--no-fail-on-regression",
+        help="Return non-zero exit when comparison verdict is FAIL.",
+    ),
+    allow_settings_mismatch: bool = typer.Option(
+        False,
+        "--allow-settings-mismatch/--no-allow-settings-mismatch",
+        help=(
+            "Allow PASS/FAIL quality verdicts even when baseline/candidate run settings "
+            "hashes differ."
+        ),
+    ),
+) -> None:
+    """Compare baseline and candidate quality runs and gate regressions."""
+    from cookimport.bench.quality_compare import (
+        QualityThresholds,
+        compare_quality_runs,
+        format_quality_compare_report,
+    )
+
+    baseline = _unwrap_typer_option_default(baseline)
+    candidate = _unwrap_typer_option_default(candidate)
+    out_dir = _unwrap_typer_option_default(out_dir)
+    baseline_experiment_id = _unwrap_typer_option_default(baseline_experiment_id)
+    candidate_experiment_id = _unwrap_typer_option_default(candidate_experiment_id)
+    strict_f1_drop_max = _unwrap_typer_option_default(strict_f1_drop_max)
+    practical_f1_drop_max = _unwrap_typer_option_default(practical_f1_drop_max)
+    source_success_rate_drop_max = _unwrap_typer_option_default(
+        source_success_rate_drop_max
+    )
+    fail_on_regression = _unwrap_typer_option_default(fail_on_regression)
+    allow_settings_mismatch = _unwrap_typer_option_default(allow_settings_mismatch)
+
+    if not baseline.exists() or not baseline.is_dir():
+        _fail(f"Baseline run directory not found: {baseline}")
+    if not candidate.exists() or not candidate.is_dir():
+        _fail(f"Candidate run directory not found: {candidate}")
+
+    thresholds = QualityThresholds(
+        strict_f1_drop_max=strict_f1_drop_max,
+        practical_f1_drop_max=practical_f1_drop_max,
+        source_success_rate_drop_max=source_success_rate_drop_max,
+    )
+    try:
+        comparison = compare_quality_runs(
+            baseline_run_dir=baseline,
+            candidate_run_dir=candidate,
+            thresholds=thresholds,
+            baseline_experiment_id=baseline_experiment_id,
+            candidate_experiment_id=candidate_experiment_id,
+            allow_settings_mismatch=allow_settings_mismatch,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _fail(str(exc))
+        return
+
+    comparison_root = out_dir / dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+    comparison_root.mkdir(parents=True, exist_ok=True)
+    comparison_json_path = comparison_root / "comparison.json"
+    comparison_md_path = comparison_root / "comparison.md"
+    comparison_json_path.write_text(
+        json.dumps(comparison, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    comparison_md_path.write_text(
+        format_quality_compare_report(comparison),
         encoding="utf-8",
     )
 
@@ -14877,6 +18266,28 @@ def bench_eval_stage(
         None,
         "--out-dir",
         help="Output directory for eval artifacts. Defaults to data/golden/benchmark/<timestamp>/.",
+    ),
+    label_projection: str = typer.Option(
+        "core_structural_v1",
+        "--label-projection",
+        help=(
+            "Segmentation label projection used for boundary diagnostics "
+            "(core_structural_v1 only)."
+        ),
+    ),
+    boundary_tolerance_blocks: int = typer.Option(
+        0,
+        "--boundary-tolerance-blocks",
+        min=0,
+        help="Boundary matching tolerance (in block indices) for segmentation metrics.",
+    ),
+    segmentation_metrics: str = typer.Option(
+        "boundary_f1",
+        "--segmentation-metrics",
+        help=(
+            "Comma-separated segmentation metrics to compute. "
+            "Supported: boundary_f1,pk,windowdiff,boundary_similarity."
+        ),
     ),
 ) -> None:
     if not gold_spans.exists() or not gold_spans.is_file():
@@ -14935,6 +18346,9 @@ def bench_eval_stage(
             stage_predictions_json=stage_predictions_path,
             extracted_blocks_json=extracted_archive_path,
             out_dir=out_dir,
+            label_projection=label_projection,
+            boundary_tolerance_blocks=boundary_tolerance_blocks,
+            segmentation_metrics=segmentation_metrics,
         )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
@@ -14972,11 +18386,11 @@ def bench_run(
         None, "--config", help="Knob config JSON file."
     ),
     sequence_matcher: str = typer.Option(
-        "fallback",
+        "dmp",
         "--sequence-matcher",
         help=(
             "Canonical-text SequenceMatcher mode used during this bench run "
-            "(fallback, stdlib, cydifflib, cdifflib, dmp, ...)."
+            "(dmp only)."
         ),
     ),
     write_markdown: bool | None = typer.Option(
@@ -15112,11 +18526,11 @@ def bench_sweep(
         "coverage", "--objective", help="Optimization objective (coverage or precision)."
     ),
     sequence_matcher: str = typer.Option(
-        "fallback",
+        "dmp",
         "--sequence-matcher",
         help=(
             "Canonical-text SequenceMatcher mode used during this sweep "
-            "(fallback, stdlib, cydifflib, cdifflib, dmp, ...)."
+            "(dmp only)."
         ),
     ),
 ) -> None:

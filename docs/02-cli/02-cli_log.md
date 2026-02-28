@@ -397,3 +397,30 @@ Source understanding merged:
 
 Current status:
 - Its findings are retained in this log and reflected in `02-cli_README.md`; source file is retired from `docs/understandings`.
+
+## 2026-02-28 migrated understanding ledger
+
+Chronological migration from `docs/understandings`; source files were removed after this merge.
+
+### 2026-02-27_20.38.15 load settings sequence matcher coercion
+
+Source: `docs/understandings/2026-02-27_20.38.15-load-settings-sequence-matcher-coercion.md`
+Summary: "Legacy cookimport.json matcher values are now rejected at load time; benchmark sequence matcher must be dmp."
+
+Details preserved:
+
+Read when:
+- When interactive startup fails due invalid `cookimport.json benchmark_sequence_matcher`
+- When migrating old `cookimport.json` files after matcher-mode contract changes
+
+# Load Settings Sequence Matcher Validation
+
+Discovery:
+
+- Runtime defaults are `dmp`, and `_load_settings()` now validates merged `cookimport.json` values before returning settings.
+- Old configs with archived values (for example `fallback`) fail fast with a clear `benchmark_sequence_matcher` error instead of being silently coerced.
+
+Implication:
+
+- Interactive/import/speed entrypoints now share one strict matcher contract: `dmp` only.
+- Any stale `cookimport.json` matcher value must be updated explicitly by the user to continue.

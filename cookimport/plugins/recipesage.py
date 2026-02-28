@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Callable, List
+from typing import TYPE_CHECKING, Any, Callable, List
 
 from cookimport.core.models import (
     ConversionReport,
@@ -19,9 +19,18 @@ from cookimport.core.reporting import (
     compute_file_hash,
     generate_recipe_id,
 )
+from cookimport.core.scoring import (
+    build_recipe_scoring_debug_row,
+    recipe_gate_action,
+    score_recipe_likeness,
+    summarize_recipe_likeness,
+)
 from cookimport.plugins import registry
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from cookimport.config.run_settings import RunSettings
 
 class RecipeSageImporter:
     name = "recipesage"
@@ -70,9 +79,15 @@ class RecipeSageImporter:
         except Exception as e:
             return WorkbookInspection(
                 path=str(path),
-                sheets=[],
+                sheets=[
+                    SheetInspection(
+                        name=path.name,
+                        layout="recipesage-export",
+                        confidence=0.0,
+                        warnings=[f"Failed to read RecipeSage export: {e}"],
+                    )
+                ],
                 mappingStub=MappingConfig(),
-                warnings=[f"Failed to read RecipeSage export: {e}"],
             )
 
     def convert(
@@ -80,6 +95,7 @@ class RecipeSageImporter:
         path: Path,
         mapping: MappingConfig | None,
         progress_callback: Callable[[str], None] | None = None,
+        run_settings: RunSettings | None = None,
     ) -> ConversionResult:
         """
         Converts RecipeSage export into RecipeCandidates.
@@ -152,12 +168,83 @@ class RecipeSageImporter:
                     logger.warning(f"Failed to normalize recipe {i}: {e}")
                     report.warnings.append(f"Failed to normalize recipe {i}: {e}")
 
+            accepted_recipes: list[RecipeCandidate] = []
+            non_recipe_blocks: list[dict[str, Any]] = []
+            recipe_likeness_results = []
+            recipe_scoring_debug_rows: list[dict[str, Any]] = []
+            rejected_candidate_count = 0
+            for index, recipe in enumerate(recipes):
+                likeness = score_recipe_likeness(recipe, settings=run_settings)
+                gate_action = recipe_gate_action(likeness, settings=run_settings)
+                recipe.recipe_likeness = likeness
+                recipe.confidence = likeness.score
+                recipe_likeness_results.append(likeness)
+                recipe_scoring_debug_rows.append(
+                    build_recipe_scoring_debug_row(
+                        candidate=recipe,
+                        result=likeness,
+                        gate_action=gate_action,
+                        candidate_index=index,
+                        importer=self.name,
+                        source_hash=file_hash,
+                    )
+                )
+                if gate_action == "reject":
+                    rejected_candidate_count += 1
+                    rejected_text = "\n".join(
+                        [
+                            recipe.name,
+                            "Ingredients:",
+                            *recipe.ingredients,
+                            "Instructions:",
+                            *[str(step) for step in recipe.instructions],
+                        ]
+                    ).strip()
+                    if rejected_text:
+                        non_recipe_blocks.append(
+                            {
+                                "index": len(non_recipe_blocks),
+                                "text": rejected_text,
+                                "location": {"chunk_index": index},
+                                "features": {
+                                    "source": "rejected_recipe_candidate",
+                                    "gate_action": gate_action,
+                                    "score": likeness.score,
+                                    "tier": likeness.tier.value,
+                                },
+                            }
+                        )
+                    continue
+                accepted_recipes.append(recipe)
+
+            if recipe_scoring_debug_rows:
+                raw_artifacts.append(
+                    RawArtifact(
+                        importer=self.name,
+                        sourceHash=file_hash,
+                        locationId="recipe_scoring_debug",
+                        extension="jsonl",
+                        content="\n".join(
+                            json.dumps(row, sort_keys=True)
+                            for row in recipe_scoring_debug_rows
+                        ),
+                        metadata={"artifact_type": "recipe_scoring_debug"},
+                    )
+                )
+
+            recipes = accepted_recipes
             report.total_recipes = len(recipes)
+            report.recipe_likeness = summarize_recipe_likeness(
+                recipe_likeness_results,
+                rejected_candidate_count,
+                settings=run_settings,
+            )
             if recipes:
                 report.samples = [{"name": r.name} for r in recipes[:3]]
 
             return ConversionResult(
                 recipes=recipes,
+                nonRecipeBlocks=non_recipe_blocks,
                 rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem,

@@ -20,7 +20,15 @@ from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipelin
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.plugins import registry
 # Ensure plugins are registered in workers
-from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika  # noqa: F401
+from cookimport.plugins import (
+    excel,
+    text,
+    epub,
+    pdf,
+    recipesage,
+    paprika,
+    webschema,
+)  # noqa: F401
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
 from cookimport.parsing.tables import ExtractedTable, extract_and_annotate_tables
 from cookimport.staging.writer import (
@@ -155,6 +163,7 @@ def _run_import(
     mapping_config: MappingConfig | None,
     progress_callback: Any | None = None,
     *,
+    run_settings: RunSettings | None = None,
     start_page: int | None = None,
     end_page: int | None = None,
     start_spine: int | None = None,
@@ -181,6 +190,7 @@ def _run_import(
                 file_path,
                 resolved_mapping,
                 progress_callback=progress_callback,
+                run_settings=run_settings,
                 start_page=start_page,
                 end_page=end_page,
             )
@@ -191,12 +201,16 @@ def _run_import(
                 file_path,
                 resolved_mapping,
                 progress_callback=progress_callback,
+                run_settings=run_settings,
                 start_spine=start_spine,
                 end_spine=end_spine,
             )
         else:
             result = importer.convert(
-                file_path, resolved_mapping, progress_callback=progress_callback
+                file_path,
+                resolved_mapping,
+                progress_callback=progress_callback,
+                run_settings=run_settings,
             )
 
     return result, file_stats, resolved_mapping
@@ -249,6 +263,7 @@ def stage_one_file(
                 file_path,
                 mapping_config,
                 _report_progress,
+                run_settings=run_settings,
             )
 
         if limit is not None:
@@ -362,6 +377,7 @@ def stage_one_file(
                     intermediate_dir,
                     output_stats=output_stats,
                     schemaorg_overrides_by_recipe_id=llm_schema_overrides,
+                    instruction_step_options=run_config,
                 )
             with measure(file_stats, "write_final_seconds"):
                 write_draft_outputs(
@@ -369,6 +385,8 @@ def stage_one_file(
                     final_dir,
                     output_stats=output_stats,
                     draft_overrides_by_recipe_id=llm_draft_overrides,
+                    ingredient_parser_options=run_config,
+                    instruction_step_options=run_config,
                 )
             with measure(file_stats, "write_sections_seconds"):
                 write_section_outputs(
@@ -377,6 +395,7 @@ def stage_one_file(
                     result.recipes,
                     output_stats=output_stats,
                     write_markdown=write_markdown,
+                    instruction_step_options=run_config,
                 )
             with measure(file_stats, "write_tips_seconds"):
                 write_tip_outputs(
@@ -506,12 +525,14 @@ def stage_pdf_job(
 
     try:
         start_total = dt.datetime.now()
+        run_settings = RunSettings.from_dict(run_config, warn_context="stage run config")
         _report_progress("Starting job...")
         _report_progress("Parsing recipes...")
         result, file_stats, _ = _run_import(
             file_path,
             mapping_config,
             _report_progress,
+            run_settings=run_settings,
             start_page=start_page,
             end_page=end_page,
         )
@@ -604,6 +625,7 @@ def stage_epub_job(
 
     try:
         start_total = dt.datetime.now()
+        run_settings = RunSettings.from_dict(run_config, warn_context="stage run config")
         _report_progress("Starting job...")
         _report_progress("Parsing recipes...")
         with _temporary_epub_extractor(epub_extractor):
@@ -611,6 +633,7 @@ def stage_epub_job(
                 file_path,
                 mapping_config,
                 _report_progress,
+                run_settings=run_settings,
                 start_spine=start_spine,
                 end_spine=end_spine,
             )

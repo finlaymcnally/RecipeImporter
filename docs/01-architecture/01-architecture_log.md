@@ -112,3 +112,41 @@ Durable decisions:
 - Keep compatibility/rejection behavior only where runtime still enforces it.
 - Treat EPUB race fields, Label Studio decorate mode, and legacy runtime scope execution branches as retired history.
 - Prefer concise retired-feature notes over long archival execution narratives.
+
+## 2026-02-28 migrated understanding ledger
+
+Chronological migration from `docs/understandings`; source files were removed after this merge.
+
+### 2026-02-27_21.16.59 priority plan overlap parallelization map
+
+Source: `docs/understandings/2026-02-27_21.16.59-priority-plan-overlap-parallelization-map.md`
+Summary: Priority 1-8 overlap map for safe parallel implementation sequencing.
+
+Details preserved:
+
+
+# Priority Plan Overlap Map (2026-02-27)
+
+Derived from explicit `cookimport/...` paths in `docs/plans/priority-1.md` through `priority-8.md`, with a quick pass for conceptual collisions.
+
+## High-overlap clusters
+
+- `priority-1` overlaps heavily with `priority-2` (shared importer + parsing surfaces) and also overlaps segmentation scope with `priority-8`.
+- `priority-2` and `priority-3` both modify EPUB/PDF block-role/signal/splitting flow.
+- `priority-3` and `priority-8` both propose segmentation-eval + optional `segeval` flows (conceptual conflict even when file-path overlap is small).
+- `priority-5`, `priority-6`, and `priority-7` overlap strongly in staging and settings surfaces (`run_settings`, `draft_v1`, `jsonld`, `writer`).
+- All priorities touch `cookimport/cli.py`, so concurrent implementation requires strict subcommand/flag ownership.
+
+## Lower-overlap opportunities
+
+- `priority-4` (ingredient parsing hardening) is comparatively isolated from `priority-2`/`priority-3` core internals.
+- `priority-8` is mostly bench/eval-focused and can run parallel with `priority-4` if CLI edits are coordinated.
+
+## Practical lane recommendation
+
+- Lane A (core structure): `priority-2 -> priority-3`
+- Lane B (field quality): `priority-4` then `priority-6`
+- Lane C (schema/web lane): `priority-7` after `priority-2` stabilizes shared section/fallback expectations
+- Lane D (evaluation): `priority-8` (ideally after at least `priority-3` MVP)
+- `priority-1` is best treated as an umbrella/integration phase after 2/3/4/6/7/8 foundations are in place.
+

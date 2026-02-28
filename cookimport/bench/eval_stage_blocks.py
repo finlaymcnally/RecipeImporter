@@ -5,10 +5,28 @@ import time
 from pathlib import Path
 from typing import Any
 
+from cookimport.bench.segmentation_metrics import compute_segmentation_boundaries
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
 from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
+_SEGMENTATION_LABEL_PROJECTION_CORE = "core_structural_v1"
+_SEGMENTATION_DEFAULT_METRICS: tuple[str, ...] = ("boundary_f1",)
+_OPTIONAL_SEGMENTATION_METRICS: tuple[str, ...] = (
+    "pk",
+    "windowdiff",
+    "boundary_similarity",
+)
+_SUPPORTED_SEGMENTATION_METRICS = set(_SEGMENTATION_DEFAULT_METRICS).union(
+    _OPTIONAL_SEGMENTATION_METRICS
+)
+_STRUCTURAL_LABEL_PRIORITY: tuple[str, ...] = (
+    "RECIPE_TITLE",
+    "INGREDIENT_LINE",
+    "INSTRUCTION_LINE",
+)
+_STRUCTURAL_LABEL_SET = set(_STRUCTURAL_LABEL_PRIORITY)
+_YIELD_TIME_LABELS = {"YIELD_LINE", "TIME_LINE"}
 
 try:  # pragma: no cover - non-Unix runtimes may not expose resource.
     import resource
@@ -21,6 +39,136 @@ def _coerce_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_segmentation_metric_name(value: str) -> str:
+    return str(value or "").strip().lower().replace("-", "_")
+
+
+def _parse_segmentation_metric_selection(
+    raw_metrics: str | list[str] | tuple[str, ...] | set[str] | None,
+) -> list[str]:
+    if raw_metrics is None:
+        return list(_SEGMENTATION_DEFAULT_METRICS)
+
+    metric_chunks: list[str] = []
+    if isinstance(raw_metrics, str):
+        metric_chunks.extend(raw_metrics.split(","))
+    elif isinstance(raw_metrics, (list, tuple, set)):
+        for item in raw_metrics:
+            metric_chunks.extend(str(item or "").split(","))
+    else:
+        raise ValueError(
+            "segmentation_metrics must be a CSV string or collection of metric names."
+        )
+
+    selected: list[str] = []
+    seen: set[str] = set()
+    for chunk in metric_chunks:
+        metric_name = _normalize_segmentation_metric_name(chunk)
+        if not metric_name:
+            continue
+        if metric_name not in _SUPPORTED_SEGMENTATION_METRICS:
+            raise ValueError(
+                "Unsupported segmentation metric "
+                f"{metric_name!r}. Supported metrics: {sorted(_SUPPORTED_SEGMENTATION_METRICS)}."
+            )
+        if metric_name in seen:
+            continue
+        selected.append(metric_name)
+        seen.add(metric_name)
+
+    if not selected:
+        return list(_SEGMENTATION_DEFAULT_METRICS)
+    return selected
+
+
+def _project_structural_label(*, label: str, projection: str) -> str:
+    if projection != _SEGMENTATION_LABEL_PROJECTION_CORE:
+        raise ValueError(
+            "Unsupported label projection "
+            f"{projection!r}; expected {_SEGMENTATION_LABEL_PROJECTION_CORE!r}."
+        )
+    if label in _STRUCTURAL_LABEL_SET:
+        return label
+    return "OTHER"
+
+
+def _project_structural_label_set(*, labels: set[str], projection: str) -> str:
+    if projection != _SEGMENTATION_LABEL_PROJECTION_CORE:
+        raise ValueError(
+            "Unsupported label projection "
+            f"{projection!r}; expected {_SEGMENTATION_LABEL_PROJECTION_CORE!r}."
+        )
+    for label in _STRUCTURAL_LABEL_PRIORITY:
+        if label in labels:
+            return label
+    return "OTHER"
+
+
+def _nearest_boundary(boundary_index: int, candidates: list[int]) -> tuple[int | None, int | None]:
+    if not candidates:
+        return None, None
+    nearest = min(candidates, key=lambda value: (abs(value - boundary_index), value))
+    return nearest, abs(nearest - boundary_index)
+
+
+def _taxonomy_bucket_for_block_mismatch(gold_label: str, pred_label: str) -> str:
+    if gold_label in _YIELD_TIME_LABELS or pred_label in _YIELD_TIME_LABELS:
+        return "yield_time_errors"
+    if gold_label == "INGREDIENT_LINE" or pred_label == "INGREDIENT_LINE":
+        return "ingredient_errors"
+    if gold_label == "INSTRUCTION_LINE" or pred_label == "INSTRUCTION_LINE":
+        return "instruction_errors"
+    if gold_label != "OTHER" and pred_label == "OTHER":
+        return "extraction_failure"
+    return "boundary_errors"
+
+
+def _compute_error_taxonomy(
+    *,
+    gold_projected: dict[int, str],
+    pred_projected: dict[int, str],
+    segmentation_boundaries: dict[str, Any],
+) -> dict[str, Any]:
+    bucket_counts: dict[str, int] = {
+        "extraction_failure": 0,
+        "boundary_errors": 0,
+        "ingredient_errors": 0,
+        "instruction_errors": 0,
+        "yield_time_errors": 0,
+    }
+    examples: dict[str, list[int]] = {name: [] for name in bucket_counts}
+
+    for block_index in sorted(gold_projected):
+        gold_label = gold_projected[block_index]
+        pred_label = pred_projected[block_index]
+        if gold_label == pred_label:
+            continue
+        bucket = _taxonomy_bucket_for_block_mismatch(gold_label, pred_label)
+        bucket_counts[bucket] += 1
+        if len(examples[bucket]) < 8:
+            examples[bucket].append(block_index)
+
+    boundary_miss_total = 0
+    boundaries = segmentation_boundaries.get("boundaries")
+    if isinstance(boundaries, dict):
+        for metric_name, payload in boundaries.items():
+            if metric_name == "overall_micro" or not isinstance(payload, dict):
+                continue
+            boundary_miss_total += int(payload.get("fp") or 0)
+            boundary_miss_total += int(payload.get("fn") or 0)
+    bucket_counts["boundary_errors"] += boundary_miss_total
+
+    return {
+        "bucket_counts": bucket_counts,
+        "total_count": sum(bucket_counts.values()),
+        "block_mismatch_count": sum(
+            1 for block_index in gold_projected if gold_projected[block_index] != pred_projected[block_index]
+        ),
+        "boundary_miss_count": boundary_miss_total,
+        "example_block_indices": examples,
+    }
 
 
 def _capture_eval_resource_snapshot() -> dict[str, float]:
@@ -349,6 +497,106 @@ def _excerpt(text: str, *, limit: int = 220) -> str:
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: max(limit - 3, 0)] + "..."
+
+
+def _build_projected_structural_sequences(
+    *,
+    gold: dict[int, set[str]],
+    pred: dict[int, str],
+    label_projection: str,
+) -> tuple[list[str], list[str], dict[int, str], dict[int, str]]:
+    ordered_indices = sorted(gold)
+    projected_gold_by_index: dict[int, str] = {}
+    projected_pred_by_index: dict[int, str] = {}
+    labels_gold: list[str] = []
+    labels_pred: list[str] = []
+
+    for index in ordered_indices:
+        gold_projected = _project_structural_label_set(
+            labels=gold[index],
+            projection=label_projection,
+        )
+        pred_projected = _project_structural_label(
+            label=pred[index],
+            projection=label_projection,
+        )
+        projected_gold_by_index[index] = gold_projected
+        projected_pred_by_index[index] = pred_projected
+        labels_gold.append(gold_projected)
+        labels_pred.append(pred_projected)
+
+    return (
+        labels_gold,
+        labels_pred,
+        projected_gold_by_index,
+        projected_pred_by_index,
+    )
+
+
+def _build_boundary_mismatch_rows(
+    *,
+    segmentation_boundaries: dict[str, Any],
+    block_texts: dict[int, str],
+    workbook_slug: str,
+    source_file: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    missed_rows: list[dict[str, Any]] = []
+    false_positive_rows: list[dict[str, Any]] = []
+
+    boundaries = segmentation_boundaries.get("boundaries")
+    if not isinstance(boundaries, dict):
+        return missed_rows, false_positive_rows
+
+    for boundary_type, boundary_metrics in boundaries.items():
+        if boundary_type == "overall_micro" or not isinstance(boundary_metrics, dict):
+            continue
+
+        pred_boundaries = [
+            int(value)
+            for value in boundary_metrics.get("pred_boundaries", [])
+            if _coerce_int(value) is not None
+        ]
+        gold_boundaries = [
+            int(value)
+            for value in boundary_metrics.get("gold_boundaries", [])
+            if _coerce_int(value) is not None
+        ]
+
+        for value in boundary_metrics.get("missed_gold_boundaries", []):
+            boundary_index = _coerce_int(value)
+            if boundary_index is None:
+                continue
+            nearest_pred, distance = _nearest_boundary(boundary_index, pred_boundaries)
+            missed_rows.append(
+                {
+                    "boundary_type": boundary_type,
+                    "gold_boundary_index": boundary_index,
+                    "nearest_pred_boundary_index": nearest_pred,
+                    "distance_blocks": distance,
+                    "block_text_excerpt": _excerpt(block_texts.get(boundary_index, "")),
+                    "workbook_slug": workbook_slug,
+                    "source_file": source_file,
+                }
+            )
+
+        for value in boundary_metrics.get("false_positive_boundaries", []):
+            boundary_index = _coerce_int(value)
+            if boundary_index is None:
+                continue
+            nearest_gold, distance = _nearest_boundary(boundary_index, gold_boundaries)
+            false_positive_rows.append(
+                {
+                    "boundary_type": boundary_type,
+                    "pred_boundary_index": boundary_index,
+                    "nearest_gold_boundary_index": nearest_gold,
+                    "distance_blocks": distance,
+                    "block_text_excerpt": _excerpt(block_texts.get(boundary_index, "")),
+                    "workbook_slug": workbook_slug,
+                    "source_file": source_file,
+                }
+            )
+
+    return missed_rows, false_positive_rows
 
 
 def _load_extracted_block_texts(extracted_blocks_json: Path) -> dict[int, str]:
@@ -827,6 +1075,11 @@ def _most_common_confusions(
 
 
 def format_stage_block_eval_report_md(report: dict[str, Any]) -> str:
+    def _format_metric(value: Any) -> str:
+        if value is None:
+            return "n/a"
+        return f"{float(value):.3f}"
+
     counts = report.get("counts") or {}
     worst = report.get("worst_label_recall") or {}
     lines = [
@@ -869,6 +1122,88 @@ def format_stage_block_eval_report_md(report: dict[str, Any]) -> str:
                 f"f1={float(stats.get('f1') or 0.0):.3f}"
             )
 
+    segmentation = report.get("segmentation")
+    if isinstance(segmentation, dict):
+        lines.extend(["", "## Segmentation Boundary Metrics", ""])
+        lines.append(
+            "- Label projection: "
+            f"{segmentation.get('label_projection') or _SEGMENTATION_LABEL_PROJECTION_CORE}"
+        )
+        lines.append(
+            "- Boundary tolerance (blocks): "
+            f"{int(segmentation.get('boundary_tolerance_blocks') or 0)}"
+        )
+
+        metrics_requested = segmentation.get("metrics_requested")
+        if isinstance(metrics_requested, list) and metrics_requested:
+            lines.append(
+                "- Metrics requested: " + ", ".join(str(value) for value in metrics_requested)
+            )
+
+        boundaries = segmentation.get("boundaries")
+        if isinstance(boundaries, dict):
+            boundary_order = (
+                "ingredient_start",
+                "ingredient_end",
+                "instruction_start",
+                "instruction_end",
+                "recipe_split",
+                "overall_micro",
+            )
+            for boundary_name in boundary_order:
+                payload = boundaries.get(boundary_name)
+                if not isinstance(payload, dict):
+                    continue
+                label = boundary_name.replace("_", " ")
+                lines.append(
+                    "- "
+                    f"{label}: "
+                    f"gold={int(payload.get('gold_count') or 0)} "
+                    f"pred={int(payload.get('pred_count') or 0)} "
+                    f"tp={int(payload.get('tp') or 0)} "
+                    f"fp={int(payload.get('fp') or 0)} "
+                    f"fn={int(payload.get('fn') or 0)} "
+                    f"precision={_format_metric(payload.get('precision'))} "
+                    f"recall={_format_metric(payload.get('recall'))} "
+                    f"f1={_format_metric(payload.get('f1'))}"
+                )
+                if bool(payload.get("not_applicable")):
+                    lines.append("  note: no gold boundaries for this category")
+
+        segeval = segmentation.get("segeval")
+        if isinstance(segeval, dict) and segeval:
+            lines.extend(["", "### Optional segeval Metrics", ""])
+            for metric_name in ("pk", "windowdiff", "boundary_similarity"):
+                if metric_name not in segeval:
+                    continue
+                lines.append(
+                    f"- {metric_name}: {_format_metric(segeval.get(metric_name))}"
+                )
+
+    taxonomy = {}
+    if isinstance(segmentation, dict):
+        raw_taxonomy = segmentation.get("error_taxonomy")
+        if isinstance(raw_taxonomy, dict):
+            taxonomy = raw_taxonomy
+    if taxonomy:
+        lines.extend(["", "## Error Taxonomy", ""])
+        bucket_counts = taxonomy.get("bucket_counts")
+        if isinstance(bucket_counts, dict):
+            for bucket_name in (
+                "extraction_failure",
+                "boundary_errors",
+                "ingredient_errors",
+                "instruction_errors",
+                "yield_time_errors",
+            ):
+                lines.append(
+                    "- "
+                    f"{bucket_name}: "
+                    f"{int(bucket_counts.get(bucket_name) or 0)}"
+                )
+        if "total_count" in taxonomy:
+            lines.append(f"- total: {int(taxonomy.get('total_count') or 0)}")
+
     confusion = report.get("confusion")
     if isinstance(confusion, dict):
         common_confusions = _most_common_confusions(confusion)
@@ -892,6 +1227,16 @@ def format_stage_block_eval_report_md(report: dict[str, Any]) -> str:
                 "- wrong_label_blocks.jsonl: "
                 f"{artifacts.get('wrong_label_blocks_jsonl')}"
             )
+        if artifacts.get("missed_gold_boundaries_jsonl"):
+            lines.append(
+                "- missed_gold_boundaries.jsonl: "
+                f"{artifacts.get('missed_gold_boundaries_jsonl')}"
+            )
+        if artifacts.get("false_positive_boundaries_jsonl"):
+            lines.append(
+                "- false_positive_boundaries.jsonl: "
+                f"{artifacts.get('false_positive_boundaries_jsonl')}"
+            )
         if artifacts.get("gold_conflicts_jsonl"):
             lines.append(
                 "- gold_conflicts.jsonl: "
@@ -908,7 +1253,14 @@ def evaluate_stage_blocks(
     stage_predictions_json: Path,
     extracted_blocks_json: Path,
     out_dir: Path,
+    label_projection: str = _SEGMENTATION_LABEL_PROJECTION_CORE,
+    boundary_tolerance_blocks: int = 0,
+    segmentation_metrics: str | list[str] | tuple[str, ...] | set[str] | None = None,
 ) -> dict[str, Any]:
+    if boundary_tolerance_blocks < 0:
+        raise ValueError("boundary_tolerance_blocks must be >= 0.")
+    selected_segmentation_metrics = _parse_segmentation_metric_selection(segmentation_metrics)
+
     evaluation_started = time.monotonic()
     resource_start = _capture_eval_resource_snapshot()
     subphase_seconds: dict[str, float] = {}
@@ -1003,6 +1355,63 @@ def evaluate_stage_blocks(
     workbook_slug = str(stage_payload.get("workbook_slug") or "")
     source_file = str(stage_payload.get("source_file") or "")
 
+    segmentation_started = time.monotonic()
+    (
+        projected_gold_labels,
+        projected_pred_labels,
+        projected_gold_by_index,
+        projected_pred_by_index,
+    ) = _build_projected_structural_sequences(
+        gold=gold,
+        pred=pred,
+        label_projection=label_projection,
+    )
+    segmentation = compute_segmentation_boundaries(
+        labels_gold=projected_gold_labels,
+        labels_pred=projected_pred_labels,
+        tolerance_blocks=boundary_tolerance_blocks,
+    )
+    segmentation_payload: dict[str, Any] = {
+        "label_projection": label_projection,
+        "boundary_tolerance_blocks": int(boundary_tolerance_blocks),
+        "metrics_requested": selected_segmentation_metrics,
+        "boundaries": segmentation.get("boundaries", {}),
+        "error_taxonomy": _compute_error_taxonomy(
+            gold_projected=projected_gold_by_index,
+            pred_projected=projected_pred_by_index,
+            segmentation_boundaries=segmentation,
+        ),
+    }
+    optional_metric_names = [
+        metric_name
+        for metric_name in selected_segmentation_metrics
+        if metric_name in _OPTIONAL_SEGMENTATION_METRICS
+    ]
+    if optional_metric_names:
+        optional_metrics_started = time.monotonic()
+        from cookimport.bench.segeval_adapter import (
+            OptionalSegmentationDependencyError,
+            compute_optional_segmentation_metrics,
+        )
+
+        try:
+            segmentation_payload["segeval"] = compute_optional_segmentation_metrics(
+                labels_gold=projected_gold_labels,
+                labels_pred=projected_pred_labels,
+                requested_metrics=optional_metric_names,
+            )
+        except OptionalSegmentationDependencyError as exc:
+            raise ValueError(str(exc)) from exc
+        subphase_seconds["segmentation_optional_metrics_seconds"] = max(
+            0.0,
+            time.monotonic() - optional_metrics_started,
+        )
+    report["segmentation"] = segmentation_payload
+    subphase_seconds["segmentation_seconds"] = max(
+        0.0,
+        time.monotonic() - segmentation_started,
+    )
+
     mismatch_rows_started = time.monotonic()
     wrong_rows: list[dict[str, Any]] = []
     missed_rows: list[dict[str, Any]] = []
@@ -1039,11 +1448,27 @@ def evaluate_stage_blocks(
         time.monotonic() - mismatch_rows_started,
     )
 
+    boundary_mismatch_rows_started = time.monotonic()
+    missed_boundary_rows, false_positive_boundary_rows = _build_boundary_mismatch_rows(
+        segmentation_boundaries=segmentation,
+        block_texts=block_texts,
+        workbook_slug=workbook_slug,
+        source_file=source_file,
+    )
+    subphase_seconds["boundary_mismatch_rows_seconds"] = max(
+        0.0,
+        time.monotonic() - boundary_mismatch_rows_started,
+    )
+
     artifact_write_started = time.monotonic()
     missed_path = out_dir / "missed_gold_blocks.jsonl"
     wrong_path = out_dir / "wrong_label_blocks.jsonl"
+    missed_boundaries_path = out_dir / "missed_gold_boundaries.jsonl"
+    false_positive_boundaries_path = out_dir / "false_positive_boundaries.jsonl"
     _write_jsonl(missed_path, missed_rows)
     _write_jsonl(wrong_path, wrong_rows)
+    _write_jsonl(missed_boundaries_path, missed_boundary_rows)
+    _write_jsonl(false_positive_boundaries_path, false_positive_boundary_rows)
 
     # Legacy aliases keep existing bench packet/report tooling functioning.
     legacy_missed = [
@@ -1092,10 +1517,15 @@ def evaluate_stage_blocks(
         "eval_report_md": str(out_dir / "eval_report.md"),
         "missed_gold_blocks_jsonl": str(missed_path),
         "wrong_label_blocks_jsonl": str(wrong_path),
+        "missed_gold_boundaries_jsonl": str(missed_boundaries_path),
+        "false_positive_boundaries_jsonl": str(false_positive_boundaries_path),
         "gold_conflicts_jsonl": (
             str(gold_conflicts_path) if gold_conflicts_path.exists() else ""
         ),
     }
+    overall_boundary_metrics = report["segmentation"].get("boundaries", {}).get("overall_micro", {})
+    if not isinstance(overall_boundary_metrics, dict):
+        overall_boundary_metrics = {}
     evaluation_total_seconds = max(0.0, time.monotonic() - evaluation_started)
     resource_end = _capture_eval_resource_snapshot()
     report["evaluation_telemetry"] = {
@@ -1110,6 +1540,18 @@ def evaluate_stage_blocks(
             "prediction_block_count": float(len(pred)),
             "missing_gold_defaulted_count": float(len(missing_gold)),
             "wrong_label_count": float(len(wrong_rows)),
+            "segmentation_gold_boundary_count": float(
+                int(overall_boundary_metrics.get("gold_count") or 0)
+            ),
+            "segmentation_pred_boundary_count": float(
+                int(overall_boundary_metrics.get("pred_count") or 0)
+            ),
+            "segmentation_false_positive_boundary_count": float(
+                int(overall_boundary_metrics.get("fp") or 0)
+            ),
+            "segmentation_missed_boundary_count": float(
+                int(overall_boundary_metrics.get("fn") or 0)
+            ),
         },
     }
 
@@ -1128,6 +1570,8 @@ def evaluate_stage_blocks(
         "report": report,
         "missed_gold_blocks": missed_rows,
         "wrong_label_blocks": wrong_rows,
+        "missed_gold_boundaries": missed_boundary_rows,
+        "false_positive_boundaries": false_positive_boundary_rows,
         "missed_gold": legacy_missed,
         "false_positive_preds": legacy_false_positive,
     }

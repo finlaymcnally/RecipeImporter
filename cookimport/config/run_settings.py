@@ -29,7 +29,34 @@ _SUMMARY_ORDER = (
     "epub_unstructured_skip_headers_footers",
     "epub_unstructured_preprocess_mode",
     "table_extraction",
+    "section_detector_backend",
+    "instruction_step_segmentation_policy",
+    "instruction_step_segmenter",
+    "multi_recipe_splitter",
+    "multi_recipe_trace",
+    "multi_recipe_min_ingredient_lines",
+    "multi_recipe_min_instruction_lines",
+    "multi_recipe_for_the_guardrail",
+    "web_schema_extractor",
+    "web_schema_normalizer",
+    "web_html_text_extractor",
+    "web_schema_policy",
+    "web_schema_min_confidence",
+    "web_schema_min_ingredients",
+    "web_schema_min_instruction_steps",
+    "ingredient_text_fix_backend",
+    "ingredient_pre_normalize_mode",
+    "ingredient_packaging_mode",
+    "ingredient_parser_backend",
+    "ingredient_unit_canonicalizer",
+    "ingredient_missing_unit_policy",
     "benchmark_sequence_matcher",
+    "recipe_scorer_backend",
+    "recipe_score_gold_min",
+    "recipe_score_silver_min",
+    "recipe_score_bronze_min",
+    "recipe_score_min_ingredient_lines",
+    "recipe_score_min_instruction_lines",
     "ocr_device",
     "ocr_batch_size",
     "workers",
@@ -94,6 +121,88 @@ class OcrDevice(str, Enum):
 class TableExtraction(str, Enum):
     off = "off"
     on = "on"
+
+
+class SectionDetectorBackend(str, Enum):
+    legacy = "legacy"
+    shared_v1 = "shared_v1"
+
+
+class InstructionStepSegmentationPolicy(str, Enum):
+    off = "off"
+    auto = "auto"
+    always = "always"
+
+
+class InstructionStepSegmenter(str, Enum):
+    heuristic_v1 = "heuristic_v1"
+    pysbd_v1 = "pysbd_v1"
+
+
+class MultiRecipeSplitter(str, Enum):
+    legacy = "legacy"
+    off = "off"
+    rules_v1 = "rules_v1"
+
+
+class WebSchemaExtractor(str, Enum):
+    builtin_jsonld = "builtin_jsonld"
+    extruct = "extruct"
+    scrape_schema_recipe = "scrape_schema_recipe"
+    recipe_scrapers = "recipe_scrapers"
+    ensemble_v1 = "ensemble_v1"
+
+
+class WebSchemaNormalizer(str, Enum):
+    simple = "simple"
+    pyld = "pyld"
+
+
+class WebHtmlTextExtractor(str, Enum):
+    bs4 = "bs4"
+    trafilatura = "trafilatura"
+    readability_lxml = "readability_lxml"
+    justext = "justext"
+    boilerpy3 = "boilerpy3"
+    ensemble_v1 = "ensemble_v1"
+
+
+class WebSchemaPolicy(str, Enum):
+    prefer_schema = "prefer_schema"
+    schema_only = "schema_only"
+    heuristic_only = "heuristic_only"
+
+
+class IngredientTextFixBackend(str, Enum):
+    none = "none"
+    ftfy = "ftfy"
+
+
+class IngredientPreNormalizeMode(str, Enum):
+    legacy = "legacy"
+    aggressive_v1 = "aggressive_v1"
+
+
+class IngredientPackagingMode(str, Enum):
+    off = "off"
+    regex_v1 = "regex_v1"
+
+
+class IngredientParserBackend(str, Enum):
+    ingredient_parser_nlp = "ingredient_parser_nlp"
+    quantulum3_regex = "quantulum3_regex"
+    hybrid_nlp_then_quantulum3 = "hybrid_nlp_then_quantulum3"
+
+
+class IngredientUnitCanonicalizer(str, Enum):
+    legacy = "legacy"
+    pint = "pint"
+
+
+class IngredientMissingUnitPolicy(str, Enum):
+    legacy_medium = "legacy_medium"
+    null = "null"
+    each = "each"
 
 
 class LlmRecipePipeline(str, Enum):
@@ -268,16 +377,335 @@ class RunSettings(BaseModel):
             ),
         ),
     )
+    section_detector_backend: SectionDetectorBackend = Field(
+        default=SectionDetectorBackend.legacy,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="Section Detector Backend",
+            order=66,
+            description=(
+                "Section detector backend used by importers and section-aware staging "
+                "contracts. legacy keeps current behavior; shared_v1 enables shared "
+                "deterministic detection."
+            ),
+        ),
+    )
+    multi_recipe_splitter: MultiRecipeSplitter = Field(
+        default=MultiRecipeSplitter.legacy,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="Multi-recipe Splitter",
+            order=67,
+            description=(
+                "Candidate splitter backend for merged multi-recipe spans. "
+                "legacy keeps importer-local behavior; rules_v1 uses shared deterministic splitting."
+            ),
+        ),
+    )
+    multi_recipe_trace: bool = Field(
+        default=False,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="Multi-recipe Trace",
+            order=68,
+            description="Write shared splitter trace artifacts when multi-recipe splitting runs.",
+        ),
+    )
+    multi_recipe_min_ingredient_lines: int = Field(
+        default=1,
+        ge=0,
+        le=100,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="Multi-recipe Min Ingredients",
+            order=69,
+            description="Minimum ingredient-like lines required on each side of a split boundary.",
+            step=1,
+            minimum=0,
+            maximum=100,
+        ),
+    )
+    multi_recipe_min_instruction_lines: int = Field(
+        default=1,
+        ge=0,
+        le=100,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="Multi-recipe Min Instructions",
+            order=70,
+            description="Minimum instruction-like lines required on each side of a split boundary.",
+            step=1,
+            minimum=0,
+            maximum=100,
+        ),
+    )
+    multi_recipe_for_the_guardrail: bool = Field(
+        default=True,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="Multi-recipe For-the Guardrail",
+            order=71,
+            description=(
+                "Prevent boundaries on component subsection headers "
+                "(for example 'For the sauce')."
+            ),
+        ),
+    )
+    web_schema_extractor: WebSchemaExtractor = Field(
+        default=WebSchemaExtractor.builtin_jsonld,
+        json_schema_extra=_ui_meta(
+            group="WebSchema",
+            label="Web Schema Extractor",
+            order=66,
+            description=(
+                "Schema extraction backend for local HTML/JSON schema inputs "
+                "(builtin_jsonld, extruct, scrape_schema_recipe, recipe_scrapers, ensemble_v1)."
+            ),
+        ),
+    )
+    web_schema_normalizer: WebSchemaNormalizer = Field(
+        default=WebSchemaNormalizer.simple,
+        json_schema_extra=_ui_meta(
+            group="WebSchema",
+            label="Web Schema Normalizer",
+            order=67,
+            description="Schema normalization mode before mapping (simple or pyld).",
+        ),
+    )
+    web_html_text_extractor: WebHtmlTextExtractor = Field(
+        default=WebHtmlTextExtractor.bs4,
+        json_schema_extra=_ui_meta(
+            group="WebSchema",
+            label="Web HTML Text Extractor",
+            order=68,
+            description=(
+                "Fallback HTML text extractor for schema-poor pages "
+                "(bs4, trafilatura, readability_lxml, justext, boilerpy3, ensemble_v1)."
+            ),
+        ),
+    )
+    web_schema_policy: WebSchemaPolicy = Field(
+        default=WebSchemaPolicy.prefer_schema,
+        json_schema_extra=_ui_meta(
+            group="WebSchema",
+            label="Web Schema Policy",
+            order=69,
+            description=(
+                "Schema lane policy: prefer_schema, schema_only, or heuristic_only."
+            ),
+        ),
+    )
+    web_schema_min_confidence: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        json_schema_extra=_ui_meta(
+            group="WebSchema",
+            label="Web Schema Min Confidence",
+            order=70,
+            description="Minimum schema confidence required before schema candidate acceptance.",
+        ),
+    )
+    web_schema_min_ingredients: int = Field(
+        default=2,
+        ge=0,
+        le=100,
+        json_schema_extra=_ui_meta(
+            group="WebSchema",
+            label="Web Schema Min Ingredients",
+            order=71,
+            description="Minimum ingredient lines used by schema confidence gating.",
+            step=1,
+            minimum=0,
+            maximum=100,
+        ),
+    )
+    web_schema_min_instruction_steps: int = Field(
+        default=1,
+        ge=0,
+        le=100,
+        json_schema_extra=_ui_meta(
+            group="WebSchema",
+            label="Web Schema Min Steps",
+            order=72,
+            description="Minimum instruction steps used by schema confidence gating.",
+            step=1,
+            minimum=0,
+            maximum=100,
+        ),
+    )
+    instruction_step_segmentation_policy: InstructionStepSegmentationPolicy = Field(
+        default=InstructionStepSegmentationPolicy.auto,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="Instruction Segmentation Policy",
+            order=65,
+            description=(
+                "Fallback instruction-step segmentation policy: off, auto, or always."
+            ),
+        ),
+    )
+    instruction_step_segmenter: InstructionStepSegmenter = Field(
+        default=InstructionStepSegmenter.heuristic_v1,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="Instruction Segmenter",
+            order=66,
+            description=(
+                "Deterministic fallback segmenter backend: heuristic_v1 or pysbd_v1."
+            ),
+        ),
+    )
+    ingredient_text_fix_backend: IngredientTextFixBackend = Field(
+        default=IngredientTextFixBackend.none,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="Ingredient Text Fix Backend",
+            order=67,
+            description=(
+                "Optional text cleanup backend before ingredient parsing "
+                "(none or ftfy)."
+            ),
+        ),
+    )
+    ingredient_pre_normalize_mode: IngredientPreNormalizeMode = Field(
+        default=IngredientPreNormalizeMode.legacy,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="Ingredient Pre-normalize Mode",
+            order=68,
+            description=(
+                "Ingredient pre-parse normalization mode "
+                "(legacy or aggressive_v1)."
+            ),
+        ),
+    )
+    ingredient_packaging_mode: IngredientPackagingMode = Field(
+        default=IngredientPackagingMode.off,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="Ingredient Packaging Mode",
+            order=69,
+            description=(
+                "Packaging extraction mode for patterns like "
+                "'1 (14-ounce) can tomatoes'."
+            ),
+        ),
+    )
+    ingredient_parser_backend: IngredientParserBackend = Field(
+        default=IngredientParserBackend.ingredient_parser_nlp,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="Ingredient Parser Backend",
+            order=70,
+            description=(
+                "Ingredient parser backend: ingredient_parser_nlp, "
+                "quantulum3_regex, or hybrid_nlp_then_quantulum3."
+            ),
+        ),
+    )
+    ingredient_unit_canonicalizer: IngredientUnitCanonicalizer = Field(
+        default=IngredientUnitCanonicalizer.legacy,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="Ingredient Unit Canonicalizer",
+            order=71,
+            description=(
+                "Unit canonicalization mode (legacy or pint) applied after parsing."
+            ),
+        ),
+    )
+    ingredient_missing_unit_policy: IngredientMissingUnitPolicy = Field(
+        default=IngredientMissingUnitPolicy.null,
+        json_schema_extra=_ui_meta(
+            group="Parsing",
+            label="Ingredient Missing Unit Policy",
+            order=72,
+            description=(
+                "Policy when quantity exists but unit is missing: "
+                "legacy_medium, null, or each."
+            ),
+        ),
+    )
     benchmark_sequence_matcher: str = Field(
-        default="fallback",
+        default="dmp",
         json_schema_extra=_ui_meta(
             group="Benchmark",
             label="Sequence Matcher",
-            order=66,
+            order=73,
             description=(
-                "Canonical-text matcher mode for benchmark/eval runs "
-                "(for example fallback, stdlib, cydifflib, dmp)."
+                "Canonical-text matcher mode for benchmark/eval runs (dmp only)."
             ),
+        ),
+    )
+    recipe_scorer_backend: str = Field(
+        default="heuristic_v1",
+        json_schema_extra=_ui_meta(
+            group="Scoring",
+            label="Recipe Scorer Backend",
+            order=74,
+            description="Recipe-likeness scorer backend. Default and supported backend is heuristic_v1.",
+        ),
+    )
+    recipe_score_gold_min: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        json_schema_extra=_ui_meta(
+            group="Scoring",
+            label="Recipe Score Gold Min",
+            order=75,
+            description="Minimum recipe-likeness score for gold tier.",
+        ),
+    )
+    recipe_score_silver_min: float = Field(
+        default=0.55,
+        ge=0.0,
+        le=1.0,
+        json_schema_extra=_ui_meta(
+            group="Scoring",
+            label="Recipe Score Silver Min",
+            order=76,
+            description="Minimum recipe-likeness score for silver tier.",
+        ),
+    )
+    recipe_score_bronze_min: float = Field(
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+        json_schema_extra=_ui_meta(
+            group="Scoring",
+            label="Recipe Score Bronze Min",
+            order=77,
+            description="Minimum recipe-likeness score for bronze tier (below is reject).",
+        ),
+    )
+    recipe_score_min_ingredient_lines: int = Field(
+        default=1,
+        ge=0,
+        le=100,
+        json_schema_extra=_ui_meta(
+            group="Scoring",
+            label="Min Ingredient Lines",
+            order=78,
+            description="Soft minimum ingredient lines used by scorer/gate behavior.",
+            step=1,
+            minimum=0,
+            maximum=100,
+        ),
+    )
+    recipe_score_min_instruction_lines: int = Field(
+        default=1,
+        ge=0,
+        le=100,
+        json_schema_extra=_ui_meta(
+            group="Scoring",
+            label="Min Instruction Lines",
+            order=79,
+            description="Soft minimum instruction lines used by scorer/gate behavior.",
+            step=1,
+            minimum=0,
+            maximum=100,
         ),
     )
     ocr_device: OcrDevice = Field(
@@ -285,7 +713,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="OCR",
             label="OCR Device",
-            order=70,
+            order=80,
             description="OCR device selection for PDF processing.",
         ),
     )
@@ -296,7 +724,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="OCR",
             label="OCR Batch Size",
-            order=80,
+            order=90,
             description="Number of pages per OCR model batch.",
             step=1,
             minimum=1,
@@ -308,7 +736,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="Advanced",
             label="Warm Models",
-            order=90,
+            order=100,
             description="Preload heavy OCR/parsing models before processing.",
         ),
     )
@@ -317,7 +745,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Recipe LLM Pipeline",
-            order=100,
+            order=110,
             description=(
                 "Recipe codex-farm parsing correction is policy-locked OFF and must remain OFF "
                 "until benchmark quality materially improves."
@@ -329,7 +757,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Knowledge LLM Pipeline",
-            order=105,
+            order=115,
             description=(
                 "Optional non-recipe knowledge harvesting pipeline. "
                 "Off keeps deterministic behavior."
@@ -341,7 +769,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Tags LLM Pipeline",
-            order=106,
+            order=116,
             description=(
                 "Optional pass-5 tag suggestion pipeline over staged final drafts. "
                 "Off keeps deterministic behavior."
@@ -353,7 +781,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Command",
-            order=110,
+            order=120,
             description="Executable used when running codex-farm subprocesses.",
         ),
     )
@@ -362,7 +790,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Root",
-            order=120,
+            order=130,
             description="Optional pipeline-pack root for codex-farm. Blank uses repo_root/llm_pipelines.",
         ),
     )
@@ -371,7 +799,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Workspace Root",
-            order=125,
+            order=135,
             description=(
                 "Optional workspace root passed to codex-farm so Codex `--cd` is fixed. "
                 "Blank lets pipeline codex_cd_mode decide."
@@ -383,7 +811,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Pass1 Pipeline",
-            order=126,
+            order=136,
             description="codex-farm pipeline id used for recipe boundary refinement (pass1).",
         ),
     )
@@ -392,7 +820,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Pass2 Pipeline",
-            order=127,
+            order=137,
             description="codex-farm pipeline id used for schema.org extraction (pass2).",
         ),
     )
@@ -401,7 +829,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Pass3 Pipeline",
-            order=128,
+            order=138,
             description="codex-farm pipeline id used for final draft generation (pass3).",
         ),
     )
@@ -410,7 +838,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Pass4 Knowledge Pipeline",
-            order=129,
+            order=139,
             description="codex-farm pipeline id used for knowledge harvesting (pass4).",
         ),
     )
@@ -419,7 +847,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Pass5 Tags Pipeline",
-            order=130,
+            order=140,
             description="codex-farm pipeline id used for tag suggestions (pass5).",
         ),
     )
@@ -430,7 +858,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Context Blocks",
-            order=131,
+            order=141,
             description="Blocks before/after a candidate included in pass-1 bundles.",
             step=1,
             minimum=0,
@@ -444,7 +872,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Knowledge Context Blocks",
-            order=132,
+            order=142,
             description="Blocks before/after a knowledge chunk included as context in pass-4 bundles.",
             step=1,
             minimum=0,
@@ -456,7 +884,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Tag Catalog JSON",
-            order=133,
+            order=143,
             description=(
                 "Tag catalog snapshot path used by pass-5 tag suggestions when llm_tags_pipeline is enabled."
             ),
@@ -467,7 +895,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Failure Mode",
-            order=140,
+            order=150,
             description="Fail the run on codex-farm setup errors or fallback to deterministic outputs.",
         ),
     )
@@ -501,19 +929,13 @@ class RunSettings(BaseModel):
     @field_validator("benchmark_sequence_matcher", mode="before")
     @classmethod
     def _normalize_benchmark_sequence_matcher(cls, value: Any) -> str:
-        normalized = str(value or "fallback").strip().lower()
-        if normalized == "auto":
-            normalized = "fallback"
+        normalized = str(value or "dmp").strip().lower()
         supported = supported_sequence_matcher_modes()
         if normalized not in supported:
-            fallback_supported = ", ".join(supported)
-            logger.warning(
-                "Invalid benchmark sequence matcher mode %r. "
-                "Falling back to 'fallback'. Supported: %s",
-                value,
-                fallback_supported,
+            raise ValueError(
+                "Invalid benchmark sequence matcher mode "
+                f"{value!r}. Supported: {', '.join(supported)}."
             )
-            return "fallback"
         return normalized
 
     @classmethod
@@ -749,7 +1171,52 @@ def build_run_settings(
     ocr_batch_size: int,
     warm_models: bool,
     table_extraction: str | TableExtraction = TableExtraction.off,
-    benchmark_sequence_matcher: str = "fallback",
+    section_detector_backend: (
+        str | SectionDetectorBackend
+    ) = SectionDetectorBackend.legacy,
+    multi_recipe_splitter: str | MultiRecipeSplitter = MultiRecipeSplitter.legacy,
+    multi_recipe_trace: bool = False,
+    multi_recipe_min_ingredient_lines: int = 1,
+    multi_recipe_min_instruction_lines: int = 1,
+    multi_recipe_for_the_guardrail: bool = True,
+    web_schema_extractor: str | WebSchemaExtractor = WebSchemaExtractor.builtin_jsonld,
+    web_schema_normalizer: str | WebSchemaNormalizer = WebSchemaNormalizer.simple,
+    web_html_text_extractor: str | WebHtmlTextExtractor = WebHtmlTextExtractor.bs4,
+    web_schema_policy: str | WebSchemaPolicy = WebSchemaPolicy.prefer_schema,
+    web_schema_min_confidence: float = 0.75,
+    web_schema_min_ingredients: int = 2,
+    web_schema_min_instruction_steps: int = 1,
+    instruction_step_segmentation_policy: (
+        str | InstructionStepSegmentationPolicy
+    ) = InstructionStepSegmentationPolicy.auto,
+    instruction_step_segmenter: (
+        str | InstructionStepSegmenter
+    ) = InstructionStepSegmenter.heuristic_v1,
+    ingredient_text_fix_backend: (
+        str | IngredientTextFixBackend
+    ) = IngredientTextFixBackend.none,
+    ingredient_pre_normalize_mode: (
+        str | IngredientPreNormalizeMode
+    ) = IngredientPreNormalizeMode.legacy,
+    ingredient_packaging_mode: (
+        str | IngredientPackagingMode
+    ) = IngredientPackagingMode.off,
+    ingredient_parser_backend: (
+        str | IngredientParserBackend
+    ) = IngredientParserBackend.ingredient_parser_nlp,
+    ingredient_unit_canonicalizer: (
+        str | IngredientUnitCanonicalizer
+    ) = IngredientUnitCanonicalizer.legacy,
+    ingredient_missing_unit_policy: (
+        str | IngredientMissingUnitPolicy
+    ) = IngredientMissingUnitPolicy.null,
+    benchmark_sequence_matcher: str = "dmp",
+    recipe_scorer_backend: str = "heuristic_v1",
+    recipe_score_gold_min: float = 0.75,
+    recipe_score_silver_min: float = 0.55,
+    recipe_score_bronze_min: float = 0.35,
+    recipe_score_min_ingredient_lines: int = 1,
+    recipe_score_min_instruction_lines: int = 1,
     llm_recipe_pipeline: str | LlmRecipePipeline = LlmRecipePipeline.off,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
     llm_tags_pipeline: str | LlmTagsPipeline = LlmTagsPipeline.off,
@@ -801,9 +1268,53 @@ def build_run_settings(
             "ocr_batch_size": ocr_batch_size,
             "warm_models": bool(warm_models),
             "table_extraction": _normalized_value(table_extraction),
-            "benchmark_sequence_matcher": str(benchmark_sequence_matcher or "fallback")
+            "section_detector_backend": _normalized_value(section_detector_backend),
+            "multi_recipe_splitter": _normalized_value(multi_recipe_splitter),
+            "multi_recipe_trace": bool(multi_recipe_trace),
+            "multi_recipe_min_ingredient_lines": int(multi_recipe_min_ingredient_lines),
+            "multi_recipe_min_instruction_lines": int(multi_recipe_min_instruction_lines),
+            "multi_recipe_for_the_guardrail": bool(multi_recipe_for_the_guardrail),
+            "web_schema_extractor": _normalized_value(web_schema_extractor),
+            "web_schema_normalizer": _normalized_value(web_schema_normalizer),
+            "web_html_text_extractor": _normalized_value(web_html_text_extractor),
+            "web_schema_policy": _normalized_value(web_schema_policy),
+            "web_schema_min_confidence": float(web_schema_min_confidence),
+            "web_schema_min_ingredients": int(web_schema_min_ingredients),
+            "web_schema_min_instruction_steps": int(web_schema_min_instruction_steps),
+            "instruction_step_segmentation_policy": _normalized_value(
+                instruction_step_segmentation_policy
+            ),
+            "instruction_step_segmenter": _normalized_value(
+                instruction_step_segmenter
+            ),
+            "ingredient_text_fix_backend": _normalized_value(
+                ingredient_text_fix_backend
+            ),
+            "ingredient_pre_normalize_mode": _normalized_value(
+                ingredient_pre_normalize_mode
+            ),
+            "ingredient_packaging_mode": _normalized_value(
+                ingredient_packaging_mode
+            ),
+            "ingredient_parser_backend": _normalized_value(
+                ingredient_parser_backend
+            ),
+            "ingredient_unit_canonicalizer": _normalized_value(
+                ingredient_unit_canonicalizer
+            ),
+            "ingredient_missing_unit_policy": _normalized_value(
+                ingredient_missing_unit_policy
+            ),
+            "benchmark_sequence_matcher": str(benchmark_sequence_matcher or "dmp")
             .strip()
             .lower(),
+            "recipe_scorer_backend": str(recipe_scorer_backend or "heuristic_v1").strip()
+            or "heuristic_v1",
+            "recipe_score_gold_min": float(recipe_score_gold_min),
+            "recipe_score_silver_min": float(recipe_score_silver_min),
+            "recipe_score_bronze_min": float(recipe_score_bronze_min),
+            "recipe_score_min_ingredient_lines": int(recipe_score_min_ingredient_lines),
+            "recipe_score_min_instruction_lines": int(recipe_score_min_instruction_lines),
             "llm_recipe_pipeline": _normalized_value(llm_recipe_pipeline),
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
             "llm_tags_pipeline": _normalized_value(llm_tags_pipeline),

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 import os
+import json
 import re
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, List, Literal, Tuple
+from typing import TYPE_CHECKING, Any, Callable, List, Literal, Tuple
 
 import fitz  # type: ignore
 
@@ -26,10 +27,23 @@ from cookimport.core.reporting import (
     generate_recipe_id,
 )
 from cookimport.core.progress_messages import format_task_counter
-from cookimport.core.scoring import score_recipe_candidate
+from cookimport.core.scoring import (
+    build_recipe_scoring_debug_row,
+    recipe_gate_action,
+    score_recipe_likeness,
+    summarize_recipe_likeness,
+)
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning, signals
 from cookimport.parsing.atoms import Atom, contextualize_atoms, split_text_to_atoms
+from cookimport.parsing.multi_recipe_splitter import (
+    MultiRecipeSplitConfig,
+    split_candidate_blocks,
+)
+from cookimport.parsing.section_detector import (
+    SectionKind,
+    detect_sections_from_blocks,
+)
 from cookimport.parsing.tips import (
     build_topic_candidate,
     extract_tip_candidates,
@@ -42,6 +56,9 @@ from cookimport.plugins import registry
 logger = logging.getLogger(__name__)
 _STANDALONE_ANALYSIS_WORKERS_DEFAULT = 4
 _STANDALONE_ANALYSIS_WORKERS_ENV = "C3IMP_STANDALONE_ANALYSIS_WORKERS"
+
+if TYPE_CHECKING:
+    from cookimport.config.run_settings import RunSettings
 
 
 def _get_standalone_analysis_workers() -> int:
@@ -101,6 +118,10 @@ _INSTRUCTION_LEAD_RE = re.compile(
 
 class PdfImporter:
     name = "pdf"
+
+    def __init__(self) -> None:
+        self._section_detector_backend = "legacy"
+        self._overrides = None
 
     def detect(self, path: Path) -> float:
         if path.suffix.lower() == ".pdf":
@@ -184,6 +205,7 @@ class PdfImporter:
         path: Path,
         mapping: MappingConfig | None,
         progress_callback: Callable[[str], None] | None = None,
+        run_settings: RunSettings | None = None,
         start_page: int | None = None,
         end_page: int | None = None,
     ) -> ConversionResult:
@@ -194,6 +216,9 @@ class PdfImporter:
         raw_artifacts: list[RawArtifact] = []
         overrides = mapping.parsing_overrides if mapping else None
         self._overrides = overrides
+        self._section_detector_backend = str(
+            getattr(getattr(run_settings, "section_detector_backend", None), "value", "legacy")
+        )
         ocr_used = False
 
         def _notify(message: str) -> None:
@@ -287,6 +312,34 @@ class PdfImporter:
             # 2. Segment into Candidates
             _notify(f"Segmenting {len(all_blocks)} blocks...")
             candidates_ranges = self._detect_candidates(all_blocks)
+            (
+                candidates_ranges,
+                candidate_multi_recipe_meta,
+                split_trace_payload,
+            ) = self._apply_multi_recipe_splitter(
+                all_blocks,
+                candidates_ranges,
+                run_settings=run_settings,
+            )
+            if split_trace_payload is not None:
+                raw_artifacts.append(
+                    RawArtifact(
+                        importer="pdf",
+                        sourceHash=file_hash,
+                        locationId="multi_recipe_split_trace",
+                        extension="json",
+                        content=split_trace_payload,
+                        metadata={
+                            "artifact_type": "multi_recipe_split_trace",
+                            "backend": split_trace_payload.get("backend", "rules_v1"),
+                        },
+                    )
+                )
+            accepted_candidate_ranges: list[tuple[int, int, float]] = []
+            rejected_block_details: dict[int, dict[str, Any]] = {}
+            recipe_likeness_results = []
+            recipe_scoring_debug_rows: list[dict[str, Any]] = []
+            rejected_candidate_count = 0
             
             # 3. Extract Fields
             total_candidates = len(candidates_ranges)
@@ -295,7 +348,11 @@ class PdfImporter:
                 try:
                     candidate_blocks = all_blocks[start:end]
                     candidate = self._extract_fields(candidate_blocks)
-                    candidate.confidence = score_recipe_candidate(candidate)
+                    multi_recipe_meta = (
+                        candidate_multi_recipe_meta[i]
+                        if i < len(candidate_multi_recipe_meta)
+                        else None
+                    )
                     
                     # Provenance
                     extraction_method = "heuristic_pdf_ocr" if ocr_used else "heuristic_pdf"
@@ -329,23 +386,46 @@ class PdfImporter:
                         "chunk_index": i,
                         "segmentation_score": segmentation_score,
                     }
+                    if multi_recipe_meta is not None:
+                        location_info["multi_recipe"] = multi_recipe_meta
                     if ocr_used:
                         location_info["ocr_engine"] = "doctr"
                         if avg_ocr_confidence is not None:
                             location_info["ocr_confidence"] = round(avg_ocr_confidence, 3)
+                    location_for_debug = dict(location_info)
 
                     provenance = provenance_builder.build(
-                        confidence_score=candidate.confidence,
+                        confidence_score=0.0,
                         location=location_info,
                     )
                     candidate.provenance = provenance
+                    if multi_recipe_meta is not None and isinstance(candidate.provenance, dict):
+                        candidate.provenance["multi_recipe"] = dict(multi_recipe_meta)
                     
                     if not candidate.identifier:
                         candidate.identifier = generate_recipe_id(
                             "pdf", file_hash, f"c{i}"
                         )
 
-                    recipes.append(candidate)
+                    likeness = score_recipe_likeness(candidate, settings=run_settings)
+                    gate_action = recipe_gate_action(likeness, settings=run_settings)
+                    candidate.recipe_likeness = likeness
+                    candidate.confidence = likeness.score
+                    if isinstance(candidate.provenance, dict):
+                        candidate.provenance["confidence_score"] = candidate.confidence
+                    recipe_likeness_results.append(likeness)
+                    recipe_scoring_debug_rows.append(
+                        build_recipe_scoring_debug_row(
+                            candidate=candidate,
+                            result=likeness,
+                            gate_action=gate_action,
+                            candidate_index=i,
+                            location=location_for_debug,
+                            importer="pdf",
+                            source_hash=file_hash,
+                        )
+                    )
+
                     raw_artifacts.append(
                         RawArtifact(
                             importer="pdf",
@@ -364,6 +444,36 @@ class PdfImporter:
                             },
                         )
                     )
+
+                    if gate_action == "reject":
+                        rejected_candidate_count += 1
+                        for block_idx, block in enumerate(candidate_blocks, start=start):
+                            text = block.text.strip()
+                            if not text:
+                                continue
+                            features = dict(block.features) if isinstance(block.features, dict) else {}
+                            features.update(
+                                {
+                                    "source": "rejected_recipe_candidate",
+                                    "gate_action": gate_action,
+                                    "score": likeness.score,
+                                    "tier": likeness.tier.value,
+                                }
+                            )
+                            rejected_block_details[block_idx] = {
+                                "location": {
+                                    "start_block": start,
+                                    "end_block": end,
+                                    "chunk_index": i,
+                                    "start_page": start_page,
+                                    "end_page": end_page,
+                                },
+                                "features": features,
+                            }
+                        continue
+
+                    accepted_candidate_ranges.append((start, end, segmentation_score))
+                    recipes.append(candidate)
                     tip_candidates.extend(
                         extract_tip_candidates_from_candidate(candidate, overrides=overrides)
                     )
@@ -371,6 +481,21 @@ class PdfImporter:
                 except Exception as e:
                     logger.warning(f"Failed to extract candidate {i} in {path}: {e}")
                     report.warnings.append(f"Failed to parse candidate {i}: {e}")
+
+            if recipe_scoring_debug_rows:
+                raw_artifacts.append(
+                    RawArtifact(
+                        importer="pdf",
+                        sourceHash=file_hash,
+                        locationId="recipe_scoring_debug",
+                        extension="jsonl",
+                        content="\n".join(
+                            json.dumps(row, sort_keys=True)
+                            for row in recipe_scoring_debug_rows
+                        ),
+                        metadata={"artifact_type": "recipe_scoring_debug"},
+                    )
+                )
 
             _notify("Analyzing standalone knowledge blocks...")
             (
@@ -380,13 +505,34 @@ class PdfImporter:
                 topic_block_count,
             ) = self._extract_standalone_tips(
                 all_blocks,
-                candidates_ranges,
+                accepted_candidate_ranges,
                 path,
                 file_hash,
                 progress_callback=_notify,
             )
             tip_candidates.extend(standalone_tips)
             topic_candidates.extend(standalone_topics)
+
+            covered: set[int] = set()
+            for start, end, _ in accepted_candidate_ranges:
+                covered.update(range(start, end))
+            non_recipe_blocks: list[dict[str, Any]] = []
+            for idx, block in enumerate(all_blocks):
+                if idx in covered or not block.text.strip():
+                    continue
+                base_features = dict(block.features) if isinstance(block.features, dict) else {}
+                payload: dict[str, Any] = {
+                    "index": idx,
+                    "text": block.text,
+                    "features": base_features,
+                }
+                rejected_detail = rejected_block_details.get(idx)
+                if rejected_detail:
+                    payload["features"] = dict(rejected_detail.get("features") or {})
+                    location = rejected_detail.get("location")
+                    if isinstance(location, dict):
+                        payload["location"] = location
+                non_recipe_blocks.append(payload)
 
             _notify("Finalizing PDF extraction results...")
             tips, recipe_specific, not_tips = partition_tip_candidates(tip_candidates)
@@ -397,6 +543,11 @@ class PdfImporter:
             report.total_general_tips = len(tips)
             report.total_recipe_specific_tips = len(recipe_specific)
             report.total_not_tips = len(not_tips)
+            report.recipe_likeness = summarize_recipe_likeness(
+                recipe_likeness_results,
+                rejected_candidate_count,
+                settings=run_settings,
+            )
             if recipes:
                 report.samples = [{"name": r.name} for r in recipes[:3]]
             if tips:
@@ -423,6 +574,7 @@ class PdfImporter:
                 tips=tips,
                 tipCandidates=tip_candidates,
                 topicCandidates=topic_candidates,
+                nonRecipeBlocks=non_recipe_blocks,
                 rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem,
@@ -443,6 +595,7 @@ class PdfImporter:
             )
         finally:
             self._overrides = None
+            self._section_detector_backend = "legacy"
 
     def _extract_standalone_tips(
         self,
@@ -932,6 +1085,114 @@ class PdfImporter:
 
         return candidates
 
+    def _resolve_multi_recipe_splitter_backend(
+        self,
+        run_settings: RunSettings | None,
+    ) -> str:
+        raw_backend = getattr(
+            getattr(run_settings, "multi_recipe_splitter", None),
+            "value",
+            None,
+        )
+        if raw_backend is None and run_settings is not None:
+            raw_backend = getattr(run_settings, "multi_recipe_splitter", None)
+        normalized = str(raw_backend or "legacy").strip().lower().replace("-", "_")
+        if normalized in {"legacy", "off", "rules_v1"}:
+            return normalized
+        return "legacy"
+
+    def _build_multi_recipe_split_config(
+        self,
+        run_settings: RunSettings | None,
+        *,
+        backend: str,
+    ) -> MultiRecipeSplitConfig:
+        min_ingredient_lines = getattr(
+            run_settings, "multi_recipe_min_ingredient_lines", 1
+        )
+        min_instruction_lines = getattr(
+            run_settings, "multi_recipe_min_instruction_lines", 1
+        )
+        for_the_guardrail = getattr(
+            run_settings, "multi_recipe_for_the_guardrail", True
+        )
+        trace = getattr(run_settings, "multi_recipe_trace", False)
+        return MultiRecipeSplitConfig(
+            backend=backend,
+            min_ingredient_lines=max(0, int(min_ingredient_lines or 0)),
+            min_instruction_lines=max(0, int(min_instruction_lines or 0)),
+            enable_for_the_guardrail=bool(for_the_guardrail),
+            trace=bool(trace),
+        )
+
+    def _apply_multi_recipe_splitter(
+        self,
+        blocks: List[Block],
+        candidates: List[Tuple[int, int, float]],
+        *,
+        run_settings: RunSettings | None,
+    ) -> tuple[
+        list[tuple[int, int, float]],
+        list[dict[str, Any] | None],
+        dict[str, Any] | None,
+    ]:
+        backend = self._resolve_multi_recipe_splitter_backend(run_settings)
+        passthrough_meta: list[dict[str, Any] | None] = [None] * len(candidates)
+        if backend in {"legacy", "off"}:
+            return list(candidates), passthrough_meta, None
+
+        config = self._build_multi_recipe_split_config(run_settings, backend=backend)
+        rewritten: list[tuple[int, int, float]] = []
+        rewritten_meta: list[dict[str, Any] | None] = []
+        trace_candidates: list[dict[str, Any]] = []
+
+        for parent_index, (start, end, score) in enumerate(candidates):
+            if end <= start:
+                continue
+            split_result = split_candidate_blocks(
+                blocks[start:end],
+                config=config,
+                overrides=self._overrides,
+            )
+            spans = [span for span in split_result.spans if span.end > span.start]
+            if len(spans) <= 1:
+                rewritten.append((start, end, score))
+                rewritten_meta.append(None)
+            else:
+                split_count = len(spans)
+                for split_index, span in enumerate(spans):
+                    rewritten.append((start + span.start, start + span.end, score))
+                    rewritten_meta.append(
+                        {
+                            "backend": backend,
+                            "split_parent": f"c{parent_index}",
+                            "split_index": split_index,
+                            "split_count": split_count,
+                            "split_reason": list(span.reasons),
+                        }
+                    )
+            if split_result.trace is not None:
+                trace_candidates.append(
+                    {
+                        "parent_index": parent_index,
+                        "parent_start": start,
+                        "parent_end": end,
+                        "parent_score": score,
+                        "split_count": len(spans),
+                        "trace": split_result.trace,
+                    }
+                )
+
+        trace_payload: dict[str, Any] | None = None
+        if trace_candidates:
+            trace_payload = {
+                "backend": backend,
+                "candidate_count_before": len(candidates),
+                "candidate_count_after": len(rewritten),
+                "candidates": trace_candidates,
+            }
+        return rewritten, rewritten_meta, trace_payload
+
     def _backtrack_for_title(self, blocks: List[Block], ingredient_idx: int) -> int:
         limit = 20
         best_idx = -1
@@ -985,6 +1246,9 @@ class PdfImporter:
         return len(blocks)
 
     def _extract_fields(self, blocks: List[Block]) -> RecipeCandidate:
+        if self._section_detector_backend == "shared_v1":
+            return self._extract_fields_shared_v1(blocks)
+
         name = "Untitled Recipe"
         ingredients: List[str] = []
         instructions: List[str] = []
@@ -1084,6 +1348,85 @@ class PdfImporter:
                     description.append(text)
 
         instructions = self._merge_wrapped_lines(instructions)
+
+        return RecipeCandidate(
+            name=name,
+            ingredients=ingredients,
+            instructions=instructions,
+            description="\n".join(description) if description else None,
+            recipe_yield=recipe_yield,
+        )
+
+    def _extract_fields_shared_v1(self, blocks: List[Block]) -> RecipeCandidate:
+        name = "Untitled Recipe"
+        ingredients: List[str] = []
+        instructions: List[str] = []
+        description: List[str] = []
+        recipe_yield: str | None = None
+
+        if not blocks:
+            return RecipeCandidate(
+                name=name,
+                ingredients=ingredients,
+                instructions=instructions,
+                description=None,
+            )
+
+        name, consumed = self._extract_title(blocks)
+        content_blocks = blocks[consumed:]
+        detected = detect_sections_from_blocks(
+            content_blocks,
+            overrides=self._overrides,
+        )
+
+        span_by_line_index: dict[int, Any] = {}
+        span_by_header_index: dict[int, Any] = {}
+        for span in detected.spans:
+            if span.header_index is not None and span.header_index not in span_by_header_index:
+                span_by_header_index[span.header_index] = span
+            if span.end_index <= span.start_index:
+                continue
+            for line_index in range(span.start_index, span.end_index):
+                span_by_line_index[line_index] = span
+
+        for index, block in enumerate(content_blocks):
+            text = block.text.strip()
+            if not text:
+                continue
+
+            if block.features.get("is_yield") and recipe_yield is None:
+                recipe_yield = text
+                remainder = self._yield_remainder(text)
+                if remainder:
+                    text = remainder
+                else:
+                    continue
+
+            header_span = span_by_header_index.get(index)
+            if header_span is not None:
+                if header_span.kind == SectionKind.INGREDIENTS and header_span.key != "main":
+                    ingredients.append(header_span.name)
+                elif (
+                    header_span.kind == SectionKind.INSTRUCTIONS
+                    and header_span.key != "main"
+                ):
+                    instructions.append(header_span.name)
+                elif header_span.kind == SectionKind.NOTES and header_span.key != "main":
+                    description.append(header_span.name)
+                continue
+
+            span = span_by_line_index.get(index)
+            kind = span.kind if span is not None else SectionKind.OTHER
+            if kind == SectionKind.INGREDIENTS:
+                clean = re.sub(r"^\s*[-*•]\s*", "", text)
+                if clean:
+                    ingredients.append(clean)
+            elif kind == SectionKind.INSTRUCTIONS:
+                clean = re.sub(r"^\s*(?:\d+[.)]|\*|-)\s*", "", text)
+                if clean:
+                    instructions.append(clean)
+            else:
+                description.append(text)
 
         return RecipeCandidate(
             name=name,

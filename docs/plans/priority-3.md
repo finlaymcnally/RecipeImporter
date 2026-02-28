@@ -1,481 +1,463 @@
-# ExecPlan: Priority 3 — Multi-recipe splitting as a first-class case
+---
+summary: "ExecPlan for Priority 3: shared deterministic multi-recipe splitting across importers with section-detector-aware guardrails and legacy-safe rollout."
+read_when:
+  - "When implementing shared multi-recipe splitting for Text/EPUB/PDF importers"
+  - "When adding multi-recipe splitter run settings or CLI wiring"
+  - "When debugging merged recipe spans and For the X subsection behavior"
+---
 
-This ExecPlan follows the repo’s ExecPlan rules in `PLANS.md` (single fenced `md` block; required sections; prose-first).:contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
+# Build Priority 3: Shared Deterministic Multi-Recipe Splitting
 
-Source docs used (as provided by you):
 
-- `BIG PICTURE UPGRADES.md` :contentReference[oaicite:2]{index=2}
-- `2026-02-25_18.22.10_recipeimport-docs-summary.md` :contentReference[oaicite:3]{index=3}
-- `PLANS.md` :contentReference[oaicite:4]{index=4}
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository includes `docs/PLANS.md` at the repository root. This plan must be maintained in accordance with that file.
 
 
 ## Purpose / Big Picture
 
-Implement **Priority 3** from `BIG PICTURE UPGRADES.md`: make **multi-recipe splitting** (multiple recipes merged into one detected span) a **first-class, explicit, testable** behavior across importers, distinct from split-job/page-range parallelism.:contentReference[oaicite:5]{index=5}
 
-What will exist after this work that does not exist today:
+After this change, the pipeline can deterministically split a single detected candidate span into multiple recipes when that span clearly contains multiple recipe units.
 
-- A **shared multi-recipe splitter** that runs *after* block roles/signals are enriched, detects repeated recipe-unit patterns (title-like → ingredients → instructions), and splits one candidate span into multiple candidates when appropriate.:contentReference[oaicite:6]{index=6}
-- The splitter is **configurable and benchmarkable**: existing behavior remains available as a “legacy” option; each new library/tool that overlaps existing capability is added as a **new selectable backend** (not a replacement), enabling permutations for your benchmarking harness.
-- Guardrails are preserved/expanded, especially the “**For the X**” heuristic (e.g., “For the frosting”) treated as an ingredient subsection header rather than a new recipe title trigger.:contentReference[oaicite:7]{index=7}
-- A minimal **segmentation evaluation harness** (boundary metrics + optional `segeval`) so you can measure multi-recipe splitting quality, not just block-label quality, without waiting for Priority 8’s full evaluator rollout.:contentReference[oaicite:8]{index=8}:contentReference[oaicite:9]{index=9}
+User-visible outcomes:
+
+1. Default behavior remains stable (`multi_recipe_splitter=legacy`), so existing runs do not drift unexpectedly.
+2. Enabling `multi_recipe_splitter=rules_v1` allows Text, EPUB, and PDF importers to split merged recipe spans using one shared implementation.
+3. Component subsection headers like `For the frosting` stay inside the same recipe instead of triggering false recipe boundaries.
+4. Run artifacts and `runConfig` show which splitter backend produced the output, so benchmark and stage comparisons are reproducible.
+
+This priority is deterministic only. No codex-farm recipe parsing or LLM-based parsing/cleaning is introduced.
 
 
 ## Progress
 
-- [ ] (YYYY-MM-DD) Add run-settings + CLI plumbing for `multi_recipe_splitter` and related knobs (all execution lanes).
-- [ ] (YYYY-MM-DD) Implement shared `MultiRecipeSplitter` core (rules backend) + trace artifacts.
-- [ ] (YYYY-MM-DD) Integrate shared splitter into EPUB/PDF candidate postprocessing and Text importer (preserving legacy option).
-- [ ] (YYYY-MM-DD) Add `transitions` FSM backend + boundary proposer interface (TextTiling / ruptures / textsplit / DeepTiling).
-- [ ] (YYYY-MM-DD) Add optional “ML-ish” backend scaffolds (CRF + weak labeling), kept fully optional.
-- [ ] (YYYY-MM-DD) Add optional pre/post processors that materially affect split quality (datasketch dedupe; PDF structure recovery; HTML boilerplate/schema lanes).
-- [ ] (YYYY-MM-DD) Add segmentation eval tooling + tests + bench integration hooks.
-- [ ] (YYYY-MM-DD) Update docs/runbook + add golden fixtures for multi-recipe split regression tests.
+
+- [x] (2026-02-27_22.25.43) Ran docs discovery (`npm run docs:list`) and read required planning/doc workflow files: `docs/AGENTS.md` and `docs/PLANS.md`.
+- [x] (2026-02-27_22.25.43) Audited Priority 3 implementation gaps across importer logic (`cookimport/plugins/text.py`, `cookimport/plugins/epub.py`, `cookimport/plugins/pdf.py`) and run-settings/CLI wiring (`cookimport/config/run_settings.py`, `cookimport/config/run_settings_adapters.py`, `cookimport/cli.py`, `cookimport/labelstudio/ingest.py`).
+- [x] (2026-02-27_22.25.43) Rebuilt `docs/plans/priority-3.md` from stale duplicated content.
+- [x] (2026-02-27_22.37.24) Re-ran docs discovery and re-read Priority-3 read_when docs: `docs/PLANS.md`, `docs/understandings/2026-02-27_22.25.43-priority3-current-state-audit.md`, and `docs/understandings/2026-02-27_21.16.59-priority-plan-overlap-parallelization-map.md`.
+- [x] (2026-02-27_22.37.24) Re-audited current runtime after shared section-detector rollout (`cookimport/parsing/section_detector.py`, importer call sites, all-method variant builder, and tests) and confirmed multi-recipe splitter wiring is still missing.
+- [x] (2026-02-27_22.37.24) Refreshed this ExecPlan to include section-detector reuse points and current benchmark wiring expectations.
+- [x] (2026-02-27_23.18.00) Implemented Milestone 0 baseline grounding using existing multi-recipe fixtures (`tests/fixtures/multi_recipe.md`, `tests/fixtures/serves_multi.txt`) and importer-local behavior assertions in ingestion tests.
+- [x] (2026-02-27_23.18.00) Implemented Milestone 1 shared splitter core in `cookimport/parsing/multi_recipe_splitter.py` with deterministic `rules_v1`, `legacy|off` passthrough, section-detector-backed component-header guardrails, and optional trace payload.
+- [x] (2026-02-27_23.18.00) Implemented Milestone 2 run-settings and pipeline wiring: added `multi_recipe_*` fields and `MultiRecipeSplitter` enum in `cookimport/config/run_settings.py`, wired stage and benchmark prediction-generation paths through `cookimport/cli.py`, `cookimport/config/run_settings_adapters.py`, and `cookimport/labelstudio/ingest.py`.
+- [x] (2026-02-27_23.18.00) Implemented Milestone 3 Text importer integration with backend selection (`legacy|off|rules_v1`) and optional `multi_recipe_split_trace` raw artifact in `cookimport/plugins/text.py`.
+- [x] (2026-02-27_23.18.00) Implemented Milestone 4 EPUB/PDF post-candidate splitter integration in `cookimport/plugins/epub.py` and `cookimport/plugins/pdf.py`, including split provenance metadata and trace artifacts.
+- [x] (2026-02-27_23.20.08) Implemented Milestone 5 validation/docs pass: added parser/ingestion/CLI/run-settings/benchmark tests, fixed `rules_v1` coverage regression, updated docs (`docs/02-cli/02-cli_README.md`, `docs/03-ingestion/03-ingestion_readme.md`, `docs/04-parsing/04-parsing_readme.md`, `docs/07-bench/07-bench_README.md`, `cookimport/parsing/README.md`), and added understanding note `docs/understandings/2026-02-27_23.20.08-priority3-rules-v1-coverage-signal-thresholds.md`.
+- [x] (2026-02-27_23.20.08) Validation completed for focused Priority 3 suite:
+  - `tests/parsing/test_multi_recipe_splitter.py`
+  - `tests/ingestion/test_text_importer.py`
+  - `tests/ingestion/test_epub_importer.py`
+  - `tests/ingestion/test_pdf_importer.py`
+  - `tests/llm/test_run_settings.py`
+  - `tests/cli/test_run_settings_adapters.py`
+  - `tests/cli/test_cli_output_structure.py`
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+- [ ] Milestone 6 (deferred): optional extension lane (FSM/proposer/segmentation-eval/ML-ish backends) after core behavior is stable.
 
 
 ## Surprises & Discoveries
 
-None yet (plan written before implementation). Update this section as unexpected constraints appear (e.g., pickling limits in split workers, missing stable block-role signals for some formats, dependency conflicts).
+
+- Observation: Short but valid recipe units were rejected in `rules_v1` when coverage counts considered only content-like lines.
+  Evidence: `tests/ingestion/test_text_importer.py::test_convert_multi_recipe_rules_v1_backend` failed with `left_section_coverage_below_threshold` at boundary `# Recipe Two` until coverage switched to ingredient/instruction signal-line counting (content + header signals).
+
+- Observation: Reusing shared section detection for splitter guardrails prevented duplicate `For the X` heuristic stacks across importers.
+  Evidence: `multi_recipe_splitter.py` now calls `detect_sections_from_lines(...)` and blocks non-main section headers via `component_header_indices`; importer-level custom guard logic did not need to be reimplemented.
+
+- Observation: All-method matrix growth for splitter comparisons needed to stay explicit to avoid accidental runtime blowups.
+  Evidence: `cookimport/cli.py:_build_all_method_variants(...)` adds `multi_recipe_splitter` as a dimension only when non-legacy, preserving base run size unless an experiment explicitly opts in.
+
+- Observation: Splitter trace artifacts were critical for fast debugging and regression triage.
+  Evidence: `multi_recipe_split_trace` directly surfaced accepted/rejected boundary reasons and made the threshold regression reproducible without stepping through importer code.
 
 
 ## Decision Log
 
-1. **Default behavior remains unchanged**: introduce `multi_recipe_splitter=legacy` as the default, so current outputs remain stable unless explicitly enabled for EPUB/PDF or switched for Text. This preserves the project’s “deterministic default” posture used elsewhere (e.g., optional lanes are opt-in).:contentReference[oaicite:10]{index=10}
-2. **Shared splitter operates on block streams** (not format-specific raw text): EPUB/PDF already produce blocks + roles; Text importer will be adapted to produce a block-like stream for this step, while keeping its current heuristic splitter as `legacy`. (This directly matches Priority 3’s “after block_roles/signals are enriched” requirement.):contentReference[oaicite:11]{index=11}
-3. **All new libraries become selectable backends** via run settings. No replacement of existing functionality; only additive options to enable benchmarking permutations (user requirement).
-4. **Evaluation MVP uses explicit boundary files + unit fixtures**, then optional bench integration if/when golden boundary data exists. This avoids coupling Priority 3 delivery to a full Label Studio boundary annotation workflow.
+
+- Decision: Keep Priority 3 deterministic and LLM-free.
+  Rationale: Project policy keeps recipe codex-farm parsing off; splitter behavior should be reproducible and benchmarkable without AI parsing.
+  Date/Author: 2026-02-27_22.25.43 / Codex GPT-5
+
+- Decision: Ship shared splitting as an additive backend with `legacy` default.
+  Rationale: Existing behavior is importer-specific and in use; keeping a legacy default minimizes regression risk during rollout.
+  Date/Author: 2026-02-27_22.25.43 / Codex GPT-5
+
+- Decision: Integrate shared splitting after importer candidate detection, not by replacing each importer’s initial anchor detector first.
+  Rationale: This scopes change to the merged-span split problem and avoids destabilizing existing recipe-anchor discovery in one step.
+  Date/Author: 2026-02-27_22.25.43 / Codex GPT-5
+
+- Decision: Reuse shared section-detector outputs/signals for splitter guardrails instead of creating a second independent `For the X` rule stack.
+  Rationale: Section behavior is already being standardized in Priority 2 surfaces; reusing that logic reduces drift and false-split regressions.
+  Date/Author: 2026-02-27_22.37.24 / Codex GPT-5
+
+- Decision: Keep all-method matrix growth explicit and opt-in for Priority 3.
+  Rationale: Section backend dimensions already add permutations in some runs; auto-expanding by splitter backend can multiply runtime unexpectedly.
+  Date/Author: 2026-02-27_22.37.24 / Codex GPT-5
+
+- Decision: Treat segmentation-eval/`segeval` work as an optional later lane coordinated with Priority 8.
+  Rationale: Core Priority 3 value is shared splitter behavior and reproducible wiring; evaluation-surface expansion should avoid duplicate commands.
+  Date/Author: 2026-02-27_22.37.24 / Codex GPT-5
+
+- Decision: Coverage thresholds in `rules_v1` should count ingredient/instruction signal lines, not only content-like lines.
+  Rationale: Deterministic short recipe blocks with clear section headers can contain instruction text that classifier heuristics mark as neutral; signal-line counting keeps default `min_* = 1` practical while preserving threshold gating.
+  Date/Author: 2026-02-27_23.20.08 / Codex GPT-5
+
+- Decision: Keep `legacy` as default and add `off` passthrough to isolate regressions during rollout.
+  Rationale: This gives a strict no-split control for comparison/debug while preserving historical behavior by default in existing runs.
+  Date/Author: 2026-02-27_23.20.08 / Codex GPT-5
 
 
 ## Outcomes & Retrospective
 
-(To be filled after implementation.) Include: what shipped, what was cut, measured impact on merged-recipe cases, and which backends were worth keeping.
+
+Core Priority 3 rollout is complete.
+
+Delivered outcomes:
+
+- Shared deterministic splitter module exists (`cookimport/parsing/multi_recipe_splitter.py`) with selectable `legacy|off|rules_v1` behavior and optional trace payloads.
+- Text/EPUB/PDF importers now support shared splitter selection from run settings while preserving legacy defaults.
+- `For the X` component-header behavior is preserved through shared section-detector guardrails.
+- Stage and benchmark prediction-generation flows now persist `multi_recipe_*` settings in run config/report surfaces.
+- Focused parser/ingestion/CLI/benchmark tests for this priority pass after the coverage-threshold fix.
+- Priority docs and parsing notes now document the new interfaces and trace/debug behavior.
+
+Remaining scope:
+
+- Milestone 6 optional extension lane is intentionally deferred (FSM/proposer/segmentation-eval/ML-ish experiments).
 
 
 ## Context and Orientation
 
-### Where this fits in the repo
 
-Ingestion/stage converts source files into `ConversionResult` with `recipes` (candidates), tips, topic candidates, non-recipe blocks (block-first formats), raw artifacts, and a report. Primary entrypoint is `cookimport stage ...` in `cookimport/cli.py`, and importers live under `cookimport/plugins/` (including `epub.py`, `pdf.py`, `text.py`).:contentReference[oaicite:12]{index=12}
+### Current importer behavior
 
-Shared parsing primitives already exist for cleaning, signals, patterns, adapters, and block roles (notably `cookimport/parsing/signals.py` and `cookimport/parsing/block_roles.py`).:contentReference[oaicite:13]{index=13}
+Text importer (`cookimport/plugins/text.py`) now selects split behavior by run settings:
+- `legacy`: existing `_split_recipes(...)` path,
+- `off`: one candidate span passthrough,
+- `rules_v1`: shared splitter over text lines.
 
-### Current behavior relevant to Priority 3
+EPUB importer (`cookimport/plugins/epub.py`) and PDF importer (`cookimport/plugins/pdf.py`) keep their existing candidate detectors (`_detect_candidates(...)`) and now apply optional post-candidate shared splitting when `multi_recipe_splitter=rules_v1`.
 
-- The system can detect multiple candidates in one EPUB, but is not explicitly looking for “multiple recipes merged into one span” patterns; this is distinct from split-job (page/spine range) parallelism.:contentReference[oaicite:14]{index=14}
-- Text importer already has multi-recipe splitting heuristics (headings, yield markers, numbered titles, delimiter lines), which Priority 3 explicitly calls out for upgrade to use section coverage/densities derived from signals/block roles.:contentReference[oaicite:15]{index=15}:contentReference[oaicite:16]{index=16}
-- Priority 3 also calls for adding analogous split heuristics into EPUB/PDF candidate postprocessing after signals/roles enrichment, and emphasizes the “For the X” guardrail (already present as an EPUB fix).:contentReference[oaicite:17]{index=17}
+### Current shared parsing behavior relevant to Priority 3
 
-### “New option” wiring discipline
+`cookimport/parsing/section_detector.py` is the shared deterministic section engine and is used by the shared multi-recipe splitter guardrail to suppress non-main component header boundaries (`For the X` patterns). `cookimport/parsing/multi_recipe_splitter.py` provides shared deterministic split logic and trace surfaces consumed by Text/EPUB/PDF.
 
-Whenever adding new run settings / processing options, the repo has an explicit wiring checklist: definition + interactive selection; runtime propagation (stage + benchmark paths + parallel planner parity); analytics persistence; and ensuring both execution lanes (import lane + prediction-generation lane) are wired.:contentReference[oaicite:18]{index=18}
+### Current run settings and execution-lane wiring
 
-We will follow that checklist for all new knobs introduced by multi-recipe splitting.
+`RunSettings` (`cookimport/config/run_settings.py`) now includes:
+- `multi_recipe_splitter`,
+- `multi_recipe_trace`,
+- `multi_recipe_min_ingredient_lines`,
+- `multi_recipe_min_instruction_lines`,
+- `multi_recipe_for_the_guardrail`.
+
+These fields are wired through stage and benchmark prediction-generation paths (`cookimport/cli.py`, `cookimport/config/run_settings_adapters.py`, `cookimport/labelstudio/ingest.py`) and persist to run config/report summaries.
+
+`cookimport/cli.py:_build_all_method_variants(...)` now carries `multi_recipe_splitter` as an explicit dimension when non-legacy.
+
+### Current tests and fixtures relevant to Priority 3
+
+Current coverage now includes:
+
+- shared splitter unit tests in `tests/parsing/test_multi_recipe_splitter.py`;
+- Text importer backend integration tests in `tests/ingestion/test_text_importer.py`;
+- EPUB/PDF post-candidate split integration tests in `tests/ingestion/test_epub_importer.py` and `tests/ingestion/test_pdf_importer.py`;
+- run-settings/CLI/benchmark propagation tests in:
+  - `tests/llm/test_run_settings.py`
+  - `tests/cli/test_run_settings_adapters.py`
+  - `tests/cli/test_cli_output_structure.py`
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers.py`.
+
+Still out of scope for this priority:
+- dedicated segmentation-eval metrics/command expansion (deferred to optional lane aligned with Priority 8).
 
 
 ## Plan of Work
 
-This work is easiest to deliver as incremental milestones. Each milestone ends with verifiable behavior (tests + an end-to-end stage command).
 
-### Milestone 1 — Core shared splitter (rules backend) + wiring knob
+### Milestone 0: Baseline and fixture grounding
 
-Goal: implement Priority 3’s concrete steps 1–3 using a deterministic rules backend, while preserving the existing Text importer splitter as `legacy`.:contentReference[oaicite:19]{index=19}
+Capture baseline behavior before changing split logic.
 
-At the end of this milestone:
+Work:
 
-- There is a shared module (new file) that can split a candidate span into multiple candidate spans based on repeated recipe-unit patterns.
-- EPUB + PDF importers call it as candidate postprocessing when enabled.
-- Text importer can optionally route through it (new mode), but still defaults to legacy behavior.
+1. Run focused baseline tests for text/epub/pdf candidate segmentation behavior.
+2. Run baseline stage conversions for representative fixtures and record recipe counts.
+3. Add at least one merged-span fixture (or synthetic block test) that represents two recipes packed inside one candidate span for EPUB/PDF-style block flows.
 
-Proof:
+Acceptance:
 
-- Unit tests for the splitter pass.
-- A small fixture input that contains two recipes in one file produces two outputs when the knob is enabled, and one output when disabled.
+- baseline recipe counts and test status are recorded in `Progress`;
+- at least one reproducible merged-span fixture is available for before/after validation.
 
-### Milestone 2 — FSM backend + boundary proposer interface (benchmarkable)
 
-Goal: add the `transitions`-based FSM backend and a boundary-proposer interface so we can trial “topic segmentation / change-point” approaches as *optional* boundary suggestion engines that are validated by the rule system.
+### Milestone 1: Shared deterministic splitter core (`rules_v1`)
 
-This milestone explicitly incorporates Priority 3–related tools from `BIG PICTURE UPGRADES.md`: `transitions`, `NLTK TextTilingTokenizer`, `ruptures`, `textsplit`, and `DeepTiling`, all as optional backends. :contentReference[oaicite:20]{index=20}:contentReference[oaicite:21]{index=21}
+Create a shared module that can split one candidate span into multiple spans when repeated recipe structure is detected.
 
-Proof:
+Work:
 
-- `cookimport stage ... --multi-recipe-splitter fsm_v1` runs and yields deterministic splits on fixtures.
-- `--multi-recipe-boundary-proposer texttiling` (or `ruptures`) runs when installed, and falls back with a clear error message when dependencies are missing.
+1. Add `cookimport/parsing/multi_recipe_splitter.py` with explicit contracts:
+   - `MultiRecipeSplitConfig`,
+   - span/boundary result model (with reason codes),
+   - optional trace payload model.
+2. Implement deterministic `rules_v1` logic on block-like inputs:
+   - detect title-like starts and ingredient/instruction clusters from existing parsing signals,
+   - enforce section-coverage thresholds,
+   - reuse section-detector-aware component-header guardrails (`For the X`) to suppress false starts.
+3. Add focused unit tests in `tests/parsing/test_multi_recipe_splitter.py`.
 
-### Milestone 3 — Segmentation evaluation MVP (+ `segeval` when installed)
+Acceptance:
 
-Goal: enable measuring “did we split correctly?” with boundary metrics, and optionally compute `Pk`/`WindowDiff` style metrics via `segeval` (Priority 3 primary).:contentReference[oaicite:22]{index=22}:contentReference[oaicite:23]{index=23}
+- shared splitter behavior is deterministic for fixed input;
+- unit tests cover split-positive, split-negative, and component-header guardrail cases.
 
-Proof:
 
-- A new CLI command (or bench subcommand) evaluates predicted boundaries against provided gold boundaries for fixture sources and prints/writes a report.
-- Unit tests cover the evaluator on fixtures.
+### Milestone 2: Run settings and pipeline wiring
 
-### Milestone 4 — Optional quality levers that affect multi-recipe splitting
+Expose splitter selection end-to-end and persist it in run artifacts.
 
-Goal: add optional “input quality” backends and preprocessors that directly influence multi-recipe splitting (all selectable, benchmarkable). These are explicitly called out as relevant to Priority 2–3 / 1–3 in `BIG PICTURE UPGRADES.md`, so they must appear in this plan as optional options/backends.
+Work:
 
-Included tool families (all optional, all as new selectable backends):
+1. Add multi-recipe settings in `cookimport/config/run_settings.py`:
+   - `multi_recipe_splitter` (`legacy`, `off`, `rules_v1`),
+   - `multi_recipe_trace` (bool),
+   - `multi_recipe_min_ingredient_lines` (int),
+   - `multi_recipe_min_instruction_lines` (int),
+   - `multi_recipe_for_the_guardrail` (bool).
+2. Wire fields through:
+   - stage path (`cookimport/cli.py`, `cookimport/cli_worker.py`),
+   - prediction-generation path (`cookimport/config/run_settings_adapters.py`, `cookimport/labelstudio/ingest.py`).
+3. Include the fields in run-settings summary/hash surfaces and interactive UI metadata.
+4. Ensure `runConfig` / `runConfigSummary` persist the new values.
 
-- **Near-duplicate suppression**: `datasketch` (Priority 2–3 secondary) to detect/remove repeated headers/footers (especially PDFs) that can create false split patterns.:contentReference[oaicite:24]{index=24}
-- **HTML-ish boilerplate removal**: `trafilatura`, `readability-lxml`, optionally `jusText`, `BoilerPy3`, plus alternate extractors `goose3` and `newspaper3k` (Priority 1–3). These become additional extractors, not replacements.:contentReference[oaicite:25]{index=25}:contentReference[oaicite:26]{index=26}
-- **Schema extraction**: `extruct` + `pyld` (Priority 2–3 primary) to extract multiple schema Recipe objects from a single document and treat them as multiple recipe candidates (a structured form of multi-recipe splitting).:contentReference[oaicite:27]{index=27}:contentReference[oaicite:28]{index=28}
-- **PDF/EPUB structure recovery**: `Docling`, `PyMuPDF4LLM`, `Marker`, `MinerU`, and layout tools `pdfplumber`, `pdftotree`, `pdf2htmlEX`, `LayoutParser` (Priority 2–3). These become alternative “block builders” that feed the same splitter.:contentReference[oaicite:29]{index=29}
+Acceptance:
 
-Proof:
+- new options appear in stage and benchmark execution surfaces;
+- run artifacts persist selected splitter settings consistently across lanes.
 
-- Each optional dependency is installable as an extra.
-- Selecting an uninstalled backend yields a helpful “install extras” error.
-- At least one backend per family has a smoke test on a small fixture.
 
-### Milestone 5 — Optional “ML-ish” segmentation backends (kept experimental)
+### Milestone 3: Text importer integration with legacy fallback
 
-Goal: incorporate `Chaine` or `python-crfsuite`/`sklearn-crfsuite` and `skweak` as optional segmentation/splitting approaches, behind explicit run settings, for your permutation benchmarking. They must be added as *options*, not replacements.:contentReference[oaicite:30]{index=30}
+Add shared splitter support without breaking current text behavior.
 
-Proof:
+Work:
 
-- Training/evaluation scaffolding exists (even if limited to fixtures initially).
-- Backends are selectable but remain non-default and clearly labeled experimental.
+1. Keep `TextImporter._split_recipes(...)` as the `legacy` path.
+2. Add `rules_v1` path that maps text chunks into block-like units and runs shared splitter.
+3. Keep downstream recipe parsing and recipe-likeness gating unchanged.
+4. Add tests verifying:
+   - `legacy` preserves current counts on existing fixtures,
+   - `rules_v1` splits known merged spans deterministically.
+
+Acceptance:
+
+- text importer behavior is unchanged under `legacy`;
+- `rules_v1` path works and is test-covered.
+
+
+### Milestone 4: EPUB/PDF post-candidate split integration
+
+Apply shared splitting after existing candidate detection for block-first importers.
+
+Work:
+
+1. In `cookimport/plugins/epub.py` and `cookimport/plugins/pdf.py`, add optional postprocessing per detected candidate span:
+   - when backend is `legacy` or `off`, preserve current behavior,
+   - when backend is `rules_v1`, invoke shared splitter and replace one candidate span with multiple spans when warranted.
+2. Record split metadata in candidate provenance and optional raw trace artifacts.
+3. Preserve split-job merge determinism and ordering guarantees.
+4. Add importer tests for merged-span splitting and component-header guard behavior.
+
+Acceptance:
+
+- EPUB/PDF can split merged candidate spans with shared backend;
+- component headers remain inside the correct recipe span;
+- no split-job merge ordering regressions are introduced.
+
+
+### Milestone 5: Validation, benchmark visibility, and docs
+
+Finish core Priority 3 rollout with reproducible verification and docs updates.
+
+Work:
+
+1. Add/adjust tests for parser-level splitter behavior, importer integration, and run-settings propagation.
+2. Ensure benchmark outputs can differentiate backend choices via run-config fields.
+3. Update docs to match delivered behavior:
+   - `docs/03-ingestion/03-ingestion_readme.md`,
+   - `docs/04-parsing/04-parsing_readme.md`,
+   - `docs/02-cli/02-cli_README.md`,
+   - `docs/07-bench/07-bench_README.md` if benchmark dimensions/reporting changed.
+4. Add a short understanding note for any non-obvious behavior discovered during implementation.
+
+Acceptance:
+
+- tests and run artifacts make backend comparisons reproducible;
+- documentation reflects implemented contracts and flags.
+
+
+### Milestone 6: Optional extension lane (deferred)
+
+After core rollout stabilizes, optionally add advanced backends and evaluation extras as additive options only.
+
+Scope candidates:
+
+- FSM backend (`transitions`) and boundary proposers (`texttiling`, `ruptures`, `textsplit`, `deeptiling`);
+- optional segmentation-eval metrics lane (`segeval`) coordinated with Priority 8;
+- experimental ML-ish backends (CRF/weak labels).
+
+Acceptance:
+
+- optional dependencies remain opt-in and do not alter default behavior;
+- missing optional dependencies produce explicit install guidance only when selected.
 
 
 ## Concrete Steps
 
-### 1) Add run settings + CLI options (all lanes, per wiring checklist)
 
-Create/extend run-settings fields (names are proposals; adjust to match existing naming conventions):
+Run these commands from repository root (`/home/mcnal/projects/recipeimport`).
 
-- `multi_recipe_splitter`: enum string with at least `legacy`, `off`, `rules_v1`, `fsm_v1`, `crf_v0` (experimental).
-- `multi_recipe_boundary_proposer`: enum string with at least `off`, `texttiling`, `ruptures`, `textsplit`, `deeptiling`.
-- `multi_recipe_trace`: bool; when true writes trace artifacts for each candidate (for debugging/benchmark introspection).
-- `multi_recipe_min_ingredient_lines`, `multi_recipe_min_instruction_lines`: ints.
-- `multi_recipe_require_section_coverage`: bool; enforce “each split unit must have both ingredients and instructions” (Priority 3’s “section-coverage”).:contentReference[oaicite:31]{index=31}
-- `multi_recipe_for_the_guardrail`: bool (default true when using new splitters), implementing the “For the X” behavior.:contentReference[oaicite:32]{index=32}
+1. Prepare environment.
 
-Wire all surfaces together, following the repo’s “New pipeline-option wiring checklist”:
+    source .venv/bin/activate
+    python -m pip install -e ".[dev]"
+    npm run docs:list
 
-- Definition + selection:
-  - Add fields to `cookimport/config/run_settings.py`.
-  - Expose in interactive selector/editor flows under `cookimport/cli_ui/run_settings_flow.py` and `cookimport/cli_ui/toggle_editor.py` as needed.:contentReference[oaicite:33]{index=33}
-- Runtime propagation:
-  - Thread through `cookimport/cli.py` stage and benchmark paths.
-  - Keep split-planner parity with Label Studio ingest job planning (`cookimport/labelstudio/ingest.py:_plan_parallel_convert_jobs(...)`) and stage split planner (`cookimport/cli.py:_plan_jobs(...)`).:contentReference[oaicite:34]{index=34}
-- Analytics persistence:
-  - Ensure run-config summary/hash includes these knobs and surfaces in stage/benchmark artifacts and dashboards, following existing patterns for other knobs.:contentReference[oaicite:35]{index=35}
-- Both execution lanes:
-  - Import lane (`cookimport stage`).
-  - Prediction-generation lane (`labelstudio-benchmark` / `bench run`), since eval-only commands do not rerun pipeline options.:contentReference[oaicite:36]{index=36}
+2. Capture baseline importer behavior.
 
-Implementation caution: keep run-setting values as pickle-safe primitives to avoid split-worker failures (do not store module objects or callables in run config).:contentReference[oaicite:37]{index=37}
+    pytest -q tests/ingestion/test_text_importer.py tests/ingestion/test_epub_importer.py tests/ingestion/test_pdf_importer.py
 
-Acceptance for this step:
+3. Capture baseline stage evidence on a known multi-recipe fixture.
 
-- `cookimport stage --help` shows the new flags.
-- Interactive Run Settings UI shows and saves the new options.
-- The chosen values appear in stage report/run-config summaries.
+    cookimport stage tests/fixtures/multi_recipe.md --out /tmp/priority3-baseline --workers 1 --pdf-split-workers 1 --epub-split-workers 1 --no-write-markdown
 
-### 2) Create shared splitter module and data contracts
+4. Implement Milestones 1-4 and run focused validation.
 
-Add a new module:
+    pytest -q tests/parsing/test_multi_recipe_splitter.py tests/ingestion/test_text_importer.py tests/ingestion/test_epub_importer.py tests/ingestion/test_pdf_importer.py tests/llm/test_run_settings.py tests/cli/test_run_settings_adapters.py tests/cli/test_cli_output_structure.py tests/labelstudio/test_labelstudio_benchmark_helpers.py
 
-- `cookimport/parsing/multi_recipe_splitter.py` (new)
+5. Validate shared splitter behavior once flags exist.
 
-Define a small, stable interface:
+    cookimport stage tests/fixtures/multi_recipe.md --out /tmp/priority3-rules --workers 1 --pdf-split-workers 1 --epub-split-workers 1 --no-write-markdown --multi-recipe-splitter rules_v1 --multi-recipe-trace
 
-- `class MultiRecipeSplitConfig: ...` (constructed from RunSettings)
-- `class SplitDecision: ...` (boundary index, reason(s), score/confidence, backend)
-- `class SplitTrace: ...` (optional; serializable JSON payload)
-- `def split_candidate(blocks, candidate_span, config) -> list[candidate_span]`
+6. Compare baseline vs rules outputs.
 
-Key design goal: **all backends return the same output** (a list of spans + optional trace) so the importer can remain agnostic.
+    diff -u /tmp/priority3-baseline/*/reports/multi_recipe.md.report.json /tmp/priority3-rules/*/reports/multi_recipe.md.report.json
 
-Also add “candidate metadata” support:
+7. If `rules_v1` boundary acceptance unexpectedly fails, inspect full assertion output and rerun focused checks.
 
-- Extend `cookimport/core/models.py` candidate type(s) to include optional fields like:
-  - `multi_recipe_parent_candidate_id`
-  - `multi_recipe_split_backend`
-  - `multi_recipe_split_reasons`
-  - `multi_recipe_split_confidence`
-These should be additive fields to avoid breaking existing JSON readers.
-
-Acceptance:
-
-- Unit tests can create synthetic blocks and verify splitting without invoking full importers.
-- The trace payload is JSON-serializable.
-
-### 3) Implement `rules_v1` backend (Priority 3 concrete implementation)
-
-Implement a deterministic rules engine that detects repeated “recipe units” within one candidate span:
-
-The primary trigger patterns to support (per Priority 3):
-
-- Title-like heading → ingredient cluster → instruction cluster repeated.
-- Repeated Ingredients→Instructions cycles within one candidate span.:contentReference[oaicite:38]{index=38}
-
-Implementation details (in your own code; no external docs required):
-
-- Identify ingredient clusters and instruction clusters from existing block roles/signals. (Use the same role taxonomy already used by EPUB/PDF pipelines; if Text importer doesn’t have it, create a small “line-to-block” adapter so it can.)
-- Compute “section coverage” for a proposed subspan:
-  - has_ingredients: at least `min_ingredient_lines` ingredient-role blocks
-  - has_instructions: at least `min_instruction_lines` instruction-role blocks
-- Identify “title-like heading” candidates:
-  - Reuse existing title extraction heuristics if available; otherwise implement a conservative detector:
-    - short-ish line
-    - mostly title-case or not sentence-like
-    - not equal to common section headers like “Ingredients”, “Instructions”, “Directions”
-- Proposed split boundaries:
-  - candidate boundaries may be placed at:
-    - the start of a title-like heading preceding a new ingredient cluster, or
-    - the start of an ingredient cluster when a new unit begins without a clear title.
-  - validate each split by ensuring both adjacent spans meet section coverage and that the boundary is not inside a single section (e.g., not splitting in the middle of a contiguous ingredient cluster).
-
-Guardrails:
-
-- Implement the “For the X” rule:
-  - If a heading matches `^for the\b` (case-insensitive) and is followed by ingredient blocks and you are already inside an active recipe unit, treat it as an ingredient subsection header, not a new recipe start.:contentReference[oaicite:39]{index=39}
-- Avoid false positives from repeated page headers/footers:
-  - (In Milestone 4) we’ll add datasketch-based dedupe, but in rules_v1 we can also add a simple “repeated exact line N times” suppression inside a candidate span.
-
-Trace:
-
-- When `multi_recipe_trace=true`, write per-candidate trace artifacts under raw artifacts (e.g., `raw/multi_recipe_split/<slug>/candidate_<id>.json`) including:
-  - detected clusters (indices)
-  - proposed boundaries + validation outcome
-  - final selected boundaries and reasons
-
-Acceptance:
-
-- A synthetic fixture with two obvious recipes gets split into two.
-- A fixture containing “For the frosting” does not create an extra recipe candidate.
-
-### 4) Integrate into importers (EPUB/PDF/Text) without breaking legacy behavior
-
-#### 4.1 EPUB and PDF (candidate postprocessing)
-
-Priority 3 explicitly wants split heuristics in EPUB/PDF candidate postprocessing after roles/signals enrichment.:contentReference[oaicite:40]{index=40}
-
-Implementation approach:
-
-- In `cookimport/plugins/epub.py` and `cookimport/plugins/pdf.py`:
-  - locate the point where candidates are finalized (after blocks are extracted, cleaned, and enriched by signals/roles).
-  - for each candidate span, if `multi_recipe_splitter` is not `legacy`/`off`, call `split_candidate(...)`.
-  - replace that one candidate with the returned list (stable ordering preserved).
-  - attach candidate metadata (parent id, reasons).
-
-Keep split-job semantics unchanged: this feature is not about page/spine range splits for parallelism.:contentReference[oaicite:41]{index=41}
-
-#### 4.2 Text importer (upgrade + preserve legacy option)
-
-Text importer currently has heuristics for multi-recipe splitting, and Priority 3 wants them upgraded to use section coverage/densities from roles/signals.:contentReference[oaicite:42]{index=42}:contentReference[oaicite:43]{index=43}
-
-Implementation approach:
-
-- Keep the current splitter as `legacy` behavior.
-- Add a code path for `multi_recipe_splitter=rules_v1|fsm_v1|...`:
-  - Convert text into a block-like sequence (line blocks or paragraph blocks).
-  - Run the shared cleaning + signals/roles enrichment where feasible (at minimum, enough to identify ingredient-like and instruction-like lines).
-  - Run shared `split_candidate` over the full file span (or over an initial candidate span if Text importer already creates candidates).
-  - For each resulting subspan, run existing section extraction to produce recipe records.
-
-Acceptance:
-
-- Running Text importer in `legacy` mode matches previous output count.
-- Running with `rules_v1` uses section-coverage validation and is deterministic.
-
-### 5) Add `transitions` FSM backend (`fsm_v1`)
-
-Add optional dependency `transitions` and implement a backend that models segmentation as a finite state machine:
-
-- States: `OUTSIDE`, `IN_TITLE`, `IN_INGREDIENTS`, `IN_INSTRUCTIONS`, optionally `IN_OTHER`.
-- Transitions occur based on block role detections and boundary heuristics.
-- A new recipe start is recognized when the FSM completes a unit and then sees a new unit start (title/ingredients) far enough from the previous.
-
-This backend must be selectable via run settings and must not replace `rules_v1`.:contentReference[oaicite:44]{index=44}
-
-Acceptance:
-
-- Same fixtures as rules_v1 pass.
-- FSM trace logs show state transitions in trace artifacts (when enabled).
-
-### 6) Add boundary proposer interface and optional proposers
-
-Add an interface that proposes candidate boundary indices, and then validate boundaries with the same “section coverage + guardrails” rules.
-
-Optional proposer backends (all new options):
-
-- `NLTK TextTilingTokenizer`
-- `ruptures`
-- `textsplit`
-- `DeepTiling`:contentReference[oaicite:45]{index=45}
-
-Implementation notes (self-contained approach):
-
-- Each proposer receives a sequence of “units” (e.g., block texts) and returns a list of boundary indices.
-- For libraries with unknown API specifics, implement each backend behind a small adapter and use module introspection in a scratch script:
-    python -c "import ruptures, inspect; print(dir(ruptures)[:50])"
-  Then write the adapter using only what you can validate locally (no external docs required).
-
-Acceptance:
-
-- When proposer dependency is missing, selecting it yields a clear error:
-  - what extra to install
-  - how to fall back
-- When installed, proposer yields boundaries that are filtered/validated by rules and do not violate guardrails.
-
-### 7) Add segmentation evaluation MVP (+ `segeval`)
-
-Add `cookimport/bench/eval_segmentation.py` (new) or a new bench subcommand that evaluates predicted recipe boundaries vs gold boundaries.
-
-Minimal gold format (fixture-friendly and versionable):
-
-- `data/golden/segmentation/<source_slug>.boundaries.json`
-  - contains:
-    - `source_file` / `source_hash` identifiers
-    - total block count
-    - list of gold recipe start indices (or boundary indices)
-    - optional notes
-
-Evaluation outputs:
-
-- Boundary precision/recall/F1 on predicted boundaries
-- Optional `segeval` metrics (Pk, WindowDiff) if `segeval` installed and usable (guard with import).:contentReference[oaicite:46]{index=46}:contentReference[oaicite:47]{index=47}
-
-Bench integration (optional but recommended):
-
-- If bench already generates `stage_block_predictions.json` and copies it into prediction-run roots, keep that contract and add an *additional* segmentation report artifact rather than changing existing evaluators.:contentReference[oaicite:48]{index=48}
-
-Acceptance:
-
-- `pytest` includes tests that validate evaluator output on fixtures.
-- Running the command on fixtures writes:
-  - `segmentation_eval_report.json`
-  - `segmentation_eval_report.md`
-
-### 8) Add optional “input quality” backends (all selectable, all optional)
-
-These are incorporated because `BIG PICTURE UPGRADES.md` explicitly ties them to Priority 3 (directly or via 2–3 / 1–3 mapping).:contentReference[oaicite:49]{index=49}:contentReference[oaicite:50]{index=50}
-
-#### 8.1 `datasketch` near-duplicate suppression (PDF headers/footers)
-
-Add optional dependency `datasketch` and implement a preprocessor:
-
-- Input: list of blocks with text + page metadata (PDF).
-- Output: same blocks, but mark/remove blocks that are near-duplicates repeated across many pages (header/footer).
-- Apply before multi-recipe splitting so repeated headers don’t create false “title-like heading” signals.
-
-Keep it as a new option (e.g., `pdf_dedupe_repeated_blocks=off|datasketch_v1`).:contentReference[oaicite:51]{index=51}
-
-#### 8.2 HTML-ish extractors (boilerplate removal and alternates)
-
-Add optional extraction options (new backends, not replacements):
-
-- `trafilatura`
-- `readability-lxml`
-- optionally `jusText`
-- optionally `BoilerPy3`
-- alternate: `goose3`, `newspaper3k`:contentReference[oaicite:52]{index=52}:contentReference[oaicite:53]{index=53}
-
-Where to integrate (minimal and Priority-3-relevant):
-
-- Extend Text importer to accept `.html`/`.htm` inputs (if not already) and add `html_extractor_backend` run setting:
-  - `legacy` (current behavior)
-  - `trafilatura`
-  - `readability`
-  - `justext`
-  - `boilerpy3`
-  - `goose3`
-  - `newspaper3k`
-- After extraction, convert to block stream and run the shared multi-recipe splitter as usual.
-
-#### 8.3 Schema extraction (`extruct` + `pyld`) as a structured multi-recipe source
-
-Add optional schema-first path for HTML-ish inputs:
-
-- Use `extruct` to extract microdata/JSON-LD and `pyld` to normalize JSON-LD.
-- If multiple Recipe objects are found, produce multiple candidates directly (a structured multi-recipe split), otherwise fall back to text extraction + shared splitter.:contentReference[oaicite:54]{index=54}:contentReference[oaicite:55]{index=55}
-
-This is explicitly called out as a “future-proof lane” and is relevant to multi-recipe cases on web pages or scraped HTML.:contentReference[oaicite:56]{index=56}
-
-#### 8.4 PDF structure recovery backends
-
-Add optional PDF “block builder” backends (new options, not replacements):
-
-- Structure recovery: `Docling`, `PyMuPDF4LLM`, `Marker`, `MinerU`
-- Layout tools: `pdfplumber`, `pdftotree`, `pdf2htmlEX`, `LayoutParser`:contentReference[oaicite:57]{index=57}
-
-Integration approach:
-
-- Define `PdfBlockBuilderBackend` interface returning your internal Block list.
-- Implement one backend at a time, each behind an optional extra and run-setting selection.
-- Feed produced blocks into the same downstream enrichment + candidate detection + multi-recipe splitter.
-
-Acceptance:
-
-- Selecting these backends works when installed.
-- Output is still in your internal block format, so downstream remains unchanged.
-
-### 9) Optional ML-ish backends (CRF + weak labels), fully experimental
-
-Add optional experiment backends:
-
-- CRF/sequence labeling: `Chaine` or `python-crfsuite`/`sklearn-crfsuite`
-- Weak supervision: `skweak`:contentReference[oaicite:58]{index=58}
-
-Keep them as additional selectable `multi_recipe_splitter` values (e.g., `crf_v0`, `skweak_crf_v0`) and do not make them defaults.
-
-Minimal scope for Priority 3:
-
-- Training can start from small fixtures or from existing label exports if available.
-- Feature extraction uses existing block roles/signals as inputs.
-
-Acceptance:
-
-- Backend can be selected and run (even if only on fixtures initially).
-- Missing model files produce a clear error and fallback guidance.
+    COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1 pytest -o addopts='' -vv --tb=short --show-capture=all --assert=rewrite tests/ingestion/test_text_importer.py::test_convert_multi_recipe_rules_v1_backend
+    pytest -q tests/parsing/test_multi_recipe_splitter.py tests/ingestion/test_text_importer.py::test_convert_multi_recipe_rules_v1_backend
 
 
 ## Validation and Acceptance
 
-You should be able to prove Priority 3 is implemented with these concrete checks:
 
-1. Text multi-recipe splitting:
-   - With default settings (`multi_recipe_splitter=legacy`), a known multi-recipe text fixture produces the same number of recipes as before.
-   - With `multi_recipe_splitter=rules_v1`, it still splits, but now refuses “splits” that produce a span missing ingredients or instructions (section coverage), and emits traces when enabled.:contentReference[oaicite:59]{index=59}
+Acceptance is behavior-based.
 
-2. EPUB/PDF multi-recipe splitting:
-   - With `multi_recipe_splitter=legacy`, behavior matches current baseline.
-   - With `multi_recipe_splitter=rules_v1`, a candidate containing two recipes merged together is split into two candidates, using repeated unit patterns as triggers.:contentReference[oaicite:60]{index=60}
-
-3. Guardrail:
-   - A case containing “For the frosting” or “For the sauce” does not create an extra recipe candidate. Confirm via unit tests + end-to-end stage output count.:contentReference[oaicite:61]{index=61}
-
-4. Benchmarkability:
-   - Run settings let you switch between backends (`rules_v1`, `fsm_v1`, proposer combinations, etc.) and the run-config summary/hash reflects the choices.
-   - The new knobs are wired through both stage and prediction-generation lanes (per the wiring checklist).:contentReference[oaicite:62]{index=62}
-
-5. Segmentation evaluation:
-   - `cookimport ... eval-segmentation ...` (or equivalent) runs on fixture golden boundaries and outputs boundary precision/recall/F1.
-   - If `segeval` is installed, the report also includes Pk/WindowDiff (or whatever metrics you decide to expose).:contentReference[oaicite:63]{index=63}:contentReference[oaicite:64]{index=64}
-
-Recommended command examples (adjust flags to match your CLI conventions):
-
-- Run stage with legacy (baseline):
-    cd <repo>
-    cookimport stage data/input/two_recipes.txt --multi-recipe-splitter legacy
-
-- Run stage with new splitter + trace:
-    cd <repo>
-    cookimport stage data/input/two_recipes.txt --multi-recipe-splitter rules_v1 --multi-recipe-trace
-
-- Run segmentation eval on fixtures:
-    cd <repo>
-    cookimport bench eval-segmentation --gold-dir data/golden/segmentation --pred-run <path>
+1. Legacy compatibility:
+   - running with `multi_recipe_splitter=legacy` preserves current recipe counts on known fixtures.
+2. Shared splitter behavior:
+   - running with `multi_recipe_splitter=rules_v1` splits known merged recipe spans for Text/EPUB/PDF scenarios.
+3. Guardrail correctness:
+   - `For the X` component headers remain within one recipe and do not create false boundaries.
+4. Wiring completeness:
+   - stage and prediction-generation paths both receive and persist splitter settings in run config.
+5. Reproducibility:
+   - reports and artifacts clearly indicate which splitter backend produced results.
+6. Policy safety:
+   - no codex-farm recipe parsing is enabled by this priority.
 
 
 ## Idempotence and Recovery
 
-- All new behaviors are gated behind run settings; default `legacy` avoids surprising output drift.
-- Trace artifacts are additive under `raw/` and can be safely deleted between runs.
-- If a new optional backend dependency causes issues:
-  - switching the run setting back to `legacy` returns to baseline behavior immediately,
-  - missing optional dependencies should never crash baseline runs; they should raise a targeted “install extras” error only when that backend is selected.
-- When working with split jobs (PDF/EPUB parallelism), ensure any new config values are primitives and that merge logic does not assume a fixed candidate count; merging should remain deterministic and stable across retries.:contentReference[oaicite:65]{index=65}
+
+This rollout is additive and reversible.
+
+- Safe re-run: milestone commands can be repeated without destructive side effects.
+- Fast rollback: set `multi_recipe_splitter=legacy` (or `off`) to return to baseline behavior.
+- Trace artifacts are additive and can be deleted between runs.
+- If split-worker behavior regresses, disable shared splitter and keep legacy path while fixing tests.
+
+
+## Artifacts and Notes
+
+
+Expected `runConfig` snippet after Milestone 2:
+
+    {
+      "section_detector_backend": "shared_v1",
+      "multi_recipe_splitter": "rules_v1",
+      "multi_recipe_trace": true,
+      "multi_recipe_min_ingredient_lines": 1,
+      "multi_recipe_min_instruction_lines": 1,
+      "multi_recipe_for_the_guardrail": true
+    }
+
+Expected trace artifact pattern after Milestone 4:
+
+    raw/<importer>/<source_hash>/multi_recipe_split_trace*.json
+
+Expected candidate provenance addition shape (example):
+
+    {
+      "multi_recipe": {
+        "backend": "rules_v1",
+        "split_parent": "urn:recipeimport:epub:...:c3",
+        "split_reason": ["title_ingredient_instruction_cycle"],
+        "split_index": 1,
+        "split_count": 2
+      }
+    }
+
+
+## Interfaces and Dependencies
+
+
+Required contracts for core Priority 3 rollout.
+
+In `cookimport/config/run_settings.py`:
+
+    class MultiRecipeSplitter(str, Enum):
+        legacy = "legacy"
+        off = "off"
+        rules_v1 = "rules_v1"
+
+    class RunSettings(BaseModel):
+        multi_recipe_splitter: MultiRecipeSplitter = Field(default=MultiRecipeSplitter.legacy, ...)
+        multi_recipe_trace: bool = Field(default=False, ...)
+        multi_recipe_min_ingredient_lines: int = Field(default=1, ge=0, ...)
+        multi_recipe_min_instruction_lines: int = Field(default=1, ge=0, ...)
+        multi_recipe_for_the_guardrail: bool = Field(default=True, ...)
+
+In `cookimport/parsing/multi_recipe_splitter.py`:
+
+    @dataclass(frozen=True)
+    class MultiRecipeSplitConfig:
+        backend: str
+        min_ingredient_lines: int
+        min_instruction_lines: int
+        enable_for_the_guardrail: bool
+        trace: bool
+
+    @dataclass(frozen=True)
+    class CandidateSpan:
+        start: int
+        end: int
+        reasons: tuple[str, ...]
+
+    def split_candidate_blocks(blocks: list[Block], *, config: MultiRecipeSplitConfig) -> list[CandidateSpan]: ...
+
+Dependencies for core rollout:
+
+- No new mandatory third-party dependencies.
+- Optional libraries (FSM/proposers/`segeval`/ML-ish) remain deferred and opt-in.
+
+
+## Revision Notes
+
+
+- 2026-02-27_22.25.43 (Codex GPT-5): Replaced stale duplicated Priority 3 draft with a code-verified ExecPlan aligned to then-current importer behavior and wiring gaps.
+- 2026-02-27_22.37.24 (Codex GPT-5): Rebuilt the plan against the latest repository state after section-detector rollout, added explicit reuse points for component-header guardrails, and updated benchmark/run-settings context for current all-method dimensions.
+- 2026-02-27_23.20.08 (Codex GPT-5): Marked Milestones 0-5 complete after implementing shared splitter/run-settings/importer wiring and focused test coverage; updated discovery/decision/outcomes/context sections to match shipped behavior and documented the signal-line coverage threshold fix.

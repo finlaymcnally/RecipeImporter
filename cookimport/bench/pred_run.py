@@ -33,6 +33,14 @@ def build_pred_run_for_source(
         pdf_pages_per_job=cfg.get("pdf_pages_per_job", 50),
         epub_spine_items_per_job=cfg.get("epub_spine_items_per_job", 10),
         epub_extractor=cfg.get("epub_extractor", "unstructured"),
+        instruction_step_segmentation_policy=cfg.get(
+            "instruction_step_segmentation_policy",
+            "auto",
+        ),
+        instruction_step_segmenter=cfg.get(
+            "instruction_step_segmenter",
+            "heuristic_v1",
+        ),
         llm_recipe_pipeline=cfg.get("llm_recipe_pipeline", "off"),
         codex_farm_cmd=cfg.get("codex_farm_cmd", "codex-farm"),
         codex_farm_root=cfg.get("codex_farm_root"),

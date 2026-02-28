@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import TYPE_CHECKING, Callable, Protocol
 
 from cookimport.core.models import ConversionResult, MappingConfig, WorkbookInspection
+
+if TYPE_CHECKING:
+    from cookimport.config.run_settings import RunSettings
 
 
 class Importer(Protocol):
@@ -22,5 +25,6 @@ class Importer(Protocol):
         path: Path,
         mapping: MappingConfig | None,
         progress_callback: Callable[[str], None] | None = None,
+        run_settings: RunSettings | None = None,
     ) -> ConversionResult:
         ...

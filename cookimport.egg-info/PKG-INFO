@@ -30,8 +30,24 @@ Requires-Dist: fast-diff-match-patch; extra == "benchaccel"
 Provides-Extra: dev
 Requires-Dist: pytest>=7.4; extra == "dev"
 Requires-Dist: psycopg[binary]>=3.1; extra == "dev"
+Provides-Extra: segmentation-eval
+Requires-Dist: segeval>=2.0.11; extra == "segmentation-eval"
 Provides-Extra: epubdebug
 Requires-Dist: epub-utils==0.1.0a1; extra == "epubdebug"
+Provides-Extra: webschema
+Requires-Dist: boilerpy3>=1.0.7; extra == "webschema"
+Requires-Dist: extruct>=0.18; extra == "webschema"
+Requires-Dist: isodate>=0.6; extra == "webschema"
+Requires-Dist: justext>=3.0; extra == "webschema"
+Requires-Dist: pyld>=2.0; extra == "webschema"
+Requires-Dist: readability-lxml>=0.8.4; extra == "webschema"
+Requires-Dist: recipe-scrapers>=15.9; extra == "webschema"
+Requires-Dist: scrape-schema-recipe; extra == "webschema"
+Requires-Dist: trafilatura>=1.8; extra == "webschema"
+Provides-Extra: ingredientparse
+Requires-Dist: ftfy>=6.2; extra == "ingredientparse"
+Requires-Dist: quantulum3>=0.9; extra == "ingredientparse"
+Requires-Dist: pint>=0.23; extra == "ingredientparse"
 
 # cookimport
 

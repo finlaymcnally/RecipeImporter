@@ -78,6 +78,12 @@ def test_stage_output_structure(tmp_path):
     assert report["runConfig"]["epub_unstructured_html_parser_version"] == "v1"
     assert report["runConfig"]["epub_unstructured_skip_headers_footers"] is False
     assert report["runConfig"]["epub_unstructured_preprocess_mode"] == "br_split_v1"
+    assert report["runConfig"]["section_detector_backend"] == "legacy"
+    assert report["runConfig"]["multi_recipe_splitter"] == "legacy"
+    assert report["runConfig"]["multi_recipe_trace"] is False
+    assert report["runConfig"]["multi_recipe_min_ingredient_lines"] == 1
+    assert report["runConfig"]["multi_recipe_min_instruction_lines"] == 1
+    assert report["runConfig"]["multi_recipe_for_the_guardrail"] is True
     assert isinstance(report.get("runConfigHash"), str)
     assert len(report["runConfigHash"]) == 64
     assert "workers=" in str(report.get("runConfigSummary", ""))
@@ -184,6 +190,72 @@ def test_epub_report_includes_extractor_setting(tmp_path):
     assert isinstance(report.get("runConfigHash"), str)
     assert len(report["runConfigHash"]) == 64
     assert "epub_extractor=beautifulsoup" in str(report.get("runConfigSummary", ""))
+
+
+def test_stage_report_includes_section_detector_backend_setting(tmp_path):
+    source_file = TESTS_FIXTURES_DIR / "simple_text.txt"
+    output_dir = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        [
+            "stage",
+            str(source_file),
+            "--out",
+            str(output_dir),
+            "--section-detector-backend",
+            "shared_v1",
+        ],
+    )
+    assert result.exit_code == 0
+
+    timestamp_dirs = [
+        path
+        for path in output_dir.glob("*")
+        if path.is_dir() and not path.name.startswith(".")
+    ]
+    assert len(timestamp_dirs) == 1
+    timestamp_dir = timestamp_dirs[0]
+    report_path = timestamp_dir / "simple_text.excel_import_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["runConfig"]["section_detector_backend"] == "shared_v1"
+
+
+def test_stage_report_includes_multi_recipe_splitter_settings(tmp_path):
+    source_file = TESTS_FIXTURES_DIR / "simple_text.txt"
+    output_dir = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        [
+            "stage",
+            str(source_file),
+            "--out",
+            str(output_dir),
+            "--multi-recipe-splitter",
+            "rules_v1",
+            "--multi-recipe-trace",
+            "--multi-recipe-min-ingredient-lines",
+            "2",
+            "--multi-recipe-min-instruction-lines",
+            "3",
+            "--no-multi-recipe-for-the-guardrail",
+        ],
+    )
+    assert result.exit_code == 0
+
+    timestamp_dirs = [
+        path
+        for path in output_dir.glob("*")
+        if path.is_dir() and not path.name.startswith(".")
+    ]
+    assert len(timestamp_dirs) == 1
+    timestamp_dir = timestamp_dirs[0]
+    report_path = timestamp_dir / "simple_text.excel_import_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["runConfig"]["multi_recipe_splitter"] == "rules_v1"
+    assert report["runConfig"]["multi_recipe_trace"] is True
+    assert report["runConfig"]["multi_recipe_min_ingredient_lines"] == 2
+    assert report["runConfig"]["multi_recipe_min_instruction_lines"] == 3
+    assert report["runConfig"]["multi_recipe_for_the_guardrail"] is False
 
 
 def test_epub_report_tracks_unstructured_option_flags(tmp_path):

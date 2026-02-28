@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Mapping
 
 from cookimport.core.models import HowToStep, RecipeCandidate
-from cookimport.parsing.ingredients import parse_ingredient_line
+from cookimport.parsing.ingredients import (
+    normalize_ingredient_parser_options,
+    parse_ingredient_line,
+)
 from cookimport.parsing.instruction_parser import parse_instruction
 from cookimport.parsing.sections import extract_instruction_sections, normalize_section_key
+from cookimport.parsing.step_segmentation import (
+    DEFAULT_INSTRUCTION_STEP_SEGMENTATION_POLICY,
+    DEFAULT_INSTRUCTION_STEP_SEGMENTER,
+    segment_instruction_steps,
+)
 from cookimport.parsing.tips import extract_recipe_specific_notes
 from cookimport.parsing.step_ingredients import assign_ingredient_lines_to_steps
 
@@ -102,9 +110,21 @@ def _sanitize_staging_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]
     return sanitized
 
 
-def _convert_ingredient(text: str) -> dict[str, Any]:
+def _convert_ingredient(
+    text: str,
+    *,
+    parser_options: Mapping[str, str],
+) -> dict[str, Any]:
     """Parse and convert an ingredient string to structured output."""
-    parsed = parse_ingredient_line(text)
+    parsed = parse_ingredient_line(
+        text,
+        ingredient_text_fix_backend=parser_options["ingredient_text_fix_backend"],
+        ingredient_pre_normalize_mode=parser_options["ingredient_pre_normalize_mode"],
+        ingredient_packaging_mode=parser_options["ingredient_packaging_mode"],
+        ingredient_parser_backend=parser_options["ingredient_parser_backend"],
+        ingredient_unit_canonicalizer=parser_options["ingredient_unit_canonicalizer"],
+        ingredient_missing_unit_policy=parser_options["ingredient_missing_unit_policy"],
+    )
     for key in _LOWERCASE_FIELDS:
         value = parsed.get(key)
         if isinstance(value, str):
@@ -135,6 +155,30 @@ def _convert_instruction(instruction: str | HowToStep) -> str:
     if isinstance(instruction, HowToStep):
         return instruction.text
     return str(instruction)
+
+
+def _resolve_instruction_step_segmentation_options(
+    options: Mapping[str, Any] | None,
+) -> tuple[str, str]:
+    if not isinstance(options, Mapping):
+        return (
+            DEFAULT_INSTRUCTION_STEP_SEGMENTATION_POLICY,
+            DEFAULT_INSTRUCTION_STEP_SEGMENTER,
+        )
+
+    policy = str(
+        options.get(
+            "instruction_step_segmentation_policy",
+            DEFAULT_INSTRUCTION_STEP_SEGMENTATION_POLICY,
+        )
+    ).strip().lower().replace("-", "_")
+    segmenter = str(
+        options.get(
+            "instruction_step_segmenter",
+            DEFAULT_INSTRUCTION_STEP_SEGMENTER,
+        )
+    ).strip().lower().replace("-", "_")
+    return (policy, segmenter)
 
 
 def _derive_ingredient_section_keys(ingredient_lines: list[dict[str, Any]]) -> list[str]:
@@ -194,7 +238,12 @@ def _split_variants(instructions: list[str]) -> tuple[list[str], list[str]]:
     return variants, remaining
 
 
-def recipe_candidate_to_draft_v1(candidate: RecipeCandidate) -> dict[str, Any]:
+def recipe_candidate_to_draft_v1(
+    candidate: RecipeCandidate,
+    *,
+    ingredient_parser_options: Mapping[str, Any] | None = None,
+    instruction_step_options: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Convert a RecipeCandidate into cookbook3 format (internal model: RecipeDraftV1)."""
 
     recipe_title = candidate.name.strip() if candidate.name else ""
@@ -227,8 +276,10 @@ def recipe_candidate_to_draft_v1(candidate: RecipeCandidate) -> dict[str, Any]:
     # Strategy: Assign ingredients to steps with deterministic matching.
     
     # Convert all ingredients
+    parser_options = normalize_ingredient_parser_options(ingredient_parser_options)
     all_ingredient_lines = [
-        _convert_ingredient(ing) for ing in candidate.ingredients
+        _convert_ingredient(ing, parser_options=parser_options)
+        for ing in candidate.ingredients
     ]
 
     # Convert all instructions
@@ -240,6 +291,14 @@ def recipe_candidate_to_draft_v1(candidate: RecipeCandidate) -> dict[str, Any]:
         raw_instructions = ["See original recipe for details."]
 
     instruction_texts = [_convert_instruction(instr) for instr in raw_instructions]
+    segmentation_policy, segmentation_backend = _resolve_instruction_step_segmentation_options(
+        instruction_step_options
+    )
+    instruction_texts = segment_instruction_steps(
+        instruction_texts,
+        policy=segmentation_policy,
+        backend=segmentation_backend,
+    )
     variants, instruction_texts = _split_variants(instruction_texts)
     if variants:
         recipe_meta["variants"] = variants

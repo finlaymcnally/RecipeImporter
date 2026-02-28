@@ -305,3 +305,185 @@ Source understanding merged:
 
 Current status:
 - Runtime helper-module and callsite coverage findings are retained in this log and reflected in `04-parsing_readme.md`.
+
+## 2026-02-28 migrated understanding ledger
+
+Chronological migration from `docs/understandings`; source files were removed after this merge.
+
+### 2026-02-27_22.24.26 priority4 current state audit
+
+Source: `docs/understandings/2026-02-27_22.24.26-priority4-current-state-audit.md`
+Summary: Priority-4 current-state audit: ingredient parser remains legacy and options are not wired yet.
+
+Details preserved:
+
+
+# Priority-4 Current-State Audit
+
+Audit date: 2026-02-28 (local run time).
+
+Findings:
+
+- `cookimport/parsing/ingredients.py` is still legacy-first and still defaults missing units to `medium`.
+- `tests/parsing/test_ingredient_parser.py` still asserts `medium` fallback behavior.
+- No Priority-4 run-settings knobs are present in `cookimport/config/run_settings.py`, CLI, or interactive run-settings flows.
+- Priority-4 optional deps (`ftfy`, `quantulum3`, `pint`) are not present in `pyproject.toml` (only `ingredient-parser-nlp` is present for this area).
+- `docs/04-parsing/04-parsing_readme.md` still documents the `medium` default and also notes duplicate `parse_ingredient_line` definitions in parser module.
+
+Implication:
+
+Priority-4 should still be treated as largely unimplemented; plan status should remain mostly pending with baseline behavior explicitly documented.
+
+### 2026-02-27_22.24.37 priority6 current time temp yield state
+
+Source: `docs/understandings/2026-02-27_22.24.37-priority6-current-time-temp-yield-state.md`
+Summary: Priority-6 discovery: parser/staging are still baseline-only, with fragmented yield extraction and no Priority 6 run-setting surface.
+
+Details preserved:
+
+
+# Priority-6 Current Time/Temp/Yield State
+
+Current Priority 6 status in code is mostly pre-implementation.
+
+- `cookimport/parsing/instruction_parser.py` is single-backend regex only, with fixed behavior: it sums all extracted durations and returns only the first temperature match.
+- `cookimport/staging/draft_v1.py` uses parser metadata per step (`time_seconds`, `temperature`, `temperature_unit`) and rolls summed step times into `recipe.cook_time_seconds` when `candidate.cook_time` is missing.
+- `draft_v1` yield fields are currently baseline placeholders: `yield_units=1`, `yield_phrase=candidate.recipe_yield`, `yield_unit_name=None`, `yield_detail=None`.
+- There is no staged recipe-level `max_oven_temp_f` field yet.
+- Yield extraction/parsing is importer-local (`text`, `epub`, `pdf`, and structured-source passthrough) rather than centralized/scored.
+- `RunSettings` has no Priority 6 (`p6_*`) knobs yet, and `pyproject.toml` has no `priority6`/`htmlschema` extras.
+- Existing test coverage is strong for current parser behavior (`tests/parsing/test_instruction_parser.py`) but there is no dedicated Priority 6 staging/yield test suite yet.
+
+Useful cross-check: tagging currently computes a derived max Fahrenheit temperature from staged steps (`cookimport/tagging/signals.py`), but that value is not written into draft recipe fields.
+
+### 2026-02-27_22.27.26 priority5 current step segmentation status
+
+Source: `docs/understandings/2026-02-27_22.27.26-priority5-current-step-segmentation-status.md`
+Summary: Priority-5 discovery: instruction fallback segmentation is not implemented yet, and staging/bench wiring points that must change are now mapped.
+
+Details preserved:
+
+
+# Priority-5 Current State Discovery
+
+Date: 2026-02-27_22.27.26
+
+## What is true in code now
+
+- There is no instruction fallback segmentation module yet (`rg` found no `instruction_step_segmentation` or `step_segmentation` runtime implementation).
+- `cookimport/staging/draft_v1.py` currently uses raw instruction boundaries, then does variant extraction and section-header removal before `parse_instruction(...)`.
+- `cookimport/staging/jsonld.py` currently uses raw instruction boundaries, then groups into `HowToSection` only if section headers are detected.
+- `cookimport/staging/writer.py::write_section_outputs(...)` also reads raw `candidate.instructions`, so it will drift if fallback segmentation is added only in draft/jsonld.
+
+## Wiring points that must be touched for a real implementation
+
+- Run settings model and summary/hash: `cookimport/config/run_settings.py`
+- Stage and benchmark run-settings adapters: `cookimport/config/run_settings_adapters.py`
+- CLI options and pass-through:
+  - `cookimport/cli.py::stage(...)`
+  - `cookimport/cli.py::labelstudio_benchmark(...)`
+  - `cookimport/labelstudio/ingest.py::generate_pred_run_artifacts(...)`
+  - `cookimport/bench/pred_run.py::build_pred_run_for_source(...)`
+- Bench knob registry: `cookimport/bench/knobs.py`
+- Writer/call-site pass-through: `cookimport/staging/writer.py`, `cookimport/cli_worker.py`, `cookimport/cli.py` split-merge path, and `cookimport/labelstudio/ingest.py` processed output writer path.
+
+### 2026-02-27_22.37.08 priority6 rebuild validation audit
+
+Source: `docs/understandings/2026-02-27_22.37.08-priority6-rebuild-validation-audit.md`
+Summary: Priority-6 revalidation audit: parser/staging/yield/run-settings contracts remain baseline-only and justify the active ExecPlan scope.
+
+Details preserved:
+
+
+# Priority-6 Rebuild Validation Audit
+
+Revalidated Priority 6 surfaces on 2026-02-27 before rebuilding the active ExecPlan.
+
+- `cookimport/parsing/instruction_parser.py` is still the legacy regex parser: sum-all time strategy only, first temperature only, no backend/options surface.
+- `cookimport/staging/draft_v1.py` still hardcodes yield placeholders (`yield_units=1`, passthrough `yield_phrase`, null unit/detail) and does not emit recipe-level `max_oven_temp_f`.
+- Yield extraction remains importer-local (`plugins/text.py`, `plugins/epub.py`, `plugins/pdf.py`) with no centralized scored yield parser.
+- `cookimport/config/run_settings.py` has no Priority-6 knobs (`p6_*`), so parser/yield/time strategy selection is not yet benchmark-configurable.
+- Existing tests still validate the baseline parser and importer behavior; no dedicated Priority-6 staging/yield test module exists yet.
+
+This confirms Priority 6 is still primarily a planning/implementation gap, not a landed runtime feature.
+
+### 2026-02-27_22.38.32 priority5 wiring refresh audit
+
+Source: `docs/understandings/2026-02-27_22.38.32-priority5-wiring-refresh-audit.md`
+Summary: Priority-5 refresh audit: instruction fallback segmentation is still unimplemented, and the exact stage/run-settings/bench wiring points remain mapped.
+
+Details preserved:
+
+
+# Priority-5 Wiring Refresh Audit
+
+Date: 2026-02-27_22.38.32
+
+## What remains true
+
+- No runtime instruction-step fallback segmentation module exists yet (`rg` still finds no `instruction_step_segmentation`/`step_segmentation` implementation under `cookimport/` and `tests/`).
+- Draft, JSON-LD, and section artifacts still derive instruction boundaries from raw importer lines plus section-header extraction, so they will drift unless Priority-5 integration is applied to all three surfaces together.
+- `RunSettings`, CLI `stage`, CLI `labelstudio-benchmark`, and run-settings adapters still have no instruction-step segmentation fields/options.
+- Bench sweep knobs are still minimal (`segment_blocks`, `segment_overlap`, `workers`, `epub_extractor`), so Priority-5 knobs will be additive and must be validated explicitly.
+
+## Why this matters
+
+Priority 5 is still a clean additive feature. The safest implementation path is to introduce one deterministic segmentation helper, wire it through canonical run settings, and apply identical effective instruction shaping in `draft_v1`, `jsonld`, and `write_section_outputs` before benchmarking/tuning surfaces are expanded.
+
+### 2026-02-27_22.41.18 priority2 shared backend header preservation and test double signature
+
+Source: `docs/understandings/2026-02-27_22.41.18-priority2-shared-backend-header-preservation-and-test-double-signature.md`
+Summary: Priority-2 implementation discovery: shared section backend must preserve standalone component headers, and ingest tests should accept additive importer kwargs.
+
+Details preserved:
+
+
+# Priority-2 Shared Backend Header Preservation And Test-Double Signature
+
+Two implementation details were easy to miss:
+
+- In shared EPUB/PDF extraction, applying wrapped-line merge after preserving `For the X` component headers can collapse the header into the next instruction line. Shared paths should keep component headers as standalone lines so section detection and section key mapping stay stable.
+- `generate_pred_run_artifacts(...)` now passes `run_settings` to `importer.convert(...)`. Label Studio ingest tests that use fake importer doubles should accept `**_kwargs` to avoid brittle failures when converter kwargs expand.
+
+Practical verification used during implementation:
+
+- `tests/ingestion/test_epub_importer.py::test_extract_fields_shared_backend_preserves_for_the_component_headers`
+- `tests/ingestion/test_pdf_importer.py::test_extract_fields_shared_backend_preserves_for_the_component_headers`
+- `tests/labelstudio/test_labelstudio_ingest_parallel.py`
+
+### 2026-02-27_23.05.12 priority6 latest tree gap revalidation
+
+Source: `docs/understandings/2026-02-27_23.05.12-priority6-latest-tree-gap-revalidation.md`
+Summary: Priority 6 latest-tree revalidation: parser, staging, and run settings still expose baseline behavior only.
+
+Details preserved:
+
+
+# Priority 6 Latest-Tree Gap Revalidation
+
+Revalidation on 2026-02-27 found Priority 6 still in planning status.
+
+- `cookimport/parsing/instruction_parser.py` remains baseline-only: regex extraction, sum-all time totals, first-temperature only, no options surface.
+- `cookimport/staging/draft_v1.py` still hardcodes baseline yield outputs (`yield_units=1`, passthrough `yield_phrase`, null unit/detail) and does not emit recipe-level `max_oven_temp_f`.
+- `cookimport/config/run_settings.py` has no Priority 6 selector fields, so parser/yield strategy selection is not yet wired through stage/benchmark configs.
+- Repository search under `cookimport/` and `tests/` shows no `p6_*`, `yield_mode`, `time_total_strategy`, `InstructionParseOptions`, or `temperature_items` symbols.
+
+Conclusion: `docs/plans/priority-6.md` remains valid as an unimplemented ExecPlan and should continue to be executed milestone-by-milestone.
+
+### 2026-02-27_23.22.41 priority6 runtime wiring map
+
+Source: `docs/understandings/2026-02-27_23.22.41-priority6-runtime-wiring-map.md`
+Summary: Priority 6 wiring map: run settings flow into stage/pred-run via run_config, then draft_v1 consumes parser/yield options from that shared payload.
+
+Details preserved:
+
+
+# Priority 6 Runtime Wiring Map
+
+Priority-6 parser/yield behavior should be wired through `RunSettings` and carried as `run_config` so both stage and benchmark prediction generation stay in parity.
+
+- Stage path: `cookimport/cli.py` builds `RunSettings` via `build_run_settings(...)`, converts to `run_config`, then worker paths pass that payload into writer calls (`write_draft_outputs(..., ingredient_parser_options=run_config, instruction_step_options=run_config)`).
+- Prediction-generation path: `cookimport/labelstudio/ingest.py::generate_pred_run_artifacts(...)` mirrors stage, builds `RunSettings`, derives `run_config`, then writes processed outputs through the same writer options.
+- Interactive and speed/benchmark adapters already use `cookimport/config/run_settings_adapters.py` as the central mapping layer from `RunSettings` to CLI call kwargs.
+- Current baseline parser/staging contracts remain legacy defaults (`parse_instruction` sum-all + first-temperature; draft yield placeholders), so Priority 6 can be added as new `p6_*` settings without changing default behavior.
+

@@ -7,6 +7,7 @@ from typing import Any, Iterable
 
 from cookimport.core.models import ConversionResult, HowToStep, RecipeCandidate
 from cookimport.labelstudio.archive import build_extracted_archive, normalize_display_text
+from cookimport.parsing.tips import extract_recipe_specific_notes
 
 FREEFORM_LABELS: tuple[str, ...] = (
     "RECIPE_TITLE",
@@ -385,7 +386,23 @@ def _note_texts(recipe: RecipeCandidate) -> list[str]:
         text = (comment.text or comment.name or "").strip()
         if text:
             rows.append(text)
-    return rows
+    rows.extend(extract_recipe_specific_notes(recipe))
+    return _dedupe_text_rows(rows)
+
+
+def _dedupe_text_rows(rows: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        text = str(row or "").strip()
+        if not text:
+            continue
+        normalized = _normalize_for_match(text) or text.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(text)
+    return deduped
 
 
 def _variant_texts(recipe: RecipeCandidate) -> list[str]:

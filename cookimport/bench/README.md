@@ -8,15 +8,20 @@ Current scoring contract:
 - Gold can include multiple labels per block; eval accepts any matching gold label and logs multi-label diagnostics to `gold_conflicts.jsonl`.
 - Missing gold rows for predicted blocks are defaulted to `OTHER` and logged in `gold_conflicts.jsonl`.
 - Canonical-text eval supports optional disk-backed alignment reuse (`cookimport/bench/canonical_alignment_cache.py`); all-method runs share a per-source cache at `.cache/canonical_alignment`.
-- Canonical-text eval can choose SequenceMatcher implementation via `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER` (`fallback`, `stdlib`, `cydifflib`, `cdifflib`, `dmp`, `multilayer`; legacy `auto` aliases to `fallback`); evaluator telemetry records requested and effective mode. `multilayer` is an opt-in experimental mode for parity/speed spikes.
+- Canonical-text eval uses `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=dmp` only; any non-`dmp` value is rejected and missing `fast-diff-match-patch` fails runtime selection.
 - Run-level prediction-stage replay uses `cookimport/bench/prediction_records.py` (`PredictionRecord` JSONL schema v1) for `labelstudio-benchmark --predictions-out/--predictions-in`.
 - `labelstudio-benchmark --execution-mode predict-only` generates prediction artifacts (and optional prediction-record JSONL) without running evaluation.
 - `bench run` writes per-item eval artifacts under `per_item/<item_id>/eval_freeform/` including:
   - `eval_report.json`, `eval_report.md`
   - `missed_gold_blocks.jsonl`, `wrong_label_blocks.jsonl`
 - `bench run` accepts direct artifact-write overrides (`--write-markdown/--no-write-markdown`, `--write-labelstudio-tasks/--no-write-labelstudio-tasks`) that take precedence over config-file defaults for that run.
-- canonical-text eval outputs include `aligned_prediction_blocks.jsonl` so alignment mappings can be compared directly across matcher implementations.
+- Sweep knobs now include instruction fallback segmentation controls (`instruction_step_segmentation_policy`, `instruction_step_segmenter`) in addition to existing segment size/worker/extractor knobs.
+- canonical-text eval outputs include `aligned_prediction_blocks.jsonl` so DMP alignment mappings can be audited directly.
 - Deterministic speed regression tooling lives in:
   - `speed_suite.py` (`bench speed-discover` target discovery from pulled gold exports)
   - `speed_runner.py` (`bench speed-run` repeated stage/benchmark timing samples, including optional `benchmark_all_method_multi_source`)
   - `speed_compare.py` (`bench speed-compare` baseline-vs-candidate regression gating)
+- Deterministic quality regression tooling now mirrors the speed loop:
+  - `quality_suite.py` (`bench quality-discover` representative target discovery)
+  - `quality_runner.py` (`bench quality-run` sequential all-method experiment execution)
+  - `quality_compare.py` (`bench quality-compare` baseline-vs-candidate quality gating)

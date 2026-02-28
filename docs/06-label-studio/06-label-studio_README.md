@@ -290,3 +290,16 @@ Current-contract additions:
 - Module ownership docs must include `archive.py`, `canonical_gold.py`, `client.py`, `label_config_freeform.py`, `models.py`, plus benchmark evaluator dependencies.
 - Benchmark docs must include prediction-record contracts (`--predictions-in`, `--predictions-out`) and mode-specific artifact differences.
 - `labelstudio-eval` and `labelstudio-benchmark` both emit manifest/history side effects and should be documented together with those outputs.
+
+## 2026-02-28 migrated understandings digest
+
+This section consolidates discoveries migrated from `docs/understandings` into this domain folder.
+
+### 2026-02-27_20.13.08 labelstudio unlabeled text fallback
+- Source: `docs/understandings/2026-02-27_20.13.08-labelstudio-unlabeled-text-fallback.md`
+- Summary: Pulled Label Studio freeform exports only contain explicit spans; unlabeled regions are treated as OTHER during benchmark evaluation.
+
+### 2026-02-27_20.15.35 labelstudio overlap multilabel behavior
+- Source: `docs/understandings/2026-02-27_20.15.35-labelstudio-overlap-multilabel-behavior.md`
+- Summary: Overlapping Label Studio spans are preserved in export; stage/canonical eval treat overlapping coverage as multi-label gold sets.
+

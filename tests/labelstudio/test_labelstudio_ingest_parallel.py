@@ -244,7 +244,7 @@ def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path:
     class FakeImporter:
         name = "fake"
 
-        def convert(self, _path, _mapping, progress_callback=None):
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
             if progress_callback is not None:
                 progress_callback("fake convert complete")
             return fake_result
@@ -358,7 +358,7 @@ def test_run_labelstudio_import_split_workers_emit_worker_activity(
     class FakeImporter:
         name = "fake"
 
-        def convert(self, _path, _mapping, progress_callback=None):
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
             if progress_callback is not None:
                 progress_callback("fake convert complete")
             return fake_result
@@ -524,7 +524,7 @@ def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
     class FakeImporter:
         name = "fake"
 
-        def convert(self, _path, _mapping, progress_callback=None):
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
             if progress_callback is not None:
                 progress_callback("fake convert complete")
             return fake_result
@@ -680,7 +680,7 @@ def test_generate_pred_run_artifacts_stops_prelabel_after_rate_limit_429(
     class FakeImporter:
         name = "fake"
 
-        def convert(self, _path, _mapping, progress_callback=None):
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
             if progress_callback is not None:
                 progress_callback("fake convert complete")
             return fake_result
@@ -801,7 +801,7 @@ def test_generate_pred_run_artifacts_ignores_progress_callback_errors(
     class FakeImporter:
         name = "fake"
 
-        def convert(self, _path, _mapping, progress_callback=None):
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
             if progress_callback is not None:
                 progress_callback("fake convert complete")
             return fake_result
@@ -897,7 +897,7 @@ def test_generate_pred_run_artifacts_can_skip_tasks_jsonl(
     class FakeImporter:
         name = "fake"
 
-        def convert(self, _path, _mapping, progress_callback=None):
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
             if progress_callback is not None:
                 progress_callback("fake convert complete")
             return fake_result
@@ -977,7 +977,7 @@ def test_generate_pred_run_artifacts_passes_write_markdown_to_processed_outputs(
     class FakeImporter:
         name = "fake"
 
-        def convert(self, _path, _mapping, progress_callback=None):
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
             if progress_callback is not None:
                 progress_callback("fake convert complete")
             return fake_result
@@ -1128,7 +1128,7 @@ def test_generate_pred_run_artifacts_markdown_toggle_keeps_stage_predictions_ide
     class FakeImporter:
         name = "fake"
 
-        def convert(self, _path, _mapping, progress_callback=None):
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
             if progress_callback is not None:
                 progress_callback("fake convert complete")
             return fake_result
@@ -1215,7 +1215,7 @@ def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(
     class FakeImporter:
         name = "fake"
 
-        def convert(self, _path, _mapping, progress_callback=None):
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
             if progress_callback is not None:
                 progress_callback("fake convert complete")
             return fake_result
@@ -1307,7 +1307,7 @@ def test_generate_pred_run_artifacts_freeform_focus_floor_adjusts_overlap_withou
     class FakeImporter:
         name = "fake"
 
-        def convert(self, _path, _mapping, progress_callback=None):
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
             if progress_callback is not None:
                 progress_callback("fake convert complete")
             return fake_result

@@ -88,12 +88,11 @@ These CLI flags override config/defaults for the current run only.
 
 ## 3. Interpret the Results
 
-- **`report.md`** — Start here. It now shows both:
-  - practical/content-overlap metrics (best signal for "does this import look usable?")
-  - strict/localization IoU metrics (boundary precision signal)
+- **`report.md`** — Start here for suite-level precision/recall/F1 rollups and per-item links.
 - **`iteration_packet/top_failures.md`** — Top failures with block text context. Tells you exactly what the pipeline missed or hallucinated.
 - **`iteration_packet/cases.jsonl`** — Machine-readable case list sorted by severity. Feed this to an agent or script.
-- **`per_item/<id>/eval_freeform/eval_report.md`** — Detailed per-item evaluation, including practical vs strict sections and granularity-mismatch hints when strict is low due to coarse prediction ranges.
+- **`per_item/<id>/eval_freeform/eval_report.md`** — Detailed per-item stage-block evaluation, including additive segmentation boundary metrics and taxonomy.
+- **`per_item/<id>/eval_freeform/missed_gold_boundaries.jsonl`** / **`false_positive_boundaries.jsonl`** — Boundary-level mismatch rows for segmentation debugging.
 
 ## 4. Run a Parameter Sweep
 
@@ -136,6 +135,18 @@ cookimport bench speed-run \
   --max-targets 1
 ```
 
+Optional: pin a specific run-settings payload for deterministic baseline/candidate parity:
+
+```bash
+cookimport bench speed-run \
+  --suite data/golden/bench/speed/suites/pulled_from_labelstudio.json \
+  --run-settings-file path/to/run_settings.json \
+  --scenarios stage_import,benchmark_canonical_legacy \
+  --warmups 1 \
+  --repeats 2 \
+  --max-targets 1
+```
+
 Optional: run the all-method multi-source scenario (exercises source scheduling/sharding/tail-pair):
 
 ```bash
@@ -156,7 +167,64 @@ cookimport bench speed-compare \
   --fail-on-regression
 ```
 
+By default, `speed-compare` marks verdict `FAIL` when `run_settings_hash` differs between baseline and candidate.
+Use this only when intentional:
+
+```bash
+cookimport bench speed-compare \
+  --baseline data/golden/bench/speed/runs/<baseline_timestamp> \
+  --candidate data/golden/bench/speed/runs/<candidate_timestamp> \
+  --allow-settings-mismatch
+```
+
 Artifacts are written under `data/golden/bench/speed/`:
+- `runs/<timestamp>/summary.json` and `report.md`
+- `comparisons/<timestamp>/comparison.json` and `comparison.md`
+
+## 7. Run Quality Regression Checks
+
+Discover a deterministic representative quality suite from pulled Label Studio gold exports:
+
+```bash
+cookimport bench quality-discover \
+  --gold-root data/golden/pulled-from-labelstudio \
+  --input-root data/input \
+  --out data/golden/bench/quality/suites/pulled_representative.json \
+  --max-targets 12 \
+  --seed 42
+```
+
+Run one or more all-method experiments over the same discovered suite:
+
+```bash
+cookimport bench quality-run \
+  --suite data/golden/bench/quality/suites/pulled_representative.json \
+  --experiments-file data/golden/bench/quality/experiments/example.json
+```
+
+Compare baseline vs candidate experiments and fail on quality regression:
+
+```bash
+cookimport bench quality-compare \
+  --baseline data/golden/bench/quality/runs/<baseline_timestamp> \
+  --candidate data/golden/bench/quality/runs/<candidate_timestamp> \
+  --baseline-experiment-id baseline \
+  --candidate-experiment-id candidate \
+  --fail-on-regression
+```
+
+By default, `quality-compare` marks verdict `FAIL` when `run_settings_hash` differs between baseline and candidate.
+Use this override only when intentional:
+
+```bash
+cookimport bench quality-compare \
+  --baseline data/golden/bench/quality/runs/<baseline_timestamp> \
+  --candidate data/golden/bench/quality/runs/<candidate_timestamp> \
+  --allow-settings-mismatch
+```
+
+Artifacts are written under `data/golden/bench/quality/`:
+- `suites/<name>.json`
 - `runs/<timestamp>/summary.json` and `report.md`
 - `comparisons/<timestamp>/comparison.json` and `comparison.md`
 

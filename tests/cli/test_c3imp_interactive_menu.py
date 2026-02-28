@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 from types import SimpleNamespace
 
@@ -161,6 +162,20 @@ def test_prompt_text_escape_returns_none() -> None:
 
     assert "exc" not in error, f"Prompt crashed instead of handling Esc: {error.get('exc')}"
     assert result["value"] is None
+
+
+def test_load_settings_errors_on_legacy_sequence_matcher(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "cookimport.json"
+    config_path.write_text(
+        json.dumps({"benchmark_sequence_matcher": "fallback"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+    with pytest.raises(ValueError, match="benchmark_sequence_matcher"):
+        cli._load_settings()
 
 
 def test_interactive_import_passes_knowledge_pipeline_settings(

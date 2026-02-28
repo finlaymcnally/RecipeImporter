@@ -112,10 +112,16 @@ def match_gold_exports_to_inputs(
     *,
     input_root: Path,
     gold_root: Path | None = None,
+    importable_files: Iterable[Path] | None = None,
 ) -> tuple[list[SpeedTarget], list[dict[str, Any]]]:
+    importable_paths = (
+        [Path(path) for path in importable_files]
+        if importable_files is not None
+        else _list_importable_files(input_root)
+    )
     importable_by_name = {
         path.name: path
-        for path in _list_importable_files(input_root)
+        for path in importable_paths
     }
 
     matched_targets: list[SpeedTarget] = []

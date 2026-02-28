@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -30,8 +31,18 @@ from cookimport.core.reporting import (
     compute_file_hash,
     generate_recipe_id,
 )
-from cookimport.core.scoring import score_recipe_candidate
+from cookimport.core.scoring import (
+    build_recipe_scoring_debug_row,
+    recipe_gate_action,
+    score_recipe_likeness,
+    summarize_recipe_likeness,
+)
 from cookimport.parsing import cleaning, signals
+from cookimport.parsing.multi_recipe_splitter import (
+    MultiRecipeSplitConfig,
+    split_candidate_lines,
+)
+from cookimport.parsing.text_section_extract import extract_sections_from_text_blob
 from cookimport.parsing.tips import (
     extract_tip_candidates_from_candidate,
     partition_tip_candidates,
@@ -39,6 +50,9 @@ from cookimport.parsing.tips import (
 from cookimport.plugins import registry
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from cookimport.config.run_settings import RunSettings
 
 # Constants for splitting
 _SPLIT_DELIMITER_RE = re.compile(r"\n={3,}\s*(?:RECIPE)?\s*={3,}\n", re.IGNORECASE)
@@ -63,11 +77,6 @@ _TABLE_HEADER_ALIASES = {
     "sourceUrl": ["url", "source", "link"],
     "tags": ["tags", "keywords", "categories", "cuisine", "type", "tool"],
 }
-
-_SECTION_HEADER_RE = re.compile(
-    r"^\s*(ingredients?|instructions?|directions?|method|steps?|preparation|notes?|tips?)\s*:?\s*$",
-    re.IGNORECASE,
-)
 
 _TABLE_ALIAS_LOOKUP: dict[str, str] = {}
 
@@ -121,56 +130,11 @@ def _split_instructions(value: Any, mapping: MappingConfig | None) -> list[str]:
 
 
 def _extract_sections_from_blob(text: str) -> dict[str, list[str]]:
-    normalized = cleaning.normalize_text(str(text))
-    lines = normalized.split("\n")
-    sections: dict[str, list[str]] = {
-        "ingredients": [],
-        "instructions": [],
-        "notes": [],
-    }
-    current_section: str | None = None
-    found_any_header = False
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-
-        match = _SECTION_HEADER_RE.match(stripped)
-        if match:
-            header = match.group(1).lower()
-            found_any_header = True
-            if header in ("ingredient", "ingredients"):
-                current_section = "ingredients"
-            elif header in (
-                "instruction",
-                "instructions",
-                "direction",
-                "directions",
-                "method",
-                "step",
-                "steps",
-                "preparation",
-            ):
-                current_section = "instructions"
-            elif header in ("note", "notes", "tip", "tips"):
-                current_section = "notes"
-            continue
-
-        if current_section == "ingredients":
-            normalized_line = _normalize_ingredient_line(stripped)
-            if normalized_line:
-                sections["ingredients"].append(normalized_line)
-        elif current_section == "instructions":
-            normalized_line = _normalize_instruction_line(stripped)
-            if normalized_line:
-                sections["instructions"].append(normalized_line)
-        elif current_section == "notes":
-            sections["notes"].append(stripped)
-
-    if not found_any_header:
-        return {}
-    return sections
+    return extract_sections_from_text_blob(
+        text,
+        ingredient_line_normalizer=_normalize_ingredient_line,
+        instruction_line_normalizer=_normalize_instruction_line,
+    )
 
 
 def _normalize_tags(value: Any) -> list[str]:
@@ -397,6 +361,7 @@ class TextImporter:
         path: Path,
         mapping: MappingConfig | None,
         progress_callback: Callable[[str], None] | None = None,
+        run_settings: RunSettings | None = None,
     ) -> ConversionResult:
         """
         Converts the text file into RecipeCandidates.
@@ -404,6 +369,10 @@ class TextImporter:
         report = ConversionReport()
         recipes: List[RecipeCandidate] = []
         raw_artifacts: list[RawArtifact] = []
+        non_recipe_blocks: list[dict[str, Any]] = []
+        recipe_likeness_results = []
+        recipe_scoring_debug_rows: list[dict[str, Any]] = []
+        rejected_candidate_count = 0
         overrides = mapping.parsing_overrides if mapping else None
         
         try:
@@ -412,8 +381,81 @@ class TextImporter:
                     progress_callback("Processing DOCX tables...")
                 table_recipes, table_report, table_raw = self._convert_docx_tables(path, mapping)
                 if table_recipes:
+                    table_source_hash = (
+                        str(table_raw[0].source_hash) if table_raw else compute_file_hash(path)
+                    )
+                    accepted_table_recipes: list[RecipeCandidate] = []
+                    for index, recipe in enumerate(table_recipes):
+                        likeness = score_recipe_likeness(recipe, settings=run_settings)
+                        gate_action = recipe_gate_action(likeness, settings=run_settings)
+                        recipe.recipe_likeness = likeness
+                        recipe.confidence = likeness.score
+                        recipe_likeness_results.append(likeness)
+
+                        provenance = recipe.provenance if isinstance(recipe.provenance, dict) else {}
+                        location = {
+                            "sheet": provenance.get("sheet"),
+                            "row_index": provenance.get("row_index"),
+                            "chunk_index": index,
+                        }
+                        recipe_scoring_debug_rows.append(
+                            build_recipe_scoring_debug_row(
+                                candidate=recipe,
+                                result=likeness,
+                                gate_action=gate_action,
+                                candidate_index=index,
+                                location=location,
+                                importer="text",
+                                source_hash=table_source_hash,
+                            )
+                        )
+
+                        if gate_action == "reject":
+                            rejected_candidate_count += 1
+                            block_text = "\n".join(
+                                [
+                                    recipe.name,
+                                    "Ingredients:",
+                                    *recipe.ingredients,
+                                    "Instructions:",
+                                    *[str(step) for step in recipe.instructions],
+                                ]
+                            ).strip()
+                            if block_text:
+                                non_recipe_blocks.append(
+                                    {
+                                        "index": len(non_recipe_blocks),
+                                        "text": block_text,
+                                        "location": location,
+                                        "features": {
+                                            "source": "rejected_recipe_candidate",
+                                            "gate_action": gate_action,
+                                            "score": likeness.score,
+                                            "tier": likeness.tier.value,
+                                        },
+                                    }
+                                )
+                            continue
+
+                        accepted_table_recipes.append(recipe)
+
+                    if recipe_scoring_debug_rows:
+                        table_raw.append(
+                            RawArtifact(
+                                importer="text",
+                                sourceHash=table_source_hash,
+                                locationId="recipe_scoring_debug",
+                                extension="jsonl",
+                                content="\n".join(
+                                    json.dumps(row, sort_keys=True)
+                                    for row in recipe_scoring_debug_rows
+                                ),
+                                metadata={"artifact_type": "recipe_scoring_debug"},
+                            )
+                        )
+
                     tip_candidates: list[Any] = []
-                    for recipe in table_recipes:
+                    for recipe in accepted_table_recipes:
                         tip_candidates.extend(
                             extract_tip_candidates_from_candidate(
                                 recipe, overrides=overrides
@@ -427,14 +469,21 @@ class TextImporter:
                     table_report.total_general_tips = len(tips)
                     table_report.total_recipe_specific_tips = len(recipe_specific)
                     table_report.total_not_tips = len(not_tips)
+                    table_report.total_recipes = len(accepted_table_recipes)
+                    table_report.recipe_likeness = summarize_recipe_likeness(
+                        recipe_likeness_results,
+                        rejected_candidate_count,
+                        settings=run_settings,
+                    )
                     if tips:
                         table_report.tip_samples = [
                             {"text": tip.text[:80]} for tip in tips[:3]
                         ]
                     return ConversionResult(
-                        recipes=table_recipes,
+                        recipes=accepted_table_recipes,
                         tips=tips,
                         tipCandidates=tip_candidates,
+                        nonRecipeBlocks=non_recipe_blocks,
                         rawArtifacts=table_raw,
                         report=table_report,
                         workbook=path.stem,
@@ -467,7 +516,35 @@ class TextImporter:
             # 1. Split
             if progress_callback:
                 progress_callback("Splitting recipes...")
-            chunks = self._split_recipes(normalized)
+            split_backend = self._resolve_multi_recipe_splitter_backend(run_settings)
+            if split_backend == "legacy":
+                chunks = self._split_recipes(normalized)
+            elif split_backend == "off":
+                total_lines = len(normalized.splitlines())
+                chunks = [(normalized, (1, total_lines or 1))]
+            else:
+                split_result = split_candidate_lines(
+                    normalized.splitlines(),
+                    config=self._build_multi_recipe_split_config(
+                        run_settings, backend=split_backend
+                    ),
+                    overrides=overrides,
+                )
+                chunks = self._split_by_candidate_spans(normalized, split_result.spans)
+                if split_result.trace is not None:
+                    raw_artifacts.append(
+                        RawArtifact(
+                            importer="text",
+                            sourceHash=file_hash,
+                            locationId="multi_recipe_split_trace",
+                            extension="json",
+                            content=split_result.trace,
+                            metadata={
+                                "artifact_type": "multi_recipe_split_trace",
+                                "backend": split_backend,
+                            },
+                        )
+                    )
             
             # 2. Parse each chunk
             total_chunks = len(chunks)
@@ -476,8 +553,6 @@ class TextImporter:
                     progress_callback(f"Parsing chunk {i + 1}/{total_chunks}...")
                 try:
                     candidate = self._parse_chunk(chunk_text, overrides=overrides)
-                    candidate.confidence = score_recipe_candidate(candidate)
-                    
                     # Add provenance
                     provenance_builder = ProvenanceBuilder(
                         source_file=path.name,
@@ -500,8 +575,50 @@ class TextImporter:
                         candidate.identifier = generate_recipe_id(
                             "text", file_hash, f"chunk_{i}"
                         )
-                        
-                    recipes.append(candidate)
+                    likeness = score_recipe_likeness(candidate, settings=run_settings)
+                    gate_action = recipe_gate_action(likeness, settings=run_settings)
+                    candidate.recipe_likeness = likeness
+                    candidate.confidence = likeness.score
+                    recipe_likeness_results.append(likeness)
+                    recipe_scoring_debug_rows.append(
+                        build_recipe_scoring_debug_row(
+                            candidate=candidate,
+                            result=likeness,
+                            gate_action=gate_action,
+                            candidate_index=i,
+                            location={
+                                "start_line": line_range[0],
+                                "end_line": line_range[1],
+                                "chunk_index": i,
+                            },
+                            importer="text",
+                            source_hash=file_hash,
+                        )
+                    )
+
+                    if gate_action == "reject":
+                        rejected_candidate_count += 1
+                        if chunk_text.strip():
+                            non_recipe_blocks.append(
+                                {
+                                    "index": len(non_recipe_blocks),
+                                    "text": chunk_text,
+                                    "location": {
+                                        "start_line": line_range[0],
+                                        "end_line": line_range[1],
+                                        "chunk_index": i,
+                                    },
+                                    "features": {
+                                        "source": "rejected_recipe_candidate",
+                                        "gate_action": gate_action,
+                                        "score": likeness.score,
+                                        "tier": likeness.tier.value,
+                                    },
+                                }
+                            )
+                    else:
+                        recipes.append(candidate)
+
                     raw_artifacts.append(
                         RawArtifact(
                             importer="text",
@@ -519,6 +636,21 @@ class TextImporter:
                 except Exception as e:
                     logger.warning(f"Failed to parse chunk {i} in {path}: {e}")
                     report.warnings.append(f"Failed to parse chunk {i}: {e}")
+
+            if recipe_scoring_debug_rows:
+                raw_artifacts.append(
+                    RawArtifact(
+                        importer="text",
+                        sourceHash=file_hash,
+                        locationId="recipe_scoring_debug",
+                        extension="jsonl",
+                        content="\n".join(
+                            json.dumps(row, sort_keys=True)
+                            for row in recipe_scoring_debug_rows
+                        ),
+                        metadata={"artifact_type": "recipe_scoring_debug"},
+                    )
+                )
             
             tip_candidates: list[Any] = []
             for recipe in recipes:
@@ -534,6 +666,11 @@ class TextImporter:
             report.total_general_tips = len(tips)
             report.total_recipe_specific_tips = len(recipe_specific)
             report.total_not_tips = len(not_tips)
+            report.recipe_likeness = summarize_recipe_likeness(
+                recipe_likeness_results,
+                rejected_candidate_count,
+                settings=run_settings,
+            )
             if recipes:
                 report.samples = [{"name": r.name} for r in recipes[:3]]
             if tips:
@@ -543,6 +680,7 @@ class TextImporter:
                 recipes=recipes,
                 tips=tips,
                 tipCandidates=tip_candidates,
+                nonRecipeBlocks=non_recipe_blocks,
                 rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem, # Using stem as "workbook" name
@@ -808,6 +946,72 @@ class TextImporter:
             
         # Strategy 4: Default to single recipe
         return [(text, (1, len(text.splitlines())))]
+
+    def _resolve_multi_recipe_splitter_backend(
+        self, run_settings: RunSettings | None
+    ) -> str:
+        raw_backend = getattr(getattr(run_settings, "multi_recipe_splitter", None), "value", None)
+        if raw_backend is None and run_settings is not None:
+            raw_backend = getattr(run_settings, "multi_recipe_splitter", None)
+        normalized = str(raw_backend or "legacy").strip().lower().replace("-", "_")
+        if normalized in {"legacy", "off", "rules_v1"}:
+            return normalized
+        return "legacy"
+
+    def _build_multi_recipe_split_config(
+        self,
+        run_settings: RunSettings | None,
+        *,
+        backend: str,
+    ) -> MultiRecipeSplitConfig:
+        min_ingredient_lines = getattr(run_settings, "multi_recipe_min_ingredient_lines", 1)
+        min_instruction_lines = getattr(
+            run_settings, "multi_recipe_min_instruction_lines", 1
+        )
+        for_the_guardrail = getattr(
+            run_settings, "multi_recipe_for_the_guardrail", True
+        )
+        trace = getattr(run_settings, "multi_recipe_trace", False)
+        return MultiRecipeSplitConfig(
+            backend=backend,
+            min_ingredient_lines=max(0, int(min_ingredient_lines or 0)),
+            min_instruction_lines=max(0, int(min_instruction_lines or 0)),
+            enable_for_the_guardrail=bool(for_the_guardrail),
+            trace=bool(trace),
+        )
+
+    def _split_by_candidate_spans(
+        self,
+        text: str,
+        spans: tuple[Any, ...],
+    ) -> List[Tuple[str, Tuple[int, int]]]:
+        lines = text.splitlines(keepends=True)
+        if not lines:
+            return []
+
+        line_starts: list[int] = []
+        pos = 0
+        for line in lines:
+            line_starts.append(pos)
+            pos += len(line)
+
+        chunks: list[tuple[str, tuple[int, int]]] = []
+        total_lines = len(lines)
+        for span in spans:
+            start_line = max(0, int(getattr(span, "start", 0)))
+            end_line = min(total_lines, int(getattr(span, "end", total_lines)))
+            if end_line <= start_line:
+                continue
+            start_char = line_starts[start_line]
+            end_char = line_starts[end_line] if end_line < total_lines else len(text)
+            chunk = text[start_char:end_char].strip()
+            if not chunk:
+                continue
+            chunks.append((chunk, (start_line + 1, end_line)))
+
+        if chunks:
+            return chunks
+        return [(text, (1, total_lines))]
 
     def _split_by_regex(self, text: str, pattern: re.Pattern) -> List[Tuple[str, Tuple[int, int]]]:
         chunks = []

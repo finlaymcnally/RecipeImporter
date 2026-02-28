@@ -22,6 +22,27 @@ def test_run_settings_hash_and_summary_are_stable() -> None:
     assert settings.to_run_config_dict()["epub_unstructured_skip_headers_footers"] is False
     assert settings.to_run_config_dict()["epub_unstructured_preprocess_mode"] == "br_split_v1"
     assert settings.to_run_config_dict()["table_extraction"] == "off"
+    assert settings.to_run_config_dict()["section_detector_backend"] == "legacy"
+    assert settings.to_run_config_dict()["multi_recipe_splitter"] == "legacy"
+    assert settings.to_run_config_dict()["multi_recipe_trace"] is False
+    assert settings.to_run_config_dict()["multi_recipe_min_ingredient_lines"] == 1
+    assert settings.to_run_config_dict()["multi_recipe_min_instruction_lines"] == 1
+    assert settings.to_run_config_dict()["multi_recipe_for_the_guardrail"] is True
+    assert settings.to_run_config_dict()["instruction_step_segmentation_policy"] == "auto"
+    assert settings.to_run_config_dict()["instruction_step_segmenter"] == "heuristic_v1"
+    assert settings.to_run_config_dict()["web_schema_extractor"] == "builtin_jsonld"
+    assert settings.to_run_config_dict()["web_schema_normalizer"] == "simple"
+    assert settings.to_run_config_dict()["web_html_text_extractor"] == "bs4"
+    assert settings.to_run_config_dict()["web_schema_policy"] == "prefer_schema"
+    assert settings.to_run_config_dict()["web_schema_min_confidence"] == 0.75
+    assert settings.to_run_config_dict()["web_schema_min_ingredients"] == 2
+    assert settings.to_run_config_dict()["web_schema_min_instruction_steps"] == 1
+    assert settings.to_run_config_dict()["ingredient_text_fix_backend"] == "none"
+    assert settings.to_run_config_dict()["ingredient_pre_normalize_mode"] == "legacy"
+    assert settings.to_run_config_dict()["ingredient_packaging_mode"] == "off"
+    assert settings.to_run_config_dict()["ingredient_parser_backend"] == "ingredient_parser_nlp"
+    assert settings.to_run_config_dict()["ingredient_unit_canonicalizer"] == "legacy"
+    assert settings.to_run_config_dict()["ingredient_missing_unit_policy"] == "null"
     assert settings.to_run_config_dict()["llm_recipe_pipeline"] == "off"
     assert settings.to_run_config_dict()["llm_knowledge_pipeline"] == "off"
     assert settings.to_run_config_dict()["llm_tags_pipeline"] == "off"
@@ -75,6 +96,26 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     assert llm_tags_spec.choices == ("off", "codex-farm-tags-v1")
     epub_extractor_spec = next(spec for spec in specs if spec.name == "epub_extractor")
     assert epub_extractor_spec.choices == ("unstructured", "beautifulsoup")
+    section_backend_spec = next(
+        spec for spec in specs if spec.name == "section_detector_backend"
+    )
+    assert section_backend_spec.choices == ("legacy", "shared_v1")
+    multi_recipe_spec = next(spec for spec in specs if spec.name == "multi_recipe_splitter")
+    assert multi_recipe_spec.choices == ("legacy", "off", "rules_v1")
+    segmentation_policy_spec = next(
+        spec for spec in specs if spec.name == "instruction_step_segmentation_policy"
+    )
+    assert segmentation_policy_spec.choices == ("off", "auto", "always")
+    segmenter_spec = next(
+        spec for spec in specs if spec.name == "instruction_step_segmenter"
+    )
+    assert segmenter_spec.choices == ("heuristic_v1", "pysbd_v1")
+    web_policy_spec = next(spec for spec in specs if spec.name == "web_schema_policy")
+    assert web_policy_spec.choices == (
+        "prefer_schema",
+        "schema_only",
+        "heuristic_only",
+    )
 
 
 def test_last_run_store_round_trip_and_corrupt_recovery(tmp_path) -> None:

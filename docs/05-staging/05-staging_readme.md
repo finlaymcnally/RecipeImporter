@@ -37,6 +37,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 - `cookimport/staging/draft_v1.py`
   - Final conversion to cookbook3 output shape (internal model label still `RecipeDraftV1`).
   - Applies staging safety normalization for ingredient lines.
+  - Applies deterministic fallback instruction-step segmentation from run settings before section extraction/step parsing.
 - `cookimport/staging/writer.py`
   - Writes intermediate/final outputs, section artifacts, tips, topic candidates, chunks, raw artifacts, and report JSON.
   - Generates/stabilizes IDs where needed.
@@ -89,10 +90,14 @@ Per workbook (slugified file stem):
 - `tags/<workbook_slug>/tagging_report.json` (if pass5 tags pipeline is enabled)
 - `tags/tags_index.json` (if any pass5 tag artifacts were written in the run)
 - `raw/<importer>/<source_hash>/<location_id>.<ext>` (if any)
+  - includes `recipe_scoring_debug.jsonl` when importers emit candidate gate decisions
 - `raw/llm/<workbook_slug>/pass5_tags/in/*.json` + `out/*.json` + `pass5_tags_manifest.json` (if pass5 tags pipeline is enabled)
 - `<workbook_slug>.excel_import_report.json` at run root
 - `processing_timeseries.jsonl` at run root (stage status snapshots + CPU utilization samples)
 - `run_manifest.json` at run root (source identity + artifact index for this stage run)
+
+Report contract note:
+- `<workbook_slug>.excel_import_report.json` can include `recipeLikeness` summary (backend/version, thresholds, tier counts, score stats, rejected count).
 
 Outside run root (`data/output/.history/`):
 
@@ -110,6 +115,7 @@ Stage-block `KNOWLEDGE` label contract:
 
 Stage-block label resolution contract:
 - `stage_block_predictions.py` labels blocks from recipe-local text matches (title, ingredients, instructions, notes, variant/yield/time lines).
+- `RECIPE_NOTES` evidence merges schema `comment` rows with recipe-specific notes deterministically extracted from `description` (`extract_recipe_specific_notes`).
 - If ingredient/instruction exact/fuzzy matching misses, it falls back to extracted archive `block_role` hints (`ingredient_line`, `instruction_line`).
 - Multi-label conflicts resolve by fixed priority (`RECIPE_VARIANT` > `RECIPE_TITLE` > `YIELD_LINE` > `TIME_LINE` > `INGREDIENT_LINE` > `RECIPE_NOTES` > `INSTRUCTION_LINE` > `KNOWLEDGE`).
 - If a block has both `KNOWLEDGE` and recipe-local labels, recipe-local label wins.
@@ -117,6 +123,7 @@ Stage-block label resolution contract:
 ## Intermediate JSON-LD Section Behavior
 
 - `cookimport/staging/jsonld.py` now removes detected instruction section headers from literal step text.
+- `cookimport/staging/jsonld.py`, `cookimport/staging/draft_v1.py`, and `write_section_outputs(...)` now consume the same effective instruction segmentation settings (`instruction_step_segmentation_policy`, `instruction_step_segmenter`) so step boundaries stay aligned across outputs.
 - When multiple instruction sections are detected, `recipeInstructions` is emitted as `HowToSection` objects with `itemListElement` `HowToStep` entries.
 - Ingredient section groupings are emitted in custom metadata:
   - `recipeimport:ingredientSections` with `name`, `key`, and grouped `recipeIngredient` lines.
@@ -175,6 +182,8 @@ Current enforced behavior:
 - Linked-recipe lines normalize invalid/missing `quantity_kind` values to `exact`.
 - For unresolved units, `input_unit_id` is always set to `null` (raw unit text retained in `raw_unit_text`).
 - For unresolved non-linked ingredients, `ingredient_id` must be non-empty string; fallback uses `raw_ingredient_text`, then `raw_text`, then sentinel `__missing_ingredient__`.
+- Ingredient parsing now consumes run-config parser knobs (`ingredient_*` settings), so missing-unit policy/backend/packaging options selected for stage/prediction imports directly affect final draft ingredient lines.
+- Instruction fallback segmentation now consumes run-config knobs (`instruction_step_segmentation_policy`, `instruction_step_segmenter`) before section extraction and variant splitting.
 
 Code pointer:
 
@@ -207,6 +216,7 @@ When PDFs/EPUBs are split into jobs, merge flow:
 6. Writes merged outputs through standard writer functions.
 7. Writes stage-block predictions using merged archive blocks so block labels align with global block indices.
 8. Moves raw artifacts from temporary `.job_parts/<workbook_slug>/job_{i}/raw/...` into final `raw/...` path.
+   - Per-job `recipe_scoring_debug.jsonl` collisions are preserved via deterministic `job_{index}_...` prefixing.
 9. Writes report JSON after raw merge so `outputStats` includes moved raw artifacts (plus merged `raw/.../full_text.json`) without a post-write directory scan.
 
 ### Split-merge outputStats invariants (merged 2026-02-27)
@@ -319,3 +329,24 @@ Current-contract additions:
 - Split-merge docs should explicitly include block-index offset handling and merged `raw/.../full_text.json` normalization so Label Studio alignment remains valid.
 - Ingredient-under-count limitation text was retired: current draft conversion tracks unassigned ingredients by `ingredient_index` from assignment debug data.
 - Linked-recipe quantity docs should reflect current sanitize behavior: positive values are capped at `100`, missing/non-positive values normalize to `null`.
+
+## 2026-02-28 migrated understandings digest
+
+This section consolidates discoveries migrated from `docs/understandings` into this domain folder.
+
+### 2026-02-27_20.39.35 recipe notes label intent vs stage comments source
+- Source: `docs/understandings/2026-02-27_20.39.35-recipe-notes-label-intent-vs-stage-comments-source.md`
+- Summary: RECIPE_NOTES is intended for recipe-local tips/notes, but stage block predictions currently source it only from recipe.comment fields.
+
+### 2026-02-27_20.44.19 stage block recipe notes description source enabled
+- Source: `docs/understandings/2026-02-27_20.44.19-stage-block-recipe-notes-description-source-enabled.md`
+- Summary: Stage block prediction now sources RECIPE_NOTES from both schema comments and description-derived recipe-specific notes.
+
+### 2026-02-27_22.43.10 priority4 ingredient options wiring path
+- Source: `docs/understandings/2026-02-27_22.43.10-priority4-ingredient-options-wiring-path.md`
+- Summary: Priority-4 discovery: ingredient parser settings must be threaded at draft-write time, not importer convert time.
+
+### 2026-02-27_23.17.42 priority5 shared instruction shaping path
+- Source: `docs/understandings/2026-02-27_23.17.42-priority5-shared-instruction-shaping-path.md`
+- Summary: Priority-5 implementation note: stage draft/jsonld/sections must all consume one shared effective instruction-shaping path, wired from RunSettings through stage + pred-run flows.
+

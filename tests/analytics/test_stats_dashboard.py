@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from cookimport.analytics.dashboard_schema import (
+    BenchmarkLabelMetrics,
     BenchmarkRecord,
     DashboardData,
     DashboardSummary,
@@ -980,6 +981,68 @@ class TestRenderer:
             '\'<a href="\' + esc(href) + \'" title="\' + esc(href) + \'">\' + esc(ts) + "</a>"'
             in js
         )
+
+    def test_js_per_label_aggregates_latest_run_timestamp_group(self, tmp_path):
+        data = DashboardData(
+            benchmark_records=[
+                BenchmarkRecord(
+                    run_timestamp="2026-02-27_17.54.41",
+                    artifact_dir="/tmp/eval/latest/a",
+                    precision=0.5,
+                    recall=0.5,
+                    per_label=[
+                        BenchmarkLabelMetrics(
+                            label="RECIPE_TITLE",
+                            precision=1.0,
+                            recall=0.5,
+                            gold_total=10,
+                            pred_total=5,
+                        )
+                    ],
+                ),
+                BenchmarkRecord(
+                    run_timestamp="2026-02-27_17.54.41",
+                    artifact_dir="/tmp/eval/latest/b",
+                    precision=0.6,
+                    recall=0.6,
+                    per_label=[
+                        BenchmarkLabelMetrics(
+                            label="RECIPE_TITLE",
+                            precision=0.5,
+                            recall=1.0,
+                            gold_total=4,
+                            pred_total=8,
+                        )
+                    ],
+                ),
+                BenchmarkRecord(
+                    run_timestamp="2026-02-26_17.47.33",
+                    artifact_dir="/tmp/eval/older",
+                    precision=0.7,
+                    recall=0.7,
+                    per_label=[
+                        BenchmarkLabelMetrics(
+                            label="RECIPE_TITLE",
+                            precision=0.25,
+                            recall=0.25,
+                            gold_total=100,
+                            pred_total=100,
+                        )
+                    ],
+                ),
+            ]
+        )
+        render_dashboard(tmp_path / "dash", data)
+        js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
+        assert 'const ALL_METHOD_SEGMENT = "/all-method-benchmark/";' in js
+        assert "const latestAllMethodRecords = sorted.filter(r =>" in js
+        assert 'String(r.artifact_dir || "").includes(ALL_METHOD_SEGMENT)' in js
+        assert "const candidateRecords = latestAllMethodRecords.length > 0" in js
+        assert 'const latestRunTimestamp = String(latestWithPerLabel.run_timestamp || "");' in js
+        assert "const latestRunRecords = candidateRecords.filter(r =>" in js
+        assert 'String(r.run_timestamp || "") === latestRunTimestamp' in js
+        assert 'latestRunRecords.length + " evals)"' in js
+        assert "const byLabel = Object.create(null);" in js
 
     def test_js_init_skips_removed_control_setup(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())

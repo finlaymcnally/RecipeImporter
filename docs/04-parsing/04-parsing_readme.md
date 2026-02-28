@@ -36,7 +36,10 @@ Core modules:
 - `cookimport/parsing/__init__.py` (public parsing utility exports)
 - `cookimport/parsing/ingredients.py`
 - `cookimport/parsing/instruction_parser.py`
+- `cookimport/parsing/step_segmentation.py`
 - `cookimport/parsing/step_ingredients.py`
+- `cookimport/parsing/section_detector.py`
+- `cookimport/parsing/multi_recipe_splitter.py`
 - `cookimport/parsing/sections.py`
 - `cookimport/parsing/tips.py`
 - `cookimport/parsing/atoms.py`
@@ -81,6 +84,7 @@ Major call sites:
 
 1. Importer creates `RecipeCandidate` objects.
 2. `cookimport/staging/draft_v1.py` converts each candidate:
+   - optional deterministic fallback step segmentation runs first (`instruction_step_segmentation_policy=off|auto|always`, backend `heuristic_v1|pysbd_v1`)
    - ingredient lines parsed with `parse_ingredient_line`
    - steps parsed with `parse_instruction`
    - ingredient lines linked to steps with `assign_ingredient_lines_to_steps`
@@ -111,6 +115,13 @@ Major call sites:
 ### Main behavior
 
 - Uses `ingredient-parser-nlp` (`parse_ingredient(..., string_units=True)`).
+- Supports optional run-setting backends/normalizers:
+  - `ingredient_parser_backend`: `ingredient_parser_nlp | quantulum3_regex | hybrid_nlp_then_quantulum3`
+  - `ingredient_text_fix_backend`: `none | ftfy`
+  - `ingredient_pre_normalize_mode`: `legacy | aggressive_v1`
+  - `ingredient_packaging_mode`: `off | regex_v1`
+  - `ingredient_unit_canonicalizer`: `legacy | pint`
+  - `ingredient_missing_unit_policy`: `null | each | legacy_medium`
 - Returns normalized dict with `quantity_kind` in:
   - `exact`
   - `approximate`
@@ -128,10 +139,10 @@ Major call sites:
 
 ### Non-obvious implementation details
 
-- If parsed amount has no unit, unit defaults to `"medium"`.
-  - This is deliberate in current code/tests, but semantically imperfect.
+- Default missing-unit policy is now explicit and defaults to `null` (no implicit `"medium"` unit).
+- Packaging-mode regex hoist (`ingredient_packaging_mode=regex_v1`) moves package-size hints into `note` for lines like `1 (14-ounce) can tomatoes`.
+- Post-parse repair is deterministic: it preserves `raw_text`, repairs invalid quantity/unit/name combinations, and keeps fallback ingredient names instead of dropping lines.
 - `warm_ingredient_parser()` exists to pre-load model quietly.
-- File currently contains a duplicate `parse_ingredient_line` definition stub near top, then full implementation below. Runtime uses the later definition. It is harmless but technical debt.
 
 ### Tests to read
 
@@ -194,7 +205,12 @@ Matching order:
 
 ### Section extraction and context
 
-- `cookimport/parsing/sections.py` provides deterministic section extraction for:
+- `cookimport/parsing/section_detector.py` is the shared deterministic detector used by importers and parser section helpers.
+- `cookimport/parsing/sections.py` keeps the historical public API and delegates detection internals to `section_detector.py`.
+- Shared detection currently supports two run-setting backends:
+  - `legacy` (default, prior behavior)
+  - `shared_v1` (new shared detector path)
+- `sections.py` provides deterministic section extraction for:
   - ingredient headers (for example `For the gravy:`),
   - instruction headers (conservative heuristics; header-like short lines only).
 - Section keys are normalized (`For the Gravy:` -> `gravy`) so ingredient/instruction sections align.
@@ -255,6 +271,7 @@ Recipe boundary detection directly controls which text reaches parsing/linking/t
 - `cookimport/parsing/epub_html_normalize.py` pre-normalizes XHTML before unstructured partitioning.
 - `cookimport/parsing/unstructured_adapter.py` maps unstructured elements to deterministic blocks + diagnostics metadata.
 - `cookimport/parsing/epub_postprocess.py` and `cookimport/parsing/epub_health.py` are shared guardrails after HTML-based extraction.
+- `cookimport/plugins/epub.py` and `cookimport/plugins/pdf.py` both read `run_settings.section_detector_backend` and can route field extraction through the shared detector when set to `shared_v1`.
 
 ### Known historical fix
 
@@ -267,6 +284,32 @@ This was added to stop false recipe splits where component headers like `For the
 - `tests/parsing/test_epub_html_normalize.py`
 - `tests/ingestion/test_unstructured_adapter.py`
 - `tests/parsing/test_markdown_blocks.py`
+
+## Shared Multi-Recipe Splitter (`cookimport/parsing/multi_recipe_splitter.py`)
+
+### Scope
+
+- Shared deterministic splitter for one candidate span that may contain multiple recipes.
+- Used by Text, EPUB, and PDF importers when `multi_recipe_splitter=rules_v1`.
+
+### Backends
+
+- `legacy`: importer-local behavior (existing text split path, EPUB/PDF no post-candidate split).
+- `off`: passthrough; no split attempt.
+- `rules_v1`: title-like boundary detection + section coverage thresholds + local recipe-signal guard.
+
+### Guardrails and thresholds
+
+- `For the X` false-boundary suppression reuses `detect_sections_from_lines(...)` in `section_detector.py` when `multi_recipe_for_the_guardrail` is enabled.
+- Coverage thresholds (`multi_recipe_min_ingredient_lines`, `multi_recipe_min_instruction_lines`) use ingredient/instruction signal lines (content and section-header signals) so short recipe units with clear headers remain splittable.
+- Optional trace payload records accepted/rejected boundaries and guardrail-blocked indices when `multi_recipe_trace=true`.
+
+### Tests to read
+
+- `tests/parsing/test_multi_recipe_splitter.py`
+- `tests/ingestion/test_text_importer.py`
+- `tests/ingestion/test_epub_importer.py`
+- `tests/ingestion/test_pdf_importer.py`
 
 ## Tip Candidate Extraction (`cookimport/parsing/tips.py`)
 
@@ -581,3 +624,40 @@ Current-contract additions:
 - Keep removed race-backend and dead task-path references retired.
 - Parsing docs should explicitly include helper modules (`markitdown_adapter.py`, `patterns.py`, `spacy_support.py`) and cross-boundary call sites (`plugins/*`, CLI worker paths, Label Studio ingest, staging/jsonld, scoring).
 - `cookimport/parsing/classifier.py` is parsing-adjacent but currently test-scoped for tagging tests, not default stage recipe runtime.
+
+## 2026-02-28 migrated understandings digest
+
+This section consolidates discoveries migrated from `docs/understandings` into this domain folder.
+
+### 2026-02-27_22.24.26 priority4 current state audit
+- Source: `docs/understandings/2026-02-27_22.24.26-priority4-current-state-audit.md`
+- Summary: Priority-4 current-state audit: ingredient parser remains legacy and options are not wired yet.
+
+### 2026-02-27_22.24.37 priority6 current time temp yield state
+- Source: `docs/understandings/2026-02-27_22.24.37-priority6-current-time-temp-yield-state.md`
+- Summary: Priority-6 discovery: parser/staging are still baseline-only, with fragmented yield extraction and no Priority 6 run-setting surface.
+
+### 2026-02-27_22.27.26 priority5 current step segmentation status
+- Source: `docs/understandings/2026-02-27_22.27.26-priority5-current-step-segmentation-status.md`
+- Summary: Priority-5 discovery: instruction fallback segmentation is not implemented yet, and staging/bench wiring points that must change are now mapped.
+
+### 2026-02-27_22.37.08 priority6 rebuild validation audit
+- Source: `docs/understandings/2026-02-27_22.37.08-priority6-rebuild-validation-audit.md`
+- Summary: Priority-6 revalidation audit: parser/staging/yield/run-settings contracts remain baseline-only and justify the active ExecPlan scope.
+
+### 2026-02-27_22.38.32 priority5 wiring refresh audit
+- Source: `docs/understandings/2026-02-27_22.38.32-priority5-wiring-refresh-audit.md`
+- Summary: Priority-5 refresh audit: instruction fallback segmentation is still unimplemented, and the exact stage/run-settings/bench wiring points remain mapped.
+
+### 2026-02-27_22.41.18 priority2 shared backend header preservation and test double signature
+- Source: `docs/understandings/2026-02-27_22.41.18-priority2-shared-backend-header-preservation-and-test-double-signature.md`
+- Summary: Priority-2 implementation discovery: shared section backend must preserve standalone component headers, and ingest tests should accept additive importer kwargs.
+
+### 2026-02-27_23.05.12 priority6 latest tree gap revalidation
+- Source: `docs/understandings/2026-02-27_23.05.12-priority6-latest-tree-gap-revalidation.md`
+- Summary: Priority 6 latest-tree revalidation: parser, staging, and run settings still expose baseline behavior only.
+
+### 2026-02-27_23.22.41 priority6 runtime wiring map
+- Source: `docs/understandings/2026-02-27_23.22.41-priority6-runtime-wiring-map.md`
+- Summary: Priority 6 wiring map: run settings flow into stage/pred-run via run_config, then draft_v1 consumes parser/yield options from that shared payload.
+

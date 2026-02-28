@@ -5,6 +5,7 @@ import time
 import types
 import pytest
 from pathlib import Path
+from cookimport.config.run_settings import RunSettings
 from cookimport.core.blocks import Block
 from cookimport.core.models import RecipeCandidate
 from cookimport.parsing.atoms import Atom
@@ -45,12 +46,16 @@ def test_convert_epub():
     
     r1 = result.recipes[0]
     assert r1.name == "Best Pancakes"
+    assert r1.recipe_likeness is not None
+    assert r1.confidence == r1.recipe_likeness.score
     assert len(r1.ingredients) == 2
     assert "1 cup flour" in r1.ingredients
     assert "Mix contents." in r1.instructions
     
     r2 = result.recipes[1]
     assert r2.name == "Simple Salad"
+    assert r2.recipe_likeness is not None
+    assert r2.confidence == r2.recipe_likeness.score
     assert "Lettuce" in r2.ingredients
 
 
@@ -102,6 +107,92 @@ def test_convert_epub_emits_post_candidate_progress(monkeypatch, tmp_path: Path)
     assert "Analyzing standalone knowledge blocks..." in progress_messages
     assert "Finalizing EPUB extraction results..." in progress_messages
     assert progress_messages[-1] == "EPUB conversion complete."
+
+
+def test_convert_epub_applies_multi_recipe_splitter_postprocessing(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_bytes(b"dummy-epub")
+    importer = EpubImporter()
+    importer._extractor_diagnostics = {"beautifulsoup": [], "unstructured": [], "markdown": []}
+    importer._extractor_meta = {"beautifulsoup": {}, "unstructured": {}, "markdown": {}}
+    importer._unstructured_spine_xhtml = []
+    importer._markitdown_markdown = None
+    blocks = [
+        Block(text="Recipe One"),
+        Block(text="Ingredients"),
+        Block(text="1 cup flour"),
+        Block(text="Instructions"),
+        Block(text="Bake."),
+        Block(text="Recipe Two"),
+        Block(text="Ingredients"),
+        Block(text="2 eggs"),
+        Block(text="Instructions"),
+        Block(text="Whisk."),
+    ]
+    for block in blocks:
+        signals.enrich_block(block)
+
+    monkeypatch.setenv("C3IMP_EPUB_EXTRACTOR", "beautifulsoup")
+    monkeypatch.setattr(importer, "_extract_docpack", lambda *_args, **_kwargs: blocks)
+    monkeypatch.setattr(importer, "_detect_candidates", lambda _blocks: [(0, len(blocks), 0.9)])
+    monkeypatch.setattr(
+        importer,
+        "_apply_multi_recipe_splitter",
+        lambda _blocks, _candidates, run_settings=None: (
+            [(0, 5, 0.9), (5, len(blocks), 0.9)],
+            [
+                {
+                    "backend": "rules_v1",
+                    "split_parent": "c0",
+                    "split_index": 0,
+                    "split_count": 2,
+                    "split_reason": ["title_like_boundary"],
+                },
+                {
+                    "backend": "rules_v1",
+                    "split_parent": "c0",
+                    "split_index": 1,
+                    "split_count": 2,
+                    "split_reason": ["title_like_boundary"],
+                },
+            ],
+            {"backend": "rules_v1", "candidates": []},
+        ),
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_fields",
+        lambda candidate_blocks: RecipeCandidate(
+            name=str(candidate_blocks[0].text),
+            ingredients=["1 item"],
+            instructions=["1 step"],
+        ),
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_standalone_tips",
+        lambda *_args, **_kwargs: ([], [], 0, 0),
+    )
+
+    result = importer.convert(
+        source,
+        None,
+        run_settings=RunSettings(
+            multi_recipe_splitter="rules_v1",
+            multi_recipe_trace=True,
+        ),
+    )
+
+    assert len(result.recipes) == 2
+    assert result.recipes[0].provenance["multi_recipe"]["split_index"] == 0
+    assert result.recipes[1].provenance["multi_recipe"]["split_index"] == 1
+    assert any(
+        artifact.location_id == "multi_recipe_split_trace"
+        for artifact in result.raw_artifacts
+    )
 
 
 def test_convert_epub_markitdown_writes_markdown_artifact(monkeypatch, tmp_path: Path):
@@ -483,3 +574,26 @@ def test_find_recipe_end_includes_subsection_headers():
     # Should include all blocks through the instructions (block 8), stopping at block 9 (next recipe title)
     # The ingredient header at block 10 triggers backtracking to title at block 9
     assert end_idx == 9, f"Expected end at block 9, got {end_idx}"
+
+
+def test_extract_fields_shared_backend_preserves_for_the_component_headers() -> None:
+    importer = EpubImporter()
+    importer._section_detector_backend = "shared_v1"
+    importer._overrides = None
+    blocks = [
+        Block(text="Apple Tart", font_weight="bold"),
+        Block(text="Ingredients"),
+        Block(text="For the Frangipane"),
+        Block(text="3/4 cup almonds"),
+        Block(text="Instructions"),
+        Block(text="For the Frangipane"),
+        Block(text="Mix almonds and sugar."),
+    ]
+    for block in blocks:
+        signals.enrich_block(block)
+
+    candidate = importer._extract_fields(blocks)
+
+    assert candidate.name == "Apple Tart"
+    assert candidate.ingredients[:2] == ["For the Frangipane", "3/4 cup almonds"]
+    assert candidate.instructions[:2] == ["For the Frangipane", "Mix almonds and sugar."]

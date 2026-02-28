@@ -206,3 +206,100 @@ Source understanding merged:
 
 Current status:
 - Run manifest, stage-block builder semantics, and split-merge block-offset coverage are retained in this log and `05-staging_readme.md`.
+
+## 2026-02-28 migrated understanding ledger
+
+Chronological migration from `docs/understandings`; source files were removed after this merge.
+
+### 2026-02-27_20.39.35 recipe notes label intent vs stage comments source
+
+Source: `docs/understandings/2026-02-27_20.39.35-recipe-notes-label-intent-vs-stage-comments-source.md`
+Summary: RECIPE_NOTES is intended for recipe-local tips/notes, but stage block predictions currently source it only from recipe.comment fields.
+
+Details preserved:
+
+
+# RECIPE_NOTES Intent vs Stage Source
+
+Intent (prompt/docs):
+
+- `RECIPE_NOTES` means recipe-specific guidance attached to the current recipe (tips, storage, make-ahead, serving suggestions, cautions, ingredient-specific notes).
+- If text is clearly in recipe context, prefer `RECIPE_NOTES` over `KNOWLEDGE`.
+- Use `RECIPE_VARIANT` only for distinct alternate versions, not small tips.
+
+Current benchmark stage evidence path:
+
+- `cookimport/staging/stage_block_predictions.py` labels `RECIPE_NOTES` from `_note_texts(recipe)`.
+- `_note_texts(recipe)` reads only `recipe.comments` (`comment` in schema.org payload).
+- In runs where recipe-local note text lives in `description` and comments are empty, stage block predictions emit zero `RECIPE_NOTES`.
+
+Related observation:
+
+- The draft-v1 conversion path already extracts recipe-specific notes from `candidate.description` into `recipe.notes`, but stage block prediction labeling does not currently read that same source.
+
+### 2026-02-27_20.44.19 stage block recipe notes description source enabled
+
+Source: `docs/understandings/2026-02-27_20.44.19-stage-block-recipe-notes-description-source-enabled.md`
+Summary: Stage block prediction now sources RECIPE_NOTES from both schema comments and description-derived recipe-specific notes.
+
+Details preserved:
+
+
+# Stage Block RECIPE_NOTES Source Expansion
+
+Discovery and fix:
+
+- `cookimport/staging/stage_block_predictions.py` previously built `RECIPE_NOTES` only from `recipe.comments`.
+- Many parsed recipes carry note guidance in `description`, extracted elsewhere via `extract_recipe_specific_notes(...)`, so note blocks could be missed.
+- `_note_texts(recipe)` now merges:
+  - `recipe.comments` text/name
+  - deterministic `extract_recipe_specific_notes(recipe)` output from description
+- Note rows are normalized/deduped before block matching.
+
+Regression proof:
+
+- Added `test_build_stage_block_predictions_marks_notes_from_description_only` to ensure description-only notes label as `RECIPE_NOTES`.
+
+### 2026-02-27_22.43.10 priority4 ingredient options wiring path
+
+Source: `docs/understandings/2026-02-27_22.43.10-priority4-ingredient-options-wiring-path.md`
+Summary: Priority-4 discovery: ingredient parser settings must be threaded at draft-write time, not importer convert time.
+
+Details preserved:
+
+
+# Priority-4 Wiring Discovery
+
+Ingredient parser behavior is applied in `cookimport/staging/draft_v1.py` (`recipe_candidate_to_draft_v1`), not during importer `convert(...)` extraction.
+
+Implication: adding new `RunSettings` fields is not enough; the selected `run_config` must reach `write_draft_outputs(...)` so draft conversion can pass `ingredient_*` options into `parse_ingredient_line(...)`.
+
+Practical wiring points that must stay aligned:
+
+- `cookimport/cli_worker.py` stage single-file write path
+- `cookimport/cli.py` split-merge write path
+- `cookimport/labelstudio/ingest.py` processed-output write path
+
+Without this plumbing, stage and benchmark run manifests can show new parser settings while final draft ingredient lines still use parser defaults.
+
+### 2026-02-27_23.17.42 priority5 shared instruction shaping path
+
+Source: `docs/understandings/2026-02-27_23.17.42-priority5-shared-instruction-shaping-path.md`
+Summary: Priority-5 implementation note: stage draft/jsonld/sections must all consume one shared effective instruction-shaping path, wired from RunSettings through stage + pred-run flows.
+
+Details preserved:
+
+
+# Priority-5 Shared Instruction Shaping Path
+
+- `recipe_candidate_to_draft_v1(...)`, `recipe_candidate_to_jsonld(...)`, and `write_section_outputs(...)` had independent instruction handling, so Priority-5 needed one shared segmentation contract passed into all three.
+- The safest threading point is existing `run_config` propagation:
+  - stage single-file path: `cli_worker.stage_one_file(...)`
+  - stage split-merge path: `cli._merge_split_jobs(...)`
+  - benchmark/Label Studio pred-run path: `labelstudio.ingest._write_processed_outputs(...)`
+- New run-settings knobs (`instruction_step_segmentation_policy`, `instruction_step_segmenter`) must be forwarded through:
+  - `RunSettings` + `build_run_settings(...)`
+  - CLI `stage` and `labelstudio-benchmark` options
+  - `run_settings_adapters` and bench `pred_run`/knob config mapping
+  so run manifests and benchmark artifacts record the same effective segmentation behavior used by staged outputs.
+

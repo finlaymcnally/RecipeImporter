@@ -353,3 +353,12 @@ Current-contract additions:
 Known bad loops to avoid:
 - Do not treat `stage()` docstrings as the full output contract.
 - Do not keep removed-feature chronology as if it is still executable runtime behavior.
+
+## 2026-02-28 migrated understandings digest
+
+This section consolidates discoveries migrated from `docs/understandings` into this domain folder.
+
+### 2026-02-27_21.16.59 priority plan overlap parallelization map
+- Source: `docs/understandings/2026-02-27_21.16.59-priority-plan-overlap-parallelization-map.md`
+- Summary: Priority 1-8 overlap map for safe parallel implementation sequencing.
+

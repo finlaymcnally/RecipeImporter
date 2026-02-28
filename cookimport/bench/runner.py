@@ -236,6 +236,8 @@ def run_suite(
                 "eval_report_md": "eval_report.md",
                 "missed_gold_blocks_jsonl": "missed_gold_blocks.jsonl",
                 "wrong_label_blocks_jsonl": "wrong_label_blocks.jsonl",
+                "missed_gold_boundaries_jsonl": "missed_gold_boundaries.jsonl",
+                "false_positive_boundaries_jsonl": "false_positive_boundaries.jsonl",
                 "missed_gold_spans_jsonl": "missed_gold_spans.jsonl",
                 "false_positive_preds_jsonl": "false_positive_preds.jsonl",
                 "cost_estimate_json": "cost_estimate.json",

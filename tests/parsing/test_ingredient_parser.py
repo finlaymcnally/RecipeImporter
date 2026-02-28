@@ -112,6 +112,14 @@ class TestApproximate:
         assert result["quantity_kind"] == "approximate"
         assert result["input_qty"] is None
 
+    def test_pinch_moves_to_note(self):
+        """Approximate quantity tokens are repaired into note text."""
+        result = parse_ingredient_line("pinch of salt")
+        assert result["input_qty"] is None
+        assert result["quantity_kind"] == "approximate"
+        assert result["note"] is not None
+        assert "pinch" in result["note"].lower()
+
 
 class TestUnquantified:
     """Test unquantified ingredients."""
@@ -173,9 +181,70 @@ class TestComplexIngredients:
         result = parse_ingredient_line("2 chicken breasts, cubed")
         assert result["quantity_kind"] == "exact"
         assert result["input_qty"] == 2.0
-        assert result["raw_unit_text"] == "medium"  # Default for count-based
+        assert result["raw_unit_text"] is None
         assert result["raw_ingredient_text"] == "chicken breasts"
         assert result["preparation"] == "cubed"
+
+    def test_packaging_hoist_regex_mode(self):
+        """Packaging mode hoists package-size details into note."""
+        result = parse_ingredient_line(
+            "1 (14-ounce) can tomatoes",
+            ingredient_pre_normalize_mode="aggressive_v1",
+            ingredient_packaging_mode="regex_v1",
+        )
+        assert result["quantity_kind"] == "exact"
+        assert result["raw_unit_text"] == "can"
+        assert result["note"] is not None
+        assert "14-ounce" in result["note"].lower()
+
+
+class TestMissingUnitPolicies:
+    """Policy controls for missing unit handling."""
+
+    def test_policy_each(self):
+        result = parse_ingredient_line(
+            "2 onions",
+            ingredient_missing_unit_policy="each",
+        )
+        assert result["quantity_kind"] == "exact"
+        assert result["input_qty"] == 2.0
+        assert result["raw_unit_text"] == "each"
+
+    def test_policy_legacy_medium(self):
+        result = parse_ingredient_line(
+            "2 onions",
+            ingredient_missing_unit_policy="legacy_medium",
+        )
+        assert result["quantity_kind"] == "exact"
+        assert result["input_qty"] == 2.0
+        assert result["raw_unit_text"] == "medium"
+
+    def test_size_adjective_becomes_note(self):
+        result = parse_ingredient_line("2 medium onions")
+        assert result["quantity_kind"] == "exact"
+        assert result["raw_unit_text"] is None
+        assert result["note"] is not None
+        assert "medium" in result["note"].lower()
+
+
+class TestBackends:
+    """Backend options are selectable and preserve raw input."""
+
+    @pytest.mark.parametrize(
+        "backend",
+        [
+            "ingredient_parser_nlp",
+            "quantulum3_regex",
+            "hybrid_nlp_then_quantulum3",
+        ],
+    )
+    def test_backend_selection(self, backend: str):
+        result = parse_ingredient_line(
+            "1 cup flour",
+            ingredient_parser_backend=backend,
+        )
+        assert result["raw_text"] == "1 cup flour"
+        assert result["raw_ingredient_text"] is not None
 
 
 class TestOptional:

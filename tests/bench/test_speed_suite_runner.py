@@ -11,6 +11,7 @@ from cookimport.bench.speed_runner import (
     run_speed_suite,
 )
 from cookimport.bench.speed_suite import SpeedSuite, SpeedTarget
+from cookimport.config.run_settings import RunSettings
 
 
 def test_parse_speed_scenarios_validates_and_dedupes() -> None:
@@ -54,8 +55,13 @@ def test_run_speed_suite_writes_artifacts_and_excludes_warmups(
     stage_total_values = iter([100.0, 10.0, 12.0])
     benchmark_total_values = iter([200.0, 20.0, 22.0])
 
-    def _fake_stage(*, source_file: Path, sample_dir: Path) -> dict[str, object]:
-        _ = (source_file, sample_dir)
+    def _fake_stage(
+        *,
+        source_file: Path,
+        sample_dir: Path,
+        run_settings: RunSettings,
+    ) -> dict[str, object]:
+        _ = (source_file, sample_dir, run_settings)
         total = next(stage_total_values)
         return {
             "total_seconds": total,
@@ -70,9 +76,9 @@ def test_run_speed_suite_writes_artifacts_and_excludes_warmups(
         gold_spans_path: Path,
         sample_dir: Path,
         execution_mode: str,
-        sequence_matcher: str,
+        run_settings: RunSettings,
     ) -> dict[str, object]:
-        _ = (source_file, gold_spans_path, sample_dir, execution_mode, sequence_matcher)
+        _ = (source_file, gold_spans_path, sample_dir, execution_mode, run_settings)
         total = next(benchmark_total_values)
         return {
             "total_seconds": total,
@@ -101,7 +107,7 @@ def test_run_speed_suite_writes_artifacts_and_excludes_warmups(
         warmups=1,
         repeats=2,
         max_targets=1,
-        sequence_matcher="fallback",
+        run_settings=RunSettings.from_dict({}, warn_context="test speed runner"),
         progress_callback=progress_messages.append,
     )
 
@@ -124,6 +130,8 @@ def test_run_speed_suite_writes_artifacts_and_excludes_warmups(
     # Warmup values (100, 200) are excluded; medians come from repeat-only values.
     assert stage_row["median_total_seconds"] == pytest.approx(11.0)
     assert bench_row["median_total_seconds"] == pytest.approx(21.0)
+    assert summary["run_settings_hash"]
+    assert summary["sequence_matcher"] == "dmp"
 
 
 def test_run_speed_suite_all_method_multi_source_runs_once_per_phase(
@@ -168,9 +176,9 @@ def test_run_speed_suite_all_method_multi_source_runs_once_per_phase(
         *,
         targets: list[SpeedTarget],
         sample_dir: Path,
-        sequence_matcher: str,
+        run_settings: RunSettings,
     ) -> dict[str, object]:
-        _ = (sample_dir, sequence_matcher)
+        _ = (sample_dir, run_settings)
         target_counts_seen.append(len(targets))
         total = next(total_values)
         return {
@@ -191,7 +199,7 @@ def test_run_speed_suite_all_method_multi_source_runs_once_per_phase(
         warmups=1,
         repeats=2,
         max_targets=None,
-        sequence_matcher="fallback",
+        run_settings=RunSettings.from_dict({}, warn_context="test speed runner"),
         progress_callback=progress_messages.append,
     )
 

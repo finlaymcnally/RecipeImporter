@@ -33,6 +33,7 @@ from cookimport.core.progress_messages import (
 )
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
+from cookimport.core.scoring import summarize_recipe_likeness
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.parsing.tips import partition_tip_candidates
@@ -801,12 +802,15 @@ def _write_processed_outputs(
         intermediate_dir,
         output_stats=output_stats,
         schemaorg_overrides_by_recipe_id=schemaorg_overrides_by_recipe_id,
+        instruction_step_options=run_config,
     )
     write_draft_outputs(
         result,
         final_dir,
         output_stats=output_stats,
         draft_overrides_by_recipe_id=draft_overrides_by_recipe_id,
+        ingredient_parser_options=run_config,
+        instruction_step_options=run_config,
     )
     write_section_outputs(
         run_root,
@@ -814,6 +818,7 @@ def _write_processed_outputs(
         result.recipes,
         output_stats=output_stats,
         write_markdown=write_markdown,
+        instruction_step_options=run_config,
     )
     write_tip_outputs(
         result,
@@ -990,6 +995,7 @@ def _parallel_convert_worker(
     pipeline: str,
     run_mapping: Any = None,
     *,
+    run_config: dict[str, Any] | None = None,
     start_page: int | None = None,
     end_page: int | None = None,
     start_spine: int | None = None,
@@ -1011,6 +1017,11 @@ def _parallel_convert_worker(
         kwargs["start_spine"] = start_spine
         kwargs["end_spine"] = end_spine
 
+    run_settings = RunSettings.from_dict(
+        run_config,
+        warn_context="labelstudio split run config",
+    )
+    kwargs["run_settings"] = run_settings
     result = importer.convert(path, run_mapping, **kwargs)
     return importer.name, result
 
@@ -1170,6 +1181,7 @@ def _merge_parallel_results(
     merged_raw_artifacts: list[Any] = []
     warnings: list[str] = []
     block_offset = 0
+    rejected_candidate_count = 0
 
     for job in ordered_jobs:
         result = job["result"]
@@ -1186,6 +1198,18 @@ def _merge_parallel_results(
             warnings.extend(
                 f"Job {job.get('job_index')}: {error}" for error in result.report.errors
             )
+        if result.report and isinstance(result.report.recipe_likeness, dict):
+            rejected_value = result.report.recipe_likeness.get(
+                "rejectedCandidateCount"
+            )
+            if rejected_value is None:
+                counts_payload = result.report.recipe_likeness.get("counts")
+                if isinstance(counts_payload, dict):
+                    rejected_value = counts_payload.get("reject")
+            try:
+                rejected_candidate_count += max(0, int(rejected_value or 0))
+            except (TypeError, ValueError):
+                pass
 
     file_hash = compute_file_hash(path)
     sorted_recipes, _ = reassign_recipe_ids(
@@ -1196,6 +1220,22 @@ def _merge_parallel_results(
     )
     tips, _, _ = partition_tip_candidates(merged_tip_candidates)
     report = ConversionReport(warnings=warnings)
+    recipe_likeness_results = [
+        candidate.recipe_likeness
+        for candidate in sorted_recipes
+        if candidate.recipe_likeness is not None
+    ]
+    recipe_likeness_summary = summarize_recipe_likeness(
+        recipe_likeness_results,
+        rejected_candidate_count,
+    )
+    counts_payload = recipe_likeness_summary.get("counts")
+    if isinstance(counts_payload, dict):
+        counts_payload["reject"] = rejected_candidate_count
+    recipe_likeness_summary["totalCandidates"] = (
+        len(recipe_likeness_results) + rejected_candidate_count
+    )
+    report.recipe_likeness = recipe_likeness_summary
 
     return ConversionResult(
         recipes=sorted_recipes,
@@ -1233,6 +1273,33 @@ def generate_pred_run_artifacts(
     ocr_device: str = "auto",
     ocr_batch_size: int = 1,
     warm_models: bool = False,
+    section_detector_backend: str = "legacy",
+    multi_recipe_splitter: str = "legacy",
+    multi_recipe_trace: bool = False,
+    multi_recipe_min_ingredient_lines: int = 1,
+    multi_recipe_min_instruction_lines: int = 1,
+    multi_recipe_for_the_guardrail: bool = True,
+    instruction_step_segmentation_policy: str = "auto",
+    instruction_step_segmenter: str = "heuristic_v1",
+    web_schema_extractor: str = "builtin_jsonld",
+    web_schema_normalizer: str = "simple",
+    web_html_text_extractor: str = "bs4",
+    web_schema_policy: str = "prefer_schema",
+    web_schema_min_confidence: float = 0.75,
+    web_schema_min_ingredients: int = 2,
+    web_schema_min_instruction_steps: int = 1,
+    ingredient_text_fix_backend: str = "none",
+    ingredient_pre_normalize_mode: str = "legacy",
+    ingredient_packaging_mode: str = "off",
+    ingredient_parser_backend: str = "ingredient_parser_nlp",
+    ingredient_unit_canonicalizer: str = "legacy",
+    ingredient_missing_unit_policy: str = "null",
+    recipe_scorer_backend: str = "heuristic_v1",
+    recipe_score_gold_min: float = 0.75,
+    recipe_score_silver_min: float = 0.55,
+    recipe_score_bronze_min: float = 0.35,
+    recipe_score_min_ingredient_lines: int = 1,
+    recipe_score_min_instruction_lines: int = 1,
     llm_recipe_pipeline: str = "off",
     codex_farm_cmd: str = "codex-farm",
     codex_farm_root: Path | str | None = None,
@@ -1355,6 +1422,33 @@ def generate_pred_run_artifacts(
         ocr_device=ocr_device,
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,
+        section_detector_backend=section_detector_backend,
+        multi_recipe_splitter=multi_recipe_splitter,
+        multi_recipe_trace=multi_recipe_trace,
+        multi_recipe_min_ingredient_lines=multi_recipe_min_ingredient_lines,
+        multi_recipe_min_instruction_lines=multi_recipe_min_instruction_lines,
+        multi_recipe_for_the_guardrail=multi_recipe_for_the_guardrail,
+        instruction_step_segmentation_policy=instruction_step_segmentation_policy,
+        instruction_step_segmenter=instruction_step_segmenter,
+        web_schema_extractor=web_schema_extractor,
+        web_schema_normalizer=web_schema_normalizer,
+        web_html_text_extractor=web_html_text_extractor,
+        web_schema_policy=web_schema_policy,
+        web_schema_min_confidence=web_schema_min_confidence,
+        web_schema_min_ingredients=web_schema_min_ingredients,
+        web_schema_min_instruction_steps=web_schema_min_instruction_steps,
+        ingredient_text_fix_backend=ingredient_text_fix_backend,
+        ingredient_pre_normalize_mode=ingredient_pre_normalize_mode,
+        ingredient_packaging_mode=ingredient_packaging_mode,
+        ingredient_parser_backend=ingredient_parser_backend,
+        ingredient_unit_canonicalizer=ingredient_unit_canonicalizer,
+        ingredient_missing_unit_policy=ingredient_missing_unit_policy,
+        recipe_scorer_backend=recipe_scorer_backend,
+        recipe_score_gold_min=recipe_score_gold_min,
+        recipe_score_silver_min=recipe_score_silver_min,
+        recipe_score_bronze_min=recipe_score_bronze_min,
+        recipe_score_min_ingredient_lines=recipe_score_min_ingredient_lines,
+        recipe_score_min_instruction_lines=recipe_score_min_instruction_lines,
         llm_recipe_pipeline=selected_llm_recipe_pipeline,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_root=codex_farm_root,
@@ -1413,7 +1507,12 @@ def generate_pred_run_artifacts(
             epub_extractor=selected_epub_extractor,
         )
         if len(job_specs) == 1:
-            result = importer.convert(path, run_mapping, progress_callback=_notify)
+            result = importer.convert(
+                path,
+                run_mapping,
+                progress_callback=_notify,
+                run_settings=run_settings,
+            )
         else:
             split_slot_context = nullcontext()
             normalized_split_slots = _normalize_split_phase_slots(split_phase_slots)
@@ -1462,6 +1561,7 @@ def generate_pred_run_artifacts(
                         path,
                         pipeline,
                         run_mapping,
+                        run_config=run_config,
                         start_page=spec.get("start_page"),
                         end_page=spec.get("end_page"),
                         start_spine=spec.get("start_spine"),
@@ -1507,6 +1607,7 @@ def generate_pred_run_artifacts(
                                 path,
                                 pipeline,
                                 run_mapping,
+                                run_config=run_config,
                                 start_page=spec.get("start_page"),
                                 end_page=spec.get("end_page"),
                                 start_spine=spec.get("start_spine"),
@@ -2443,6 +2544,33 @@ def run_labelstudio_import(
     ocr_device: str = "auto",
     ocr_batch_size: int = 1,
     warm_models: bool = False,
+    section_detector_backend: str = "legacy",
+    multi_recipe_splitter: str = "legacy",
+    multi_recipe_trace: bool = False,
+    multi_recipe_min_ingredient_lines: int = 1,
+    multi_recipe_min_instruction_lines: int = 1,
+    multi_recipe_for_the_guardrail: bool = True,
+    instruction_step_segmentation_policy: str = "auto",
+    instruction_step_segmenter: str = "heuristic_v1",
+    web_schema_extractor: str = "builtin_jsonld",
+    web_schema_normalizer: str = "simple",
+    web_html_text_extractor: str = "bs4",
+    web_schema_policy: str = "prefer_schema",
+    web_schema_min_confidence: float = 0.75,
+    web_schema_min_ingredients: int = 2,
+    web_schema_min_instruction_steps: int = 1,
+    ingredient_text_fix_backend: str = "none",
+    ingredient_pre_normalize_mode: str = "legacy",
+    ingredient_packaging_mode: str = "off",
+    ingredient_parser_backend: str = "ingredient_parser_nlp",
+    ingredient_unit_canonicalizer: str = "legacy",
+    ingredient_missing_unit_policy: str = "null",
+    recipe_scorer_backend: str = "heuristic_v1",
+    recipe_score_gold_min: float = 0.75,
+    recipe_score_silver_min: float = 0.55,
+    recipe_score_bronze_min: float = 0.35,
+    recipe_score_min_ingredient_lines: int = 1,
+    recipe_score_min_instruction_lines: int = 1,
     llm_recipe_pipeline: str = "off",
     codex_farm_cmd: str = "codex-farm",
     codex_farm_root: Path | str | None = None,
@@ -2504,6 +2632,33 @@ def run_labelstudio_import(
         ocr_device=ocr_device,
         ocr_batch_size=ocr_batch_size,
         warm_models=warm_models,
+        section_detector_backend=section_detector_backend,
+        multi_recipe_splitter=multi_recipe_splitter,
+        multi_recipe_trace=multi_recipe_trace,
+        multi_recipe_min_ingredient_lines=multi_recipe_min_ingredient_lines,
+        multi_recipe_min_instruction_lines=multi_recipe_min_instruction_lines,
+        multi_recipe_for_the_guardrail=multi_recipe_for_the_guardrail,
+        instruction_step_segmentation_policy=instruction_step_segmentation_policy,
+        instruction_step_segmenter=instruction_step_segmenter,
+        web_schema_extractor=web_schema_extractor,
+        web_schema_normalizer=web_schema_normalizer,
+        web_html_text_extractor=web_html_text_extractor,
+        web_schema_policy=web_schema_policy,
+        web_schema_min_confidence=web_schema_min_confidence,
+        web_schema_min_ingredients=web_schema_min_ingredients,
+        web_schema_min_instruction_steps=web_schema_min_instruction_steps,
+        ingredient_text_fix_backend=ingredient_text_fix_backend,
+        ingredient_pre_normalize_mode=ingredient_pre_normalize_mode,
+        ingredient_packaging_mode=ingredient_packaging_mode,
+        ingredient_parser_backend=ingredient_parser_backend,
+        ingredient_unit_canonicalizer=ingredient_unit_canonicalizer,
+        ingredient_missing_unit_policy=ingredient_missing_unit_policy,
+        recipe_scorer_backend=recipe_scorer_backend,
+        recipe_score_gold_min=recipe_score_gold_min,
+        recipe_score_silver_min=recipe_score_silver_min,
+        recipe_score_bronze_min=recipe_score_bronze_min,
+        recipe_score_min_ingredient_lines=recipe_score_min_ingredient_lines,
+        recipe_score_min_instruction_lines=recipe_score_min_instruction_lines,
         llm_recipe_pipeline=llm_recipe_pipeline,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_root=codex_farm_root,

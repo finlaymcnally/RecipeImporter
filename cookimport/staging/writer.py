@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from cookimport import __version__
 from cookimport.core.models import (
@@ -23,6 +23,11 @@ from cookimport.core.models import (
 )
 from cookimport.parsing.tables import ExtractedTable
 from cookimport.parsing.sections import extract_ingredient_sections, extract_instruction_sections
+from cookimport.parsing.step_segmentation import (
+    DEFAULT_INSTRUCTION_STEP_SEGMENTATION_POLICY,
+    DEFAULT_INSTRUCTION_STEP_SEGMENTER,
+    segment_instruction_steps,
+)
 from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
 from cookimport.staging.jsonld import recipe_candidate_to_jsonld
 from cookimport.staging.stage_block_predictions import build_stage_block_predictions
@@ -304,6 +309,7 @@ def write_intermediate_outputs(
     *,
     output_stats: OutputStats | None = None,
     schemaorg_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
+    instruction_step_options: Mapping[str, Any] | None = None,
 ) -> None:
     """Write intermediate schema.org Recipe JSON outputs.
 
@@ -329,7 +335,10 @@ def write_intermediate_outputs(
         elif hasattr(override_payload, "model_dump"):
             jsonld = override_payload.model_dump(mode="json", by_alias=True, exclude_none=True)
         else:
-            jsonld = recipe_candidate_to_jsonld(candidate)
+            jsonld = recipe_candidate_to_jsonld(
+                candidate,
+                instruction_step_options=instruction_step_options,
+            )
 
         out_path = out_dir / f"r{index}.jsonld"
         _write_json_payload(
@@ -346,6 +355,8 @@ def write_draft_outputs(
     *,
     output_stats: OutputStats | None = None,
     draft_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
+    ingredient_parser_options: Mapping[str, Any] | None = None,
+    instruction_step_options: Mapping[str, Any] | None = None,
 ) -> None:
     """Write cookbook3 outputs (internal model name: RecipeDraftV1).
 
@@ -368,7 +379,11 @@ def write_draft_outputs(
         elif hasattr(override_payload, "model_dump"):
             draft = override_payload.model_dump(mode="json", by_alias=True, exclude_none=True)
         else:
-            draft = recipe_candidate_to_draft_v1(candidate)
+            draft = recipe_candidate_to_draft_v1(
+                candidate,
+                ingredient_parser_options=ingredient_parser_options,
+                instruction_step_options=instruction_step_options,
+            )
         out_path = out_dir / f"r{index}.json"
         _write_json_payload(
             draft,
@@ -381,6 +396,45 @@ def write_draft_outputs(
 def _coerce_instruction_text(value: Any) -> str:
     text = getattr(value, "text", value)
     return str(text).strip()
+
+
+def _resolve_instruction_step_segmentation_options(
+    options: Mapping[str, Any] | None,
+) -> tuple[str, str]:
+    if not isinstance(options, Mapping):
+        return (
+            DEFAULT_INSTRUCTION_STEP_SEGMENTATION_POLICY,
+            DEFAULT_INSTRUCTION_STEP_SEGMENTER,
+        )
+    policy = str(
+        options.get(
+            "instruction_step_segmentation_policy",
+            DEFAULT_INSTRUCTION_STEP_SEGMENTATION_POLICY,
+        )
+    ).strip().lower().replace("-", "_")
+    segmenter = str(
+        options.get(
+            "instruction_step_segmenter",
+            DEFAULT_INSTRUCTION_STEP_SEGMENTER,
+        )
+    ).strip().lower().replace("-", "_")
+    return (policy, segmenter)
+
+
+def _effective_instruction_texts(
+    candidate: RecipeCandidate,
+    *,
+    instruction_step_options: Mapping[str, Any] | None,
+) -> list[str]:
+    instruction_texts = [_coerce_instruction_text(item) for item in candidate.instructions]
+    policy, segmenter = _resolve_instruction_step_segmentation_options(
+        instruction_step_options
+    )
+    return segment_instruction_steps(
+        instruction_texts,
+        policy=policy,
+        backend=segmenter,
+    )
 
 
 def _section_display_name(key: str, *display_maps: dict[str, str]) -> str:
@@ -398,6 +452,7 @@ def write_section_outputs(
     *,
     output_stats: OutputStats | None = None,
     write_markdown: bool = True,
+    instruction_step_options: Mapping[str, Any] | None = None,
 ) -> None:
     """Write grouped ingredient/step section artifacts per recipe."""
     sections_dir = out_dir / "sections" / workbook_slug
@@ -412,7 +467,10 @@ def write_section_outputs(
 
     for index, candidate in enumerate(candidates):
         ingredient_sections = extract_ingredient_sections(candidate.ingredients)
-        instruction_texts = [_coerce_instruction_text(item) for item in candidate.instructions]
+        instruction_texts = _effective_instruction_texts(
+            candidate,
+            instruction_step_options=instruction_step_options,
+        )
         instruction_sections = extract_instruction_sections(instruction_texts)
 
         ingredient_by_key: dict[str, list[str]] = {}

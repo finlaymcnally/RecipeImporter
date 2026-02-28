@@ -13,6 +13,11 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from cookimport.bench.speed_suite import SpeedSuite, SpeedTarget, resolve_repo_path
+from cookimport.config.run_settings import RunSettings
+from cookimport.config.run_settings_adapters import (
+    build_benchmark_call_kwargs_from_run_settings,
+    build_stage_call_kwargs_from_run_settings,
+)
 from cookimport.core.progress_messages import format_task_counter
 from cookimport.paths import REPO_ROOT
 from cookimport.runs import RunManifest, RunSource, write_run_manifest
@@ -40,7 +45,7 @@ def run_speed_suite(
     warmups: int,
     repeats: int,
     max_targets: int | None = None,
-    sequence_matcher: str = "fallback",
+    run_settings: RunSettings,
     progress_callback: ProgressCallback | None = None,
 ) -> Path:
     if warmups < 0:
@@ -143,6 +148,7 @@ def run_speed_suite(
                 metrics = _run_stage_import_sample(
                     source_file=target_source,
                     sample_dir=sample_dir,
+                    run_settings=run_settings,
                 )
             elif scenario == SpeedScenario.BENCHMARK_CANONICAL_LEGACY:
                 if target_source is None or target_gold is None:
@@ -154,7 +160,7 @@ def run_speed_suite(
                     gold_spans_path=target_gold,
                     sample_dir=sample_dir,
                     execution_mode="legacy",
-                    sequence_matcher=sequence_matcher,
+                    run_settings=run_settings,
                 )
             elif scenario == SpeedScenario.BENCHMARK_CANONICAL_PIPELINED:
                 if target_source is None or target_gold is None:
@@ -166,13 +172,13 @@ def run_speed_suite(
                     gold_spans_path=target_gold,
                     sample_dir=sample_dir,
                     execution_mode="pipelined",
-                    sequence_matcher=sequence_matcher,
+                    run_settings=run_settings,
                 )
             elif scenario == SpeedScenario.BENCHMARK_ALL_METHOD_MULTI_SOURCE:
                 metrics = _run_all_method_multi_source_sample(
                     targets=selected_targets,
                     sample_dir=sample_dir,
-                    sequence_matcher=sequence_matcher,
+                    run_settings=run_settings,
                 )
             else:
                 raise ValueError(f"Unsupported speed scenario: {scenario}")
@@ -202,7 +208,7 @@ def run_speed_suite(
         warmups=warmups,
         repeats=repeats,
         run_timestamp=run_timestamp,
-        sequence_matcher=sequence_matcher,
+        run_settings=run_settings,
         sample_rows=sample_rows,
     )
     (run_root / "summary.json").write_text(
@@ -224,7 +230,10 @@ def run_speed_suite(
             "repeats": int(repeats),
             "max_targets": max_targets,
             "scenarios": [scenario.value for scenario in scenarios],
-            "sequence_matcher": sequence_matcher,
+            "sequence_matcher": run_settings.benchmark_sequence_matcher,
+            "run_settings": run_settings.to_run_config_dict(),
+            "run_settings_summary": run_settings.summary(),
+            "run_settings_hash": run_settings.stable_hash(),
         },
         artifacts={
             "suite_resolved_json": "suite_resolved.json",
@@ -282,19 +291,28 @@ def _iter_sample_phases(*, warmups: int, repeats: int) -> Iterable[tuple[str, in
         yield ("repeat", index)
 
 
-def _run_stage_import_sample(*, source_file: Path, sample_dir: Path) -> dict[str, Any]:
+def _run_stage_import_sample(
+    *,
+    source_file: Path,
+    sample_dir: Path,
+    run_settings: RunSettings,
+) -> dict[str, Any]:
     import cookimport.cli as cli
 
     stage_output_root = sample_dir / "stage_output"
     stage_output_root.mkdir(parents=True, exist_ok=True)
+    stage_kwargs = build_stage_call_kwargs_from_run_settings(
+        run_settings,
+        out=stage_output_root,
+        mapping=None,
+        overrides=None,
+        limit=None,
+        write_markdown=False,
+    )
     with _suppress_cli_output():
         stage_run_root = cli.stage(
             path=source_file,
-            out=stage_output_root,
-            llm_recipe_pipeline="off",
-            llm_knowledge_pipeline="off",
-            llm_tags_pipeline="off",
-            write_markdown=False,
+            **stage_kwargs,
         )
     report_path = _select_stage_report_path(stage_run_root)
     report_payload = _load_json_dict(report_path) if report_path is not None else {}
@@ -316,7 +334,7 @@ def _run_benchmark_sample(
     gold_spans_path: Path,
     sample_dir: Path,
     execution_mode: str,
-    sequence_matcher: str,
+    run_settings: RunSettings,
 ) -> dict[str, Any]:
     import cookimport.cli as cli
 
@@ -326,6 +344,17 @@ def _run_benchmark_sample(
     prediction_output_dir.mkdir(parents=True, exist_ok=True)
     processed_output_dir.mkdir(parents=True, exist_ok=True)
     eval_output_dir.mkdir(parents=True, exist_ok=True)
+    benchmark_kwargs = build_benchmark_call_kwargs_from_run_settings(
+        run_settings,
+        output_dir=prediction_output_dir,
+        processed_output_dir=processed_output_dir,
+        eval_output_dir=eval_output_dir,
+        eval_mode="canonical-text",
+        execution_mode=execution_mode,
+        no_upload=True,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+    )
 
     with _suppress_cli_output():
         with cli._benchmark_progress_overrides(
@@ -336,17 +365,7 @@ def _run_benchmark_sample(
             cli.labelstudio_benchmark(
                 gold_spans=gold_spans_path,
                 source_file=source_file,
-                output_dir=prediction_output_dir,
-                processed_output_dir=processed_output_dir,
-                eval_output_dir=eval_output_dir,
-                eval_mode="canonical-text",
-                execution_mode=execution_mode,
-                sequence_matcher=sequence_matcher,
-                no_upload=True,
-                allow_labelstudio_write=False,
-                write_markdown=False,
-                write_label_studio_tasks=False,
-                llm_recipe_pipeline="off",
+                **benchmark_kwargs,
             )
 
     eval_report_path = eval_output_dir / "eval_report.json"
@@ -370,7 +389,7 @@ def _run_all_method_multi_source_sample(
     *,
     targets: list[SpeedTarget],
     sample_dir: Path,
-    sequence_matcher: str,
+    run_settings: RunSettings,
 ) -> dict[str, Any]:
     import cookimport.cli as cli
 
@@ -390,13 +409,6 @@ def _run_all_method_multi_source_sample(
             )
         )
 
-    run_settings = cli.RunSettings.from_dict(
-        {
-            "benchmark_sequence_matcher": sequence_matcher,
-            "llm_recipe_pipeline": "off",
-        },
-        warn_context="speed suite all-method scenario",
-    )
     target_variants = cli._build_all_method_target_variants(
         targets=resolved_targets,
         base_settings=run_settings,
@@ -426,6 +438,7 @@ def _run_all_method_multi_source_sample(
                 processed_output_root=all_method_processed_root,
                 overlap_threshold=0.5,
                 force_source_match=False,
+                scheduler_scope=cli.ALL_METHOD_SCHEDULER_SCOPE_GLOBAL,
             )
 
     report_json_path = report_md_path.with_suffix(".json")
@@ -479,7 +492,7 @@ def _build_summary_payload(
     warmups: int,
     repeats: int,
     run_timestamp: str,
-    sequence_matcher: str,
+    run_settings: RunSettings,
     sample_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
     repeat_rows = [row for row in sample_rows if row.get("phase") == "repeat"]
@@ -540,6 +553,7 @@ def _build_summary_payload(
             }
         )
 
+    run_settings_payload = run_settings.to_run_config_dict()
     return {
         "schema_version": 1,
         "run_timestamp": run_timestamp,
@@ -551,7 +565,10 @@ def _build_summary_payload(
         "scenarios": [scenario.value for scenario in scenarios],
         "warmups": int(warmups),
         "repeats": int(repeats),
-        "sequence_matcher": sequence_matcher,
+        "sequence_matcher": run_settings.benchmark_sequence_matcher,
+        "run_settings": run_settings_payload,
+        "run_settings_summary": run_settings.summary(),
+        "run_settings_hash": run_settings.stable_hash(),
         "sample_count": len(sample_rows),
         "summary_rows": summary_rows,
         "scenario_rollups": scenario_rollups,
@@ -568,6 +585,8 @@ def _format_speed_run_report(summary_payload: dict[str, Any]) -> str:
         f"- Targets: {summary_payload.get('target_count_selected')}",
         f"- Warmups: {summary_payload.get('warmups')}",
         f"- Repeats: {summary_payload.get('repeats')}",
+        f"- Sequence matcher: {summary_payload.get('sequence_matcher')}",
+        f"- Run settings hash: {summary_payload.get('run_settings_hash')}",
         "",
         "## Scenario Rollups",
         "",

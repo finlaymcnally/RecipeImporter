@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from cookimport.core.models import HowToStep, RecipeCandidate
 from cookimport.parsing.sections import (
     extract_ingredient_sections,
     extract_instruction_sections,
+)
+from cookimport.parsing.step_segmentation import (
+    DEFAULT_INSTRUCTION_STEP_SEGMENTATION_POLICY,
+    DEFAULT_INSTRUCTION_STEP_SEGMENTER,
+    segment_instruction_steps,
+    should_fallback_segment,
 )
 
 
@@ -22,25 +28,39 @@ def _section_display_name(key: str, displays: dict[str, str]) -> str:
     return key.replace("_", " ").strip().title() or "Main"
 
 
-def _build_recipe_instructions(candidate: RecipeCandidate) -> list[object]:
-    if not candidate.instructions:
-        return []
+def _resolve_instruction_step_segmentation_options(
+    options: Mapping[str, Any] | None,
+) -> tuple[str, str]:
+    if not isinstance(options, Mapping):
+        return (
+            DEFAULT_INSTRUCTION_STEP_SEGMENTATION_POLICY,
+            DEFAULT_INSTRUCTION_STEP_SEGMENTER,
+        )
 
-    raw_items = list(candidate.instructions)
-    raw_texts = [item.text if isinstance(item, HowToStep) else str(item) for item in raw_items]
-    sectioned = extract_instruction_sections(raw_texts)
-    header_indices = {hit.original_index for hit in sectioned.header_hits}
+    policy = str(
+        options.get(
+            "instruction_step_segmentation_policy",
+            DEFAULT_INSTRUCTION_STEP_SEGMENTATION_POLICY,
+        )
+    ).strip().lower().replace("-", "_")
+    segmenter = str(
+        options.get(
+            "instruction_step_segmenter",
+            DEFAULT_INSTRUCTION_STEP_SEGMENTER,
+        )
+    ).strip().lower().replace("-", "_")
+    return (policy, segmenter)
 
-    serialized_steps: list[dict[str, Any]] = []
-    for index, item in enumerate(raw_items):
-        if index in header_indices:
-            continue
-        serialized_steps.append(_serialize_instruction_item(item))
 
+def _group_instruction_steps(
+    serialized_steps: list[dict[str, Any]],
+    *,
+    section_keys: list[str],
+    section_display_by_key: dict[str, str],
+) -> list[object]:
     if not serialized_steps:
         return []
 
-    section_keys = sectioned.section_key_by_line
     if len(section_keys) != len(serialized_steps):
         return serialized_steps
 
@@ -62,7 +82,7 @@ def _build_recipe_instructions(candidate: RecipeCandidate) -> list[object]:
                 grouped.append(
                     {
                         "@type": "HowToSection",
-                        "name": _section_display_name(current_key, sectioned.section_display_by_key),
+                        "name": _section_display_name(current_key, section_display_by_key),
                         "itemListElement": current_steps,
                     }
                 )
@@ -75,12 +95,64 @@ def _build_recipe_instructions(candidate: RecipeCandidate) -> list[object]:
         grouped.append(
             {
                 "@type": "HowToSection",
-                "name": _section_display_name(current_key, sectioned.section_display_by_key),
+                "name": _section_display_name(current_key, section_display_by_key),
                 "itemListElement": current_steps,
             }
         )
 
     return grouped
+
+
+def _build_recipe_instructions(
+    candidate: RecipeCandidate,
+    *,
+    instruction_step_options: Mapping[str, Any] | None = None,
+) -> list[object]:
+    if not candidate.instructions:
+        return []
+
+    raw_items = list(candidate.instructions)
+    raw_texts = [item.text if isinstance(item, HowToStep) else str(item) for item in raw_items]
+    segmentation_policy, segmentation_backend = _resolve_instruction_step_segmentation_options(
+        instruction_step_options
+    )
+    should_segment = (
+        segmentation_policy == "always"
+        or (
+            segmentation_policy == "auto"
+            and should_fallback_segment(raw_texts)
+        )
+    )
+
+    if should_segment:
+        segmented_texts = segment_instruction_steps(
+            raw_texts,
+            policy=segmentation_policy,
+            backend=segmentation_backend,
+        )
+        sectioned = extract_instruction_sections(segmented_texts)
+        serialized_steps = [
+            _serialize_instruction_item(text)
+            for text in sectioned.lines_no_headers
+        ]
+        return _group_instruction_steps(
+            serialized_steps,
+            section_keys=sectioned.section_key_by_line,
+            section_display_by_key=sectioned.section_display_by_key,
+        )
+
+    sectioned = extract_instruction_sections(raw_texts)
+    header_indices = {hit.original_index for hit in sectioned.header_hits}
+    serialized_steps = [
+        _serialize_instruction_item(item)
+        for index, item in enumerate(raw_items)
+        if index not in header_indices
+    ]
+    return _group_instruction_steps(
+        serialized_steps,
+        section_keys=sectioned.section_key_by_line,
+        section_display_by_key=sectioned.section_display_by_key,
+    )
 
 
 def _build_ingredient_sections(candidate: RecipeCandidate) -> list[dict[str, Any]]:
@@ -116,7 +188,11 @@ def _build_ingredient_sections(candidate: RecipeCandidate) -> list[dict[str, Any
     return payload
 
 
-def recipe_candidate_to_jsonld(candidate: RecipeCandidate) -> dict[str, Any]:
+def recipe_candidate_to_jsonld(
+    candidate: RecipeCandidate,
+    *,
+    instruction_step_options: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Convert a RecipeCandidate into schema.org Recipe JSON (+ recipeimport metadata)."""
     payload: dict[str, Any] = {
         "@context": ["https://schema.org", {"recipeimport": "https://recipeimport.local/ns#"}],
@@ -139,7 +215,10 @@ def recipe_candidate_to_jsonld(candidate: RecipeCandidate) -> dict[str, Any]:
     if candidate.ingredients:
         payload["recipeIngredient"] = candidate.ingredients
 
-    instructions_payload = _build_recipe_instructions(candidate)
+    instructions_payload = _build_recipe_instructions(
+        candidate,
+        instruction_step_options=instruction_step_options,
+    )
     if instructions_payload:
         payload["recipeInstructions"] = instructions_payload
 

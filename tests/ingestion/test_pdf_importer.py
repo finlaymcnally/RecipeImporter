@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 import time
 from pathlib import Path
+from cookimport.config.run_settings import RunSettings
 from cookimport.core.blocks import Block
 from cookimport.core.models import RecipeCandidate
 from cookimport.parsing.atoms import Atom
@@ -43,6 +44,8 @@ def test_convert_pdf():
     recipe = result.recipes[0]
 
     assert recipe.name == "PDF Pancakes"
+    assert recipe.recipe_likeness is not None
+    assert recipe.confidence == recipe.recipe_likeness.score
     assert "1 cup flour" in recipe.ingredients
     assert "Mix it all." in recipe.instructions
 
@@ -106,6 +109,99 @@ def test_convert_pdf_emits_post_candidate_progress(monkeypatch, tmp_path: Path) 
     assert "Analyzing standalone knowledge blocks..." in progress_messages
     assert "Finalizing PDF extraction results..." in progress_messages
     assert progress_messages[-1] == "PDF conversion complete."
+
+
+def test_convert_pdf_applies_multi_recipe_splitter_postprocessing(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.pdf"
+    source.write_bytes(b"%PDF-1.4 dummy")
+    importer = PdfImporter()
+    blocks = [
+        Block(text="Recipe One", page=0),
+        Block(text="Ingredients", page=0),
+        Block(text="1 cup flour", page=0),
+        Block(text="Instructions", page=0),
+        Block(text="Bake.", page=0),
+        Block(text="Recipe Two", page=0),
+        Block(text="Ingredients", page=0),
+        Block(text="2 eggs", page=0),
+        Block(text="Instructions", page=0),
+        Block(text="Whisk.", page=0),
+    ]
+    for block in blocks:
+        signals.enrich_block(block)
+
+    monkeypatch.setattr(importer, "_extract_blocks_from_page", lambda _page, _abs_page: list(blocks))
+    monkeypatch.setattr(importer, "_needs_ocr", lambda _doc: False)
+    monkeypatch.setattr(importer, "_detect_candidates", lambda _blocks: [(0, len(blocks), 0.9)])
+    monkeypatch.setattr(
+        importer,
+        "_apply_multi_recipe_splitter",
+        lambda _blocks, _candidates, run_settings=None: (
+            [(0, 5, 0.9), (5, len(blocks), 0.9)],
+            [
+                {
+                    "backend": "rules_v1",
+                    "split_parent": "c0",
+                    "split_index": 0,
+                    "split_count": 2,
+                    "split_reason": ["title_like_boundary"],
+                },
+                {
+                    "backend": "rules_v1",
+                    "split_parent": "c0",
+                    "split_index": 1,
+                    "split_count": 2,
+                    "split_reason": ["title_like_boundary"],
+                },
+            ],
+            {"backend": "rules_v1", "candidates": []},
+        ),
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_fields",
+        lambda candidate_blocks: RecipeCandidate(
+            name=str(candidate_blocks[0].text),
+            ingredients=["1 item"],
+            instructions=["1 step"],
+        ),
+    )
+    monkeypatch.setattr(importer, "_extract_standalone_tips", lambda *_args, **_kwargs: ([], [], 0, 0))
+
+    class _FakeDoc:
+        def __init__(self) -> None:
+            self._closed = False
+
+        def __len__(self) -> int:
+            return 1
+
+        def __getitem__(self, _index: int) -> object:
+            return object()
+
+        def close(self) -> None:
+            self._closed = True
+
+    monkeypatch.setattr("cookimport.plugins.pdf.fitz.open", lambda _path: _FakeDoc())
+
+    result = importer.convert(
+        source,
+        None,
+        run_settings=RunSettings(
+            multi_recipe_splitter="rules_v1",
+            multi_recipe_trace=True,
+        ),
+    )
+
+    assert len(result.recipes) == 2
+    assert result.recipes[0].provenance["multi_recipe"]["split_index"] == 0
+    assert result.recipes[1].provenance["multi_recipe"]["split_index"] == 1
+    assert any(
+        artifact.location_id == "multi_recipe_split_trace"
+        for artifact in result.raw_artifacts
+    )
 
 
 def test_inspect_scanned_pdf():
@@ -225,3 +321,26 @@ def test_extract_standalone_tips_parallel_progress_and_order(monkeypatch, tmp_pa
         "Analyzing standalone knowledge blocks... task 2/2" in msg
         for msg in progress_messages
     )
+
+
+def test_extract_fields_shared_backend_preserves_for_the_component_headers() -> None:
+    importer = PdfImporter()
+    importer._section_detector_backend = "shared_v1"
+    importer._overrides = None
+    blocks = [
+        Block(text="Skillet Pie", font_weight="bold"),
+        Block(text="Ingredients"),
+        Block(text="For the filling"),
+        Block(text="2 apples"),
+        Block(text="Instructions"),
+        Block(text="For the filling"),
+        Block(text="Cook apples until soft."),
+    ]
+    for block in blocks:
+        signals.enrich_block(block)
+
+    candidate = importer._extract_fields(blocks)
+
+    assert candidate.name == "Skillet Pie"
+    assert candidate.ingredients[:2] == ["For the filling", "2 apples"]
+    assert candidate.instructions[:2] == ["For the filling", "Cook apples until soft."]

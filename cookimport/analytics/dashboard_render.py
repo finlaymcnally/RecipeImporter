@@ -1780,8 +1780,8 @@ _HTML = """\
     </details>
     <div class="diagnostics-grid">
       <section id="per-label-section" class="diagnostic-card">
-        <h2>Per-Label Breakdown (Latest Benchmark)</h2>
-        <p class="section-note">Per label: precision answers false alarms, recall answers misses.</p>
+        <h2>Per-Label Breakdown (Latest Benchmark Run)</h2>
+        <p class="section-note">Per label: precision answers false alarms, recall answers misses. Values aggregate all benchmark records with the latest run timestamp.</p>
         <table id="per-label-table"><thead><tr>
           <th title="The label name being scored (for example RECIPE_TITLE).">Label</th>
           <th title="Of predicted spans for this label, fraction that matched gold (strict scoring).">Precision</th>
@@ -3487,24 +3487,112 @@ _JS = """\
       return;
     }
     const sorted = [...records].sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
-    const latest = sorted.find(r => r.per_label && r.per_label.length > 0);
-    if (!latest) {
+    const ALL_METHOD_SEGMENT = "/all-method-benchmark/";
+    const latestAllMethodRecords = sorted.filter(r =>
+      String(r.artifact_dir || "").includes(ALL_METHOD_SEGMENT) &&
+      r.per_label &&
+      r.per_label.length > 0
+    );
+    const candidateRecords = latestAllMethodRecords.length > 0
+      ? latestAllMethodRecords
+      : sorted.filter(r => r.per_label && r.per_label.length > 0);
+    const latestWithPerLabel = candidateRecords.length ? candidateRecords[0] : null;
+    if (!latestWithPerLabel) {
       section.innerHTML = '<h2>Per-Label Breakdown</h2><p class="empty-note">No per-label metrics available in benchmark records.</p>';
       return;
     }
-    section.querySelector("h2").textContent = "Per-Label Breakdown (" + esc(latest.run_timestamp || "latest") + ")";
+    const latestRunTimestamp = String(latestWithPerLabel.run_timestamp || "");
+    const latestRunRecords = candidateRecords.filter(r =>
+      String(r.run_timestamp || "") === latestRunTimestamp &&
+      r.per_label &&
+      r.per_label.length > 0
+    );
+    if (!latestRunRecords.length) {
+      section.innerHTML = '<h2>Per-Label Breakdown</h2><p class="empty-note">No per-label metrics available in latest benchmark records.</p>';
+      return;
+    }
+    section.querySelector("h2").textContent =
+      "Per-Label Breakdown (" + esc(latestRunTimestamp || "latest") + ", " + latestRunRecords.length + " evals)";
     const tbody = document.querySelector("#per-label-table tbody");
     tbody.innerHTML = "";
-    latest.per_label.forEach(lbl => {
-      const f1 = (lbl.precision != null && lbl.recall != null && (lbl.precision + lbl.recall) > 0)
-        ? (2 * lbl.precision * lbl.recall / (lbl.precision + lbl.recall)) : null;
+    const byLabel = Object.create(null);
+    latestRunRecords.forEach(record => {
+      const labels = Array.isArray(record.per_label) ? record.per_label : [];
+      labels.forEach(lbl => {
+        const label = String(lbl.label || "").trim();
+        if (!label) return;
+        if (!byLabel[label]) {
+          byLabel[label] = {
+            label,
+            gold_total: 0,
+            pred_total: 0,
+            tp_from_recall: 0,
+            tp_from_precision: 0,
+            has_gold: false,
+            has_pred: false,
+          };
+        }
+        const agg = byLabel[label];
+        const goldTotal = lbl.gold_total != null ? Number(lbl.gold_total) : null;
+        const predTotal = lbl.pred_total != null ? Number(lbl.pred_total) : null;
+        const recall = lbl.recall != null ? Number(lbl.recall) : null;
+        const precision = lbl.precision != null ? Number(lbl.precision) : null;
+
+        if (goldTotal != null && Number.isFinite(goldTotal)) {
+          agg.gold_total += goldTotal;
+          agg.has_gold = true;
+          if (recall != null && Number.isFinite(recall)) {
+            agg.tp_from_recall += recall * goldTotal;
+          }
+        }
+        if (predTotal != null && Number.isFinite(predTotal)) {
+          agg.pred_total += predTotal;
+          agg.has_pred = true;
+          if (precision != null && Number.isFinite(precision)) {
+            agg.tp_from_precision += precision * predTotal;
+          }
+        }
+      });
+    });
+
+    const rows = Object.values(byLabel)
+      .map(agg => {
+        const goldTotal = agg.has_gold ? agg.gold_total : null;
+        const predTotal = agg.has_pred ? agg.pred_total : null;
+        let tp = null;
+        if (agg.has_gold && agg.has_pred) {
+          tp = (agg.tp_from_recall + agg.tp_from_precision) / 2;
+        } else if (agg.has_gold) {
+          tp = agg.tp_from_recall;
+        } else if (agg.has_pred) {
+          tp = agg.tp_from_precision;
+        }
+        let precision = null;
+        if (predTotal != null) {
+          precision = predTotal > 0 && tp != null ? (tp / predTotal) : 0;
+        }
+        let recall = null;
+        if (goldTotal != null) {
+          recall = goldTotal > 0 && tp != null ? (tp / goldTotal) : 0;
+        }
+        return {
+          label: agg.label,
+          precision,
+          recall,
+          gold_total: goldTotal,
+          pred_total: predTotal,
+        };
+      })
+      .sort((a, b) => String(a.label).localeCompare(String(b.label)));
+
+    rows.forEach(lbl => {
       const tr = document.createElement("tr");
       tr.innerHTML =
         '<td>' + esc(lbl.label) + '</td>' +
         '<td class="num">' + fmt4(lbl.precision) + '</td>' +
         '<td class="num">' + fmt4(lbl.recall) + '</td>' +
-        '<td class="num">' + (lbl.gold_total != null ? lbl.gold_total : "-") + '</td>' +
-        '<td class="num">' + (lbl.pred_total != null ? lbl.pred_total : "-") + '</td>';
+        '<td class="num">' + (lbl.gold_total != null ? Math.round(lbl.gold_total) : "-") + '</td>' +
+        '<td class="num">' + (lbl.pred_total != null ? Math.round(lbl.pred_total) : "-") + '</td>';
       tbody.appendChild(tr);
     });
   }
